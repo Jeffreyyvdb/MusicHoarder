@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.IO.Abstractions;
 using MusicHoarder.Api.Persistence;
 
@@ -7,136 +5,16 @@ namespace MusicHoarder.Api.Scanner;
 
 public interface IFileScanner
 {
-    Task<List<SongMetadata>> ScanFilesAsync(
-        string directoryPath,
-        CancellationToken ct = default);
-
-    Task<List<SongMetadata>> ScanSpecificFilesAsync(
-        List<string> filePaths,
-        CancellationToken ct = default);
+    /// <summary>Reads tags and runs fpcalc for a single file. Returns null on unrecoverable error.</summary>
+    Task<SongMetadata?> ScanFileAsync(string filePath, CancellationToken ct = default);
 }
 
 public class FileScanner(
     IFileSystem fileSystem,
+    IFpcalcService fpcalcService,
     ILogger<FileScanner> logger) : IFileScanner
 {
-    private static readonly HashSet<string> SupportedExtensions =
-    [
-        ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".wav", ".wma", ".opus", ".aiff"
-    ];
-
-    public async Task<List<SongMetadata>> ScanFilesAsync(
-        string directoryPath,
-        CancellationToken ct = default)
-    {
-        var files = fileSystem.Directory.EnumerateFiles(directoryPath, "*", new EnumerationOptions
-            {
-                IgnoreInaccessible = true,
-                RecurseSubdirectories = true
-            })
-            .Where(f => SupportedExtensions.Contains(
-                fileSystem.Path.GetExtension(f).ToLowerInvariant()));
-
-        var results = new ConcurrentBag<SongMetadata>();
-
-        var scanned = 0;
-        var extracted = 0;
-        var startTime = Stopwatch.GetTimestamp();
-
-        // Rolling window: track count and time at last log point
-        var lastLoggedScanned = 0;
-        var lastLoggedTime = Stopwatch.GetTimestamp();
-
-        await Parallel.ForEachAsync(files, new ParallelOptions()
-        {
-            MaxDegreeOfParallelism = Environment.ProcessorCount,
-            CancellationToken = ct
-        }, (filePath, tokena) =>
-        {
-            var metadata = TryExtractMetadata(filePath);
-            var currentScanned = Interlocked.Increment(ref scanned);
-
-            if (metadata is not null)
-            {
-                results.Add(metadata);
-                Interlocked.Increment(ref extracted);
-            }
-
-
-            // Log every 10 files to avoid log spam
-            if (currentScanned % 10 != 0) return ValueTask.CompletedTask;
-
-            var now = Stopwatch.GetTimestamp();
-
-            // Files processed since last log
-            var filesInWindow = currentScanned - lastLoggedScanned;
-            var secondsInWindow = Stopwatch.GetElapsedTime(lastLoggedTime, now).TotalSeconds;
-            var perSecond = filesInWindow / secondsInWindow;
-
-            // Update last log point
-            lastLoggedScanned = currentScanned;
-            lastLoggedTime = now;
-
-            logger.LogInformation(
-                "{Extracted} songs extracted ({PerSecond:F1}/s)"
-                , extracted, perSecond);
-
-            return ValueTask.CompletedTask;
-        });
-
-        return results.ToList();
-    }
-
-    public async Task<List<SongMetadata>> ScanSpecificFilesAsync(
-        List<string> filePaths,
-        CancellationToken ct = default)
-    {
-        var results = new ConcurrentBag<SongMetadata>();
-
-        var scanned = 0;
-        var extracted = 0;
-        var startTime = Stopwatch.GetTimestamp();
-
-        var lastLoggedScanned = 0;
-        var lastLoggedTime = Stopwatch.GetTimestamp();
-
-        await Parallel.ForEachAsync(filePaths, new ParallelOptions()
-        {
-            MaxDegreeOfParallelism = Environment.ProcessorCount,
-            CancellationToken = ct
-        }, (filePath, tokena) =>
-        {
-            var metadata = TryExtractMetadata(filePath);
-            var currentScanned = Interlocked.Increment(ref scanned);
-
-            if (metadata is not null)
-            {
-                results.Add(metadata);
-                Interlocked.Increment(ref extracted);
-            }
-
-            if (currentScanned % 10 != 0) return ValueTask.CompletedTask;
-
-            var now = Stopwatch.GetTimestamp();
-
-            var filesInWindow = currentScanned - lastLoggedScanned;
-            var secondsInWindow = Stopwatch.GetElapsedTime(lastLoggedTime, now).TotalSeconds;
-            var perSecond = filesInWindow / secondsInWindow;
-
-            lastLoggedScanned = currentScanned;
-            lastLoggedTime = now;
-
-            logger.LogInformation(
-                "{Extracted} songs extracted ({PerSecond:F1}/s)"
-                , extracted, perSecond);
-
-            return ValueTask.CompletedTask;
-        });
-
-        return results.ToList();
-    }
-
-    private SongMetadata? TryExtractMetadata(string filePath)
+    public async Task<SongMetadata?> ScanFileAsync(string filePath, CancellationToken ct = default)
     {
         var fileName = fileSystem.Path.GetFileName(filePath);
         var extension = fileSystem.Path.GetExtension(filePath).ToLowerInvariant();
@@ -169,8 +47,9 @@ public class FileScanner(
             catch (Exception ex)
             {
                 logger.LogDebug("Could not read tags from {File}: {Message}", fileName, ex.Message);
-                // Continue — we still return the file with basic metadata
             }
+
+            var fpcalcResult = await fpcalcService.GetFingerprintAsync(filePath, ct);
 
             return new SongMetadata
             {
@@ -184,11 +63,13 @@ public class FileScanner(
                 Title = title,
                 Year = year,
                 TrackNumber = trackNumber,
+                DurationSeconds = fpcalcResult?.DurationSeconds,
+                Fingerprint = fpcalcResult?.Fingerprint,
                 IndexedAtUtc = DateTime.UtcNow,
                 DeletedAtUtc = null
             };
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning("Failed to process {File}: {Message}", fileName, ex.Message);
             return null;

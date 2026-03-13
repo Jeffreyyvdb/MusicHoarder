@@ -18,28 +18,28 @@ public class ScannerBackgroundService(
         {
             try
             {
-                logger.LogInformation("Starting scan, scanId: {ScanId}", request.ScanId);
+                logger.LogInformation("Starting scan {ScanId}", request.ScanId);
 
                 using var scope = scopeFactory.CreateScope();
                 var indexService = scope.ServiceProvider.GetRequiredService<IIndexService>();
 
-                var progress = new Progress<IndexProgress>(p =>
-                {
-                    if (p.Scanned % 100 == 0 || p.Scanned == p.TotalFiles)
-                    {
-                        logger.LogInformation("Progress: {Scanned}/{Total} files (New: {New}, Changed: {Changed}, Deleted: {Deleted})", 
-                            p.Scanned, p.TotalFiles, p.NewFiles, p.ChangedFiles, p.DeletedFiles);
-                    }
-                });
+                var result = await indexService.IndexAsync(
+                    request.ScanId,
+                    options.Value.SourceDirectory,
+                    stoppingToken);
 
-                var result = await indexService.IndexAsync(options.Value.SourceDirectory, progress, stoppingToken);
-
-                logger.LogInformation("Scan complete, scanId: {ScanId}, Total: {Total}, New: {New}, Changed: {Changed}, Deleted: {Deleted}, Duration: {Duration}s",
-                    request.ScanId, result.TotalFiles, result.NewFiles, result.ChangedFiles, result.DeletedFiles, result.Duration.TotalSeconds);
+                logger.LogInformation(
+                    "Scan {ScanId} complete — Total: {Total}, New: {New}, Changed: {Changed}, Deleted: {Deleted}, Skipped: {Skipped}, Failed: {Failed}, Duration: {Duration:F1}s",
+                    request.ScanId, result.TotalFiles, result.NewFiles, result.ChangedFiles,
+                    result.DeletedFiles, result.SkippedFiles, result.FailedFiles, result.Duration.TotalSeconds);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                logger.LogInformation("Scan {ScanId} cancelled", request.ScanId);
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Scan failed {ScanId}", request.ScanId);
+                logger.LogError(ex, "Scan {ScanId} failed", request.ScanId);
             }
         }
     }
