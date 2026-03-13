@@ -18,21 +18,23 @@ namespace MusicHoarder.Api.Persistence.Migrations
                 {
                     Id = table.Column<int>(type: "integer", nullable: false)
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    FilePath = table.Column<string>(type: "text", nullable: false),
+                    SourcePath = table.Column<string>(type: "text", nullable: false),
+                    FileSizeBytes = table.Column<long>(type: "bigint", nullable: false),
                     FileName = table.Column<string>(type: "text", nullable: false),
-                    FileSize = table.Column<long>(type: "bigint", nullable: false),
                     Extension = table.Column<string>(type: "text", nullable: false),
-                    LastModified = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    LastModifiedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     Artist = table.Column<string>(type: "text", nullable: true),
                     Album = table.Column<string>(type: "text", nullable: true),
                     Title = table.Column<string>(type: "text", nullable: true),
                     Year = table.Column<int>(type: "integer", nullable: true),
                     TrackNumber = table.Column<int>(type: "integer", nullable: true),
+                    DurationSeconds = table.Column<int>(type: "integer", nullable: true),
+                    IndexedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     Fingerprint = table.Column<string>(type: "text", nullable: true),
-                    Duration = table.Column<int>(type: "integer", nullable: true),
-                    IndexedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    IsDeleted = table.Column<bool>(type: "boolean", nullable: false),
-                    DeletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                    Isrc = table.Column<string>(type: "text", nullable: true),
+                    MusicBrainzId = table.Column<string>(type: "text", nullable: true),
+                    SpotifyId = table.Column<string>(type: "text", nullable: true),
+                    DeletedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -40,15 +42,15 @@ namespace MusicHoarder.Api.Persistence.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_Songs_FilePath",
+                name: "IX_Songs_DeletedAtUtc_LastModifiedUtc",
                 table: "Songs",
-                column: "FilePath",
-                unique: true);
+                columns: new[] { "DeletedAtUtc", "LastModifiedUtc" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_Songs_IsDeleted_LastModified",
+                name: "IX_Songs_SourcePath",
                 table: "Songs",
-                columns: new[] { "IsDeleted", "LastModified" });
+                column: "SourcePath",
+                unique: true);
         }
 
         /// <inheritdoc />

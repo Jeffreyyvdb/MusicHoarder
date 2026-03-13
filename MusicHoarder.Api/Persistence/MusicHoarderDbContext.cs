@@ -14,8 +14,8 @@ public class MusicHoarderDbContext(DbContextOptions options) : DbContext(options
         modelBuilder.Entity<SongMetadata>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => e.FilePath).IsUnique();
-            entity.HasIndex(e => new { e.IsDeleted, e.LastModified });
+            entity.HasIndex(e => e.SourcePath).IsUnique();
+            entity.HasIndex(e => new { e.DeletedAtUtc, e.LastModifiedUtc });
         });
     }
 }

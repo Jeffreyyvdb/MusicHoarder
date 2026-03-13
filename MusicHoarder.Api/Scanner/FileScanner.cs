@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.IO.Abstractions;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Scanner;
@@ -9,12 +10,15 @@ public interface IFileScanner
     Task<List<SongMetadata>> ScanFilesAsync(
         string directoryPath,
         CancellationToken ct = default);
+
     Task<List<SongMetadata>> ScanSpecificFilesAsync(
         List<string> filePaths,
         CancellationToken ct = default);
 }
 
-public class FileScanner(ILogger<FileScanner> logger) : IFileScanner
+public class FileScanner(
+    IFileSystem fileSystem,
+    ILogger<FileScanner> logger) : IFileScanner
 {
     private static readonly HashSet<string> SupportedExtensions =
     [
@@ -25,13 +29,13 @@ public class FileScanner(ILogger<FileScanner> logger) : IFileScanner
         string directoryPath,
         CancellationToken ct = default)
     {
-        var files = Directory.EnumerateFiles(directoryPath, "*", new EnumerationOptions
+        var files = fileSystem.Directory.EnumerateFiles(directoryPath, "*", new EnumerationOptions
             {
                 IgnoreInaccessible = true,
                 RecurseSubdirectories = true
             })
             .Where(f => SupportedExtensions.Contains(
-                Path.GetExtension(f).ToLowerInvariant()));
+                fileSystem.Path.GetExtension(f).ToLowerInvariant()));
 
         var results = new ConcurrentBag<SongMetadata>();
 
@@ -134,12 +138,12 @@ public class FileScanner(ILogger<FileScanner> logger) : IFileScanner
 
     private SongMetadata? TryExtractMetadata(string filePath)
     {
-        var fileName = Path.GetFileName(filePath);
-        var extension = Path.GetExtension(filePath).ToLowerInvariant();
+        var fileName = fileSystem.Path.GetFileName(filePath);
+        var extension = fileSystem.Path.GetExtension(filePath).ToLowerInvariant();
 
         try
         {
-            var fileInfo = new FileInfo(filePath);
+            var fileInfo = fileSystem.FileInfo.New(filePath);
             var fileSize = fileInfo.Length;
             var lastModified = fileInfo.LastWriteTimeUtc;
 
@@ -170,19 +174,18 @@ public class FileScanner(ILogger<FileScanner> logger) : IFileScanner
 
             return new SongMetadata
             {
-                FilePath = filePath,
+                SourcePath = filePath,
                 FileName = fileName,
                 Extension = extension,
-                FileSize = fileSize,
-                LastModified = lastModified,
+                FileSizeBytes = fileSize,
+                LastModifiedUtc = lastModified,
                 Artist = artist,
                 Album = album,
                 Title = title,
                 Year = year,
                 TrackNumber = trackNumber,
-                IndexedAt = DateTime.UtcNow,
-                IsDeleted = false,
-                DeletedAt = null
+                IndexedAtUtc = DateTime.UtcNow,
+                DeletedAtUtc = null
             };
         }
         catch (Exception ex)
