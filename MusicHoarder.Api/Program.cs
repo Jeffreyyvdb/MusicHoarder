@@ -16,6 +16,7 @@ builder.AddNpgsqlDbContext<MusicHoarderDbContext>(connectionName: "musichoarderd
 
 builder.Services.AddSingleton(Channel.CreateUnbounded<ScanRequest>());
 builder.Services.AddHostedService<ScannerBackgroundService>();
+builder.Services.AddScoped<IFileSystem, FileSystem>();
 builder.Services.AddScoped<IFileScanner, FileScanner>();
 builder.Services.AddScoped<IIndexService, IndexService>();
 

@@ -46,8 +46,8 @@ public class IndexService(
 
         var existingSongs = await dbContext.Songs
             .Where(s => !s.IsDeleted)
-            .Select(s => new { s.FilePath, s.LastModified, s.FileSize })
-            .ToDictionaryAsync(s => s.FilePath, s => new { s.LastModified, s.FileSize }, cancellationToken);
+            .Select(s => new { s.SourcePath, s.LastModifiedUtc, s.FileSizeBytes })
+            .ToDictionaryAsync(s => s.SourcePath, s => new { s.LastModifiedUtc, s.FileSizeBytes }, cancellationToken);
 
         var supportedFiles = new List<string>();
         var filesToScan = new List<string>();
@@ -84,7 +84,7 @@ public class IndexService(
                 filesToScan.Add(file);
                 newFiles++;
             }
-            else if (!DateTimeIsEqualMicroseconds(existing.LastModified, lastModified) || existing.FileSize != fileSize)
+            else if (!DateTimeIsEqualMicroseconds(existing.LastModifiedUtc, lastModified) || existing.FileSizeBytes != fileSize)
             {
                 filesToScan.Add(file);
                 changedFiles++;
@@ -103,13 +103,12 @@ public class IndexService(
         if (deletedFilePaths.Count > 0)
         {
             var deletedSongs = await dbContext.Songs
-                .Where(s => deletedFilePaths.Contains(s.FilePath))
+                .Where(s => deletedFilePaths.Contains(s.SourcePath))
                 .ToListAsync(cancellationToken);
 
             foreach (var song in deletedSongs)
             {
-                song.IsDeleted = true;
-                song.DeletedAt = DateTime.UtcNow;
+                song.DeletedAtUtc = DateTime.UtcNow;
             }
 
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -126,31 +125,30 @@ public class IndexService(
         progress?.Report(new IndexProgress(totalFiles, scannedCount, newFiles, changedFiles, deletedFiles,
             "Saving to database..."));
 
-        var existingPathsToUpdate = new HashSet<string>(scannedMetadata.Select(m => m.FilePath));
+        var existingPathsToUpdate = new HashSet<string>(scannedMetadata.Select(m => m.SourcePath));
 
         var existingSongsToUpdate = await dbContext.Songs
-            .Where(s => existingPathsToUpdate.Contains(s.FilePath))
-            .ToDictionaryAsync(s => s.FilePath, s => s, cancellationToken);
+            .Where(s => existingPathsToUpdate.Contains(s.SourcePath))
+            .ToDictionaryAsync(s => s.SourcePath, s => s, cancellationToken);
 
         var batch = new List<SongMetadata>();
         var updatedCount = 0;
 
         foreach (var metadata in scannedMetadata)
         {
-            if (existingSongsToUpdate.TryGetValue(metadata.FilePath, out var existingSong))
+            if (existingSongsToUpdate.TryGetValue(metadata.SourcePath, out var existingSong))
             {
-                existingSong.FileSize = metadata.FileSize;
-                existingSong.LastModified = metadata.LastModified;
+                existingSong.FileSizeBytes = metadata.FileSizeBytes;
+                existingSong.LastModifiedUtc = metadata.LastModifiedUtc;
                 existingSong.Artist = metadata.Artist;
                 existingSong.Album = metadata.Album;
                 existingSong.Title = metadata.Title;
                 existingSong.Year = metadata.Year;
                 existingSong.TrackNumber = metadata.TrackNumber;
                 existingSong.Fingerprint = metadata.Fingerprint;
-                existingSong.Duration = metadata.Duration;
-                existingSong.IndexedAt = DateTime.UtcNow;
-                existingSong.IsDeleted = false;
-                existingSong.DeletedAt = null;
+                existingSong.DurationSeconds = metadata.DurationSeconds;
+                existingSong.IndexedAtUtc = DateTime.UtcNow;
+                existingSong.DeletedAtUtc = null;
                 updatedCount++;
             }
             else
