@@ -2,7 +2,6 @@ using System.IO.Abstractions;
 using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using MusicHoarder.Api;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Scanner;
@@ -19,12 +18,14 @@ builder.Services
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.AddNpgsqlDbContext<MusicHoarderDbContext>(connectionName: "musichoarderdb");
 
 builder.Services.AddSingleton(Channel.CreateUnbounded<ScanRequest>());
+builder.Services.AddSingleton<ScanProgressTracker>();
+builder.Services.AddSingleton<IFpcalcService, FpcalcService>();
+
 builder.Services.AddHostedService<ScannerBackgroundService>();
+
 builder.Services.AddScoped<IFileSystem, FileSystem>();
 builder.Services.AddScoped<IFileScanner, FileScanner>();
 builder.Services.AddScoped<IIndexService, IndexService>();
@@ -38,13 +39,12 @@ Directory.CreateDirectory(musicEnricherOptions.TempDirectory);
 
 app.MapDefaultEndpoints();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
     app.MapScalarApiReference();
 
-    var scope = app.Services.CreateScope();
+    using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
     await dbContext.Database.MigrateAsync();
 }
@@ -55,34 +55,16 @@ app.MapPost("/scan", async (Channel<ScanRequest> channel) =>
 {
     var scanId = Guid.NewGuid();
     await channel.Writer.WriteAsync(new ScanRequest(scanId));
-    return Results.Accepted($"/scan/{scanId}", new { scanId });
+    return Results.Accepted($"/scan/{scanId}/progress", new { scanId });
 });
 
-var summaries = new[]
+app.MapGet("/scan/{scanId}/progress", (Guid scanId, ScanProgressTracker tracker) =>
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+    var state = tracker.GetCurrent();
+    if (state is null || state.ScanId != scanId)
+        return Results.NotFound(new { message = "No scan found with that id." });
 
-app.MapGet("/weatherforecast", () =>
-    {
-        var forecast = Enumerable.Range(1, 5).Select(index =>
-                new WeatherForecast
-                (
-                    DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-                    Random.Shared.Next(-20, 55),
-                    summaries[Random.Shared.Next(summaries.Length)]
-                ))
-            .ToArray();
-        return forecast;
-    })
-    .WithName("GetWeatherForecast");
+    return Results.Ok(state);
+});
 
 app.Run();
-
-namespace MusicHoarder.Api
-{
-    record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-    {
-        public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-    }
-}

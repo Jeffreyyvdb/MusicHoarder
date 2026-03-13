@@ -1,65 +1,62 @@
+using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Scanner;
-
-public record IndexProgress(
-    int TotalFiles,
-    int Scanned,
-    int NewFiles,
-    int ChangedFiles,
-    int DeletedFiles,
-    string CurrentFile);
 
 public record IndexResult(
     int TotalFiles,
     int NewFiles,
     int ChangedFiles,
     int DeletedFiles,
+    int SkippedFiles,
+    int FailedFiles,
     TimeSpan Duration);
 
 public interface IIndexService
 {
-    Task<IndexResult> IndexAsync(string directoryPath,
-        IProgress<IndexProgress> progress,
+    Task<IndexResult> IndexAsync(
+        Guid scanId,
+        string directoryPath,
         CancellationToken cancellationToken = default);
 }
 
 public class IndexService(
     IFileScanner fileScanner,
     MusicHoarderDbContext dbContext,
+    ScanProgressTracker progressTracker,
+    IOptions<MusicEnricherOptions> options,
     ILogger<IndexService> logger) : IIndexService
 {
-    private static readonly string[] SupportedExtensions =
-        { ".mp3", ".flac", ".wav", ".m4a", ".ogg", ".wma", ".aac", ".opus", ".aiff" };
+    private static readonly HashSet<string> SupportedExtensions =
+    [
+        ".mp3", ".flac", ".wav", ".m4a", ".ogg", ".wma", ".aac", ".opus", ".aiff"
+    ];
 
-    private const int BatchSize = 500;
-    private const int ProgressReportInterval = 100;
-
-    public async Task<IndexResult> IndexAsync(string directoryPath,
-        IProgress<IndexProgress> progress,
+    public async Task<IndexResult> IndexAsync(
+        Guid scanId,
+        string directoryPath,
         CancellationToken cancellationToken = default)
     {
         var startTime = DateTime.UtcNow;
+        var opts = options.Value;
 
-        logger.LogInformation("Starting index of {Directory}", directoryPath);
+        logger.LogInformation("Starting index {ScanId} of {Directory}", scanId, directoryPath);
 
+        // ── Phase 1: Load DB state for change detection ──────────────────────
         var existingSongs = await dbContext.Songs
             .Where(s => !s.DeletedAtUtc.HasValue)
             .Select(s => new { s.SourcePath, s.LastModifiedUtc, s.FileSizeBytes })
-            .ToDictionaryAsync(s => s.SourcePath, s => new { s.LastModifiedUtc, s.FileSizeBytes }, cancellationToken);
+            .ToDictionaryAsync(s => s.SourcePath, cancellationToken);
 
-        var supportedFiles = new List<string>();
-        var filesToScan = new List<string>();
+        // ── Phase 2: Discover files and classify ─────────────────────────────
+        var allDiscoveredPaths = new HashSet<string>(StringComparer.Ordinal);
+        var newFilePaths = new HashSet<string>(StringComparer.Ordinal);
+        var filesToProcess = new List<string>();
 
-        var totalFiles = 0;
-        var deletedFiles = 0;
-        var newFiles = 0;
-        var changedFiles = 0;
-
-        progress?.Report(new IndexProgress(0, 0, 0, 0, 0, "Scanning directory..."));
-
-        var existingFilePaths = new HashSet<string>();
+        logger.LogInformation("Enumerating {Directory}…", directoryPath);
 
         foreach (var file in Directory.EnumerateFiles(directoryPath, "*.*", new EnumerationOptions
                  {
@@ -72,126 +69,207 @@ public class IndexService(
             if (!SupportedExtensions.Contains(Path.GetExtension(file).ToLowerInvariant()))
                 continue;
 
-            supportedFiles.Add(file);
-            totalFiles++;
-
-            var fileInfo = new FileInfo(file);
-            var lastModified = fileInfo.LastWriteTimeUtc;
-            var fileSize = fileInfo.Length;
+            allDiscoveredPaths.Add(file);
 
             if (!existingSongs.TryGetValue(file, out var existing))
             {
-                filesToScan.Add(file);
-                newFiles++;
-            }
-            else if (!DateTimeIsEqualMicroseconds(existing.LastModifiedUtc, lastModified) || existing.FileSizeBytes != fileSize)
-            {
-                filesToScan.Add(file);
-                changedFiles++;
+                filesToProcess.Add(file);
+                newFilePaths.Add(file);
             }
             else
             {
-                existingFilePaths.Add(file);
+                var fileInfo = new FileInfo(file);
+                if (!DateTimeIsEqualMicroseconds(existing.LastModifiedUtc, fileInfo.LastWriteTimeUtc)
+                    || existing.FileSizeBytes != fileInfo.Length)
+                {
+                    filesToProcess.Add(file);
+                }
             }
         }
 
-        var deletedFilePaths = existingSongs.Keys.Except(existingFilePaths).ToList();
-        deletedFiles = deletedFilePaths.Count;
+        var totalDiscovered = allDiscoveredPaths.Count;
+        var newCount = newFilePaths.Count;
+        var changedCount = filesToProcess.Count - newCount;
+        var skippedCount = totalDiscovered - filesToProcess.Count;
 
-        progress?.Report(new IndexProgress(totalFiles, 0, newFiles, changedFiles, deletedFiles, "Starting..."));
+        logger.LogInformation(
+            "Discovery complete: {Total} total, {New} new, {Changed} changed, {Skipped} unchanged",
+            totalDiscovered, newCount, changedCount, skippedCount);
 
-        if (deletedFilePaths.Count > 0)
+        // ── Phase 3: Soft-delete files no longer on disk ──────────────────────
+        var deletedCount = await MarkDeletedAsync(existingSongs.Keys, allDiscoveredPaths, cancellationToken);
+
+        progressTracker.Start(scanId, filesToProcess.Count);
+
+        if (filesToProcess.Count == 0)
         {
-            var deletedSongs = await dbContext.Songs
-                .Where(s => deletedFilePaths.Contains(s.SourcePath))
-                .ToListAsync(cancellationToken);
-
-            foreach (var song in deletedSongs)
-            {
-                song.DeletedAtUtc = DateTime.UtcNow;
-            }
-
-            await dbContext.SaveChangesAsync(cancellationToken);
-            logger.LogInformation("Marked {Count} files as deleted", deletedFiles);
+            progressTracker.Complete(scanId);
+            return new IndexResult(totalDiscovered, newCount, changedCount, deletedCount, skippedCount, 0,
+                DateTime.UtcNow - startTime);
         }
 
-        progress?.Report(new IndexProgress(totalFiles, 0, newFiles, changedFiles, deletedFiles,
-            "Scanning metadata..."));
+        // ── Phase 4: Channel pipeline ─────────────────────────────────────────
+        //   Stage A: feed file paths into a bounded channel
+        //   Stage B: process (tags + fpcalc) concurrently, bounded by SemaphoreSlim
+        //   Stage C: batch-write processed records to DB (single consumer)
 
-        var scannedMetadata = await fileScanner.ScanSpecificFilesAsync(filesToScan, cancellationToken);
-
-        var scannedCount = scannedMetadata.Count;
-
-        progress?.Report(new IndexProgress(totalFiles, scannedCount, newFiles, changedFiles, deletedFiles,
-            "Saving to database..."));
-
-        var existingPathsToUpdate = new HashSet<string>(scannedMetadata.Select(m => m.SourcePath));
-
-        var existingSongsToUpdate = await dbContext.Songs
-            .Where(s => existingPathsToUpdate.Contains(s.SourcePath))
-            .ToDictionaryAsync(s => s.SourcePath, s => s, cancellationToken);
-
-        var batch = new List<SongMetadata>();
-        var updatedCount = 0;
-
-        foreach (var metadata in scannedMetadata)
+        var processedChannel = Channel.CreateBounded<SongMetadata>(new BoundedChannelOptions(opts.DbBatchSize * 2)
         {
-            if (existingSongsToUpdate.TryGetValue(metadata.SourcePath, out var existingSong))
-            {
-                existingSong.FileSizeBytes = metadata.FileSizeBytes;
-                existingSong.LastModifiedUtc = metadata.LastModifiedUtc;
-                existingSong.Artist = metadata.Artist;
-                existingSong.Album = metadata.Album;
-                existingSong.Title = metadata.Title;
-                existingSong.Year = metadata.Year;
-                existingSong.TrackNumber = metadata.TrackNumber;
-                existingSong.Fingerprint = metadata.Fingerprint;
-                existingSong.DurationSeconds = metadata.DurationSeconds;
-                existingSong.IndexedAtUtc = DateTime.UtcNow;
-                existingSong.DeletedAtUtc = null;
-                updatedCount++;
-            }
-            else
-            {
-                batch.Add(metadata);
-            }
+            FullMode = BoundedChannelFullMode.Wait,
+            SingleReader = true,
+            SingleWriter = false
+        });
 
-            if (batch.Count >= BatchSize)
+        var semaphore = new SemaphoreSlim(opts.SmbConcurrency, opts.SmbConcurrency);
+        var failedCount = 0;
+
+        var processingTask = Task.Run(async () =>
+        {
+            try
             {
-                dbContext.Songs.AddRange(batch);
-                await dbContext.SaveChangesAsync(cancellationToken);
+                await Parallel.ForEachAsync(
+                    filesToProcess,
+                    new ParallelOptions
+                    {
+                        // Use 2× the SMB concurrency so that we always have work
+                        // queued for the semaphore slots.
+                        MaxDegreeOfParallelism = opts.SmbConcurrency * 2,
+                        CancellationToken = cancellationToken
+                    },
+                    async (filePath, ct) =>
+                    {
+                        await semaphore.WaitAsync(ct);
+                        try
+                        {
+                            var metadata = await fileScanner.ScanFileAsync(filePath, ct);
+
+                            if (metadata is not null)
+                            {
+                                await processedChannel.Writer.WriteAsync(metadata, ct);
+
+                                if (newFilePaths.Contains(filePath))
+                                    progressTracker.IncrementNew();
+                                else
+                                    progressTracker.IncrementChanged();
+                            }
+                            else
+                            {
+                                Interlocked.Increment(ref failedCount);
+                                progressTracker.IncrementFailed();
+                                logger.LogWarning("Skipping {File}: scanner returned null", Path.GetFileName(filePath));
+                            }
+
+                            var processed = progressTracker.GetCurrent()?.Processed ?? 0;
+                            if (processed % 100 == 0)
+                            {
+                                logger.LogInformation(
+                                    "Progress {ScanId}: {Processed}/{Total} processed",
+                                    scanId, processed, filesToProcess.Count);
+                            }
+                        }
+                        finally
+                        {
+                            semaphore.Release();
+                        }
+                    });
+            }
+            finally
+            {
+                processedChannel.Writer.Complete();
+            }
+        }, cancellationToken);
+
+        var dbWriteTask = WriteToDbAsync(processedChannel.Reader, opts.DbBatchSize, cancellationToken);
+
+        await Task.WhenAll(processingTask, dbWriteTask);
+
+        progressTracker.Complete(scanId);
+
+        var duration = DateTime.UtcNow - startTime;
+        logger.LogInformation(
+            "Index {ScanId} complete: Total={Total}, New={New}, Changed={Changed}, Deleted={Deleted}, Skipped={Skipped}, Failed={Failed}, Duration={Duration:F1}s",
+            scanId, totalDiscovered, newCount, changedCount, deletedCount, skippedCount, failedCount, duration.TotalSeconds);
+
+        return new IndexResult(totalDiscovered, newCount, changedCount, deletedCount, skippedCount, failedCount, duration);
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    private async Task<int> MarkDeletedAsync(
+        IEnumerable<string> existingPaths,
+        HashSet<string> discoveredPaths,
+        CancellationToken ct)
+    {
+        var deletedPaths = existingPaths.Where(p => !discoveredPaths.Contains(p)).ToList();
+        if (deletedPaths.Count == 0) return 0;
+
+        var deletedSongs = await dbContext.Songs
+            .Where(s => deletedPaths.Contains(s.SourcePath))
+            .ToListAsync(ct);
+
+        var now = DateTime.UtcNow;
+        foreach (var song in deletedSongs)
+            song.DeletedAtUtc = now;
+
+        await dbContext.SaveChangesAsync(ct);
+        logger.LogInformation("Marked {Count} files as deleted", deletedSongs.Count);
+        return deletedSongs.Count;
+    }
+
+    private async Task WriteToDbAsync(
+        ChannelReader<SongMetadata> reader,
+        int batchSize,
+        CancellationToken ct)
+    {
+        var batch = new List<SongMetadata>(batchSize);
+
+        await foreach (var metadata in reader.ReadAllAsync(ct))
+        {
+            batch.Add(metadata);
+            if (batch.Count >= batchSize)
+            {
+                await FlushBatchAsync(batch, ct);
                 batch.Clear();
             }
         }
 
         if (batch.Count > 0)
-        {
-            dbContext.Songs.AddRange(batch);
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }
-
-        if (updatedCount > 0)
-        {
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }
-
-        var duration = DateTime.UtcNow - startTime;
-
-        progress?.Report(new IndexProgress(totalFiles, scannedCount, newFiles, changedFiles, deletedFiles, "Complete"));
-
-        logger.LogInformation(
-            "Index complete: Total={Total}, New={New}, Changed={Changed}, Deleted={Deleted}, Duration={Duration}s",
-            totalFiles, newFiles, changedFiles, deletedFiles, duration.TotalSeconds);
-
-        return new IndexResult(totalFiles, newFiles, changedFiles, deletedFiles, duration);
+            await FlushBatchAsync(batch, ct);
     }
 
-    /// <summary>
-    ///
-    /// </summary>
-    /// <param name="a"></param>
-    /// <param name="b"></param>
-    /// <returns></returns>
-    public static bool DateTimeIsEqualMicroseconds(DateTime a, DateTime b)
+    private async Task FlushBatchAsync(List<SongMetadata> batch, CancellationToken ct)
+    {
+        var paths = new HashSet<string>(batch.Select(m => m.SourcePath), StringComparer.Ordinal);
+
+        var existingByPath = await dbContext.Songs
+            .Where(s => paths.Contains(s.SourcePath))
+            .ToDictionaryAsync(s => s.SourcePath, ct);
+
+        foreach (var metadata in batch)
+        {
+            if (existingByPath.TryGetValue(metadata.SourcePath, out var existing))
+            {
+                existing.FileSizeBytes = metadata.FileSizeBytes;
+                existing.LastModifiedUtc = metadata.LastModifiedUtc;
+                existing.Artist = metadata.Artist;
+                existing.Album = metadata.Album;
+                existing.Title = metadata.Title;
+                existing.Year = metadata.Year;
+                existing.TrackNumber = metadata.TrackNumber;
+                existing.DurationSeconds = metadata.DurationSeconds;
+                existing.Fingerprint = metadata.Fingerprint;
+                existing.IndexedAtUtc = metadata.IndexedAtUtc;
+                existing.DeletedAtUtc = null;
+            }
+            else
+            {
+                dbContext.Songs.Add(metadata);
+            }
+        }
+
+        await dbContext.SaveChangesAsync(ct);
+    }
+
+    internal static bool DateTimeIsEqualMicroseconds(DateTime a, DateTime b)
         => Math.Abs((a - b).TotalMicroseconds) < 1;
 }
