@@ -1,6 +1,9 @@
+using System.IO.Abstractions;
 using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using MusicHoarder.Api;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Scanner;
 using MusicHoarder.ServiceDefaults;
@@ -9,6 +12,12 @@ using Scalar.AspNetCore;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+
+builder.Services
+    .AddOptions<MusicEnricherOptions>()
+    .BindConfiguration(MusicEnricherOptions.SectionName)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
 
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
@@ -23,6 +32,9 @@ builder.Services.AddScoped<IIndexService, IndexService>();
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
+
+var musicEnricherOptions = app.Services.GetRequiredService<IOptions<MusicEnricherOptions>>().Value;
+Directory.CreateDirectory(musicEnricherOptions.TempDirectory);
 
 app.MapDefaultEndpoints();
 

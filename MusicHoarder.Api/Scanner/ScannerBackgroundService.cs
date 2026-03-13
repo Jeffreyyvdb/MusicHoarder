@@ -1,6 +1,6 @@
 using System.Threading.Channels;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Options;
 
 namespace MusicHoarder.Api.Scanner;
 
@@ -9,7 +9,7 @@ public record ScanRequest(Guid ScanId);
 public class ScannerBackgroundService(
     IServiceScopeFactory scopeFactory,
     Channel<ScanRequest> channel,
-    IConfiguration configuration,
+    IOptions<MusicEnricherOptions> options,
     ILogger<ScannerBackgroundService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -32,8 +32,7 @@ public class ScannerBackgroundService(
                     }
                 });
 
-                var musicDirectory = configuration["MusicDirectory"] ?? configuration["musicDirectory"] ?? "/Volumes/music";
-                var result = await indexService.IndexAsync(musicDirectory, progress, stoppingToken);
+                var result = await indexService.IndexAsync(options.Value.SourceDirectory, progress, stoppingToken);
 
                 logger.LogInformation("Scan complete, scanId: {ScanId}, Total: {Total}, New: {New}, Changed: {Changed}, Deleted: {Deleted}, Duration: {Duration}s",
                     request.ScanId, result.TotalFiles, result.NewFiles, result.ChangedFiles, result.DeletedFiles, result.Duration.TotalSeconds);
