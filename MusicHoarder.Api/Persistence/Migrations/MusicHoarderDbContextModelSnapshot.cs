@@ -36,10 +36,10 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<string>("Artist")
                         .HasColumnType("text");
 
-                    b.Property<DateTime?>("DeletedAt")
+                    b.Property<DateTime?>("DeletedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<int?>("Duration")
+                    b.Property<int?>("DurationSeconds")
                         .HasColumnType("integer");
 
                     b.Property<string>("Extension")
@@ -50,24 +50,30 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("FilePath")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<long>("FileSize")
+                    b.Property<long>("FileSizeBytes")
                         .HasColumnType("bigint");
 
                     b.Property<string>("Fingerprint")
                         .HasColumnType("text");
 
-                    b.Property<DateTime>("IndexedAt")
+                    b.Property<DateTime>("IndexedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
+                    b.Property<string>("Isrc")
+                        .HasColumnType("text");
 
-                    b.Property<DateTime>("LastModified")
+                    b.Property<DateTime>("LastModifiedUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MusicBrainzId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SourcePath")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SpotifyId")
+                        .HasColumnType("text");
 
                     b.Property<string>("Title")
                         .HasColumnType("text");
@@ -80,10 +86,10 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("FilePath")
+                    b.HasIndex("SourcePath")
                         .IsUnique();
 
-                    b.HasIndex("IsDeleted", "LastModified");
+                    b.HasIndex("DeletedAtUtc", "LastModifiedUtc");
 
                     b.ToTable("Songs");
                 });

@@ -45,7 +45,7 @@ public class IndexService(
         logger.LogInformation("Starting index of {Directory}", directoryPath);
 
         var existingSongs = await dbContext.Songs
-            .Where(s => !s.IsDeleted)
+            .Where(s => !s.DeletedAtUtc.HasValue)
             .Select(s => new { s.SourcePath, s.LastModifiedUtc, s.FileSizeBytes })
             .ToDictionaryAsync(s => s.SourcePath, s => new { s.LastModifiedUtc, s.FileSizeBytes }, cancellationToken);
 
