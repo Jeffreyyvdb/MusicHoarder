@@ -56,6 +56,52 @@ export async function getStats(): Promise<Stats> {
 	return fetchApi<Stats>('/stats');
 }
 
+export interface Song {
+	id: number;
+	sourcePath: string;
+	fileName: string;
+	extension: string;
+	fileSizeBytes: number;
+	lastModifiedUtc: string;
+	indexedAtUtc: string;
+	deletedAtUtc: string | null;
+	artist: string | null;
+	album: string | null;
+	title: string | null;
+	year: number | null;
+	trackNumber: number | null;
+	durationSeconds: number | null;
+	isrc: string | null;
+	musicBrainzId: string | null;
+	spotifyId: string | null;
+	enrichmentStatus: 'Pending' | 'Matched' | 'NeedsReview' | 'Failed';
+	matchedBy: string | null;
+	matchConfidence: number | null;
+	enrichedAtUtc: string | null;
+	enrichmentError: string | null;
+	originalMetadataCaptured: boolean;
+	originalArtist: string | null;
+	originalAlbum: string | null;
+	originalTitle: string | null;
+	originalYear: number | null;
+	originalTrackNumber: number | null;
+	originalIsrc: string | null;
+	originalMusicBrainzId: string | null;
+	originalSpotifyId: string | null;
+	originalMetadataCapturedAtUtc: string | null;
+}
+
+export interface SongsResponse {
+	count: number;
+	includeDeleted: boolean;
+	songs: Song[];
+}
+
+export async function getSongs(includeDeleted = false): Promise<SongsResponse> {
+	const params = new URLSearchParams({ includeDeleted: String(includeDeleted) });
+	return fetchApi<SongsResponse>(`/songs?${params.toString()}`);
+}
+
 export interface ScanResponse {
 	scanId: string;
 }

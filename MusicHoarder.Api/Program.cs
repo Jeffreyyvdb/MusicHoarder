@@ -189,6 +189,65 @@ app.MapGet("/stats", async (MusicHoarderDbContext db) =>
     return Results.Ok(stats);
 });
 
+app.MapGet("/songs", async (MusicHoarderDbContext db, bool includeDeleted = false) =>
+{
+    var query = db.Songs.AsNoTracking();
+    if (!includeDeleted)
+    {
+        query = query.Where(s => s.DeletedAtUtc == null);
+    }
+
+    var songs = await query
+        .OrderBy(s => s.Artist ?? "")
+        .ThenBy(s => s.Album ?? "")
+        .ThenBy(s => s.TrackNumber ?? 0)
+        .ThenBy(s => s.Title ?? "")
+        .ThenBy(s => s.FileName)
+        .Select(s => new
+        {
+            s.Id,
+            s.SourcePath,
+            s.FileName,
+            s.Extension,
+            s.FileSizeBytes,
+            s.LastModifiedUtc,
+            s.IndexedAtUtc,
+            s.DeletedAtUtc,
+            s.Artist,
+            s.Album,
+            s.Title,
+            s.Year,
+            s.TrackNumber,
+            s.DurationSeconds,
+            s.Isrc,
+            s.MusicBrainzId,
+            s.SpotifyId,
+            s.EnrichmentStatus,
+            s.MatchedBy,
+            s.MatchConfidence,
+            s.EnrichedAtUtc,
+            s.EnrichmentError,
+            s.OriginalMetadataCaptured,
+            s.OriginalArtist,
+            s.OriginalAlbum,
+            s.OriginalTitle,
+            s.OriginalYear,
+            s.OriginalTrackNumber,
+            s.OriginalIsrc,
+            s.OriginalMusicBrainzId,
+            s.OriginalSpotifyId,
+            s.OriginalMetadataCapturedAtUtc
+        })
+        .ToListAsync();
+
+    return Results.Ok(new
+    {
+        Count = songs.Count,
+        IncludeDeleted = includeDeleted,
+        Songs = songs
+    });
+});
+
 app.MapPost("/enrichment/reset", async (EnrichmentResetRequest request, MusicHoarderDbContext db) =>
 {
     var target = request.Target?.Trim().ToLowerInvariant();
