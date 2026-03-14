@@ -23,17 +23,26 @@ builder.AddNpgsqlDbContext<MusicHoarderDbContext>(connectionName: "musichoarderd
 
 builder.Services.AddSingleton(Channel.CreateUnbounded<ScanRequest>());
 builder.Services.AddSingleton<ScanProgressTracker>();
+builder.Services.AddSingleton<EnrichmentProgressTracker>();
 builder.Services.AddSingleton<IFpcalcService, FpcalcService>();
+builder.Services.AddSingleton<IEnrichmentOrchestrator, EnrichmentOrchestrator>();
 
 builder.Services.AddHostedService<ScannerBackgroundService>();
+builder.Services.AddHostedService<EnrichmentBackgroundService>();
 
 builder.Services.AddScoped<IFileSystem, FileSystem>();
 builder.Services.AddScoped<IFileScanner, FileScanner>();
 builder.Services.AddScoped<IIndexService, IndexService>();
 
-builder.Services.AddHttpClient<IAcoustIdService, AcoustIdService>(client =>
+builder.Services.AddSingleton<IAcoustIdService>(sp =>
 {
-    client.BaseAddress = new Uri("https://api.acoustid.org/");
+    var httpClient = new HttpClient
+    {
+        BaseAddress = new Uri("https://api.acoustid.org/")
+    };
+    var options = sp.GetRequiredService<IOptions<MusicEnricherOptions>>();
+    var logger = sp.GetRequiredService<ILogger<AcoustIdService>>();
+    return new AcoustIdService(httpClient, options, logger);
 });
 
 builder.Services.AddOpenApi();
@@ -180,4 +189,60 @@ app.MapGet("/stats", async (MusicHoarderDbContext db) =>
     return Results.Ok(stats);
 });
 
+app.MapPost("/enrichment/reset", async (EnrichmentResetRequest request, MusicHoarderDbContext db) =>
+{
+    var target = request.Target?.Trim().ToLowerInvariant();
+
+    IQueryable<SongMetadata> active = db.Songs.Where(s => s.DeletedAtUtc == null);
+    IQueryable<SongMetadata>? query = target switch
+    {
+        "all" => active,
+        "pending" => active.Where(s => s.EnrichmentStatus == EnrichmentStatus.Pending),
+        "matched" => active.Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched),
+        "needsreview" => active.Where(s => s.EnrichmentStatus == EnrichmentStatus.NeedsReview),
+        "failed" => active.Where(s => s.EnrichmentStatus == EnrichmentStatus.Failed),
+        _ => null
+    };
+    if (query is null)
+    {
+        return Results.BadRequest(new { message = "Invalid target. Use all|pending|matched|needsReview|failed." });
+    }
+
+    var songs = await query.ToListAsync();
+    foreach (var song in songs)
+    {
+        if (request.RestoreOriginalMetadata && song.OriginalMetadataCaptured)
+        {
+            song.Artist = song.OriginalArtist;
+            song.Album = song.OriginalAlbum;
+            song.Title = song.OriginalTitle;
+            song.Year = song.OriginalYear;
+            song.TrackNumber = song.OriginalTrackNumber;
+            song.Isrc = song.OriginalIsrc;
+            song.MusicBrainzId = song.OriginalMusicBrainzId;
+            song.SpotifyId = song.OriginalSpotifyId;
+        }
+
+        song.EnrichmentStatus = EnrichmentStatus.Pending;
+        song.MatchedBy = null;
+        song.MatchConfidence = null;
+        song.EnrichedAtUtc = null;
+        song.EnrichmentLastAttemptedAtUtc = null;
+        song.EnrichmentError = null;
+    }
+
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new
+    {
+        request.Target,
+        request.RestoreOriginalMetadata,
+        ResetCount = songs.Count
+    });
+});
+
 app.Run();
+
+public record EnrichmentResetRequest(
+    string Target = "all",
+    bool RestoreOriginalMetadata = true);
