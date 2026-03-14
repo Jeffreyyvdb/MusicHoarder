@@ -6,6 +6,7 @@ var postgresdb = postgres.AddDatabase("musichoarderdb");
 
 builder.AddProject<Projects.MusicHoarder_Api>("musichoarder-api")
     .WaitFor(postgresdb)
-    .WithReference(postgresdb);
+    .WithReference(postgresdb)
+    .WithUrl("/scalar", "Scalar");
 
 builder.Build().Run();
