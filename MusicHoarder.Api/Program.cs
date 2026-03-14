@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Scanner;
 using MusicHoarder.ServiceDefaults;
 using Scalar.AspNetCore;
@@ -29,6 +30,11 @@ builder.Services.AddHostedService<ScannerBackgroundService>();
 builder.Services.AddScoped<IFileSystem, FileSystem>();
 builder.Services.AddScoped<IFileScanner, FileScanner>();
 builder.Services.AddScoped<IIndexService, IndexService>();
+
+builder.Services.AddHttpClient<IAcoustIdService, AcoustIdService>(client =>
+{
+    client.BaseAddress = new Uri("https://api.acoustid.org/");
+});
 
 builder.Services.AddOpenApi();
 
