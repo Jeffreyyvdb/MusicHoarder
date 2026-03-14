@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Scanner;
 using MusicHoarder.ServiceDefaults;
 using Scalar.AspNetCore;
@@ -26,6 +27,7 @@ builder.Services.AddSingleton<ScanProgressTracker>();
 builder.Services.AddSingleton<EnrichmentProgressTracker>();
 builder.Services.AddSingleton<IFpcalcService, FpcalcService>();
 builder.Services.AddSingleton<IEnrichmentOrchestrator, EnrichmentOrchestrator>();
+builder.Services.AddSingleton<IDestinationPathResolver, DestinationPathResolver>();
 
 builder.Services.AddHostedService<ScannerBackgroundService>();
 builder.Services.AddHostedService<EnrichmentBackgroundService>();

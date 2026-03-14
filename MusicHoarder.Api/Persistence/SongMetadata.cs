@@ -40,6 +40,7 @@ public class SongMetadata
     public string? OriginalMusicBrainzId { get; set; }
     public string? OriginalSpotifyId { get; set; }
     public DateTime? OriginalMetadataCapturedAtUtc { get; set; }
+    public bool IsUnreleased { get; set; }
 
     public DateTime? DeletedAtUtc { get; set; }
 
