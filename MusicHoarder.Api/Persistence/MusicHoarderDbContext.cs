@@ -1,6 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata;
-
 namespace MusicHoarder.Api.Persistence;
 
 public class MusicHoarderDbContext(DbContextOptions options) : DbContext(options)
@@ -16,6 +14,7 @@ public class MusicHoarderDbContext(DbContextOptions options) : DbContext(options
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.SourcePath).IsUnique();
             entity.HasIndex(e => new { e.DeletedAtUtc, e.LastModifiedUtc });
+            entity.HasIndex(e => new { e.DeletedAtUtc, e.EnrichmentStatus, e.Id });
         });
     }
 }

@@ -23,9 +23,34 @@ public class SongMetadata
     public string? Isrc { get; set; }
     public string? MusicBrainzId { get;set;}
     public string? SpotifyId { get;set;}
+    public EnrichmentStatus EnrichmentStatus { get; set; } = EnrichmentStatus.Pending;
+    public string? MatchedBy { get; set; }
+    public double? MatchConfidence { get; set; }
+    public DateTime? EnrichedAtUtc { get; set; }
+    public DateTime? EnrichmentLastAttemptedAtUtc { get; set; }
+    public string? EnrichmentError { get; set; }
+
+    public bool OriginalMetadataCaptured { get; set; }
+    public string? OriginalArtist { get; set; }
+    public string? OriginalAlbum { get; set; }
+    public string? OriginalTitle { get; set; }
+    public int? OriginalYear { get; set; }
+    public int? OriginalTrackNumber { get; set; }
+    public string? OriginalIsrc { get; set; }
+    public string? OriginalMusicBrainzId { get; set; }
+    public string? OriginalSpotifyId { get; set; }
+    public DateTime? OriginalMetadataCapturedAtUtc { get; set; }
 
     public DateTime? DeletedAtUtc { get; set; }
 
     public bool IsDeleted => DeletedAtUtc.HasValue;
 
+}
+
+public enum EnrichmentStatus
+{
+    Pending = 0,
+    Matched = 1,
+    NeedsReview = 2,
+    Failed = 3,
 }

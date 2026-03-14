@@ -15,17 +15,11 @@ public interface IAcoustIdService
 public sealed class AcoustIdService(
     HttpClient httpClient,
     IOptions<MusicEnricherOptions> options,
-    ILogger<AcoustIdService> logger) : IAcoustIdService, IDisposable
+    ILogger<AcoustIdService> logger) : IAcoustIdService
 {
-    private readonly TokenBucketRateLimiter _rateLimiter = new(new TokenBucketRateLimiterOptions
-    {
-        TokenLimit = 3,
-        TokensPerPeriod = 3,
-        ReplenishmentPeriod = TimeSpan.FromSeconds(1),
-        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-        QueueLimit = int.MaxValue,
-        AutoReplenishment = true,
-    });
+    private static readonly object RateLimiterLock = new();
+    private static TokenBucketRateLimiter? _sharedRateLimiter;
+    private static int _sharedRate = -1;
 
     public async Task<AcoustIdMatch?> LookupAsync(string fingerprint, int durationSeconds, CancellationToken ct = default)
     {
@@ -36,7 +30,8 @@ public sealed class AcoustIdService(
             return null;
         }
 
-        using var lease = await _rateLimiter.AcquireAsync(permitCount: 1, ct);
+        var limiter = GetRateLimiter(options.Value.AcoustIdRequestsPerSecond);
+        using var lease = await limiter.AcquireAsync(permitCount: 1, ct);
         if (!lease.IsAcquired)
         {
             logger.LogWarning("AcoustID rate limiter rejected the request");
@@ -50,7 +45,25 @@ public sealed class AcoustIdService(
                       $"&fingerprint={Uri.EscapeDataString(fingerprint)}" +
                       $"&meta=recordings+releasegroups";
 
-            var response = await httpClient.GetFromJsonAsync<AcoustIdResponse>(url, ct);
+            using var responseMessage = await httpClient.GetAsync(url, ct);
+            if ((int)responseMessage.StatusCode == 429)
+            {
+                var retryAfter = responseMessage.Headers.RetryAfter?.Delta;
+                logger.LogWarning(
+                    "AcoustID returned 429 Too Many Requests. RetryAfter={RetryAfterSeconds}",
+                    retryAfter?.TotalSeconds);
+                return null;
+            }
+
+            if (!responseMessage.IsSuccessStatusCode)
+            {
+                logger.LogWarning(
+                    "AcoustID HTTP status {StatusCode} for lookup",
+                    (int)responseMessage.StatusCode);
+                return null;
+            }
+
+            var response = await responseMessage.Content.ReadFromJsonAsync<AcoustIdResponse>(cancellationToken: ct);
 
             if (response?.Status != "ok" || response.Results is null or { Count: 0 })
             {
@@ -99,7 +112,29 @@ public sealed class AcoustIdService(
         }
     }
 
-    public void Dispose() => _rateLimiter.Dispose();
+    private static TokenBucketRateLimiter GetRateLimiter(int requestsPerSecond)
+    {
+        lock (RateLimiterLock)
+        {
+            if (_sharedRateLimiter is not null && _sharedRate == requestsPerSecond)
+            {
+                return _sharedRateLimiter;
+            }
+
+            _sharedRateLimiter?.Dispose();
+            _sharedRateLimiter = new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
+            {
+                TokenLimit = requestsPerSecond,
+                TokensPerPeriod = requestsPerSecond,
+                ReplenishmentPeriod = TimeSpan.FromSeconds(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = int.MaxValue,
+                AutoReplenishment = true,
+            });
+            _sharedRate = requestsPerSecond;
+            return _sharedRateLimiter;
+        }
+    }
 
     // --- JSON DTOs ---
 

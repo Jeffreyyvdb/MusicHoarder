@@ -32,4 +32,20 @@ public class MusicEnricherOptions
     /// <summary>Minimum AcoustID match score (0.0–1.0) to accept a result.</summary>
     [Range(0.0, 1.0)]
     public double AcoustIdScoreThreshold { get; set; } = 0.85;
+
+    /// <summary>Max AcoustID requests per second across the whole process.</summary>
+    [Range(1, 20)]
+    public int AcoustIdRequestsPerSecond { get; set; } = 3;
+
+    /// <summary>Number of tracks processed per enrichment cycle.</summary>
+    [Range(1, 10000)]
+    public int EnrichmentBatchSize { get; set; } = 200;
+
+    /// <summary>Number of concurrent enrichment workers per cycle.</summary>
+    [Range(1, 64)]
+    public int EnrichmentWorkerConcurrency { get; set; } = 2;
+
+    /// <summary>Delay in seconds before retrying when no tracks are pending enrichment.</summary>
+    [Range(1, 300)]
+    public int EnrichmentIdleDelaySeconds { get; set; } = 15;
 }
