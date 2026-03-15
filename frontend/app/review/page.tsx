@@ -223,19 +223,19 @@ export default function ReviewPage() {
                   <TabsList className="h-12 w-full justify-start rounded-none border-0 bg-transparent p-0">
                     <TabsTrigger
                       value="edit"
-                      className="rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-primary data-[state=active]:bg-transparent"
+                      className="rounded-none border-0 border-b-2 border-transparent px-4 data-[state=active]:border-b-primary/50 data-[state=active]:border-l-transparent data-[state=active]:border-r-transparent data-[state=active]:border-t-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     >
                       Edit Metadata
                     </TabsTrigger>
                     <TabsTrigger
                       value="compare"
-                      className="rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-primary data-[state=active]:bg-transparent"
+                      className="rounded-none border-0 border-b-2 border-transparent px-4 data-[state=active]:border-b-primary/50 data-[state=active]:border-l-transparent data-[state=active]:border-r-transparent data-[state=active]:border-t-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     >
                       Compare
                     </TabsTrigger>
                     <TabsTrigger
                       value="issues"
-                      className="rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-primary data-[state=active]:bg-transparent"
+                      className="rounded-none border-0 border-b-2 border-transparent px-4 data-[state=active]:border-b-primary/50 data-[state=active]:border-l-transparent data-[state=active]:border-r-transparent data-[state=active]:border-t-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     >
                       Issues
                     </TabsTrigger>
