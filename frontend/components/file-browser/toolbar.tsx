@@ -10,21 +10,37 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import type { LibraryPathMode } from "@/lib/api-client"
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+
+type LibrarySortBy = "name" | "dateModified" | "size" | "type"
+type LibrarySortDirection = "asc" | "desc"
+type LibraryFilterBy = "all" | "audio" | "folders" | "pendingEnrichment"
 
 interface ToolbarProps {
   viewMode: "grid" | "list"
   onViewModeChange: (mode: "grid" | "list") => void
   searchQuery: string
   onSearchChange: (query: string) => void
+  sortBy: LibrarySortBy
+  sortDirection: LibrarySortDirection
+  filterBy: LibraryFilterBy
+  onSortByChange: (value: LibrarySortBy) => void
+  onSortDirectionChange: (value: LibrarySortDirection) => void
+  onFilterByChange: (value: LibraryFilterBy) => void
+  libraryMode: LibraryPathMode
+  onLibraryModeChange: (mode: LibraryPathMode) => void
+  onRefresh: () => void
+  isRefreshing: boolean
 }
 
 export function Toolbar({
@@ -32,6 +48,16 @@ export function Toolbar({
   onViewModeChange,
   searchQuery,
   onSearchChange,
+  sortBy,
+  sortDirection,
+  filterBy,
+  onSortByChange,
+  onSortDirectionChange,
+  onFilterByChange,
+  libraryMode,
+  onLibraryModeChange,
+  onRefresh,
+  isRefreshing,
 }: ToolbarProps) {
   return (
     <div className="flex items-center gap-1.5 border-b border-border bg-card/50 px-2 py-2 sm:gap-2 sm:px-4">
@@ -71,6 +97,25 @@ export function Toolbar({
         </Button>
       </div>
 
+      <div className="hidden shrink-0 items-center gap-1 rounded-lg bg-secondary p-1 sm:flex">
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn("h-7 px-2 text-xs", libraryMode === "destination" && "bg-background shadow-sm")}
+          onClick={() => onLibraryModeChange("destination")}
+        >
+          Destination
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn("h-7 px-2 text-xs", libraryMode === "source" && "bg-background shadow-sm")}
+          onClick={() => onLibraryModeChange("source")}
+        >
+          Source
+        </Button>
+      </div>
+
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="icon" className="size-8 shrink-0">
@@ -79,18 +124,29 @@ export function Toolbar({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuLabel>Sort By</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={sortBy} onValueChange={(value) => onSortByChange(value as LibrarySortBy)}>
+            <DropdownMenuRadioItem value="name">Name</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="dateModified">Date Modified</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="size">Size</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="type">Type</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>Name</DropdownMenuItem>
-          <DropdownMenuItem>Date Modified</DropdownMenuItem>
-          <DropdownMenuItem>Size</DropdownMenuItem>
-          <DropdownMenuItem>Type</DropdownMenuItem>
+          <DropdownMenuLabel>Sort Direction</DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={sortDirection}
+            onValueChange={(value) => onSortDirectionChange(value as LibrarySortDirection)}
+          >
+            <DropdownMenuRadioItem value="asc">Ascending</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="desc">Descending</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
           <DropdownMenuSeparator />
           <DropdownMenuLabel>Filter</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem>All Files</DropdownMenuItem>
-          <DropdownMenuItem>Audio Only</DropdownMenuItem>
-          <DropdownMenuItem>Folders Only</DropdownMenuItem>
-          <DropdownMenuItem>Pending Enrichment</DropdownMenuItem>
+          <DropdownMenuRadioGroup value={filterBy} onValueChange={(value) => onFilterByChange(value as LibraryFilterBy)}>
+            <DropdownMenuRadioItem value="all">All Files</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="audio">Audio Only</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="folders">Folders Only</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="pendingEnrichment">Pending Enrichment</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -101,8 +157,15 @@ export function Toolbar({
         <span className="hidden md:inline">Import</span>
       </Button>
 
-      <Button variant="ghost" size="icon" className="size-8 shrink-0">
-        <RefreshCw className="size-4" />
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-8 shrink-0"
+        onClick={onRefresh}
+        disabled={isRefreshing}
+        aria-label="Refresh library"
+      >
+        <RefreshCw className={cn("size-4", isRefreshing && "animate-spin")} />
       </Button>
     </div>
   )

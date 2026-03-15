@@ -10,15 +10,23 @@ interface FileGridProps {
   onSelect: (item: FileItem) => void
   onOpen: (item: FileItem) => void
   viewMode: "grid" | "list"
+  emptyMessage?: string
 }
 
-export function FileGrid({ items, selectedId, onSelect, onOpen, viewMode }: FileGridProps) {
+export function FileGrid({
+  items,
+  selectedId,
+  onSelect,
+  onOpen,
+  viewMode,
+  emptyMessage = "This folder is empty",
+}: FileGridProps) {
   if (items.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center text-muted-foreground">
         <div className="text-center">
           <Folder className="mx-auto size-12 opacity-50" />
-          <p className="mt-2">This folder is empty</p>
+          <p className="mt-2">{emptyMessage}</p>
         </div>
       </div>
     )

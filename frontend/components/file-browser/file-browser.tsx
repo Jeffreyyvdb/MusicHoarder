@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -26,6 +26,10 @@ import {
   type LibraryPathMode,
 } from "@/lib/api-client"
 
+type LibrarySortBy = "name" | "dateModified" | "size" | "type"
+type LibrarySortDirection = "asc" | "desc"
+type LibraryFilterBy = "all" | "audio" | "folders" | "pendingEnrichment"
+
 const EMPTY_LIBRARY: FileItem[] = [
   {
     id: "root",
@@ -50,17 +54,102 @@ function countAudioFiles(items: FileItem[]): number {
   return count
 }
 
+function collectDescendants(items: FileItem[]): FileItem[] {
+  const descendants: FileItem[] = []
+  const stack = [...items]
+
+  while (stack.length > 0) {
+    const item = stack.shift()
+    if (!item) continue
+
+    descendants.push(item)
+    if (item.type === "folder" && item.children?.length) {
+      stack.unshift(...item.children)
+    }
+  }
+
+  return descendants
+}
+
+function matchesQuery(item: FileItem, query: string): boolean {
+  const loweredQuery = query.toLowerCase()
+  if (item.name.toLowerCase().includes(loweredQuery)) return true
+  if (item.path.toLowerCase().includes(loweredQuery)) return true
+
+  if (item.type !== "audio" || !item.metadata) return false
+  return [
+    item.metadata.title,
+    item.metadata.artist,
+    item.metadata.album,
+    item.metadata.format,
+  ].some((value) => value.toLowerCase().includes(loweredQuery))
+}
+
+function getAggregateSize(item: FileItem): number {
+  if (item.type === "audio") {
+    return item.metadata?.fileSize ?? 0
+  }
+
+  let totalSize = 0
+  const stack = [...(item.children ?? [])]
+  while (stack.length > 0) {
+    const child = stack.pop()
+    if (!child) continue
+    if (child.type === "audio") {
+      totalSize += child.metadata?.fileSize ?? 0
+      continue
+    }
+
+    if (child.children?.length) {
+      stack.push(...child.children)
+    }
+  }
+
+  return totalSize
+}
+
+function getRecencyValue(item: FileItem): number {
+  if (item.type === "audio") {
+    const songId = Number(item.id.replace("song:", ""))
+    return Number.isFinite(songId) ? songId : 0
+  }
+
+  let newestSongId = 0
+  const stack = [...(item.children ?? [])]
+  while (stack.length > 0) {
+    const child = stack.pop()
+    if (!child) continue
+    if (child.type === "audio") {
+      const parsedSongId = Number(child.id.replace("song:", ""))
+      if (Number.isFinite(parsedSongId)) {
+        newestSongId = Math.max(newestSongId, parsedSongId)
+      }
+      continue
+    }
+    if (child.children?.length) {
+      stack.push(...child.children)
+    }
+  }
+
+  return newestSongId
+}
+
 export function FileBrowser() {
+  const isMountedRef = useRef(true)
   const [songs, setSongs] = useState<ApiSong[]>([])
   const [libraryMode, setLibraryMode] = useState<LibraryPathMode>("destination")
   const [currentFolderId, setCurrentFolderId] = useState<string>("root")
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
   const [searchQuery, setSearchQuery] = useState("")
+  const [sortBy, setSortBy] = useState<LibrarySortBy>("name")
+  const [sortDirection, setSortDirection] = useState<LibrarySortDirection>("asc")
+  const [filterBy, setFilterBy] = useState<LibraryFilterBy>("all")
   const [showDetails, setShowDetails] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [apiError, setApiError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [isHydrated, setIsHydrated] = useState(false)
   const isMobile = useIsMobile()
   const fileSystem = useMemo(
@@ -72,33 +161,40 @@ export function FileBrowser() {
     setIsHydrated(true)
   }, [])
 
-  useEffect(() => {
-    let active = true
-
-    const loadSongs = async () => {
-      try {
+  const loadSongs = useCallback(async (mode: "initial" | "refresh") => {
+    try {
+      if (mode === "initial") {
         setIsLoading(true)
-        const loadedSongs = await fetchSongs()
-        if (!active) return
-        setSongs(loadedSongs)
-        setApiError(null)
-      } catch (error) {
-        if (!active) return
-        setSongs([])
-        const message = error instanceof Error ? error.message : "Unknown API error"
-        setApiError(`Unable to load library from API. ${message}`)
-      } finally {
-        if (!active) return
+      } else {
+        setIsRefreshing(true)
+      }
+
+      const loadedSongs = await fetchSongs()
+      if (!isMountedRef.current) return
+      setSongs(loadedSongs)
+      setApiError(null)
+    } catch (error) {
+      if (!isMountedRef.current) return
+      setSongs([])
+      const message = error instanceof Error ? error.message : "Unknown API error"
+      setApiError(`Unable to load library from API. ${message}`)
+    } finally {
+      if (!isMountedRef.current) return
+      if (mode === "initial") {
         setIsLoading(false)
+      } else {
+        setIsRefreshing(false)
       }
     }
+  }, [])
 
-    loadSongs()
+  useEffect(() => {
+    void loadSongs("initial")
 
     return () => {
-      active = false
+      isMountedRef.current = false
     }
-  }, [])
+  }, [loadSongs])
 
   useEffect(() => {
     setCurrentFolderId("root")
@@ -145,13 +241,73 @@ export function FileBrowser() {
     return `Loaded ${mappedSongCount} of ${expectedSongCount} ${libraryMode} songs. Some songs could not be mapped to folders.`
   }, [apiError, isLoading, expectedSongCount, mappedSongCount, libraryMode])
 
-  const filteredItems = useMemo(() => {
-    const items = currentFolder?.children || []
-    if (!searchQuery) return items
-    return items.filter((item) =>
-      item.name.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-  }, [currentFolder, searchQuery])
+  const visibleItems = useMemo(() => {
+    const folderItems = currentFolder?.children ?? []
+    const query = searchQuery.trim()
+
+    const searchedItems =
+      query.length === 0
+        ? folderItems
+        : collectDescendants(folderItems).filter((item) => matchesQuery(item, query))
+
+    const filteredItems = searchedItems.filter((item) => {
+      switch (filterBy) {
+        case "audio":
+          return item.type === "audio"
+        case "folders":
+          return item.type === "folder"
+        case "pendingEnrichment":
+          return item.type === "audio" && item.metadata?.enrichmentStatus === "pending"
+        case "all":
+        default:
+          return true
+      }
+    })
+
+    const sortedItems = filteredItems.toSorted((left, right) => {
+      if (left.type !== right.type) {
+        return left.type === "folder" ? -1 : 1
+      }
+
+      let result = 0
+      switch (sortBy) {
+        case "size":
+          result = getAggregateSize(left) - getAggregateSize(right)
+          break
+        case "type":
+          result = left.type.localeCompare(right.type)
+          break
+        case "dateModified":
+          result = getRecencyValue(left) - getRecencyValue(right)
+          break
+        case "name":
+        default:
+          result = left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
+          break
+      }
+
+      if (result === 0) {
+        result = left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
+      }
+      if (result === 0) {
+        result = left.id.localeCompare(right.id)
+      }
+
+      return sortDirection === "asc" ? result : -result
+    })
+
+    return sortedItems
+  }, [currentFolder, filterBy, searchQuery, sortBy, sortDirection])
+
+  const emptyStateMessage = useMemo(() => {
+    if (searchQuery.trim().length > 0) {
+      return "No files match your search in this folder tree"
+    }
+    if (filterBy !== "all") {
+      return "No files match the selected filter"
+    }
+    return "This folder is empty"
+  }, [filterBy, searchQuery])
 
   const handleFolderSelect = (item: FileItem) => {
     if (item.type === "folder") {
@@ -290,8 +446,16 @@ export function FileBrowser() {
                 onViewModeChange={setViewMode}
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}
+                sortBy={sortBy}
+                sortDirection={sortDirection}
+                filterBy={filterBy}
+                onSortByChange={setSortBy}
+                onSortDirectionChange={setSortDirection}
+                onFilterByChange={setFilterBy}
                 libraryMode={libraryMode}
                 onLibraryModeChange={setLibraryMode}
+                onRefresh={() => void loadSongs("refresh")}
+                isRefreshing={isRefreshing}
               />
               {isLoading && (
                 <div className="border-b border-border bg-card/30 px-4 py-2 text-xs text-muted-foreground">
@@ -312,18 +476,19 @@ export function FileBrowser() {
               {/* File Grid */}
               <ScrollArea className="min-h-0 flex-1">
                 <FileGrid
-                  items={filteredItems}
+                  items={visibleItems}
                   selectedId={selectedFileId}
                   onSelect={handleFileSelect}
                   onOpen={handleFileOpen}
                   viewMode={viewMode}
+                  emptyMessage={emptyStateMessage}
                 />
               </ScrollArea>
 
               {/* Status Bar */}
               <div className="flex items-center justify-between border-t border-border bg-card/30 px-4 py-1.5 text-xs text-muted-foreground">
                 <span>
-                  {filteredItems.length} items ({libraryMode})
+                  {visibleItems.length} items ({libraryMode})
                 </span>
                 {selectedFile && (
                   <span className="truncate max-w-[200px]">
@@ -364,8 +529,16 @@ export function FileBrowser() {
             onViewModeChange={setViewMode}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
+            sortBy={sortBy}
+            sortDirection={sortDirection}
+            filterBy={filterBy}
+            onSortByChange={setSortBy}
+            onSortDirectionChange={setSortDirection}
+            onFilterByChange={setFilterBy}
             libraryMode={libraryMode}
             onLibraryModeChange={setLibraryMode}
+            onRefresh={() => void loadSongs("refresh")}
+            isRefreshing={isRefreshing}
           />
           {isLoading && (
             <div className="border-b border-border bg-card/30 px-3 py-2 text-xs text-muted-foreground">
@@ -386,18 +559,19 @@ export function FileBrowser() {
           {/* File Grid */}
           <ScrollArea className="min-h-0 flex-1">
             <FileGrid
-              items={filteredItems}
+              items={visibleItems}
               selectedId={selectedFileId}
               onSelect={handleFileSelect}
               onOpen={handleFileOpen}
               viewMode={viewMode}
+              emptyMessage={emptyStateMessage}
             />
           </ScrollArea>
 
           {/* Status Bar */}
           <div className="flex items-center justify-between border-t border-border bg-card/30 px-3 py-1.5 text-xs text-muted-foreground">
             <span>
-              {filteredItems.length} items ({libraryMode})
+              {visibleItems.length} items ({libraryMode})
             </span>
             {selectedFile && (
               <span className="truncate max-w-[150px]">
