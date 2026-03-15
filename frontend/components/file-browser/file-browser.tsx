@@ -34,9 +34,9 @@ type LibraryFilterBy = "all" | "audio" | "folders" | "pendingEnrichment"
 const EMPTY_LIBRARY: FileItem[] = [
   {
     id: "root",
-    name: "Music Library",
+    name: "music",
     type: "folder",
-    path: "/Music Library",
+    path: "/Volumes/music",
     parentId: null,
     children: [],
   },
