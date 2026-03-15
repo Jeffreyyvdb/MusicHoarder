@@ -26,12 +26,49 @@ import {
 import Link from "next/link"
 import { mockImportJob, mockRecentActivity } from "@/lib/mock-data"
 import { AppHeader } from "@/components/app-header"
+import { fetchStats, startScan } from "@/lib/api-client"
 
 export default function OverviewPage() {
   const [job, setJob] = useState(mockImportJob)
   const [isRunning, setIsRunning] = useState(job.status === "running")
+  const [apiError, setApiError] = useState<string | null>(null)
+  const [scanMessage, setScanMessage] = useState<string | null>(null)
 
-  // Simulate progress
+  // Keep API-backed stats fresh while preserving mock fallback behavior.
+  useEffect(() => {
+    let active = true
+
+    const loadStats = async () => {
+      try {
+        const stats = await fetchStats()
+        if (!active) return
+
+        const totalTracks = stats.tracks?.total ?? job.tracksDiscovered
+        const deletedTracks = stats.tracks?.deleted ?? 0
+
+        setJob((prev) => ({
+          ...prev,
+          tracksDiscovered: totalTracks,
+          tracksProcessed: totalTracks,
+          tracksCopied: totalTracks,
+          tracksReview: Math.max(0, prev.tracksReview - deletedTracks),
+          tracksFailed: deletedTracks,
+        }))
+        setApiError(null)
+      } catch {
+        if (!active) return
+        setApiError("Using mock overview data because API is currently unavailable.")
+      }
+    }
+
+    loadStats()
+    const interval = setInterval(loadStats, 15000)
+    return () => {
+      active = false
+      clearInterval(interval)
+    }
+  }, [job.tracksDiscovered])
+
   useEffect(() => {
     if (!isRunning) return
 
@@ -82,12 +119,29 @@ export default function OverviewPage() {
                   </>
                 )}
               </Button>
-              <Button variant="outline" className="gap-2">
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={async () => {
+                  try {
+                    const response = await startScan()
+                    setScanMessage(`Scan started (${response.scanId})`)
+                    setApiError(null)
+                  } catch {
+                    setScanMessage("Could not start scan. API may be unavailable.")
+                  }
+                }}
+              >
                 <RotateCcw className="size-4" />
-                <span className="hidden sm:inline">Restart</span>
+                <span className="hidden sm:inline">Start Scan</span>
               </Button>
             </div>
           </div>
+          {(apiError || scanMessage) && (
+            <div className="rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+              {scanMessage ?? apiError}
+            </div>
+          )}
 
           {/* Source/Destination */}
           <Card>

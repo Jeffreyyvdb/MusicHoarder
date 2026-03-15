@@ -1,36 +1,36 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+## MusicHoarder Frontend
 
-## Getting Started
+This Next.js app is wired to the .NET API through an internal Next.js proxy route so browser requests stay same-origin and do not require CORS.
 
-First, run the development server:
+## Run with Aspire (recommended)
+
+From the repository root:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+dotnet run --project MusicHoarder.AppHost
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Aspire starts:
+- `MusicHoarder.Api` (backend API)
+- `frontend` (Next.js app via pnpm)
+- PostgreSQL
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Frontend API routing
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The frontend proxies backend requests through:
+- `/api/mh/[...path]` -> `.NET API`
 
-## Learn More
+The proxy resolves backend base URL in this order:
+1. `MUSICHOARDER_API_URL`
+2. Aspire-discovery variables like `services__musichoarder-api__http__0`
+3. Fallback: `http://localhost:5107`
 
-To learn more about Next.js, take a look at the following resources:
+## Local frontend-only run (optional)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+If you run frontend without AppHost:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+pnpm dev
+```
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Make sure the API is reachable at `MUSICHOARDER_API_URL` or at the localhost fallback above.
