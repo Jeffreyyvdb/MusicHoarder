@@ -91,20 +91,44 @@ function deriveExtension(fileName: string): string | null {
   return fileName.slice(lastDot)
 }
 
+const DESTINATION_ROOT = "/Music Library"
+
+function safePathSegment(segment: string): string {
+  return segment.replace(/[/\\]/g, "").trim() || "Unknown"
+}
+
+function buildDemoDestinationPath(
+  fileName: string,
+  artist?: string | null,
+  album?: string | null
+): string {
+  const artistSegment = artist ? safePathSegment(artist) : "Unknown"
+  const albumSegment = album ? safePathSegment(album) : "Unknown Album"
+  return `${DESTINATION_ROOT}/${artistSegment}/${albumSegment}/${fileName}`
+}
+
 function buildDemoSongs(): ApiSong[] {
   const audioFiles = flattenAudioFiles(mockFileSystem)
 
   return audioFiles.map((file, index) => {
     const extension = deriveExtension(file.name)
+    const artist = file.metadata?.artist ?? null
+    const album = file.metadata?.album ?? null
+    const hasUsableMetadata =
+      artist && album && artist !== "Unknown Artist" && album !== "Unknown Album" && album !== "Unknown"
+    const destinationPath = hasUsableMetadata
+      ? buildDemoDestinationPath(file.name, artist, album)
+      : `${DESTINATION_ROOT}/Unknown/${file.name}`
+
     return {
       id: index + 1,
       sourcePath: file.path,
-      destinationPath: file.path,
+      destinationPath,
       fileName: file.name,
       extension,
       fileSizeBytes: file.metadata?.fileSize ?? 0,
-      artist: file.metadata?.artist ?? null,
-      album: file.metadata?.album ?? null,
+      artist,
+      album,
       title: file.metadata?.title ?? null,
       year: file.metadata?.year ?? null,
       durationSeconds: file.metadata?.duration ?? null,
