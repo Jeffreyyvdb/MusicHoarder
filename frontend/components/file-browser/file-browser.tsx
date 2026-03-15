@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -19,29 +19,50 @@ import type { FileItem } from "@/lib/types"
 import { FolderOpen, Menu } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { AppHeader } from "@/components/app-header"
+import { buildFileSystemFromSongs, fetchSongs } from "@/lib/api-client"
 
 export function FileBrowser() {
+  const [fileSystem, setFileSystem] = useState<FileItem[]>(mockFileSystem)
   const [currentFolderId, setCurrentFolderId] = useState<string>("root")
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
   const [searchQuery, setSearchQuery] = useState("")
   const [showDetails, setShowDetails] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [apiError, setApiError] = useState<string | null>(null)
   const isMobile = useIsMobile()
 
+  useEffect(() => {
+    let active = true
+
+    const loadSongs = async () => {
+      try {
+        const songs = await fetchSongs()
+        if (!active) return
+        setFileSystem(buildFileSystemFromSongs(songs))
+        setApiError(null)
+      } catch {
+        if (!active) return
+        setApiError("Using mock library data because API is currently unavailable.")
+      }
+    }
+
+    loadSongs()
+  }, [])
+
   const currentFolder = useMemo(
-    () => findFileById(mockFileSystem, currentFolderId),
-    [currentFolderId]
+    () => findFileById(fileSystem, currentFolderId),
+    [fileSystem, currentFolderId]
   )
 
   const breadcrumbPath = useMemo(
-    () => getPathToFile(mockFileSystem, currentFolderId),
-    [currentFolderId]
+    () => getPathToFile(fileSystem, currentFolderId),
+    [fileSystem, currentFolderId]
   )
 
   const selectedFile = useMemo(
-    () => (selectedFileId ? findFileById(mockFileSystem, selectedFileId) : null),
-    [selectedFileId]
+    () => (selectedFileId ? findFileById(fileSystem, selectedFileId) : null),
+    [fileSystem, selectedFileId]
   )
 
   const filteredItems = useMemo(() => {
@@ -100,9 +121,9 @@ export function FileBrowser() {
       }
     }
 
-    countFiles(mockFileSystem)
+    countFiles(fileSystem)
     return { totalTracks, totalSize }
-  }, [])
+  }, [fileSystem])
 
   // Sidebar content component for reuse
   const SidebarContent = () => (
@@ -112,7 +133,7 @@ export function FileBrowser() {
       </div>
       <ScrollArea className="flex-1 p-2">
         <FolderTree
-          items={mockFileSystem}
+          items={fileSystem}
           selectedId={currentFolderId}
           onSelect={handleFolderSelect}
         />
@@ -190,6 +211,11 @@ export function FileBrowser() {
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}
               />
+              {apiError && (
+                <div className="border-b border-border bg-card/30 px-4 py-2 text-xs text-muted-foreground">
+                  {apiError}
+                </div>
+              )}
 
               {/* File Grid */}
               <ScrollArea className="flex-1">
@@ -245,6 +271,11 @@ export function FileBrowser() {
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
           />
+          {apiError && (
+            <div className="border-b border-border bg-card/30 px-3 py-2 text-xs text-muted-foreground">
+              {apiError}
+            </div>
+          )}
 
           {/* File Grid */}
           <ScrollArea className="flex-1">
