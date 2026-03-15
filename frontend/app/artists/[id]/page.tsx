@@ -75,7 +75,7 @@ function TrackRow({
           <Button
             size="sm"
             variant="ghost"
-            className="h-7 px-2 text-primary hover:text-primary"
+            className="h-7 px-2 text-primary hover:bg-primary/10 hover:text-primary"
             onClick={() => onDownload(track.id)}
           >
             <Download className="size-3 mr-1" />

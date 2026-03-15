@@ -220,7 +220,7 @@ function TrackRow({
           <Button
             size="sm"
             variant="ghost"
-            className="h-7 px-2 text-primary hover:text-primary"
+            className="h-7 px-2 text-primary hover:bg-primary/10 hover:text-primary"
             onClick={() => onDownload(track.id)}
           >
             <Download className="size-3 mr-1" />
@@ -334,14 +334,14 @@ export default function SpotifyPage() {
             <TabsList className="h-12 bg-transparent p-0">
               <TabsTrigger
                 value="playlists"
-                className="h-12 rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-primary data-[state=active]:bg-transparent"
+                className="h-12 rounded-none border-0 border-b-2 border-transparent px-4 data-[state=active]:border-b-primary/50 data-[state=active]:border-l-transparent data-[state=active]:border-r-transparent data-[state=active]:border-t-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none"
               >
                 <ListMusic className="size-4 mr-2" />
                 Playlists
               </TabsTrigger>
               <TabsTrigger
                 value="liked"
-                className="h-12 rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-primary data-[state=active]:bg-transparent"
+                className="h-12 rounded-none border-0 border-b-2 border-transparent px-4 data-[state=active]:border-b-primary/50 data-[state=active]:border-l-transparent data-[state=active]:border-r-transparent data-[state=active]:border-t-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none"
               >
                 <Heart className="size-4 mr-2" />
                 Liked Songs
