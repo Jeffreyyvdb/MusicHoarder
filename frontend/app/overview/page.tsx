@@ -27,12 +27,14 @@ import Link from "next/link"
 import { mockImportJob, mockRecentActivity } from "@/lib/mock-data"
 import { AppHeader } from "@/components/app-header"
 import { fetchStats, startScan } from "@/lib/api-client"
+import { isDemoMode } from "@/lib/app-mode"
 
 export default function OverviewPage() {
   const [job, setJob] = useState(mockImportJob)
   const [isRunning, setIsRunning] = useState(job.status === "running")
   const [apiError, setApiError] = useState<string | null>(null)
   const [scanMessage, setScanMessage] = useState<string | null>(null)
+  const modeMessage = isDemoMode ? "Demo mode is enabled. Showing fake data." : null
 
   // Keep API-backed stats fresh while preserving mock fallback behavior.
   useEffect(() => {
@@ -57,7 +59,7 @@ export default function OverviewPage() {
         setApiError(null)
       } catch {
         if (!active) return
-        setApiError("Using mock overview data because API is currently unavailable.")
+        setApiError("Unable to load overview data from API.")
       }
     }
 
@@ -137,9 +139,10 @@ export default function OverviewPage() {
               </Button>
             </div>
           </div>
-          {(apiError || scanMessage) && (
+          {(modeMessage || apiError || scanMessage) && (
             <div className="rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
-              {scanMessage ?? apiError}
+              {modeMessage && <p>{modeMessage}</p>}
+              {(scanMessage || apiError) && <p>{scanMessage ?? apiError}</p>}
             </div>
           )}
 

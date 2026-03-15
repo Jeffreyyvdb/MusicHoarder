@@ -1,6 +1,9 @@
 import type { FileItem } from "@/lib/types"
+import { isDemoMode } from "@/lib/app-mode"
+import { mockFileSystem, mockImportJob } from "@/lib/mock-data"
 
 const API_PREFIX = "/api/mh"
+const INFRASTRUCTURE_PREFIX_SEGMENT = /^(volumes?|mnt|media|srv|share|shares|nas|data|storage|music|musichoarder|library|source|destination|users|home|tmp)$/i
 
 export interface ApiStats {
   tracks?: {
@@ -16,6 +19,7 @@ export interface ApiStats {
 export interface ApiSong {
   id: number
   sourcePath: string
+  destinationPath?: string | null
   fileName: string
   extension?: string | null
   fileSizeBytes: number
@@ -27,7 +31,7 @@ export interface ApiSong {
   fingerprint?: string | null
   musicBrainzId?: string | null
   spotifyId?: string | null
-  enrichmentStatus?: string | null
+  enrichmentStatus?: string | number | null
 }
 
 interface SongsResponse {
@@ -35,6 +39,8 @@ interface SongsResponse {
   includeDeleted: boolean
   songs: ApiSong[]
 }
+
+export type LibraryPathMode = "destination" | "source"
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase()
@@ -58,11 +64,81 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
-function mapEnrichmentStatus(status?: string | null): "pending" | "processing" | "complete" | "failed" {
-  const normalized = status?.toLowerCase()
-  if (normalized === "failed") return "failed"
-  if (normalized === "matched" || normalized === "complete") return "complete"
-  if (normalized === "running" || normalized === "processing") return "processing"
+function flattenAudioFiles(items: FileItem[]): FileItem[] {
+  const audioFiles: FileItem[] = []
+  const stack = [...items]
+
+  while (stack.length > 0) {
+    const item = stack.pop()
+    if (!item) continue
+
+    if (item.type === "audio") {
+      audioFiles.push(item)
+      continue
+    }
+
+    if (item.children?.length) {
+      stack.push(...item.children)
+    }
+  }
+
+  return audioFiles
+}
+
+function deriveExtension(fileName: string): string | null {
+  const lastDot = fileName.lastIndexOf(".")
+  if (lastDot < 0 || lastDot === fileName.length - 1) return null
+  return fileName.slice(lastDot)
+}
+
+function buildDemoSongs(): ApiSong[] {
+  const audioFiles = flattenAudioFiles(mockFileSystem)
+
+  return audioFiles.map((file, index) => {
+    const extension = deriveExtension(file.name)
+    return {
+      id: index + 1,
+      sourcePath: file.path,
+      destinationPath: file.path,
+      fileName: file.name,
+      extension,
+      fileSizeBytes: file.metadata?.fileSize ?? 0,
+      artist: file.metadata?.artist ?? null,
+      album: file.metadata?.album ?? null,
+      title: file.metadata?.title ?? null,
+      year: file.metadata?.year ?? null,
+      durationSeconds: file.metadata?.duration ?? null,
+      fingerprint: file.metadata?.fingerprint ?? null,
+      musicBrainzId: null,
+      spotifyId: null,
+      enrichmentStatus: file.metadata?.enrichmentStatus ?? null,
+    }
+  })
+}
+
+function mapEnrichmentStatus(status?: string | number | null): "pending" | "processing" | "complete" | "failed" {
+  if (typeof status === "number") {
+    switch (status) {
+      case 1:
+        return "complete"
+      case 2:
+        return "processing"
+      case 3:
+        return "failed"
+      default:
+        return "pending"
+    }
+  }
+
+  if (typeof status === "string") {
+    const normalized = status.toLowerCase()
+    if (normalized === "failed") return "failed"
+    if (normalized === "matched" || normalized === "complete") return "complete"
+    if (normalized === "running" || normalized === "processing" || normalized === "needsreview") {
+      return "processing"
+    }
+  }
+
   return "pending"
 }
 
@@ -91,24 +167,136 @@ function getOrCreateChildFolder(parent: FileItem, folderName: string): FileItem 
   return folder
 }
 
-export function buildFileSystemFromSongs(songs: ApiSong[]): FileItem[] {
+function normalizeSourcePath(sourcePath?: string | null): string {
+  const rawPath = (sourcePath ?? "").trim()
+  if (!rawPath) return ""
+
+  const slashNormalized = rawPath.replace(/\\/g, "/").replace(/\/+/g, "/")
+  const withoutWindowsDrive = slashNormalized.replace(/^[a-zA-Z]:\//, "/")
+  return withoutWindowsDrive.replace(/\/+$/, "")
+}
+
+function isFileNameSegment(segment: string): boolean {
+  return /\.[^/.]+$/.test(segment)
+}
+
+function getPathSegments(rawPath?: string | null): string[] {
+  return normalizeSourcePath(rawPath).split("/").filter(Boolean)
+}
+
+function getFolderSegmentsFromPath(rawPath?: string | null): string[] {
+  const segments = getPathSegments(rawPath)
+  if (segments.length === 0) return []
+  return isFileNameSegment(segments[segments.length - 1] ?? "") ? segments.slice(0, -1) : segments
+}
+
+function commonPrefixSegments(paths: string[][]): string[] {
+  if (paths.length === 0) return []
+
+  const first = paths[0]
+  let end = first.length
+  for (let i = 1; i < paths.length; i++) {
+    const current = paths[i]
+    let j = 0
+    while (j < end && j < current.length && first[j] === current[j]) {
+      j++
+    }
+    end = j
+    if (end === 0) break
+  }
+
+  return first.slice(0, end)
+}
+
+function countRemovablePrefixSegments(sharedPrefix: string[]): number {
+  let count = 0
+  for (const segment of sharedPrefix) {
+    if (/^[a-zA-Z]:$/.test(segment) || INFRASTRUCTURE_PREFIX_SEGMENT.test(segment)) {
+      count++
+      continue
+    }
+    break
+  }
+  return count
+}
+
+function countRemovablePrefixSegmentsForMode(
+  mode: LibraryPathMode,
+  sharedPrefix: string[],
+  allFolderSegments: string[][]
+): number {
+  if (mode === "destination") {
+    if (allFolderSegments.length === 0) return 0
+    const shortestPathLength = Math.min(...allFolderSegments.map((segments) => segments.length))
+    const maxRemovable = Math.max(0, shortestPathLength - 1)
+    return Math.min(sharedPrefix.length, maxRemovable)
+  }
+
+  return countRemovablePrefixSegments(sharedPrefix)
+}
+
+function inferPathParts(song: ApiSong): {
+  folderSegments: string[]
+  fileName: string
+  normalizedFilePath: string | null
+  normalizedPathSegments: string[]
+} {
+  const normalizedPath = normalizeSourcePath(song.sourcePath)
+  const pathSegments = normalizedPath.split("/").filter(Boolean)
+  const lastSegment = pathSegments[pathSegments.length - 1] ?? ""
+  const hasFileNameInPath = /\.[^/.]+$/.test(lastSegment)
+
+  const fileNameFromApi = song.fileName?.trim()
+  const inferredFromPath = hasFileNameInPath ? lastSegment : ""
+  const fileName = fileNameFromApi || inferredFromPath || `track-${song.id}`
+
+  const folderSegments = hasFileNameInPath ? pathSegments.slice(0, -1) : pathSegments
+  const normalizedFilePath = hasFileNameInPath ? `/${pathSegments.join("/")}` : null
+
+  return { folderSegments, fileName, normalizedFilePath, normalizedPathSegments: pathSegments }
+}
+
+function getSongsForMode(songs: ApiSong[], mode: LibraryPathMode): ApiSong[] {
+  if (mode === "source") return songs
+  return songs.filter((song) => Boolean(song.destinationPath?.trim()))
+}
+
+export function buildFileSystemFromSongs(
+  songs: ApiSong[],
+  mode: LibraryPathMode = "source"
+): FileItem[] {
+  const songsForMode = getSongsForMode(songs, mode)
+  const allFolderSegments = songsForMode.map((song) =>
+    getFolderSegmentsFromPath(mode === "destination" ? song.destinationPath : song.sourcePath)
+  )
+  const pathRootPrefixSegments = commonPrefixSegments(allFolderSegments)
+  const removablePrefixCount = countRemovablePrefixSegmentsForMode(
+    mode,
+    pathRootPrefixSegments,
+    allFolderSegments
+  )
+
   const root: FileItem = {
     id: "root",
-    name: "Music Library",
+    name: mode === "destination" ? "Destination Library" : "Source Library",
     type: "folder",
-    path: "/Music Library",
+    path: "/",
     parentId: null,
     children: [],
   }
 
-  for (const song of songs) {
-    const normalizedPath = (song.sourcePath || "").replace(/\\/g, "/").replace(/\/+/g, "/")
-    const pathSegments = normalizedPath.split("/").filter(Boolean)
-    const fileName = song.fileName || pathSegments[pathSegments.length - 1] || `track-${song.id}`
-    const folderSegments = pathSegments.slice(0, Math.max(pathSegments.length - 1, 0))
+  for (const song of songsForMode) {
+    const selectedPath = mode === "destination" ? song.destinationPath : song.sourcePath
+    const { folderSegments, fileName, normalizedPathSegments } = inferPathParts({
+      ...song,
+      sourcePath: selectedPath ?? "",
+    })
+    const relativeFolderSegments = folderSegments.slice(removablePrefixCount)
+    const relativePathSegments = normalizedPathSegments.slice(removablePrefixCount)
+    const normalizedFilePath = relativePathSegments.length > 0 ? `/${relativePathSegments.join("/")}` : null
 
     let currentFolder = root
-    for (const segment of folderSegments) {
+    for (const segment of relativeFolderSegments) {
       currentFolder = getOrCreateChildFolder(currentFolder, segment)
     }
 
@@ -120,7 +308,7 @@ export function buildFileSystemFromSongs(songs: ApiSong[]): FileItem[] {
       id: `song:${song.id}`,
       name: fileName,
       type: "audio",
-      path: normalizedPath || `${currentFolder.path}/${fileName}`,
+      path: normalizedFilePath || `${currentFolder.path}/${fileName}`,
       parentId: currentFolder.id,
       metadata: {
         title: metadataTitle,
@@ -149,14 +337,37 @@ export function buildFileSystemFromSongs(songs: ApiSong[]): FileItem[] {
 }
 
 export async function fetchStats(): Promise<ApiStats> {
+  if (isDemoMode) {
+    const demoSongs = buildDemoSongs()
+    return {
+      tracks: {
+        total: mockImportJob.tracksDiscovered || demoSongs.length,
+        deleted: 0,
+      },
+      storage: {
+        totalBytes: demoSongs.reduce((sum, song) => sum + song.fileSizeBytes, 0),
+      },
+    }
+  }
+
   return requestJson<ApiStats>("/stats")
 }
 
 export async function fetchSongs(includeDeleted = false): Promise<ApiSong[]> {
+  if (isDemoMode) {
+    const demoSongs = buildDemoSongs()
+    if (includeDeleted) return demoSongs
+    return demoSongs
+  }
+
   const result = await requestJson<SongsResponse>(`/songs?includeDeleted=${includeDeleted}`)
   return result.songs ?? []
 }
 
 export async function startScan(): Promise<{ scanId: string }> {
+  if (isDemoMode) {
+    return { scanId: `demo-scan-${Date.now()}` }
+  }
+
   return requestJson<{ scanId: string }>("/scan", { method: "POST" })
 }
