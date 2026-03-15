@@ -5,7 +5,9 @@ using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
+using System.Reflection;
 
 namespace MusicHoarder.Api.Tests.Library;
 
@@ -44,7 +46,6 @@ public class LibraryBuilderServiceTests
     {
         var sourcePath = "/source/track.mp3";
         var destinationPath = "/dest/Artist/2026 - Album/01 - Track.mp3";
-        var tempPath = "/dest/Artist/2026 - Album/01 - Track.tmp.mp3";
         var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
         {
             [sourcePath] = new("abcde")
@@ -63,8 +64,9 @@ public class LibraryBuilderServiceTests
         Assert.Equal(1, result.Done);
         Assert.Equal(LibraryBuildStatus.Done, song.LibraryBuildStatus);
         Assert.True(fileSystem.File.Exists(destinationPath));
-        Assert.False(fileSystem.File.Exists(tempPath));
-        Assert.Equal(tempPath, tagWriter.Paths.Single());
+        var usedTempPath = tagWriter.Paths.Single();
+        Assert.Contains(".tmp.", usedTempPath, StringComparison.Ordinal);
+        Assert.False(fileSystem.File.Exists(usedTempPath));
     }
 
     [Fact]
@@ -207,9 +209,70 @@ public class LibraryBuilderServiceTests
         Assert.True(fileSystem.Directory.Exists("/dest/Artist A; Artist B/2026 - Album"));
     }
 
+    [Fact]
+    public async Task ProcessNextBatchAsync_MarksFailed_WhenTempCleanupDeleteThrows()
+    {
+        var sourcePath = "/source/track.mp3";
+        var innerFileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde")
+        });
+        var fileSystem = new DeleteThrowingFileSystem(
+            innerFileSystem,
+            path => path.Contains(".tmp.", StringComparison.Ordinal));
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourcePath, 5));
+        await db.SaveChangesAsync();
+
+        var tagWriter = new RecordingThrowingTagWriter();
+        var service = CreateService(db, fileSystem, tagWriter);
+
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        var song = await db.Songs.SingleAsync();
+
+        Assert.Equal(0, result.Done);
+        Assert.Equal(1, result.Failed);
+        Assert.Equal(LibraryBuildStatus.Failed, song.LibraryBuildStatus);
+        Assert.False(string.IsNullOrWhiteSpace(song.LibraryBuildError));
+        Assert.Contains("tag writer exploded", song.LibraryBuildError, StringComparison.OrdinalIgnoreCase);
+        var tempPath = Assert.Single(tagWriter.Paths);
+        Assert.True(fileSystem.File.Exists(tempPath));
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_ProcessesSingleCandidate_WhenDestinationCollidesWithinBatch()
+    {
+        var sourcePath1 = "/source/track1.mp3";
+        var sourcePath2 = "/source/track2.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath1] = new("abcde"),
+            [sourcePath2] = new("fghij")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourcePath1, 5, title: "Unknown Title", artist: "Artist", albumArtist: "Artist"));
+        db.Songs.Add(CreateMatchedSong(sourcePath2, 5, title: "Unknown Title", artist: "Artist", albumArtist: "Artist"));
+        await db.SaveChangesAsync();
+
+        var tagWriter = new RecordingTagWriter();
+        var service = CreateService(db, fileSystem, tagWriter);
+
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        var songs = await db.Songs.OrderBy(s => s.Id).ToListAsync();
+
+        Assert.Equal(1, result.TotalTracks);
+        Assert.Equal(1, result.Done);
+        Assert.Equal(0, result.Failed);
+        Assert.Equal(LibraryBuildStatus.Done, songs[0].LibraryBuildStatus);
+        Assert.Equal(LibraryBuildStatus.Pending, songs[1].LibraryBuildStatus);
+        Assert.Single(tagWriter.Paths);
+    }
+
     private static LibraryBuilderService CreateService(
         MusicHoarderDbContext db,
-        MockFileSystem fileSystem,
+        IFileSystem fileSystem,
         ILibraryTagWriter tagWriter)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
@@ -277,6 +340,74 @@ public class LibraryBuilderServiceTests
             ct.ThrowIfCancellationRequested();
             Paths.Add(path);
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingThrowingTagWriter : ILibraryTagWriter
+    {
+        public List<string> Paths { get; } = [];
+
+        public Task WriteTagsAsync(string path, SongMetadata song, CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            Paths.Add(path);
+            throw new IOException("tag writer exploded");
+        }
+    }
+
+    private sealed class DeleteThrowingFileSystem : IFileSystem
+    {
+        private readonly IFileSystem inner;
+
+        public DeleteThrowingFileSystem(IFileSystem inner, Func<string, bool> shouldThrowDelete)
+        {
+            this.inner = inner;
+            var proxy = DispatchProxy.Create<IFile, DeleteThrowingFileProxy>();
+            var typedProxy = (DeleteThrowingFileProxy)(object)proxy;
+            typedProxy.Inner = inner.File;
+            typedProxy.ShouldThrowDelete = shouldThrowDelete;
+            File = proxy;
+        }
+
+        public IDirectory Directory => inner.Directory;
+        public IFile File { get; }
+        public IFileInfoFactory FileInfo => inner.FileInfo;
+        public IFileVersionInfoFactory FileVersionInfo => inner.FileVersionInfo;
+        public IPath Path => inner.Path;
+        public IDirectoryInfoFactory DirectoryInfo => inner.DirectoryInfo;
+        public IDriveInfoFactory DriveInfo => inner.DriveInfo;
+        public IFileStreamFactory FileStream => inner.FileStream;
+        public IFileSystemWatcherFactory FileSystemWatcher => inner.FileSystemWatcher;
+    }
+
+    private class DeleteThrowingFileProxy : DispatchProxy
+    {
+        public IFile Inner { get; set; } = default!;
+        public Func<string, bool> ShouldThrowDelete { get; set; } = _ => false;
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod is null)
+            {
+                throw new InvalidOperationException("Proxy method metadata is missing.");
+            }
+
+            if (targetMethod.Name == nameof(IFile.Delete)
+                && args is [{ } firstArg, ..]
+                && firstArg is string path
+                && ShouldThrowDelete(path))
+            {
+                throw new IOException($"Resource busy : '{path}'");
+            }
+
+            try
+            {
+                return targetMethod.Invoke(Inner, args);
+            }
+            catch (TargetInvocationException ex) when (ex.InnerException is not null)
+            {
+                throw ex.InnerException;
+            }
         }
     }
 
