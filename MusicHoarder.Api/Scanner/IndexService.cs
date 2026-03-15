@@ -252,6 +252,7 @@ public class IndexService(
                 existing.FileSizeBytes = metadata.FileSizeBytes;
                 existing.LastModifiedUtc = metadata.LastModifiedUtc;
                 existing.Artist = metadata.Artist;
+                existing.AlbumArtist = metadata.AlbumArtist;
                 existing.Album = metadata.Album;
                 existing.Title = metadata.Title;
                 existing.Year = metadata.Year;

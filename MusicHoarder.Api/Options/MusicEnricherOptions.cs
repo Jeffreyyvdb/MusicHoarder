@@ -12,9 +12,6 @@ public class MusicEnricherOptions
     [Required(ErrorMessage = "MusicEnricher:DestinationDirectory is required.")]
     public string DestinationDirectory { get; set; } = string.Empty;
 
-    [Required(ErrorMessage = "MusicEnricher:TempDirectory is required.")]
-    public string TempDirectory { get; set; } = string.Empty;
-
     /// <summary>Maximum concurrent file reads (tag reading + fpcalc) for SMB safety.</summary>
     [Range(1, 64)]
     public int SmbConcurrency { get; set; } = 8;
@@ -48,4 +45,16 @@ public class MusicEnricherOptions
     /// <summary>Delay in seconds before retrying when no tracks are pending enrichment.</summary>
     [Range(1, 300)]
     public int EnrichmentIdleDelaySeconds { get; set; } = 15;
+
+    /// <summary>Number of tracks processed per library-build cycle.</summary>
+    [Range(1, 10000)]
+    public int LibraryBuilderBatchSize { get; set; } = 100;
+
+    /// <summary>Number of concurrent copy/tag workers per library-build cycle.</summary>
+    [Range(1, 64)]
+    public int LibraryBuilderWorkerConcurrency { get; set; } = 2;
+
+    /// <summary>Delay in seconds before retrying when no tracks are pending library build.</summary>
+    [Range(1, 300)]
+    public int LibraryBuilderIdleDelaySeconds { get; set; } = 20;
 }

@@ -15,6 +15,9 @@ public class MusicHoarderDbContext(DbContextOptions options) : DbContext(options
             entity.HasIndex(e => e.SourcePath).IsUnique();
             entity.HasIndex(e => new { e.DeletedAtUtc, e.LastModifiedUtc });
             entity.HasIndex(e => new { e.DeletedAtUtc, e.EnrichmentStatus, e.Id });
+            entity.HasIndex(e => new { e.DeletedAtUtc, e.EnrichmentStatus, e.LibraryBuildStatus, e.Id });
+            entity.HasIndex(e => new { e.DeletedAtUtc, e.AlbumArtist, e.Album, e.Year, e.Id });
+            entity.HasIndex(e => e.DestinationPath);
         });
     }
 }

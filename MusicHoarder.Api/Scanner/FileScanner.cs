@@ -1,4 +1,5 @@
 using System.IO.Abstractions;
+using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Scanner;
@@ -26,6 +27,7 @@ public class FileScanner(
             var lastModified = fileInfo.LastWriteTimeUtc;
 
             string? artist = null;
+            string? albumArtist = null;
             string? album = null;
             string? title = null;
             int? year = null;
@@ -37,9 +39,14 @@ public class FileScanner(
                 var tag = tagFile.Tag;
 
                 album = NullIfEmpty(tag.Album);
-                artist = tag.AlbumArtists?.Length > 0
+                albumArtist = tag.AlbumArtists?.Length > 0
                     ? NullIfEmpty(tag.AlbumArtists[0])
+                    : null;
+                artist = tag.Performers?.Length > 0
+                    ? NullIfEmpty(tag.Performers[0])
                     : NullIfEmpty(tag.FirstPerformer);
+                artist ??= albumArtist;
+                albumArtist ??= ArtistCreditNormalizer.GetPrimaryArtist(artist);
                 title = NullIfEmpty(tag.Title);
                 year = tag.Year != 0 ? (int)tag.Year : null;
                 trackNumber = tag.Track != 0 ? (int)tag.Track : null;
@@ -59,6 +66,7 @@ public class FileScanner(
                 FileSizeBytes = fileSize,
                 LastModifiedUtc = lastModified,
                 Artist = artist,
+                AlbumArtist = albumArtist,
                 Album = album,
                 Title = title,
                 Year = year,

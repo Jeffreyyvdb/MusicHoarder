@@ -1,11 +1,17 @@
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
 
 namespace MusicHoarder.Api.Enrichment;
 
-public record AcoustIdMatch(string MusicBrainzRecordingId, string Title, string Artist, float Score);
+public record AcoustIdMatch(
+    string MusicBrainzRecordingId,
+    string Title,
+    string Artist,
+    string AlbumArtist,
+    float Score);
 
 public interface IAcoustIdService
 {
@@ -85,14 +91,16 @@ public sealed class AcoustIdService(
             }
 
             var recording = best.Recordings![0];
-            var artist = recording.Artists is { Count: > 0 }
+            var displayArtist = recording.Artists is { Count: > 0 }
                 ? string.Join("; ", recording.Artists.Select(a => a.Name))
                 : string.Empty;
+            var albumArtist = ArtistCreditNormalizer.GetPrimaryArtist(displayArtist) ?? string.Empty;
 
             return new AcoustIdMatch(
                 MusicBrainzRecordingId: recording.Id,
                 Title: recording.Title ?? string.Empty,
-                Artist: artist,
+                Artist: displayArtist,
+                AlbumArtist: albumArtist,
                 Score: best.Score
             );
         }
