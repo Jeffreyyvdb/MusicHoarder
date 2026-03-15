@@ -1,4 +1,5 @@
 using System.IO.Abstractions;
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Options;
@@ -78,7 +79,7 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
-internal record LibraryBuildTrackCandidate(int SongId);
+internal record LibraryBuildTrackCandidate(int SongId, string DestinationPath);
 
 internal enum LibraryBuildOutcome
 {
@@ -95,6 +96,8 @@ public class LibraryBuilderService(
     ILogger<LibraryBuilderService> logger) : ILibraryBuilderService
 {
     private const int CopyBufferSize = 1024 * 1024;
+    private static long tempFileSequence;
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> destinationLocks = new(StringComparer.Ordinal);
 
     public async Task<LibraryBuildBatchResult> ProcessNextBatchAsync(Guid runId, CancellationToken ct = default)
     {
@@ -105,7 +108,7 @@ public class LibraryBuilderService(
         using (var scope = scopeFactory.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-            candidates = await db.Songs
+            var rawCandidates = await db.Songs
                 .AsNoTracking()
                 .Where(s => s.DeletedAtUtc == null)
                 .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched)
@@ -114,8 +117,25 @@ public class LibraryBuilderService(
                     || s.PreviousDestinationPath != null)
                 .OrderBy(s => s.Id)
                 .Take(opts.LibraryBuilderBatchSize)
-                .Select(s => new LibraryBuildTrackCandidate(s.Id))
                 .ToListAsync(ct);
+
+            var uniqueDestinationPaths = new HashSet<string>(StringComparer.Ordinal);
+            candidates = [];
+            foreach (var candidateSong in rawCandidates)
+            {
+                var destinationPath = destinationPathResolver.ResolvePath(candidateSong);
+                if (uniqueDestinationPaths.Add(destinationPath))
+                {
+                    candidates.Add(new LibraryBuildTrackCandidate(candidateSong.Id, destinationPath));
+                }
+                else
+                {
+                    logger.LogWarning(
+                        "Deferring song {SongId}: destination path collision in current batch for {DestinationPath}",
+                        candidateSong.Id,
+                        destinationPath);
+                }
+            }
         }
 
         if (candidates.Count == 0)
@@ -141,7 +161,12 @@ public class LibraryBuilderService(
                 await semaphore.WaitAsync(token);
                 try
                 {
-                    var outcome = await ProcessTrackAsync(candidate.SongId, token);
+                    LibraryBuildOutcome outcome;
+                    using (await AcquireDestinationLockAsync(candidate.DestinationPath, token))
+                    {
+                        outcome = await ProcessTrackAsync(candidate.SongId, candidate.DestinationPath, token);
+                    }
+
                     switch (outcome)
                     {
                         case LibraryBuildOutcome.Done:
@@ -172,7 +197,7 @@ public class LibraryBuilderService(
         return new LibraryBuildBatchResult(candidates.Count, done, failed, duration);
     }
 
-    private async Task<LibraryBuildOutcome> ProcessTrackAsync(int songId, CancellationToken ct)
+    private async Task<LibraryBuildOutcome> ProcessTrackAsync(int songId, string destinationPath, CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
@@ -187,7 +212,6 @@ public class LibraryBuilderService(
         }
 
         var trackLabel = BuildTrackLabel(song);
-        var destinationPath = destinationPathResolver.ResolvePath(song);
         var legacyPath = ResolveLegacyDestinationPath(song);
         var currentManagedPath = ResolveCurrentManagedPath(song, destinationPath, legacyPath);
 
@@ -207,7 +231,7 @@ public class LibraryBuilderService(
             return await MarkFailedAsync(db, song, "Could not resolve destination directory", ct);
         }
 
-        var tempPath = BuildTempPath(destinationPath);
+        var tempPath = BuildTempPath(destinationPath, songId);
         song.LibraryBuildLastAttemptedAtUtc = DateTime.UtcNow;
 
         try
@@ -295,10 +319,7 @@ public class LibraryBuilderService(
         }
         catch (Exception ex)
         {
-            if (fileSystem.File.Exists(tempPath))
-            {
-                fileSystem.File.Delete(tempPath);
-            }
+            TryDeleteFileBestEffort(tempPath, "temp file", trackLabel, songId);
 
             logger.LogWarning(
                 ex,
@@ -342,6 +363,29 @@ public class LibraryBuilderService(
         await destination.FlushAsync(ct);
     }
 
+    private void TryDeleteFileBestEffort(string path, string label, string trackLabel, int songId)
+    {
+        try
+        {
+            if (!fileSystem.File.Exists(path))
+            {
+                return;
+            }
+
+            fileSystem.File.Delete(path);
+        }
+        catch (Exception cleanupEx)
+        {
+            logger.LogWarning(
+                cleanupEx,
+                "Cleanup failed while deleting {Label} for {Track} (SongId={SongId}) at {Path}",
+                label,
+                trackLabel,
+                songId,
+                path);
+        }
+    }
+
     private static string Truncate(string value, int maxLength)
         => value.Length <= maxLength ? value : value[..maxLength];
 
@@ -352,19 +396,46 @@ public class LibraryBuilderService(
         return $"{artist} - {title}";
     }
 
-    private string BuildTempPath(string destinationPath)
+    private string BuildTempPath(string destinationPath, int songId)
     {
         var directory = fileSystem.Path.GetDirectoryName(destinationPath);
         var fileNameWithoutExtension = fileSystem.Path.GetFileNameWithoutExtension(destinationPath);
         var extension = fileSystem.Path.GetExtension(destinationPath);
+        var uniqueToken = Interlocked.Increment(ref tempFileSequence);
 
+        var tempSuffix = $".tmp.{songId}.{uniqueToken}";
         var tempFileName = string.IsNullOrWhiteSpace(extension)
-            ? $"{fileNameWithoutExtension}.tmp"
-            : $"{fileNameWithoutExtension}.tmp{extension}";
+            ? $"{fileNameWithoutExtension}{tempSuffix}"
+            : $"{fileNameWithoutExtension}{tempSuffix}{extension}";
 
         return string.IsNullOrWhiteSpace(directory)
             ? tempFileName
             : fileSystem.Path.Combine(directory, tempFileName);
+    }
+
+    private async Task<IDisposable> AcquireDestinationLockAsync(string destinationPath, CancellationToken ct)
+    {
+        var canonicalPath = fileSystem.Path.GetFullPath(destinationPath);
+        var semaphore = destinationLocks.GetOrAdd(canonicalPath, static _ => new SemaphoreSlim(1, 1));
+        await semaphore.WaitAsync(ct);
+        return new DestinationLockReleaser(semaphore);
+    }
+
+    private sealed class DestinationLockReleaser(SemaphoreSlim semaphore) : IDisposable
+    {
+        private readonly SemaphoreSlim semaphore = semaphore;
+        private bool disposed;
+
+        public void Dispose()
+        {
+            if (disposed)
+            {
+                return;
+            }
+
+            disposed = true;
+            semaphore.Release();
+        }
     }
 
     private string? ResolveCurrentManagedPath(SongMetadata song, string desiredPath, string legacyPath)
