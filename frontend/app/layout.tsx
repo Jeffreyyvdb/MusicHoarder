@@ -7,9 +7,8 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'Sonix - Music Library Manager',
+  title: 'MusicHoarder - Music Library Manager',
   description: 'Import, fingerprint, and organize your music collection',
-  generator: 'v0.app',
   icons: {
     icon: [
       {

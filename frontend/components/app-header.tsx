@@ -2,12 +2,14 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Music, LayoutDashboard, FolderOpen, FileWarning } from "lucide-react"
+import { Music, LayoutDashboard, FolderOpen, FileWarning, Users, Music2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const navItems = [
   { href: "/overview", label: "Overview", icon: LayoutDashboard },
   { href: "/", label: "Library", icon: FolderOpen },
+  { href: "/artists", label: "Artists", icon: Users },
+  { href: "/spotify", label: "Spotify", icon: Music2 },
   { href: "/review", label: "Review", icon: FileWarning },
 ]
 
