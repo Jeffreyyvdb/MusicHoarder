@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MusicHoarder.Api.Persistence;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MusicHoarder.Api.Persistence.Migrations
 {
     [DbContext(typeof(MusicHoarderDbContext))]
-    partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260314232712_AddIsUnreleasedFlag")]
+    partial class AddIsUnreleasedFlag
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -33,17 +36,11 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<string>("Album")
                         .HasColumnType("text");
 
-                    b.Property<string>("AlbumArtist")
-                        .HasColumnType("text");
-
                     b.Property<string>("Artist")
                         .HasColumnType("text");
 
                     b.Property<DateTime?>("DeletedAtUtc")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("DestinationPath")
-                        .HasColumnType("text");
 
                     b.Property<int?>("DurationSeconds")
                         .HasColumnType("integer");
@@ -86,18 +83,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<DateTime>("LastModifiedUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("LibraryBuildError")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("LibraryBuildLastAttemptedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("LibraryBuildStatus")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime?>("LibraryBuiltAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<double?>("MatchConfidence")
                         .HasColumnType("double precision");
 
@@ -108,9 +93,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("OriginalAlbum")
-                        .HasColumnType("text");
-
-                    b.Property<string>("OriginalAlbumArtist")
                         .HasColumnType("text");
 
                     b.Property<string>("OriginalArtist")
@@ -140,9 +122,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<int?>("OriginalYear")
                         .HasColumnType("integer");
 
-                    b.Property<string>("PreviousDestinationPath")
-                        .HasColumnType("text");
-
                     b.Property<string>("SourcePath")
                         .IsRequired()
                         .HasColumnType("text");
@@ -161,18 +140,12 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("DestinationPath");
-
                     b.HasIndex("SourcePath")
                         .IsUnique();
 
                     b.HasIndex("DeletedAtUtc", "LastModifiedUtc");
 
                     b.HasIndex("DeletedAtUtc", "EnrichmentStatus", "Id");
-
-                    b.HasIndex("DeletedAtUtc", "EnrichmentStatus", "LibraryBuildStatus", "Id");
-
-                    b.HasIndex("DeletedAtUtc", "AlbumArtist", "Album", "Year", "Id");
 
                     b.ToTable("Songs");
                 });

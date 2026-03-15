@@ -128,7 +128,7 @@ app.MapGet("/stats", async (MusicHoarderDbContext db) =>
             WithFingerprint = g.Count(s => s.Fingerprint != null && s.Fingerprint != ""),
             WithMusicBrainzId = g.Count(s => s.MusicBrainzId != null && s.MusicBrainzId != ""),
             WithSpotifyId = g.Count(s => s.SpotifyId != null && s.SpotifyId != ""),
-            WithIsrc = g.Count(s => s.Isrc != null && s.Isrc != ""),
+            WithIsrc = g.Count(s => s.Isrc != null && s.Isrc != ""),    
             WithArtist = g.Count(s => s.Artist != null && s.Artist != ""),
             WithAlbum = g.Count(s => s.Album != null && s.Album != ""),
             WithTitle = g.Count(s => s.Title != null && s.Title != ""),
