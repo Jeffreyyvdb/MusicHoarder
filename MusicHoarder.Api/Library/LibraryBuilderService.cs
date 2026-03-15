@@ -1,0 +1,491 @@
+using System.IO.Abstractions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Options;
+using MusicHoarder.Api.Persistence;
+
+namespace MusicHoarder.Api.Library;
+
+public record LibraryBuildBatchResult(
+    int TotalTracks,
+    int Done,
+    int Failed,
+    TimeSpan Duration);
+
+public interface ILibraryBuilderService
+{
+    Task<LibraryBuildBatchResult> ProcessNextBatchAsync(Guid runId, CancellationToken ct = default);
+}
+
+public interface ILibraryTagWriter
+{
+    Task WriteTagsAsync(string path, SongMetadata song, CancellationToken ct = default);
+}
+
+public class TagLibLibraryTagWriter : ILibraryTagWriter
+{
+    public Task WriteTagsAsync(string path, SongMetadata song, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        using var tagFile = TagLib.File.Create(path);
+        var tag = tagFile.Tag;
+
+        tag.Title = NullIfEmpty(song.Title);
+        tag.Album = NullIfEmpty(song.Album);
+        tag.Performers = BuildPerformerArray(song.Artist);
+        tag.AlbumArtists = BuildAlbumArtistArray(song.AlbumArtist, song.Artist);
+        tag.Year = song.Year is > 0 ? (uint)song.Year.Value : 0;
+        tag.Track = song.TrackNumber is > 0 ? (uint)song.TrackNumber.Value : 0;
+        tag.ISRC = NullIfEmpty(song.Isrc) ?? string.Empty;
+
+        tagFile.Save();
+        return Task.CompletedTask;
+    }
+
+    private static string[] BuildPerformerArray(string? artist)
+    {
+        var normalized = NullIfEmpty(artist);
+        if (normalized is null)
+        {
+            return [];
+        }
+
+        if (normalized.Contains(';'))
+        {
+            return normalized
+                .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .ToArray();
+        }
+
+        return [normalized];
+    }
+
+    private static string[] BuildAlbumArtistArray(string? albumArtist, string? artist)
+    {
+        var normalizedAlbumArtist = NullIfEmpty(albumArtist);
+        if (normalizedAlbumArtist is not null)
+        {
+            return [normalizedAlbumArtist];
+        }
+
+        var fallbackArtist = NullIfEmpty(artist);
+        return fallbackArtist is null ? [] : [fallbackArtist];
+    }
+
+    private static string? NullIfEmpty(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}
+
+internal record LibraryBuildTrackCandidate(int SongId);
+
+internal enum LibraryBuildOutcome
+{
+    Done,
+    Failed,
+}
+
+public class LibraryBuilderService(
+    IServiceScopeFactory scopeFactory,
+    IDestinationPathResolver destinationPathResolver,
+    IFileSystem fileSystem,
+    ILibraryTagWriter tagWriter,
+    IOptions<MusicEnricherOptions> options,
+    ILogger<LibraryBuilderService> logger) : ILibraryBuilderService
+{
+    private const int CopyBufferSize = 1024 * 1024;
+
+    public async Task<LibraryBuildBatchResult> ProcessNextBatchAsync(Guid runId, CancellationToken ct = default)
+    {
+        var startedAt = DateTime.UtcNow;
+        var opts = options.Value;
+
+        List<LibraryBuildTrackCandidate> candidates;
+        using (var scope = scopeFactory.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+            candidates = await db.Songs
+                .AsNoTracking()
+                .Where(s => s.DeletedAtUtc == null)
+                .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched)
+                .Where(s => s.LibraryBuildStatus != LibraryBuildStatus.Done
+                    || s.DestinationPath == null
+                    || s.PreviousDestinationPath != null)
+                .OrderBy(s => s.Id)
+                .Take(opts.LibraryBuilderBatchSize)
+                .Select(s => new LibraryBuildTrackCandidate(s.Id))
+                .ToListAsync(ct);
+        }
+
+        if (candidates.Count == 0)
+        {
+            return new LibraryBuildBatchResult(0, 0, 0, DateTime.UtcNow - startedAt);
+        }
+
+        logger.LogInformation("Starting library build run {RunId} with {Count} tracks", runId, candidates.Count);
+
+        var done = 0;
+        var failed = 0;
+        var semaphore = new SemaphoreSlim(opts.LibraryBuilderWorkerConcurrency, opts.LibraryBuilderWorkerConcurrency);
+
+        await Parallel.ForEachAsync(
+            candidates,
+            new ParallelOptions
+            {
+                MaxDegreeOfParallelism = opts.LibraryBuilderWorkerConcurrency * 2,
+                CancellationToken = ct
+            },
+            async (candidate, token) =>
+            {
+                await semaphore.WaitAsync(token);
+                try
+                {
+                    var outcome = await ProcessTrackAsync(candidate.SongId, token);
+                    switch (outcome)
+                    {
+                        case LibraryBuildOutcome.Done:
+                            Interlocked.Increment(ref done);
+                            break;
+                        case LibraryBuildOutcome.Failed:
+                            Interlocked.Increment(ref failed);
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException();
+                    }
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            });
+
+        var duration = DateTime.UtcNow - startedAt;
+        logger.LogInformation(
+            "Library build run {RunId} complete: Total={Total}, Done={Done}, Failed={Failed}, Duration={Duration:F1}s",
+            runId,
+            candidates.Count,
+            done,
+            failed,
+            duration.TotalSeconds);
+
+        return new LibraryBuildBatchResult(candidates.Count, done, failed, duration);
+    }
+
+    private async Task<LibraryBuildOutcome> ProcessTrackAsync(int songId, CancellationToken ct)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+
+        var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == songId, ct);
+        if (song is null || song.DeletedAtUtc != null || song.EnrichmentStatus != EnrichmentStatus.Matched)
+        {
+            logger.LogDebug(
+                "Skipping song {SongId}: not buildable (missing/deleted/not-matched)",
+                songId);
+            return LibraryBuildOutcome.Failed;
+        }
+
+        var trackLabel = BuildTrackLabel(song);
+        var destinationPath = destinationPathResolver.ResolvePath(song);
+        var legacyPath = ResolveLegacyDestinationPath(song);
+        var currentManagedPath = ResolveCurrentManagedPath(song, destinationPath, legacyPath);
+
+        if (currentManagedPath is not null && !PathsEqual(currentManagedPath, destinationPath))
+        {
+            song.PreviousDestinationPath = currentManagedPath;
+        }
+
+        var destinationDirectory = fileSystem.Path.GetDirectoryName(destinationPath);
+        if (string.IsNullOrWhiteSpace(destinationDirectory))
+        {
+            logger.LogWarning(
+                "Library build failed for {Track} (SongId={SongId}): destination directory resolution returned empty. DestinationPath={DestinationPath}",
+                trackLabel,
+                songId,
+                destinationPath);
+            return await MarkFailedAsync(db, song, "Could not resolve destination directory", ct);
+        }
+
+        var tempPath = BuildTempPath(destinationPath);
+        song.LibraryBuildLastAttemptedAtUtc = DateTime.UtcNow;
+
+        try
+        {
+            logger.LogInformation(
+                "Building {Track} (SongId={SongId}) -> {DestinationPath}",
+                trackLabel,
+                songId,
+                destinationPath);
+
+            fileSystem.Directory.CreateDirectory(destinationDirectory);
+
+            if (fileSystem.File.Exists(destinationPath))
+            {
+                var existingSize = fileSystem.FileInfo.New(destinationPath).Length;
+                if (existingSize == song.FileSizeBytes)
+                {
+                    song.LibraryBuildStatus = LibraryBuildStatus.Done;
+                    song.LibraryBuiltAtUtc = DateTime.UtcNow;
+                    song.LibraryBuildError = null;
+                    song.DestinationPath = destinationPath;
+                    song.PreviousDestinationPath = null;
+                    await db.SaveChangesAsync(ct);
+                    logger.LogInformation(
+                        "Skipping copy for {Track} (SongId={SongId}): destination already exists with same size ({Bytes} bytes)",
+                        trackLabel,
+                        songId,
+                        existingSize);
+                    return LibraryBuildOutcome.Done;
+                }
+            }
+
+            if (fileSystem.File.Exists(tempPath))
+            {
+                fileSystem.File.Delete(tempPath);
+            }
+
+            await StreamCopyAsync(song.SourcePath, tempPath, ct);
+            song.LibraryBuildStatus = LibraryBuildStatus.Copied;
+            song.LibraryBuildError = null;
+            await db.SaveChangesAsync(ct);
+            logger.LogInformation(
+                "Copied {Track} (SongId={SongId}) to temp file {TempPath}",
+                trackLabel,
+                songId,
+                tempPath);
+
+            await tagWriter.WriteTagsAsync(tempPath, song, ct);
+            song.LibraryBuildStatus = LibraryBuildStatus.Tagged;
+            await db.SaveChangesAsync(ct);
+            logger.LogInformation(
+                "Tagged temp file for {Track} (SongId={SongId})",
+                trackLabel,
+                songId);
+
+            if (fileSystem.File.Exists(destinationPath))
+            {
+                fileSystem.File.Delete(destinationPath);
+            }
+
+            fileSystem.File.Move(tempPath, destinationPath);
+            if (!string.IsNullOrWhiteSpace(song.PreviousDestinationPath)
+                && !PathsEqual(song.PreviousDestinationPath, destinationPath))
+            {
+                DeleteManagedPathAndPrune(song.PreviousDestinationPath, options.Value.DestinationDirectory);
+            }
+
+            song.LibraryBuildStatus = LibraryBuildStatus.Done;
+            song.LibraryBuiltAtUtc = DateTime.UtcNow;
+            song.LibraryBuildError = null;
+            song.DestinationPath = destinationPath;
+            song.PreviousDestinationPath = null;
+            await db.SaveChangesAsync(ct);
+            logger.LogInformation(
+                "Library build complete for {Track} (SongId={SongId}): {DestinationPath}",
+                trackLabel,
+                songId,
+                destinationPath);
+
+            return LibraryBuildOutcome.Done;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            if (fileSystem.File.Exists(tempPath))
+            {
+                fileSystem.File.Delete(tempPath);
+            }
+
+            logger.LogWarning(
+                ex,
+                "Library build failed for {Track} (SongId={SongId}). Source={SourcePath}, Temp={TempPath}, Destination={DestinationPath}",
+                trackLabel,
+                songId,
+                song.SourcePath,
+                tempPath,
+                destinationPath);
+            return await MarkFailedAsync(db, song, ex.Message, ct);
+        }
+    }
+
+    private async Task<LibraryBuildOutcome> MarkFailedAsync(
+        MusicHoarderDbContext db,
+        SongMetadata song,
+        string message,
+        CancellationToken ct)
+    {
+        song.LibraryBuildStatus = LibraryBuildStatus.Failed;
+        song.LibraryBuildError = Truncate(message, 1024);
+        song.LibraryBuiltAtUtc = null;
+        song.LibraryBuildLastAttemptedAtUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return LibraryBuildOutcome.Failed;
+    }
+
+    private async Task StreamCopyAsync(string sourcePath, string tempDestinationPath, CancellationToken ct)
+    {
+        await using var source = fileSystem.File.Open(
+            sourcePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read);
+        await using var destination = fileSystem.File.Open(
+            tempDestinationPath,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None);
+        await source.CopyToAsync(destination, CopyBufferSize, ct);
+        await destination.FlushAsync(ct);
+    }
+
+    private static string Truncate(string value, int maxLength)
+        => value.Length <= maxLength ? value : value[..maxLength];
+
+    private static string BuildTrackLabel(SongMetadata song)
+    {
+        var artist = string.IsNullOrWhiteSpace(song.Artist) ? "<unknown-artist>" : song.Artist;
+        var title = string.IsNullOrWhiteSpace(song.Title) ? "<unknown-title>" : song.Title;
+        return $"{artist} - {title}";
+    }
+
+    private string BuildTempPath(string destinationPath)
+    {
+        var directory = fileSystem.Path.GetDirectoryName(destinationPath);
+        var fileNameWithoutExtension = fileSystem.Path.GetFileNameWithoutExtension(destinationPath);
+        var extension = fileSystem.Path.GetExtension(destinationPath);
+
+        var tempFileName = string.IsNullOrWhiteSpace(extension)
+            ? $"{fileNameWithoutExtension}.tmp"
+            : $"{fileNameWithoutExtension}.tmp{extension}";
+
+        return string.IsNullOrWhiteSpace(directory)
+            ? tempFileName
+            : fileSystem.Path.Combine(directory, tempFileName);
+    }
+
+    private string? ResolveCurrentManagedPath(SongMetadata song, string desiredPath, string legacyPath)
+    {
+        if (!string.IsNullOrWhiteSpace(song.DestinationPath))
+        {
+            return song.DestinationPath;
+        }
+
+        if (fileSystem.File.Exists(desiredPath))
+        {
+            return desiredPath;
+        }
+
+        return fileSystem.File.Exists(legacyPath) ? legacyPath : null;
+    }
+
+    private string ResolveLegacyDestinationPath(SongMetadata song)
+    {
+        var artist = NormalizeSegment(song.Artist, "Unknown Artist");
+        var title = NormalizeSegment(song.Title, "Unknown Title");
+        var extension = NormalizeExtension(song.Extension);
+
+        if (song.IsUnreleased)
+        {
+            return Path.Combine(
+                options.Value.DestinationDirectory,
+                artist,
+                "Unreleased",
+                $"{title}{extension}");
+        }
+
+        var album = NormalizeSegment(song.Album, "Unknown Album");
+        var albumFolder = song.Year is > 0
+            ? $"{song.Year.Value} - {album}"
+            : album;
+        var trackPrefix = song.TrackNumber is > 0
+            ? $"{song.TrackNumber.Value:00} - "
+            : string.Empty;
+
+        return Path.Combine(
+            options.Value.DestinationDirectory,
+            artist,
+            albumFolder,
+            $"{trackPrefix}{title}{extension}");
+    }
+
+    private void DeleteManagedPathAndPrune(string path, string destinationRoot)
+    {
+        if (!fileSystem.File.Exists(path))
+        {
+            return;
+        }
+
+        fileSystem.File.Delete(path);
+        PruneEmptyDirectories(fileSystem.Path.GetDirectoryName(path), destinationRoot);
+    }
+
+    private void PruneEmptyDirectories(string? startDirectory, string destinationRoot)
+    {
+        if (string.IsNullOrWhiteSpace(startDirectory))
+        {
+            return;
+        }
+
+        var current = startDirectory;
+        var rootFullPath = fileSystem.Path.GetFullPath(destinationRoot);
+        while (!string.IsNullOrWhiteSpace(current) && IsWithinRoot(current, rootFullPath))
+        {
+            if (!fileSystem.Directory.Exists(current))
+            {
+                break;
+            }
+
+            var hasFiles = fileSystem.Directory.EnumerateFiles(current).Any();
+            var hasDirectories = fileSystem.Directory.EnumerateDirectories(current).Any();
+            if (hasFiles || hasDirectories)
+            {
+                break;
+            }
+
+            fileSystem.Directory.Delete(current);
+            if (PathsEqual(current, rootFullPath))
+            {
+                break;
+            }
+
+            current = fileSystem.Path.GetDirectoryName(current);
+        }
+    }
+
+    private bool IsWithinRoot(string path, string rootFullPath)
+    {
+        var fullPath = fileSystem.Path.GetFullPath(path);
+        return fullPath.StartsWith(rootFullPath, StringComparison.Ordinal);
+    }
+
+    private static bool PathsEqual(string a, string b)
+        => string.Equals(a, b, StringComparison.Ordinal);
+
+    private static string NormalizeSegment(string? value, string fallback)
+    {
+        var sanitized = DestinationPathResolver.Sanitize(value ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(sanitized))
+        {
+            sanitized = fallback;
+        }
+
+        return sanitized.Length <= 60 ? sanitized : sanitized[..60];
+    }
+
+    private static string NormalizeExtension(string? extension)
+    {
+        var sanitized = DestinationPathResolver.Sanitize(extension ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(sanitized))
+        {
+            return string.Empty;
+        }
+
+        return sanitized.StartsWith(".", StringComparison.Ordinal)
+            ? sanitized
+            : $".{sanitized}";
+    }
+}

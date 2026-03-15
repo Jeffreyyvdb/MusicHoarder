@@ -1,6 +1,7 @@
 using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -194,6 +195,9 @@ public class EnrichmentOrchestrator(
             CaptureOriginalMetadata(song, now);
 
             song.Artist = string.IsNullOrWhiteSpace(match.Artist) ? song.Artist : match.Artist;
+            song.AlbumArtist = string.IsNullOrWhiteSpace(match.AlbumArtist)
+                ? ArtistCreditNormalizer.GetPrimaryArtist(song.Artist) ?? song.AlbumArtist
+                : match.AlbumArtist;
             song.Title = string.IsNullOrWhiteSpace(match.Title) ? song.Title : match.Title;
             song.MusicBrainzId = match.MusicBrainzRecordingId;
             song.MatchedBy = "AcoustID";
@@ -240,6 +244,7 @@ public class EnrichmentOrchestrator(
 
         song.OriginalMetadataCaptured = true;
         song.OriginalArtist = song.Artist;
+        song.OriginalAlbumArtist = song.AlbumArtist;
         song.OriginalAlbum = song.Album;
         song.OriginalTitle = song.Title;
         song.OriginalYear = song.Year;

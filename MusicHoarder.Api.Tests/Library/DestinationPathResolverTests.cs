@@ -14,6 +14,7 @@ public class DestinationPathResolverTests
         var resolver = CreateResolver();
         var song = CreateSong(
             artist: "Kanye West",
+            albumArtist: null,
             album: "The College Dropout",
             title: "Through The Wire",
             year: 2004,
@@ -32,6 +33,7 @@ public class DestinationPathResolverTests
         var resolver = CreateResolver();
         var song = CreateSong(
             artist: "Juice WRLD",
+            albumArtist: null,
             album: null,
             title: "Righteous (CDQ)",
             year: null,
@@ -51,6 +53,7 @@ public class DestinationPathResolverTests
         var resolver = CreateResolver();
         var song = CreateSong(
             artist: "Juice WRLD",
+            albumArtist: null,
             album: "Goodbye & Good Riddance",
             title: "Lucid Dreams",
             year: null,
@@ -69,6 +72,7 @@ public class DestinationPathResolverTests
         var resolver = CreateResolver();
         var song = CreateSong(
             artist: "Juice WRLD",
+            albumArtist: null,
             album: "Goodbye & Good Riddance",
             title: "Lucid Dreams",
             year: 2018,
@@ -100,6 +104,7 @@ public class DestinationPathResolverTests
         var longTitle = new string('C', 80);
         var song = CreateSong(
             artist: longArtist,
+            albumArtist: null,
             album: longAlbum,
             title: longTitle,
             year: null,
@@ -123,6 +128,7 @@ public class DestinationPathResolverTests
         var resolver = CreateResolver();
         var song = CreateSong(
             artist: "  ",
+            albumArtist: null,
             album: "Test Album",
             title: null,
             year: null,
@@ -141,6 +147,7 @@ public class DestinationPathResolverTests
         var resolver = CreateResolver();
         var song = CreateSong(
             artist: "Artist",
+            albumArtist: null,
             album: null,
             title: "Track",
             year: null,
@@ -153,13 +160,50 @@ public class DestinationPathResolverTests
             path);
     }
 
+    [Fact]
+    public void ResolvePath_UsesAlbumArtistFolder_WhenAvailable()
+    {
+        var resolver = CreateResolver();
+        var song = CreateSong(
+            artist: "The Notorious B.I.G.; The Lox",
+            albumArtist: "The Notorious B.I.G.",
+            album: "Life After Death",
+            title: "Last Day",
+            year: 1997,
+            trackNumber: 19);
+
+        var path = resolver.ResolvePath(song);
+
+        Assert.Equal(
+            Path.Combine(DestinationRoot, "The Notorious B.I.G.", "1997 - Life After Death", "19 - Last Day.mp3"),
+            path);
+    }
+
+    [Fact]
+    public void ResolvePath_WithoutAlbumArtist_UsesPrimaryArtistFromCredit()
+    {
+        var resolver = CreateResolver();
+        var song = CreateSong(
+            artist: "Drake; Rihanna",
+            albumArtist: null,
+            album: "Take Care",
+            title: "Take Care",
+            year: 2011,
+            trackNumber: 12);
+
+        var path = resolver.ResolvePath(song);
+
+        Assert.Equal(
+            Path.Combine(DestinationRoot, "Drake", "2011 - Take Care", "12 - Take Care.mp3"),
+            path);
+    }
+
     private static DestinationPathResolver CreateResolver()
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
             SourceDirectory = "/source",
             DestinationDirectory = DestinationRoot,
-            TempDirectory = "/tmp/musicenricher"
         });
 
         return new DestinationPathResolver(options);
@@ -167,6 +211,7 @@ public class DestinationPathResolverTests
 
     private static SongMetadata CreateSong(
         string? artist,
+        string? albumArtist,
         string? album,
         string? title,
         int? year,
@@ -181,6 +226,7 @@ public class DestinationPathResolverTests
             Extension = ".mp3",
             LastModifiedUtc = DateTime.UtcNow,
             Artist = artist,
+            AlbumArtist = albumArtist,
             Album = album,
             Title = title,
             Year = year,

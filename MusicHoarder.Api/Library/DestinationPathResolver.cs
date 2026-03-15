@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -15,7 +16,7 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
     {
         ArgumentNullException.ThrowIfNull(song);
 
-        var artist = NormalizeSegment(song.Artist, "Unknown Artist");
+        var albumArtist = ResolveAlbumArtist(song);
         var title = NormalizeSegment(song.Title, "Unknown Title");
         var extension = NormalizeExtension(song.Extension);
 
@@ -23,7 +24,7 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
         {
             return Path.Combine(
                 _destinationRoot,
-                artist,
+                albumArtist,
                 "Unreleased",
                 $"{title}{extension}");
         }
@@ -39,7 +40,7 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
 
         var fileName = $"{trackPrefix}{title}{extension}";
 
-        return Path.Combine(_destinationRoot, artist, albumFolder, fileName);
+        return Path.Combine(_destinationRoot, albumArtist, albumFolder, fileName);
     }
 
     public static string Sanitize(string value)
@@ -87,5 +88,11 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
         return value.Length <= MaxSegmentLength
             ? value
             : value[..MaxSegmentLength];
+    }
+
+    private static string ResolveAlbumArtist(SongMetadata song)
+    {
+        var preferred = song.AlbumArtist ?? ArtistCreditNormalizer.GetPrimaryArtist(song.Artist) ?? song.Artist;
+        return NormalizeSegment(preferred, "Unknown Artist");
     }
 }

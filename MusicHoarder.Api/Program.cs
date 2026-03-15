@@ -28,9 +28,12 @@ builder.Services.AddSingleton<EnrichmentProgressTracker>();
 builder.Services.AddSingleton<IFpcalcService, FpcalcService>();
 builder.Services.AddSingleton<IEnrichmentOrchestrator, EnrichmentOrchestrator>();
 builder.Services.AddSingleton<IDestinationPathResolver, DestinationPathResolver>();
+builder.Services.AddScoped<ILibraryTagWriter, TagLibLibraryTagWriter>();
+builder.Services.AddScoped<ILibraryBuilderService, LibraryBuilderService>();
 
 builder.Services.AddHostedService<ScannerBackgroundService>();
 builder.Services.AddHostedService<EnrichmentBackgroundService>();
+builder.Services.AddHostedService<LibraryBuilderBackgroundService>();
 
 builder.Services.AddScoped<IFileSystem, FileSystem>();
 builder.Services.AddScoped<IFileScanner, FileScanner>();
@@ -52,7 +55,6 @@ builder.Services.AddOpenApi();
 var app = builder.Build();
 
 var musicEnricherOptions = app.Services.GetRequiredService<IOptions<MusicEnricherOptions>>().Value;
-Directory.CreateDirectory(musicEnricherOptions.TempDirectory);
 
 app.MapDefaultEndpoints();
 
@@ -151,41 +153,49 @@ app.MapGet("/stats", async (MusicHoarderDbContext db) =>
             Total = totalCount,
             Deleted = deletedCount,
         },
-        Storage = storage == null ? null : new
-        {
-            TotalBytes = storage.TotalBytes,
-            TotalGiB = Math.Round(storage.TotalBytes / (1024.0 * 1024.0 * 1024.0), 2),
-            AverageBytesPerTrack = storage.AvgBytes,
-        },
-        Duration = duration == null ? null : new
-        {
-            TotalSeconds = duration.TotalSeconds,
-            TotalHours = Math.Round(duration.TotalSeconds / 3600.0, 1),
-            TracksWithDuration = duration.TrackCountWithDuration,
-            AverageSecondsPerTrack = duration.TrackCountWithDuration > 0
-                ? Math.Round(duration.TotalSeconds / (double)duration.TrackCountWithDuration, 1)
-                : (double?)null,
-        },
+        Storage = storage == null
+            ? null
+            : new
+            {
+                TotalBytes = storage.TotalBytes,
+                TotalGiB = Math.Round(storage.TotalBytes / (1024.0 * 1024.0 * 1024.0), 2),
+                AverageBytesPerTrack = storage.AvgBytes,
+            },
+        Duration = duration == null
+            ? null
+            : new
+            {
+                TotalSeconds = duration.TotalSeconds,
+                TotalHours = Math.Round(duration.TotalSeconds / 3600.0, 1),
+                TracksWithDuration = duration.TrackCountWithDuration,
+                AverageSecondsPerTrack = duration.TrackCountWithDuration > 0
+                    ? Math.Round(duration.TotalSeconds / (double)duration.TrackCountWithDuration, 1)
+                    : (double?)null,
+            },
         ByExtension = byExtension,
-        Enrichment = enrichment == null ? null : new
-        {
-            WithFingerprint = enrichment.WithFingerprint,
-            WithMusicBrainzId = enrichment.WithMusicBrainzId,
-            WithSpotifyId = enrichment.WithSpotifyId,
-            WithIsrc = enrichment.WithIsrc,
-            WithArtist = enrichment.WithArtist,
-            WithAlbum = enrichment.WithAlbum,
-            WithTitle = enrichment.WithTitle,
-            FingerprintPct = totalCount > 0 ? Math.Round(100.0 * enrichment.WithFingerprint / totalCount, 1) : 0,
-            MusicBrainzPct = totalCount > 0 ? Math.Round(100.0 * enrichment.WithMusicBrainzId / totalCount, 1) : 0,
-        },
-        IndexWindow = indexWindow == null ? null : new
-        {
-            OldestIndexedUtc = indexWindow.OldestIndexed,
-            NewestIndexedUtc = indexWindow.NewestIndexed,
-            OldestFileModifiedUtc = indexWindow.OldestModified,
-            NewestFileModifiedUtc = indexWindow.NewestModified,
-        },
+        Enrichment = enrichment == null
+            ? null
+            : new
+            {
+                WithFingerprint = enrichment.WithFingerprint,
+                WithMusicBrainzId = enrichment.WithMusicBrainzId,
+                WithSpotifyId = enrichment.WithSpotifyId,
+                WithIsrc = enrichment.WithIsrc,
+                WithArtist = enrichment.WithArtist,
+                WithAlbum = enrichment.WithAlbum,
+                WithTitle = enrichment.WithTitle,
+                FingerprintPct = totalCount > 0 ? Math.Round(100.0 * enrichment.WithFingerprint / totalCount, 1) : 0,
+                MusicBrainzPct = totalCount > 0 ? Math.Round(100.0 * enrichment.WithMusicBrainzId / totalCount, 1) : 0,
+            },
+        IndexWindow = indexWindow == null
+            ? null
+            : new
+            {
+                OldestIndexedUtc = indexWindow.OldestIndexed,
+                NewestIndexedUtc = indexWindow.NewestIndexed,
+                OldestFileModifiedUtc = indexWindow.OldestModified,
+                NewestFileModifiedUtc = indexWindow.NewestModified,
+            },
     };
 
     return Results.Ok(stats);
@@ -216,6 +226,7 @@ app.MapGet("/songs", async (MusicHoarderDbContext db, bool includeDeleted = fals
             s.IndexedAtUtc,
             s.DeletedAtUtc,
             s.Artist,
+            s.AlbumArtist,
             s.Album,
             s.Title,
             s.Year,
@@ -231,6 +242,7 @@ app.MapGet("/songs", async (MusicHoarderDbContext db, bool includeDeleted = fals
             s.EnrichmentError,
             s.OriginalMetadataCaptured,
             s.OriginalArtist,
+            s.OriginalAlbumArtist,
             s.OriginalAlbum,
             s.OriginalTitle,
             s.OriginalYear,
@@ -238,7 +250,13 @@ app.MapGet("/songs", async (MusicHoarderDbContext db, bool includeDeleted = fals
             s.OriginalIsrc,
             s.OriginalMusicBrainzId,
             s.OriginalSpotifyId,
-            s.OriginalMetadataCapturedAtUtc
+            s.OriginalMetadataCapturedAtUtc,
+            s.LibraryBuildStatus,
+            s.LibraryBuiltAtUtc,
+            s.LibraryBuildLastAttemptedAtUtc,
+            s.LibraryBuildError,
+            s.DestinationPath,
+            s.PreviousDestinationPath
         })
         .ToListAsync();
 
@@ -275,6 +293,7 @@ app.MapPost("/enrichment/reset", async (EnrichmentResetRequest request, MusicHoa
         if (request.RestoreOriginalMetadata && song.OriginalMetadataCaptured)
         {
             song.Artist = song.OriginalArtist;
+            song.AlbumArtist = song.OriginalAlbumArtist;
             song.Album = song.OriginalAlbum;
             song.Title = song.OriginalTitle;
             song.Year = song.OriginalYear;

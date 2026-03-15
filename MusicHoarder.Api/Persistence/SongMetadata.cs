@@ -12,6 +12,7 @@ public class SongMetadata
     public required string Extension { get; set; }
     public required DateTime LastModifiedUtc { get; set; }
     public string? Artist { get; set; }
+    public string? AlbumArtist { get; set; }
     public string? Album { get; set; }
     public string? Title { get; set; }
     public int? Year { get; set; }
@@ -32,6 +33,7 @@ public class SongMetadata
 
     public bool OriginalMetadataCaptured { get; set; }
     public string? OriginalArtist { get; set; }
+    public string? OriginalAlbumArtist { get; set; }
     public string? OriginalAlbum { get; set; }
     public string? OriginalTitle { get; set; }
     public int? OriginalYear { get; set; }
@@ -41,6 +43,12 @@ public class SongMetadata
     public string? OriginalSpotifyId { get; set; }
     public DateTime? OriginalMetadataCapturedAtUtc { get; set; }
     public bool IsUnreleased { get; set; }
+    public LibraryBuildStatus LibraryBuildStatus { get; set; } = LibraryBuildStatus.Pending;
+    public DateTime? LibraryBuiltAtUtc { get; set; }
+    public DateTime? LibraryBuildLastAttemptedAtUtc { get; set; }
+    public string? LibraryBuildError { get; set; }
+    public string? DestinationPath { get; set; }
+    public string? PreviousDestinationPath { get; set; }
 
     public DateTime? DeletedAtUtc { get; set; }
 
@@ -54,4 +62,13 @@ public enum EnrichmentStatus
     Matched = 1,
     NeedsReview = 2,
     Failed = 3,
+}
+
+public enum LibraryBuildStatus
+{
+    Pending = 0,
+    Copied = 1,
+    Tagged = 2,
+    Done = 3,
+    Failed = 4,
 }
