@@ -90,8 +90,17 @@ export default function OverviewPage() {
     return () => clearInterval(interval)
   }, [isRunning])
 
+  // Compute elapsed time only on client to avoid hydration mismatch (Date.now() differs on server vs client).
+  const [elapsedMin, setElapsedMin] = useState<number | null>(null)
+  useEffect(() => {
+    const update = () =>
+      setElapsedMin(Math.floor((Date.now() - job.startedAt.getTime()) / 1000 / 60))
+    update()
+    const interval = setInterval(update, 60_000)
+    return () => clearInterval(interval)
+  }, [job.startedAt])
+
   const progress = job.tracksDiscovered > 0 ? (job.tracksProcessed / job.tracksDiscovered) * 100 : 0
-  const elapsedTime = Math.floor((Date.now() - job.startedAt.getTime()) / 1000 / 60)
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -180,7 +189,7 @@ export default function OverviewPage() {
                 <CardTitle className="text-lg">Progress</CardTitle>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Clock className="size-4" />
-                  <span>{elapsedTime} min elapsed</span>
+                  <span>{elapsedMin !== null ? `${elapsedMin} min elapsed` : "—"}</span>
                 </div>
               </div>
             </CardHeader>
