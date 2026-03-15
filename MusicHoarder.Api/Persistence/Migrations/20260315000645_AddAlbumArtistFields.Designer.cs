@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MusicHoarder.Api.Persistence;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MusicHoarder.Api.Persistence.Migrations
 {
     [DbContext(typeof(MusicHoarderDbContext))]
-    partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260315000645_AddAlbumArtistFields")]
+    partial class AddAlbumArtistFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -41,9 +44,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.Property<DateTime?>("DeletedAtUtc")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("DestinationPath")
-                        .HasColumnType("text");
 
                     b.Property<int?>("DurationSeconds")
                         .HasColumnType("integer");
@@ -140,9 +140,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<int?>("OriginalYear")
                         .HasColumnType("integer");
 
-                    b.Property<string>("PreviousDestinationPath")
-                        .HasColumnType("text");
-
                     b.Property<string>("SourcePath")
                         .IsRequired()
                         .HasColumnType("text");
@@ -160,8 +157,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("DestinationPath");
 
                     b.HasIndex("SourcePath")
                         .IsUnique();
