@@ -204,6 +204,143 @@ app.MapGet("/stats", async (MusicHoarderDbContext db) =>
     return Results.Ok(stats);
 });
 
+app.MapGet("/overview", async (
+    MusicHoarderDbContext db,
+    IOptions<MusicEnricherOptions> options,
+    ScanProgressTracker scanTracker) =>
+{
+    var opts = options.Value;
+    var active = db.Songs.Where(s => s.DeletedAtUtc == null);
+
+    var totalCount = await active.CountAsync();
+    var copiedCount = await active.CountAsync(s =>
+        s.LibraryBuildStatus == LibraryBuildStatus.Copied ||
+        s.LibraryBuildStatus == LibraryBuildStatus.Tagged ||
+        s.LibraryBuildStatus == LibraryBuildStatus.Done);
+    var reviewCount = await active.CountAsync(s => s.EnrichmentStatus == EnrichmentStatus.NeedsReview);
+    var failedCount = await active.CountAsync(s =>
+        s.EnrichmentStatus == EnrichmentStatus.Failed ||
+        s.LibraryBuildStatus == LibraryBuildStatus.Failed);
+
+    var indexWindow = await active
+        .GroupBy(_ => 1)
+        .Select(g => new
+        {
+            NewestIndexed = g.Max(s => s.IndexedAtUtc),
+        })
+        .FirstOrDefaultAsync();
+
+    var scanState = scanTracker.GetCurrent();
+    var scanRunning = scanState is { IsComplete: false };
+
+    var recentSongs = await active
+        .OrderByDescending(s => s.LibraryBuiltAtUtc ?? s.EnrichedAtUtc ?? s.IndexedAtUtc)
+        .Take(25)
+        .Select(s => new
+        {
+            s.Id,
+            s.FileName,
+            s.Artist,
+            s.IndexedAtUtc,
+            s.EnrichedAtUtc,
+            s.LibraryBuiltAtUtc,
+            s.LibraryBuildLastAttemptedAtUtc,
+            s.EnrichmentStatus,
+            s.LibraryBuildStatus,
+        })
+        .ToListAsync();
+
+    var now = DateTime.UtcNow;
+    var activities = recentSongs.Select(s =>
+    {
+        string type;
+        DateTime activityAt;
+        if (s.LibraryBuildStatus is LibraryBuildStatus.Copied or LibraryBuildStatus.Tagged or LibraryBuildStatus.Done
+            && s.LibraryBuiltAtUtc.HasValue)
+        {
+            type = "copied";
+            activityAt = s.LibraryBuiltAtUtc.Value;
+        }
+        else if (s.EnrichmentStatus == EnrichmentStatus.Failed || s.LibraryBuildStatus == LibraryBuildStatus.Failed)
+        {
+            type = "failed";
+            activityAt = s.EnrichedAtUtc ?? s.LibraryBuildLastAttemptedAtUtc ?? s.IndexedAtUtc;
+        }
+        else if (s.EnrichmentStatus == EnrichmentStatus.NeedsReview)
+        {
+            type = "review";
+            activityAt = s.EnrichedAtUtc ?? s.IndexedAtUtc;
+        }
+        else if (s.EnrichmentStatus == EnrichmentStatus.Matched && s.EnrichedAtUtc.HasValue)
+        {
+            type = "enriched";
+            activityAt = s.EnrichedAtUtc.Value;
+        }
+        else
+        {
+            type = "discovered";
+            activityAt = s.IndexedAtUtc;
+        }
+
+        var diff = now - activityAt;
+        var timeAgo = diff.TotalMinutes < 1 ? "just now"
+            : diff.TotalMinutes < 60 ? $"{(int)diff.TotalMinutes} min ago"
+            : diff.TotalHours < 24 ? $"{(int)diff.TotalHours} hr ago"
+            : $"{(int)diff.TotalDays} day{(diff.TotalDays >= 2 ? "s" : "")} ago";
+
+        return new
+        {
+            Id = $"act-{s.Id}",
+            Type = type,
+            Track = s.FileName ?? "Unknown",
+            Artist = s.Artist ?? "Unknown",
+            Time = timeAgo,
+            ActivityAt = activityAt,
+        };
+    }).OrderByDescending(a => a.ActivityAt).ToList();
+
+    var startedAt = scanState?.StartedAt ?? indexWindow?.NewestIndexed ?? now;
+
+    var overview = new
+    {
+        SourcePath = opts.SourceDirectory,
+        DestinationPath = opts.DestinationDirectory,
+        Scan = scanState == null ? null : new
+        {
+            scanState.ScanId,
+            scanState.TotalFiles,
+            scanState.Processed,
+            scanState.NewFiles,
+            scanState.ChangedFiles,
+            scanState.SkippedFiles,
+            scanState.FailedFiles,
+            scanState.IsComplete,
+            scanState.StartedAt,
+            scanState.CompletedAt,
+        },
+        Job = new
+        {
+            Status = scanRunning ? "running" : "completed",
+            StartedAt = startedAt,
+            TracksDiscovered = totalCount,
+            TracksProcessed = totalCount,
+            TracksCopied = copiedCount,
+            TracksReview = reviewCount,
+            TracksFailed = failedCount,
+        },
+        RecentActivity = activities.Select(a => new
+        {
+            a.Id,
+            a.Type,
+            a.Track,
+            a.Artist,
+            a.Time,
+        }),
+    };
+
+    return Results.Ok(overview);
+});
+
 app.MapGet("/songs", async (MusicHoarderDbContext db, bool includeDeleted = false) =>
 {
     var query = db.Songs.AsNoTracking();

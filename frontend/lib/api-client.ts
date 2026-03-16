@@ -16,6 +16,43 @@ export interface ApiStats {
   }
 }
 
+export interface ApiOverviewActivity {
+  id: string
+  type: "discovered" | "copied" | "enriched" | "review" | "failed"
+  track: string
+  artist: string
+  time: string
+}
+
+export interface ApiOverviewScan {
+  scanId: string
+  totalFiles: number
+  processed: number
+  newFiles: number
+  changedFiles: number
+  skippedFiles: number
+  failedFiles: number
+  isComplete: boolean
+  startedAt: string
+  completedAt?: string | null
+}
+
+export interface ApiOverview {
+  sourcePath: string
+  destinationPath: string
+  scan?: ApiOverviewScan | null
+  job: {
+    status: "running" | "completed"
+    startedAt: string
+    tracksDiscovered: number
+    tracksProcessed: number
+    tracksCopied: number
+    tracksReview: number
+    tracksFailed: number
+  }
+  recentActivity: ApiOverviewActivity[]
+}
+
 export interface ApiSong {
   id: number
   sourcePath: string
@@ -375,6 +412,38 @@ export async function fetchStats(): Promise<ApiStats> {
   }
 
   return requestJson<ApiStats>("/stats")
+}
+
+export async function fetchOverview(): Promise<ApiOverview> {
+  if (isDemoMode) {
+    const demoSongs = buildDemoSongs()
+    const copiedCount = demoSongs.filter(
+      (s) => s.destinationPath && s.artist && s.artist !== "Unknown Artist"
+    ).length
+    return {
+      sourcePath: mockImportJob.sourcePath,
+      destinationPath: mockImportJob.destinationPath,
+      scan: null,
+      job: {
+        status: "running",
+        startedAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+        tracksDiscovered: demoSongs.length,
+        tracksProcessed: demoSongs.length,
+        tracksCopied: copiedCount,
+        tracksReview: mockImportJob.tracksReview,
+        tracksFailed: mockImportJob.tracksFailed,
+      },
+      recentActivity: (await import("@/lib/mock-data")).mockRecentActivity.map((a) => ({
+        id: a.id,
+        type: a.type,
+        track: a.track,
+        artist: a.artist,
+        time: a.time,
+      })),
+    }
+  }
+
+  return requestJson<ApiOverview>("/overview")
 }
 
 export async function fetchSongs(includeDeleted = false): Promise<ApiSong[]> {
