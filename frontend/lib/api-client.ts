@@ -477,3 +477,22 @@ export async function startScan(): Promise<{ scanId: string }> {
 
   return requestJson<{ scanId: string }>("/scan", { method: "POST" })
 }
+
+export interface ResetEnrichmentResponse {
+  id: number
+  fileName: string
+  enrichmentStatus: number
+  libraryBuildStatus: number
+  restoredOriginalMetadata: boolean
+  message: string
+}
+
+export async function resetSongEnrichment(
+  songId: number,
+  restoreOriginalMetadata = true
+): Promise<ResetEnrichmentResponse> {
+  return requestJson<ResetEnrichmentResponse>(
+    `/songs/${songId}/reset-enrichment?restoreOriginalMetadata=${restoreOriginalMetadata}`,
+    { method: "POST" }
+  )
+}
