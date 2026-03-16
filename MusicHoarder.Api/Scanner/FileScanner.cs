@@ -32,6 +32,7 @@ public class FileScanner(
             string? title = null;
             int? year = null;
             int? trackNumber = null;
+            int? durationMs = null;
 
             try
             {
@@ -50,6 +51,9 @@ public class FileScanner(
                 title = NullIfEmpty(tag.Title);
                 year = tag.Year != 0 ? (int)tag.Year : null;
                 trackNumber = tag.Track != 0 ? (int)tag.Track : null;
+
+                if (tagFile.Properties?.Duration.TotalMilliseconds > 0)
+                    durationMs = (int)tagFile.Properties.Duration.TotalMilliseconds;
             }
             catch (Exception ex)
             {
@@ -72,6 +76,7 @@ public class FileScanner(
                 Year = year,
                 TrackNumber = trackNumber,
                 DurationSeconds = fpcalcResult?.DurationSeconds,
+                DurationMs = durationMs ?? (fpcalcResult?.DurationSeconds is { } sec ? sec * 1000 : null),
                 Fingerprint = fpcalcResult?.Fingerprint,
                 IndexedAtUtc = DateTime.UtcNow,
                 DeletedAtUtc = null
