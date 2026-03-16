@@ -339,7 +339,7 @@ Each service above may itself use multiple sub-services (AcoustID, MusicBrainz, 
 
 ### System dependencies
 
-The VM snapshot pre-installs .NET 10 SDK, Docker (with fuse-overlayfs for DinD), Node.js 22, and pnpm. The update script handles `dotnet restore` and `pnpm install` on startup.
+The VM snapshot pre-installs .NET 10 SDK, Docker (with fuse-overlayfs for DinD), Node.js 22, pnpm, and `fpcalc` (from `libchromaprint-tools`). The update script handles `dotnet restore` and `pnpm install` on startup.
 
 ### Running the full stack
 
@@ -365,6 +365,17 @@ The API port is dynamically assigned by Aspire — find it in the Aspire dashboa
 ### Required user-secrets
 
 `MusicEnricher:SourceDirectory` and `MusicEnricher:DestinationDirectory` are validated on startup. Set them via `dotnet user-secrets` (see above) to point at local test directories.
+
+### Pipeline dependencies (fpcalc + AcoustID)
+
+`fpcalc` (Chromaprint) must be installed for the scan→enrich→library-build pipeline to work end to end. Without it, songs get indexed but with null `Fingerprint` and `DurationSeconds`, which means:
+- **Enrichment** skips them (filters for non-null fingerprint + duration)
+- **Library Builder** skips them (requires `EnrichmentStatus == Matched`)
+- **Library page "Destination" view** shows nothing (requires `destinationPath` set by the builder)
+
+The `MusicEnricher:AcoustIdApiKey` must be set for enrichment to match songs against MusicBrainz via AcoustID. It is injected as the environment variable `MusicEnricher__AcoustIdApiKey`. Without it, enrichment sets songs to `NeedsReview`.
+
+The library page has two modes: **Source** (shows all scanned songs) and **Destination** (only songs that completed the full pipeline). Toggle between them on the Library page toolbar.
 
 ### Running tests
 
