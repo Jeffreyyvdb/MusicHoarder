@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useState, useCallback } from "react"
+import { createContext, useContext, useState, useCallback, useRef, useEffect } from "react"
 import { ChevronRight, Folder, FolderOpen } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { FileItem } from "@/lib/types"
@@ -27,13 +27,27 @@ interface FolderTreeProps {
   selectedId: string | null
   onSelect: (item: FileItem) => void
   level?: number
+  // External state management - when provided, the tree uses these instead of internal state
+  expandedIds?: Set<string>
+  onExpandedChange?: (ids: Set<string>) => void
 }
 
-export function FolderTree({ items, selectedId, onSelect, level = 0 }: FolderTreeProps) {
+export function FolderTree({ 
+  items, 
+  selectedId, 
+  onSelect, 
+  level = 0,
+  expandedIds: externalExpandedIds,
+  onExpandedChange 
+}: FolderTreeProps) {
   // Only the root FolderTree (level 0) provides the context
   if (level === 0) {
     return (
-      <FolderTreeProvider defaultExpandedIds={getDefaultExpandedIds(items)}>
+      <FolderTreeProvider 
+        items={items}
+        externalExpandedIds={externalExpandedIds}
+        onExpandedChange={onExpandedChange}
+      >
         <FolderTreeInner
           items={items}
           selectedId={selectedId}
@@ -67,35 +81,50 @@ function getDefaultExpandedIds(items: FileItem[]): Set<string> {
 
 interface FolderTreeProviderProps {
   children: React.ReactNode
-  defaultExpandedIds: Set<string>
+  items: FileItem[]
+  externalExpandedIds?: Set<string>
+  onExpandedChange?: (ids: Set<string>) => void
 }
 
-function FolderTreeProvider({ children, defaultExpandedIds }: FolderTreeProviderProps) {
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(defaultExpandedIds)
+function FolderTreeProvider({ 
+  children, 
+  items, 
+  externalExpandedIds,
+  onExpandedChange 
+}: FolderTreeProviderProps) {
+  // Internal state - only used when external state is not provided
+  const [internalExpandedIds, setInternalExpandedIds] = useState<Set<string>>(() => getDefaultExpandedIds(items))
+  
+  // Use external state if provided, otherwise use internal state
+  const expandedIds = externalExpandedIds ?? internalExpandedIds
+  
+  const updateExpandedIds = useCallback((newIds: Set<string>) => {
+    if (onExpandedChange) {
+      onExpandedChange(newIds)
+    } else {
+      setInternalExpandedIds(newIds)
+    }
+  }, [onExpandedChange])
 
   const toggleExpanded = useCallback((id: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) {
-        next.delete(id)
-      } else {
-        next.add(id)
-      }
-      return next
-    })
-  }, [])
+    const next = new Set(expandedIds)
+    if (next.has(id)) {
+      next.delete(id)
+    } else {
+      next.add(id)
+    }
+    updateExpandedIds(next)
+  }, [expandedIds, updateExpandedIds])
 
   const setExpanded = useCallback((id: string, expanded: boolean) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev)
-      if (expanded) {
-        next.add(id)
-      } else {
-        next.delete(id)
-      }
-      return next
-    })
-  }, [])
+    const next = new Set(expandedIds)
+    if (expanded) {
+      next.add(id)
+    } else {
+      next.delete(id)
+    }
+    updateExpandedIds(next)
+  }, [expandedIds, updateExpandedIds])
 
   return (
     <FolderTreeContext.Provider value={{ expandedIds, toggleExpanded, setExpanded }}>
