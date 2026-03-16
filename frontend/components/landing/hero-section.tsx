@@ -50,7 +50,7 @@ export function HeroSection() {
           </div>
           <div className="flex items-center gap-2">
             <span className="w-1.5 h-1.5 bg-primary rounded-full" />
-            <span>.NET + SvelteKit</span>
+            <span>.NET + Next.js</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-1.5 h-1.5 bg-primary rounded-full" />
