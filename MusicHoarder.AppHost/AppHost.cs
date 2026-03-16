@@ -11,8 +11,7 @@ var api = builder.AddProject<Projects.MusicHoarder_Api>("musichoarder-api")
     .WithUrl("/scalar", "Scalar");
 
 builder.AddJavaScriptApp("frontend", "../frontend")
-    // .WithPnpm()
-    .WithNpm()
+    .WithPnpm()
     .WithHttpEndpoint(env: "PORT")
     .WithReference(api)
     .WithEnvironment("MUSICHOARDER_API_URL", api.GetEndpoint("http"))
