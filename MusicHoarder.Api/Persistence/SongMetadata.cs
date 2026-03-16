@@ -18,6 +18,7 @@ public class SongMetadata
     public int? Year { get; set; }
     public int? TrackNumber { get; set; }
     public int? DurationSeconds { get; set; }
+    public int? DurationMs { get; set; }
     public required DateTime IndexedAtUtc { get; set; }
     public string? Fingerprint { get; set; }
 
@@ -27,6 +28,7 @@ public class SongMetadata
     public EnrichmentStatus EnrichmentStatus { get; set; } = EnrichmentStatus.Pending;
     public string? MatchedBy { get; set; }
     public double? MatchConfidence { get; set; }
+    public string? MatchWarnings { get; set; }
     public DateTime? EnrichedAtUtc { get; set; }
     public DateTime? EnrichmentLastAttemptedAtUtc { get; set; }
     public string? EnrichmentError { get; set; }
