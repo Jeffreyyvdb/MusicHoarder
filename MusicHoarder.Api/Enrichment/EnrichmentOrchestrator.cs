@@ -31,6 +31,7 @@ internal enum EnrichmentOutcome
 public class EnrichmentOrchestrator(
     IServiceScopeFactory scopeFactory,
     EnrichmentProgressTracker progressTracker,
+    IAcoustIdMatchValidator matchValidator,
     IOptions<MusicEnricherOptions> options,
     ILogger<EnrichmentOrchestrator> logger) : IEnrichmentOrchestrator
 {
@@ -183,6 +184,7 @@ public class EnrichmentOrchestrator(
                 song.EnrichmentStatus = EnrichmentStatus.NeedsReview;
                 song.MatchedBy = null;
                 song.MatchConfidence = null;
+                song.MatchWarnings = null;
                 song.EnrichmentError = "No confident AcoustID match";
                 await dbContext.SaveChangesAsync(ct);
                 logger.LogInformation(
@@ -192,6 +194,7 @@ public class EnrichmentOrchestrator(
                 return EnrichmentOutcome.NeedsReview;
             }
 
+            var validation = matchValidator.Validate(match, song);
             CaptureOriginalMetadata(song, now);
 
             song.Artist = string.IsNullOrWhiteSpace(match.Artist) ? song.Artist : match.Artist;
@@ -201,20 +204,27 @@ public class EnrichmentOrchestrator(
             song.Title = string.IsNullOrWhiteSpace(match.Title) ? song.Title : match.Title;
             song.MusicBrainzId = match.MusicBrainzRecordingId;
             song.MatchedBy = "AcoustID";
-            song.MatchConfidence = match.Score;
-            song.EnrichmentStatus = EnrichmentStatus.Matched;
+            song.MatchConfidence = validation.AdjustedScore;
+            song.MatchWarnings = validation.WarningsJson;
+            song.EnrichmentStatus = validation.RecommendedStatus;
             song.EnrichedAtUtc = now;
             song.EnrichmentError = null;
 
             await dbContext.SaveChangesAsync(ct);
+
+            if (validation.RecommendedStatus == EnrichmentStatus.Matched)
+            {
+                logger.LogInformation(
+                    "Enrichment matched {Track} (SongId={SongId}) via AcoustID with adjusted score {Score:F3} (raw={RawScore:F3}) and MusicBrainzId {MusicBrainzId}",
+                    trackLabel, songId, validation.AdjustedScore, match.Score, song.MusicBrainzId);
+                return EnrichmentOutcome.Matched;
+            }
+
             logger.LogInformation(
-                "Enrichment matched {Track} (SongId={SongId}) via {MatchedBy} with score {Score:F3} and MusicBrainzId {MusicBrainzId}",
-                trackLabel,
-                songId,
-                song.MatchedBy,
-                match.Score,
-                song.MusicBrainzId);
-            return EnrichmentOutcome.Matched;
+                "Enrichment needs review for {Track} (SongId={SongId}): adjusted score {Score:F3} (raw={RawScore:F3}), warnings=[{Warnings}]",
+                trackLabel, songId, validation.AdjustedScore, match.Score,
+                string.Join(", ", validation.Warnings));
+            return EnrichmentOutcome.NeedsReview;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

@@ -26,6 +26,7 @@ builder.Services.AddSingleton(Channel.CreateUnbounded<ScanRequest>());
 builder.Services.AddSingleton<ScanProgressTracker>();
 builder.Services.AddSingleton<EnrichmentProgressTracker>();
 builder.Services.AddSingleton<IFpcalcService, FpcalcService>();
+builder.Services.AddSingleton<IAcoustIdMatchValidator, AcoustIdMatchValidator>();
 builder.Services.AddSingleton<IEnrichmentOrchestrator, EnrichmentOrchestrator>();
 builder.Services.AddSingleton<IDestinationPathResolver, DestinationPathResolver>();
 builder.Services.AddScoped<ILibraryTagWriter, TagLibLibraryTagWriter>();
@@ -235,12 +236,14 @@ app.MapGet("/songs", async (MusicHoarderDbContext db, bool includeDeleted = fals
             s.Year,
             s.TrackNumber,
             s.DurationSeconds,
+            s.DurationMs,
             s.Isrc,
             s.MusicBrainzId,
             s.SpotifyId,
             s.EnrichmentStatus,
             s.MatchedBy,
             s.MatchConfidence,
+            s.MatchWarnings,
             s.EnrichedAtUtc,
             s.EnrichmentError,
             s.OriginalMetadataCaptured,
@@ -263,11 +266,29 @@ app.MapGet("/songs", async (MusicHoarderDbContext db, bool includeDeleted = fals
         })
         .ToListAsync();
 
+    var projected = songs.Select(s => new
+    {
+        s.Id, s.SourcePath, s.FileName, s.Extension, s.FileSizeBytes,
+        s.LastModifiedUtc, s.IndexedAtUtc, s.DeletedAtUtc,
+        s.Artist, s.AlbumArtist, s.Album, s.Title, s.Year, s.TrackNumber,
+        s.DurationSeconds, s.DurationMs,
+        s.Isrc, s.MusicBrainzId, s.SpotifyId,
+        s.EnrichmentStatus, s.MatchedBy, s.MatchConfidence,
+        MatchWarnings = DeserializeWarnings(s.MatchWarnings),
+        s.EnrichedAtUtc, s.EnrichmentError,
+        s.OriginalMetadataCaptured, s.OriginalArtist, s.OriginalAlbumArtist,
+        s.OriginalAlbum, s.OriginalTitle, s.OriginalYear, s.OriginalTrackNumber,
+        s.OriginalIsrc, s.OriginalMusicBrainzId, s.OriginalSpotifyId,
+        s.OriginalMetadataCapturedAtUtc,
+        s.LibraryBuildStatus, s.LibraryBuiltAtUtc, s.LibraryBuildLastAttemptedAtUtc,
+        s.LibraryBuildError, s.DestinationPath, s.PreviousDestinationPath
+    }).ToList();
+
     return Results.Ok(new
     {
-        Count = songs.Count,
+        Count = projected.Count,
         IncludeDeleted = includeDeleted,
-        Songs = songs
+        Songs = projected
     });
 });
 
@@ -309,6 +330,7 @@ app.MapPost("/enrichment/reset", async (EnrichmentResetRequest request, MusicHoa
         song.EnrichmentStatus = EnrichmentStatus.Pending;
         song.MatchedBy = null;
         song.MatchConfidence = null;
+        song.MatchWarnings = null;
         song.EnrichedAtUtc = null;
         song.EnrichmentLastAttemptedAtUtc = null;
         song.EnrichmentError = null;
@@ -325,6 +347,13 @@ app.MapPost("/enrichment/reset", async (EnrichmentResetRequest request, MusicHoa
 });
 
 app.Run();
+
+static string[]? DeserializeWarnings(string? json)
+{
+    if (string.IsNullOrWhiteSpace(json)) return null;
+    try { return System.Text.Json.JsonSerializer.Deserialize<string[]>(json); }
+    catch { return null; }
+}
 
 public record EnrichmentResetRequest(
     string Target = "all",
