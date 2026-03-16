@@ -16,7 +16,7 @@ builder.AddJavaScriptApp("frontend", "../frontend")
     .WithHttpEndpoint(env: "PORT")
     .WithReference(api)
     .WithEnvironment("MUSICHOARDER_API_URL", api.GetEndpoint("http"))
-    .WaitFor(api)
+    .WaitForStart(api)
     .WithExternalHttpEndpoints()
     .PublishAsDockerFile();
 
