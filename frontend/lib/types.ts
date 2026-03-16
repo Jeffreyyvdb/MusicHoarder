@@ -24,7 +24,7 @@ export interface TrackMetadata {
   albumArt?: string
   lyrics?: string
   fingerprint?: string
-  enrichmentStatus: "pending" | "processing" | "complete" | "failed"
+  enrichmentStatus: "pending" | "processing" | "complete" | "failed" | "needsreview"
   sources: {
     musicbrainz?: boolean
     lastfm?: boolean
