@@ -258,6 +258,7 @@ public class IndexService(
                 existing.Year = metadata.Year;
                 existing.TrackNumber = metadata.TrackNumber;
                 existing.DurationSeconds = metadata.DurationSeconds;
+                existing.DurationMs = metadata.DurationMs;
                 existing.Fingerprint = metadata.Fingerprint;
                 existing.IndexedAtUtc = metadata.IndexedAtUtc;
                 existing.DeletedAtUtc = null;
