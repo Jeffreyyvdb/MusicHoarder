@@ -158,67 +158,51 @@ public class EnrichmentOrchestrator(
         var acoustIdService = scope.ServiceProvider.GetRequiredService<IAcoustIdService>();
 
         var song = await dbContext.Songs.FirstOrDefaultAsync(s => s.Id == songId, ct);
-        if (song is null || song.DeletedAtUtc != null)
+        if (song is null || song.IsDeleted)
         {
             logger.LogDebug("Skipping enrichment for missing/deleted song {SongId}", songId);
             return EnrichmentOutcome.Failed;
         }
 
-        var trackLabel = BuildTrackLabel(song);
-        var fingerprint = song.Fingerprint;
-        var durationSeconds = song.DurationSeconds;
-        if (string.IsNullOrWhiteSpace(fingerprint) || durationSeconds is null)
+        if (string.IsNullOrWhiteSpace(song.Fingerprint) || song.DurationSeconds is null)
         {
-            var now = DateTime.UtcNow;
-            song.EnrichmentStatus = EnrichmentStatus.NeedsReview;
-            song.EnrichmentLastAttemptedAtUtc = now;
-            song.EnrichedAtUtc = now;
-            song.EnrichmentError = "Missing fingerprint or duration";
+            song.MarkEnrichmentNeedsReview("Missing fingerprint or duration");
             await dbContext.SaveChangesAsync(ct);
-            logger.LogInformation(
-                "Enrichment needs review for {Track} (SongId={SongId}): missing fingerprint or duration",
-                trackLabel,
-                songId);
+            logger.LogInformation("Enrichment needs review for {Track} (SongId={SongId}): missing fingerprint or duration",
+                song.TrackLabel, songId);
             return EnrichmentOutcome.NeedsReview;
         }
 
         try
         {
-            var now = DateTime.UtcNow;
-            song.EnrichmentLastAttemptedAtUtc = now;
+            song.RecordEnrichmentAttempt();
 
-            var match = await acoustIdService.LookupAsync(fingerprint, durationSeconds.Value, ct);
+            var match = await acoustIdService.LookupAsync(song.Fingerprint!, song.DurationSeconds.Value, ct);
             if (match is null)
             {
-                song.EnrichmentStatus = EnrichmentStatus.NeedsReview;
-                song.MatchedBy = null;
-                song.MatchConfidence = null;
-                song.MatchWarnings = null;
-                song.EnrichmentError = "No confident AcoustID match";
-                song.EnrichedAtUtc = now;
+                song.MarkEnrichmentNeedsReview("No confident AcoustID match");
                 await dbContext.SaveChangesAsync(ct);
-                logger.LogInformation(
-                    "Enrichment needs review for {Track} (SongId={SongId}): no confident AcoustID match",
-                    trackLabel,
-                    songId);
+                logger.LogInformation("Enrichment needs review for {Track} (SongId={SongId}): no confident AcoustID match",
+                    song.TrackLabel, songId);
                 return EnrichmentOutcome.NeedsReview;
             }
 
             var validation = matchValidator.Validate(match, song);
-            CaptureOriginalMetadata(song, now);
 
-            song.Artist = string.IsNullOrWhiteSpace(match.Artist) ? song.Artist : match.Artist;
-            song.AlbumArtist = string.IsNullOrWhiteSpace(match.AlbumArtist)
-                ? ArtistCreditNormalizer.GetPrimaryArtist(song.Artist) ?? song.AlbumArtist
+            var effectiveArtist = string.IsNullOrWhiteSpace(match.Artist) ? song.Artist : match.Artist;
+            var resolvedAlbumArtist = string.IsNullOrWhiteSpace(match.AlbumArtist)
+                ? ArtistCreditNormalizer.GetPrimaryArtist(effectiveArtist)
                 : match.AlbumArtist;
-            song.Title = string.IsNullOrWhiteSpace(match.Title) ? song.Title : match.Title;
-            song.MusicBrainzId = match.MusicBrainzRecordingId;
-            song.MatchedBy = "AcoustID";
-            song.MatchConfidence = validation.AdjustedScore;
-            song.MatchWarnings = validation.WarningsJson;
-            song.EnrichmentStatus = validation.RecommendedStatus;
-            song.EnrichedAtUtc = now;
-            song.EnrichmentError = null;
+
+            song.ApplyEnrichmentMatch(new EnrichmentMatchData(
+                match.Artist,
+                resolvedAlbumArtist,
+                match.Title,
+                match.MusicBrainzRecordingId,
+                "AcoustID",
+                validation.AdjustedScore,
+                validation.WarningsJson,
+                validation.RecommendedStatus));
 
             await dbContext.SaveChangesAsync(ct);
 
@@ -226,13 +210,13 @@ public class EnrichmentOrchestrator(
             {
                 logger.LogInformation(
                     "Enrichment matched {Track} (SongId={SongId}) via AcoustID with adjusted score {Score:F3} (raw={RawScore:F3}) and MusicBrainzId {MusicBrainzId}",
-                    trackLabel, songId, validation.AdjustedScore, match.Score, song.MusicBrainzId);
+                    song.TrackLabel, songId, validation.AdjustedScore, match.Score, song.MusicBrainzId);
                 return EnrichmentOutcome.Matched;
             }
 
             logger.LogInformation(
                 "Enrichment needs review for {Track} (SongId={SongId}): adjusted score {Score:F3} (raw={RawScore:F3}), warnings=[{Warnings}]",
-                trackLabel, songId, validation.AdjustedScore, match.Score,
+                song.TrackLabel, songId, validation.AdjustedScore, match.Score,
                 string.Join(", ", validation.Warnings));
             return EnrichmentOutcome.NeedsReview;
         }
@@ -242,41 +226,10 @@ public class EnrichmentOrchestrator(
         }
         catch (Exception ex)
         {
-            var now = DateTime.UtcNow;
-            song.EnrichmentStatus = EnrichmentStatus.Failed;
-            song.EnrichmentError = Truncate(ex.Message, 1024);
-            song.EnrichmentLastAttemptedAtUtc = now;
-            song.EnrichedAtUtc = now;
+            song.MarkEnrichmentFailed(ex.Message);
             await dbContext.SaveChangesAsync(ct);
-            logger.LogWarning(ex, "Failed enrichment for {Track} (SongId={SongId})", trackLabel, songId);
+            logger.LogWarning(ex, "Failed enrichment for {Track} (SongId={SongId})", song.TrackLabel, songId);
             return EnrichmentOutcome.Failed;
         }
     }
-
-    private static string BuildTrackLabel(SongMetadata song)
-    {
-        var title = string.IsNullOrWhiteSpace(song.Title) ? "<unknown-title>" : song.Title;
-        var artist = string.IsNullOrWhiteSpace(song.Artist) ? "<unknown-artist>" : song.Artist;
-        return $"{artist} - {title} [{song.FileName}]";
-    }
-
-    private static void CaptureOriginalMetadata(SongMetadata song, DateTime now)
-    {
-        if (song.OriginalMetadataCaptured) return;
-
-        song.OriginalMetadataCaptured = true;
-        song.OriginalArtist = song.Artist;
-        song.OriginalAlbumArtist = song.AlbumArtist;
-        song.OriginalAlbum = song.Album;
-        song.OriginalTitle = song.Title;
-        song.OriginalYear = song.Year;
-        song.OriginalTrackNumber = song.TrackNumber;
-        song.OriginalIsrc = song.Isrc;
-        song.OriginalMusicBrainzId = song.MusicBrainzId;
-        song.OriginalSpotifyId = song.SpotifyId;
-        song.OriginalMetadataCapturedAtUtc = now;
-    }
-
-    private static string Truncate(string value, int maxLength)
-        => value.Length <= maxLength ? value : value[..maxLength];
 }

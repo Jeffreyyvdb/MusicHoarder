@@ -2,8 +2,20 @@ using System.ComponentModel.DataAnnotations;
 
 namespace MusicHoarder.Api.Persistence;
 
+public record EnrichmentMatchData(
+    string? Artist,
+    string? AlbumArtist,
+    string? Title,
+    string? MusicBrainzId,
+    string MatchedBy,
+    double AdjustedScore,
+    string? WarningsJson,
+    EnrichmentStatus RecommendedStatus);
+
 public class SongMetadata
 {
+    private const int MaxErrorLength = 1024;
+
     [Key]
     public int Id { get; set; }
     public required string SourcePath { get; set; }
@@ -23,8 +35,8 @@ public class SongMetadata
     public string? Fingerprint { get; set; }
 
     public string? Isrc { get; set; }
-    public string? MusicBrainzId { get;set;}
-    public string? SpotifyId { get;set;}
+    public string? MusicBrainzId { get; set; }
+    public string? SpotifyId { get; set; }
     public EnrichmentStatus EnrichmentStatus { get; set; } = EnrichmentStatus.Pending;
     public string? MatchedBy { get; set; }
     public double? MatchConfidence { get; set; }
@@ -54,8 +66,170 @@ public class SongMetadata
 
     public DateTime? DeletedAtUtc { get; set; }
 
+    // --- Guard properties ---
+
     public bool IsDeleted => DeletedAtUtc.HasValue;
 
+    public bool IsReadyForEnrichment =>
+        !IsDeleted
+        && !string.IsNullOrWhiteSpace(Fingerprint)
+        && DurationSeconds is not null
+        && EnrichmentStatus == EnrichmentStatus.Pending;
+
+    public bool IsReadyForBuild =>
+        !IsDeleted
+        && EnrichmentStatus == EnrichmentStatus.Matched
+        && LibraryBuildStatus != LibraryBuildStatus.Done;
+
+    public string TrackLabel
+    {
+        get
+        {
+            var artist = string.IsNullOrWhiteSpace(Artist) ? "<unknown-artist>" : Artist;
+            var title = string.IsNullOrWhiteSpace(Title) ? "<unknown-title>" : Title;
+            return $"{artist} - {title} [{FileName}]";
+        }
+    }
+
+    // --- Enrichment lifecycle ---
+
+    public void RecordEnrichmentAttempt()
+    {
+        EnrichmentLastAttemptedAtUtc = DateTime.UtcNow;
+    }
+
+    public void CaptureOriginalMetadata()
+    {
+        if (OriginalMetadataCaptured) return;
+
+        OriginalMetadataCaptured = true;
+        OriginalArtist = Artist;
+        OriginalAlbumArtist = AlbumArtist;
+        OriginalAlbum = Album;
+        OriginalTitle = Title;
+        OriginalYear = Year;
+        OriginalTrackNumber = TrackNumber;
+        OriginalIsrc = Isrc;
+        OriginalMusicBrainzId = MusicBrainzId;
+        OriginalSpotifyId = SpotifyId;
+        OriginalMetadataCapturedAtUtc = DateTime.UtcNow;
+    }
+
+    public void RestoreOriginalMetadata()
+    {
+        if (!OriginalMetadataCaptured) return;
+
+        Artist = OriginalArtist;
+        AlbumArtist = OriginalAlbumArtist;
+        Album = OriginalAlbum;
+        Title = OriginalTitle;
+        Year = OriginalYear;
+        TrackNumber = OriginalTrackNumber;
+        Isrc = OriginalIsrc;
+        MusicBrainzId = OriginalMusicBrainzId;
+        SpotifyId = OriginalSpotifyId;
+    }
+
+    public void ApplyEnrichmentMatch(EnrichmentMatchData match)
+    {
+        CaptureOriginalMetadata();
+
+        Artist = string.IsNullOrWhiteSpace(match.Artist) ? Artist : match.Artist;
+        AlbumArtist = string.IsNullOrWhiteSpace(match.AlbumArtist) ? AlbumArtist : match.AlbumArtist;
+        Title = string.IsNullOrWhiteSpace(match.Title) ? Title : match.Title;
+        MusicBrainzId = match.MusicBrainzId;
+        MatchedBy = match.MatchedBy;
+        MatchConfidence = match.AdjustedScore;
+        MatchWarnings = match.WarningsJson;
+        EnrichmentStatus = match.RecommendedStatus;
+        EnrichedAtUtc = DateTime.UtcNow;
+        EnrichmentError = null;
+    }
+
+    public void MarkEnrichmentNeedsReview(string reason)
+    {
+        var now = DateTime.UtcNow;
+        EnrichmentStatus = EnrichmentStatus.NeedsReview;
+        EnrichmentLastAttemptedAtUtc = now;
+        EnrichedAtUtc = now;
+        EnrichmentError = reason;
+        MatchedBy = null;
+        MatchConfidence = null;
+        MatchWarnings = null;
+    }
+
+    public void MarkEnrichmentFailed(string error)
+    {
+        var now = DateTime.UtcNow;
+        EnrichmentStatus = EnrichmentStatus.Failed;
+        EnrichmentError = Truncate(error, MaxErrorLength);
+        EnrichmentLastAttemptedAtUtc = now;
+        EnrichedAtUtc = now;
+    }
+
+    public void ResetEnrichment(bool restoreOriginal = true)
+    {
+        if (restoreOriginal)
+            RestoreOriginalMetadata();
+
+        EnrichmentStatus = EnrichmentStatus.Pending;
+        MatchedBy = null;
+        MatchConfidence = null;
+        MatchWarnings = null;
+        EnrichedAtUtc = null;
+        EnrichmentLastAttemptedAtUtc = null;
+        EnrichmentError = null;
+    }
+
+    // --- Library build lifecycle ---
+
+    public void MarkCopied()
+    {
+        LibraryBuildStatus = LibraryBuildStatus.Copied;
+        LibraryBuildError = null;
+    }
+
+    public void MarkTagged()
+    {
+        LibraryBuildStatus = LibraryBuildStatus.Tagged;
+    }
+
+    public void MarkBuildDone(string destinationPath)
+    {
+        LibraryBuildStatus = LibraryBuildStatus.Done;
+        LibraryBuiltAtUtc = DateTime.UtcNow;
+        LibraryBuildError = null;
+        DestinationPath = destinationPath;
+        PreviousDestinationPath = null;
+    }
+
+    public void MarkBuildFailed(string error)
+    {
+        LibraryBuildStatus = LibraryBuildStatus.Failed;
+        LibraryBuildError = Truncate(error, MaxErrorLength);
+        LibraryBuiltAtUtc = null;
+        LibraryBuildLastAttemptedAtUtc = DateTime.UtcNow;
+    }
+
+    public void ResetLibraryBuild()
+    {
+        LibraryBuildStatus = LibraryBuildStatus.Pending;
+        LibraryBuiltAtUtc = null;
+        LibraryBuildLastAttemptedAtUtc = null;
+        LibraryBuildError = null;
+        PreviousDestinationPath = DestinationPath;
+        DestinationPath = null;
+    }
+
+    // --- Soft delete ---
+
+    public void SoftDelete()
+    {
+        DeletedAtUtc = DateTime.UtcNow;
+    }
+
+    private static string Truncate(string value, int maxLength)
+        => value.Length <= maxLength ? value : value[..maxLength];
 }
 
 public enum EnrichmentStatus
