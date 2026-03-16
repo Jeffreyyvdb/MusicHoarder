@@ -162,8 +162,10 @@ public class EnrichmentOrchestrator(
         var durationSeconds = song.DurationSeconds;
         if (string.IsNullOrWhiteSpace(fingerprint) || durationSeconds is null)
         {
+            var now = DateTime.UtcNow;
             song.EnrichmentStatus = EnrichmentStatus.NeedsReview;
-            song.EnrichmentLastAttemptedAtUtc = DateTime.UtcNow;
+            song.EnrichmentLastAttemptedAtUtc = now;
+            song.EnrichedAtUtc = now;
             song.EnrichmentError = "Missing fingerprint or duration";
             await dbContext.SaveChangesAsync(ct);
             logger.LogInformation(
@@ -186,6 +188,7 @@ public class EnrichmentOrchestrator(
                 song.MatchConfidence = null;
                 song.MatchWarnings = null;
                 song.EnrichmentError = "No confident AcoustID match";
+                song.EnrichedAtUtc = now;
                 await dbContext.SaveChangesAsync(ct);
                 logger.LogInformation(
                     "Enrichment needs review for {Track} (SongId={SongId}): no confident AcoustID match",
@@ -232,9 +235,11 @@ public class EnrichmentOrchestrator(
         }
         catch (Exception ex)
         {
+            var now = DateTime.UtcNow;
             song.EnrichmentStatus = EnrichmentStatus.Failed;
             song.EnrichmentError = Truncate(ex.Message, 1024);
-            song.EnrichmentLastAttemptedAtUtc = DateTime.UtcNow;
+            song.EnrichmentLastAttemptedAtUtc = now;
+            song.EnrichedAtUtc = now;
             await dbContext.SaveChangesAsync(ct);
             logger.LogWarning(ex, "Failed enrichment for {Track} (SongId={SongId})", trackLabel, songId);
             return EnrichmentOutcome.Failed;

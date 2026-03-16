@@ -235,8 +235,8 @@ app.MapGet("/overview", async (
     var scanRunning = scanState is { IsComplete: false };
 
     var recentSongs = await active
-        .OrderByDescending(s => s.LibraryBuiltAtUtc ?? s.EnrichedAtUtc ?? s.IndexedAtUtc)
-        .Take(25)
+        .OrderByDescending(s => s.LibraryBuiltAtUtc ?? s.EnrichedAtUtc ?? s.EnrichmentLastAttemptedAtUtc ?? s.IndexedAtUtc)
+        .Take(50)
         .Select(s => new
         {
             s.Id,
@@ -244,6 +244,7 @@ app.MapGet("/overview", async (
             s.Artist,
             s.IndexedAtUtc,
             s.EnrichedAtUtc,
+            s.EnrichmentLastAttemptedAtUtc,
             s.LibraryBuiltAtUtc,
             s.LibraryBuildLastAttemptedAtUtc,
             s.EnrichmentStatus,
@@ -270,7 +271,7 @@ app.MapGet("/overview", async (
         else if (s.EnrichmentStatus == EnrichmentStatus.NeedsReview)
         {
             type = "review";
-            activityAt = s.EnrichedAtUtc ?? s.IndexedAtUtc;
+            activityAt = s.EnrichedAtUtc ?? s.EnrichmentLastAttemptedAtUtc ?? s.IndexedAtUtc;
         }
         else if (s.EnrichmentStatus == EnrichmentStatus.Matched && s.EnrichedAtUtc.HasValue)
         {
