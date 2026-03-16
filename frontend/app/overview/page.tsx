@@ -14,8 +14,6 @@ import {
   CheckCircle2,
   AlertCircle,
   XCircle,
-  Play,
-  Pause,
   RotateCcw,
   Disc3,
   Sparkles,
@@ -24,83 +22,67 @@ import {
   ArrowRight,
 } from "lucide-react"
 import Link from "next/link"
-import { mockImportJob, mockRecentActivity } from "@/lib/mock-data"
 import { AppHeader } from "@/components/app-header"
-import { fetchStats, startScan } from "@/lib/api-client"
+import { fetchOverview, startScan, type ApiOverview } from "@/lib/api-client"
 import { isDemoMode } from "@/lib/app-mode"
 
+const initialOverview: ApiOverview = {
+  sourcePath: "/",
+  destinationPath: "/",
+  job: {
+    status: "completed",
+    startedAt: new Date().toISOString(),
+    tracksDiscovered: 0,
+    tracksProcessed: 0,
+    tracksCopied: 0,
+    tracksReview: 0,
+    tracksFailed: 0,
+  },
+  recentActivity: [],
+}
+
 export default function OverviewPage() {
-  const [job, setJob] = useState(mockImportJob)
-  const [isRunning, setIsRunning] = useState(job.status === "running")
+  const [overview, setOverview] = useState<ApiOverview | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
   const [scanMessage, setScanMessage] = useState<string | null>(null)
   const modeMessage = isDemoMode ? "Demo mode is enabled. Showing fake data." : null
 
-  // Keep API-backed stats fresh while preserving mock fallback behavior.
-  useEffect(() => {
-    let active = true
-
-    const loadStats = async () => {
-      try {
-        const stats = await fetchStats()
-        if (!active) return
-
-        const totalTracks = stats.tracks?.total ?? job.tracksDiscovered
-        const deletedTracks = stats.tracks?.deleted ?? 0
-
-        setJob((prev) => ({
-          ...prev,
-          tracksDiscovered: totalTracks,
-          tracksProcessed: totalTracks,
-          tracksCopied: totalTracks,
-          tracksReview: Math.max(0, prev.tracksReview - deletedTracks),
-          tracksFailed: deletedTracks,
-        }))
-        setApiError(null)
-      } catch {
-        if (!active) return
-        setApiError("Unable to load overview data from API.")
-      }
+  const loadOverview = async () => {
+    try {
+      const data = await fetchOverview()
+      setOverview(data)
+      setApiError(null)
+    } catch {
+      setApiError("Unable to load overview data from API.")
     }
-
-    loadStats()
-    const interval = setInterval(loadStats, 15000)
-    return () => {
-      active = false
-      clearInterval(interval)
-    }
-  }, [job.tracksDiscovered])
+  }
 
   useEffect(() => {
-    if (!isRunning) return
-
-    const interval = setInterval(() => {
-      setJob((prev) => {
-        if (prev.tracksProcessed >= prev.tracksDiscovered) return prev
-        const newProcessed = Math.min(prev.tracksProcessed + 1, prev.tracksDiscovered)
-        const newCopied = Math.min(prev.tracksCopied + (Math.random() > 0.15 ? 1 : 0), newProcessed)
-        return {
-          ...prev,
-          tracksProcessed: newProcessed,
-          tracksCopied: newCopied,
-        }
-      })
-    }, 2000)
-
+    loadOverview()
+    const interval = setInterval(loadOverview, 15000)
     return () => clearInterval(interval)
-  }, [isRunning])
+  }, [])
 
-  // Compute elapsed time only on client to avoid hydration mismatch (Date.now() differs on server vs client).
+  const job = overview?.job ?? initialOverview.job
+  const isRunning = job.status === "running"
+  const scan = overview?.scan
+
   const [elapsedMin, setElapsedMin] = useState<number | null>(null)
   useEffect(() => {
-    const update = () =>
-      setElapsedMin(Math.floor((Date.now() - job.startedAt.getTime()) / 1000 / 60))
+    const startedAt = overview?.job?.startedAt
+    if (!startedAt) return
+    const update = () => {
+      const start = new Date(startedAt).getTime()
+      setElapsedMin(Math.floor((Date.now() - start) / 1000 / 60))
+    }
     update()
     const interval = setInterval(update, 60_000)
     return () => clearInterval(interval)
-  }, [job.startedAt])
+  }, [overview?.job?.startedAt])
 
-  const progress = job.tracksDiscovered > 0 ? (job.tracksProcessed / job.tracksDiscovered) * 100 : 0
+  const tracksDiscovered = scan?.totalFiles ?? job.tracksDiscovered
+  const tracksProcessed = scan?.processed ?? job.tracksProcessed
+  const progress = tracksDiscovered > 0 ? (tracksProcessed / tracksDiscovered) * 100 : 0
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -116,21 +98,6 @@ export default function OverviewPage() {
             </div>
             <div className="flex gap-2">
               <Button
-                variant={isRunning ? "secondary" : "default"}
-                onClick={() => setIsRunning(!isRunning)}
-                className="gap-2"
-              >
-                {isRunning ? (
-                  <>
-                    <Pause className="size-4" /> Pause
-                  </>
-                ) : (
-                  <>
-                    <Play className="size-4" /> Resume
-                  </>
-                )}
-              </Button>
-              <Button
                 variant="outline"
                 className="gap-2"
                 onClick={async () => {
@@ -138,6 +105,7 @@ export default function OverviewPage() {
                     const response = await startScan()
                     setScanMessage(`Scan started (${response.scanId})`)
                     setApiError(null)
+                    setTimeout(loadOverview, 1000)
                   } catch {
                     setScanMessage("Could not start scan. API may be unavailable.")
                   }
@@ -165,7 +133,7 @@ export default function OverviewPage() {
                   </div>
                   <div className="min-w-0">
                     <p className="text-xs text-muted-foreground">Source</p>
-                    <p className="truncate font-medium">{job.sourcePath}</p>
+                    <p className="truncate font-medium">{overview?.sourcePath ?? "—"}</p>
                   </div>
                 </div>
                 <ArrowRight className="hidden size-5 text-muted-foreground md:block" />
@@ -175,7 +143,7 @@ export default function OverviewPage() {
                   </div>
                   <div className="min-w-0">
                     <p className="text-xs text-muted-foreground">Destination</p>
-                    <p className="truncate font-medium">{job.destinationPath}</p>
+                    <p className="truncate font-medium">{overview?.destinationPath ?? "—"}</p>
                   </div>
                 </div>
               </div>
@@ -197,7 +165,7 @@ export default function OverviewPage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">
-                    {job.tracksProcessed} of {job.tracksDiscovered} tracks processed
+                    {tracksProcessed} of {tracksDiscovered} tracks processed
                   </span>
                   <span className="font-medium">{progress.toFixed(1)}%</span>
                 </div>
@@ -206,15 +174,15 @@ export default function OverviewPage() {
 
               {/* Status indicator */}
               <div className="flex items-center gap-2">
-                {isRunning ? (
+                {isRunning || (scan && !scan.isComplete) ? (
                   <>
                     <div className="size-2 animate-pulse rounded-full bg-primary" />
-                    <span className="text-sm text-primary">Processing...</span>
+                    <span className="text-sm text-primary">Scanning...</span>
                   </>
                 ) : (
                   <>
                     <div className="size-2 rounded-full bg-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">Paused</span>
+                    <span className="text-sm text-muted-foreground">Idle</span>
                   </>
                 )}
               </div>
@@ -271,9 +239,15 @@ export default function OverviewPage() {
               <CardContent className="p-0">
                 <ScrollArea className="h-[320px]">
                   <div className="space-y-1 p-4 pt-0">
-                    {mockRecentActivity.map((activity) => (
-                      <ActivityItem key={activity.id} activity={activity} />
-                    ))}
+                    {(overview?.recentActivity ?? []).length > 0 ? (
+                      (overview?.recentActivity ?? []).map((activity) => (
+                        <ActivityItem key={activity.id} activity={activity} />
+                      ))
+                    ) : (
+                      <p className="py-4 text-center text-sm text-muted-foreground">
+                        No recent activity yet
+                      </p>
+                    )}
                   </div>
                 </ScrollArea>
               </CardContent>
@@ -296,7 +270,7 @@ export default function OverviewPage() {
                     </div>
                   </Button>
                 </Link>
-                <Link href="/" className="block">
+                <Link href="/app" className="block">
                   <Button variant="outline" className="w-full justify-start gap-3 h-auto py-3 hover:bg-muted hover:text-foreground dark:hover:bg-muted/50">
                     <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10">
                       <Music className="size-4 text-primary" />
