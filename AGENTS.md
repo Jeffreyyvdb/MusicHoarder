@@ -333,3 +333,63 @@ libraryBuilder --> destinationNas[Destination_NAS]
 
 Each service above may itself use multiple sub-services (AcoustID, MusicBrainz, Spotify dataset, tracker scrapers), but the overall flow remains the same. When introducing new functionality, decide where it belongs in this pipeline and ensure it integrates cleanly with upstream and downstream steps.
 
+---
+
+## Cursor Cloud specific instructions
+
+### System dependencies
+
+The VM snapshot pre-installs .NET 10 SDK, Docker (with fuse-overlayfs for DinD), Node.js 22, pnpm, and `fpcalc` (from `libchromaprint-tools`). The update script handles `dotnet restore` and `pnpm install` on startup.
+
+### Running the full stack
+
+The recommended way to run everything in development is via the Aspire AppHost:
+
+```bash
+mkdir -p /tmp/musichoarder-source /tmp/musichoarder-dest /tmp/musicenricher
+dotnet user-secrets set "MusicEnricher:SourceDirectory" "/tmp/musichoarder-source" --project MusicHoarder.Api
+dotnet user-secrets set "MusicEnricher:DestinationDirectory" "/tmp/musichoarder-dest" --project MusicHoarder.Api
+dotnet run --project MusicHoarder.AppHost
+```
+
+This starts the Aspire dashboard (https://localhost:17072), provisions PostgreSQL as a Docker container, launches `MusicHoarder.Api`, and attempts to start the frontend via npm. EF Core migrations auto-apply in development.
+
+**Gotcha — frontend via AppHost**: The AppHost uses `.WithNpm()` but the frontend only has a `pnpm-lock.yaml` (no `package-lock.json`). To run the frontend reliably, start it separately:
+
+```bash
+cd frontend && MUSICHOARDER_API_URL=http://localhost:<api-port> PORT=3000 pnpm dev
+```
+
+The API port is dynamically assigned by Aspire — find it in the Aspire dashboard or via `netstat -tlnp | grep MusicHoarder`.
+
+### Required user-secrets
+
+`MusicEnricher:SourceDirectory` and `MusicEnricher:DestinationDirectory` are validated on startup. Set them via `dotnet user-secrets` (see above) to point at local test directories.
+
+### Pipeline dependencies (fpcalc + AcoustID)
+
+`fpcalc` (Chromaprint) must be installed for the scan→enrich→library-build pipeline to work end to end. Without it, songs get indexed but with null `Fingerprint` and `DurationSeconds`, which means:
+- **Enrichment** skips them (filters for non-null fingerprint + duration)
+- **Library Builder** skips them (requires `EnrichmentStatus == Matched`)
+- **Library page "Destination" view** shows nothing (requires `destinationPath` set by the builder)
+
+The `MusicEnricher:AcoustIdApiKey` must be set for enrichment to match songs against MusicBrainz via AcoustID. It is injected as the environment variable `MusicEnricher__AcoustIdApiKey`. Without it, enrichment sets songs to `NeedsReview`.
+
+The library page has two modes: **Source** (shows all scanned songs) and **Destination** (only songs that completed the full pipeline). Toggle between them on the Library page toolbar.
+
+### Running tests
+
+```bash
+dotnet test MusicHoarder.Api.Tests/MusicHoarder.Api.Tests.csproj
+```
+
+All 19 xUnit tests use an in-memory EF Core provider and do not require PostgreSQL or Docker.
+
+### Frontend lint
+
+The `pnpm lint` script in `frontend/` references `eslint` and `eslint-config-next`, which are not listed as dependencies in `package.json`. This is a known gap — `pnpm lint` will fail until those are added. The frontend builds cleanly with `pnpm build`.
+
+### Docker requirement
+
+Docker must be running before starting the AppHost, since Aspire provisions PostgreSQL as a container. In the Cloud VM, Docker is started via `sudo dockerd` and the socket is made accessible via `sudo chmod 666 /var/run/docker.sock`.
+
