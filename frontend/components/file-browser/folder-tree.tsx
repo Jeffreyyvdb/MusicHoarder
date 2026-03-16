@@ -1,9 +1,26 @@
 "use client"
 
-import { useState } from "react"
+import { createContext, useContext, useState, useCallback } from "react"
 import { ChevronRight, Folder, FolderOpen } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { FileItem } from "@/lib/types"
+
+// Context to share expanded state across all nested folder items
+interface FolderTreeContextValue {
+  expandedIds: Set<string>
+  toggleExpanded: (id: string) => void
+  setExpanded: (id: string, expanded: boolean) => void
+}
+
+const FolderTreeContext = createContext<FolderTreeContextValue | null>(null)
+
+function useFolderTreeContext() {
+  const context = useContext(FolderTreeContext)
+  if (!context) {
+    throw new Error("FolderTreeItem must be used within a FolderTree")
+  }
+  return context
+}
 
 interface FolderTreeProps {
   items: FileItem[]
@@ -13,6 +30,81 @@ interface FolderTreeProps {
 }
 
 export function FolderTree({ items, selectedId, onSelect, level = 0 }: FolderTreeProps) {
+  // Only the root FolderTree (level 0) provides the context
+  if (level === 0) {
+    return (
+      <FolderTreeProvider defaultExpandedIds={getDefaultExpandedIds(items)}>
+        <FolderTreeInner
+          items={items}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          level={level}
+        />
+      </FolderTreeProvider>
+    )
+  }
+
+  return (
+    <FolderTreeInner
+      items={items}
+      selectedId={selectedId}
+      onSelect={onSelect}
+      level={level}
+    />
+  )
+}
+
+// Get default expanded IDs (first level folders)
+function getDefaultExpandedIds(items: FileItem[]): Set<string> {
+  const ids = new Set<string>()
+  for (const item of items) {
+    if (item.type === "folder") {
+      ids.add(item.id)
+    }
+  }
+  return ids
+}
+
+interface FolderTreeProviderProps {
+  children: React.ReactNode
+  defaultExpandedIds: Set<string>
+}
+
+function FolderTreeProvider({ children, defaultExpandedIds }: FolderTreeProviderProps) {
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(defaultExpandedIds)
+
+  const toggleExpanded = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }, [])
+
+  const setExpanded = useCallback((id: string, expanded: boolean) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (expanded) {
+        next.add(id)
+      } else {
+        next.delete(id)
+      }
+      return next
+    })
+  }, [])
+
+  return (
+    <FolderTreeContext.Provider value={{ expandedIds, toggleExpanded, setExpanded }}>
+      {children}
+    </FolderTreeContext.Provider>
+  )
+}
+
+function FolderTreeInner({ items, selectedId, onSelect, level }: FolderTreeProps & { level: number }) {
   return (
     <div className="space-y-0.5">
       {items.filter(item => item.type === "folder").map((item) => (
@@ -36,20 +128,21 @@ interface FolderTreeItemProps {
 }
 
 function FolderTreeItem({ item, selectedId, onSelect, level }: FolderTreeItemProps) {
-  const [isExpanded, setIsExpanded] = useState(level < 1)
+  const { expandedIds, toggleExpanded, setExpanded } = useFolderTreeContext()
+  const isExpanded = expandedIds.has(item.id)
   const hasChildren = item.children?.some(child => child.type === "folder")
   const isSelected = selectedId === item.id
 
   const handleChevronClick = (e: React.MouseEvent) => {
     e.stopPropagation()
-    setIsExpanded(!isExpanded)
+    toggleExpanded(item.id)
   }
 
   const handleFolderClick = () => {
     onSelect(item)
     // Auto-expand when selecting a folder (like Finder does)
     if (hasChildren && !isExpanded) {
-      setIsExpanded(true)
+      setExpanded(item.id, true)
     }
   }
 
@@ -65,7 +158,7 @@ function FolderTreeItem({ item, selectedId, onSelect, level }: FolderTreeItemPro
         style={{ paddingLeft: `${level * 12 + 8}px` }}
       >
         <span 
-          className="flex size-4 shrink-0 items-center justify-center"
+          className="flex size-4 shrink-0 items-center justify-center cursor-pointer"
           onClick={hasChildren ? handleChevronClick : undefined}
           role={hasChildren ? "button" : undefined}
           aria-label={hasChildren ? (isExpanded ? "Collapse folder" : "Expand folder") : undefined}
