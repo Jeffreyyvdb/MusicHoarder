@@ -32,7 +32,7 @@ public class EnrichmentProgressTracker
             _completedAt);
     }
 
-    public void Start(Guid runId, int totalTracks)
+    public void StartCycle(Guid runId, int totalTracks)
     {
         _runId = runId;
         _totalTracks = totalTracks;
@@ -63,7 +63,7 @@ public class EnrichmentProgressTracker
         Interlocked.Increment(ref _failed);
     }
 
-    public void Complete(Guid runId)
+    public void CompleteCycle(Guid runId)
     {
         if (_runId != runId) return;
         _isComplete = true;
