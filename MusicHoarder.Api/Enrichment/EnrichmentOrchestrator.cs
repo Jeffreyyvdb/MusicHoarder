@@ -31,9 +31,17 @@ internal enum EnrichmentOutcome
 public class EnrichmentOrchestrator(
     IServiceScopeFactory scopeFactory,
     EnrichmentProgressTracker progressTracker,
+    IAcoustIdMatchValidator matchValidator,
     IOptions<MusicEnricherOptions> options,
     ILogger<EnrichmentOrchestrator> logger) : IEnrichmentOrchestrator
 {
+    private sealed class BatchCounters
+    {
+        public int Enriched;
+        public int NeedsReview;
+        public int Failed;
+    }
+
     public async Task<EnrichmentBatchResult> ProcessNextBatchAsync(Guid runId, CancellationToken ct = default)
     {
         var startTime = DateTime.UtcNow;
@@ -55,14 +63,12 @@ public class EnrichmentOrchestrator(
                 .ToListAsync(ct);
         }
 
-        progressTracker.Start(runId, candidates.Count);
         if (candidates.Count == 0)
         {
-            progressTracker.Complete(runId);
             return new EnrichmentBatchResult(0, 0, 0, 0, DateTime.UtcNow - startTime);
         }
 
-        logger.LogInformation("Starting enrichment run {RunId} with {Count} tracks", runId, candidates.Count);
+        logger.LogInformation("Starting enrichment batch {RunId} with {Count} tracks", runId, candidates.Count);
 
         var workChannel = Channel.CreateBounded<EnrichmentTrackCandidate>(new BoundedChannelOptions(opts.EnrichmentBatchSize)
         {
@@ -78,36 +84,35 @@ public class EnrichmentOrchestrator(
 
         workChannel.Writer.Complete();
 
+        var counters = new BatchCounters();
         var workers = Enumerable.Range(0, opts.EnrichmentWorkerConcurrency)
-            .Select(_ => ConsumeWorkAsync(runId, workChannel.Reader, ct))
+            .Select(_ => ConsumeWorkAsync(runId, workChannel.Reader, counters, ct))
             .ToArray();
 
         await Task.WhenAll(workers);
 
-        progressTracker.Complete(runId);
-        var currentState = progressTracker.GetCurrent();
-
         var duration = DateTime.UtcNow - startTime;
         logger.LogInformation(
-            "Enrichment run {RunId} complete: Total={Total}, Enriched={Enriched}, NeedsReview={NeedsReview}, Failed={Failed}, Duration={Duration:F1}s",
+            "Enrichment batch {RunId} complete: Total={Total}, Enriched={Enriched}, NeedsReview={NeedsReview}, Failed={Failed}, Duration={Duration:F1}s",
             runId,
             candidates.Count,
-            currentState?.Enriched ?? 0,
-            currentState?.NeedsReview ?? 0,
-            currentState?.Failed ?? 0,
+            counters.Enriched,
+            counters.NeedsReview,
+            counters.Failed,
             duration.TotalSeconds);
 
         return new EnrichmentBatchResult(
             candidates.Count,
-            currentState?.Enriched ?? 0,
-            currentState?.Failed ?? 0,
-            currentState?.NeedsReview ?? 0,
+            counters.Enriched,
+            counters.Failed,
+            counters.NeedsReview,
             duration);
     }
 
     private async Task ConsumeWorkAsync(
         Guid runId,
         ChannelReader<EnrichmentTrackCandidate> reader,
+        BatchCounters counters,
         CancellationToken ct)
     {
         await foreach (var candidate in reader.ReadAllAsync(ct))
@@ -119,12 +124,15 @@ public class EnrichmentOrchestrator(
             {
                 case EnrichmentOutcome.Matched:
                     progressTracker.IncrementEnriched();
+                    Interlocked.Increment(ref counters.Enriched);
                     break;
                 case EnrichmentOutcome.NeedsReview:
                     progressTracker.IncrementNeedsReview();
+                    Interlocked.Increment(ref counters.NeedsReview);
                     break;
                 case EnrichmentOutcome.Failed:
                     progressTracker.IncrementFailed();
+                    Interlocked.Increment(ref counters.Failed);
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(outcome), outcome, null);
@@ -161,8 +169,10 @@ public class EnrichmentOrchestrator(
         var durationSeconds = song.DurationSeconds;
         if (string.IsNullOrWhiteSpace(fingerprint) || durationSeconds is null)
         {
+            var now = DateTime.UtcNow;
             song.EnrichmentStatus = EnrichmentStatus.NeedsReview;
-            song.EnrichmentLastAttemptedAtUtc = DateTime.UtcNow;
+            song.EnrichmentLastAttemptedAtUtc = now;
+            song.EnrichedAtUtc = now;
             song.EnrichmentError = "Missing fingerprint or duration";
             await dbContext.SaveChangesAsync(ct);
             logger.LogInformation(
@@ -183,7 +193,9 @@ public class EnrichmentOrchestrator(
                 song.EnrichmentStatus = EnrichmentStatus.NeedsReview;
                 song.MatchedBy = null;
                 song.MatchConfidence = null;
+                song.MatchWarnings = null;
                 song.EnrichmentError = "No confident AcoustID match";
+                song.EnrichedAtUtc = now;
                 await dbContext.SaveChangesAsync(ct);
                 logger.LogInformation(
                     "Enrichment needs review for {Track} (SongId={SongId}): no confident AcoustID match",
@@ -192,6 +204,7 @@ public class EnrichmentOrchestrator(
                 return EnrichmentOutcome.NeedsReview;
             }
 
+            var validation = matchValidator.Validate(match, song);
             CaptureOriginalMetadata(song, now);
 
             song.Artist = string.IsNullOrWhiteSpace(match.Artist) ? song.Artist : match.Artist;
@@ -201,20 +214,27 @@ public class EnrichmentOrchestrator(
             song.Title = string.IsNullOrWhiteSpace(match.Title) ? song.Title : match.Title;
             song.MusicBrainzId = match.MusicBrainzRecordingId;
             song.MatchedBy = "AcoustID";
-            song.MatchConfidence = match.Score;
-            song.EnrichmentStatus = EnrichmentStatus.Matched;
+            song.MatchConfidence = validation.AdjustedScore;
+            song.MatchWarnings = validation.WarningsJson;
+            song.EnrichmentStatus = validation.RecommendedStatus;
             song.EnrichedAtUtc = now;
             song.EnrichmentError = null;
 
             await dbContext.SaveChangesAsync(ct);
+
+            if (validation.RecommendedStatus == EnrichmentStatus.Matched)
+            {
+                logger.LogInformation(
+                    "Enrichment matched {Track} (SongId={SongId}) via AcoustID with adjusted score {Score:F3} (raw={RawScore:F3}) and MusicBrainzId {MusicBrainzId}",
+                    trackLabel, songId, validation.AdjustedScore, match.Score, song.MusicBrainzId);
+                return EnrichmentOutcome.Matched;
+            }
+
             logger.LogInformation(
-                "Enrichment matched {Track} (SongId={SongId}) via {MatchedBy} with score {Score:F3} and MusicBrainzId {MusicBrainzId}",
-                trackLabel,
-                songId,
-                song.MatchedBy,
-                match.Score,
-                song.MusicBrainzId);
-            return EnrichmentOutcome.Matched;
+                "Enrichment needs review for {Track} (SongId={SongId}): adjusted score {Score:F3} (raw={RawScore:F3}), warnings=[{Warnings}]",
+                trackLabel, songId, validation.AdjustedScore, match.Score,
+                string.Join(", ", validation.Warnings));
+            return EnrichmentOutcome.NeedsReview;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -222,9 +242,11 @@ public class EnrichmentOrchestrator(
         }
         catch (Exception ex)
         {
+            var now = DateTime.UtcNow;
             song.EnrichmentStatus = EnrichmentStatus.Failed;
             song.EnrichmentError = Truncate(ex.Message, 1024);
-            song.EnrichmentLastAttemptedAtUtc = DateTime.UtcNow;
+            song.EnrichmentLastAttemptedAtUtc = now;
+            song.EnrichedAtUtc = now;
             await dbContext.SaveChangesAsync(ct);
             logger.LogWarning(ex, "Failed enrichment for {Track} (SongId={SongId})", trackLabel, songId);
             return EnrichmentOutcome.Failed;
