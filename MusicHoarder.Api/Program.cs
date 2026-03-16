@@ -208,7 +208,8 @@ app.MapGet("/stats", async (MusicHoarderDbContext db) =>
 app.MapGet("/overview", async (
     MusicHoarderDbContext db,
     IOptions<MusicEnricherOptions> options,
-    ScanProgressTracker scanTracker) =>
+    ScanProgressTracker scanTracker,
+    EnrichmentProgressTracker enrichmentTracker) =>
 {
     var opts = options.Value;
     var active = db.Songs.Where(s => s.DeletedAtUtc == null);
@@ -233,6 +234,8 @@ app.MapGet("/overview", async (
 
     var scanState = scanTracker.GetCurrent();
     var scanRunning = scanState is { IsComplete: false };
+    var enrichmentState = enrichmentTracker.GetCurrent();
+    var enrichmentRunning = enrichmentState is { IsComplete: false };
 
     var recentSongs = await active
         .OrderByDescending(s => s.LibraryBuiltAtUtc ?? s.EnrichedAtUtc ?? s.EnrichmentLastAttemptedAtUtc ?? s.IndexedAtUtc)
@@ -322,7 +325,7 @@ app.MapGet("/overview", async (
         },
         Job = new
         {
-            Status = scanRunning ? "running" : "completed",
+            Status = scanRunning || enrichmentRunning ? "running" : "completed",
             StartedAt = startedAt,
             TracksDiscovered = totalCount,
             TracksProcessed = totalCount,
@@ -330,6 +333,18 @@ app.MapGet("/overview", async (
             TracksReview = reviewCount,
             TracksFailed = failedCount,
         },
+        Enrichment = enrichmentState is { IsComplete: false } ? new
+        {
+            enrichmentState.RunId,
+            enrichmentState.TotalTracks,
+            enrichmentState.Processed,
+            enrichmentState.Enriched,
+            enrichmentState.Failed,
+            enrichmentState.NeedsReview,
+            enrichmentState.IsComplete,
+            enrichmentState.StartedAt,
+            enrichmentState.CompletedAt,
+        } : null,
         RecentActivity = activities.Select(a => new
         {
             a.Id,

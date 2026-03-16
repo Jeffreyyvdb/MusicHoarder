@@ -66,6 +66,9 @@ export default function OverviewPage() {
   const job = overview?.job ?? initialOverview.job
   const isRunning = job.status === "running"
   const scan = overview?.scan
+  const enrichment = overview?.enrichment
+  const scanRunning = Boolean(scan && !scan.isComplete)
+  const enrichmentRunning = Boolean(enrichment && !enrichment.isComplete)
 
   const [elapsedMin, setElapsedMin] = useState<number | null>(null)
   useEffect(() => {
@@ -80,9 +83,26 @@ export default function OverviewPage() {
     return () => clearInterval(interval)
   }, [overview?.job?.startedAt])
 
+  const [enrichmentElapsedMin, setEnrichmentElapsedMin] = useState<number | null>(null)
+  useEffect(() => {
+    const startedAt = enrichment?.startedAt
+    if (!startedAt || enrichment?.isComplete) return
+    const update = () => {
+      const start = new Date(startedAt).getTime()
+      setEnrichmentElapsedMin(Math.floor((Date.now() - start) / 1000 / 60))
+    }
+    update()
+    const interval = setInterval(update, 60_000)
+    return () => clearInterval(interval)
+  }, [enrichment?.startedAt, enrichment?.isComplete])
+
   const tracksDiscovered = scan?.totalFiles ?? job.tracksDiscovered
   const tracksProcessed = scan?.processed ?? job.tracksProcessed
-  const progress = tracksDiscovered > 0 ? (tracksProcessed / tracksDiscovered) * 100 : 0
+  const scanProgress = tracksDiscovered > 0 ? (tracksProcessed / tracksDiscovered) * 100 : 0
+  const enrichmentProgress =
+    enrichment && enrichment.totalTracks > 0
+      ? (enrichment.processed / enrichment.totalTracks) * 100
+      : 0
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -150,11 +170,11 @@ export default function OverviewPage() {
             </CardContent>
           </Card>
 
-          {/* Progress Section */}
+          {/* Scan Progress Section */}
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">Progress</CardTitle>
+                <CardTitle className="text-lg">Scan progress</CardTitle>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Clock className="size-4" />
                   <span>{elapsedMin !== null ? `${elapsedMin} min elapsed` : "—"}</span>
@@ -165,19 +185,24 @@ export default function OverviewPage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">
-                    {tracksProcessed} of {tracksDiscovered} tracks processed
+                    {tracksProcessed} of {tracksDiscovered} files processed
                   </span>
-                  <span className="font-medium">{progress.toFixed(1)}%</span>
+                  <span className="font-medium">{scanProgress.toFixed(1)}%</span>
                 </div>
-                <Progress value={progress} className="h-3" />
+                <Progress value={scanProgress} className="h-3" />
               </div>
 
               {/* Status indicator */}
               <div className="flex items-center gap-2">
-                {isRunning || (scan && !scan.isComplete) ? (
+                {scanRunning ? (
                   <>
                     <div className="size-2 animate-pulse rounded-full bg-primary" />
                     <span className="text-sm text-primary">Scanning...</span>
+                  </>
+                ) : enrichmentRunning ? (
+                  <>
+                    <div className="size-2 animate-pulse rounded-full bg-primary" />
+                    <span className="text-sm text-primary">Enriching...</span>
                   </>
                 ) : (
                   <>
@@ -188,6 +213,29 @@ export default function OverviewPage() {
               </div>
             </CardContent>
           </Card>
+
+          {enrichmentRunning && enrichment && (
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg">Enrichment progress</CardTitle>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Clock className="size-4" />
+                    <span>{enrichmentElapsedMin !== null ? `${enrichmentElapsedMin} min elapsed` : "—"}</span>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">
+                    {enrichment.processed} of {enrichment.totalTracks} tracks processed
+                  </span>
+                  <span className="font-medium">{enrichmentProgress.toFixed(1)}%</span>
+                </div>
+                <Progress value={enrichmentProgress} className="h-3" />
+              </CardContent>
+            </Card>
+          )}
 
           {/* Stats Grid */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">

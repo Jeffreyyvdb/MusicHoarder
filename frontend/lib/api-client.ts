@@ -37,10 +37,23 @@ export interface ApiOverviewScan {
   completedAt?: string | null
 }
 
+export interface ApiOverviewEnrichment {
+  runId: string
+  totalTracks: number
+  processed: number
+  enriched: number
+  failed: number
+  needsReview: number
+  isComplete: boolean
+  startedAt: string
+  completedAt?: string | null
+}
+
 export interface ApiOverview {
   sourcePath: string
   destinationPath: string
   scan?: ApiOverviewScan | null
+  enrichment?: ApiOverviewEnrichment | null
   job: {
     status: "running" | "completed"
     startedAt: string
