@@ -1,10 +1,9 @@
-import { Container, Database, Cpu, Globe } from "lucide-react"
+import { Database, Cpu, Globe } from "lucide-react"
 
 const techItems = [
   { icon: Cpu, label: ".NET 9 API" },
   { icon: Globe, label: "Next.js Frontend" },
-  { icon: Database, label: "SQLite / PostgreSQL" },
-  { icon: Container, label: "Docker Ready" },
+  { icon: Database, label: "PostgreSQL" },
 ]
 
 export function TechStackSection() {

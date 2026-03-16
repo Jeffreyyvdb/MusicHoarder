@@ -1,25 +1,35 @@
-import { Headphones, Music2, FileText, ClipboardCheck, Server, Shield } from "lucide-react"
+import { Headphones, Music2, FileText, Image, Disc3, PieChart, Server, Shield } from "lucide-react"
 
 const features = [
   {
+    icon: Image,
+    title: "Album Artwork",
+    description: "Fetches high-quality album covers automatically. Your library finally looks as good as it sounds.",
+  },
+  {
+    icon: FileText,
+    title: "Synced Lyrics",
+    description: "LRC lyrics embedded automatically via LRCLIB. Karaoke-ready, no extra setup.",
+  },
+  {
+    icon: Disc3,
+    title: "Spotify Sync",
+    description: "Connect your Spotify to pull metadata, discover missing tracks, and keep libraries in sync.",
+  },
+  {
+    icon: PieChart,
+    title: "Discography Tracker",
+    description: "See what percentage of an artist's discography you own. Chase that 100% completion.",
+  },
+  {
     icon: Music2,
-    title: "Unreleased & Leaked Music",
-    description: "Works with unofficial releases, leaks, and bootlegs using community tracker matching.",
+    title: "Unreleased Music",
+    description: "Works with leaks, bootlegs, and unofficial releases using community tracker matching.",
   },
   {
     icon: Headphones,
     title: "Ear Verification",
     description: "Built-in player to confirm matches before committing. Never silently wrong.",
-  },
-  {
-    icon: FileText,
-    title: "Synced Lyrics",
-    description: "LRC lyrics embedded automatically via LRCLIB. No extra setup required.",
-  },
-  {
-    icon: ClipboardCheck,
-    title: "Review Queue",
-    description: "Low-confidence matches flagged for human review. You stay in control.",
   },
   {
     icon: Server,
@@ -46,7 +56,7 @@ export function FeaturesSection() {
           </p>
         </div>
         
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {features.map((feature) => (
             <div 
               key={feature.title}
