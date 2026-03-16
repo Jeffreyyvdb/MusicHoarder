@@ -40,15 +40,23 @@ function FolderTreeItem({ item, selectedId, onSelect, level }: FolderTreeItemPro
   const hasChildren = item.children?.some(child => child.type === "folder")
   const isSelected = selectedId === item.id
 
+  const handleChevronClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setIsExpanded(!isExpanded)
+  }
+
+  const handleFolderClick = () => {
+    onSelect(item)
+    // Auto-expand when selecting a folder (like Finder does)
+    if (hasChildren && !isExpanded) {
+      setIsExpanded(true)
+    }
+  }
+
   return (
     <div>
       <button
-        onClick={() => {
-          onSelect(item)
-          if (hasChildren) {
-            setIsExpanded(!isExpanded)
-          }
-        }}
+        onClick={handleFolderClick}
         className={cn(
           "flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-sm transition-colors",
           "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -56,11 +64,16 @@ function FolderTreeItem({ item, selectedId, onSelect, level }: FolderTreeItemPro
         )}
         style={{ paddingLeft: `${level * 12 + 8}px` }}
       >
-        <span className="flex size-4 shrink-0 items-center justify-center">
+        <span 
+          className="flex size-4 shrink-0 items-center justify-center"
+          onClick={hasChildren ? handleChevronClick : undefined}
+          role={hasChildren ? "button" : undefined}
+          aria-label={hasChildren ? (isExpanded ? "Collapse folder" : "Expand folder") : undefined}
+        >
           {hasChildren && (
             <ChevronRight
               className={cn(
-                "size-3 text-muted-foreground transition-transform",
+                "size-3 text-muted-foreground transition-transform hover:text-foreground",
                 isExpanded && "rotate-90"
               )}
             />
