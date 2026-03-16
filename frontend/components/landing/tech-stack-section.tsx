@@ -1,7 +1,7 @@
 import { Database, Cpu, Globe } from "lucide-react"
 
 const techItems = [
-  { icon: Cpu, label: ".NET 9 API" },
+  { icon: Cpu, label: ".NET 10 API" },
   { icon: Globe, label: "Next.js Frontend" },
   { icon: Database, label: "PostgreSQL" },
 ]
@@ -17,10 +17,10 @@ export function TechStackSection() {
               Modern stack designed for self-hosting enthusiasts.
             </p>
           </div>
-          
+
           <div className="flex flex-wrap items-center justify-center gap-6">
             {techItems.map((item) => (
-              <div 
+              <div
                 key={item.label}
                 className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg"
               >
