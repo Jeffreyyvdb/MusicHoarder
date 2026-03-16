@@ -37,10 +37,23 @@ export interface ApiOverviewScan {
   completedAt?: string | null
 }
 
+export interface ApiOverviewEnrichment {
+  runId: string
+  totalTracks: number
+  processed: number
+  enriched: number
+  failed: number
+  needsReview: number
+  isComplete: boolean
+  startedAt: string
+  completedAt?: string | null
+}
+
 export interface ApiOverview {
   sourcePath: string
   destinationPath: string
   scan?: ApiOverviewScan | null
+  enrichment?: ApiOverviewEnrichment | null
   job: {
     status: "running" | "completed"
     startedAt: string
@@ -463,4 +476,23 @@ export async function startScan(): Promise<{ scanId: string }> {
   }
 
   return requestJson<{ scanId: string }>("/scan", { method: "POST" })
+}
+
+export interface ResetEnrichmentResponse {
+  id: number
+  fileName: string
+  enrichmentStatus: number
+  libraryBuildStatus: number
+  restoredOriginalMetadata: boolean
+  message: string
+}
+
+export async function resetSongEnrichment(
+  songId: number,
+  restoreOriginalMetadata = true
+): Promise<ResetEnrichmentResponse> {
+  return requestJson<ResetEnrichmentResponse>(
+    `/songs/${songId}/reset-enrichment?restoreOriginalMetadata=${restoreOriginalMetadata}`,
+    { method: "POST" }
+  )
 }

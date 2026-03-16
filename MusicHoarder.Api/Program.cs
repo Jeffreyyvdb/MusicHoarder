@@ -26,6 +26,7 @@ builder.Services.AddSingleton(Channel.CreateUnbounded<ScanRequest>());
 builder.Services.AddSingleton<ScanProgressTracker>();
 builder.Services.AddSingleton<EnrichmentProgressTracker>();
 builder.Services.AddSingleton<IFpcalcService, FpcalcService>();
+builder.Services.AddSingleton<IAcoustIdMatchValidator, AcoustIdMatchValidator>();
 builder.Services.AddSingleton<IEnrichmentOrchestrator, EnrichmentOrchestrator>();
 builder.Services.AddSingleton<IDestinationPathResolver, DestinationPathResolver>();
 builder.Services.AddScoped<ILibraryTagWriter, TagLibLibraryTagWriter>();
@@ -207,7 +208,8 @@ app.MapGet("/stats", async (MusicHoarderDbContext db) =>
 app.MapGet("/overview", async (
     MusicHoarderDbContext db,
     IOptions<MusicEnricherOptions> options,
-    ScanProgressTracker scanTracker) =>
+    ScanProgressTracker scanTracker,
+    EnrichmentProgressTracker enrichmentTracker) =>
 {
     var opts = options.Value;
     var active = db.Songs.Where(s => s.DeletedAtUtc == null);
@@ -232,10 +234,12 @@ app.MapGet("/overview", async (
 
     var scanState = scanTracker.GetCurrent();
     var scanRunning = scanState is { IsComplete: false };
+    var enrichmentState = enrichmentTracker.GetCurrent();
+    var enrichmentRunning = enrichmentState is { IsComplete: false };
 
     var recentSongs = await active
-        .OrderByDescending(s => s.LibraryBuiltAtUtc ?? s.EnrichedAtUtc ?? s.IndexedAtUtc)
-        .Take(25)
+        .OrderByDescending(s => s.LibraryBuiltAtUtc ?? s.EnrichedAtUtc ?? s.EnrichmentLastAttemptedAtUtc ?? s.IndexedAtUtc)
+        .Take(50)
         .Select(s => new
         {
             s.Id,
@@ -243,6 +247,7 @@ app.MapGet("/overview", async (
             s.Artist,
             s.IndexedAtUtc,
             s.EnrichedAtUtc,
+            s.EnrichmentLastAttemptedAtUtc,
             s.LibraryBuiltAtUtc,
             s.LibraryBuildLastAttemptedAtUtc,
             s.EnrichmentStatus,
@@ -269,7 +274,7 @@ app.MapGet("/overview", async (
         else if (s.EnrichmentStatus == EnrichmentStatus.NeedsReview)
         {
             type = "review";
-            activityAt = s.EnrichedAtUtc ?? s.IndexedAtUtc;
+            activityAt = s.EnrichedAtUtc ?? s.EnrichmentLastAttemptedAtUtc ?? s.IndexedAtUtc;
         }
         else if (s.EnrichmentStatus == EnrichmentStatus.Matched && s.EnrichedAtUtc.HasValue)
         {
@@ -320,7 +325,7 @@ app.MapGet("/overview", async (
         },
         Job = new
         {
-            Status = scanRunning ? "running" : "completed",
+            Status = scanRunning || enrichmentRunning ? "running" : "completed",
             StartedAt = startedAt,
             TracksDiscovered = totalCount,
             TracksProcessed = totalCount,
@@ -328,6 +333,18 @@ app.MapGet("/overview", async (
             TracksReview = reviewCount,
             TracksFailed = failedCount,
         },
+        Enrichment = enrichmentState is { IsComplete: false } ? new
+        {
+            enrichmentState.RunId,
+            enrichmentState.TotalTracks,
+            enrichmentState.Processed,
+            enrichmentState.Enriched,
+            enrichmentState.Failed,
+            enrichmentState.NeedsReview,
+            enrichmentState.IsComplete,
+            enrichmentState.StartedAt,
+            enrichmentState.CompletedAt,
+        } : null,
         RecentActivity = activities.Select(a => new
         {
             a.Id,
@@ -372,12 +389,14 @@ app.MapGet("/songs", async (MusicHoarderDbContext db, bool includeDeleted = fals
             s.Year,
             s.TrackNumber,
             s.DurationSeconds,
+            s.DurationMs,
             s.Isrc,
             s.MusicBrainzId,
             s.SpotifyId,
             s.EnrichmentStatus,
             s.MatchedBy,
             s.MatchConfidence,
+            s.MatchWarnings,
             s.EnrichedAtUtc,
             s.EnrichmentError,
             s.OriginalMetadataCaptured,
@@ -400,11 +419,29 @@ app.MapGet("/songs", async (MusicHoarderDbContext db, bool includeDeleted = fals
         })
         .ToListAsync();
 
+    var projected = songs.Select(s => new
+    {
+        s.Id, s.SourcePath, s.FileName, s.Extension, s.FileSizeBytes,
+        s.LastModifiedUtc, s.IndexedAtUtc, s.DeletedAtUtc,
+        s.Artist, s.AlbumArtist, s.Album, s.Title, s.Year, s.TrackNumber,
+        s.DurationSeconds, s.DurationMs,
+        s.Isrc, s.MusicBrainzId, s.SpotifyId,
+        s.EnrichmentStatus, s.MatchedBy, s.MatchConfidence,
+        MatchWarnings = DeserializeWarnings(s.MatchWarnings),
+        s.EnrichedAtUtc, s.EnrichmentError,
+        s.OriginalMetadataCaptured, s.OriginalArtist, s.OriginalAlbumArtist,
+        s.OriginalAlbum, s.OriginalTitle, s.OriginalYear, s.OriginalTrackNumber,
+        s.OriginalIsrc, s.OriginalMusicBrainzId, s.OriginalSpotifyId,
+        s.OriginalMetadataCapturedAtUtc,
+        s.LibraryBuildStatus, s.LibraryBuiltAtUtc, s.LibraryBuildLastAttemptedAtUtc,
+        s.LibraryBuildError, s.DestinationPath, s.PreviousDestinationPath
+    }).ToList();
+
     return Results.Ok(new
     {
-        Count = songs.Count,
+        Count = projected.Count,
         IncludeDeleted = includeDeleted,
-        Songs = songs
+        Songs = projected
     });
 });
 
@@ -446,6 +483,7 @@ app.MapPost("/enrichment/reset", async (EnrichmentResetRequest request, MusicHoa
         song.EnrichmentStatus = EnrichmentStatus.Pending;
         song.MatchedBy = null;
         song.MatchConfidence = null;
+        song.MatchWarnings = null;
         song.EnrichedAtUtc = null;
         song.EnrichmentLastAttemptedAtUtc = null;
         song.EnrichmentError = null;
@@ -461,7 +499,61 @@ app.MapPost("/enrichment/reset", async (EnrichmentResetRequest request, MusicHoa
     });
 });
 
+app.MapPost("/songs/{id:int}/reset-enrichment", async (int id, MusicHoarderDbContext db, bool restoreOriginalMetadata = true) =>
+{
+    var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id);
+    if (song is null)
+        return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+    if (restoreOriginalMetadata && song.OriginalMetadataCaptured)
+    {
+        song.Artist = song.OriginalArtist;
+        song.AlbumArtist = song.OriginalAlbumArtist;
+        song.Album = song.OriginalAlbum;
+        song.Title = song.OriginalTitle;
+        song.Year = song.OriginalYear;
+        song.TrackNumber = song.OriginalTrackNumber;
+        song.Isrc = song.OriginalIsrc;
+        song.MusicBrainzId = song.OriginalMusicBrainzId;
+        song.SpotifyId = song.OriginalSpotifyId;
+    }
+
+    song.EnrichmentStatus = EnrichmentStatus.Pending;
+    song.MatchedBy = null;
+    song.MatchConfidence = null;
+    song.MatchWarnings = null;
+    song.EnrichedAtUtc = null;
+    song.EnrichmentLastAttemptedAtUtc = null;
+    song.EnrichmentError = null;
+
+    song.LibraryBuildStatus = LibraryBuildStatus.Pending;
+    song.LibraryBuiltAtUtc = null;
+    song.LibraryBuildLastAttemptedAtUtc = null;
+    song.LibraryBuildError = null;
+    song.PreviousDestinationPath = song.DestinationPath;
+    song.DestinationPath = null;
+
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new
+    {
+        song.Id,
+        song.FileName,
+        song.EnrichmentStatus,
+        song.LibraryBuildStatus,
+        RestoredOriginalMetadata = restoreOriginalMetadata && song.OriginalMetadataCaptured,
+        Message = "Song enrichment has been reset. It will be re-enriched in the next enrichment cycle."
+    });
+});
+
 app.Run();
+
+static string[]? DeserializeWarnings(string? json)
+{
+    if (string.IsNullOrWhiteSpace(json)) return null;
+    try { return System.Text.Json.JsonSerializer.Deserialize<string[]>(json); }
+    catch { return null; }
+}
 
 public record EnrichmentResetRequest(
     string Target = "all",
