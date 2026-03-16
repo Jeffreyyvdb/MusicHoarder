@@ -1,0 +1,28 @@
+# Run tests on PRs and pushes to main so broken code doesn't reach main.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore MusicHoarder.Api.Tests/MusicHoarder.Api.Tests.csproj
+
+      - name: Build
+        run: dotnet build MusicHoarder.Api.Tests/MusicHoarder.Api.Tests.csproj --no-restore -c Release
+
+      - name: Test
+        run: dotnet test MusicHoarder.Api.Tests/MusicHoarder.Api.Tests.csproj --no-build -c Release --verbosity normal

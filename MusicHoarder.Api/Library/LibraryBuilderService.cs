@@ -203,15 +203,12 @@ public class LibraryBuilderService(
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
         var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == songId, ct);
-        if (song is null || song.DeletedAtUtc != null || song.EnrichmentStatus != EnrichmentStatus.Matched)
+        if (song is null || song.IsDeleted || song.EnrichmentStatus != EnrichmentStatus.Matched)
         {
-            logger.LogDebug(
-                "Skipping song {SongId}: not buildable (missing/deleted/not-matched)",
-                songId);
+            logger.LogDebug("Skipping song {SongId}: not buildable (missing/deleted/not-matched)", songId);
             return LibraryBuildOutcome.Failed;
         }
 
-        var trackLabel = BuildTrackLabel(song);
         var legacyPath = ResolveLegacyDestinationPath(song);
         var currentManagedPath = ResolveCurrentManagedPath(song, destinationPath, legacyPath);
 
@@ -225,10 +222,10 @@ public class LibraryBuilderService(
         {
             logger.LogWarning(
                 "Library build failed for {Track} (SongId={SongId}): destination directory resolution returned empty. DestinationPath={DestinationPath}",
-                trackLabel,
-                songId,
-                destinationPath);
-            return await MarkFailedAsync(db, song, "Could not resolve destination directory", ct);
+                song.TrackLabel, songId, destinationPath);
+            song.MarkBuildFailed("Could not resolve destination directory");
+            await db.SaveChangesAsync(ct);
+            return LibraryBuildOutcome.Failed;
         }
 
         var tempPath = BuildTempPath(destinationPath, songId);
@@ -236,11 +233,8 @@ public class LibraryBuilderService(
 
         try
         {
-            logger.LogInformation(
-                "Building {Track} (SongId={SongId}) -> {DestinationPath}",
-                trackLabel,
-                songId,
-                destinationPath);
+            logger.LogInformation("Building {Track} (SongId={SongId}) -> {DestinationPath}",
+                song.TrackLabel, songId, destinationPath);
 
             fileSystem.Directory.CreateDirectory(destinationDirectory);
 
@@ -249,17 +243,11 @@ public class LibraryBuilderService(
                 var existingSize = fileSystem.FileInfo.New(destinationPath).Length;
                 if (existingSize == song.FileSizeBytes)
                 {
-                    song.LibraryBuildStatus = LibraryBuildStatus.Done;
-                    song.LibraryBuiltAtUtc = DateTime.UtcNow;
-                    song.LibraryBuildError = null;
-                    song.DestinationPath = destinationPath;
-                    song.PreviousDestinationPath = null;
+                    song.MarkBuildDone(destinationPath);
                     await db.SaveChangesAsync(ct);
                     logger.LogInformation(
                         "Skipping copy for {Track} (SongId={SongId}): destination already exists with same size ({Bytes} bytes)",
-                        trackLabel,
-                        songId,
-                        existingSize);
+                        song.TrackLabel, songId, existingSize);
                     return LibraryBuildOutcome.Done;
                 }
             }
@@ -270,22 +258,16 @@ public class LibraryBuilderService(
             }
 
             await StreamCopyAsync(song.SourcePath, tempPath, ct);
-            song.LibraryBuildStatus = LibraryBuildStatus.Copied;
-            song.LibraryBuildError = null;
+            song.MarkCopied();
             await db.SaveChangesAsync(ct);
-            logger.LogInformation(
-                "Copied {Track} (SongId={SongId}) to temp file {TempPath}",
-                trackLabel,
-                songId,
-                tempPath);
+            logger.LogInformation("Copied {Track} (SongId={SongId}) to temp file {TempPath}",
+                song.TrackLabel, songId, tempPath);
 
             await tagWriter.WriteTagsAsync(tempPath, song, ct);
-            song.LibraryBuildStatus = LibraryBuildStatus.Tagged;
+            song.MarkTagged();
             await db.SaveChangesAsync(ct);
-            logger.LogInformation(
-                "Tagged temp file for {Track} (SongId={SongId})",
-                trackLabel,
-                songId);
+            logger.LogInformation("Tagged temp file for {Track} (SongId={SongId})",
+                song.TrackLabel, songId);
 
             if (fileSystem.File.Exists(destinationPath))
             {
@@ -299,17 +281,10 @@ public class LibraryBuilderService(
                 DeleteManagedPathAndPrune(song.PreviousDestinationPath, options.Value.DestinationDirectory);
             }
 
-            song.LibraryBuildStatus = LibraryBuildStatus.Done;
-            song.LibraryBuiltAtUtc = DateTime.UtcNow;
-            song.LibraryBuildError = null;
-            song.DestinationPath = destinationPath;
-            song.PreviousDestinationPath = null;
+            song.MarkBuildDone(destinationPath);
             await db.SaveChangesAsync(ct);
-            logger.LogInformation(
-                "Library build complete for {Track} (SongId={SongId}): {DestinationPath}",
-                trackLabel,
-                songId,
-                destinationPath);
+            logger.LogInformation("Library build complete for {Track} (SongId={SongId}): {DestinationPath}",
+                song.TrackLabel, songId, destinationPath);
 
             return LibraryBuildOutcome.Done;
         }
@@ -319,32 +294,15 @@ public class LibraryBuilderService(
         }
         catch (Exception ex)
         {
-            TryDeleteFileBestEffort(tempPath, "temp file", trackLabel, songId);
+            TryDeleteFileBestEffort(tempPath, songId);
 
-            logger.LogWarning(
-                ex,
+            logger.LogWarning(ex,
                 "Library build failed for {Track} (SongId={SongId}). Source={SourcePath}, Temp={TempPath}, Destination={DestinationPath}",
-                trackLabel,
-                songId,
-                song.SourcePath,
-                tempPath,
-                destinationPath);
-            return await MarkFailedAsync(db, song, ex.Message, ct);
+                song.TrackLabel, songId, song.SourcePath, tempPath, destinationPath);
+            song.MarkBuildFailed(ex.Message);
+            await db.SaveChangesAsync(ct);
+            return LibraryBuildOutcome.Failed;
         }
-    }
-
-    private async Task<LibraryBuildOutcome> MarkFailedAsync(
-        MusicHoarderDbContext db,
-        SongMetadata song,
-        string message,
-        CancellationToken ct)
-    {
-        song.LibraryBuildStatus = LibraryBuildStatus.Failed;
-        song.LibraryBuildError = Truncate(message, 1024);
-        song.LibraryBuiltAtUtc = null;
-        song.LibraryBuildLastAttemptedAtUtc = DateTime.UtcNow;
-        await db.SaveChangesAsync(ct);
-        return LibraryBuildOutcome.Failed;
     }
 
     private async Task StreamCopyAsync(string sourcePath, string tempDestinationPath, CancellationToken ct)
@@ -363,7 +321,7 @@ public class LibraryBuilderService(
         await destination.FlushAsync(ct);
     }
 
-    private void TryDeleteFileBestEffort(string path, string label, string trackLabel, int songId)
+    private void TryDeleteFileBestEffort(string path, int songId)
     {
         try
         {
@@ -376,24 +334,10 @@ public class LibraryBuilderService(
         }
         catch (Exception cleanupEx)
         {
-            logger.LogWarning(
-                cleanupEx,
-                "Cleanup failed while deleting {Label} for {Track} (SongId={SongId}) at {Path}",
-                label,
-                trackLabel,
-                songId,
-                path);
+            logger.LogWarning(cleanupEx,
+                "Cleanup failed while deleting temp file for SongId={SongId} at {Path}",
+                songId, path);
         }
-    }
-
-    private static string Truncate(string value, int maxLength)
-        => value.Length <= maxLength ? value : value[..maxLength];
-
-    private static string BuildTrackLabel(SongMetadata song)
-    {
-        var artist = string.IsNullOrWhiteSpace(song.Artist) ? "<unknown-artist>" : song.Artist;
-        var title = string.IsNullOrWhiteSpace(song.Title) ? "<unknown-title>" : song.Title;
-        return $"{artist} - {title}";
     }
 
     private string BuildTempPath(string destinationPath, int songId)
