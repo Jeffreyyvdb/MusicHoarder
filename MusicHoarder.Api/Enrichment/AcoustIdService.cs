@@ -11,7 +11,9 @@ public record AcoustIdMatch(
     string Title,
     string Artist,
     string AlbumArtist,
-    float Score);
+    float Score,
+    int? RecordingDurationMs = null,
+    int CandidateCount = 1);
 
 public interface IAcoustIdService
 {
@@ -77,31 +79,37 @@ public sealed class AcoustIdService(
                 return null;
             }
 
-            var threshold = options.Value.AcoustIdScoreThreshold;
+            const float considerationThreshold = 0.4f;
 
-            var best = response.Results
-                .Where(r => r.Score >= threshold && r.Recordings is { Count: > 0 })
+            var viable = response.Results
+                .Where(r => r.Score >= considerationThreshold && r.Recordings is { Count: > 0 })
                 .OrderByDescending(r => r.Score)
-                .FirstOrDefault();
+                .ToList();
 
-            if (best is null)
+            if (viable.Count == 0)
             {
-                logger.LogDebug("AcoustID: no result above threshold {Threshold}", threshold);
+                logger.LogDebug("AcoustID: no result above consideration threshold {Threshold}", considerationThreshold);
                 return null;
             }
+
+            var best = viable[0];
+            var candidateCount = viable.Count(r => Math.Abs(r.Score - best.Score) <= 0.1f);
 
             var recording = best.Recordings![0];
             var displayArtist = recording.Artists is { Count: > 0 }
                 ? string.Join("; ", recording.Artists.Select(a => a.Name))
                 : string.Empty;
             var albumArtist = ArtistCreditNormalizer.GetPrimaryArtist(displayArtist) ?? string.Empty;
+            var recordingDurationMs = recording.Duration > 0 ? (int)(recording.Duration * 1000) : (int?)null;
 
             return new AcoustIdMatch(
                 MusicBrainzRecordingId: recording.Id,
                 Title: recording.Title ?? string.Empty,
                 Artist: displayArtist,
                 AlbumArtist: albumArtist,
-                Score: best.Score
+                Score: best.Score,
+                RecordingDurationMs: recordingDurationMs,
+                CandidateCount: candidateCount
             );
         }
         catch (HttpRequestException ex)
@@ -174,6 +182,9 @@ public sealed class AcoustIdService(
 
         [JsonPropertyName("title")]
         public string? Title { get; set; }
+
+        [JsonPropertyName("duration")]
+        public double Duration { get; set; }
 
         [JsonPropertyName("artists")]
         public List<AcoustIdArtist>? Artists { get; set; }

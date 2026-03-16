@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useCallback } from "react"
 import {
   X,
   Music,
@@ -16,6 +17,7 @@ import {
   FileText,
   Fingerprint,
   ExternalLink,
+  RotateCcw,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -24,13 +26,42 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { FileItem } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import { resetSongEnrichment } from "@/lib/api-client"
 
 interface TrackDetailsProps {
   file: FileItem | null
   onClose: () => void
+  onResetEnrichment?: () => void
 }
 
-export function TrackDetails({ file, onClose }: TrackDetailsProps) {
+function parseSongId(fileId: string): number | null {
+  if (!fileId.startsWith("song:")) return null
+  const parsed = Number(fileId.slice(5))
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+export function TrackDetails({ file, onClose, onResetEnrichment }: TrackDetailsProps) {
+  const [resetState, setResetState] = useState<"idle" | "loading" | "success" | "error">("idle")
+  const [resetError, setResetError] = useState<string | null>(null)
+
+  const songId = file ? parseSongId(file.id) : null
+
+  const handleResetEnrichment = useCallback(async () => {
+    if (songId === null) return
+    setResetState("loading")
+    setResetError(null)
+    try {
+      await resetSongEnrichment(songId)
+      setResetState("success")
+      onResetEnrichment?.()
+      setTimeout(() => setResetState("idle"), 3000)
+    } catch (err) {
+      setResetState("error")
+      setResetError(err instanceof Error ? err.message : "Failed to reset enrichment")
+      setTimeout(() => { setResetState("idle"); setResetError(null) }, 5000)
+    }
+  }, [songId, onResetEnrichment])
+
   if (!file || file.type !== "audio" || !file.metadata) {
     return null
   }
@@ -163,9 +194,42 @@ export function TrackDetails({ file, onClose }: TrackDetailsProps) {
                 />
               </div>
               <Separator className="my-3" />
-              <Button variant="outline" className="w-full" size="sm">
-                Re-enrich Metadata
+              <Button
+                variant="outline"
+                className={cn(
+                  "w-full",
+                  resetState === "success" && "border-primary/50 text-primary",
+                  resetState === "error" && "border-destructive/50 text-destructive"
+                )}
+                size="sm"
+                disabled={resetState === "loading" || songId === null}
+                onClick={handleResetEnrichment}
+              >
+                {resetState === "loading" ? (
+                  <>
+                    <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                    Resetting…
+                  </>
+                ) : resetState === "success" ? (
+                  <>
+                    <CheckCircle2 className="mr-1.5 size-3.5" />
+                    Queued for Re-enrichment
+                  </>
+                ) : resetState === "error" ? (
+                  <>
+                    <AlertCircle className="mr-1.5 size-3.5" />
+                    Reset Failed
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="mr-1.5 size-3.5" />
+                    Re-enrich Metadata
+                  </>
+                )}
               </Button>
+              {resetError && (
+                <p className="text-xs text-destructive mt-1.5">{resetError}</p>
+              )}
             </TabsContent>
           </Tabs>
         </div>
