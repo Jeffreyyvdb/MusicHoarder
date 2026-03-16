@@ -190,13 +190,13 @@ function buildDemoSongs(): ApiSong[] {
   })
 }
 
-function mapEnrichmentStatus(status?: string | number | null): "pending" | "processing" | "complete" | "failed" {
+function mapEnrichmentStatus(status?: string | number | null): "pending" | "processing" | "complete" | "failed" | "needsreview" {
   if (typeof status === "number") {
     switch (status) {
       case 1:
         return "complete"
       case 2:
-        return "processing"
+        return "needsreview"
       case 3:
         return "failed"
       default:
@@ -208,7 +208,8 @@ function mapEnrichmentStatus(status?: string | number | null): "pending" | "proc
     const normalized = status.toLowerCase()
     if (normalized === "failed") return "failed"
     if (normalized === "matched" || normalized === "complete") return "complete"
-    if (normalized === "running" || normalized === "processing" || normalized === "needsreview") {
+    if (normalized === "needsreview") return "needsreview"
+    if (normalized === "running" || normalized === "processing") {
       return "processing"
     }
   }
