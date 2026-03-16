@@ -467,26 +467,7 @@ app.MapPost("/enrichment/reset", async (EnrichmentResetRequest request, MusicHoa
     var songs = await query.ToListAsync();
     foreach (var song in songs)
     {
-        if (request.RestoreOriginalMetadata && song.OriginalMetadataCaptured)
-        {
-            song.Artist = song.OriginalArtist;
-            song.AlbumArtist = song.OriginalAlbumArtist;
-            song.Album = song.OriginalAlbum;
-            song.Title = song.OriginalTitle;
-            song.Year = song.OriginalYear;
-            song.TrackNumber = song.OriginalTrackNumber;
-            song.Isrc = song.OriginalIsrc;
-            song.MusicBrainzId = song.OriginalMusicBrainzId;
-            song.SpotifyId = song.OriginalSpotifyId;
-        }
-
-        song.EnrichmentStatus = EnrichmentStatus.Pending;
-        song.MatchedBy = null;
-        song.MatchConfidence = null;
-        song.MatchWarnings = null;
-        song.EnrichedAtUtc = null;
-        song.EnrichmentLastAttemptedAtUtc = null;
-        song.EnrichmentError = null;
+        song.ResetEnrichment(request.RestoreOriginalMetadata);
     }
 
     await db.SaveChangesAsync();
@@ -505,33 +486,8 @@ app.MapPost("/songs/{id:int}/reset-enrichment", async (int id, MusicHoarderDbCon
     if (song is null)
         return Results.NotFound(new { message = $"Song with id {id} not found." });
 
-    if (restoreOriginalMetadata && song.OriginalMetadataCaptured)
-    {
-        song.Artist = song.OriginalArtist;
-        song.AlbumArtist = song.OriginalAlbumArtist;
-        song.Album = song.OriginalAlbum;
-        song.Title = song.OriginalTitle;
-        song.Year = song.OriginalYear;
-        song.TrackNumber = song.OriginalTrackNumber;
-        song.Isrc = song.OriginalIsrc;
-        song.MusicBrainzId = song.OriginalMusicBrainzId;
-        song.SpotifyId = song.OriginalSpotifyId;
-    }
-
-    song.EnrichmentStatus = EnrichmentStatus.Pending;
-    song.MatchedBy = null;
-    song.MatchConfidence = null;
-    song.MatchWarnings = null;
-    song.EnrichedAtUtc = null;
-    song.EnrichmentLastAttemptedAtUtc = null;
-    song.EnrichmentError = null;
-
-    song.LibraryBuildStatus = LibraryBuildStatus.Pending;
-    song.LibraryBuiltAtUtc = null;
-    song.LibraryBuildLastAttemptedAtUtc = null;
-    song.LibraryBuildError = null;
-    song.PreviousDestinationPath = song.DestinationPath;
-    song.DestinationPath = null;
+    song.ResetEnrichment(restoreOriginalMetadata);
+    song.ResetLibraryBuild();
 
     await db.SaveChangesAsync();
 
