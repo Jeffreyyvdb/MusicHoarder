@@ -421,6 +421,7 @@ export function FileBrowser() {
               <TrackDetails
                 file={selectedFile}
                 onClose={() => setShowDetails(false)}
+                onResetEnrichment={() => void loadSongs("refresh")}
               />
             )}
           </SheetContent>
@@ -515,6 +516,7 @@ export function FileBrowser() {
                 <TrackDetails
                   file={selectedFile}
                   onClose={() => setShowDetails(false)}
+                  onResetEnrichment={() => void loadSongs("refresh")}
                 />
               </ResizablePanel>
             </>

@@ -499,6 +499,53 @@ app.MapPost("/enrichment/reset", async (EnrichmentResetRequest request, MusicHoa
     });
 });
 
+app.MapPost("/songs/{id:int}/reset-enrichment", async (int id, MusicHoarderDbContext db, bool restoreOriginalMetadata = true) =>
+{
+    var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id);
+    if (song is null)
+        return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+    if (restoreOriginalMetadata && song.OriginalMetadataCaptured)
+    {
+        song.Artist = song.OriginalArtist;
+        song.AlbumArtist = song.OriginalAlbumArtist;
+        song.Album = song.OriginalAlbum;
+        song.Title = song.OriginalTitle;
+        song.Year = song.OriginalYear;
+        song.TrackNumber = song.OriginalTrackNumber;
+        song.Isrc = song.OriginalIsrc;
+        song.MusicBrainzId = song.OriginalMusicBrainzId;
+        song.SpotifyId = song.OriginalSpotifyId;
+    }
+
+    song.EnrichmentStatus = EnrichmentStatus.Pending;
+    song.MatchedBy = null;
+    song.MatchConfidence = null;
+    song.MatchWarnings = null;
+    song.EnrichedAtUtc = null;
+    song.EnrichmentLastAttemptedAtUtc = null;
+    song.EnrichmentError = null;
+
+    song.LibraryBuildStatus = LibraryBuildStatus.Pending;
+    song.LibraryBuiltAtUtc = null;
+    song.LibraryBuildLastAttemptedAtUtc = null;
+    song.LibraryBuildError = null;
+    song.PreviousDestinationPath = song.DestinationPath;
+    song.DestinationPath = null;
+
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new
+    {
+        song.Id,
+        song.FileName,
+        song.EnrichmentStatus,
+        song.LibraryBuildStatus,
+        RestoredOriginalMetadata = restoreOriginalMetadata && song.OriginalMetadataCaptured,
+        Message = "Song enrichment has been reset. It will be re-enriched in the next enrichment cycle."
+    });
+});
+
 app.Run();
 
 static string[]? DeserializeWarnings(string? json)
