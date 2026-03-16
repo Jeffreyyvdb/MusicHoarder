@@ -1,6 +1,6 @@
 "use client"
 
-import { Folder, Music, CheckCircle2, Clock, AlertCircle, Loader2 } from "lucide-react"
+import { Folder, Music, CheckCircle2, Clock, AlertCircle, Loader2, Eye } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { FileItem } from "@/lib/types"
 
@@ -192,6 +192,8 @@ function StatusIcon({ status }: { status: string }) {
       return <CheckCircle2 className="size-4 text-primary" />
     case "processing":
       return <Loader2 className="size-4 animate-spin text-chart-2" />
+    case "needsreview":
+      return <Eye className="size-4 text-amber-600 dark:text-amber-500" />
     case "pending":
       return <Clock className="size-4 text-muted-foreground" />
     case "failed":
