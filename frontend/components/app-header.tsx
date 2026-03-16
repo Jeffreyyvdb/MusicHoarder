@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils"
 
 const navItems = [
   { href: "/overview", label: "Overview", icon: LayoutDashboard },
-  { href: "/", label: "Library", icon: FolderOpen },
+  { href: "/app", label: "Library", icon: FolderOpen },
   { href: "/artists", label: "Artists", icon: Users },
   { href: "/spotify", label: "Spotify", icon: Music2 },
   { href: "/review", label: "Review", icon: FileWarning },
@@ -30,8 +30,8 @@ export function AppHeader() {
         {/* Navigation */}
         <nav className="flex items-center gap-1">
           {navItems.map((item) => {
-            const isActive = item.href === "/" 
-              ? pathname === "/" 
+            const isActive = item.href === "/app"
+              ? pathname === "/app" || pathname.startsWith("/app/")
               : pathname.startsWith(item.href)
 
             return (
