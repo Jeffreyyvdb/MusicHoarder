@@ -152,6 +152,8 @@ export function FileBrowser() {
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isHydrated, setIsHydrated] = useState(false)
+  // Track expanded folder IDs for the sidebar tree - managed here to persist across re-renders
+  const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(() => new Set(["root"]))
   const isMobile = useIsMobile()
   const dataModeMessage = isDemoMode
     ? "Demo mode is enabled. Library data is served from fake data."
@@ -205,6 +207,8 @@ export function FileBrowser() {
     setCurrentFolderId("root")
     setSelectedFileId(null)
     setShowDetails(false)
+    // Reset expanded folders when switching library mode
+    setExpandedFolderIds(new Set(["root"]))
   }, [libraryMode])
 
   const currentFolder = useMemo(
@@ -366,8 +370,8 @@ export function FileBrowser() {
     return { totalTracks, totalSize }
   }, [fileSystem])
 
-  // Sidebar content component for reuse
-  const SidebarContent = () => (
+  // Sidebar content - uses external expanded state to persist across selections
+  const sidebarContent = (
     <div className="flex h-full min-h-0 flex-col bg-sidebar">
       <div className="border-b border-sidebar-border px-4 py-3">
         <h2 className="text-sm font-medium text-muted-foreground">
@@ -379,6 +383,8 @@ export function FileBrowser() {
           items={fileSystem}
           selectedId={currentFolderId}
           onSelect={handleFolderSelect}
+          expandedIds={expandedFolderIds}
+          onExpandedChange={setExpandedFolderIds}
         />
       </ScrollArea>
 
@@ -407,7 +413,7 @@ export function FileBrowser() {
         <SheetContent side="left" className="w-72 p-0">
           <SheetTitle className="sr-only">Library Navigation</SheetTitle>
           <SheetDescription className="sr-only">Browse your music library folders</SheetDescription>
-          <SidebarContent />
+          {sidebarContent}
         </SheetContent>
       </Sheet>
 
@@ -433,7 +439,7 @@ export function FileBrowser() {
         <ResizablePanelGroup id="library-browser-panels" direction="horizontal" className="flex-1">
           {/* Sidebar */}
           <ResizablePanel id="library-sidebar-panel" order={1} defaultSize={20} minSize={15} maxSize={30}>
-            <SidebarContent />
+            {sidebarContent}
           </ResizablePanel>
 
           <ResizableHandle />
