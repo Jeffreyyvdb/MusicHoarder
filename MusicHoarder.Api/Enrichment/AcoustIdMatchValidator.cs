@@ -26,7 +26,7 @@ public class AcoustIdMatchValidator : IAcoustIdMatchValidator
     private const float ArtistMismatchPenalty = 0.5f;
     private const float DurationMismatchPenalty = 0.7f;
     private const float TitleMismatchPenalty = 0.8f;
-    private const double DurationDeltaThresholdSeconds = 5.0;
+    private const double DurationDeltaThresholdSeconds = 20.0;
 
     public MatchValidationResult Validate(AcoustIdMatch match, SongMetadata track)
     {
@@ -112,7 +112,8 @@ public class AcoustIdMatchValidator : IAcoustIdMatchValidator
         if (adjustedScore < DiscardThreshold)
             return EnrichmentStatus.NeedsReview;
 
-        if (adjustedScore >= MatchedThreshold && warnings.Count == 0)
+        var hasBlockingWarning = warnings.Any(w => w != "multiple_candidates");
+        if (adjustedScore >= MatchedThreshold && !hasBlockingWarning)
             return EnrichmentStatus.Matched;
 
         return EnrichmentStatus.NeedsReview;

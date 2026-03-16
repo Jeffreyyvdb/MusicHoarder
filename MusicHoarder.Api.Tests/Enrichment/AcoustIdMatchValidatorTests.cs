@@ -87,7 +87,7 @@ public class AcoustIdMatchValidatorTests
         var result = _validator.Validate(match, track);
 
         Assert.Contains("multiple_candidates", result.Warnings);
-        Assert.Equal(EnrichmentStatus.NeedsReview, result.RecommendedStatus);
+        Assert.Equal(EnrichmentStatus.Matched, result.RecommendedStatus);
     }
 
     [Fact]
@@ -188,13 +188,12 @@ public class AcoustIdMatchValidatorTests
     public void Validate_HighScoreWithWarnings_ForcesNeedsReview()
     {
         var match = CreateMatch(score: 0.99f, artist: "Juice WRLD", title: "Lucid Dreams",
-            recordingDurationMs: 240_000, candidateCount: 2);
-        var track = CreateTrack(artist: "Juice WRLD", title: "Lucid Dreams", durationMs: 241_000);
+            recordingDurationMs: 240_000);
+        var track = CreateTrack(artist: "Other Artist", title: "Lucid Dreams", durationMs: 241_000);
 
         var result = _validator.Validate(match, track);
 
-        Assert.True(result.AdjustedScore >= 0.85f);
-        Assert.NotEmpty(result.Warnings);
+        Assert.Contains("artist_mismatch", result.Warnings);
         Assert.Equal(EnrichmentStatus.NeedsReview, result.RecommendedStatus);
     }
 
