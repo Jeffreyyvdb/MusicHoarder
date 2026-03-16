@@ -40,7 +40,7 @@ public class AcoustIdMatchValidatorTests
     public void Validate_DurationMismatch_PenalizesScoreBy30Percent()
     {
         var match = CreateMatch(score: 0.95f, artist: "Juice WRLD", title: "Lucid Dreams",
-            recordingDurationMs: 255_001);
+            recordingDurationMs: 261_000);
         var track = CreateTrack(artist: "Juice WRLD", title: "Lucid Dreams", durationMs: 240_000);
 
         var result = _validator.Validate(match, track);
