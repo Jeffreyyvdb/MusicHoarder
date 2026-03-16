@@ -18,6 +18,7 @@ import {
   Fingerprint,
   ExternalLink,
   RotateCcw,
+  Eye,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -310,6 +311,13 @@ function StatusBadge({ status }: { status: string }) {
         <Badge className="bg-chart-2/10 text-chart-2 hover:bg-chart-2/20">
           <Loader2 className="mr-1.5 size-3 animate-spin" />
           Processing
+        </Badge>
+      )
+    case "needsreview":
+      return (
+        <Badge className="bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-500">
+          <Eye className="mr-1.5 size-3" />
+          Needs Review
         </Badge>
       )
     case "pending":
