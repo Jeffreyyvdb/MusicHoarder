@@ -296,7 +296,7 @@ export default function OverviewPage() {
                     </div>
                   </Button>
                 </Link>
-                <Link href="/" className="block">
+                <Link href="/app" className="block">
                   <Button variant="outline" className="w-full justify-start gap-3 h-auto py-3 hover:bg-muted hover:text-foreground dark:hover:bg-muted/50">
                     <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10">
                       <Music className="size-4 text-primary" />
