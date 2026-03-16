@@ -207,9 +207,8 @@ public class IndexService(
             .Where(s => deletedPaths.Contains(s.SourcePath))
             .ToListAsync(ct);
 
-        var now = DateTime.UtcNow;
         foreach (var song in deletedSongs)
-            song.DeletedAtUtc = now;
+            song.SoftDelete();
 
         await dbContext.SaveChangesAsync(ct);
         logger.LogInformation("Marked {Count} files as deleted", deletedSongs.Count);
