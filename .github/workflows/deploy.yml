@@ -2,7 +2,7 @@ name: Build & Deploy
 
 on:
   push:
-    branches: [main, cursor/homelab-ci-cd-deployment-ff03]
+    branches: [main]
 
 env:
   REGISTRY: ghcr.io
