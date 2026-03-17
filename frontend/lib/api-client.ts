@@ -499,6 +499,7 @@ export async function resetSongEnrichment(
 }
 
 export function getSongStreamUrl(songId: number): string {
+  if (isDemoMode) return "/demo-audio.mp3"
   return `${API_PREFIX}/songs/${songId}/stream`
 }
 
