@@ -23,17 +23,26 @@ services:
     volumes:
       - /mnt/nas/music-source:/music/source:ro
       - /mnt/nas/music-clean:/music/destination
-      - /tmp/musicenricher:/tmp/musicenricher
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ConnectionStrings__musichoarderdb=Host=postgres;Database=musichoarderdb;Username=musichoarder;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       - MusicEnricher__SourceDirectory=/music/source
       - MusicEnricher__DestinationDirectory=/music/destination
-      - MusicEnricher__TempDirectory=/tmp/musicenricher
       - MusicEnricher__AcoustIdApiKey=${ACOUSTID_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
+
+  frontend:
+    image: ghcr.io/jeffreyyvdb/musichoarder-frontend:latest
+    platform: linux/amd64
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - MUSICHOARDER_API_URL=http://musichoarder:8080
+    depends_on:
+      - musichoarder
 
 volumes:
   postgres-data:
