@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -17,6 +17,7 @@ import { Toolbar } from "./toolbar"
 import { findFileById, getPathToFile } from "@/lib/mock-data"
 import type { FileItem } from "@/lib/types"
 import { FolderOpen, Menu } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { AppHeader } from "../app-header"
 import {
@@ -55,35 +56,36 @@ function countAudioFiles(items: FileItem[]): number {
   return count
 }
 
-function collectDescendants(items: FileItem[]): FileItem[] {
-  const descendants: FileItem[] = []
+interface SearchableItem {
+  item: FileItem
+  searchText: string
+}
+
+function buildSearchIndex(items: FileItem[]): SearchableItem[] {
+  const result: SearchableItem[] = []
   const stack = [...items]
 
   while (stack.length > 0) {
-    const item = stack.shift()
+    const item = stack.pop()
     if (!item) continue
 
-    descendants.push(item)
+    const parts = [item.name, item.path]
+    if (item.type === "audio" && item.metadata) {
+      parts.push(
+        item.metadata.title,
+        item.metadata.artist,
+        item.metadata.album,
+        item.metadata.format
+      )
+    }
+    result.push({ item, searchText: parts.join("\0").toLowerCase() })
+
     if (item.type === "folder" && item.children?.length) {
-      stack.unshift(...item.children)
+      stack.push(...item.children)
     }
   }
 
-  return descendants
-}
-
-function matchesQuery(item: FileItem, query: string): boolean {
-  const loweredQuery = query.toLowerCase()
-  if (item.name.toLowerCase().includes(loweredQuery)) return true
-  if (item.path.toLowerCase().includes(loweredQuery)) return true
-
-  if (item.type !== "audio" || !item.metadata) return false
-  return [
-    item.metadata.title,
-    item.metadata.artist,
-    item.metadata.album,
-    item.metadata.format,
-  ].some((value) => value.toLowerCase().includes(loweredQuery))
+  return result
 }
 
 function getAggregateSize(item: FileItem): number {
@@ -164,8 +166,17 @@ export function FileBrowser() {
   )
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("musichoarder-library-view") as "grid" | "list" | null
+      if (stored === "grid" || stored === "list") setViewMode(stored)
+    }
     setIsHydrated(true)
   }, [])
+
+  useEffect(() => {
+    if (!isHydrated || typeof window === "undefined") return
+    localStorage.setItem("musichoarder-library-view", viewMode)
+  }, [viewMode, isHydrated])
 
   const loadSongs = useCallback(async (mode: "initial" | "refresh") => {
     try {
@@ -250,14 +261,23 @@ export function FileBrowser() {
     return `Loaded ${mappedSongCount} of ${expectedSongCount} ${libraryMode} songs. Some songs could not be mapped to folders.`
   }, [apiError, isLoading, expectedSongCount, mappedSongCount, libraryMode])
 
+  const deferredSearchQuery = useDeferredValue(searchQuery)
+
+  const searchIndex = useMemo(
+    () => buildSearchIndex(currentFolder?.children ?? []),
+    [currentFolder]
+  )
+
   const visibleItems = useMemo(() => {
     const folderItems = currentFolder?.children ?? []
-    const query = searchQuery.trim()
+    const query = deferredSearchQuery.trim().toLowerCase()
 
     const searchedItems =
       query.length === 0
         ? folderItems
-        : collectDescendants(folderItems).filter((item) => matchesQuery(item, query))
+        : searchIndex
+            .filter((entry) => entry.searchText.includes(query))
+            .map((entry) => entry.item)
 
     const filteredItems = searchedItems.filter((item) => {
       switch (filterBy) {
@@ -306,17 +326,19 @@ export function FileBrowser() {
     })
 
     return sortedItems
-  }, [currentFolder, filterBy, searchQuery, sortBy, sortDirection])
+  }, [currentFolder, filterBy, deferredSearchQuery, searchIndex, sortBy, sortDirection])
+
+  const isSearchPending = deferredSearchQuery !== searchQuery
 
   const emptyStateMessage = useMemo(() => {
-    if (searchQuery.trim().length > 0) {
+    if (deferredSearchQuery.trim().length > 0) {
       return "No files match your search in this folder tree"
     }
     if (filterBy !== "all") {
       return "No files match the selected filter"
     }
     return "This folder is empty"
-  }, [filterBy, searchQuery])
+  }, [filterBy, deferredSearchQuery])
 
   const handleFolderSelect = (item: FileItem) => {
     if (item.type === "folder") {
@@ -489,7 +511,7 @@ export function FileBrowser() {
               )}
 
               {/* File Grid */}
-              <ScrollArea className="min-h-0 flex-1">
+              <div className={cn("min-h-0 flex-1", isSearchPending && "opacity-60 transition-opacity")}>
                 <FileGrid
                   items={visibleItems}
                   selectedId={selectedFileId}
@@ -498,7 +520,7 @@ export function FileBrowser() {
                   viewMode={viewMode}
                   emptyMessage={emptyStateMessage}
                 />
-              </ScrollArea>
+              </div>
 
               {/* Status Bar */}
               <div className="flex items-center justify-between border-t border-border bg-card/30 px-4 py-1.5 text-xs text-muted-foreground">
@@ -576,7 +598,7 @@ export function FileBrowser() {
           )}
 
           {/* File Grid */}
-          <ScrollArea className="min-h-0 flex-1">
+          <div className={cn("min-h-0 flex-1", isSearchPending && "opacity-60 transition-opacity")}>
             <FileGrid
               items={visibleItems}
               selectedId={selectedFileId}
@@ -585,7 +607,7 @@ export function FileBrowser() {
               viewMode={viewMode}
               emptyMessage={emptyStateMessage}
             />
-          </ScrollArea>
+          </div>
 
           {/* Status Bar */}
           <div className="flex items-center justify-between border-t border-border bg-card/30 px-3 py-1.5 text-xs text-muted-foreground">
