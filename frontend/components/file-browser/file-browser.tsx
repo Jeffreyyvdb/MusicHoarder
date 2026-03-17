@@ -26,6 +26,8 @@ import {
   type LibraryPathMode,
 } from "@/lib/api-client"
 import { isDemoMode } from "@/lib/app-mode"
+import { usePlayer } from "@/lib/player-context"
+import { cn } from "@/lib/utils"
 
 type LibrarySortBy = "name" | "dateModified" | "size" | "type"
 type LibrarySortDirection = "asc" | "desc"
@@ -155,6 +157,7 @@ export function FileBrowser() {
   // Track expanded folder IDs for the sidebar tree - managed here to persist across re-renders
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(() => new Set(["root"]))
   const isMobile = useIsMobile()
+  const { currentSong } = usePlayer()
   const dataModeMessage = isDemoMode
     ? "Demo mode is enabled. Library data is served from fake data."
     : "Production mode is enabled. Library data is served from the API."
@@ -405,7 +408,7 @@ export function FileBrowser() {
   )
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div className={cn("flex h-screen flex-col bg-background", currentSong && "pb-[72px]")}>
       <AppHeader />
 
       {/* Mobile sidebar sheet */}

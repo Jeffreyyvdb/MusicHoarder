@@ -497,3 +497,13 @@ export async function resetSongEnrichment(
     { method: "POST" }
   )
 }
+
+export function getSongStreamUrl(songId: number): string {
+  return `${API_PREFIX}/songs/${songId}/stream`
+}
+
+export function parseSongId(fileItemId: string): number | null {
+  if (!fileItemId.startsWith("song:")) return null
+  const parsed = Number(fileItemId.slice(5))
+  return Number.isFinite(parsed) ? parsed : null
+}

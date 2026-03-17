@@ -19,15 +19,19 @@ import {
   ExternalLink,
   RotateCcw,
   Eye,
+  Pause,
+  Play,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Slider } from "@/components/ui/slider"
 import type { FileItem } from "@/lib/types"
 import { cn } from "@/lib/utils"
-import { resetSongEnrichment } from "@/lib/api-client"
+import { resetSongEnrichment, getSongStreamUrl, parseSongId } from "@/lib/api-client"
+import { usePlayer } from "@/lib/player-context"
 
 interface TrackDetailsProps {
   file: FileItem | null
@@ -35,17 +39,30 @@ interface TrackDetailsProps {
   onResetEnrichment?: () => void
 }
 
-function parseSongId(fileId: string): number | null {
-  if (!fileId.startsWith("song:")) return null
-  const parsed = Number(fileId.slice(5))
-  return Number.isFinite(parsed) ? parsed : null
+function formatTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || Number.isNaN(seconds) || seconds < 0) return "0:00"
+  const m = Math.floor(seconds / 60)
+  const s = Math.floor(seconds % 60)
+  return `${m}:${s.toString().padStart(2, "0")}`
 }
 
 export function TrackDetails({ file, onClose, onResetEnrichment }: TrackDetailsProps) {
   const [resetState, setResetState] = useState<"idle" | "loading" | "success" | "error">("idle")
   const [resetError, setResetError] = useState<string | null>(null)
+  const { currentSong, isPlaying, currentTime, duration, playSong, togglePlay, seek } = usePlayer()
 
   const songId = file ? parseSongId(file.id) : null
+  const isThisSong = currentSong?.id === songId && songId !== null
+
+  const handlePlay = useCallback(() => {
+    if (songId === null || !file?.metadata) return
+    playSong({
+      id: songId,
+      title: file.metadata.title,
+      artist: file.metadata.artist,
+      streamUrl: getSongStreamUrl(songId),
+    })
+  }, [songId, file, playSong])
 
   const handleResetEnrichment = useCallback(async () => {
     if (songId === null) return
@@ -68,6 +85,9 @@ export function TrackDetails({ file, onClose, onResetEnrichment }: TrackDetailsP
   }
 
   const { metadata } = file
+  const playerCurrentTime = isThisSong ? currentTime : 0
+  const playerDuration = isThisSong ? duration : 0
+  const playerIsPlaying = isThisSong && isPlaying
 
   return (
     <div className="flex h-full max-h-full flex-col overflow-hidden border-l border-border bg-card">
@@ -112,6 +132,52 @@ export function TrackDetails({ file, onClose, onResetEnrichment }: TrackDetailsP
           <div className="mb-4 hidden justify-center sm:flex">
             <StatusBadge status={metadata.enrichmentStatus} />
           </div>
+
+          {/* Inline Player */}
+          {songId !== null && (
+            <div className="mb-4 rounded-lg border border-border bg-secondary/30 p-3">
+              <div className="flex items-center justify-center">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "size-10 rounded-full transition-all",
+                    playerIsPlaying
+                      ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                      : "hover:bg-primary/10 hover:text-primary"
+                  )}
+                  onClick={isThisSong ? togglePlay : handlePlay}
+                  aria-label={playerIsPlaying ? "Pause" : "Play"}
+                >
+                  {playerIsPlaying ? (
+                    <Pause className="size-4" />
+                  ) : (
+                    <Play className="size-4 translate-x-px" />
+                  )}
+                </Button>
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <span className="w-9 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                  {formatTime(playerCurrentTime)}
+                </span>
+                <Slider
+                  value={[playerCurrentTime]}
+                  max={playerDuration > 0 ? playerDuration : 1}
+                  min={0}
+                  step={1}
+                  disabled={!isThisSong || playerDuration === 0}
+                  className={cn("flex-1", !isThisSong && "opacity-40")}
+                  onValueChange={([val]) => {
+                    if (isThisSong && val !== undefined) seek(val)
+                  }}
+                  aria-label="Seek"
+                />
+                <span className="w-9 shrink-0 text-xs tabular-nums text-muted-foreground">
+                  {formatTime(playerDuration)}
+                </span>
+              </div>
+            </div>
+          )}
 
           <Separator className="my-4" />
 
