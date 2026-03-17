@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useRef, useState } from "react"
 import {
   Grid3X3,
   List,
@@ -21,6 +22,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+
+const SEARCH_DEBOUNCE_MS = 150
 
 type LibrarySortBy = "name" | "dateModified" | "size" | "type"
 type LibrarySortDirection = "asc" | "desc"
@@ -59,6 +62,23 @@ export function Toolbar({
   onRefresh,
   isRefreshing,
 }: ToolbarProps) {
+  const [localQuery, setLocalQuery] = useState(searchQuery)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    setLocalQuery(searchQuery)
+  }, [searchQuery])
+
+  const handleSearchChange = (value: string) => {
+    setLocalQuery(value)
+    if (debounceRef.current !== null) {
+      clearTimeout(debounceRef.current)
+    }
+    debounceRef.current = setTimeout(() => {
+      onSearchChange(value)
+    }, SEARCH_DEBOUNCE_MS)
+  }
+
   return (
     <div className="flex items-center gap-1.5 border-b border-border bg-card/50 px-2 py-2 sm:gap-2 sm:px-4">
       <div className="relative min-w-0 flex-1 sm:max-w-sm">
@@ -66,8 +86,8 @@ export function Toolbar({
         <Input
           type="search"
           placeholder="Search..."
-          value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
+          value={localQuery}
+          onChange={(e) => handleSearchChange(e.target.value)}
           className="h-8 pl-8 bg-secondary border-0"
         />
       </div>
