@@ -141,7 +141,7 @@ public sealed class LrcLibService(
         public string? AlbumName { get; set; }
 
         [JsonPropertyName("duration")]
-        public int Duration { get; set; }
+        public double Duration { get; set; }
 
         [JsonPropertyName("instrumental")]
         public bool Instrumental { get; set; }
