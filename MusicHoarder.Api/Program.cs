@@ -510,10 +510,22 @@ app.MapGet("/songs/{id:int}/stream", async (int id, MusicHoarderDbContext db) =>
     if (song is null)
         return Results.NotFound(new { message = $"Song with id {id} not found." });
 
-    if (!File.Exists(song.SourcePath))
-        return Results.NotFound(new { message = "Source file not found on disk." });
+    // Prefer source path; fall back to destination path so both library modes work
+    // even when the source NAS share is temporarily unavailable.
+    var filePath =
+        (!string.IsNullOrEmpty(song.SourcePath)      && File.Exists(song.SourcePath))      ? song.SourcePath :
+        (!string.IsNullOrEmpty(song.DestinationPath) && File.Exists(song.DestinationPath)) ? song.DestinationPath :
+        null;
 
-    var mimeType = Path.GetExtension(song.SourcePath)?.ToLowerInvariant() switch
+    if (filePath is null)
+        return Results.NotFound(new
+        {
+            message = "Audio file not found on disk.",
+            sourcePath = song.SourcePath,
+            destinationPath = song.DestinationPath
+        });
+
+    var mimeType = Path.GetExtension(filePath)?.ToLowerInvariant() switch
     {
         ".mp3"  => "audio/mpeg",
         ".flac" => "audio/flac",
@@ -527,7 +539,7 @@ app.MapGet("/songs/{id:int}/stream", async (int id, MusicHoarderDbContext db) =>
     };
 
     var stream = new FileStream(
-        song.SourcePath,
+        filePath,
         FileMode.Open,
         FileAccess.Read,
         FileShare.Read,
