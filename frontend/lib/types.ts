@@ -10,6 +10,8 @@ export interface FileItem {
   metadata?: TrackMetadata
 }
 
+export type LyricsStatus = "NotFetched" | "Fetched" | "Instrumental" | "NotFound" | "Failed"
+
 export interface TrackMetadata {
   title: string
   artist: string
@@ -23,6 +25,12 @@ export interface TrackMetadata {
   fileSize: number
   albumArt?: string
   lyrics?: string
+  syncedLyrics?: string
+  plainLyrics?: string
+  lyricsStatus?: LyricsStatus
+  hasSyncedLyrics?: boolean
+  hasPlainLyrics?: boolean
+  isInstrumental?: boolean
   fingerprint?: string
   enrichmentStatus: "pending" | "processing" | "complete" | "failed" | "needsreview"
   sources: {

@@ -51,6 +51,20 @@ builder.Services.AddSingleton<IAcoustIdService>(sp =>
     return new AcoustIdService(httpClient, options, logger);
 });
 
+builder.Services.AddSingleton<ILrcLibService>(sp =>
+{
+    var httpClient = new HttpClient
+    {
+        BaseAddress = new Uri("https://lrclib.net/"),
+        DefaultRequestHeaders =
+        {
+            { "User-Agent", "MusicHoarder/1.0 (https://github.com/Jeffreyyvdb/MusicHoarder)" }
+        }
+    };
+    var logger = sp.GetRequiredService<ILogger<LrcLibService>>();
+    return new LrcLibService(httpClient, logger);
+});
+
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
@@ -415,7 +429,11 @@ app.MapGet("/songs", async (MusicHoarderDbContext db, bool includeDeleted = fals
             s.LibraryBuildLastAttemptedAtUtc,
             s.LibraryBuildError,
             s.DestinationPath,
-            s.PreviousDestinationPath
+            s.PreviousDestinationPath,
+            s.LyricsStatus,
+            s.SyncedLyrics,
+            s.PlainLyrics,
+            s.IsInstrumental,
         })
         .ToListAsync();
 
@@ -434,7 +452,11 @@ app.MapGet("/songs", async (MusicHoarderDbContext db, bool includeDeleted = fals
         s.OriginalIsrc, s.OriginalMusicBrainzId, s.OriginalSpotifyId,
         s.OriginalMetadataCapturedAtUtc,
         s.LibraryBuildStatus, s.LibraryBuiltAtUtc, s.LibraryBuildLastAttemptedAtUtc,
-        s.LibraryBuildError, s.DestinationPath, s.PreviousDestinationPath
+        s.LibraryBuildError, s.DestinationPath, s.PreviousDestinationPath,
+        LyricsStatus = s.LyricsStatus.ToString(),
+        HasSyncedLyrics = s.SyncedLyrics != null && s.SyncedLyrics != string.Empty,
+        HasPlainLyrics = s.PlainLyrics != null && s.PlainLyrics != string.Empty,
+        s.IsInstrumental
     }).ToList();
 
     return Results.Ok(new
@@ -442,6 +464,34 @@ app.MapGet("/songs", async (MusicHoarderDbContext db, bool includeDeleted = fals
         Count = projected.Count,
         IncludeDeleted = includeDeleted,
         Songs = projected
+    });
+});
+
+app.MapGet("/api/tracks/{id:int}/lyrics", async (int id, MusicHoarderDbContext db) =>
+{
+    var song = await db.Songs
+        .AsNoTracking()
+        .Where(s => s.Id == id && s.DeletedAtUtc == null)
+        .Select(s => new
+        {
+            s.Id,
+            s.LyricsStatus,
+            s.SyncedLyrics,
+            s.PlainLyrics,
+            s.IsInstrumental,
+        })
+        .FirstOrDefaultAsync();
+
+    if (song is null)
+        return Results.NotFound(new { message = $"Track with id {id} not found." });
+
+    return Results.Ok(new
+    {
+        song.Id,
+        LyricsStatus = song.LyricsStatus.ToString(),
+        song.IsInstrumental,
+        Synced = song.SyncedLyrics,
+        Plain = song.PlainLyrics,
     });
 });
 
