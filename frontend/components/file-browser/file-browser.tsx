@@ -28,7 +28,6 @@ import {
 } from "@/lib/api-client"
 import { isDemoMode } from "@/lib/app-mode"
 import { usePlayer } from "@/lib/player-context"
-import { cn } from "@/lib/utils"
 
 type LibrarySortBy = "name" | "dateModified" | "size" | "type"
 type LibrarySortDirection = "asc" | "desc"

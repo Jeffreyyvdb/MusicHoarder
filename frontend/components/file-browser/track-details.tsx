@@ -30,12 +30,10 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Slider } from "@/components/ui/slider"
-import type { FileItem } from "@/lib/types"
 import type { FileItem, LyricsStatus } from "@/lib/types"
 import { cn } from "@/lib/utils"
-import { resetSongEnrichment, getSongStreamUrl, parseSongId } from "@/lib/api-client"
+import { resetSongEnrichment, getSongStreamUrl, parseSongId, fetchTrackLyrics } from "@/lib/api-client"
 import { usePlayer } from "@/lib/player-context"
-import { resetSongEnrichment, fetchTrackLyrics } from "@/lib/api-client"
 
 interface TrackDetailsProps {
   file: FileItem | null
