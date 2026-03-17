@@ -192,6 +192,12 @@ function buildDemoSongs(): ApiSong[] {
       musicBrainzId: null,
       spotifyId: null,
       enrichmentStatus: file.metadata?.enrichmentStatus ?? null,
+      lyricsStatus: file.metadata?.lyricsStatus ?? null,
+      hasSyncedLyrics: file.metadata?.hasSyncedLyrics ?? null,
+      hasPlainLyrics: file.metadata?.hasPlainLyrics ?? null,
+      isInstrumental: file.metadata?.isInstrumental ?? null,
+      syncedLyrics: file.metadata?.syncedLyrics ?? null,
+      plainLyrics: file.metadata?.plainLyrics ?? null,
     }
   })
 }
