@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState, useCallback, useEffect } from "react"
+import { useRef, useState, useEffect } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { Folder, Music, CheckCircle2, Clock, AlertCircle, Loader2, Eye } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -16,7 +16,6 @@ interface FileGridProps {
 }
 
 const LIST_ROW_HEIGHT = 52
-const GRID_ROW_HEIGHT = 136
 const GRID_GAP = 12
 const GRID_PADDING = 16
 
@@ -37,7 +36,7 @@ export function FileGrid({
   emptyMessage = "This folder is empty",
 }: FileGridProps) {
   const parentRef = useRef<HTMLDivElement>(null)
-  const [columnCount, setColumnCount] = useState(4)
+  const [containerWidth, setContainerWidth] = useState(800)
 
   useEffect(() => {
     const el = parentRef.current
@@ -46,15 +45,17 @@ export function FileGrid({
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0]
       if (entry) {
-        setColumnCount(getColumnCount(entry.contentRect.width))
+        setContainerWidth(entry.contentRect.width)
       }
     })
 
     observer.observe(el)
-    setColumnCount(getColumnCount(el.clientWidth))
+    setContainerWidth(el.clientWidth)
 
     return () => observer.disconnect()
   }, [])
+
+  const columnCount = getColumnCount(containerWidth)
 
   if (items.length === 0) {
     return (
@@ -87,6 +88,7 @@ export function FileGrid({
       onOpen={onOpen}
       parentRef={parentRef}
       columnCount={columnCount}
+      containerWidth={containerWidth}
     />
   )
 }
@@ -149,6 +151,7 @@ function VirtualizedGrid({
   onOpen,
   parentRef,
   columnCount,
+  containerWidth,
 }: {
   items: FileItem[]
   selectedId: string | null
@@ -156,13 +159,18 @@ function VirtualizedGrid({
   onOpen: (item: FileItem) => void
   parentRef: React.RefObject<HTMLDivElement | null>
   columnCount: number
+  containerWidth: number
 }) {
   const rowCount = Math.ceil(items.length / columnCount)
+  const cellWidth = Math.floor(
+    (containerWidth - GRID_PADDING * 2 - GRID_GAP * (columnCount - 1)) / columnCount
+  )
+  const rowHeight = cellWidth + GRID_GAP
 
   const virtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => GRID_ROW_HEIGHT + GRID_GAP,
+    estimateSize: () => rowHeight,
     overscan: 5,
   })
 
@@ -230,7 +238,7 @@ function FileGridItem({ item, isSelected, onSelect, onOpen }: FileItemProps) {
       onClick={onSelect}
       onDoubleClick={onOpen}
       className={cn(
-        "group flex flex-col items-center gap-2 rounded-lg p-3 text-center transition-all",
+        "group flex aspect-square flex-col items-center justify-center gap-2 rounded-lg p-3 text-center transition-all",
         "hover:bg-secondary/50",
         isSelected && "bg-primary/10 ring-1 ring-primary"
       )}
