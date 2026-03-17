@@ -186,6 +186,10 @@ public class SongMetadata
         EnrichedAtUtc = null;
         EnrichmentLastAttemptedAtUtc = null;
         EnrichmentError = null;
+
+        // Reset lyrics so the next enrichment cycle re-fetches them.
+        // This allows re-enriching to pick up lyrics that previously failed or weren't found.
+        ResetLyrics();
     }
 
     // --- Library build lifecycle ---

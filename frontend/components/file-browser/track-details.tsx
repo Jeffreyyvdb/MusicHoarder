@@ -29,7 +29,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { FileItem, LyricsStatus } from "@/lib/types"
 import { cn } from "@/lib/utils"
-import { resetSongEnrichment } from "@/lib/api-client"
+import { resetSongEnrichment, fetchTrackLyrics } from "@/lib/api-client"
 
 interface TrackDetailsProps {
   file: FileItem | null
@@ -154,9 +154,12 @@ export function TrackDetails({ file, onClose, onResetEnrichment }: TrackDetailsP
 
             <TabsContent value="lyrics" className="mt-4">
               <LyricsPanel
+                songId={songId}
                 syncedLyrics={metadata.syncedLyrics}
                 plainLyrics={metadata.plainLyrics}
                 lyricsStatus={metadata.lyricsStatus}
+                hasSyncedLyrics={metadata.hasSyncedLyrics}
+                hasPlainLyrics={metadata.hasPlainLyrics}
                 isInstrumental={metadata.isInstrumental}
               />
             </TabsContent>
@@ -404,25 +407,58 @@ function LyricsStatusBadge({ status }: { status?: LyricsStatus }) {
 }
 
 function LyricsPanel({
-  syncedLyrics,
-  plainLyrics,
+  songId,
+  syncedLyrics: syncedLyricsFromProps,
+  plainLyrics: plainLyricsFromProps,
   lyricsStatus,
+  hasSyncedLyrics: hasSyncedFromProps,
+  hasPlainLyrics: hasPlainFromProps,
   isInstrumental,
 }: {
+  songId: number | null
   syncedLyrics?: string
   plainLyrics?: string
   lyricsStatus?: LyricsStatus
+  hasSyncedLyrics?: boolean
+  hasPlainLyrics?: boolean
   isInstrumental?: boolean
 }) {
   const [showSynced, setShowSynced] = useState(true)
+  const [loadedSynced, setLoadedSynced] = useState<string | null | undefined>(syncedLyricsFromProps)
+  const [loadedPlain, setLoadedPlain] = useState<string | null | undefined>(plainLyricsFromProps)
+  const [loadState, setLoadState] = useState<"idle" | "loading" | "error">("idle")
 
-  const hasSynced = Boolean(syncedLyrics)
-  const hasPlain = Boolean(plainLyrics)
+  // Flags: trust the API-provided booleans when content isn't preloaded in props
+  const hasSynced = Boolean(loadedSynced) || Boolean(hasSyncedFromProps)
+  const hasPlain = Boolean(loadedPlain) || Boolean(hasPlainFromProps)
   const hasAny = hasSynced || hasPlain
 
+  // Content may not be preloaded (the /songs endpoint returns flags only, not full text).
+  // Auto-fetch when we know lyrics exist but content isn't loaded yet.
+  const needsLoad =
+    hasAny &&
+    !Boolean(loadedSynced) &&
+    !Boolean(loadedPlain) &&
+    loadState === "idle" &&
+    songId !== null
+
+  useEffect(() => {
+    if (!needsLoad || songId === null) return
+    setLoadState("loading")
+    fetchTrackLyrics(songId)
+      .then((data) => {
+        setLoadedSynced(data.synced ?? undefined)
+        setLoadedPlain(data.plain ?? undefined)
+        setLoadState("idle")
+      })
+      .catch(() => {
+        setLoadState("error")
+      })
+  }, [needsLoad, songId])
+
   const parsedLines = useMemo(
-    () => (hasSynced && showSynced ? parseLrc(syncedLyrics!) : null),
-    [hasSynced, showSynced, syncedLyrics]
+    () => (Boolean(loadedSynced) && showSynced ? parseLrc(loadedSynced!) : null),
+    [loadedSynced, showSynced]
   )
 
   if (isInstrumental) {
@@ -431,6 +467,25 @@ function LyricsPanel({
         <Music className="size-10 text-muted-foreground opacity-40" />
         <p className="text-sm text-muted-foreground">This track is instrumental — no lyrics expected.</p>
         <LyricsStatusBadge status="Instrumental" />
+      </div>
+    )
+  }
+
+  if (loadState === "loading") {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+        <Loader2 className="size-8 text-muted-foreground animate-spin" />
+        <p className="text-sm text-muted-foreground">Loading lyrics…</p>
+      </div>
+    )
+  }
+
+  if (loadState === "error") {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+        <AlertCircle className="size-8 text-destructive opacity-70" />
+        <p className="text-sm text-muted-foreground">Failed to load lyrics.</p>
+        <Button variant="outline" size="sm" onClick={() => setLoadState("idle")}>Retry</Button>
       </div>
     )
   }
@@ -444,18 +499,22 @@ function LyricsPanel({
             ? "No lyrics found in LRCLIB for this track."
             : lyricsStatus === "Failed"
               ? "Lyrics fetch encountered an error."
-              : "Lyrics have not been fetched yet."}
+              : "Lyrics have not been fetched yet — they are enriched automatically after a successful metadata match."}
         </p>
         <LyricsStatusBadge status={lyricsStatus} />
       </div>
     )
   }
 
+  const contentSynced = loadedSynced
+  const contentPlain = loadedPlain
+  const showSyncedToggle = Boolean(contentSynced) && Boolean(contentPlain)
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <LyricsStatusBadge status={lyricsStatus} />
-        {hasSynced && hasPlain && (
+        {showSyncedToggle && (
           <div className="flex rounded-md border border-border overflow-hidden text-xs">
             <button
               className={cn(
@@ -483,13 +542,13 @@ function LyricsPanel({
             </button>
           </div>
         )}
-        {hasSynced && !hasPlain && (
+        {contentSynced && !contentPlain && (
           <Badge variant="outline" className="text-xs text-muted-foreground gap-1">
             <Timer className="size-3" />
             Synced LRC
           </Badge>
         )}
-        {!hasSynced && hasPlain && (
+        {!contentSynced && contentPlain && (
           <Badge variant="outline" className="text-xs text-muted-foreground gap-1">
             <AlignLeft className="size-3" />
             Plain text
@@ -513,7 +572,7 @@ function LyricsPanel({
           </div>
         ) : (
           <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
-            {showSynced ? syncedLyrics : plainLyrics}
+            {showSynced ? contentSynced : contentPlain}
           </pre>
         )}
       </div>
