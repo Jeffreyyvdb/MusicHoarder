@@ -88,6 +88,10 @@ export interface ApiSong {
   isInstrumental?: boolean | null
   syncedLyrics?: string | null
   plainLyrics?: string | null
+  /** Sample rate in Hz (e.g. 44100). Shown in track details when present. */
+  sampleRate?: number | null
+  /** Bitrate in kbps (e.g. 320, 1411). Shown in track details when present. */
+  bitRate?: number | null
 }
 
 interface SongsResponse {
@@ -147,6 +151,7 @@ function deriveExtension(fileName: string): string | null {
   return fileName.slice(lastDot)
 }
 
+const SOURCE_ROOT = "/Volumes/music"
 const DESTINATION_ROOT = "/Music Library"
 
 function safePathSegment(segment: string): string {
@@ -165,8 +170,7 @@ function buildDemoDestinationPath(
 
 function buildDemoSongs(): ApiSong[] {
   const audioFiles = flattenAudioFiles(mockFileSystem)
-
-  return audioFiles.map((file, index) => {
+  const realSongs = audioFiles.map((file, index) => {
     const extension = deriveExtension(file.name)
     const artist = file.metadata?.artist ?? null
     const album = file.metadata?.album ?? null
@@ -198,8 +202,145 @@ function buildDemoSongs(): ApiSong[] {
       isInstrumental: file.metadata?.isInstrumental ?? null,
       syncedLyrics: file.metadata?.syncedLyrics ?? null,
       plainLyrics: file.metadata?.plainLyrics ?? null,
+      sampleRate: file.metadata?.sampleRate ?? null,
+      bitRate: file.metadata?.bitrate ?? null,
     }
   })
+  const totalFromReal = realSongs.reduce((sum, s) => sum + s.fileSizeBytes, 0)
+  const synthetic = buildSyntheticDemoSongs(realSongs.length + 1, totalFromReal)
+  return [...realSongs, ...synthetic]
+}
+
+/** Target total demo library size in bytes (~110 GB) for a MusicHoarder-style library. */
+const DEMO_TOTAL_BYTES_TARGET = 110 * 1024 * 1024 * 1024
+/** Number of synthetic tracks to add so the demo feels like a large library. */
+const DEMO_SYNTHETIC_TRACK_COUNT = 2100
+
+/** Messy top-level source folders (like real hoarded sources: downloads, rips, backups). */
+const MESSY_SOURCE_ROOTS = [
+  "Downloads",
+  "CD Rips",
+  "Music Backup",
+  "New Folder",
+  "Import 2023",
+  "From Phone",
+  "Rips",
+  "Unsorted",
+  "Music (1)",
+  "Transfer 2022",
+  "My Music",
+  "random",
+  "2022 Import",
+  "Old Library",
+  "iTunes Export",
+  "Spotify Export",
+  "Backup Jan",
+]
+
+/** Messy subfolder patterns: date folders, disc folders, duplicates, inconsistent casing. */
+const MESSY_SUBFOLDERS = [
+  "2022-11",
+  "2020-03",
+  "2023-01",
+  "Disc 1",
+  "disc2",
+  "Disc1",
+  "Album",
+  "Tracks",
+  " (1)",
+  " - copy",
+  "",
+]
+
+function buildMessySourcePath(
+  index: number,
+  artist: string,
+  album: string,
+  fileName: string
+): string {
+  const rootIndex = index % MESSY_SOURCE_ROOTS.length
+  const root = MESSY_SOURCE_ROOTS[rootIndex]
+  const subIndex = (index >> 4) % MESSY_SUBFOLDERS.length
+  const sub = MESSY_SUBFOLDERS[subIndex]
+
+  // Mix: some under artist-like folders (but messy), some under date/random folders
+  const useArtistFolder = index % 3 !== 0
+  if (useArtistFolder) {
+    // Inconsistent casing / naming: sometimes lowercase, sometimes "Artist (1)"
+    const artistFolder =
+      index % 5 === 0
+        ? artist.toLowerCase()
+        : index % 7 === 0
+          ? `${artist} (1)`
+          : index % 11 === 0
+            ? artist.replace(/\s/g, "_")
+            : artist
+    const base = `${SOURCE_ROOT}/${root}/${artistFolder}`
+    if (sub) {
+      const albumFolder = sub.startsWith(" ") ? `${album}${sub}` : sub
+      return `${base}/${albumFolder}/${fileName}`
+    }
+    return `${base}/${album}/${fileName}`
+  }
+
+  // No artist folder: e.g. Downloads/2022-11/01 - Track 1.flac or Unsorted/track_01.mp3
+  const base = `${SOURCE_ROOT}/${root}`
+  if (sub) return `${base}/${sub}/${fileName}`
+  return `${base}/${fileName}`
+}
+
+function buildSyntheticDemoSongs(startId: number, totalBytesFromReal: number): ApiSong[] {
+  const bytesRemaining = Math.max(0, DEMO_TOTAL_BYTES_TARGET - totalBytesFromReal)
+  const bytesPerTrack = Math.floor(bytesRemaining / DEMO_SYNTHETIC_TRACK_COUNT)
+  const artists = [
+    "Arctic Monkeys", "Tame Impala", "Tyler the Creator", "Kendrick Lamar", "Billie Eilish",
+    "Lana Del Rey", "The Strokes", "MGMT", "Gorillaz", "LCD Soundsystem", "Phoenix", "Vampire Weekend",
+    "Arcade Fire", "Kanye West", "Frank Ocean", "Childish Gambino", "Anderson .Paak", "Mac DeMarco",
+  ]
+  const synthetic: ApiSong[] = []
+  for (let i = 0; i < DEMO_SYNTHETIC_TRACK_COUNT; i++) {
+    const id = startId + i
+    const artist = artists[i % artists.length]
+    const albumNum = Math.floor(i / artists.length) % 20 + 1
+    const trackNum = (i % 12) + 1
+    const album = `Album ${albumNum}`
+    const title = `Track ${trackNum}`
+    const ext = i % 3 === 0 ? "mp3" : "flac"
+    const cleanFileName = `${String(trackNum).padStart(2, "0")} - ${title}.${ext}`
+    const messyFileName =
+      i % 6 === 0 ? `track_${String(trackNum).padStart(2, "0")}.${ext}` : cleanFileName
+    const sourcePath = buildMessySourcePath(i, artist, album, messyFileName)
+    const destArtist = artist.replace(/[/\\]/g, "").trim() || "Unknown"
+    const destAlbum = album.replace(/[/\\]/g, "").trim() || "Unknown Album"
+    const destinationPath = `${DESTINATION_ROOT}/${destArtist}/${destAlbum}/${cleanFileName}`
+    const fileSizeBytes = bytesPerTrack + (i % 5) * 1024 * 1024
+    synthetic.push({
+      id,
+      sourcePath,
+      destinationPath,
+      fileName: cleanFileName,
+      extension: `.${ext}`,
+      fileSizeBytes,
+      artist,
+      album,
+      title,
+      year: 2010 + (i % 15),
+      durationSeconds: 180 + (i % 240),
+      fingerprint: null,
+      musicBrainzId: null,
+      spotifyId: null,
+      enrichmentStatus: i % 5 === 0 ? "pending" : "complete",
+      lyricsStatus: i % 4 === 0 ? "NotFetched" : "Fetched",
+      hasSyncedLyrics: i % 3 !== 0,
+      hasPlainLyrics: i % 4 !== 0,
+      isInstrumental: false,
+      syncedLyrics: null,
+      plainLyrics: null,
+      sampleRate: ext === "flac" ? 44100 : 48000,
+      bitRate: ext === "flac" ? 1411 : 320,
+    })
+  }
+  return synthetic
 }
 
 function mapEnrichmentStatus(status?: string | number | null): "pending" | "processing" | "complete" | "failed" | "needsreview" {
@@ -404,8 +545,8 @@ export function buildFileSystemFromSongs(
         year: song.year ?? 0,
         genre: "Unknown",
         duration: song.durationSeconds ?? 0,
-        bitrate: 0,
-        sampleRate: 0,
+        bitrate: song.bitRate ?? 0,
+        sampleRate: song.sampleRate ?? 0,
         format: (song.extension ?? "Unknown").replace(/^\./, "").toUpperCase(),
         fileSize: song.fileSizeBytes ?? 0,
         fingerprint: song.fingerprint ?? undefined,
@@ -527,6 +668,17 @@ export interface TrackLyricsResponse {
 
 export async function fetchTrackLyrics(trackId: number): Promise<TrackLyricsResponse> {
   if (isDemoMode) {
+    const demoSongs = buildDemoSongs()
+    const song = demoSongs.find((s) => s.id === trackId)
+    if (song && (song.syncedLyrics ?? song.plainLyrics)) {
+      return {
+        id: trackId,
+        lyricsStatus: song.lyricsStatus ?? "Fetched",
+        isInstrumental: song.isInstrumental ?? undefined,
+        synced: song.syncedLyrics ?? null,
+        plain: song.plainLyrics ?? null,
+      }
+    }
     return { id: trackId, lyricsStatus: "NotFound", synced: null, plain: null }
   }
   return requestJson<TrackLyricsResponse>(`/api/tracks/${trackId}/lyrics`)

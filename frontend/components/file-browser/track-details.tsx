@@ -199,8 +199,12 @@ export function TrackDetails({ file, onClose, onResetEnrichment }: TrackDetailsP
               <Separator className="my-3" />
               <InfoRow icon={Clock} label="Duration" value={formatDuration(metadata.duration)} />
               <InfoRow icon={FileAudio} label="Format" value={metadata.format} />
-              <InfoRow icon={Waves} label="Bitrate" value={`${metadata.bitrate} kbps`} />
-              <InfoRow icon={Waves} label="Sample Rate" value={`${(metadata.sampleRate / 1000).toFixed(1)} kHz`} />
+              {metadata.bitrate > 0 && (
+                <InfoRow icon={Waves} label="Bitrate" value={`${metadata.bitrate} kbps`} />
+              )}
+              {metadata.sampleRate > 0 && (
+                <InfoRow icon={Waves} label="Sample Rate" value={`${(metadata.sampleRate / 1000).toFixed(1)} kHz`} />
+              )}
               <InfoRow icon={HardDrive} label="File Size" value={formatFileSize(metadata.fileSize)} />
               {metadata.fingerprint && (
                 <>
