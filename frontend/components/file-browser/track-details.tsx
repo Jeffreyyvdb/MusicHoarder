@@ -164,7 +164,7 @@ export function TrackDetails({ file, onClose, onResetEnrichment }: TrackDetailsP
                   value={[playerCurrentTime]}
                   max={playerDuration > 0 ? playerDuration : 1}
                   min={0}
-                  step={1}
+                  step={0.01}
                   disabled={!isThisSong || playerDuration === 0}
                   className={cn("flex-1", !isThisSong && "opacity-40")}
                   onValueChange={([val]) => {
