@@ -79,9 +79,9 @@ All options live under the `MusicEnricher` section in `appsettings.json` or as e
 
 ---
 
-## CI/CD — GitHub Actions + Watchtower
+## CI/CD — GitHub Actions
 
-Every push to `main` automatically builds and pushes a fresh Docker image to GHCR. Watchtower running on the homelab polls GHCR every 5 minutes and restarts the container when a new image is detected.
+Every push to `main` automatically builds and pushes a fresh Docker image to GHCR. Pull and restart the container manually when you want to deploy (e.g. `docker compose pull && docker compose up -d`), or use another updater of your choice.
 
 ```
 Push to main
@@ -90,7 +90,7 @@ GitHub Actions — run tests → build + push image to GHCR
      ↓
 ghcr.io/jeffreyyvdb/musichoarder:latest
      ↓
-Watchtower (homelab) polls every 5 min → pulls + restarts automatically
+Pull and restart the container manually (or use another updater).
 ```
 
 No SSH access, no open ports, no VPN required.
@@ -102,7 +102,7 @@ No SSH access, no open ports, no VPN required.
 1. Runs the xUnit test suite.
 2. Builds the Docker image using a multi-stage `Dockerfile`.
 3. Pushes two tags to GHCR:
-   - `ghcr.io/jeffreyyvdb/musichoarder:latest` — used by Watchtower for auto-deploy.
+   - `ghcr.io/jeffreyyvdb/musichoarder:latest` — for deployment (e.g. `docker compose pull && docker compose up -d`).
    - `ghcr.io/jeffreyyvdb/musichoarder:sha-<commit>` — for rollback.
 4. Uses GitHub Actions cache (`type=gha`) so subsequent builds that only change .NET code complete in ~1–2 minutes.
 
@@ -129,9 +129,7 @@ No additional secrets are required — `GITHUB_TOKEN` is used automatically for 
    echo "<YOUR_PAT>" | docker login ghcr.io -u jeffreyyvdb --password-stdin
    ```
 
-   This writes credentials to `/root/.docker/config.json`, which Watchtower mounts.
-
-   If you make the package public (GitHub → Packages → musichoarder → Package settings → Change visibility → Public), remove the `config.json` volume mount from the `watchtower` service.
+   This writes credentials to `/root/.docker/config.json`, so `docker compose pull` on this host can authenticate to GHCR.
 
 4. **Start the stack**:
 
