@@ -1,5 +1,6 @@
-# Build stage
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# Build stage — always runs on the native build-platform (amd64 on GitHub Actions).
+# .NET compiles to platform-independent IL, so one build serves both amd64 and arm64.
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Copy project files first so NuGet restore is cached independently of source changes
@@ -17,7 +18,7 @@ RUN dotnet publish MusicHoarder.Api/MusicHoarder.Api.csproj \
     -o /app/publish \
     --no-restore
 
-# Runtime stage
+# Runtime stage — uses the target-platform's ASP.NET image (arm64 or amd64).
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 
 # Install fpcalc (Chromaprint) for acoustic fingerprinting
