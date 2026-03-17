@@ -502,6 +502,41 @@ app.MapPost("/songs/{id:int}/reset-enrichment", async (int id, MusicHoarderDbCon
     });
 });
 
+app.MapGet("/songs/{id:int}/stream", async (int id, MusicHoarderDbContext db) =>
+{
+    var song = await db.Songs.AsNoTracking()
+        .FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null);
+
+    if (song is null)
+        return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+    if (!File.Exists(song.SourcePath))
+        return Results.NotFound(new { message = "Source file not found on disk." });
+
+    var mimeType = Path.GetExtension(song.SourcePath)?.ToLowerInvariant() switch
+    {
+        ".mp3"  => "audio/mpeg",
+        ".flac" => "audio/flac",
+        ".ogg"  => "audio/ogg",
+        ".opus" => "audio/opus",
+        ".m4a"  => "audio/mp4",
+        ".aac"  => "audio/aac",
+        ".wav"  => "audio/wav",
+        ".wma"  => "audio/x-ms-wma",
+        _       => "application/octet-stream"
+    };
+
+    var stream = new FileStream(
+        song.SourcePath,
+        FileMode.Open,
+        FileAccess.Read,
+        FileShare.Read,
+        bufferSize: 65536,
+        useAsync: true);
+
+    return Results.Stream(stream, contentType: mimeType, enableRangeProcessing: true);
+});
+
 app.Run();
 
 static string[]? DeserializeWarnings(string? json)

@@ -1,8 +1,10 @@
 "use client"
 
-import { Folder, Music, CheckCircle2, Clock, AlertCircle, Loader2, Eye } from "lucide-react"
+import { Folder, Music, CheckCircle2, Clock, AlertCircle, Loader2, Eye, Pause, Play } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { FileItem } from "@/lib/types"
+import { usePlayer } from "@/lib/player-context"
+import { getSongStreamUrl, parseSongId } from "@/lib/api-client"
 
 interface FileGridProps {
   items: FileItem[]
@@ -21,6 +23,8 @@ export function FileGrid({
   viewMode,
   emptyMessage = "This folder is empty",
 }: FileGridProps) {
+  const { currentSong, isPlaying, playSong } = usePlayer()
+
   if (items.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center text-muted-foreground">
@@ -35,30 +39,66 @@ export function FileGrid({
   if (viewMode === "list") {
     return (
       <div className="divide-y divide-border">
-        {items.map((item) => (
-          <FileListItem
-            key={item.id}
-            item={item}
-            isSelected={selectedId === item.id}
-            onSelect={() => onSelect(item)}
-            onOpen={() => onOpen(item)}
-          />
-        ))}
+        {items.map((item) => {
+          const songId = parseSongId(item.id)
+          const isCurrentlyPlaying = currentSong?.id === songId && isPlaying
+          const isCurrentlyLoaded = currentSong?.id === songId
+          return (
+            <FileListItem
+              key={item.id}
+              item={item}
+              isSelected={selectedId === item.id}
+              isPlaying={isCurrentlyPlaying}
+              isLoaded={isCurrentlyLoaded}
+              onSelect={() => onSelect(item)}
+              onOpen={() => onOpen(item)}
+              onPlay={
+                songId !== null && item.type === "audio"
+                  ? () =>
+                      playSong({
+                        id: songId,
+                        title: item.metadata?.title ?? item.name,
+                        artist: item.metadata?.artist ?? "Unknown Artist",
+                        streamUrl: getSongStreamUrl(songId),
+                      })
+                  : undefined
+              }
+            />
+          )
+        })}
       </div>
     )
   }
 
   return (
     <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-      {items.map((item) => (
-        <FileGridItem
-          key={item.id}
-          item={item}
-          isSelected={selectedId === item.id}
-          onSelect={() => onSelect(item)}
-          onOpen={() => onOpen(item)}
-        />
-      ))}
+      {items.map((item) => {
+        const songId = parseSongId(item.id)
+        const isCurrentlyPlaying = currentSong?.id === songId && isPlaying
+        const isCurrentlyLoaded = currentSong?.id === songId
+        return (
+          <FileGridItem
+            key={item.id}
+            item={item}
+            isSelected={selectedId === item.id}
+            isPlaying={isCurrentlyPlaying}
+            isLoaded={isCurrentlyLoaded}
+            onSelect={() => onSelect(item)}
+            onOpen={() => onOpen(item)}
+            onPlay={
+              songId !== null && item.type === "audio"
+                ? () =>
+                    playSong({
+                      id: songId,
+                      title: item.metadata?.title ?? item.name,
+                      artist: item.metadata?.artist ?? "Unknown Artist",
+                      streamUrl: getSongStreamUrl(songId),
+                    })
+                : undefined
+            }
+          />
+        )
+      })}
     </div>
   )
 }
@@ -66,11 +106,14 @@ export function FileGrid({
 interface FileItemProps {
   item: FileItem
   isSelected: boolean
+  isPlaying: boolean
+  isLoaded: boolean
   onSelect: () => void
   onOpen: () => void
+  onPlay?: () => void
 }
 
-function FileGridItem({ item, isSelected, onSelect, onOpen }: FileItemProps) {
+function FileGridItem({ item, isSelected, isPlaying, isLoaded, onSelect, onOpen, onPlay }: FileItemProps) {
   const isFolder = item.type === "folder"
   const status = item.metadata?.enrichmentStatus
 
@@ -79,9 +122,10 @@ function FileGridItem({ item, isSelected, onSelect, onOpen }: FileItemProps) {
       onClick={onSelect}
       onDoubleClick={onOpen}
       className={cn(
-        "group flex flex-col items-center gap-2 rounded-lg p-3 text-center transition-all",
+        "group relative flex flex-col items-center gap-2 rounded-lg p-3 text-center transition-all",
         "hover:bg-secondary/50",
-        isSelected && "bg-primary/10 ring-1 ring-primary"
+        isSelected && "bg-primary/10 ring-1 ring-primary",
+        isLoaded && !isSelected && "bg-primary/5"
       )}
     >
       <div className="relative">
@@ -97,13 +141,62 @@ function FileGridItem({ item, isSelected, onSelect, onOpen }: FileItemProps) {
                   className="size-full object-cover"
                   crossOrigin="anonymous"
                 />
-                <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
-                  <Music className="size-6 text-foreground" />
-                </div>
+                {/* Play overlay */}
+                {onPlay && (
+                  <div
+                    className={cn(
+                      "absolute inset-0 flex items-center justify-center bg-black/50 transition-opacity",
+                      isPlaying ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                    )}
+                  >
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onPlay() }}
+                      className="flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-110 active:scale-95"
+                      aria-label={isPlaying ? "Pause" : "Play"}
+                    >
+                      {isPlaying ? (
+                        <Pause className="size-3.5" />
+                      ) : (
+                        <Play className="size-3.5 translate-x-px" />
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
-              <div className="flex size-16 items-center justify-center rounded-md bg-secondary">
-                <Music className="size-8 text-muted-foreground" />
+              <div
+                className={cn(
+                  "relative flex size-16 items-center justify-center rounded-md bg-secondary transition-colors",
+                  isLoaded && "bg-primary/20"
+                )}
+              >
+                <Music
+                  className={cn(
+                    "size-8 transition-colors",
+                    isLoaded ? "text-primary" : "text-muted-foreground"
+                  )}
+                />
+                {/* Play overlay on non-art tracks */}
+                {onPlay && (
+                  <div
+                    className={cn(
+                      "absolute inset-0 flex items-center justify-center rounded-md bg-black/50 transition-opacity",
+                      isPlaying ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                    )}
+                  >
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onPlay() }}
+                      className="flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-110 active:scale-95"
+                      aria-label={isPlaying ? "Pause" : "Play"}
+                    >
+                      {isPlaying ? (
+                        <Pause className="size-3.5" />
+                      ) : (
+                        <Play className="size-3.5 translate-x-px" />
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
             {status && (
@@ -111,11 +204,15 @@ function FileGridItem({ item, isSelected, onSelect, onOpen }: FileItemProps) {
                 <StatusIcon status={status} />
               </div>
             )}
+            {/* Playing indicator dot */}
+            {isPlaying && (
+              <div className="absolute -top-1 -left-1 size-2.5 rounded-full bg-primary ring-2 ring-background animate-pulse" />
+            )}
           </>
         )}
       </div>
       <div className="w-full">
-        <p className="truncate text-sm font-medium">{item.name}</p>
+        <p className={cn("truncate text-sm font-medium", isLoaded && "text-primary")}>{item.name}</p>
         {!isFolder && item.metadata && (
           <p className="truncate text-xs text-muted-foreground">
             {item.metadata.artist}
@@ -126,63 +223,101 @@ function FileGridItem({ item, isSelected, onSelect, onOpen }: FileItemProps) {
   )
 }
 
-function FileListItem({ item, isSelected, onSelect, onOpen }: FileItemProps) {
+function FileListItem({ item, isSelected, isPlaying, isLoaded, onSelect, onOpen, onPlay }: FileItemProps) {
   const isFolder = item.type === "folder"
   const status = item.metadata?.enrichmentStatus
 
   return (
-    <button
-      onClick={onSelect}
-      onDoubleClick={onOpen}
+    <div
       className={cn(
-        "flex w-full items-center gap-3 px-4 py-2 text-left transition-colors",
+        "group flex w-full items-center gap-3 px-4 py-2 transition-colors",
         "hover:bg-secondary/50",
-        isSelected && "bg-primary/10"
+        isSelected && "bg-primary/10",
+        isLoaded && !isSelected && "bg-primary/5"
       )}
     >
-      <div className="relative shrink-0">
-        {isFolder ? (
-          <Folder className="size-8 text-primary" />
-        ) : item.metadata?.albumArt ? (
-          <div className="size-10 overflow-hidden rounded">
-            <img
-              src={item.metadata.albumArt}
-              alt={item.metadata.album}
-              className="size-full object-cover"
-              crossOrigin="anonymous"
-            />
-          </div>
-        ) : (
-          <div className="flex size-10 items-center justify-center rounded bg-secondary">
-            <Music className="size-5 text-muted-foreground" />
-          </div>
-        )}
-      </div>
-      
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-medium">{item.name}</p>
-        {!isFolder && item.metadata && (
-          <p className="truncate text-sm text-muted-foreground">
-            {item.metadata.artist} - {item.metadata.album}
-          </p>
-        )}
-      </div>
-
-      {!isFolder && item.metadata && (
-        <>
-          <span className="hidden text-sm text-muted-foreground sm:block">
-            {item.metadata.format}
-          </span>
-          <span className="hidden text-sm text-muted-foreground md:block">
-            {formatDuration(item.metadata.duration)}
-          </span>
-          <span className="hidden text-sm text-muted-foreground lg:block">
-            {formatFileSize(item.metadata.fileSize)}
-          </span>
-          {status && <StatusIcon status={status} />}
-        </>
+      {/* Play button for audio tracks */}
+      {!isFolder && onPlay ? (
+        <button
+          onClick={onPlay}
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded-full transition-all",
+            isLoaded
+              ? "bg-primary text-primary-foreground"
+              : "bg-secondary text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-primary/20 hover:text-primary"
+          )}
+          aria-label={isPlaying ? "Pause" : "Play"}
+        >
+          {isPlaying ? (
+            <Pause className="size-3.5" />
+          ) : (
+            <Play className="size-3.5 translate-x-px" />
+          )}
+        </button>
+      ) : (
+        <div className="size-8 shrink-0" />
       )}
-    </button>
+
+      {/* Main item content — clicking selects the item */}
+      <button
+        onClick={onSelect}
+        onDoubleClick={onOpen}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+      >
+        <div className="relative shrink-0">
+          {isFolder ? (
+            <Folder className="size-8 text-primary" />
+          ) : item.metadata?.albumArt ? (
+            <div className="size-10 overflow-hidden rounded">
+              <img
+                src={item.metadata.albumArt}
+                alt={item.metadata.album}
+                className="size-full object-cover"
+                crossOrigin="anonymous"
+              />
+            </div>
+          ) : (
+            <div
+              className={cn(
+                "flex size-10 items-center justify-center rounded transition-colors",
+                isLoaded ? "bg-primary/20" : "bg-secondary"
+              )}
+            >
+              <Music
+                className={cn(
+                  "size-5 transition-colors",
+                  isLoaded ? "text-primary" : "text-muted-foreground"
+                )}
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <p className={cn("truncate font-medium", isLoaded && "text-primary")}>{item.name}</p>
+          {!isFolder && item.metadata && (
+            <p className="truncate text-sm text-muted-foreground">
+              {item.metadata.artist} - {item.metadata.album}
+            </p>
+          )}
+        </div>
+
+        {!isFolder && item.metadata && (
+          <>
+            <span className="hidden text-sm text-muted-foreground sm:block">
+              {item.metadata.format}
+            </span>
+            <span className="hidden text-sm text-muted-foreground md:block">
+              {formatDuration(item.metadata.duration)}
+            </span>
+            <span className="hidden text-sm text-muted-foreground lg:block">
+              {formatFileSize(item.metadata.fileSize)}
+            </span>
+            {status && <StatusIcon status={status} />}
+          </>
+        )}
+      </button>
+    </div>
   )
 }
 
