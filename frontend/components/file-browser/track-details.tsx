@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useMemo, useEffect } from "react"
 import {
   X,
   Music,
@@ -21,6 +21,8 @@ import {
   Eye,
   Pause,
   Play,
+  Timer,
+  AlignLeft,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -29,9 +31,11 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Slider } from "@/components/ui/slider"
 import type { FileItem } from "@/lib/types"
+import type { FileItem, LyricsStatus } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { resetSongEnrichment, getSongStreamUrl, parseSongId } from "@/lib/api-client"
 import { usePlayer } from "@/lib/player-context"
+import { resetSongEnrichment, fetchTrackLyrics } from "@/lib/api-client"
 
 interface TrackDetailsProps {
   file: FileItem | null
@@ -217,21 +221,15 @@ export function TrackDetails({ file, onClose, onResetEnrichment }: TrackDetailsP
             </TabsContent>
 
             <TabsContent value="lyrics" className="mt-4">
-              {metadata.lyrics ? (
-                <div className="rounded-lg bg-secondary/50 p-4">
-                  <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
-                    {metadata.lyrics}
-                  </pre>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <FileText className="size-10 text-muted-foreground opacity-50" />
-                  <p className="mt-2 text-sm text-muted-foreground">No lyrics available</p>
-                  <Button variant="outline" size="sm" className="mt-3">
-                    Fetch Lyrics
-                  </Button>
-                </div>
-              )}
+              <LyricsPanel
+                songId={songId}
+                syncedLyrics={metadata.syncedLyrics}
+                plainLyrics={metadata.plainLyrics}
+                lyricsStatus={metadata.lyricsStatus}
+                hasSyncedLyrics={metadata.hasSyncedLyrics}
+                hasPlainLyrics={metadata.hasPlainLyrics}
+                isInstrumental={metadata.isInstrumental}
+              />
             </TabsContent>
 
             <TabsContent value="sources" className="mt-4 space-y-3">
@@ -414,4 +412,245 @@ function formatDuration(seconds: number): string {
 function formatFileSize(bytes: number): string {
   const mb = bytes / (1024 * 1024)
   return `${mb.toFixed(1)} MB`
+}
+
+interface LrcLine {
+  timeMs: number
+  text: string
+}
+
+function parseLrc(lrc: string): LrcLine[] {
+  const lines: LrcLine[] = []
+  for (const raw of lrc.split("\n")) {
+    const match = raw.match(/^\[(\d{2}):(\d{2})\.(\d{2,3})\]\s*(.*)$/)
+    if (!match) continue
+    const mins = parseInt(match[1], 10)
+    const secs = parseInt(match[2], 10)
+    const cs = parseInt(match[3].padEnd(3, "0"), 10)
+    const timeMs = mins * 60000 + secs * 1000 + cs
+    lines.push({ timeMs, text: match[4] ?? "" })
+  }
+  return lines
+}
+
+function LyricsStatusBadge({ status }: { status?: LyricsStatus }) {
+  switch (status) {
+    case "Fetched":
+      return (
+        <Badge className="bg-primary/10 text-primary hover:bg-primary/20 text-xs">
+          <CheckCircle2 className="mr-1 size-3" />
+          Lyrics Found
+        </Badge>
+      )
+    case "Instrumental":
+      return (
+        <Badge className="bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 dark:text-blue-400 text-xs">
+          <Music className="mr-1 size-3" />
+          Instrumental
+        </Badge>
+      )
+    case "NotFound":
+      return (
+        <Badge variant="secondary" className="text-xs">
+          <FileText className="mr-1 size-3" />
+          No Lyrics Found
+        </Badge>
+      )
+    case "Failed":
+      return (
+        <Badge variant="destructive" className="text-xs">
+          <AlertCircle className="mr-1 size-3" />
+          Fetch Failed
+        </Badge>
+      )
+    case "NotFetched":
+    default:
+      return (
+        <Badge variant="outline" className="text-xs text-muted-foreground">
+          <Clock className="mr-1 size-3" />
+          Not Fetched
+        </Badge>
+      )
+  }
+}
+
+function LyricsPanel({
+  songId,
+  syncedLyrics: syncedLyricsFromProps,
+  plainLyrics: plainLyricsFromProps,
+  lyricsStatus,
+  hasSyncedLyrics: hasSyncedFromProps,
+  hasPlainLyrics: hasPlainFromProps,
+  isInstrumental,
+}: {
+  songId: number | null
+  syncedLyrics?: string
+  plainLyrics?: string
+  lyricsStatus?: LyricsStatus
+  hasSyncedLyrics?: boolean
+  hasPlainLyrics?: boolean
+  isInstrumental?: boolean
+}) {
+  const [showSynced, setShowSynced] = useState(true)
+  const [loadedSynced, setLoadedSynced] = useState<string | null | undefined>(syncedLyricsFromProps)
+  const [loadedPlain, setLoadedPlain] = useState<string | null | undefined>(plainLyricsFromProps)
+  const [loadState, setLoadState] = useState<"idle" | "loading" | "error">("idle")
+
+  // Flags: trust the API-provided booleans when content isn't preloaded in props
+  const hasSynced = Boolean(loadedSynced) || Boolean(hasSyncedFromProps)
+  const hasPlain = Boolean(loadedPlain) || Boolean(hasPlainFromProps)
+  const hasAny = hasSynced || hasPlain
+
+  // Content may not be preloaded (the /songs endpoint returns flags only, not full text).
+  // Auto-fetch when we know lyrics exist but content isn't loaded yet.
+  const needsLoad =
+    hasAny &&
+    !Boolean(loadedSynced) &&
+    !Boolean(loadedPlain) &&
+    loadState === "idle" &&
+    songId !== null
+
+  useEffect(() => {
+    if (!needsLoad || songId === null) return
+    setLoadState("loading")
+    fetchTrackLyrics(songId)
+      .then((data) => {
+        setLoadedSynced(data.synced ?? undefined)
+        setLoadedPlain(data.plain ?? undefined)
+        setLoadState("idle")
+      })
+      .catch(() => {
+        setLoadState("error")
+      })
+  }, [needsLoad, songId])
+
+  const parsedLines = useMemo(
+    () => (Boolean(loadedSynced) && showSynced ? parseLrc(loadedSynced!) : null),
+    [loadedSynced, showSynced]
+  )
+
+  if (isInstrumental) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+        <Music className="size-10 text-muted-foreground opacity-40" />
+        <p className="text-sm text-muted-foreground">This track is instrumental — no lyrics expected.</p>
+        <LyricsStatusBadge status="Instrumental" />
+      </div>
+    )
+  }
+
+  if (loadState === "loading") {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+        <Loader2 className="size-8 text-muted-foreground animate-spin" />
+        <p className="text-sm text-muted-foreground">Loading lyrics…</p>
+      </div>
+    )
+  }
+
+  if (loadState === "error") {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+        <AlertCircle className="size-8 text-destructive opacity-70" />
+        <p className="text-sm text-muted-foreground">Failed to load lyrics.</p>
+        <Button variant="outline" size="sm" onClick={() => setLoadState("idle")}>Retry</Button>
+      </div>
+    )
+  }
+
+  if (!hasAny) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+        <FileText className="size-10 text-muted-foreground opacity-50" />
+        <p className="text-sm text-muted-foreground">
+          {lyricsStatus === "NotFound"
+            ? "No lyrics found in LRCLIB for this track."
+            : lyricsStatus === "Failed"
+              ? "Lyrics fetch encountered an error."
+              : "Lyrics have not been fetched yet — they are enriched automatically after a successful metadata match."}
+        </p>
+        <LyricsStatusBadge status={lyricsStatus} />
+      </div>
+    )
+  }
+
+  const contentSynced = loadedSynced
+  const contentPlain = loadedPlain
+  const showSyncedToggle = Boolean(contentSynced) && Boolean(contentPlain)
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <LyricsStatusBadge status={lyricsStatus} />
+        {showSyncedToggle && (
+          <div className="flex rounded-md border border-border overflow-hidden text-xs">
+            <button
+              className={cn(
+                "px-2 py-1 flex items-center gap-1 transition-colors",
+                showSynced
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-transparent text-muted-foreground hover:text-foreground"
+              )}
+              onClick={() => setShowSynced(true)}
+            >
+              <Timer className="size-3" />
+              Synced
+            </button>
+            <button
+              className={cn(
+                "px-2 py-1 flex items-center gap-1 transition-colors",
+                !showSynced
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-transparent text-muted-foreground hover:text-foreground"
+              )}
+              onClick={() => setShowSynced(false)}
+            >
+              <AlignLeft className="size-3" />
+              Plain
+            </button>
+          </div>
+        )}
+        {contentSynced && !contentPlain && (
+          <Badge variant="outline" className="text-xs text-muted-foreground gap-1">
+            <Timer className="size-3" />
+            Synced LRC
+          </Badge>
+        )}
+        {!contentSynced && contentPlain && (
+          <Badge variant="outline" className="text-xs text-muted-foreground gap-1">
+            <AlignLeft className="size-3" />
+            Plain text
+          </Badge>
+        )}
+      </div>
+
+      <div className="rounded-lg bg-secondary/50 p-4 max-h-72 overflow-y-auto">
+        {parsedLines ? (
+          <div className="space-y-1 font-sans text-sm leading-relaxed">
+            {parsedLines.map((line, i) => (
+              <div key={i} className="flex gap-2">
+                <span className="shrink-0 text-xs text-muted-foreground/60 font-mono w-12 pt-0.5">
+                  {formatLrcTime(line.timeMs)}
+                </span>
+                <span className={cn("flex-1", !line.text && "opacity-0 select-none")}>
+                  {line.text || "·"}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
+            {showSynced ? contentSynced : contentPlain}
+          </pre>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function formatLrcTime(ms: number): string {
+  const totalSecs = Math.floor(ms / 1000)
+  const mins = Math.floor(totalSecs / 60)
+  const secs = totalSecs % 60
+  return `${mins}:${secs.toString().padStart(2, "0")}`
 }

@@ -82,6 +82,12 @@ export interface ApiSong {
   musicBrainzId?: string | null
   spotifyId?: string | null
   enrichmentStatus?: string | number | null
+  lyricsStatus?: string | null
+  hasSyncedLyrics?: boolean | null
+  hasPlainLyrics?: boolean | null
+  isInstrumental?: boolean | null
+  syncedLyrics?: string | null
+  plainLyrics?: string | null
 }
 
 interface SongsResponse {
@@ -186,6 +192,12 @@ function buildDemoSongs(): ApiSong[] {
       musicBrainzId: null,
       spotifyId: null,
       enrichmentStatus: file.metadata?.enrichmentStatus ?? null,
+      lyricsStatus: file.metadata?.lyricsStatus ?? null,
+      hasSyncedLyrics: file.metadata?.hasSyncedLyrics ?? null,
+      hasPlainLyrics: file.metadata?.hasPlainLyrics ?? null,
+      isInstrumental: file.metadata?.isInstrumental ?? null,
+      syncedLyrics: file.metadata?.syncedLyrics ?? null,
+      plainLyrics: file.metadata?.plainLyrics ?? null,
     }
   })
 }
@@ -398,6 +410,13 @@ export function buildFileSystemFromSongs(
         fileSize: song.fileSizeBytes ?? 0,
         fingerprint: song.fingerprint ?? undefined,
         enrichmentStatus: mapEnrichmentStatus(song.enrichmentStatus),
+        lyricsStatus: (song.lyricsStatus ?? "NotFetched") as import("@/lib/types").LyricsStatus,
+        hasSyncedLyrics: song.hasSyncedLyrics ?? false,
+        hasPlainLyrics: song.hasPlainLyrics ?? false,
+        isInstrumental: song.isInstrumental ?? undefined,
+        syncedLyrics: song.syncedLyrics ?? undefined,
+        plainLyrics: song.plainLyrics ?? undefined,
+        lyrics: song.syncedLyrics ?? song.plainLyrics ?? undefined,
         sources: {
           musicbrainz: Boolean(song.musicBrainzId),
           spotify: Boolean(song.spotifyId),
@@ -496,6 +515,21 @@ export async function resetSongEnrichment(
     `/songs/${songId}/reset-enrichment?restoreOriginalMetadata=${restoreOriginalMetadata}`,
     { method: "POST" }
   )
+}
+
+export interface TrackLyricsResponse {
+  id: number
+  lyricsStatus: string
+  isInstrumental?: boolean | null
+  synced?: string | null
+  plain?: string | null
+}
+
+export async function fetchTrackLyrics(trackId: number): Promise<TrackLyricsResponse> {
+  if (isDemoMode) {
+    return { id: trackId, lyricsStatus: "NotFound", synced: null, plain: null }
+  }
+  return requestJson<TrackLyricsResponse>(`/api/tracks/${trackId}/lyrics`)
 }
 
 export function getSongStreamUrl(songId: number): string {

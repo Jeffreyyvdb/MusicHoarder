@@ -310,7 +310,8 @@ public class EnrichmentOrchestratorTests
 
     private static EnrichmentOrchestrator CreateOrchestrator(
         MusicHoarderDbContext db,
-        IAcoustIdService acoustIdService)
+        IAcoustIdService acoustIdService,
+        ILrcLibService? lrcLibService = null)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
@@ -328,6 +329,7 @@ public class EnrichmentOrchestratorTests
             scopeFactory,
             progressTracker,
             matchValidator,
+            lrcLibService ?? new NoOpLrcLibService(),
             options,
             NullLogger<EnrichmentOrchestrator>.Instance);
     }
@@ -337,6 +339,12 @@ public class EnrichmentOrchestratorTests
     {
         public Task<AcoustIdMatch?> LookupAsync(string fingerprint, int durationSeconds, CancellationToken ct = default)
             => handler(fingerprint);
+    }
+
+    private sealed class NoOpLrcLibService : ILrcLibService
+    {
+        public Task<LyricsResult?> FetchLyricsAsync(SongMetadata song, CancellationToken ct = default)
+            => Task.FromResult<LyricsResult?>(null);
     }
 
     private sealed class OrchestratorScopeFactory(
