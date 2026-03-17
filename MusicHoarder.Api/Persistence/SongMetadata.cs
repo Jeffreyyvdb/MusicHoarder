@@ -66,6 +66,13 @@ public class SongMetadata
 
     public DateTime? DeletedAtUtc { get; set; }
 
+    // --- Lyrics ---
+
+    public string? PlainLyrics { get; set; }
+    public string? SyncedLyrics { get; set; }
+    public bool? IsInstrumental { get; set; }
+    public LyricsStatus LyricsStatus { get; set; } = LyricsStatus.NotFetched;
+
     // --- Guard properties ---
 
     public bool IsDeleted => DeletedAtUtc.HasValue;
@@ -221,6 +228,59 @@ public class SongMetadata
         DestinationPath = null;
     }
 
+    // --- Lyrics lifecycle ---
+
+    public bool IsReadyForLyricsFetch =>
+        !IsDeleted
+        && (EnrichmentStatus == EnrichmentStatus.Matched || EnrichmentStatus == EnrichmentStatus.NeedsReview)
+        && LyricsStatus == LyricsStatus.NotFetched
+        && !string.IsNullOrWhiteSpace(Title)
+        && !string.IsNullOrWhiteSpace(Artist);
+
+    public void ApplyLyricsResult(string? syncedLyrics, string? plainLyrics, bool instrumental)
+    {
+        IsInstrumental = instrumental;
+        if (instrumental)
+        {
+            LyricsStatus = LyricsStatus.Instrumental;
+            SyncedLyrics = null;
+            PlainLyrics = null;
+            return;
+        }
+
+        SyncedLyrics = string.IsNullOrWhiteSpace(syncedLyrics) ? null : syncedLyrics;
+        PlainLyrics = string.IsNullOrWhiteSpace(plainLyrics) ? null : plainLyrics;
+
+        if (SyncedLyrics is null && PlainLyrics is null)
+        {
+            LyricsStatus = LyricsStatus.NotFound;
+        }
+        else
+        {
+            LyricsStatus = LyricsStatus.Fetched;
+        }
+    }
+
+    public void MarkLyricsNotFound()
+    {
+        LyricsStatus = LyricsStatus.NotFound;
+        SyncedLyrics = null;
+        PlainLyrics = null;
+    }
+
+    public void MarkLyricsFailed()
+    {
+        LyricsStatus = LyricsStatus.Failed;
+    }
+
+    public void ResetLyrics()
+    {
+        LyricsStatus = LyricsStatus.NotFetched;
+        SyncedLyrics = null;
+        PlainLyrics = null;
+        IsInstrumental = null;
+    }
+
     // --- Soft delete ---
 
     public void SoftDelete()
@@ -246,5 +306,14 @@ public enum LibraryBuildStatus
     Copied = 1,
     Tagged = 2,
     Done = 3,
+    Failed = 4,
+}
+
+public enum LyricsStatus
+{
+    NotFetched = 0,
+    Fetched = 1,
+    Instrumental = 2,
+    NotFound = 3,
     Failed = 4,
 }
