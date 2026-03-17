@@ -16,15 +16,14 @@ interface FileGridProps {
 }
 
 const LIST_ROW_HEIGHT = 52
-const GRID_GAP = 12
+const GRID_ITEM_WIDTH = 128
+const GRID_ROW_HEIGHT = 128
+const GRID_GAP = 4
 const GRID_PADDING = 16
 
 function getColumnCount(containerWidth: number): number {
-  if (containerWidth >= 1280) return 6
-  if (containerWidth >= 1024) return 5
-  if (containerWidth >= 768) return 4
-  if (containerWidth >= 640) return 3
-  return 2
+  const available = containerWidth - GRID_PADDING * 2
+  return Math.max(2, Math.floor((available + GRID_GAP) / (GRID_ITEM_WIDTH + GRID_GAP)))
 }
 
 export function FileGrid({
@@ -88,7 +87,6 @@ export function FileGrid({
       onOpen={onOpen}
       parentRef={parentRef}
       columnCount={columnCount}
-      containerWidth={containerWidth}
     />
   )
 }
@@ -151,7 +149,6 @@ function VirtualizedGrid({
   onOpen,
   parentRef,
   columnCount,
-  containerWidth,
 }: {
   items: FileItem[]
   selectedId: string | null
@@ -159,18 +156,13 @@ function VirtualizedGrid({
   onOpen: (item: FileItem) => void
   parentRef: React.RefObject<HTMLDivElement | null>
   columnCount: number
-  containerWidth: number
 }) {
   const rowCount = Math.ceil(items.length / columnCount)
-  const cellWidth = Math.floor(
-    (containerWidth - GRID_PADDING * 2 - GRID_GAP * (columnCount - 1)) / columnCount
-  )
-  const rowHeight = cellWidth + GRID_GAP
 
   const virtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => rowHeight,
+    estimateSize: () => GRID_ROW_HEIGHT + GRID_GAP,
     overscan: 5,
   })
 
@@ -180,7 +172,6 @@ function VirtualizedGrid({
         className="relative w-full"
         style={{
           height: `${virtualizer.getTotalSize() + GRID_PADDING * 2}px`,
-          padding: `${GRID_PADDING}px`,
         }}
       >
         {virtualizer.getVirtualItems().map((virtualRow) => {
@@ -190,30 +181,28 @@ function VirtualizedGrid({
           return (
             <div
               key={virtualRow.key}
-              className="absolute left-0 right-0"
+              className="absolute left-0 right-0 flex justify-center"
               style={{
                 height: `${virtualRow.size}px`,
                 transform: `translateY(${virtualRow.start + GRID_PADDING}px)`,
                 padding: `0 ${GRID_PADDING}px`,
+                gap: `${GRID_GAP}px`,
               }}
             >
-              <div
-                className="grid h-full"
-                style={{
-                  gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
-                  gap: `${GRID_GAP}px`,
-                }}
-              >
-                {rowItems.map((item) => (
+              {rowItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex justify-center"
+                  style={{ width: `${GRID_ITEM_WIDTH}px` }}
+                >
                   <FileGridItem
-                    key={item.id}
                     item={item}
                     isSelected={selectedId === item.id}
                     onSelect={() => onSelect(item)}
                     onOpen={() => onOpen(item)}
                   />
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
           )
         })}
@@ -238,7 +227,7 @@ function FileGridItem({ item, isSelected, onSelect, onOpen }: FileItemProps) {
       onClick={onSelect}
       onDoubleClick={onOpen}
       className={cn(
-        "group flex aspect-square flex-col items-center justify-center gap-2 rounded-lg p-3 text-center transition-all",
+        "group flex w-full flex-col items-center gap-1 rounded-lg px-2 py-3 text-center transition-colors",
         "hover:bg-secondary/50",
         isSelected && "bg-primary/10 ring-1 ring-primary"
       )}
@@ -249,7 +238,7 @@ function FileGridItem({ item, isSelected, onSelect, onOpen }: FileItemProps) {
         ) : (
           <>
             {item.metadata?.albumArt ? (
-              <div className="relative size-16 overflow-hidden rounded-md">
+              <div className="relative size-12 overflow-hidden rounded-md">
                 <img
                   src={item.metadata.albumArt}
                   alt={item.metadata.album}
@@ -257,12 +246,12 @@ function FileGridItem({ item, isSelected, onSelect, onOpen }: FileItemProps) {
                   crossOrigin="anonymous"
                 />
                 <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
-                  <Music className="size-6 text-foreground" />
+                  <Music className="size-5 text-foreground" />
                 </div>
               </div>
             ) : (
-              <div className="flex size-16 items-center justify-center rounded-md bg-secondary">
-                <Music className="size-8 text-muted-foreground" />
+              <div className="flex size-12 items-center justify-center rounded-md bg-secondary">
+                <Music className="size-6 text-muted-foreground" />
               </div>
             )}
             {status && (
@@ -273,10 +262,10 @@ function FileGridItem({ item, isSelected, onSelect, onOpen }: FileItemProps) {
           </>
         )}
       </div>
-      <div className="w-full">
-        <p className="truncate text-sm font-medium">{item.name}</p>
+      <div className="w-full min-w-0">
+        <p className="truncate text-xs font-medium leading-tight">{item.name}</p>
         {!isFolder && item.metadata && (
-          <p className="truncate text-xs text-muted-foreground">
+          <p className="truncate text-[10px] leading-tight text-muted-foreground">
             {item.metadata.artist}
           </p>
         )}
