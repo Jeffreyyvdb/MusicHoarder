@@ -16,6 +16,7 @@ services:
 
   musichoarder:
     image: ghcr.io/jeffreyyvdb/musichoarder:latest
+    platform: linux/amd64
     restart: always
     ports:
       - "5050:8080"
