@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgres:17
+    restart: always
+    environment:
+      POSTGRES_USER: musichoarder
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: musichoarderdb
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U musichoarder -d musichoarderdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  musichoarder:
+    image: ghcr.io/jeffreyyvdb/musichoarder:latest
+    restart: always
+    ports:
+      - "5050:8080"
+    volumes:
+      - /mnt/nas/music-source:/music/source:ro
+      - /mnt/nas/music-clean:/music/destination
+      - /tmp/musicenricher:/tmp/musicenricher
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__musichoarderdb=Host=postgres;Database=musichoarderdb;Username=musichoarder;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      - MusicEnricher__SourceDirectory=/music/source
+      - MusicEnricher__DestinationDirectory=/music/destination
+      - MusicEnricher__TempDirectory=/tmp/musicenricher
+      - MusicEnricher__AcoustIdApiKey=${ACOUSTID_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  watchtower:
+    image: containrrr/watchtower
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount GHCR credentials if the package is private.
+      # Run: echo "<PAT>" | docker login ghcr.io -u <username> --password-stdin
+      # to populate /root/.docker/config.json before starting watchtower.
+      # Remove this line if the package is public.
+      - /root/.docker/config.json:/config.json:ro
+    environment:
+      - WATCHTOWER_POLL_INTERVAL=300
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_INCLUDE_STOPPED=false
+
+volumes:
+  postgres-data:
