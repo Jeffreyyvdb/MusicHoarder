@@ -1,5 +1,7 @@
 "use client"
 
+import { useRef, useState, useCallback, useEffect } from "react"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import { Folder, Music, CheckCircle2, Clock, AlertCircle, Loader2, Eye } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { FileItem } from "@/lib/types"
@@ -13,6 +15,19 @@ interface FileGridProps {
   emptyMessage?: string
 }
 
+const LIST_ROW_HEIGHT = 52
+const GRID_ROW_HEIGHT = 136
+const GRID_GAP = 12
+const GRID_PADDING = 16
+
+function getColumnCount(containerWidth: number): number {
+  if (containerWidth >= 1280) return 6
+  if (containerWidth >= 1024) return 5
+  if (containerWidth >= 768) return 4
+  if (containerWidth >= 640) return 3
+  return 2
+}
+
 export function FileGrid({
   items,
   selectedId,
@@ -21,9 +36,29 @@ export function FileGrid({
   viewMode,
   emptyMessage = "This folder is empty",
 }: FileGridProps) {
+  const parentRef = useRef<HTMLDivElement>(null)
+  const [columnCount, setColumnCount] = useState(4)
+
+  useEffect(() => {
+    const el = parentRef.current
+    if (!el) return
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (entry) {
+        setColumnCount(getColumnCount(entry.contentRect.width))
+      }
+    })
+
+    observer.observe(el)
+    setColumnCount(getColumnCount(el.clientWidth))
+
+    return () => observer.disconnect()
+  }, [])
+
   if (items.length === 0) {
     return (
-      <div className="flex flex-1 items-center justify-center text-muted-foreground">
+      <div className="flex flex-1 items-center justify-center text-muted-foreground h-full">
         <div className="text-center">
           <Folder className="mx-auto size-12 opacity-50" />
           <p className="mt-2">{emptyMessage}</p>
@@ -34,31 +69,147 @@ export function FileGrid({
 
   if (viewMode === "list") {
     return (
-      <div className="divide-y divide-border">
-        {items.map((item) => (
-          <FileListItem
-            key={item.id}
-            item={item}
-            isSelected={selectedId === item.id}
-            onSelect={() => onSelect(item)}
-            onOpen={() => onOpen(item)}
-          />
-        ))}
-      </div>
+      <VirtualizedList
+        items={items}
+        selectedId={selectedId}
+        onSelect={onSelect}
+        onOpen={onOpen}
+        parentRef={parentRef}
+      />
     )
   }
 
   return (
-    <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-      {items.map((item) => (
-        <FileGridItem
-          key={item.id}
-          item={item}
-          isSelected={selectedId === item.id}
-          onSelect={() => onSelect(item)}
-          onOpen={() => onOpen(item)}
-        />
-      ))}
+    <VirtualizedGrid
+      items={items}
+      selectedId={selectedId}
+      onSelect={onSelect}
+      onOpen={onOpen}
+      parentRef={parentRef}
+      columnCount={columnCount}
+    />
+  )
+}
+
+function VirtualizedList({
+  items,
+  selectedId,
+  onSelect,
+  onOpen,
+  parentRef,
+}: {
+  items: FileItem[]
+  selectedId: string | null
+  onSelect: (item: FileItem) => void
+  onOpen: (item: FileItem) => void
+  parentRef: React.RefObject<HTMLDivElement | null>
+}) {
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => LIST_ROW_HEIGHT,
+    overscan: 15,
+  })
+
+  return (
+    <div ref={parentRef} className="h-full overflow-y-auto">
+      <div
+        className="relative w-full"
+        style={{ height: `${virtualizer.getTotalSize()}px` }}
+      >
+        {virtualizer.getVirtualItems().map((virtualRow) => {
+          const item = items[virtualRow.index]
+          return (
+            <div
+              key={virtualRow.key}
+              className="absolute left-0 top-0 w-full"
+              style={{
+                height: `${virtualRow.size}px`,
+                transform: `translateY(${virtualRow.start}px)`,
+              }}
+            >
+              <FileListItem
+                item={item}
+                isSelected={selectedId === item.id}
+                onSelect={() => onSelect(item)}
+                onOpen={() => onOpen(item)}
+              />
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function VirtualizedGrid({
+  items,
+  selectedId,
+  onSelect,
+  onOpen,
+  parentRef,
+  columnCount,
+}: {
+  items: FileItem[]
+  selectedId: string | null
+  onSelect: (item: FileItem) => void
+  onOpen: (item: FileItem) => void
+  parentRef: React.RefObject<HTMLDivElement | null>
+  columnCount: number
+}) {
+  const rowCount = Math.ceil(items.length / columnCount)
+
+  const virtualizer = useVirtualizer({
+    count: rowCount,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => GRID_ROW_HEIGHT + GRID_GAP,
+    overscan: 5,
+  })
+
+  return (
+    <div ref={parentRef} className="h-full overflow-y-auto">
+      <div
+        className="relative w-full"
+        style={{
+          height: `${virtualizer.getTotalSize() + GRID_PADDING * 2}px`,
+          padding: `${GRID_PADDING}px`,
+        }}
+      >
+        {virtualizer.getVirtualItems().map((virtualRow) => {
+          const startIdx = virtualRow.index * columnCount
+          const rowItems = items.slice(startIdx, startIdx + columnCount)
+
+          return (
+            <div
+              key={virtualRow.key}
+              className="absolute left-0 right-0"
+              style={{
+                height: `${virtualRow.size}px`,
+                transform: `translateY(${virtualRow.start + GRID_PADDING}px)`,
+                padding: `0 ${GRID_PADDING}px`,
+              }}
+            >
+              <div
+                className="grid h-full"
+                style={{
+                  gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
+                  gap: `${GRID_GAP}px`,
+                }}
+              >
+                {rowItems.map((item) => (
+                  <FileGridItem
+                    key={item.id}
+                    item={item}
+                    isSelected={selectedId === item.id}
+                    onSelect={() => onSelect(item)}
+                    onOpen={() => onOpen(item)}
+                  />
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
