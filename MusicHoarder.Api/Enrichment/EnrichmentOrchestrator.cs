@@ -32,6 +32,7 @@ public class EnrichmentOrchestrator(
     IServiceScopeFactory scopeFactory,
     EnrichmentProgressTracker progressTracker,
     IAcoustIdMatchValidator matchValidator,
+    ILrcLibService lrcLibService,
     IOptions<MusicEnricherOptions> options,
     ILogger<EnrichmentOrchestrator> logger) : IEnrichmentOrchestrator
 {
@@ -211,6 +212,9 @@ public class EnrichmentOrchestrator(
                 logger.LogInformation(
                     "Enrichment matched {Track} (SongId={SongId}) via AcoustID with adjusted score {Score:F3} (raw={RawScore:F3}) and MusicBrainzId {MusicBrainzId}",
                     song.TrackLabel, songId, validation.AdjustedScore, match.Score, song.MusicBrainzId);
+
+                await FetchLyricsForSongAsync(song, dbContext, ct);
+
                 return EnrichmentOutcome.Matched;
             }
 
@@ -230,6 +234,50 @@ public class EnrichmentOrchestrator(
             await dbContext.SaveChangesAsync(ct);
             logger.LogWarning(ex, "Failed enrichment for {Track} (SongId={SongId})", song.TrackLabel, songId);
             return EnrichmentOutcome.Failed;
+        }
+    }
+
+    private async Task FetchLyricsForSongAsync(SongMetadata song, MusicHoarderDbContext dbContext, CancellationToken ct)
+    {
+        if (!song.IsReadyForLyricsFetch)
+        {
+            logger.LogDebug("Skipping lyrics fetch for {Track} (SongId={SongId}): not eligible (status={LyricsStatus})",
+                song.TrackLabel, song.Id, song.LyricsStatus);
+            return;
+        }
+
+        try
+        {
+            var result = await lrcLibService.FetchLyricsAsync(song, ct);
+
+            if (result is null)
+            {
+                song.MarkLyricsNotFound();
+                logger.LogDebug("No lyrics found for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
+            }
+            else if (result.IsInstrumental)
+            {
+                song.ApplyLyricsResult(null, null, true);
+                logger.LogInformation("Lyrics: instrumental confirmed for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
+            }
+            else
+            {
+                song.ApplyLyricsResult(result.SyncedLyrics, result.PlainLyrics, false);
+                var kind = result.SyncedLyrics is not null ? "synced" : "plain";
+                logger.LogInformation("Lyrics: fetched ({Kind}) for {Track} (SongId={SongId})", kind, song.TrackLabel, song.Id);
+            }
+
+            await dbContext.SaveChangesAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            song.MarkLyricsFailed();
+            await dbContext.SaveChangesAsync(ct);
+            logger.LogWarning(ex, "Lyrics fetch failed for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
         }
     }
 }
