@@ -40,6 +40,9 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
         tag.Track = song.TrackNumber is > 0 ? (uint)song.TrackNumber.Value : 0;
         tag.ISRC = NullIfEmpty(song.Isrc) ?? string.Empty;
 
+        // Embed lyrics: prefer synced LRC, fall back to plain
+        tag.Lyrics = NullIfEmpty(song.SyncedLyrics) ?? NullIfEmpty(song.PlainLyrics) ?? string.Empty;
+
         tagFile.Save();
         return Task.CompletedTask;
     }
