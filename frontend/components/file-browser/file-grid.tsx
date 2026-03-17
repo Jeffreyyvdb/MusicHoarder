@@ -118,11 +118,18 @@ function FileGridItem({ item, isSelected, isPlaying, isLoaded, onSelect, onOpen,
   const status = item.metadata?.enrichmentStatus
 
   return (
-    <button
+    // Must be a div, not a button, because it contains <button> play overlays.
+    // role="button" + tabIndex preserve full keyboard accessibility.
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
       onDoubleClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect() }
+      }}
       className={cn(
-        "group relative flex flex-col items-center gap-2 rounded-lg p-3 text-center transition-all",
+        "group relative flex cursor-pointer flex-col items-center gap-2 rounded-lg p-3 text-center transition-all",
         "hover:bg-secondary/50",
         isSelected && "bg-primary/10 ring-1 ring-primary",
         isLoaded && !isSelected && "bg-primary/5"
@@ -219,7 +226,7 @@ function FileGridItem({ item, isSelected, isPlaying, isLoaded, onSelect, onOpen,
           </p>
         )}
       </div>
-    </button>
+    </div>
   )
 }
 
