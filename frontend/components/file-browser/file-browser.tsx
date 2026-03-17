@@ -166,8 +166,17 @@ export function FileBrowser() {
   )
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("musichoarder-library-view") as "grid" | "list" | null
+      if (stored === "grid" || stored === "list") setViewMode(stored)
+    }
     setIsHydrated(true)
   }, [])
+
+  useEffect(() => {
+    if (!isHydrated || typeof window === "undefined") return
+    localStorage.setItem("musichoarder-library-view", viewMode)
+  }, [viewMode, isHydrated])
 
   const loadSongs = useCallback(async (mode: "initial" | "refresh") => {
     try {
