@@ -2,9 +2,11 @@
 
 import { useRef, useState, useEffect, useLayoutEffect, useCallback } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { Folder, Music, CheckCircle2, Clock, AlertCircle, Loader2, Eye } from "lucide-react"
+import { Folder, Music, CheckCircle2, Clock, AlertCircle, Loader2, Eye, Pause, Play } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { FileItem } from "@/lib/types"
+import { usePlayer } from "@/lib/player-context"
+import { getSongStreamUrl, parseSongId } from "@/lib/api-client"
 
 interface FileGridProps {
   items: FileItem[]
@@ -33,6 +35,7 @@ export function FileGrid({
   viewMode,
   emptyMessage = "This folder is empty",
 }: FileGridProps) {
+  const { currentSong, isPlaying, playSong } = usePlayer()
   const parentRef = useRef<HTMLDivElement>(null)
   const observerRef = useRef<ResizeObserver | null>(null)
   const [containerWidth, setContainerWidth] = useState(0)
@@ -107,6 +110,9 @@ export function FileGrid({
         onOpen={onOpen}
         parentRef={parentRef}
         containerRef={setRefAndMeasure}
+        currentSong={currentSong}
+        isPlaying={isPlaying}
+        playSong={playSong}
       />
     )
   }
@@ -120,6 +126,9 @@ export function FileGrid({
       parentRef={parentRef}
       containerRef={setRefAndMeasure}
       columnCount={columnCount}
+      currentSong={currentSong}
+      isPlaying={isPlaying}
+      playSong={playSong}
     />
   )
 }
@@ -131,6 +140,9 @@ function VirtualizedList({
   onOpen,
   parentRef,
   containerRef,
+  currentSong,
+  isPlaying,
+  playSong,
 }: {
   items: FileItem[]
   selectedId: string | null
@@ -138,6 +150,9 @@ function VirtualizedList({
   onOpen: (item: FileItem) => void
   parentRef: React.RefObject<HTMLDivElement | null>
   containerRef: (el: HTMLDivElement | null) => void
+  currentSong: { id: number } | null
+  isPlaying: boolean
+  playSong: (args: { id: number; title: string; artist: string; streamUrl: string }) => void
 }) {
   const virtualizer = useVirtualizer({
     count: items.length,
@@ -154,6 +169,9 @@ function VirtualizedList({
       >
         {virtualizer.getVirtualItems().map((virtualRow) => {
           const item = items[virtualRow.index]
+          const songId = parseSongId(item.id)
+          const isCurrentlyPlaying = currentSong?.id === songId && isPlaying
+          const isCurrentlyLoaded = currentSong?.id === songId
           return (
             <div
               key={virtualRow.key}
@@ -166,8 +184,21 @@ function VirtualizedList({
               <FileListItem
                 item={item}
                 isSelected={selectedId === item.id}
+                isPlaying={isCurrentlyPlaying}
+                isLoaded={isCurrentlyLoaded}
                 onSelect={() => onSelect(item)}
                 onOpen={() => onOpen(item)}
+                onPlay={
+                  songId !== null && item.type === "audio"
+                    ? () =>
+                        playSong({
+                          id: songId,
+                          title: item.metadata?.title ?? item.name,
+                          artist: item.metadata?.artist ?? "Unknown Artist",
+                          streamUrl: getSongStreamUrl(songId),
+                        })
+                    : undefined
+                }
               />
             </div>
           )
@@ -185,6 +216,9 @@ function VirtualizedGrid({
   parentRef,
   containerRef,
   columnCount,
+  currentSong,
+  isPlaying,
+  playSong,
 }: {
   items: FileItem[]
   selectedId: string | null
@@ -193,6 +227,9 @@ function VirtualizedGrid({
   parentRef: React.RefObject<HTMLDivElement | null>
   containerRef: (el: HTMLDivElement | null) => void
   columnCount: number
+  currentSong: { id: number } | null
+  isPlaying: boolean
+  playSong: (args: { id: number; title: string; artist: string; streamUrl: string }) => void
 }) {
   const rowCount = Math.ceil(items.length / columnCount)
 
@@ -230,20 +267,38 @@ function VirtualizedGrid({
                 gap: `${GRID_GAP}px`,
               }}
             >
-              {rowItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex justify-start"
-                  style={{ width: `${GRID_TILE_SIZE}px`, height: `${GRID_TILE_SIZE}px` }}
-                >
-                  <FileGridItem
-                    item={item}
-                    isSelected={selectedId === item.id}
-                    onSelect={() => onSelect(item)}
-                    onOpen={() => onOpen(item)}
-                  />
-                </div>
-              ))}
+              {rowItems.map((item) => {
+                const songId = parseSongId(item.id)
+                const isCurrentlyPlaying = currentSong?.id === songId && isPlaying
+                const isCurrentlyLoaded = currentSong?.id === songId
+                return (
+                  <div
+                    key={item.id}
+                    className="flex justify-start"
+                    style={{ width: `${GRID_TILE_SIZE}px`, height: `${GRID_TILE_SIZE}px` }}
+                  >
+                    <FileGridItem
+                      item={item}
+                      isSelected={selectedId === item.id}
+                      isPlaying={isCurrentlyPlaying}
+                      isLoaded={isCurrentlyLoaded}
+                      onSelect={() => onSelect(item)}
+                      onOpen={() => onOpen(item)}
+                      onPlay={
+                        songId !== null && item.type === "audio"
+                          ? () =>
+                              playSong({
+                                id: songId,
+                                title: item.metadata?.title ?? item.name,
+                                artist: item.metadata?.artist ?? "Unknown Artist",
+                                streamUrl: getSongStreamUrl(songId),
+                              })
+                          : undefined
+                      }
+                    />
+                  </div>
+                )
+              })}
             </div>
           )
         })}
@@ -255,22 +310,33 @@ function VirtualizedGrid({
 interface FileItemProps {
   item: FileItem
   isSelected: boolean
+  isPlaying: boolean
+  isLoaded: boolean
   onSelect: () => void
   onOpen: () => void
+  onPlay?: () => void
 }
 
-function FileGridItem({ item, isSelected, onSelect, onOpen }: FileItemProps) {
+function FileGridItem({ item, isSelected, isPlaying, isLoaded, onSelect, onOpen, onPlay }: FileItemProps) {
   const isFolder = item.type === "folder"
   const status = item.metadata?.enrichmentStatus
 
   return (
-    <button
+    // Must be a div, not a button, because it contains <button> play overlays.
+    // role="button" + tabIndex preserve full keyboard accessibility.
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
       onDoubleClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect() }
+      }}
       className={cn(
-        "group flex h-full w-full select-none flex-col items-center justify-center gap-2 rounded-xl px-3 py-3 text-center transition-colors",
-        "hover:bg-secondary/40",
-        isSelected && "bg-secondary/70 ring-1 ring-ring/30"
+        "group relative flex h-full w-full cursor-pointer select-none flex-col items-center justify-center gap-2 rounded-xl p-3 text-center transition-all",
+        "hover:bg-secondary/50",
+        isSelected && "bg-primary/10 ring-1 ring-primary",
+        isLoaded && !isSelected && "bg-primary/5"
       )}
     >
       <div className="relative">
@@ -286,13 +352,62 @@ function FileGridItem({ item, isSelected, onSelect, onOpen }: FileItemProps) {
                   className="size-full object-cover"
                   crossOrigin="anonymous"
                 />
-                <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
-                  <Music className="size-5 text-foreground" />
-                </div>
+                {/* Play overlay */}
+                {onPlay && (
+                  <div
+                    className={cn(
+                      "absolute inset-0 flex items-center justify-center bg-black/50 transition-opacity",
+                      isPlaying ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                    )}
+                  >
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onPlay() }}
+                      className="flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-110 active:scale-95"
+                      aria-label={isPlaying ? "Pause" : "Play"}
+                    >
+                      {isPlaying ? (
+                        <Pause className="size-3.5" />
+                      ) : (
+                        <Play className="size-3.5 translate-x-px" />
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
-              <div className="flex size-12 items-center justify-center rounded-md bg-secondary">
-                <Music className="size-6 text-muted-foreground" />
+              <div
+                className={cn(
+                  "relative flex size-12 items-center justify-center rounded-md bg-secondary transition-colors",
+                  isLoaded && "bg-primary/20"
+                )}
+              >
+                <Music
+                  className={cn(
+                    "size-8 transition-colors",
+                    isLoaded ? "text-primary" : "text-muted-foreground"
+                  )}
+                />
+                {/* Play overlay on non-art tracks */}
+                {onPlay && (
+                  <div
+                    className={cn(
+                      "absolute inset-0 flex items-center justify-center rounded-md bg-black/50 transition-opacity",
+                      isPlaying ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                    )}
+                  >
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onPlay() }}
+                      className="flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-110 active:scale-95"
+                      aria-label={isPlaying ? "Pause" : "Play"}
+                    >
+                      {isPlaying ? (
+                        <Pause className="size-3.5" />
+                      ) : (
+                        <Play className="size-3.5 translate-x-px" />
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
             {status && (
@@ -300,33 +415,66 @@ function FileGridItem({ item, isSelected, onSelect, onOpen }: FileItemProps) {
                 <StatusIcon status={status} />
               </div>
             )}
+            {/* Playing indicator dot */}
+            {isPlaying && (
+              <div className="absolute -top-1 -left-1 size-2.5 rounded-full bg-primary ring-2 ring-background animate-pulse" />
+            )}
           </>
         )}
       </div>
       <div className="w-full min-w-0">
-        <p className="truncate text-xs font-medium leading-tight">{item.name}</p>
+        <p className={cn("truncate text-sm font-medium leading-tight", isLoaded && "text-primary")}>{item.name}</p>
+        {!isFolder && item.metadata && (
+          <p className="truncate text-xs text-muted-foreground">
+            {item.metadata.artist}
+          </p>
+        )}
       </div>
-    </button>
+    </div>
   )
 }
 
-function FileListItem({ item, isSelected, onSelect, onOpen }: FileItemProps) {
+function FileListItem({ item, isSelected, isPlaying, isLoaded, onSelect, onOpen, onPlay }: FileItemProps) {
   const isFolder = item.type === "folder"
   const status = item.metadata?.enrichmentStatus
 
   return (
-    <button
-      onClick={onSelect}
-      onDoubleClick={onOpen}
+    <div
       className={cn(
-        "w-full px-4 py-2 text-left transition-colors",
+        "group flex w-full items-center gap-3 px-4 py-2 transition-colors",
         "hover:bg-secondary/50",
-        isSelected && "bg-primary/10"
+        isSelected && "bg-primary/10",
+        isLoaded && !isSelected && "bg-primary/5"
       )}
     >
-      <div
+      {/* Play button for audio tracks */}
+      {!isFolder && onPlay ? (
+        <button
+          onClick={onPlay}
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded-full transition-all",
+            isLoaded
+              ? "bg-primary text-primary-foreground"
+              : "bg-secondary text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-primary/20 hover:text-primary"
+          )}
+          aria-label={isPlaying ? "Pause" : "Play"}
+        >
+          {isPlaying ? (
+            <Pause className="size-3.5" />
+          ) : (
+            <Play className="size-3.5 translate-x-px" />
+          )}
+        </button>
+      ) : (
+        <div className="size-8 shrink-0" />
+      )}
+
+      {/* Main item content — clicking selects the item */}
+      <button
+        onClick={onSelect}
+        onDoubleClick={onOpen}
         className={cn(
-          "grid items-center gap-x-3 gap-y-0",
+          "grid min-w-0 flex-1 items-center gap-x-3 gap-y-0 text-left",
           "grid-cols-[minmax(0,1fr)]",
           "sm:grid-cols-[minmax(0,1fr)_96px]",
           "md:grid-cols-[minmax(0,1fr)_96px_72px]",
@@ -348,14 +496,24 @@ function FileListItem({ item, isSelected, onSelect, onOpen }: FileItemProps) {
                 />
               </div>
             ) : (
-              <div className="flex size-10 items-center justify-center rounded bg-secondary">
-                <Music className="size-5 text-muted-foreground" />
+              <div
+                className={cn(
+                  "flex size-10 items-center justify-center rounded transition-colors",
+                  isLoaded ? "bg-primary/20" : "bg-secondary"
+                )}
+              >
+                <Music
+                  className={cn(
+                    "size-5 transition-colors",
+                    isLoaded ? "text-primary" : "text-muted-foreground"
+                  )}
+                />
               </div>
             )}
           </div>
 
           <div className="min-w-0 flex-1">
-            <p className="truncate font-medium leading-snug">{item.name}</p>
+            <p className={cn("truncate font-medium leading-snug", isLoaded && "text-primary")}>{item.name}</p>
             {!isFolder && item.metadata && (
               <p className="truncate text-sm leading-snug text-muted-foreground">
                 {item.metadata.artist} - {item.metadata.album}
@@ -383,8 +541,8 @@ function FileListItem({ item, isSelected, onSelect, onOpen }: FileItemProps) {
         <span className="hidden justify-self-end lg:block">
           {status ? <StatusIcon status={status} /> : null}
         </span>
-      </div>
-    </button>
+      </button>
+    </div>
   )
 }
 

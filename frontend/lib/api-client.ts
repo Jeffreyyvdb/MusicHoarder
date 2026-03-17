@@ -531,3 +531,14 @@ export async function fetchTrackLyrics(trackId: number): Promise<TrackLyricsResp
   }
   return requestJson<TrackLyricsResponse>(`/api/tracks/${trackId}/lyrics`)
 }
+
+export function getSongStreamUrl(songId: number): string {
+  if (isDemoMode) return "/demo-audio.mp3"
+  return `${API_PREFIX}/songs/${songId}/stream`
+}
+
+export function parseSongId(fileItemId: string): number | null {
+  if (!fileItemId.startsWith("song:")) return null
+  const parsed = Number(fileItemId.slice(5))
+  return Number.isFinite(parsed) ? parsed : null
+}
