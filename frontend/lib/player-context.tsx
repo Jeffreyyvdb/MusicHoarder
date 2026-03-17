@@ -46,6 +46,24 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [duration, setDuration] = useState(0)
   const [volume, setVolumeState] = useState(1)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const rafRef = useRef<number | null>(null)
+
+  const startRaf = useCallback(() => {
+    if (rafRef.current !== null) return
+    const tick = () => {
+      const audio = audioRef.current
+      if (audio) setCurrentTime(audio.currentTime)
+      rafRef.current = requestAnimationFrame(tick)
+    }
+    rafRef.current = requestAnimationFrame(tick)
+  }, [])
+
+  const stopRaf = useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+  }, [])
 
   const playSong = useCallback((song: PlayerSong) => {
     const audio = audioRef.current
@@ -113,14 +131,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const audio = audioRef.current
     if (!audio) return
 
-    const onTimeUpdate = () => setCurrentTime(audio.currentTime)
     const onLoadedMetadata = () => setDuration(audio.duration)
-    const onEnded = () => setIsPlaying(false)
-    const onError = () => setIsPlaying(false)
-    const onPlay = () => setIsPlaying(true)
-    const onPause = () => setIsPlaying(false)
+    const onEnded = () => { stopRaf(); setIsPlaying(false) }
+    const onError = () => { stopRaf(); setIsPlaying(false) }
+    const onPlay = () => { setIsPlaying(true); startRaf() }
+    const onPause = () => { stopRaf(); setIsPlaying(false) }
 
-    audio.addEventListener("timeupdate", onTimeUpdate)
     audio.addEventListener("loadedmetadata", onLoadedMetadata)
     audio.addEventListener("ended", onEnded)
     audio.addEventListener("error", onError)
@@ -128,14 +144,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     audio.addEventListener("pause", onPause)
 
     return () => {
-      audio.removeEventListener("timeupdate", onTimeUpdate)
+      stopRaf()
       audio.removeEventListener("loadedmetadata", onLoadedMetadata)
       audio.removeEventListener("ended", onEnded)
       audio.removeEventListener("error", onError)
       audio.removeEventListener("play", onPlay)
       audio.removeEventListener("pause", onPause)
     }
-  }, [])
+  }, [startRaf, stopRaf])
 
   return (
     <PlayerContext.Provider

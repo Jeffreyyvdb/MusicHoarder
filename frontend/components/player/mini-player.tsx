@@ -62,7 +62,7 @@ export function MiniPlayer() {
           value={progress}
           max={maxDuration}
           min={0}
-          step={1}
+          step={0.01}
           className="flex-1 min-w-0 cursor-pointer"
           onValueChange={([val]) => {
             if (val !== undefined) seek(val)
