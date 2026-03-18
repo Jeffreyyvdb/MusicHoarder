@@ -443,7 +443,7 @@ export function FileBrowser() {
   )
 
   return (
-    <div className={cn("flex h-screen flex-col bg-background", currentSong && "pb-[76px]")}>
+    <div className={cn("flex h-screen flex-col bg-background", currentSong && "pb-[60px] sm:pb-[68px]")}>
       <AppHeader />
 
       {/* Mobile sidebar sheet */}
