@@ -4,6 +4,7 @@ import { useRef, useState, useEffect, useLayoutEffect, useCallback } from "react
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { Folder, Music, CheckCircle2, Clock, AlertCircle, Loader2, Eye, Pause, Play } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import type { FileItem } from "@/lib/types"
 import { usePlayer } from "@/lib/player-context"
 import { getSongStreamUrl, parseSongId } from "@/lib/api-client"
@@ -17,14 +18,17 @@ interface FileGridProps {
   emptyMessage?: string
 }
 
-const LIST_ROW_HEIGHT = 52
-const GRID_TILE_SIZE = 128
-const GRID_GAP = 4
-const GRID_PADDING = 16
+const LIST_ROW_HEIGHT = 60
+const MIN_TILE_SIZE = 140
+const MAX_TILE_SIZE = 180
+const GRID_GAP = 8
+const GRID_PADDING = 12
 
-function getColumnCount(containerWidth: number): number {
+function getGridLayout(containerWidth: number) {
   const available = containerWidth - GRID_PADDING * 2
-  return Math.max(2, Math.floor((available + GRID_GAP) / (GRID_TILE_SIZE + GRID_GAP)))
+  const columns = Math.max(2, Math.floor((available + GRID_GAP) / (MIN_TILE_SIZE + GRID_GAP)))
+  const tileSize = Math.min(MAX_TILE_SIZE, (available - (columns - 1) * GRID_GAP) / columns)
+  return { columns, tileSize }
 }
 
 export function FileGrid({
@@ -88,7 +92,7 @@ export function FileGrid({
     }
   }, [])
 
-  const columnCount = getColumnCount(containerWidth || 800)
+  const { columns: columnCount, tileSize } = getGridLayout(containerWidth || 800)
 
   if (items.length === 0) {
     return (
@@ -126,6 +130,7 @@ export function FileGrid({
       parentRef={parentRef}
       containerRef={setRefAndMeasure}
       columnCount={columnCount}
+      tileSize={tileSize}
       currentSong={currentSong}
       isPlaying={isPlaying}
       playSong={playSong}
@@ -162,7 +167,7 @@ function VirtualizedList({
   })
 
   return (
-    <div ref={containerRef} className="h-full overflow-y-auto">
+    <ScrollArea className="h-full" viewportRef={containerRef}>
       <div
         className="relative w-full"
         style={{ height: `${virtualizer.getTotalSize()}px` }}
@@ -204,7 +209,7 @@ function VirtualizedList({
           )
         })}
       </div>
-    </div>
+    </ScrollArea>
   )
 }
 
@@ -216,6 +221,7 @@ function VirtualizedGrid({
   parentRef,
   containerRef,
   columnCount,
+  tileSize,
   currentSong,
   isPlaying,
   playSong,
@@ -227,6 +233,7 @@ function VirtualizedGrid({
   parentRef: React.RefObject<HTMLDivElement | null>
   containerRef: (el: HTMLDivElement | null) => void
   columnCount: number
+  tileSize: number
   currentSong: { id: number } | null
   isPlaying: boolean
   playSong: (args: { id: number; title: string; artist: string; streamUrl: string }) => void
@@ -236,16 +243,16 @@ function VirtualizedGrid({
   const virtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => GRID_TILE_SIZE + GRID_GAP,
+    estimateSize: () => tileSize + GRID_GAP,
     overscan: 5,
   })
 
   useEffect(() => {
     virtualizer.measure()
-  }, [columnCount])
+  }, [columnCount, tileSize])
 
   return (
-    <div ref={containerRef} className="h-full overflow-y-auto">
+    <ScrollArea className="h-full" viewportRef={containerRef}>
       <div
         className="relative w-full"
         style={{
@@ -274,8 +281,7 @@ function VirtualizedGrid({
                 return (
                   <div
                     key={item.id}
-                    className="flex justify-start"
-                    style={{ width: `${GRID_TILE_SIZE}px`, height: `${GRID_TILE_SIZE}px` }}
+                    style={{ width: `${tileSize}px`, height: `${tileSize}px` }}
                   >
                     <FileGridItem
                       item={item}
@@ -295,6 +301,7 @@ function VirtualizedGrid({
                               })
                           : undefined
                       }
+                      tileSize={tileSize}
                     />
                   </div>
                 )
@@ -303,7 +310,7 @@ function VirtualizedGrid({
           )
         })}
       </div>
-    </div>
+    </ScrollArea>
   )
 }
 
@@ -317,9 +324,11 @@ interface FileItemProps {
   onPlay?: () => void
 }
 
-function FileGridItem({ item, isSelected, isPlaying, isLoaded, onSelect, onOpen, onPlay }: FileItemProps) {
+function FileGridItem({ item, isSelected, isPlaying, isLoaded, onSelect, onOpen, onPlay, tileSize }: FileItemProps & { tileSize: number }) {
   const isFolder = item.type === "folder"
   const status = item.metadata?.enrichmentStatus
+  const iconPx = Math.round(Math.max(40, Math.min(64, tileSize * 0.38)))
+  const musicIconPx = Math.round(iconPx * 0.6)
 
   return (
     // Must be a div, not a button, because it contains <button> play overlays.
@@ -339,20 +348,19 @@ function FileGridItem({ item, isSelected, isPlaying, isLoaded, onSelect, onOpen,
         isLoaded && !isSelected && "bg-primary/5"
       )}
     >
-      <div className="relative">
+      <div className="relative" style={{ width: iconPx, height: iconPx }}>
         {isFolder ? (
-          <Folder className="size-12 text-primary" />
+          <Folder className="size-full text-primary" />
         ) : (
           <>
             {item.metadata?.albumArt ? (
-              <div className="relative size-12 overflow-hidden rounded-md">
+              <div className="relative size-full overflow-hidden rounded-md">
                 <img
                   src={item.metadata.albumArt}
                   alt={item.metadata.album}
                   className="size-full object-cover"
                   crossOrigin="anonymous"
                 />
-                {/* Play overlay */}
                 {onPlay && (
                   <div
                     className={cn(
@@ -377,17 +385,17 @@ function FileGridItem({ item, isSelected, isPlaying, isLoaded, onSelect, onOpen,
             ) : (
               <div
                 className={cn(
-                  "relative flex size-12 items-center justify-center rounded-md bg-secondary transition-colors",
+                  "relative flex size-full items-center justify-center rounded-md bg-secondary transition-colors",
                   isLoaded && "bg-primary/20"
                 )}
               >
                 <Music
                   className={cn(
-                    "size-8 transition-colors",
+                    "transition-colors",
                     isLoaded ? "text-primary" : "text-muted-foreground"
                   )}
+                  style={{ width: musicIconPx, height: musicIconPx }}
                 />
-                {/* Play overlay on non-art tracks */}
                 {onPlay && (
                   <div
                     className={cn(
@@ -415,7 +423,6 @@ function FileGridItem({ item, isSelected, isPlaying, isLoaded, onSelect, onOpen,
                 <StatusIcon status={status} />
               </div>
             )}
-            {/* Playing indicator dot */}
             {isPlaying && (
               <div className="absolute -top-1 -left-1 size-2.5 rounded-full bg-primary ring-2 ring-background animate-pulse" />
             )}
