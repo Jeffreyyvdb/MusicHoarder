@@ -56,7 +56,7 @@ public class IndexService(
         var newFilePaths = new HashSet<string>(StringComparer.Ordinal);
         var filesToProcess = new List<string>();
 
-        logger.LogInformation("Enumerating {Directory}…", directoryPath);
+        logger.LogInformation("dEnumerating {Directory}…", directoryPath);
 
         foreach (var file in Directory.EnumerateFiles(directoryPath, "*.*", new EnumerationOptions
                  {
