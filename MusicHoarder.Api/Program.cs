@@ -1,4 +1,5 @@
 using System.IO.Abstractions;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -190,7 +191,7 @@ app.MapGet("/api/enrichment/status", (
 .WithSummary("Get the current job status and a progress snapshot.")
 .WithTags("Enrichment");
 
-app.MapGet("/api/enrichment/progress", async (
+app.MapGet("/api/enrichment/progress", (
     HttpContext context,
     JobManager jobManager,
     ScanProgressTracker scanTracker,
@@ -204,21 +205,18 @@ app.MapGet("/api/enrichment/progress", async (
 
     var ct = context.RequestAborted;
 
-    try
-    {
-        // Capture the connect time. We only close the SSE after observing a job that
-        // completed AFTER this client connected — this prevents closing immediately when
-        // a previous job's "Completed" state is still the current status.
-        var connectTime = DateTime.UtcNow;
+    // Capture the connect time. We only close the SSE after observing a job that
+    // completed AFTER this client connected — this prevents closing immediately when
+    // a previous job's "Completed" state is still the current status.
+    var connectTime = DateTime.UtcNow;
 
-        while (!ct.IsCancellationRequested)
+    async IAsyncEnumerable<string> StreamJson([EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
         {
             var status = jobManager.GetStatus();
             var snapshot = BuildProgressSnapshot(status, scanTracker, enrichmentTracker, buildTracker);
-            var json = JsonSerializer.Serialize(snapshot, sseJsonOptions);
-
-            await context.Response.WriteAsync($"data: {json}\n\n", ct);
-            await context.Response.Body.FlushAsync(ct);
+            yield return JsonSerializer.Serialize(snapshot, sseJsonOptions);
 
             // Close only when a job that completed AFTER we connected reaches a terminal state.
             // This way the client can connect before triggering a job and see the full lifecycle.
@@ -226,18 +224,17 @@ app.MapGet("/api/enrichment/progress", async (
                 || status.Status == JobRunStatus.Cancelled
                 || status.Status == JobRunStatus.Failed;
 
-            if (isTerminal && status.CompletedAt > connectTime)
-            {
-                break;
-            }
+            if (isTerminal && status.CompletedAt.HasValue && status.CompletedAt.Value > connectTime)
+                yield break;
 
-            await Task.Delay(1000, ct);
+            await Task.Delay(1000, cancellationToken);
         }
     }
-    catch (OperationCanceledException)
-    {
-        // Client disconnected — normal SSE lifecycle.
-    }
+
+    // Use the .NET 10 SSE result to handle framing and flushing.
+    // Using the string overload keeps the current payload format:
+    //   data: <json>
+    return Results.ServerSentEvents(StreamJson(ct));
 })
 .WithName("StreamEnrichmentProgress")
 .WithSummary("SSE stream that emits a ProgressSnapshot every second while a job is running.")
