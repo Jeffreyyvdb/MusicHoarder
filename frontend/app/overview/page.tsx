@@ -254,12 +254,12 @@ export default function OverviewPage() {
           {/* Pipeline Progress */}
           <Card>
             <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">Pipeline Progress</CardTitle>
-                <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <CardTitle className="mr-auto text-lg">Pipeline Progress</CardTitle>
+                <div className="flex shrink-0 items-center gap-2">
                   <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                    <Clock className="size-4" />
-                    <span>{elapsedMin !== null ? `${elapsedMin} min` : "—"}</span>
+                    <Clock className="size-4 shrink-0" />
+                    <span className="whitespace-nowrap">{elapsedMin !== null ? `${elapsedMin} min` : "—"}</span>
                   </div>
                   <StatusBadge status={overallStatus} />
                 </div>
@@ -434,16 +434,16 @@ function StatusBadge({ status }: { status: string }) {
 
   if (isRunning) {
     return (
-      <Badge variant="outline" className="gap-1.5 border-primary/40 text-primary">
-        <span className="size-1.5 animate-pulse rounded-full bg-primary" />
-        {status}
+      <Badge variant="outline" className="max-w-[160px] gap-1.5 border-primary/40 text-primary sm:max-w-xs">
+        <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-primary" />
+        <span className="truncate">{status}</span>
       </Badge>
     )
   }
 
   return (
     <Badge variant="outline" className="gap-1.5 text-muted-foreground">
-      <span className="size-1.5 rounded-full bg-muted-foreground/60" />
+      <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground/60" />
       Idle
     </Badge>
   )
@@ -480,27 +480,27 @@ function PipelineStage({
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between text-sm">
+      <div className="flex items-center justify-between gap-2 text-sm">
         <span
-          className={`flex items-center gap-2 font-medium ${
+          className={`flex min-w-0 items-center gap-2 font-medium ${
             running ? "text-foreground"
             : done ? "text-green-400"
             : "text-muted-foreground"
           }`}
         >
-          <Icon className={`size-4 ${running ? "text-primary" : done ? "text-green-400" : ""}`} />
-          {label}
-          {running && <span className="size-1.5 animate-pulse rounded-full bg-primary" />}
+          <Icon className={`size-4 shrink-0 ${running ? "text-primary" : done ? "text-green-400" : ""}`} />
+          <span className="truncate">{label}</span>
+          {running && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-primary" />}
           {paused && !running && (
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/40 text-amber-400">
+            <Badge variant="outline" className="shrink-0 border-amber-500/40 px-1.5 py-0 text-[10px] text-amber-400">
               Paused
             </Badge>
           )}
           {done && !running && (
-            <CheckCircle2 className="size-3.5 text-green-400" />
+            <CheckCircle2 className="size-3.5 shrink-0 text-green-400" />
           )}
         </span>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <span className="tabular-nums text-muted-foreground">
             {count.toLocaleString()} {unit}
             {total > 0 && (
