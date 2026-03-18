@@ -38,7 +38,7 @@ import {
 } from "@/lib/api-client"
 import { isDemoMode } from "@/lib/app-mode"
 
-const RUNNING_STATUSES = new Set(["Scanning", "Enriching", "Building"])
+const RUNNING_STATUSES = new Set(["Scanning", "Fingerprinting", "Enriching", "Building"])
 
 const initialOverview: ApiOverview = {
   sourcePath: "/",
@@ -159,12 +159,14 @@ export default function OverviewPage() {
 
   // Progress values
   const discovered = liveProgress?.discovered ?? job.tracksDiscovered
-  const fingerprinted = liveProgress?.fingerprinted ?? job.tracksProcessed
+  const scanned = liveProgress?.scanned ?? job.tracksProcessed
+  const fingerprinted = liveProgress?.fingerprinted ?? 0
   const enriched = liveProgress?.enriched ?? job.tracksProcessed
   const built = liveProgress?.built ?? job.tracksCopied
   const failed = liveProgress?.failed ?? job.tracksFailed
 
-  const scanPct = discovered > 0 ? Math.min(100, (fingerprinted / discovered) * 100) : 0
+  const scanPct = discovered > 0 ? Math.min(100, (scanned / discovered) * 100) : 0
+  const fpPct = discovered > 0 ? Math.min(100, (fingerprinted / discovered) * 100) : 0
   const enrichPct = discovered > 0 ? Math.min(100, (enriched / discovered) * 100) : 0
   const buildPct = discovered > 0 ? Math.min(100, (built / discovered) * 100) : 0
 
@@ -298,17 +300,27 @@ export default function OverviewPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-5">
-              {/* Stage 1: Scan */}
+              {/* Stage 1: Scan Metadata */}
               <PipelineStage
                 icon={Search}
-                label="Scan & Fingerprint"
-                count={fingerprinted}
+                label="Scan Metadata"
+                count={scanned}
                 total={discovered}
                 unit="files"
                 progress={scanPct}
                 active={currentStatus === "Scanning"}
               />
-              {/* Stage 2: Enrich */}
+              {/* Stage 2: Fingerprint */}
+              <PipelineStage
+                icon={Disc3}
+                label="Fingerprinting"
+                count={fingerprinted}
+                total={discovered}
+                unit="tracks"
+                progress={fpPct}
+                active={currentStatus === "Fingerprinting"}
+              />
+              {/* Stage 3: Enrich */}
               <PipelineStage
                 icon={Sparkles}
                 label="Enrich Metadata"
@@ -318,7 +330,7 @@ export default function OverviewPage() {
                 progress={enrichPct}
                 active={currentStatus === "Enriching"}
               />
-              {/* Stage 3: Build */}
+              {/* Stage 4: Build */}
               <PipelineStage
                 icon={PackageCheck}
                 label="Build Library"

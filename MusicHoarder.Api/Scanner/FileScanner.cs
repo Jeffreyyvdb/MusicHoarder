@@ -6,8 +6,12 @@ namespace MusicHoarder.Api.Scanner;
 
 public interface IFileScanner
 {
-    /// <summary>Reads tags and runs fpcalc for a single file. Returns null on unrecoverable error.</summary>
-    Task<SongMetadata?> ScanFileAsync(string filePath, CancellationToken ct = default);
+    /// <summary>
+    /// Reads tags (and optionally runs fpcalc) for a single file. Returns null on unrecoverable error.
+    /// When <paramref name="tagsOnly"/> is true, fingerprinting is skipped and the returned
+    /// <see cref="SongMetadata"/> will have <c>Fingerprint = null</c> and <c>DurationSeconds = null</c>.
+    /// </summary>
+    Task<SongMetadata?> ScanFileAsync(string filePath, bool tagsOnly = false, CancellationToken ct = default);
 }
 
 public class FileScanner(
@@ -15,7 +19,7 @@ public class FileScanner(
     IFpcalcService fpcalcService,
     ILogger<FileScanner> logger) : IFileScanner
 {
-    public async Task<SongMetadata?> ScanFileAsync(string filePath, CancellationToken ct = default)
+    public async Task<SongMetadata?> ScanFileAsync(string filePath, bool tagsOnly = false, CancellationToken ct = default)
     {
         var fileName = fileSystem.Path.GetFileName(filePath);
         var extension = fileSystem.Path.GetExtension(filePath).ToLowerInvariant();
@@ -60,7 +64,11 @@ public class FileScanner(
                 logger.LogDebug("Could not read tags from {File}: {Message}", fileName, ex.Message);
             }
 
-            var fpcalcResult = await fpcalcService.GetFingerprintAsync(filePath, ct);
+            FpcalcResult? fpcalcResult = null;
+            if (!tagsOnly)
+            {
+                fpcalcResult = await fpcalcService.GetFingerprintAsync(filePath, ct);
+            }
 
             return new SongMetadata
             {

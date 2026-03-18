@@ -23,6 +23,18 @@ public class MusicEnricherOptions
     /// <summary>Path to the fpcalc binary (Chromaprint). Must be on PATH or an absolute path.</summary>
     public string FpcalcPath { get; set; } = "fpcalc";
 
+    /// <summary>Number of tracks processed per fingerprint batch.</summary>
+    [Range(1, 10000)]
+    public int FingerprintBatchSize { get; set; } = 200;
+
+    /// <summary>Number of concurrent fpcalc workers during fingerprinting.</summary>
+    [Range(1, 64)]
+    public int FingerprintConcurrency { get; set; } = 8;
+
+    /// <summary>Delay in seconds before retrying when no tracks are pending fingerprinting.</summary>
+    [Range(1, 300)]
+    public int FingerprintIdleDelaySeconds { get; set; } = 10;
+
     /// <summary>AcoustID application API key for fingerprint lookups.</summary>
     public string AcoustIdApiKey { get; set; } = string.Empty;
 

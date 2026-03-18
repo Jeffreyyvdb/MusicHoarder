@@ -2,7 +2,7 @@ using System.Threading.Channels;
 
 namespace MusicHoarder.Api.Jobs;
 
-public enum JobType { None, Scan, Enrich, Build }
+public enum JobType { None, Scan, Fingerprint, Enrich, Build }
 
 public enum JobRunStatus { Idle, Running, Completed, Cancelled, Failed }
 
@@ -20,6 +20,7 @@ public record ProgressSnapshot(
     DateTime? CompletedAt,
     bool IsComplete,
     int Discovered,
+    int Scanned,
     int Fingerprinted,
     int Enriched,
     int Built,
@@ -54,6 +55,12 @@ public class JobManager
             FullMode = BoundedChannelFullMode.DropOldest
         });
 
+    private readonly Channel<Guid> _fingerprintChannel =
+        Channel.CreateBounded<Guid>(new BoundedChannelOptions(1)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest
+        });
+
     private readonly Channel<Guid> _buildChannel =
         Channel.CreateBounded<Guid>(new BoundedChannelOptions(1)
         {
@@ -61,6 +68,7 @@ public class JobManager
         });
 
     public ChannelReader<Guid> ScanTriggers => _scanChannel.Reader;
+    public ChannelReader<Guid> FingerprintTriggers => _fingerprintChannel.Reader;
     public ChannelReader<Guid> EnrichTriggers => _enrichChannel.Reader;
     public ChannelReader<Guid> BuildTriggers => _buildChannel.Reader;
 
@@ -89,6 +97,7 @@ public class JobManager
         var channel = jobType switch
         {
             JobType.Scan => _scanChannel,
+            JobType.Fingerprint => _fingerprintChannel,
             JobType.Enrich => _enrichChannel,
             JobType.Build => _buildChannel,
             _ => throw new ArgumentOutOfRangeException(nameof(jobType))

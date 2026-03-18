@@ -649,6 +649,7 @@ export interface ProgressSnapshot {
   completedAt: string | null
   isComplete: boolean
   discovered: number
+  scanned: number
   fingerprinted: number
   enriched: number
   built: number

@@ -26,6 +26,7 @@ builder.AddNpgsqlDbContext<MusicHoarderDbContext>(connectionName: "musichoarderd
 
 builder.Services.AddSingleton<JobManager>();
 builder.Services.AddSingleton<ScanProgressTracker>();
+builder.Services.AddSingleton<FingerprintProgressTracker>();
 builder.Services.AddSingleton<EnrichmentProgressTracker>();
 builder.Services.AddSingleton<LibraryBuilderProgressTracker>();
 builder.Services.AddSingleton<IFpcalcService, FpcalcService>();
@@ -36,6 +37,7 @@ builder.Services.AddScoped<ILibraryTagWriter, TagLibLibraryTagWriter>();
 builder.Services.AddScoped<ILibraryBuilderService, LibraryBuilderService>();
 
 builder.Services.AddHostedService<ScannerBackgroundService>();
+builder.Services.AddHostedService<FingerprintBackgroundService>();
 builder.Services.AddHostedService<EnrichmentBackgroundService>();
 builder.Services.AddHostedService<LibraryBuilderBackgroundService>();
 
@@ -169,11 +171,12 @@ app.MapPost("/api/enrichment/cancel", (JobManager jobManager) =>
 app.MapGet("/api/enrichment/status", (
     JobManager jobManager,
     ScanProgressTracker scanTracker,
+    FingerprintProgressTracker fingerprintTracker,
     EnrichmentProgressTracker enrichmentTracker,
     LibraryBuilderProgressTracker buildTracker) =>
 {
     var status = jobManager.GetStatus();
-    var snapshot = BuildProgressSnapshot(status, scanTracker, enrichmentTracker, buildTracker);
+    var snapshot = BuildProgressSnapshot(status, scanTracker, fingerprintTracker, enrichmentTracker, buildTracker);
     return Results.Ok(new
     {
         Job = new
@@ -195,6 +198,7 @@ app.MapGet("/api/enrichment/progress", (
     HttpContext context,
     JobManager jobManager,
     ScanProgressTracker scanTracker,
+    FingerprintProgressTracker fingerprintTracker,
     EnrichmentProgressTracker enrichmentTracker,
     LibraryBuilderProgressTracker buildTracker) =>
 {
@@ -205,9 +209,6 @@ app.MapGet("/api/enrichment/progress", (
 
     var ct = context.RequestAborted;
 
-    // Capture the connect time. We only close the SSE after observing a job that
-    // completed AFTER this client connected — this prevents closing immediately when
-    // a previous job's "Completed" state is still the current status.
     var connectTime = DateTime.UtcNow;
 
     async IAsyncEnumerable<string> StreamJson([EnumeratorCancellation] CancellationToken cancellationToken)
@@ -215,11 +216,9 @@ app.MapGet("/api/enrichment/progress", (
         while (!cancellationToken.IsCancellationRequested)
         {
             var status = jobManager.GetStatus();
-            var snapshot = BuildProgressSnapshot(status, scanTracker, enrichmentTracker, buildTracker);
+            var snapshot = BuildProgressSnapshot(status, scanTracker, fingerprintTracker, enrichmentTracker, buildTracker);
             yield return JsonSerializer.Serialize(snapshot, sseJsonOptions);
 
-            // Close only when a job that completed AFTER we connected reaches a terminal state.
-            // This way the client can connect before triggering a job and see the full lifecycle.
             var isTerminal = status.Status == JobRunStatus.Completed
                 || status.Status == JobRunStatus.Cancelled
                 || status.Status == JobRunStatus.Failed;
@@ -231,9 +230,6 @@ app.MapGet("/api/enrichment/progress", (
         }
     }
 
-    // Use the .NET 10 SSE result to handle framing and flushing.
-    // Using the string overload keeps the current payload format:
-    //   data: <json>
     return Results.ServerSentEvents(StreamJson(ct));
 })
 .WithName("StreamEnrichmentProgress")
@@ -368,6 +364,7 @@ app.MapGet("/overview", async (
     MusicHoarderDbContext db,
     IOptions<MusicEnricherOptions> options,
     ScanProgressTracker scanTracker,
+    FingerprintProgressTracker fingerprintTracker,
     EnrichmentProgressTracker enrichmentTracker) =>
 {
     var opts = options.Value;
@@ -393,6 +390,8 @@ app.MapGet("/overview", async (
 
     var scanState = scanTracker.GetCurrent();
     var scanRunning = scanState is { IsComplete: false };
+    var fingerprintState = fingerprintTracker.GetCurrent();
+    var fingerprintRunning = fingerprintState is { IsComplete: false };
     var enrichmentState = enrichmentTracker.GetCurrent();
     var enrichmentRunning = enrichmentState is { IsComplete: false };
 
@@ -484,7 +483,7 @@ app.MapGet("/overview", async (
         },
         Job = new
         {
-            Status = scanRunning || enrichmentRunning ? "running" : "completed",
+            Status = scanRunning || fingerprintRunning || enrichmentRunning ? "running" : "completed",
             StartedAt = startedAt,
             TracksDiscovered = totalCount,
             TracksProcessed = totalCount,
@@ -492,6 +491,17 @@ app.MapGet("/overview", async (
             TracksReview = reviewCount,
             TracksFailed = failedCount,
         },
+        Fingerprint = fingerprintState is { IsComplete: false } ? new
+        {
+            fingerprintState.RunId,
+            fingerprintState.TotalTracks,
+            fingerprintState.Processed,
+            fingerprintState.Fingerprinted,
+            fingerprintState.Failed,
+            fingerprintState.IsComplete,
+            fingerprintState.StartedAt,
+            fingerprintState.CompletedAt,
+        } : null,
         Enrichment = enrichmentState is { IsComplete: false } ? new
         {
             enrichmentState.RunId,
@@ -756,6 +766,7 @@ static string[]? DeserializeWarnings(string? json)
 static ProgressSnapshot BuildProgressSnapshot(
     JobStatusSnapshot status,
     ScanProgressTracker scanTracker,
+    FingerprintProgressTracker fingerprintTracker,
     EnrichmentProgressTracker enrichmentTracker,
     LibraryBuilderProgressTracker buildTracker)
 {
@@ -764,6 +775,7 @@ static ProgressSnapshot BuildProgressSnapshot(
         JobRunStatus.Running => status.JobType switch
         {
             JobType.Scan => "Scanning",
+            JobType.Fingerprint => "Fingerprinting",
             JobType.Enrich => "Enriching",
             JobType.Build => "Building",
             _ => "Running"
@@ -775,14 +787,19 @@ static ProgressSnapshot BuildProgressSnapshot(
     };
 
     var scanState = scanTracker.GetCurrent();
+    var fpState = fingerprintTracker.GetCurrent();
     var enrichState = enrichmentTracker.GetCurrent();
     var buildState = buildTracker.GetCurrent();
 
     var discovered = scanState?.TotalFiles ?? 0;
-    var fingerprinted = scanState?.Processed ?? 0;
+    var scanned = scanState?.Processed ?? 0;
+    var fingerprinted = fpState?.Fingerprinted ?? 0;
     var enriched = enrichState?.Enriched ?? 0;
     var built = buildState?.Built ?? 0;
-    var failed = (scanState?.FailedFiles ?? 0) + (enrichState?.Failed ?? 0) + (buildState?.Failed ?? 0);
+    var failed = (scanState?.FailedFiles ?? 0)
+        + (fpState?.Failed ?? 0)
+        + (enrichState?.Failed ?? 0)
+        + (buildState?.Failed ?? 0);
 
     var isComplete = status.Status != JobRunStatus.Running;
 
@@ -793,6 +810,7 @@ static ProgressSnapshot BuildProgressSnapshot(
         status.CompletedAt,
         isComplete,
         discovered,
+        scanned,
         fingerprinted,
         enriched,
         built,

@@ -141,7 +141,7 @@ public class IndexService(
                         await semaphore.WaitAsync(ct);
                         try
                         {
-                            var metadata = await fileScanner.ScanFileAsync(filePath, ct);
+                            var metadata = await fileScanner.ScanFileAsync(filePath, tagsOnly: true, ct);
 
                             if (metadata is not null)
                             {
@@ -261,6 +261,11 @@ public class IndexService(
                 existing.Fingerprint = metadata.Fingerprint;
                 existing.IndexedAtUtc = metadata.IndexedAtUtc;
                 existing.DeletedAtUtc = null;
+
+                // File content changed — clear stale downstream state so fingerprint
+                // and enrichment re-run for this track.
+                existing.ResetEnrichment(restoreOriginal: false);
+                existing.ResetLibraryBuild();
             }
             else
             {
