@@ -67,9 +67,10 @@ public class FingerprintBackgroundService(
                     "Starting fingerprint run {RunId} with {PendingCount} pending tracks",
                     jobId, pendingCount);
 
+                var attemptedIds = new HashSet<int>();
                 while (!ct.IsCancellationRequested)
                 {
-                    var processed = await ProcessNextBatchAsync(jobId, ct);
+                    var processed = await ProcessNextBatchAsync(jobId, attemptedIds, ct);
                     if (processed == 0) break;
                 }
 
@@ -98,7 +99,7 @@ public class FingerprintBackgroundService(
         }
     }
 
-    private async Task<int> ProcessNextBatchAsync(Guid runId, CancellationToken ct)
+    private async Task<int> ProcessNextBatchAsync(Guid runId, HashSet<int> attemptedIds, CancellationToken ct)
     {
         var opts = options.Value;
 
@@ -106,10 +107,15 @@ public class FingerprintBackgroundService(
         using (var scope = scopeFactory.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-            batch = await db.Songs
+            var query = db.Songs
                 .AsNoTracking()
                 .Where(s => s.DeletedAtUtc == null)
-                .Where(s => s.Fingerprint == null || s.Fingerprint == string.Empty)
+                .Where(s => s.Fingerprint == null || s.Fingerprint == string.Empty);
+
+            if (attemptedIds.Count > 0)
+                query = query.Where(s => !attemptedIds.Contains(s.Id));
+
+            batch = await query
                 .OrderBy(s => s.Id)
                 .Take(opts.FingerprintBatchSize)
                 .Select(s => new { s.Id, s.SourcePath })
@@ -166,6 +172,7 @@ public class FingerprintBackgroundService(
             }
             else
             {
+                attemptedIds.Add(id);
                 progressTracker.IncrementFailed();
                 logger.LogWarning("fpcalc returned null for song {Id} ({Path})", id, song.SourcePath);
             }
