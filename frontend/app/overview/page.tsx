@@ -160,7 +160,7 @@ export default function OverviewPage() {
   // Progress values
   const discovered = liveProgress?.discovered ?? job.tracksDiscovered
   const fingerprinted = liveProgress?.fingerprinted ?? job.tracksProcessed
-  const enriched = liveProgress?.enriched ?? 0
+  const enriched = liveProgress?.enriched ?? job.tracksProcessed
   const built = liveProgress?.built ?? job.tracksCopied
   const failed = liveProgress?.failed ?? job.tracksFailed
 
