@@ -59,6 +59,8 @@ export interface ApiOverview {
     startedAt: string
     tracksDiscovered: number
     tracksProcessed: number
+    tracksFingerprinted: number
+    tracksEnriched: number
     tracksCopied: number
     tracksReview: number
     tracksFailed: number
@@ -641,6 +643,11 @@ export async function startScan(): Promise<{ scanId: string }> {
 
 // ── Enrichment controller types ───────────────────────────────────────────────
 
+export interface StepSnapshot {
+  status: string
+  isPaused: boolean
+}
+
 /** Real-time progress snapshot emitted by the SSE stream and the status endpoint. */
 export interface ProgressSnapshot {
   status: string
@@ -654,16 +661,13 @@ export interface ProgressSnapshot {
   enriched: number
   built: number
   failed: number
+  scan: StepSnapshot
+  fingerprint: StepSnapshot
+  enrich: StepSnapshot
+  build: StepSnapshot
 }
 
 export interface JobStatusResponse {
-  job: {
-    jobId: string | null
-    jobType: string
-    status: string
-    startedAt: string | null
-    completedAt: string | null
-  }
   progress: ProgressSnapshot
 }
 
@@ -707,6 +711,16 @@ export async function triggerBuild(): Promise<EnrichmentTriggerResult> {
 export async function cancelJob(): Promise<{ message: string }> {
   if (isDemoMode) return { message: "No job is currently running." }
   return requestJson<{ message: string }>("/api/enrichment/cancel", { method: "POST" })
+}
+
+export async function pauseStep(step: string): Promise<{ message: string }> {
+  if (isDemoMode) return { message: `${step} paused.` }
+  return requestJson<{ message: string }>(`/api/enrichment/pause?step=${step}`, { method: "POST" })
+}
+
+export async function resumeStep(step: string): Promise<{ message: string }> {
+  if (isDemoMode) return { message: `${step} resumed.` }
+  return requestJson<{ message: string }>(`/api/enrichment/resume?step=${step}`, { method: "POST" })
 }
 
 export async function fetchJobStatus(): Promise<JobStatusResponse> {

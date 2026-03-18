@@ -14,15 +14,15 @@ import {
   CheckCircle2,
   AlertCircle,
   XCircle,
-  RotateCcw,
   Disc3,
   Sparkles,
   Copy,
   FileWarning,
   ArrowRight,
   PackageCheck,
-  StopCircle,
   Search,
+  Play,
+  Pause,
 } from "lucide-react"
 import Link from "next/link"
 import { AppHeader } from "@/components/app-header"
@@ -31,10 +31,12 @@ import {
   triggerEnrichmentScan,
   triggerEnrich,
   triggerBuild,
-  cancelJob,
+  pauseStep,
+  resumeStep,
   openProgressStream,
   type ApiOverview,
   type ProgressSnapshot,
+  type StepSnapshot,
 } from "@/lib/api-client"
 import { isDemoMode } from "@/lib/app-mode"
 
@@ -48,6 +50,8 @@ const initialOverview: ApiOverview = {
     startedAt: new Date().toISOString(),
     tracksDiscovered: 0,
     tracksProcessed: 0,
+    tracksFingerprinted: 0,
+    tracksEnriched: 0,
     tracksCopied: 0,
     tracksReview: 0,
     tracksFailed: 0,
@@ -57,11 +61,15 @@ const initialOverview: ApiOverview = {
 
 type StatusBannerType = "success" | "error" | "info"
 
+function isStepRunning(step?: StepSnapshot): boolean {
+  return step?.status === "Running"
+}
+
 export default function OverviewPage() {
   const [overview, setOverview] = useState<ApiOverview | null>(null)
   const [liveProgress, setLiveProgress] = useState<ProgressSnapshot | null>(null)
   const [banner, setBanner] = useState<{ type: StatusBannerType; text: string } | null>(null)
-  const [triggering, setTriggering] = useState<"scan" | "enrich" | "build" | "cancel" | null>(null)
+  const [triggering, setTriggering] = useState<string | null>(null)
   const sseCleanupRef = useRef<(() => void) | null>(null)
 
   const loadOverview = useCallback(async () => {
@@ -69,12 +77,10 @@ export default function OverviewPage() {
       const data = await fetchOverview()
       setOverview(data)
     } catch {
-      // Silently ignore; the banner only shows on explicit actions.
+      // Silently ignore
     }
   }, [])
 
-  // Open (or re-open) the SSE stream. Auto-reconnects when the server closes
-  // the connection after a job completes.
   const connectSse = useCallback(() => {
     if (isDemoMode) return
     sseCleanupRef.current?.()
@@ -84,8 +90,6 @@ export default function OverviewPage() {
         setLiveProgress(snapshot)
       },
       () => {
-        // Server closed the stream (job reached terminal state). Refresh
-        // overview stats and re-open so the next job is watched automatically.
         sseCleanupRef.current = null
         loadOverview()
         setTimeout(connectSse, 2000)
@@ -108,44 +112,39 @@ export default function OverviewPage() {
     setTimeout(() => setBanner(null), 6_000)
   }
 
-  const handleTrigger = async (action: "scan" | "enrich" | "build") => {
-    setTriggering(action)
+  const handleStepAction = async (step: string, action: "start" | "pause" | "resume") => {
+    setTriggering(step)
     try {
-      const fn =
-        action === "scan" ? triggerEnrichmentScan
-        : action === "enrich" ? triggerEnrich
-        : triggerBuild
-
-      const result = await fn()
-      if (!result.ok) {
-        showBanner("error", result.message)
+      if (action === "start") {
+        const fn = step === "scan" ? triggerEnrichmentScan
+          : step === "enrich" ? triggerEnrich
+          : triggerBuild
+        const result = await fn()
+        if (!result.ok) {
+          showBanner("error", result.message)
+        } else {
+          showBanner("success", `${step} started`)
+        }
+      } else if (action === "pause") {
+        await pauseStep(step)
+        showBanner("info", `${step} paused`)
       } else {
-        showBanner("success", `${action.charAt(0).toUpperCase() + action.slice(1)} job started`)
-        // The SSE stream will automatically pick up the new running job.
+        await resumeStep(step)
+        showBanner("info", `${step} resumed`)
       }
     } catch {
-      showBanner("error", `Failed to start ${action} job. API may be unavailable.`)
-    } finally {
-      setTriggering(null)
-    }
-  }
-
-  const handleCancel = async () => {
-    setTriggering("cancel")
-    try {
-      const result = await cancelJob()
-      showBanner("info", result.message)
-    } catch {
-      showBanner("error", "Failed to cancel job.")
+      showBanner("error", `Failed to ${action} ${step}. API may be unavailable.`)
     } finally {
       setTriggering(null)
     }
   }
 
   const job = overview?.job ?? initialOverview.job
-  const isJobRunning = RUNNING_STATUSES.has(liveProgress?.status ?? "")
 
-  // Elapsed time for job or enrichment
+  const isLive = liveProgress != null && !liveProgress.isComplete
+  const anyRunning = isLive && RUNNING_STATUSES.has(liveProgress?.status?.split(",")[0]?.trim() ?? "")
+
+  // Elapsed time
   const [elapsedMin, setElapsedMin] = useState<number | null>(null)
   useEffect(() => {
     const startedAt = liveProgress?.startedAt ?? overview?.job?.startedAt
@@ -157,20 +156,25 @@ export default function OverviewPage() {
     return () => clearInterval(t)
   }, [liveProgress?.startedAt, overview?.job?.startedAt])
 
-  // Progress values
-  const discovered = liveProgress?.discovered ?? job.tracksDiscovered
-  const scanned = liveProgress?.scanned ?? job.tracksProcessed
-  const fingerprinted = liveProgress?.fingerprinted ?? 0
-  const enriched = liveProgress?.enriched ?? job.tracksProcessed
-  const built = liveProgress?.built ?? job.tracksCopied
-  const failed = liveProgress?.failed ?? job.tracksFailed
+  // Use SSE counters only when actively running; otherwise use cumulative DB counts
+  const discovered = isLive ? liveProgress.discovered : job.tracksDiscovered
+  const scanned = isLive ? liveProgress.scanned : job.tracksProcessed
+  const fingerprinted = isLive ? liveProgress.fingerprinted : (job.tracksFingerprinted ?? 0)
+  const enriched = isLive ? liveProgress.enriched : (job.tracksEnriched ?? 0)
+  const built = isLive ? liveProgress.built : job.tracksCopied
+  const failed = isLive ? liveProgress.failed : job.tracksFailed
 
   const scanPct = discovered > 0 ? Math.min(100, (scanned / discovered) * 100) : 0
   const fpPct = discovered > 0 ? Math.min(100, (fingerprinted / discovered) * 100) : 0
   const enrichPct = discovered > 0 ? Math.min(100, (enriched / discovered) * 100) : 0
   const buildPct = discovered > 0 ? Math.min(100, (built / discovered) * 100) : 0
 
-  const currentStatus = liveProgress?.status ?? (isJobRunning ? "Running" : "Idle")
+  const scanSnap = liveProgress?.scan
+  const fpSnap = liveProgress?.fingerprint
+  const enrichSnap = liveProgress?.enrich
+  const buildSnap = liveProgress?.build
+
+  const overallStatus = isLive ? (liveProgress.status ?? "Idle") : "Idle"
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -183,62 +187,6 @@ export default function OverviewPage() {
             <div>
               <h1 className="text-2xl font-bold md:text-3xl">Import Overview</h1>
               <p className="text-muted-foreground">Monitor and control your music pipeline</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                disabled={triggering !== null || (isJobRunning && !isDemoMode)}
-                onClick={() => handleTrigger("scan")}
-              >
-                {triggering === "scan" ? (
-                  <RotateCcw className="size-4 animate-spin" />
-                ) : (
-                  <Search className="size-4" />
-                )}
-                <span>Scan</span>
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                disabled={triggering !== null || (isJobRunning && !isDemoMode)}
-                onClick={() => handleTrigger("enrich")}
-              >
-                {triggering === "enrich" ? (
-                  <Sparkles className="size-4 animate-spin" />
-                ) : (
-                  <Sparkles className="size-4" />
-                )}
-                <span>Enrich</span>
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                disabled={triggering !== null || (isJobRunning && !isDemoMode)}
-                onClick={() => handleTrigger("build")}
-              >
-                {triggering === "build" ? (
-                  <PackageCheck className="size-4 animate-spin" />
-                ) : (
-                  <PackageCheck className="size-4" />
-                )}
-                <span>Build Library</span>
-              </Button>
-              {isJobRunning && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  className="gap-2"
-                  disabled={triggering === "cancel"}
-                  onClick={handleCancel}
-                >
-                  <StopCircle className="size-4" />
-                  <span>Cancel</span>
-                </Button>
-              )}
             </div>
           </div>
 
@@ -295,12 +243,11 @@ export default function OverviewPage() {
                     <Clock className="size-4" />
                     <span>{elapsedMin !== null ? `${elapsedMin} min` : "—"}</span>
                   </div>
-                  <StatusBadge status={currentStatus} />
+                  <StatusBadge status={overallStatus} />
                 </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-5">
-              {/* Stage 1: Scan Metadata */}
               <PipelineStage
                 icon={Search}
                 label="Scan Metadata"
@@ -308,9 +255,11 @@ export default function OverviewPage() {
                 total={discovered}
                 unit="files"
                 progress={scanPct}
-                active={currentStatus === "Scanning"}
+                step={scanSnap}
+                triggering={triggering}
+                stepKey="scan"
+                onAction={handleStepAction}
               />
-              {/* Stage 2: Fingerprint */}
               <PipelineStage
                 icon={Disc3}
                 label="Fingerprinting"
@@ -318,9 +267,12 @@ export default function OverviewPage() {
                 total={discovered}
                 unit="tracks"
                 progress={fpPct}
-                active={currentStatus === "Fingerprinting"}
+                step={fpSnap}
+                triggering={triggering}
+                stepKey="fingerprint"
+                onAction={handleStepAction}
+                autoOnly
               />
-              {/* Stage 3: Enrich */}
               <PipelineStage
                 icon={Sparkles}
                 label="Enrich Metadata"
@@ -328,9 +280,11 @@ export default function OverviewPage() {
                 total={discovered}
                 unit="tracks"
                 progress={enrichPct}
-                active={currentStatus === "Enriching"}
+                step={enrichSnap}
+                triggering={triggering}
+                stepKey="enrich"
+                onAction={handleStepAction}
               />
-              {/* Stage 4: Build */}
               <PipelineStage
                 icon={PackageCheck}
                 label="Build Library"
@@ -338,7 +292,10 @@ export default function OverviewPage() {
                 total={discovered}
                 unit="copied"
                 progress={buildPct}
-                active={currentStatus === "Building"}
+                step={buildSnap}
+                triggering={triggering}
+                stepKey="build"
+                onAction={handleStepAction}
               />
             </CardContent>
           </Card>
@@ -355,7 +312,7 @@ export default function OverviewPage() {
             <StatCard
               icon={Sparkles}
               label="Enriched"
-              value={enriched || job.tracksProcessed}
+              value={job.tracksEnriched ?? 0}
               color="text-blue-400"
               bgColor="bg-blue-400/10"
             />
@@ -377,7 +334,7 @@ export default function OverviewPage() {
             <StatCard
               icon={XCircle}
               label="Failed"
-              value={failed || job.tracksFailed}
+              value={job.tracksFailed}
               color="text-red-400"
               bgColor="bg-red-400/10"
             />
@@ -453,7 +410,7 @@ export default function OverviewPage() {
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
-  const isRunning = RUNNING_STATUSES.has(status)
+  const isRunning = status !== "Idle" && status !== "Completed" && status !== "Failed" && status !== "Cancelled"
   const isError = status === "Failed" || status === "Cancelled"
 
   if (isRunning) {
@@ -474,15 +431,6 @@ function StatusBadge({ status }: { status: string }) {
     )
   }
 
-  if (status === "Completed") {
-    return (
-      <Badge variant="outline" className="gap-1.5 border-green-500/40 text-green-400">
-        <span className="size-1.5 rounded-full bg-green-400" />
-        Done
-      </Badge>
-    )
-  }
-
   return (
     <Badge variant="outline" className="gap-1.5 text-muted-foreground">
       <span className="size-1.5 rounded-full bg-muted-foreground/60" />
@@ -498,7 +446,11 @@ function PipelineStage({
   total,
   unit,
   progress,
-  active,
+  step,
+  triggering,
+  stepKey,
+  onAction,
+  autoOnly,
 }: {
   icon: React.ComponentType<{ className?: string }>
   label: string
@@ -506,29 +458,120 @@ function PipelineStage({
   total: number
   unit: string
   progress: number
-  active: boolean
+  step?: StepSnapshot
+  triggering: string | null
+  stepKey: string
+  onAction: (step: string, action: "start" | "pause" | "resume") => void
+  autoOnly?: boolean
 }) {
+  const running = step?.status === "Running"
+  const paused = step?.isPaused ?? false
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between text-sm">
         <span
           className={`flex items-center gap-2 font-medium ${
-            active ? "text-foreground" : "text-muted-foreground"
+            running ? "text-foreground" : "text-muted-foreground"
           }`}
         >
-          <Icon className={`size-4 ${active ? "text-primary" : ""}`} />
+          <Icon className={`size-4 ${running ? "text-primary" : ""}`} />
           {label}
-          {active && <span className="size-1.5 animate-pulse rounded-full bg-primary" />}
-        </span>
-        <span className="tabular-nums text-muted-foreground">
-          {count.toLocaleString()} {unit}
-          {total > 0 && !active && (
-            <span className="ml-1 text-xs">/ {total.toLocaleString()}</span>
+          {running && <span className="size-1.5 animate-pulse rounded-full bg-primary" />}
+          {paused && !running && (
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/40 text-amber-400">
+              Paused
+            </Badge>
           )}
         </span>
+        <div className="flex items-center gap-2">
+          <span className="tabular-nums text-muted-foreground">
+            {count.toLocaleString()} {unit}
+            {total > 0 && !running && (
+              <span className="ml-1 text-xs">/ {total.toLocaleString()}</span>
+            )}
+          </span>
+          {!autoOnly && (
+            <StepControl
+              stepKey={stepKey}
+              running={running}
+              paused={paused}
+              triggering={triggering}
+              onAction={onAction}
+            />
+          )}
+          {autoOnly && (running || paused) && (
+            <StepControl
+              stepKey={stepKey}
+              running={running}
+              paused={paused}
+              triggering={triggering}
+              onAction={onAction}
+            />
+          )}
+        </div>
       </div>
       <Progress value={progress} className="h-2" />
     </div>
+  )
+}
+
+function StepControl({
+  stepKey,
+  running,
+  paused,
+  triggering,
+  onAction,
+}: {
+  stepKey: string
+  running: boolean
+  paused: boolean
+  triggering: string | null
+  onAction: (step: string, action: "start" | "pause" | "resume") => void
+}) {
+  const isTriggering = triggering === stepKey
+
+  if (running) {
+    return (
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-6"
+        disabled={isTriggering}
+        onClick={() => onAction(stepKey, "pause")}
+        title={`Pause ${stepKey}`}
+      >
+        <Pause className="size-3.5" />
+      </Button>
+    )
+  }
+
+  if (paused) {
+    return (
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-6 text-amber-400 hover:text-amber-300"
+        disabled={isTriggering}
+        onClick={() => onAction(stepKey, "resume")}
+        title={`Resume ${stepKey}`}
+      >
+        <Play className="size-3.5" />
+      </Button>
+    )
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="size-6"
+      disabled={isTriggering}
+      onClick={() => onAction(stepKey, "start")}
+      title={`Start ${stepKey}`}
+    >
+      <Play className="size-3.5" />
+    </Button>
   )
 }
 
