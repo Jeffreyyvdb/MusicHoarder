@@ -1,10 +1,15 @@
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
+using MusicHoarder.Api.Persistence;
+using Microsoft.EntityFrameworkCore;
 
 namespace MusicHoarder.Api.Library;
 
 public class LibraryBuilderBackgroundService(
     IServiceScopeFactory scopeFactory,
+    JobManager jobManager,
+    LibraryBuilderProgressTracker progressTracker,
     IOptions<MusicEnricherOptions> options,
     ILogger<LibraryBuilderBackgroundService> logger) : BackgroundService
 {
@@ -18,28 +23,98 @@ public class LibraryBuilderBackgroundService(
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            var runId = Guid.NewGuid();
+            Guid jobId;
+            CancellationToken jobToken;
+
+            // 1. Check for a manual trigger from the HTTP endpoint first.
+            if (jobManager.BuildTriggers.TryRead(out var manualJobId))
+            {
+                jobId = manualJobId;
+                jobToken = jobManager.GetCurrentCancellationToken();
+            }
+            else
+            {
+                // 2. Auto-poll: check if there is pending work.
+                var pendingCount = await CountPendingAsync(stoppingToken);
+
+                if (pendingCount == 0)
+                {
+                    // Idle: wait for a manual trigger or the idle delay, whichever comes first.
+                    var triggerTask = jobManager.BuildTriggers.WaitToReadAsync(stoppingToken).AsTask();
+                    var delayTask = Task.Delay(TimeSpan.FromSeconds(opts.LibraryBuilderIdleDelaySeconds), stoppingToken);
+                    await Task.WhenAny(triggerTask, delayTask);
+                    continue;
+                }
+
+                // Try to acquire the global job lock before starting an auto-triggered cycle.
+                jobId = Guid.NewGuid();
+                if (!jobManager.TryRegisterAutoJob(JobType.Build, jobId, out jobToken))
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(opts.LibraryBuilderIdleDelaySeconds), stoppingToken);
+                    continue;
+                }
+            }
+
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, jobToken);
+            var ct = linkedCts.Token;
+            var runStarted = false;
 
             try
             {
-                using var scope = scopeFactory.CreateScope();
-                var builder = scope.ServiceProvider.GetRequiredService<ILibraryBuilderService>();
+                progressTracker.StartRun(jobId);
+                runStarted = true;
 
-                var result = await builder.ProcessNextBatchAsync(runId, stoppingToken);
-                if (result.TotalTracks == 0)
+                logger.LogInformation("Starting library build run {RunId}", jobId);
+
+                while (!ct.IsCancellationRequested)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(opts.LibraryBuilderIdleDelaySeconds), stoppingToken);
+                    using var scope = scopeFactory.CreateScope();
+                    var builder = scope.ServiceProvider.GetRequiredService<ILibraryBuilderService>();
+
+                    var result = await builder.ProcessNextBatchAsync(jobId, ct);
+                    if (result.TotalTracks == 0) break;
+
+                    progressTracker.AddTotal(result.TotalTracks);
+                    for (var i = 0; i < result.Done; i++) progressTracker.IncrementBuilt();
+                    for (var i = 0; i < result.Failed; i++) progressTracker.IncrementFailed();
                 }
+
+                progressTracker.CompleteRun(jobId);
+                var wasCancelled = ct.IsCancellationRequested && !stoppingToken.IsCancellationRequested;
+                jobManager.SignalComplete(jobId, wasCancelled);
+
+                if (wasCancelled)
+                    logger.LogInformation("Library build run {RunId} cancelled via cancel endpoint", jobId);
+                else
+                    logger.LogInformation("Library build run {RunId} complete", jobId);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
-                logger.LogInformation("Library builder run {RunId} cancelled", runId);
+                if (runStarted) progressTracker.CompleteRun(jobId);
+                jobManager.SignalComplete(jobId, cancelled: true);
+                logger.LogInformation("Library build run {RunId} stopped with application", jobId);
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Library builder run {RunId} failed", runId);
+                if (runStarted) progressTracker.CompleteRun(jobId);
+                jobManager.SignalFailed(jobId);
+                logger.LogError(ex, "Library builder run {RunId} failed", jobId);
                 await Task.Delay(TimeSpan.FromSeconds(opts.LibraryBuilderIdleDelaySeconds), stoppingToken);
             }
         }
+    }
+
+    private async Task<int> CountPendingAsync(CancellationToken ct)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+        return await db.Songs
+            .AsNoTracking()
+            .Where(s => s.DeletedAtUtc == null)
+            .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched)
+            .Where(s => s.LibraryBuildStatus != LibraryBuildStatus.Done
+                || s.DestinationPath == null
+                || s.PreviousDestinationPath != null)
+            .CountAsync(ct);
     }
 }

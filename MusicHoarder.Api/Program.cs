@@ -1,7 +1,8 @@
 using System.IO.Abstractions;
-using System.Threading.Channels;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Enrichment;
@@ -22,9 +23,10 @@ builder.Services
 
 builder.AddNpgsqlDbContext<MusicHoarderDbContext>(connectionName: "musichoarderdb");
 
-builder.Services.AddSingleton(Channel.CreateUnbounded<ScanRequest>());
+builder.Services.AddSingleton<JobManager>();
 builder.Services.AddSingleton<ScanProgressTracker>();
 builder.Services.AddSingleton<EnrichmentProgressTracker>();
+builder.Services.AddSingleton<LibraryBuilderProgressTracker>();
 builder.Services.AddSingleton<IFpcalcService, FpcalcService>();
 builder.Services.AddSingleton<IAcoustIdMatchValidator, AcoustIdMatchValidator>();
 builder.Services.AddSingleton<IEnrichmentOrchestrator, EnrichmentOrchestrator>();
@@ -71,6 +73,9 @@ var app = builder.Build();
 
 var musicEnricherOptions = app.Services.GetRequiredService<IOptions<MusicEnricherOptions>>().Value;
 
+// Shared JSON serializer options for SSE streaming — matches the API's camelCase convention.
+var sseJsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
 app.MapDefaultEndpoints();
 
 // Apply pending EF Core migrations on startup in all environments.
@@ -93,12 +98,15 @@ if (!app.Environment.IsDevelopment())
     app.UseHttpsRedirection();
 }
 
-app.MapPost("/scan", async (Channel<ScanRequest> channel) =>
+app.MapPost("/scan", (JobManager jobManager) =>
 {
-    var scanId = Guid.NewGuid();
-    await channel.Writer.WriteAsync(new ScanRequest(scanId));
+    if (!jobManager.TryStartJob(JobType.Scan, out var scanId, out _))
+        return Results.Conflict(new { message = "A job is already running. Use POST /api/enrichment/cancel to stop it first." });
+
     return Results.Accepted($"/scan/{scanId}/progress", new { scanId });
-});
+})
+.WithName("TriggerScan")
+.WithSummary("Trigger a library scan (legacy endpoint, prefer /api/enrichment/scan).");
 
 app.MapGet("/scan/{scanId}/progress", (Guid scanId, ScanProgressTracker tracker) =>
 {
@@ -107,7 +115,142 @@ app.MapGet("/scan/{scanId}/progress", (Guid scanId, ScanProgressTracker tracker)
         return Results.NotFound(new { message = "No scan found with that id." });
 
     return Results.Ok(state);
-});
+})
+.WithName("GetScanProgress")
+.WithSummary("Get a snapshot of scan progress by scan ID.");
+
+// ── Enrichment controller endpoints ──────────────────────────────────────────
+
+app.MapPost("/api/enrichment/scan", (JobManager jobManager) =>
+{
+    if (!jobManager.TryStartJob(JobType.Scan, out var jobId, out _))
+        return Results.Conflict(new { message = "A job is already running. Use POST /api/enrichment/cancel to stop it first." });
+
+    return Results.Accepted($"/api/enrichment/status", new { jobId });
+})
+.WithName("TriggerEnrichmentScan")
+.WithSummary("Trigger the ScannerService to index the source library.")
+.WithTags("Enrichment");
+
+app.MapPost("/api/enrichment/enrich", (JobManager jobManager) =>
+{
+    if (!jobManager.TryStartJob(JobType.Enrich, out var jobId, out _))
+        return Results.Conflict(new { message = "A job is already running. Use POST /api/enrichment/cancel to stop it first." });
+
+    return Results.Accepted($"/api/enrichment/status", new { jobId });
+})
+.WithName("TriggerEnrich")
+.WithSummary("Trigger the EnrichmentService to enrich pending tracks via AcoustID/MusicBrainz.")
+.WithTags("Enrichment");
+
+app.MapPost("/api/enrichment/build", (JobManager jobManager) =>
+{
+    if (!jobManager.TryStartJob(JobType.Build, out var jobId, out _))
+        return Results.Conflict(new { message = "A job is already running. Use POST /api/enrichment/cancel to stop it first." });
+
+    return Results.Accepted($"/api/enrichment/status", new { jobId });
+})
+.WithName("TriggerBuild")
+.WithSummary("Trigger the LibraryBuilderService to copy and tag matched tracks to the destination.")
+.WithTags("Enrichment");
+
+app.MapPost("/api/enrichment/cancel", (JobManager jobManager) =>
+{
+    if (!jobManager.Cancel())
+        return Results.Ok(new { message = "No job is currently running." });
+
+    return Results.Ok(new { message = "Cancellation requested for the running job." });
+})
+.WithName("CancelJob")
+.WithSummary("Cancel the currently running job.")
+.WithTags("Enrichment");
+
+app.MapGet("/api/enrichment/status", (
+    JobManager jobManager,
+    ScanProgressTracker scanTracker,
+    EnrichmentProgressTracker enrichmentTracker,
+    LibraryBuilderProgressTracker buildTracker) =>
+{
+    var status = jobManager.GetStatus();
+    var snapshot = BuildProgressSnapshot(status, scanTracker, enrichmentTracker, buildTracker);
+    return Results.Ok(new
+    {
+        Job = new
+        {
+            status.JobId,
+            JobType = status.JobType.ToString(),
+            Status = status.Status.ToString(),
+            status.StartedAt,
+            status.CompletedAt,
+        },
+        Progress = snapshot,
+    });
+})
+.WithName("GetEnrichmentStatus")
+.WithSummary("Get the current job status and a progress snapshot.")
+.WithTags("Enrichment");
+
+app.MapGet("/api/enrichment/progress", async (
+    HttpContext context,
+    JobManager jobManager,
+    ScanProgressTracker scanTracker,
+    EnrichmentProgressTracker enrichmentTracker,
+    LibraryBuilderProgressTracker buildTracker) =>
+{
+    context.Response.Headers.ContentType = "text/event-stream";
+    context.Response.Headers.CacheControl = "no-cache";
+    context.Response.Headers.Connection = "keep-alive";
+    context.Response.Headers.Append("X-Accel-Buffering", "no");
+
+    var ct = context.RequestAborted;
+
+    try
+    {
+        // Capture the connect time. We only close the SSE after observing a job that
+        // completed AFTER this client connected — this prevents closing immediately when
+        // a previous job's "Completed" state is still the current status.
+        var connectTime = DateTime.UtcNow;
+
+        while (!ct.IsCancellationRequested)
+        {
+            var status = jobManager.GetStatus();
+            var snapshot = BuildProgressSnapshot(status, scanTracker, enrichmentTracker, buildTracker);
+            var json = JsonSerializer.Serialize(snapshot, sseJsonOptions);
+
+            await context.Response.WriteAsync($"data: {json}\n\n", ct);
+            await context.Response.Body.FlushAsync(ct);
+
+            // Close only when a job that completed AFTER we connected reaches a terminal state.
+            // This way the client can connect before triggering a job and see the full lifecycle.
+            var isTerminal = status.Status == JobRunStatus.Completed
+                || status.Status == JobRunStatus.Cancelled
+                || status.Status == JobRunStatus.Failed;
+
+            if (isTerminal && status.CompletedAt > connectTime)
+            {
+                break;
+            }
+
+            await Task.Delay(1000, ct);
+        }
+    }
+    catch (OperationCanceledException)
+    {
+        // Client disconnected — normal SSE lifecycle.
+    }
+})
+.WithName("StreamEnrichmentProgress")
+.WithSummary("SSE stream that emits a ProgressSnapshot every second while a job is running.")
+.WithTags("Enrichment");
+
+app.MapPost("/api/enrichment/scrape-trackers", (JobManager jobManager) =>
+{
+    var result = Results.Json(new { message = "Tracker scraping is not yet implemented." }, statusCode: 501);
+    return result;
+})
+.WithName("ScrapeTrackers")
+.WithSummary("Trigger on-demand tracker scraping (not yet implemented).")
+.WithTags("Enrichment");
 
 app.MapGet("/stats", async (MusicHoarderDbContext db) =>
 {
@@ -609,8 +752,54 @@ app.Run();
 static string[]? DeserializeWarnings(string? json)
 {
     if (string.IsNullOrWhiteSpace(json)) return null;
-    try { return System.Text.Json.JsonSerializer.Deserialize<string[]>(json); }
+    try { return JsonSerializer.Deserialize<string[]>(json); }
     catch { return null; }
+}
+
+static ProgressSnapshot BuildProgressSnapshot(
+    JobStatusSnapshot status,
+    ScanProgressTracker scanTracker,
+    EnrichmentProgressTracker enrichmentTracker,
+    LibraryBuilderProgressTracker buildTracker)
+{
+    var statusLabel = status.Status switch
+    {
+        JobRunStatus.Running => status.JobType switch
+        {
+            JobType.Scan => "Scanning",
+            JobType.Enrich => "Enriching",
+            JobType.Build => "Building",
+            _ => "Running"
+        },
+        JobRunStatus.Completed => "Completed",
+        JobRunStatus.Cancelled => "Cancelled",
+        JobRunStatus.Failed => "Failed",
+        _ => "Idle"
+    };
+
+    var scanState = scanTracker.GetCurrent();
+    var enrichState = enrichmentTracker.GetCurrent();
+    var buildState = buildTracker.GetCurrent();
+
+    var discovered = scanState?.TotalFiles ?? 0;
+    var fingerprinted = scanState?.Processed ?? 0;
+    var enriched = enrichState?.Enriched ?? 0;
+    var built = buildState?.Built ?? 0;
+    var failed = (scanState?.FailedFiles ?? 0) + (enrichState?.Failed ?? 0) + (buildState?.Failed ?? 0);
+
+    var isComplete = status.Status != JobRunStatus.Running;
+
+    return new ProgressSnapshot(
+        statusLabel,
+        status.JobId,
+        status.StartedAt,
+        status.CompletedAt,
+        isComplete,
+        discovered,
+        fingerprinted,
+        enriched,
+        built,
+        failed);
 }
 
 public record EnrichmentResetRequest(
