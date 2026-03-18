@@ -158,7 +158,7 @@ export function FileBrowser() {
   // Track expanded folder IDs for the sidebar tree - managed here to persist across re-renders
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(() => new Set(["root"]))
   const isMobile = useIsMobile()
-  const { currentSong } = usePlayer()
+  const { currentSong, detailsRequestId } = usePlayer()
   const dataModeMessage = isDemoMode
     ? "Demo mode is enabled. Library data is served from fake data."
     : "Production mode is enabled. Library data is served from the API."
@@ -342,6 +342,16 @@ export function FileBrowser() {
     return "This folder is empty"
   }, [filterBy, deferredSearchQuery])
 
+  const prevDetailsRequestId = useRef(detailsRequestId)
+  useEffect(() => {
+    if (detailsRequestId === prevDetailsRequestId.current) return
+    prevDetailsRequestId.current = detailsRequestId
+    if (!currentSong) return
+    const songFileId = `song:${currentSong.id}`
+    setSelectedFileId(songFileId)
+    setShowDetails(true)
+  }, [detailsRequestId, currentSong])
+
   const handleFolderSelect = (item: FileItem) => {
     if (item.type === "folder") {
       setCurrentFolderId(item.id)
@@ -352,6 +362,10 @@ export function FileBrowser() {
   }
 
   const handleFileSelect = (item: FileItem) => {
+    if (item.type === "folder" && isMobile) {
+      handleFileOpen(item)
+      return
+    }
     setSelectedFileId(item.id)
     if (item.type === "audio") {
       setShowDetails(true)
@@ -429,7 +443,7 @@ export function FileBrowser() {
   )
 
   return (
-    <div className={cn("flex h-screen flex-col bg-background", currentSong && "pb-[72px]")}>
+    <div className={cn("flex h-screen flex-col bg-background", currentSong && "pb-[76px]")}>
       <AppHeader />
 
       {/* Mobile sidebar sheet */}
