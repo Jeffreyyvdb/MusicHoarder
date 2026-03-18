@@ -1,5 +1,5 @@
-using System.Threading.Channels;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
 
 namespace MusicHoarder.Api.Scanner;
@@ -8,38 +8,51 @@ public record ScanRequest(Guid ScanId);
 
 public class ScannerBackgroundService(
     IServiceScopeFactory scopeFactory,
-    Channel<ScanRequest> channel,
+    JobManager jobManager,
     IOptions<MusicEnricherOptions> options,
     ILogger<ScannerBackgroundService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await foreach (var request in channel.Reader.ReadAllAsync(stoppingToken))
+        await foreach (var jobId in jobManager.ScanTriggers.ReadAllAsync(stoppingToken))
         {
+            var jobToken = jobManager.GetCurrentCancellationToken();
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, jobToken);
+            var ct = linkedCts.Token;
+
             try
             {
-                logger.LogInformation("Starting scan {ScanId}", request.ScanId);
+                logger.LogInformation("Starting scan job {JobId}", jobId);
 
                 using var scope = scopeFactory.CreateScope();
                 var indexService = scope.ServiceProvider.GetRequiredService<IIndexService>();
 
                 var result = await indexService.IndexAsync(
-                    request.ScanId,
+                    jobId,
                     options.Value.SourceDirectory,
-                    stoppingToken);
+                    ct);
 
                 logger.LogInformation(
-                    "Scan {ScanId} complete — Total: {Total}, New: {New}, Changed: {Changed}, Deleted: {Deleted}, Skipped: {Skipped}, Failed: {Failed}, Duration: {Duration:F1}s",
-                    request.ScanId, result.TotalFiles, result.NewFiles, result.ChangedFiles,
+                    "Scan {JobId} complete — Total: {Total}, New: {New}, Changed: {Changed}, Deleted: {Deleted}, Skipped: {Skipped}, Failed: {Failed}, Duration: {Duration:F1}s",
+                    jobId, result.TotalFiles, result.NewFiles, result.ChangedFiles,
                     result.DeletedFiles, result.SkippedFiles, result.FailedFiles, result.Duration.TotalSeconds);
+
+                jobManager.SignalComplete(jobId);
             }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
             {
-                logger.LogInformation("Scan {ScanId} cancelled", request.ScanId);
+                logger.LogInformation("Scan {JobId} cancelled via cancel endpoint", jobId);
+                jobManager.SignalComplete(jobId, cancelled: true);
+            }
+            catch (OperationCanceledException)
+            {
+                logger.LogInformation("Scan {JobId} stopped with application", jobId);
+                jobManager.SignalComplete(jobId, cancelled: true);
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Scan {ScanId} failed", request.ScanId);
+                logger.LogError(ex, "Scan {JobId} failed", jobId);
+                jobManager.SignalFailed(jobId);
             }
         }
     }
