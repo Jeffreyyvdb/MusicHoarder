@@ -146,10 +146,21 @@ app.MapPost("/api/enrichment/enrich", (JobManager jobManager) =>
 .WithSummary("Trigger the EnrichmentService to enrich pending tracks via AcoustID/MusicBrainz.")
 .WithTags("Enrichment");
 
+app.MapPost("/api/enrichment/fingerprint", (JobManager jobManager) =>
+{
+    if (!jobManager.TryStartJob(JobType.Fingerprint, out var jobId, out _))
+        return Results.Conflict(new { message = "Fingerprint step is already running." });
+
+    return Results.Accepted($"/api/enrichment/status", new { jobId });
+})
+.WithName("TriggerFingerprint")
+.WithSummary("Trigger the FingerprintService to fingerprint tracks with missing fingerprints.")
+.WithTags("Enrichment");
+
 app.MapPost("/api/enrichment/build", (JobManager jobManager) =>
 {
     if (!jobManager.TryStartJob(JobType.Build, out var jobId, out _))
-        return Results.Conflict(new { message = "A job is already running. Use POST /api/enrichment/cancel to stop it first." });
+        return Results.Conflict(new { message = "Build step is already running." });
 
     return Results.Accepted($"/api/enrichment/status", new { jobId });
 })
@@ -386,6 +397,7 @@ app.MapGet("/overview", async (
         s.Fingerprint != null && s.Fingerprint != string.Empty && s.DurationSeconds != null);
     var enrichedCount = await active.CountAsync(s =>
         s.EnrichmentStatus == EnrichmentStatus.Matched || s.EnrichmentStatus == EnrichmentStatus.NeedsReview);
+    var buildEligibleCount = await active.CountAsync(s => s.EnrichmentStatus == EnrichmentStatus.Matched);
     var copiedCount = await active.CountAsync(s =>
         s.LibraryBuildStatus == LibraryBuildStatus.Copied ||
         s.LibraryBuildStatus == LibraryBuildStatus.Tagged ||
@@ -504,6 +516,7 @@ app.MapGet("/overview", async (
             TracksProcessed = totalCount,
             TracksFingerprinted = fingerprintedCount,
             TracksEnriched = enrichedCount,
+            TracksBuildEligible = buildEligibleCount,
             TracksCopied = copiedCount,
             TracksReview = reviewCount,
             TracksFailed = failedCount,
