@@ -23,6 +23,7 @@ interface PlayerContextValue {
   currentTime: number
   duration: number
   volume: number
+  detailsRequestId: number
   playSong: (song: PlayerSong) => void
   pause: () => void
   resume: () => void
@@ -30,6 +31,7 @@ interface PlayerContextValue {
   seek: (time: number) => void
   setVolume: (vol: number) => void
   stop: () => void
+  requestShowDetails: () => void
 }
 
 const PlayerContext = createContext<PlayerContextValue | null>(null)
@@ -46,6 +48,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [volume, setVolumeState] = useState(1)
+  const [detailsRequestId, setDetailsRequestId] = useState(0)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const rafRef = useRef<number | null>(null)
   const songRef = useRef<PlayerSong | null>(null)
@@ -155,6 +158,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setDuration(0)
   }, [])
 
+  const requestShowDetails = useCallback(() => {
+    setDetailsRequestId((prev) => prev + 1)
+  }, [])
+
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
@@ -198,6 +205,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         currentTime,
         duration,
         volume,
+        detailsRequestId,
         playSong,
         pause,
         resume,
@@ -205,6 +213,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         seek,
         setVolume,
         stop,
+        requestShowDetails,
       }}
     >
       {/* Hidden audio element — always mounted so it persists across page navigation */}
