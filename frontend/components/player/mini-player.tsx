@@ -4,7 +4,6 @@ import { Music, Pause, Play, Volume2, VolumeX, X } from "lucide-react"
 import { usePlayer } from "@/lib/player-context"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
-import { cn } from "@/lib/utils"
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || Number.isNaN(seconds) || seconds < 0) return "0:00"
@@ -14,68 +13,81 @@ function formatTime(seconds: number): string {
 }
 
 export function MiniPlayer() {
-  const { currentSong, isPlaying, currentTime, duration, volume, togglePlay, seek, setVolume, stop } =
+  const { currentSong, isPlaying, currentTime, duration, volume, togglePlay, seek, setVolume, stop, requestShowDetails } =
     usePlayer()
 
   if (!currentSong) return null
 
   const progress = duration > 0 ? [currentTime] : [0]
   const maxDuration = duration > 0 ? duration : 1
+  const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-sidebar shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
-      <div className="flex h-[64px] items-center gap-3 px-4">
+      {/* Mobile-only thin progress bar along the top edge */}
+      <div className="block h-0.5 w-full bg-muted sm:hidden" aria-hidden="true">
+        <div
+          className="h-full bg-primary transition-[width] duration-200 ease-linear"
+          style={{ width: `${progressPercent}%` }}
+        />
+      </div>
 
-        {/* Track info — fixed width, shrink-0 */}
-        <div className="flex w-40 shrink-0 items-center gap-2 sm:w-48">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/20">
-            <Music className="size-4 text-primary" />
+      <div className="flex h-[56px] items-center gap-2 px-3 sm:h-[64px] sm:gap-3 sm:px-4">
+
+        {/* Track info — clickable to show details, expands on mobile */}
+        <button
+          type="button"
+          onClick={requestShowDetails}
+          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md p-1 text-left transition-colors hover:bg-primary/10 sm:w-48 sm:flex-none sm:shrink-0"
+        >
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-primary/20">
+            <Music className="size-5 text-primary" />
           </div>
           <div className="min-w-0">
             <p className="truncate text-sm font-medium leading-tight">{currentSong.title}</p>
             <p className="truncate text-xs text-muted-foreground leading-tight">{currentSong.artist}</p>
           </div>
-        </div>
+        </button>
 
         {/* Play / Pause */}
         <Button
           variant="ghost"
           size="icon"
-          className="size-8 shrink-0 text-foreground hover:text-primary hover:bg-primary/10"
+          className="size-9 shrink-0 text-foreground hover:text-primary hover:bg-primary/10"
           onClick={togglePlay}
           aria-label={isPlaying ? "Pause" : "Play"}
         >
           {isPlaying ? (
-            <Pause className="size-4" />
+            <Pause className="size-5" />
           ) : (
-            <Play className="size-4 translate-x-px" />
+            <Play className="size-5 translate-x-px" />
           )}
         </Button>
 
-        {/* Current time */}
-        <span className="w-9 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+        {/* Current time — desktop only */}
+        <span className="hidden w-9 shrink-0 text-right text-xs tabular-nums text-muted-foreground sm:block">
           {formatTime(currentTime)}
         </span>
 
-        {/* Seek bar — takes all remaining space */}
+        {/* Seek bar — desktop only */}
         <Slider
           value={progress}
           max={maxDuration}
           min={0}
           step={0.01}
-          className="flex-1 min-w-0 cursor-pointer"
+          className="hidden flex-1 min-w-0 cursor-pointer sm:flex [&_[data-slot=slider-track]]:h-2 [&_[data-slot=slider-thumb]]:size-4"
           onValueChange={([val]) => {
             if (val !== undefined) seek(val)
           }}
           aria-label="Seek"
         />
 
-        {/* Duration */}
-        <span className="w-9 shrink-0 text-xs tabular-nums text-muted-foreground">
+        {/* Duration — desktop only */}
+        <span className="hidden w-9 shrink-0 text-xs tabular-nums text-muted-foreground sm:block">
           {formatTime(duration)}
         </span>
 
-        {/* Volume — hidden on mobile */}
+        {/* Volume — desktop only */}
         <div className="hidden shrink-0 items-center gap-1 sm:flex">
           <Button
             variant="ghost"
