@@ -454,28 +454,6 @@ function FileListItem({ item, isSelected, isPlaying, isLoaded, onSelect, onOpen,
         isLoaded && !isSelected && "bg-primary/5"
       )}
     >
-      {/* Play button for audio tracks */}
-      {!isFolder && onPlay ? (
-        <button
-          onClick={onPlay}
-          className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-full transition-all",
-            isLoaded
-              ? "bg-primary text-primary-foreground"
-              : "bg-secondary text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-primary/20 hover:text-primary"
-          )}
-          aria-label={isPlaying ? "Pause" : "Play"}
-        >
-          {isPlaying ? (
-            <Pause className="size-3.5" />
-          ) : (
-            <Play className="size-3.5 translate-x-px" />
-          )}
-        </button>
-      ) : (
-        <div className="size-8 shrink-0" />
-      )}
-
       {/* Main item content — clicking selects the item */}
       <button
         onClick={onSelect}
@@ -494,18 +472,38 @@ function FileListItem({ item, isSelected, isPlaying, isLoaded, onSelect, onOpen,
             {isFolder ? (
               <Folder className="size-8 text-primary" />
             ) : item.metadata?.albumArt ? (
-              <div className="size-10 overflow-hidden rounded">
+              <div className="relative size-10 overflow-hidden rounded">
                 <img
                   src={item.metadata.albumArt}
                   alt={item.metadata.album}
                   className="size-full object-cover"
                   crossOrigin="anonymous"
                 />
+                {onPlay && (
+                  <div
+                    className={cn(
+                      "absolute inset-0 flex items-center justify-center bg-black/50 transition-opacity",
+                      isPlaying ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                    )}
+                  >
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onPlay() }}
+                      className="flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-110 active:scale-95"
+                      aria-label={isPlaying ? "Pause" : "Play"}
+                    >
+                      {isPlaying ? (
+                        <Pause className="size-3.5" />
+                      ) : (
+                        <Play className="size-3.5 translate-x-px" />
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <div
                 className={cn(
-                  "flex size-10 items-center justify-center rounded transition-colors",
+                  "relative flex size-10 items-center justify-center rounded transition-colors",
                   isLoaded ? "bg-primary/20" : "bg-secondary"
                 )}
               >
@@ -515,6 +513,26 @@ function FileListItem({ item, isSelected, isPlaying, isLoaded, onSelect, onOpen,
                     isLoaded ? "text-primary" : "text-muted-foreground"
                   )}
                 />
+                {onPlay && (
+                  <div
+                    className={cn(
+                      "absolute inset-0 flex items-center justify-center rounded bg-black/50 transition-opacity",
+                      isPlaying ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                    )}
+                  >
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onPlay() }}
+                      className="flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-110 active:scale-95"
+                      aria-label={isPlaying ? "Pause" : "Play"}
+                    >
+                      {isPlaying ? (
+                        <Pause className="size-3.5" />
+                      ) : (
+                        <Play className="size-3.5 translate-x-px" />
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
