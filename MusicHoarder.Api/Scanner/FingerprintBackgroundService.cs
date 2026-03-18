@@ -14,6 +14,10 @@ public class FingerprintBackgroundService(
     IOptions<MusicEnricherOptions> options,
     ILogger<FingerprintBackgroundService> logger) : BackgroundService
 {
+    // Songs where fpcalc permanently failed in this service lifetime.
+    // Cleared on service restart so failed files get retried after a redeploy.
+    private readonly HashSet<int> _permanentlyFailed = [];
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var opts = options.Value;
@@ -67,10 +71,9 @@ public class FingerprintBackgroundService(
                     "Starting fingerprint run {RunId} with {PendingCount} pending tracks",
                     jobId, pendingCount);
 
-                var attemptedIds = new HashSet<int>();
                 while (!ct.IsCancellationRequested)
                 {
-                    var processed = await ProcessNextBatchAsync(jobId, attemptedIds, ct);
+                    var processed = await ProcessNextBatchAsync(jobId, ct);
                     if (processed == 0) break;
                 }
 
@@ -99,7 +102,7 @@ public class FingerprintBackgroundService(
         }
     }
 
-    private async Task<int> ProcessNextBatchAsync(Guid runId, HashSet<int> attemptedIds, CancellationToken ct)
+    private async Task<int> ProcessNextBatchAsync(Guid runId, CancellationToken ct)
     {
         var opts = options.Value;
 
@@ -112,8 +115,8 @@ public class FingerprintBackgroundService(
                 .Where(s => s.DeletedAtUtc == null)
                 .Where(s => s.Fingerprint == null || s.Fingerprint == string.Empty);
 
-            if (attemptedIds.Count > 0)
-                query = query.Where(s => !attemptedIds.Contains(s.Id));
+            if (_permanentlyFailed.Count > 0)
+                query = query.Where(s => !_permanentlyFailed.Contains(s.Id));
 
             batch = await query
                 .OrderBy(s => s.Id)
@@ -172,7 +175,7 @@ public class FingerprintBackgroundService(
             }
             else
             {
-                attemptedIds.Add(id);
+                _permanentlyFailed.Add(id);
                 progressTracker.IncrementFailed();
                 logger.LogWarning("fpcalc returned null for song {Id} ({Path})", id, song.SourcePath);
             }
@@ -195,10 +198,14 @@ public class FingerprintBackgroundService(
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-        return await db.Songs
+        var query = db.Songs
             .AsNoTracking()
             .Where(s => s.DeletedAtUtc == null)
-            .Where(s => s.Fingerprint == null || s.Fingerprint == string.Empty)
-            .CountAsync(ct);
+            .Where(s => s.Fingerprint == null || s.Fingerprint == string.Empty);
+
+        if (_permanentlyFailed.Count > 0)
+            query = query.Where(s => !_permanentlyFailed.Contains(s.Id));
+
+        return await query.CountAsync(ct);
     }
 }
