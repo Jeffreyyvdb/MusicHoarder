@@ -65,6 +65,11 @@ public class ScanProgressTracker
 
     public void IncrementSkipped() => Interlocked.Increment(ref _skippedFiles);
 
+    public void AddSkipped(int count)
+    {
+        Interlocked.Add(ref _skippedFiles, count);
+    }
+
     public void IncrementFailed()
     {
         Interlocked.Increment(ref _processed);

@@ -99,7 +99,8 @@ public class IndexService(
         // ── Phase 3: Soft-delete files no longer on disk ──────────────────────
         var deletedCount = await MarkDeletedAsync(existingSongs.Keys, allDiscoveredPaths, cancellationToken);
 
-        progressTracker.Start(scanId, filesToProcess.Count);
+        progressTracker.Start(scanId, totalDiscovered);
+        progressTracker.AddSkipped(skippedCount);
 
         if (filesToProcess.Count == 0)
         {
