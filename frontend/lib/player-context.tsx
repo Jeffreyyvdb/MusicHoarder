@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react"
+import { toast } from "sonner"
 
 export interface PlayerSong {
   id: number
@@ -47,6 +48,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [volume, setVolumeState] = useState(1)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const rafRef = useRef<number | null>(null)
+  const songRef = useRef<PlayerSong | null>(null)
 
   const startRaf = useCallback(() => {
     if (rafRef.current !== null) return
@@ -65,7 +67,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  const playSong = useCallback((song: PlayerSong) => {
+  const playSong = useCallback(async (song: PlayerSong) => {
     const audio = audioRef.current
     if (!audio) return
 
@@ -79,6 +81,31 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
+    try {
+      const controller = new AbortController()
+      const res = await fetch(song.streamUrl, { signal: controller.signal })
+      if (!res.ok) {
+        let description = "The audio file could not be found on the server."
+        try {
+          const data = await res.json()
+          if (data.message) description = data.message
+        } catch { /* ignore parse errors */ }
+        toast.error("Unable to play track", { description })
+        return
+      }
+      controller.abort()
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        // Expected — we aborted the pre-check after confirming availability
+      } else {
+        toast.error("Unable to play track", {
+          description: "Could not connect to the server.",
+        })
+        return
+      }
+    }
+
+    songRef.current = song
     setCurrentSong(song)
     setCurrentTime(0)
     setDuration(0)
@@ -121,6 +148,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       audio.pause()
       audio.src = ""
     }
+    songRef.current = null
     setCurrentSong(null)
     setIsPlaying(false)
     setCurrentTime(0)
@@ -133,7 +161,16 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
     const onLoadedMetadata = () => setDuration(audio.duration)
     const onEnded = () => { stopRaf(); setIsPlaying(false) }
-    const onError = () => { stopRaf(); setIsPlaying(false) }
+    const onError = () => {
+      stopRaf()
+      setIsPlaying(false)
+      const song = songRef.current
+      if (song) {
+        toast.error("Playback failed", {
+          description: `Could not play "${song.title}".`,
+        })
+      }
+    }
     const onPlay = () => { setIsPlaying(true); startRaf() }
     const onPause = () => { stopRaf(); setIsPlaying(false) }
 
