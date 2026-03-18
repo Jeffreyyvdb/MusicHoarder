@@ -73,14 +73,19 @@ var musicEnricherOptions = app.Services.GetRequiredService<IOptions<MusicEnriche
 
 app.MapDefaultEndpoints();
 
+// Apply pending EF Core migrations on startup in all environments.
+// For single-instance homelab deployments this is safe and ensures the
+// schema is always up to date after a container image update.
+{
+    using var scope = app.Services.CreateScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+    await dbContext.Database.MigrateAsync();
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
     app.MapScalarApiReference();
-
-    using var scope = app.Services.CreateScope();
-    var dbContext = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-    await dbContext.Database.MigrateAsync();
 }
 
 if (!app.Environment.IsDevelopment())
