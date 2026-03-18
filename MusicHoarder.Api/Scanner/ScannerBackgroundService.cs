@@ -38,6 +38,14 @@ public class ScannerBackgroundService(
                     result.DeletedFiles, result.SkippedFiles, result.FailedFiles, result.Duration.TotalSeconds);
 
                 jobManager.SignalComplete(jobId);
+
+                if (result.NewFiles + result.ChangedFiles > 0
+                    && jobManager.TryStartJob(JobType.Fingerprint, out var fpJobId, out _))
+                {
+                    logger.LogInformation(
+                        "Auto-triggered fingerprint job {FpJobId} after scan {ScanJobId}",
+                        fpJobId, jobId);
+                }
             }
             catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
             {
