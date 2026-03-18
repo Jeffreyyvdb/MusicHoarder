@@ -639,6 +639,108 @@ export async function startScan(): Promise<{ scanId: string }> {
   return requestJson<{ scanId: string }>("/scan", { method: "POST" })
 }
 
+// ── Enrichment controller types ───────────────────────────────────────────────
+
+/** Real-time progress snapshot emitted by the SSE stream and the status endpoint. */
+export interface ProgressSnapshot {
+  status: string
+  jobId: string | null
+  startedAt: string | null
+  completedAt: string | null
+  isComplete: boolean
+  discovered: number
+  fingerprinted: number
+  enriched: number
+  built: number
+  failed: number
+}
+
+export interface JobStatusResponse {
+  job: {
+    jobId: string | null
+    jobType: string
+    status: string
+    startedAt: string | null
+    completedAt: string | null
+  }
+  progress: ProgressSnapshot
+}
+
+export type EnrichmentTriggerResult =
+  | { ok: true; jobId: string }
+  | { ok: false; status: number; message: string }
+
+// ── Enrichment controller API calls ──────────────────────────────────────────
+
+async function triggerEnrichmentJob(path: string): Promise<EnrichmentTriggerResult> {
+  const response = await fetch(`${API_PREFIX}${path}`, {
+    method: "POST",
+    cache: "no-store",
+  })
+  const body = await response.json().catch(() => ({})) as Record<string, string>
+  if (response.ok) {
+    return { ok: true, jobId: body.jobId ?? "" }
+  }
+  return {
+    ok: false,
+    status: response.status,
+    message: body.message ?? `Request failed: ${response.status}`,
+  }
+}
+
+export async function triggerEnrichmentScan(): Promise<EnrichmentTriggerResult> {
+  if (isDemoMode) return { ok: true, jobId: `demo-scan-${Date.now()}` }
+  return triggerEnrichmentJob("/api/enrichment/scan")
+}
+
+export async function triggerEnrich(): Promise<EnrichmentTriggerResult> {
+  if (isDemoMode) return { ok: true, jobId: `demo-enrich-${Date.now()}` }
+  return triggerEnrichmentJob("/api/enrichment/enrich")
+}
+
+export async function triggerBuild(): Promise<EnrichmentTriggerResult> {
+  if (isDemoMode) return { ok: true, jobId: `demo-build-${Date.now()}` }
+  return triggerEnrichmentJob("/api/enrichment/build")
+}
+
+export async function cancelJob(): Promise<{ message: string }> {
+  if (isDemoMode) return { message: "No job is currently running." }
+  return requestJson<{ message: string }>("/api/enrichment/cancel", { method: "POST" })
+}
+
+export async function fetchJobStatus(): Promise<JobStatusResponse> {
+  return requestJson<JobStatusResponse>("/api/enrichment/status")
+}
+
+/**
+ * Opens an SSE connection to `/api/enrichment/progress`.
+ * Calls `onSnapshot` for every event, and `onClose` when the server closes
+ * the stream (job completed) or a connection error occurs.
+ *
+ * Returns a cleanup function that closes the EventSource.
+ */
+export function openProgressStream(
+  onSnapshot: (snapshot: ProgressSnapshot) => void,
+  onClose?: () => void
+): () => void {
+  const es = new EventSource(`${API_PREFIX}/api/enrichment/progress`)
+
+  es.onmessage = (event) => {
+    try {
+      onSnapshot(JSON.parse(event.data as string) as ProgressSnapshot)
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
+  es.onerror = () => {
+    es.close()
+    onClose?.()
+  }
+
+  return () => es.close()
+}
+
 export interface ResetEnrichmentResponse {
   id: number
   fileName: string
