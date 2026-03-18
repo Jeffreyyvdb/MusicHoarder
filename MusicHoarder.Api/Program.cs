@@ -26,6 +26,7 @@ builder.AddNpgsqlDbContext<MusicHoarderDbContext>(connectionName: "musichoarderd
 
 builder.Services.AddSingleton<JobManager>();
 builder.Services.AddSingleton<ScanProgressTracker>();
+builder.Services.AddSingleton<FingerprintProgressTracker>();
 builder.Services.AddSingleton<EnrichmentProgressTracker>();
 builder.Services.AddSingleton<LibraryBuilderProgressTracker>();
 builder.Services.AddSingleton<IFpcalcService, FpcalcService>();
@@ -36,6 +37,7 @@ builder.Services.AddScoped<ILibraryTagWriter, TagLibLibraryTagWriter>();
 builder.Services.AddScoped<ILibraryBuilderService, LibraryBuilderService>();
 
 builder.Services.AddHostedService<ScannerBackgroundService>();
+builder.Services.AddHostedService<FingerprintBackgroundService>();
 builder.Services.AddHostedService<EnrichmentBackgroundService>();
 builder.Services.AddHostedService<LibraryBuilderBackgroundService>();
 
@@ -144,10 +146,21 @@ app.MapPost("/api/enrichment/enrich", (JobManager jobManager) =>
 .WithSummary("Trigger the EnrichmentService to enrich pending tracks via AcoustID/MusicBrainz.")
 .WithTags("Enrichment");
 
+app.MapPost("/api/enrichment/fingerprint", (JobManager jobManager) =>
+{
+    if (!jobManager.TryStartJob(JobType.Fingerprint, out var jobId, out _))
+        return Results.Conflict(new { message = "Fingerprint step is already running." });
+
+    return Results.Accepted($"/api/enrichment/status", new { jobId });
+})
+.WithName("TriggerFingerprint")
+.WithSummary("Trigger the FingerprintService to fingerprint tracks with missing fingerprints.")
+.WithTags("Enrichment");
+
 app.MapPost("/api/enrichment/build", (JobManager jobManager) =>
 {
     if (!jobManager.TryStartJob(JobType.Build, out var jobId, out _))
-        return Results.Conflict(new { message = "A job is already running. Use POST /api/enrichment/cancel to stop it first." });
+        return Results.Conflict(new { message = "Build step is already running." });
 
     return Results.Accepted($"/api/enrichment/status", new { jobId });
 })
@@ -166,26 +179,39 @@ app.MapPost("/api/enrichment/cancel", (JobManager jobManager) =>
 .WithSummary("Cancel the currently running job.")
 .WithTags("Enrichment");
 
+app.MapPost("/api/enrichment/pause", (string step, JobManager jobManager) =>
+{
+    if (!TryParseJobType(step, out var jobType))
+        return Results.BadRequest(new { message = $"Invalid step '{step}'. Use scan, fingerprint, enrich, or build." });
+
+    jobManager.PauseStep(jobType);
+    return Results.Ok(new { message = $"{step} paused.", step, paused = true });
+})
+.WithName("PauseStep")
+.WithSummary("Pause a pipeline step. Cancels any in-flight job for that step and prevents auto-triggering.")
+.WithTags("Enrichment");
+
+app.MapPost("/api/enrichment/resume", (string step, JobManager jobManager) =>
+{
+    if (!TryParseJobType(step, out var jobType))
+        return Results.BadRequest(new { message = $"Invalid step '{step}'. Use scan, fingerprint, enrich, or build." });
+
+    jobManager.ResumeStep(jobType);
+    return Results.Ok(new { message = $"{step} resumed.", step, paused = false });
+})
+.WithName("ResumeStep")
+.WithSummary("Resume a paused pipeline step so it can auto-trigger again.")
+.WithTags("Enrichment");
+
 app.MapGet("/api/enrichment/status", (
     JobManager jobManager,
     ScanProgressTracker scanTracker,
+    FingerprintProgressTracker fingerprintTracker,
     EnrichmentProgressTracker enrichmentTracker,
     LibraryBuilderProgressTracker buildTracker) =>
 {
-    var status = jobManager.GetStatus();
-    var snapshot = BuildProgressSnapshot(status, scanTracker, enrichmentTracker, buildTracker);
-    return Results.Ok(new
-    {
-        Job = new
-        {
-            status.JobId,
-            JobType = status.JobType.ToString(),
-            Status = status.Status.ToString(),
-            status.StartedAt,
-            status.CompletedAt,
-        },
-        Progress = snapshot,
-    });
+    var snapshot = BuildProgressSnapshot(jobManager, scanTracker, fingerprintTracker, enrichmentTracker, buildTracker);
+    return Results.Ok(new { Progress = snapshot });
 })
 .WithName("GetEnrichmentStatus")
 .WithSummary("Get the current job status and a progress snapshot.")
@@ -195,6 +221,7 @@ app.MapGet("/api/enrichment/progress", (
     HttpContext context,
     JobManager jobManager,
     ScanProgressTracker scanTracker,
+    FingerprintProgressTracker fingerprintTracker,
     EnrichmentProgressTracker enrichmentTracker,
     LibraryBuilderProgressTracker buildTracker) =>
 {
@@ -205,35 +232,26 @@ app.MapGet("/api/enrichment/progress", (
 
     var ct = context.RequestAborted;
 
-    // Capture the connect time. We only close the SSE after observing a job that
-    // completed AFTER this client connected — this prevents closing immediately when
-    // a previous job's "Completed" state is still the current status.
     var connectTime = DateTime.UtcNow;
 
     async IAsyncEnumerable<string> StreamJson([EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        bool wasRunning = false;
         while (!cancellationToken.IsCancellationRequested)
         {
-            var status = jobManager.GetStatus();
-            var snapshot = BuildProgressSnapshot(status, scanTracker, enrichmentTracker, buildTracker);
+            var snapshot = BuildProgressSnapshot(jobManager, scanTracker, fingerprintTracker, enrichmentTracker, buildTracker);
             yield return JsonSerializer.Serialize(snapshot, sseJsonOptions);
 
-            // Close only when a job that completed AFTER we connected reaches a terminal state.
-            // This way the client can connect before triggering a job and see the full lifecycle.
-            var isTerminal = status.Status == JobRunStatus.Completed
-                || status.Status == JobRunStatus.Cancelled
-                || status.Status == JobRunStatus.Failed;
-
-            if (isTerminal && status.CompletedAt.HasValue && status.CompletedAt.Value > connectTime)
+            if (snapshot.IsComplete && wasRunning)
                 yield break;
+
+            if (!snapshot.IsComplete)
+                wasRunning = true;
 
             await Task.Delay(1000, cancellationToken);
         }
     }
 
-    // Use the .NET 10 SSE result to handle framing and flushing.
-    // Using the string overload keeps the current payload format:
-    //   data: <json>
     return Results.ServerSentEvents(StreamJson(ct));
 })
 .WithName("StreamEnrichmentProgress")
@@ -368,12 +386,18 @@ app.MapGet("/overview", async (
     MusicHoarderDbContext db,
     IOptions<MusicEnricherOptions> options,
     ScanProgressTracker scanTracker,
+    FingerprintProgressTracker fingerprintTracker,
     EnrichmentProgressTracker enrichmentTracker) =>
 {
     var opts = options.Value;
     var active = db.Songs.Where(s => s.DeletedAtUtc == null);
 
     var totalCount = await active.CountAsync();
+    var fingerprintedCount = await active.CountAsync(s =>
+        s.Fingerprint != null && s.Fingerprint != string.Empty && s.DurationSeconds != null);
+    var enrichedCount = await active.CountAsync(s =>
+        s.EnrichmentStatus == EnrichmentStatus.Matched || s.EnrichmentStatus == EnrichmentStatus.NeedsReview);
+    var buildEligibleCount = await active.CountAsync(s => s.EnrichmentStatus == EnrichmentStatus.Matched);
     var copiedCount = await active.CountAsync(s =>
         s.LibraryBuildStatus == LibraryBuildStatus.Copied ||
         s.LibraryBuildStatus == LibraryBuildStatus.Tagged ||
@@ -393,6 +417,8 @@ app.MapGet("/overview", async (
 
     var scanState = scanTracker.GetCurrent();
     var scanRunning = scanState is { IsComplete: false };
+    var fingerprintState = fingerprintTracker.GetCurrent();
+    var fingerprintRunning = fingerprintState is { IsComplete: false };
     var enrichmentState = enrichmentTracker.GetCurrent();
     var enrichmentRunning = enrichmentState is { IsComplete: false };
 
@@ -484,14 +510,28 @@ app.MapGet("/overview", async (
         },
         Job = new
         {
-            Status = scanRunning || enrichmentRunning ? "running" : "completed",
+            Status = scanRunning || fingerprintRunning || enrichmentRunning ? "running" : "completed",
             StartedAt = startedAt,
             TracksDiscovered = totalCount,
             TracksProcessed = totalCount,
+            TracksFingerprinted = fingerprintedCount,
+            TracksEnriched = enrichedCount,
+            TracksBuildEligible = buildEligibleCount,
             TracksCopied = copiedCount,
             TracksReview = reviewCount,
             TracksFailed = failedCount,
         },
+        Fingerprint = fingerprintState is { IsComplete: false } ? new
+        {
+            fingerprintState.RunId,
+            fingerprintState.TotalTracks,
+            fingerprintState.Processed,
+            fingerprintState.Fingerprinted,
+            fingerprintState.Failed,
+            fingerprintState.IsComplete,
+            fingerprintState.StartedAt,
+            fingerprintState.CompletedAt,
+        } : null,
         Enrichment = enrichmentState is { IsComplete: false } ? new
         {
             enrichmentState.RunId,
@@ -754,49 +794,73 @@ static string[]? DeserializeWarnings(string? json)
 }
 
 static ProgressSnapshot BuildProgressSnapshot(
-    JobStatusSnapshot status,
+    JobManager jobManager,
     ScanProgressTracker scanTracker,
+    FingerprintProgressTracker fingerprintTracker,
     EnrichmentProgressTracker enrichmentTracker,
     LibraryBuilderProgressTracker buildTracker)
 {
-    var statusLabel = status.Status switch
-    {
-        JobRunStatus.Running => status.JobType switch
-        {
-            JobType.Scan => "Scanning",
-            JobType.Enrich => "Enriching",
-            JobType.Build => "Building",
-            _ => "Running"
-        },
-        JobRunStatus.Completed => "Completed",
-        JobRunStatus.Cancelled => "Cancelled",
-        JobRunStatus.Failed => "Failed",
-        _ => "Idle"
-    };
+    var scanStep = jobManager.GetStepSnapshot(JobType.Scan);
+    var fpStep = jobManager.GetStepSnapshot(JobType.Fingerprint);
+    var enrichStep = jobManager.GetStepSnapshot(JobType.Enrich);
+    var buildStep = jobManager.GetStepSnapshot(JobType.Build);
+
+    var anyRunning = jobManager.IsAnyRunning();
+
+    var runningLabels = new List<string>();
+    if (scanStep.Status == "Running") runningLabels.Add("Scanning");
+    if (fpStep.Status == "Running") runningLabels.Add("Fingerprinting");
+    if (enrichStep.Status == "Running") runningLabels.Add("Enriching");
+    if (buildStep.Status == "Running") runningLabels.Add("Building");
+
+    var statusLabel = runningLabels.Count > 0
+        ? string.Join(", ", runningLabels)
+        : anyRunning ? "Running" : "Idle";
 
     var scanState = scanTracker.GetCurrent();
+    var fpState = fingerprintTracker.GetCurrent();
     var enrichState = enrichmentTracker.GetCurrent();
     var buildState = buildTracker.GetCurrent();
 
     var discovered = scanState?.TotalFiles ?? 0;
-    var fingerprinted = scanState?.Processed ?? 0;
+    var scanned = (scanState?.Processed ?? 0) + (scanState?.SkippedFiles ?? 0);
+    var fingerprinted = fpState?.Fingerprinted ?? 0;
     var enriched = enrichState?.Enriched ?? 0;
     var built = buildState?.Built ?? 0;
-    var failed = (scanState?.FailedFiles ?? 0) + (enrichState?.Failed ?? 0) + (buildState?.Failed ?? 0);
-
-    var isComplete = status.Status != JobRunStatus.Running;
+    var failed = (scanState?.FailedFiles ?? 0)
+        + (fpState?.Failed ?? 0)
+        + (enrichState?.Failed ?? 0)
+        + (buildState?.Failed ?? 0);
 
     return new ProgressSnapshot(
         statusLabel,
-        status.JobId,
-        status.StartedAt,
-        status.CompletedAt,
-        isComplete,
+        null,
+        null,
+        null,
+        !anyRunning,
         discovered,
+        scanned,
         fingerprinted,
         enriched,
         built,
-        failed);
+        failed,
+        scanStep,
+        fpStep,
+        enrichStep,
+        buildStep);
+}
+
+static bool TryParseJobType(string step, out JobType jobType)
+{
+    jobType = step.Trim().ToLowerInvariant() switch
+    {
+        "scan" => JobType.Scan,
+        "fingerprint" => JobType.Fingerprint,
+        "enrich" => JobType.Enrich,
+        "build" => JobType.Build,
+        _ => JobType.None
+    };
+    return jobType != JobType.None;
 }
 
 public record EnrichmentResetRequest(
