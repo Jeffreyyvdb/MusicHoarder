@@ -2,7 +2,7 @@ import type { FileItem } from "@/lib/types"
 import { isDemoMode } from "@/lib/app-mode"
 import { mockFileSystem, mockImportJob } from "@/lib/mock-data"
 
-const API_PREFIX = "/api/mh"
+const API_PREFIX = ""
 const INFRASTRUCTURE_PREFIX_SEGMENT = /^(volumes?|mnt|media|srv|share|shares|nas|data|storage|music|musichoarder|library|source|destination|users|home|tmp)$/i
 
 export interface ApiStats {
