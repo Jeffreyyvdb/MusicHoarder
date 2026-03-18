@@ -21,8 +21,8 @@ services:
     ports:
       - "5050:8080"
     volumes:
-      - /mnt/nas/music-source:/music/source:ro
-      - /mnt/nas/music-clean:/music/destination
+      - ${MUSIC_SOURCE_PATH}:/music/source:ro
+      - ${MUSIC_DESTINATION_PATH}:/music/destination
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ConnectionStrings__musichoarderdb=Host=postgres;Database=musichoarderdb;Username=musichoarder;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
