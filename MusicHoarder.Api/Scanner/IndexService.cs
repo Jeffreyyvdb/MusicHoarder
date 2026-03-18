@@ -99,7 +99,8 @@ public class IndexService(
         // ── Phase 3: Soft-delete files no longer on disk ──────────────────────
         var deletedCount = await MarkDeletedAsync(existingSongs.Keys, allDiscoveredPaths, cancellationToken);
 
-        progressTracker.Start(scanId, filesToProcess.Count);
+        progressTracker.Start(scanId, totalDiscovered);
+        progressTracker.AddSkipped(skippedCount);
 
         if (filesToProcess.Count == 0)
         {
@@ -141,7 +142,7 @@ public class IndexService(
                         await semaphore.WaitAsync(ct);
                         try
                         {
-                            var metadata = await fileScanner.ScanFileAsync(filePath, ct);
+                            var metadata = await fileScanner.ScanFileAsync(filePath, tagsOnly: true, ct);
 
                             if (metadata is not null)
                             {
@@ -261,6 +262,11 @@ public class IndexService(
                 existing.Fingerprint = metadata.Fingerprint;
                 existing.IndexedAtUtc = metadata.IndexedAtUtc;
                 existing.DeletedAtUtc = null;
+
+                // File content changed — clear stale downstream state so fingerprint
+                // and enrichment re-run for this track.
+                existing.ResetEnrichment(restoreOriginal: false);
+                existing.ResetLibraryBuild();
             }
             else
             {
