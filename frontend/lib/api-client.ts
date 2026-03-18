@@ -61,6 +61,7 @@ export interface ApiOverview {
     tracksProcessed: number
     tracksFingerprinted: number
     tracksEnriched: number
+    tracksBuildEligible: number
     tracksCopied: number
     tracksReview: number
     tracksFailed: number
@@ -696,6 +697,11 @@ async function triggerEnrichmentJob(path: string): Promise<EnrichmentTriggerResu
 export async function triggerEnrichmentScan(): Promise<EnrichmentTriggerResult> {
   if (isDemoMode) return { ok: true, jobId: `demo-scan-${Date.now()}` }
   return triggerEnrichmentJob("/api/enrichment/scan")
+}
+
+export async function triggerFingerprint(): Promise<EnrichmentTriggerResult> {
+  if (isDemoMode) return { ok: true, jobId: `demo-fp-${Date.now()}` }
+  return triggerEnrichmentJob("/api/enrichment/fingerprint")
 }
 
 export async function triggerEnrich(): Promise<EnrichmentTriggerResult> {

@@ -29,6 +29,7 @@ import { AppHeader } from "@/components/app-header"
 import {
   fetchOverview,
   triggerEnrichmentScan,
+  triggerFingerprint,
   triggerEnrich,
   triggerBuild,
   pauseStep,
@@ -40,8 +41,6 @@ import {
 } from "@/lib/api-client"
 import { isDemoMode } from "@/lib/app-mode"
 
-const RUNNING_STATUSES = new Set(["Scanning", "Fingerprinting", "Enriching", "Building"])
-
 const initialOverview: ApiOverview = {
   sourcePath: "/",
   destinationPath: "/",
@@ -52,6 +51,7 @@ const initialOverview: ApiOverview = {
     tracksProcessed: 0,
     tracksFingerprinted: 0,
     tracksEnriched: 0,
+    tracksBuildEligible: 0,
     tracksCopied: 0,
     tracksReview: 0,
     tracksFailed: 0,
@@ -60,10 +60,6 @@ const initialOverview: ApiOverview = {
 }
 
 type StatusBannerType = "success" | "error" | "info"
-
-function isStepRunning(step?: StepSnapshot): boolean {
-  return step?.status === "Running"
-}
 
 export default function OverviewPage() {
   const [overview, setOverview] = useState<ApiOverview | null>(null)
@@ -116,7 +112,9 @@ export default function OverviewPage() {
     setTriggering(step)
     try {
       if (action === "start") {
-        const fn = step === "scan" ? triggerEnrichmentScan
+        const fn =
+          step === "scan" ? triggerEnrichmentScan
+          : step === "fingerprint" ? triggerFingerprint
           : step === "enrich" ? triggerEnrich
           : triggerBuild
         const result = await fn()
@@ -141,40 +139,60 @@ export default function OverviewPage() {
 
   const job = overview?.job ?? initialOverview.job
 
-  const isLive = liveProgress != null && !liveProgress.isComplete
-  const anyRunning = isLive && RUNNING_STATUSES.has(liveProgress?.status?.split(",")[0]?.trim() ?? "")
+  // Per-step SSE snapshots
+  const scanSnap = liveProgress?.scan
+  const fpSnap = liveProgress?.fingerprint
+  const enrichSnap = liveProgress?.enrich
+  const buildSnap = liveProgress?.build
+
+  const scanRunning = scanSnap?.status === "Running"
+  const fpRunning = fpSnap?.status === "Running"
+  const enrichRunning = enrichSnap?.status === "Running"
+  const buildRunning = buildSnap?.status === "Running"
+  const anyRunning = scanRunning || fpRunning || enrichRunning || buildRunning
 
   // Elapsed time
   const [elapsedMin, setElapsedMin] = useState<number | null>(null)
   useEffect(() => {
-    const startedAt = liveProgress?.startedAt ?? overview?.job?.startedAt
+    const startedAt = overview?.job?.startedAt
     if (!startedAt) return
     const update = () =>
       setElapsedMin(Math.floor((Date.now() - new Date(startedAt).getTime()) / 60_000))
     update()
     const t = setInterval(update, 60_000)
     return () => clearInterval(t)
-  }, [liveProgress?.startedAt, overview?.job?.startedAt])
+  }, [overview?.job?.startedAt])
 
-  // Use SSE counters only when actively running; otherwise use cumulative DB counts
-  const discovered = isLive ? liveProgress.discovered : job.tracksDiscovered
-  const scanned = isLive ? liveProgress.scanned : job.tracksProcessed
-  const fingerprinted = isLive ? liveProgress.fingerprinted : (job.tracksFingerprinted ?? 0)
-  const enriched = isLive ? liveProgress.enriched : (job.tracksEnriched ?? 0)
-  const built = isLive ? liveProgress.built : job.tracksCopied
-  const failed = isLive ? liveProgress.failed : job.tracksFailed
+  // Use per-step live values when that specific step is running,
+  // otherwise always use cumulative DB counts. Math.max prevents
+  // counters from dropping during the transition.
+  const discovered = Math.max(liveProgress?.discovered ?? 0, job.tracksDiscovered)
+  const scanned = scanRunning
+    ? Math.max(liveProgress?.scanned ?? 0, job.tracksProcessed)
+    : job.tracksProcessed
+  const fingerprinted = fpRunning
+    ? Math.max(liveProgress?.fingerprinted ?? 0, job.tracksFingerprinted ?? 0)
+    : (job.tracksFingerprinted ?? 0)
+  const enriched = enrichRunning
+    ? Math.max(liveProgress?.enriched ?? 0, job.tracksEnriched ?? 0)
+    : (job.tracksEnriched ?? 0)
+  const buildEligible = job.tracksBuildEligible ?? 0
+  const built = buildRunning
+    ? Math.max(liveProgress?.built ?? 0, job.tracksCopied)
+    : job.tracksCopied
+  const failed = Math.max(liveProgress?.failed ?? 0, job.tracksFailed)
 
   const scanPct = discovered > 0 ? Math.min(100, (scanned / discovered) * 100) : 0
   const fpPct = discovered > 0 ? Math.min(100, (fingerprinted / discovered) * 100) : 0
   const enrichPct = discovered > 0 ? Math.min(100, (enriched / discovered) * 100) : 0
-  const buildPct = discovered > 0 ? Math.min(100, (built / discovered) * 100) : 0
+  const buildPct = buildEligible > 0 ? Math.min(100, (built / buildEligible) * 100) : 0
 
-  const scanSnap = liveProgress?.scan
-  const fpSnap = liveProgress?.fingerprint
-  const enrichSnap = liveProgress?.enrich
-  const buildSnap = liveProgress?.build
-
-  const overallStatus = isLive ? (liveProgress.status ?? "Idle") : "Idle"
+  const runningLabels: string[] = []
+  if (scanRunning) runningLabels.push("Scanning")
+  if (fpRunning) runningLabels.push("Fingerprinting")
+  if (enrichRunning) runningLabels.push("Enriching")
+  if (buildRunning) runningLabels.push("Building")
+  const overallStatus = runningLabels.length > 0 ? runningLabels.join(", ") : "Idle"
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -271,7 +289,6 @@ export default function OverviewPage() {
                 triggering={triggering}
                 stepKey="fingerprint"
                 onAction={handleStepAction}
-                autoOnly
               />
               <PipelineStage
                 icon={Sparkles}
@@ -289,13 +306,16 @@ export default function OverviewPage() {
                 icon={PackageCheck}
                 label="Build Library"
                 count={built}
-                total={discovered}
+                total={buildEligible}
                 unit="copied"
                 progress={buildPct}
                 step={buildSnap}
                 triggering={triggering}
                 stepKey="build"
                 onAction={handleStepAction}
+                subtitle={buildEligible < discovered && buildEligible > 0
+                  ? `${(discovered - buildEligible).toLocaleString()} tracks need review first`
+                  : undefined}
               />
             </CardContent>
           </Card>
@@ -305,7 +325,7 @@ export default function OverviewPage() {
             <StatCard
               icon={Disc3}
               label="Discovered"
-              value={job.tracksDiscovered}
+              value={discovered}
               color="text-foreground"
               bgColor="bg-secondary"
             />
@@ -410,22 +430,12 @@ export default function OverviewPage() {
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
-  const isRunning = status !== "Idle" && status !== "Completed" && status !== "Failed" && status !== "Cancelled"
-  const isError = status === "Failed" || status === "Cancelled"
+  const isRunning = status !== "Idle"
 
   if (isRunning) {
     return (
       <Badge variant="outline" className="gap-1.5 border-primary/40 text-primary">
         <span className="size-1.5 animate-pulse rounded-full bg-primary" />
-        {status}
-      </Badge>
-    )
-  }
-
-  if (isError) {
-    return (
-      <Badge variant="outline" className="gap-1.5 border-red-500/40 text-red-400">
-        <span className="size-1.5 rounded-full bg-red-400" />
         {status}
       </Badge>
     )
@@ -450,7 +460,7 @@ function PipelineStage({
   triggering,
   stepKey,
   onAction,
-  autoOnly,
+  subtitle,
 }: {
   icon: React.ComponentType<{ className?: string }>
   label: string
@@ -462,20 +472,23 @@ function PipelineStage({
   triggering: string | null
   stepKey: string
   onAction: (step: string, action: "start" | "pause" | "resume") => void
-  autoOnly?: boolean
+  subtitle?: string
 }) {
   const running = step?.status === "Running"
   const paused = step?.isPaused ?? false
+  const done = !running && total > 0 && count >= total
 
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between text-sm">
         <span
           className={`flex items-center gap-2 font-medium ${
-            running ? "text-foreground" : "text-muted-foreground"
+            running ? "text-foreground"
+            : done ? "text-green-400"
+            : "text-muted-foreground"
           }`}
         >
-          <Icon className={`size-4 ${running ? "text-primary" : ""}`} />
+          <Icon className={`size-4 ${running ? "text-primary" : done ? "text-green-400" : ""}`} />
           {label}
           {running && <span className="size-1.5 animate-pulse rounded-full bg-primary" />}
           {paused && !running && (
@@ -483,35 +496,30 @@ function PipelineStage({
               Paused
             </Badge>
           )}
+          {done && !running && (
+            <CheckCircle2 className="size-3.5 text-green-400" />
+          )}
         </span>
         <div className="flex items-center gap-2">
           <span className="tabular-nums text-muted-foreground">
             {count.toLocaleString()} {unit}
-            {total > 0 && !running && (
+            {total > 0 && (
               <span className="ml-1 text-xs">/ {total.toLocaleString()}</span>
             )}
           </span>
-          {!autoOnly && (
-            <StepControl
-              stepKey={stepKey}
-              running={running}
-              paused={paused}
-              triggering={triggering}
-              onAction={onAction}
-            />
-          )}
-          {autoOnly && (running || paused) && (
-            <StepControl
-              stepKey={stepKey}
-              running={running}
-              paused={paused}
-              triggering={triggering}
-              onAction={onAction}
-            />
-          )}
+          <StepControl
+            stepKey={stepKey}
+            running={running}
+            paused={paused}
+            triggering={triggering}
+            onAction={onAction}
+          />
         </div>
       </div>
       <Progress value={progress} className="h-2" />
+      {subtitle && (
+        <p className="text-xs text-muted-foreground">{subtitle}</p>
+      )}
     </div>
   )
 }
