@@ -37,6 +37,7 @@ public class FileScanner(
             int? year = null;
             int? trackNumber = null;
             int? durationMs = null;
+            int? bitrate = null;
 
             try
             {
@@ -58,6 +59,9 @@ public class FileScanner(
 
                 if (tagFile.Properties?.Duration.TotalMilliseconds > 0)
                     durationMs = (int)tagFile.Properties.Duration.TotalMilliseconds;
+
+                if (tagFile.Properties?.AudioBitrate > 0)
+                    bitrate = tagFile.Properties.AudioBitrate;
             }
             catch (Exception ex)
             {
@@ -86,6 +90,7 @@ public class FileScanner(
                 DurationSeconds = fpcalcResult?.DurationSeconds,
                 DurationMs = durationMs ?? (fpcalcResult?.DurationSeconds is { } sec ? sec * 1000 : null),
                 Fingerprint = fpcalcResult?.Fingerprint,
+                Bitrate = bitrate,
                 IndexedAtUtc = DateTime.UtcNow,
                 DeletedAtUtc = null
             };

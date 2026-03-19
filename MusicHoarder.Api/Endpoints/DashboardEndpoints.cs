@@ -14,6 +14,10 @@ public static class DashboardEndpoints
     {
         app.MapGet("/stats", GetStats).WithName("GetStats");
         app.MapGet("/overview", GetOverview).WithName("GetOverview");
+        app.MapGet("/api/library/duplicates", GetDuplicates)
+            .WithName("GetDuplicates")
+            .WithSummary("List all tracks flagged as duplicates, grouped by fingerprint.")
+            .WithTags("Library");
         return app;
     }
 
@@ -130,6 +134,91 @@ public static class DashboardEndpoints
         };
 
         return Results.Ok(stats);
+    }
+
+    private static async Task<IResult> GetDuplicates(MusicHoarderDbContext db)
+    {
+        var duplicates = await db.Songs
+            .AsNoTracking()
+            .Where(s => s.DeletedAtUtc == null && s.IsDuplicate)
+            .OrderBy(s => s.Fingerprint)
+            .ThenByDescending(s => s.FileSizeBytes)
+            .Select(s => new
+            {
+                s.Id,
+                s.SourcePath,
+                s.FileName,
+                s.Extension,
+                s.FileSizeBytes,
+                s.Artist,
+                s.AlbumArtist,
+                s.Album,
+                s.Title,
+                s.Year,
+                s.TrackNumber,
+                s.DurationSeconds,
+                s.Bitrate,
+                s.Fingerprint,
+                s.IsDuplicate,
+                s.DuplicateOfId,
+                s.EnrichmentStatus,
+                QualityScore = s.Extension != null
+                    ? (s.Extension.ToLower() == ".flac" ? 1000 :
+                       s.Extension.ToLower() == ".wav" ? 900 :
+                       s.Extension.ToLower() == ".aiff" ? 900 :
+                       s.Bitrate ?? 0)
+                    : 0
+            })
+            .ToListAsync();
+
+        var bestIds = duplicates.Select(d => d.DuplicateOfId).Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
+        var bestSongs = await db.Songs
+            .AsNoTracking()
+            .Where(s => bestIds.Contains(s.Id))
+            .Select(s => new
+            {
+                s.Id,
+                s.SourcePath,
+                s.FileName,
+                s.Extension,
+                s.FileSizeBytes,
+                s.Artist,
+                s.Album,
+                s.Title,
+                s.Bitrate,
+                s.Fingerprint,
+                QualityScore = s.Extension != null
+                    ? (s.Extension.ToLower() == ".flac" ? 1000 :
+                       s.Extension.ToLower() == ".wav" ? 900 :
+                       s.Extension.ToLower() == ".aiff" ? 900 :
+                       s.Bitrate ?? 0)
+                    : 0
+            })
+            .ToDictionaryAsync(s => s.Id);
+
+        var groups = duplicates
+            .GroupBy(d => d.Fingerprint)
+            .Select(g =>
+            {
+                var bestId = g.First().DuplicateOfId;
+                var best = bestId.HasValue && bestSongs.TryGetValue(bestId.Value, out var b)
+                    ? (object)b
+                    : null;
+                return new
+                {
+                    Fingerprint = g.Key,
+                    Best = best,
+                    Duplicates = g.ToList()
+                };
+            })
+            .ToList();
+
+        return Results.Ok(new
+        {
+            TotalDuplicates = duplicates.Count,
+            Groups = groups.Count,
+            DuplicateGroups = groups
+        });
     }
 
     private static async Task<IResult> GetOverview(

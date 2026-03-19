@@ -18,6 +18,13 @@ public class MusicHoarderDbContext(DbContextOptions options) : DbContext(options
             entity.HasIndex(e => new { e.DeletedAtUtc, e.EnrichmentStatus, e.LibraryBuildStatus, e.Id });
             entity.HasIndex(e => new { e.DeletedAtUtc, e.AlbumArtist, e.Album, e.Year, e.Id });
             entity.HasIndex(e => e.DestinationPath);
+            entity.HasIndex(e => e.Fingerprint);
+            entity.HasIndex(e => new { e.DeletedAtUtc, e.IsDuplicate });
+
+            entity.HasOne(e => e.DuplicateOf)
+                .WithMany()
+                .HasForeignKey(e => e.DuplicateOfId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }
