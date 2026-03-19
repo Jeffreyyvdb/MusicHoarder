@@ -557,12 +557,18 @@ app.MapGet("/overview", async (
     return Results.Ok(overview);
 });
 
-app.MapGet("/songs", async (MusicHoarderDbContext db, bool includeDeleted = false) =>
+app.MapGet("/songs", async (MusicHoarderDbContext db, bool includeDeleted = false, string? enrichmentStatus = null) =>
 {
     var query = db.Songs.AsNoTracking();
     if (!includeDeleted)
     {
         query = query.Where(s => s.DeletedAtUtc == null);
+    }
+
+    if (!string.IsNullOrWhiteSpace(enrichmentStatus) &&
+        Enum.TryParse<EnrichmentStatus>(enrichmentStatus, ignoreCase: true, out var parsedStatus))
+    {
+        query = query.Where(s => s.EnrichmentStatus == parsedStatus);
     }
 
     var songs = await query
@@ -784,6 +790,129 @@ app.MapGet("/songs/{id:int}/stream", async (int id, MusicHoarderDbContext db) =>
     return Results.Stream(stream, contentType: mimeType, enableRangeProcessing: true);
 });
 
+// ── Track review endpoints ────────────────────────────────────────────────────
+
+app.MapPatch("/songs/{id:int}/manual-review", async (int id, ManualReviewRequest request, MusicHoarderDbContext db) =>
+{
+    var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id);
+    if (song is null)
+        return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+    if (song.IsDeleted)
+        return Results.UnprocessableEntity(new { message = "Cannot review a deleted song." });
+
+    if (song.EnrichmentStatus != EnrichmentStatus.NeedsReview)
+        return Results.UnprocessableEntity(new
+        {
+            message = $"Song is not in NeedsReview status (current: {song.EnrichmentStatus}).",
+            currentStatus = song.EnrichmentStatus.ToString()
+        });
+
+    var decision = request.Decision?.Trim().ToLowerInvariant();
+    if (decision is not ("approve" or "reject"))
+        return Results.BadRequest(new { message = "Decision must be 'approve' or 'reject'." });
+
+    if (decision == "approve")
+    {
+        if (request.Artist is not null) song.Artist = request.Artist;
+        if (request.Album is not null) song.Album = request.Album;
+        if (request.Title is not null) song.Title = request.Title;
+        if (request.Year.HasValue) song.Year = request.Year.Value;
+        if (request.AlbumArtist is not null) song.AlbumArtist = request.AlbumArtist;
+        if (request.TrackNumber.HasValue) song.TrackNumber = request.TrackNumber.Value;
+
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        song.EnrichmentError = null;
+        song.ResetLibraryBuild();
+    }
+    else
+    {
+        song.EnrichmentStatus = EnrichmentStatus.NeedsReview;
+        song.MatchedBy = null;
+        song.MatchConfidence = null;
+        song.MatchWarnings = null;
+        song.EnrichmentError = string.IsNullOrWhiteSpace(request.RejectReason)
+            ? "Manually rejected"
+            : request.RejectReason;
+    }
+
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new
+    {
+        song.Id,
+        song.FileName,
+        Decision = decision,
+        song.EnrichmentStatus,
+        song.LibraryBuildStatus,
+        song.Artist,
+        song.Album,
+        song.Title,
+        song.Year,
+    });
+})
+.WithName("ManualReviewTrack")
+.WithSummary("Approve or reject a track that needs manual review.")
+.WithTags("Tracks");
+
+app.MapPost("/songs/bulk-approve", async (BulkApproveRequest? request, MusicHoarderDbContext db) =>
+{
+    var minConfidence = request?.MinConfidence ?? 0.75;
+
+    var candidates = await db.Songs
+        .Where(s => s.DeletedAtUtc == null
+            && s.EnrichmentStatus == EnrichmentStatus.NeedsReview
+            && s.MatchConfidence != null
+            && s.MatchConfidence >= minConfidence)
+        .ToListAsync();
+
+    var approvedIds = new List<int>();
+    foreach (var song in candidates)
+    {
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        song.EnrichmentError = null;
+        song.ResetLibraryBuild();
+        approvedIds.Add(song.Id);
+    }
+
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new
+    {
+        MinConfidence = minConfidence,
+        ApprovedCount = approvedIds.Count,
+        ApprovedIds = approvedIds,
+    });
+})
+.WithName("BulkApprove")
+.WithSummary("Approve all NeedsReview tracks with match confidence >= minConfidence (default 0.75).")
+.WithTags("Tracks");
+
+app.MapDelete("/songs/{id:int}", async (int id, MusicHoarderDbContext db) =>
+{
+    var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id);
+    if (song is null)
+        return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+    if (song.IsDeleted)
+        return Results.Ok(new { song.Id, song.FileName, message = "Song is already deleted.", song.DeletedAtUtc });
+
+    song.SoftDelete();
+
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new
+    {
+        song.Id,
+        song.FileName,
+        song.DeletedAtUtc,
+        Message = "Song has been soft-deleted and will be excluded from review and library build."
+    });
+})
+.WithName("SoftDeleteSong")
+.WithSummary("Soft-delete a song so it is excluded from review listings and library build.")
+.WithTags("Tracks");
+
 app.Run();
 
 static string[]? DeserializeWarnings(string? json)
@@ -866,3 +995,16 @@ static bool TryParseJobType(string step, out JobType jobType)
 public record EnrichmentResetRequest(
     string Target = "all",
     bool RestoreOriginalMetadata = true);
+
+public record ManualReviewRequest(
+    string Decision,
+    string? RejectReason = null,
+    string? Artist = null,
+    string? AlbumArtist = null,
+    string? Album = null,
+    string? Title = null,
+    int? Year = null,
+    int? TrackNumber = null);
+
+public record BulkApproveRequest(
+    double MinConfidence = 0.75);
