@@ -58,6 +58,18 @@ public class MusicEnricherOptions
     [Range(1, 300)]
     public int EnrichmentIdleDelaySeconds { get; set; } = 15;
 
+    /// <summary>Enable the AcoustID enrichment provider (fingerprint → MusicBrainz via AcoustID).</summary>
+    public bool EnableAcoustIdProvider { get; set; } = true;
+
+    /// <summary>Enable the MusicBrainz web-service enrichment provider (ISRC / artist+title search).</summary>
+    public bool EnableMusicBrainzWebProvider { get; set; } = false;
+
+    /// <summary>Enable the Spotify API enrichment provider (artist+title, optional ISRC verification).</summary>
+    public bool EnableSpotifyApiProvider { get; set; } = false;
+
+    /// <summary>Enable the community tracker enrichment provider (unreleased/leak files).</summary>
+    public bool EnableTrackerProvider { get; set; } = false;
+
     /// <summary>Number of tracks processed per library-build cycle.</summary>
     [Range(1, 10000)]
     public int LibraryBuilderBatchSize { get; set; } = 100;

@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Enrichment.Providers;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -53,7 +54,7 @@ public class EnrichmentOrchestratorTests
         Assert.Equal(0, result.Enriched);
         Assert.Equal(1, result.NeedsReview);
         Assert.Equal(EnrichmentStatus.NeedsReview, updated.EnrichmentStatus);
-        Assert.Contains("No confident AcoustID match", updated.EnrichmentError);
+        Assert.Contains("No provider returned a match", updated.EnrichmentError);
     }
 
     [Fact]
@@ -78,32 +79,92 @@ public class EnrichmentOrchestratorTests
     }
 
     [Fact]
-    public async Task ProcessNextBatch_MissingFingerprint_SkippedByQuery()
+    public async Task ProcessNextBatch_SongWithTagsOnly_IsSelectedByRelaxedPredicate()
     {
         await using var db = CreateDb();
         db.Songs.Add(new SongMetadata
         {
-            SourcePath = "/source/no-fp.mp3",
-            FileName = "no-fp.mp3",
+            SourcePath = "/source/tags-only.mp3",
+            FileName = "tags-only.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 5000,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            Artist = "Tag Artist",
+            Title = "Tag Title",
+            Fingerprint = null,
+            DurationSeconds = null,
+            EnrichmentStatus = EnrichmentStatus.Pending,
+        });
+        await db.SaveChangesAsync();
+
+        var stubProvider = new StubEnrichmentProvider("TestProvider", 100, canHandle: _ => true,
+            enrich: _ => Task.FromResult<EnrichmentProviderResult?>(null));
+        var orchestrator = CreateOrchestratorWithProviders(db, [stubProvider]);
+
+        var result = await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Equal(1, result.TotalTracks);
+        Assert.Equal(1, result.NeedsReview);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatch_SongWithIsrcOnly_IsSelectedByRelaxedPredicate()
+    {
+        await using var db = CreateDb();
+        db.Songs.Add(new SongMetadata
+        {
+            SourcePath = "/source/isrc-only.mp3",
+            FileName = "isrc-only.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 5000,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            Isrc = "USRC12345",
+            Fingerprint = null,
+            DurationSeconds = null,
+            EnrichmentStatus = EnrichmentStatus.Pending,
+        });
+        await db.SaveChangesAsync();
+
+        var stubProvider = new StubEnrichmentProvider("TestProvider", 100, canHandle: _ => true,
+            enrich: _ => Task.FromResult<EnrichmentProviderResult?>(null));
+        var orchestrator = CreateOrchestratorWithProviders(db, [stubProvider]);
+
+        var result = await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Equal(1, result.TotalTracks);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatch_SongWithNoMetadata_NotSelected()
+    {
+        await using var db = CreateDb();
+        db.Songs.Add(new SongMetadata
+        {
+            SourcePath = "/source/empty.mp3",
+            FileName = "empty.mp3",
             Extension = ".mp3",
             FileSizeBytes = 5000,
             LastModifiedUtc = DateTime.UtcNow,
             IndexedAtUtc = DateTime.UtcNow,
             Fingerprint = null,
-            DurationSeconds = 240,
-            DurationMs = 240_000,
+            DurationSeconds = null,
+            Artist = null,
+            Title = null,
+            Isrc = null,
             EnrichmentStatus = EnrichmentStatus.Pending,
         });
         await db.SaveChangesAsync();
 
-        var acoustId = new StubAcoustIdService(_ => throw new InvalidOperationException("should not be called"));
-        var orchestrator = CreateOrchestrator(db, acoustId);
+        var stubProvider = new StubEnrichmentProvider("TestProvider", 100,
+            canHandle: _ => true,
+            enrich: _ => throw new InvalidOperationException("should not be called"));
+        var orchestrator = CreateOrchestratorWithProviders(db, [stubProvider]);
 
         var result = await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
-        var updated = await db.Songs.SingleAsync();
 
         Assert.Equal(0, result.TotalTracks);
-        Assert.Equal(EnrichmentStatus.Pending, updated.EnrichmentStatus);
     }
 
     [Fact]
@@ -273,6 +334,237 @@ public class EnrichmentOrchestratorTests
         Assert.True(updated.EnrichmentLastAttemptedAtUtc >= before);
     }
 
+    [Fact]
+    public async Task ProcessNextBatch_ProviderChain_StopsAtFirstMatched()
+    {
+        await using var db = CreateDb();
+        AddPendingSong(db, artist: "Artist", title: "Title");
+        await db.SaveChangesAsync();
+
+        var called = new List<string>();
+        var provider1 = new StubEnrichmentProvider("Provider1", 100,
+            canHandle: _ => true,
+            enrich: _ =>
+            {
+                called.Add("Provider1");
+                return Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
+                    "Matched Artist", "Matched Artist", "Matched Title", null, null,
+                    "mb-1", null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched));
+            });
+        var provider2 = new StubEnrichmentProvider("Provider2", 200,
+            canHandle: _ => true,
+            enrich: _ =>
+            {
+                called.Add("Provider2");
+                return Task.FromResult<EnrichmentProviderResult?>(null);
+            });
+
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider1, provider2]);
+        await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Single(called);
+        Assert.Equal("Provider1", called[0]);
+
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
+        Assert.Equal("Provider1", updated.MatchedBy);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatch_ProviderChain_FallsBackToSecondProvider()
+    {
+        await using var db = CreateDb();
+        AddPendingSong(db, artist: "Artist", title: "Title");
+        await db.SaveChangesAsync();
+
+        var provider1 = new StubEnrichmentProvider("Provider1", 100,
+            canHandle: _ => true,
+            enrich: _ => Task.FromResult<EnrichmentProviderResult?>(null));
+        var provider2 = new StubEnrichmentProvider("Provider2", 200,
+            canHandle: _ => true,
+            enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
+                "P2 Artist", "P2 Artist", "P2 Title", null, null,
+                null, "spotify-1", null, "Provider2", 0.90, [], EnrichmentStatus.Matched)));
+
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider1, provider2]);
+        await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
+        Assert.Equal("Provider2", updated.MatchedBy);
+        Assert.Equal("spotify-1", updated.SpotifyId);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatch_ProviderChain_PicksBestNeedsReview()
+    {
+        await using var db = CreateDb();
+        AddPendingSong(db, artist: "Artist", title: "Title");
+        await db.SaveChangesAsync();
+
+        var provider1 = new StubEnrichmentProvider("Provider1", 100,
+            canHandle: _ => true,
+            enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
+                "P1 Artist", null, "P1 Title", null, null,
+                "mb-1", null, null, "Provider1", 0.40, ["low_score"], EnrichmentStatus.NeedsReview)));
+        var provider2 = new StubEnrichmentProvider("Provider2", 200,
+            canHandle: _ => true,
+            enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
+                "P2 Artist", null, "P2 Title", null, null,
+                null, "sp-1", null, "Provider2", 0.60, ["uncertain"], EnrichmentStatus.NeedsReview)));
+
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider1, provider2]);
+        await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal(EnrichmentStatus.NeedsReview, updated.EnrichmentStatus);
+        Assert.Equal("Provider2", updated.MatchedBy);
+        Assert.Equal(0.60, updated.MatchConfidence);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatch_ProviderChain_SkipsProviderThatCannotHandle()
+    {
+        await using var db = CreateDb();
+        db.Songs.Add(new SongMetadata
+        {
+            SourcePath = "/source/no-fp.mp3",
+            FileName = "no-fp.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 5000,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            Artist = "Artist",
+            Title = "Title",
+            Fingerprint = null,
+            DurationSeconds = null,
+            EnrichmentStatus = EnrichmentStatus.Pending,
+        });
+        await db.SaveChangesAsync();
+
+        var acoustIdCalled = false;
+        var provider1 = new StubEnrichmentProvider("AcoustID", 100,
+            canHandle: s => !string.IsNullOrWhiteSpace(s.Fingerprint),
+            enrich: _ =>
+            {
+                acoustIdCalled = true;
+                return Task.FromResult<EnrichmentProviderResult?>(null);
+            });
+        var provider2 = new StubEnrichmentProvider("FallbackProvider", 200,
+            canHandle: s => !string.IsNullOrWhiteSpace(s.Artist) && !string.IsNullOrWhiteSpace(s.Title),
+            enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
+                "Artist", "Artist", "Title", null, null,
+                null, null, null, "FallbackProvider", 0.90, [], EnrichmentStatus.Matched)));
+
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider1, provider2]);
+        await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.False(acoustIdCalled);
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
+        Assert.Equal("FallbackProvider", updated.MatchedBy);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatch_ProviderChain_ContinuesAfterProviderException()
+    {
+        await using var db = CreateDb();
+        AddPendingSong(db, artist: "Artist", title: "Title");
+        await db.SaveChangesAsync();
+
+        var provider1 = new StubEnrichmentProvider("FailingProvider", 100,
+            canHandle: _ => true,
+            enrich: _ => throw new HttpRequestException("timeout"));
+        var provider2 = new StubEnrichmentProvider("WorkingProvider", 200,
+            canHandle: _ => true,
+            enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
+                "Artist", "Artist", "Title", null, null,
+                "mb-1", null, null, "WorkingProvider", 0.92, [], EnrichmentStatus.Matched)));
+
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider1, provider2]);
+        var result = await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Equal(1, result.Enriched);
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
+        Assert.Equal("WorkingProvider", updated.MatchedBy);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatch_ProviderChain_AllProvidersFailMarksAsFailed()
+    {
+        await using var db = CreateDb();
+        AddPendingSong(db, artist: "Artist", title: "Title");
+        await db.SaveChangesAsync();
+
+        var provider1 = new StubEnrichmentProvider("Provider1", 100,
+            canHandle: _ => true,
+            enrich: _ => throw new HttpRequestException("error1"));
+        var provider2 = new StubEnrichmentProvider("Provider2", 200,
+            canHandle: _ => true,
+            enrich: _ => throw new HttpRequestException("error2"));
+
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider1, provider2]);
+        var result = await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Equal(1, result.Failed);
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal(EnrichmentStatus.Failed, updated.EnrichmentStatus);
+        Assert.Contains("Provider1: error1", updated.EnrichmentError);
+        Assert.Contains("Provider2: error2", updated.EnrichmentError);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatch_ProviderResult_PersistsSpotifyId()
+    {
+        await using var db = CreateDb();
+        AddPendingSong(db, artist: "Artist", title: "Title");
+        await db.SaveChangesAsync();
+
+        var provider = new StubEnrichmentProvider("SpotifyAPI", 100,
+            canHandle: _ => true,
+            enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
+                "Artist", "Artist", "Title", 2024, 5,
+                null, "spotify-abc", "USRC99999", "SpotifyAPI", 0.95,
+                [], EnrichmentStatus.Matched)));
+
+        var opts = CreateOptions();
+        opts.Value.EnableSpotifyApiProvider = true;
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider], opts);
+        await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal("spotify-abc", updated.SpotifyId);
+        Assert.Equal("USRC99999", updated.Isrc);
+        Assert.Equal(2024, updated.Year);
+        Assert.Equal(5, updated.TrackNumber);
+        Assert.Equal("SpotifyAPI", updated.MatchedBy);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatch_DisabledProvider_IsSkipped()
+    {
+        await using var db = CreateDb();
+        AddPendingSong(db, artist: "Artist", title: "Title");
+        await db.SaveChangesAsync();
+
+        var acoustIdCalled = false;
+        var provider = new StubEnrichmentProvider("AcoustID", 100,
+            canHandle: _ => true,
+            enrich: _ =>
+            {
+                acoustIdCalled = true;
+                return Task.FromResult<EnrichmentProviderResult?>(null);
+            });
+
+        var opts = CreateOptions();
+        opts.Value.EnableAcoustIdProvider = false;
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider], opts);
+        await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.False(acoustIdCalled);
+    }
+
     // --- Helpers ---
 
     private static SongMetadata AddPendingSong(
@@ -308,33 +600,66 @@ public class EnrichmentOrchestratorTests
         return new MusicHoarderDbContext(options);
     }
 
-    private static EnrichmentOrchestrator CreateOrchestrator(
-        MusicHoarderDbContext db,
-        IAcoustIdService acoustIdService,
-        ILrcLibService? lrcLibService = null)
+    private static IOptions<MusicEnricherOptions> CreateOptions()
     {
-        var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
+        return Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
             SourceDirectory = "/source",
             DestinationDirectory = "/dest",
             EnrichmentBatchSize = 100,
             EnrichmentWorkerConcurrency = 1,
+            EnableAcoustIdProvider = true,
+            EnableMusicBrainzWebProvider = false,
+            EnableSpotifyApiProvider = false,
+            EnableTrackerProvider = false,
         });
+    }
 
+    private static EnrichmentOrchestrator CreateOrchestrator(
+        MusicHoarderDbContext db,
+        IAcoustIdService acoustIdService,
+        ILrcLibService? lrcLibService = null)
+    {
+        var opts = CreateOptions();
         var progressTracker = new EnrichmentProgressTracker();
         var matchValidator = new AcoustIdMatchValidator();
-        var scopeFactory = new OrchestratorScopeFactory(db, acoustIdService);
+        var scopeFactory = new OrchestratorScopeFactory(db);
+
+        var acoustIdProvider = new AcoustIdEnrichmentProvider(
+            acoustIdService, matchValidator,
+            NullLogger<AcoustIdEnrichmentProvider>.Instance);
+
+        IEnrichmentProvider[] providerList = [acoustIdProvider];
 
         return new EnrichmentOrchestrator(
             scopeFactory,
             progressTracker,
-            matchValidator,
+            providerList,
             lrcLibService ?? new NoOpLrcLibService(),
-            options,
+            opts,
             NullLogger<EnrichmentOrchestrator>.Instance);
     }
 
-    private sealed class StubAcoustIdService(
+    private static EnrichmentOrchestrator CreateOrchestratorWithProviders(
+        MusicHoarderDbContext db,
+        IEnrichmentProvider[] providerList,
+        IOptions<MusicEnricherOptions>? opts = null,
+        ILrcLibService? lrcLibService = null)
+    {
+        opts ??= CreateOptions();
+        var progressTracker = new EnrichmentProgressTracker();
+        var scopeFactory = new OrchestratorScopeFactory(db);
+
+        return new EnrichmentOrchestrator(
+            scopeFactory,
+            progressTracker,
+            providerList,
+            lrcLibService ?? new NoOpLrcLibService(),
+            opts,
+            NullLogger<EnrichmentOrchestrator>.Instance);
+    }
+
+    internal sealed class StubAcoustIdService(
         Func<string, Task<AcoustIdMatch?>> handler) : IAcoustIdService
     {
         public Task<AcoustIdMatch?> LookupAsync(string fingerprint, int durationSeconds, CancellationToken ct = default)
@@ -347,12 +672,24 @@ public class EnrichmentOrchestratorTests
             => Task.FromResult<LyricsResult?>(null);
     }
 
+    internal sealed class StubEnrichmentProvider(
+        string name,
+        int priority,
+        Func<SongMetadata, bool> canHandle,
+        Func<SongMetadata, Task<EnrichmentProviderResult?>> enrich) : IEnrichmentProvider
+    {
+        public string Name => name;
+        public int Priority => priority;
+        public bool CanHandle(SongMetadata song) => canHandle(song);
+        public Task<EnrichmentProviderResult?> TryEnrichAsync(SongMetadata song, CancellationToken ct = default)
+            => enrich(song);
+    }
+
     private sealed class OrchestratorScopeFactory(
-        MusicHoarderDbContext db,
-        IAcoustIdService acoustIdService) : IServiceScopeFactory
+        MusicHoarderDbContext db) : IServiceScopeFactory
     {
         public IServiceScope CreateScope() =>
-            new SimpleScope(new SimpleServiceProvider(db, acoustIdService));
+            new SimpleScope(new SimpleServiceProvider(db));
     }
 
     private sealed class SimpleScope(IServiceProvider provider) : IServiceScope
@@ -362,13 +699,11 @@ public class EnrichmentOrchestratorTests
     }
 
     private sealed class SimpleServiceProvider(
-        MusicHoarderDbContext db,
-        IAcoustIdService acoustIdService) : IServiceProvider
+        MusicHoarderDbContext db) : IServiceProvider
     {
         public object? GetService(Type serviceType)
         {
             if (serviceType == typeof(MusicHoarderDbContext)) return db;
-            if (serviceType == typeof(IAcoustIdService)) return acoustIdService;
             return null;
         }
     }
