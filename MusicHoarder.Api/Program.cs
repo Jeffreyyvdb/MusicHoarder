@@ -33,6 +33,7 @@ builder.Services.AddSingleton<IFpcalcService, FpcalcService>();
 builder.Services.AddSingleton<IAcoustIdMatchValidator, AcoustIdMatchValidator>();
 builder.Services.AddSingleton<IEnrichmentOrchestrator, EnrichmentOrchestrator>();
 builder.Services.AddSingleton<IDestinationPathResolver, DestinationPathResolver>();
+builder.Services.AddSingleton<IDuplicateDetectionService, DuplicateDetectionService>();
 builder.Services.AddScoped<ILibraryTagWriter, TagLibLibraryTagWriter>();
 builder.Services.AddScoped<ILibraryBuilderService, LibraryBuilderService>();
 
@@ -266,6 +267,96 @@ app.MapPost("/api/enrichment/scrape-trackers", (JobManager jobManager) =>
 .WithName("ScrapeTrackers")
 .WithSummary("Trigger on-demand tracker scraping (not yet implemented).")
 .WithTags("Enrichment");
+
+// ── Library / Duplicates endpoints ────────────────────────────────────────────
+
+app.MapGet("/api/library/duplicates", async (MusicHoarderDbContext db) =>
+{
+    var duplicates = await db.Songs
+        .AsNoTracking()
+        .Where(s => s.DeletedAtUtc == null && s.IsDuplicate)
+        .OrderBy(s => s.Fingerprint)
+        .ThenByDescending(s => s.FileSizeBytes)
+        .Select(s => new
+        {
+            s.Id,
+            s.SourcePath,
+            s.FileName,
+            s.Extension,
+            s.FileSizeBytes,
+            s.Artist,
+            s.AlbumArtist,
+            s.Album,
+            s.Title,
+            s.Year,
+            s.TrackNumber,
+            s.DurationSeconds,
+            s.Bitrate,
+            s.Fingerprint,
+            s.IsDuplicate,
+            s.DuplicateOfId,
+            s.EnrichmentStatus,
+            QualityScore = s.Extension != null
+                ? (s.Extension.ToLower() == ".flac" ? 1000 :
+                   s.Extension.ToLower() == ".wav" ? 900 :
+                   s.Extension.ToLower() == ".aiff" ? 900 :
+                   s.Bitrate ?? 0)
+                : 0
+        })
+        .ToListAsync();
+
+    var bestIds = duplicates.Select(d => d.DuplicateOfId).Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
+    var bestSongs = await db.Songs
+        .AsNoTracking()
+        .Where(s => bestIds.Contains(s.Id))
+        .Select(s => new
+        {
+            s.Id,
+            s.SourcePath,
+            s.FileName,
+            s.Extension,
+            s.FileSizeBytes,
+            s.Artist,
+            s.Album,
+            s.Title,
+            s.Bitrate,
+            s.Fingerprint,
+            QualityScore = s.Extension != null
+                ? (s.Extension.ToLower() == ".flac" ? 1000 :
+                   s.Extension.ToLower() == ".wav" ? 900 :
+                   s.Extension.ToLower() == ".aiff" ? 900 :
+                   s.Bitrate ?? 0)
+                : 0
+        })
+        .ToDictionaryAsync(s => s.Id);
+
+    var groups = duplicates
+        .GroupBy(d => d.Fingerprint)
+        .Select(g =>
+        {
+            var bestId = g.First().DuplicateOfId;
+            var best = bestId.HasValue && bestSongs.TryGetValue(bestId.Value, out var b)
+                ? (object)b
+                : null;
+            return new
+            {
+                Fingerprint = g.Key,
+                Best = best,
+                Duplicates = g.ToList()
+            };
+        })
+        .ToList();
+
+    return Results.Ok(new
+    {
+        TotalDuplicates = duplicates.Count,
+        Groups = groups.Count,
+        DuplicateGroups = groups
+    });
+})
+.WithName("GetDuplicates")
+.WithSummary("List all tracks flagged as duplicates, grouped by fingerprint.")
+.WithTags("Library");
 
 app.MapGet("/stats", async (MusicHoarderDbContext db) =>
 {
@@ -609,6 +700,9 @@ app.MapGet("/songs", async (MusicHoarderDbContext db, bool includeDeleted = fals
             s.OriginalMusicBrainzId,
             s.OriginalSpotifyId,
             s.OriginalMetadataCapturedAtUtc,
+            s.Bitrate,
+            s.IsDuplicate,
+            s.DuplicateOfId,
             s.LibraryBuildStatus,
             s.LibraryBuiltAtUtc,
             s.LibraryBuildLastAttemptedAtUtc,
@@ -628,6 +722,7 @@ app.MapGet("/songs", async (MusicHoarderDbContext db, bool includeDeleted = fals
         s.LastModifiedUtc, s.IndexedAtUtc, s.DeletedAtUtc,
         s.Artist, s.AlbumArtist, s.Album, s.Title, s.Year, s.TrackNumber,
         s.DurationSeconds, s.DurationMs,
+        s.Bitrate,
         s.Isrc, s.MusicBrainzId, s.SpotifyId,
         s.EnrichmentStatus, s.MatchedBy, s.MatchConfidence,
         MatchWarnings = DeserializeWarnings(s.MatchWarnings),
@@ -636,6 +731,7 @@ app.MapGet("/songs", async (MusicHoarderDbContext db, bool includeDeleted = fals
         s.OriginalAlbum, s.OriginalTitle, s.OriginalYear, s.OriginalTrackNumber,
         s.OriginalIsrc, s.OriginalMusicBrainzId, s.OriginalSpotifyId,
         s.OriginalMetadataCapturedAtUtc,
+        s.IsDuplicate, s.DuplicateOfId,
         s.LibraryBuildStatus, s.LibraryBuiltAtUtc, s.LibraryBuildLastAttemptedAtUtc,
         s.LibraryBuildError, s.DestinationPath, s.PreviousDestinationPath,
         LyricsStatus = s.LyricsStatus.ToString(),
