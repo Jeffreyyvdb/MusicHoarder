@@ -33,6 +33,13 @@ public class SongMetadata
     public int? DurationMs { get; set; }
     public required DateTime IndexedAtUtc { get; set; }
     public string? Fingerprint { get; set; }
+    public int? Bitrate { get; set; }
+
+    // --- Duplicate detection ---
+
+    public bool IsDuplicate { get; set; }
+    public int? DuplicateOfId { get; set; }
+    public SongMetadata? DuplicateOf { get; set; }
 
     public string? Isrc { get; set; }
     public string? MusicBrainzId { get; set; }
@@ -85,6 +92,7 @@ public class SongMetadata
 
     public bool IsReadyForBuild =>
         !IsDeleted
+        && !IsDuplicate
         && EnrichmentStatus == EnrichmentStatus.Matched
         && LibraryBuildStatus != LibraryBuildStatus.Done;
 
@@ -190,6 +198,20 @@ public class SongMetadata
         // Reset lyrics so the next enrichment cycle re-fetches them.
         // This allows re-enriching to pick up lyrics that previously failed or weren't found.
         ResetLyrics();
+    }
+
+    // --- Duplicate detection lifecycle ---
+
+    public void MarkAsDuplicate(int duplicateOfId)
+    {
+        IsDuplicate = true;
+        DuplicateOfId = duplicateOfId;
+    }
+
+    public void ClearDuplicate()
+    {
+        IsDuplicate = false;
+        DuplicateOfId = null;
     }
 
     // --- Library build lifecycle ---
