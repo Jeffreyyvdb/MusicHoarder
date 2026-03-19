@@ -77,14 +77,27 @@ export interface ApiSong {
   extension?: string | null
   fileSizeBytes: number
   artist?: string | null
+  albumArtist?: string | null
   album?: string | null
   title?: string | null
   year?: number | null
+  trackNumber?: number | null
   durationSeconds?: number | null
   fingerprint?: string | null
   musicBrainzId?: string | null
   spotifyId?: string | null
   enrichmentStatus?: string | number | null
+  matchedBy?: string | null
+  matchConfidence?: number | null
+  matchWarnings?: string[] | null
+  enrichmentError?: string | null
+  originalMetadataCaptured?: boolean | null
+  originalArtist?: string | null
+  originalAlbumArtist?: string | null
+  originalAlbum?: string | null
+  originalTitle?: string | null
+  originalYear?: number | null
+  originalTrackNumber?: number | null
   lyricsStatus?: string | null
   hasSyncedLyrics?: boolean | null
   hasPlainLyrics?: boolean | null
@@ -843,4 +856,82 @@ export function parseSongId(fileItemId: string): number | null {
   if (!fileItemId.startsWith("song:")) return null
   const parsed = Number(fileItemId.slice(5))
   return Number.isFinite(parsed) ? parsed : null
+}
+
+// ── Track review API ──────────────────────────────────────────────────────────
+
+export interface ManualReviewRequest {
+  decision: "approve" | "reject"
+  rejectReason?: string
+  artist?: string
+  albumArtist?: string
+  album?: string
+  title?: string
+  year?: number
+  trackNumber?: number
+}
+
+export interface ManualReviewResponse {
+  id: number
+  fileName: string
+  decision: string
+  enrichmentStatus: number
+  libraryBuildStatus: number
+  artist?: string | null
+  album?: string | null
+  title?: string | null
+  year?: number | null
+}
+
+export async function submitManualReview(
+  songId: number,
+  request: ManualReviewRequest
+): Promise<ManualReviewResponse> {
+  return requestJson<ManualReviewResponse>(`/songs/${songId}/manual-review`, {
+    method: "PATCH",
+    body: JSON.stringify(request),
+  })
+}
+
+export interface BulkApproveResponse {
+  minConfidence: number
+  approvedCount: number
+  approvedIds: number[]
+}
+
+export async function bulkApprove(
+  minConfidence = 0.75
+): Promise<BulkApproveResponse> {
+  return requestJson<BulkApproveResponse>("/songs/bulk-approve", {
+    method: "POST",
+    body: JSON.stringify({ minConfidence }),
+  })
+}
+
+export interface SoftDeleteResponse {
+  id: number
+  fileName: string
+  deletedAtUtc: string
+  message: string
+}
+
+export async function softDeleteSong(songId: number): Promise<SoftDeleteResponse> {
+  return requestJson<SoftDeleteResponse>(`/songs/${songId}`, {
+    method: "DELETE",
+  })
+}
+
+export async function fetchReviewTracks(): Promise<ApiSong[]> {
+  if (isDemoMode) {
+    const demoSongs = buildDemoSongs()
+    return demoSongs.filter(
+      (s) =>
+        mapEnrichmentStatus(s.enrichmentStatus) === "needsreview"
+    )
+  }
+
+  const result = await requestJson<SongsResponse>(
+    "/songs?enrichmentStatus=needsreview"
+  )
+  return result.songs ?? []
 }

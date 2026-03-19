@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,13 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,7 +23,6 @@ import {
 import {
   Music,
   Check,
-  X,
   ChevronLeft,
   ChevronRight,
   AlertTriangle,
@@ -39,44 +32,94 @@ import {
   Trash2,
   Save,
   RefreshCw,
+  Loader2,
+  CheckCheck,
+  X,
 } from "lucide-react"
-import { mockTracksForReview } from "@/lib/mock-data"
-import type { TrackImport } from "@/lib/types"
+import type { ApiSong } from "@/lib/api-client"
+import {
+  fetchReviewTracks,
+  submitManualReview,
+  softDeleteSong,
+  bulkApprove,
+} from "@/lib/api-client"
 import { AppHeader } from "@/components/app-header"
 
+interface MetadataEdits {
+  artist?: string
+  albumArtist?: string
+  album?: string
+  title?: string
+  year?: number
+  trackNumber?: number
+}
+
 export default function ReviewPage() {
-  const [tracks, setTracks] = useState(mockTracksForReview)
+  const [tracks, setTracks] = useState<ApiSong[]>([])
   const [selectedIndex, setSelectedIndex] = useState(0)
-  const [editedMetadata, setEditedMetadata] = useState<Record<string, Partial<TrackImport["metadata"]>>>({})
+  const [editedMetadata, setEditedMetadata] = useState<Record<number, MetadataEdits>>({})
+  const [loading, setLoading] = useState(true)
+  const [actionLoading, setActionLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [rejectReason, setRejectReason] = useState("")
+  const [bulkApproveMinConfidence, setBulkApproveMinConfidence] = useState(0.75)
+  const [bulkApproveResult, setBulkApproveResult] = useState<{ count: number } | null>(null)
+
+  const loadTracks = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const songs = await fetchReviewTracks()
+      setTracks(songs)
+      setSelectedIndex(0)
+      setEditedMetadata({})
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load tracks")
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadTracks()
+  }, [loadTracks])
 
   const selectedTrack = tracks[selectedIndex]
-  const currentEdits = editedMetadata[selectedTrack?.id] || {}
+  const currentEdits = selectedTrack ? editedMetadata[selectedTrack.id] || {} : {}
 
   const handleNext = () => {
     if (selectedIndex < tracks.length - 1) {
       setSelectedIndex(selectedIndex + 1)
+      setRejectReason("")
     }
   }
 
   const handlePrev = () => {
     if (selectedIndex > 0) {
       setSelectedIndex(selectedIndex - 1)
+      setRejectReason("")
     }
   }
 
-  const handleAcceptSuggestion = () => {
-    if (!selectedTrack?.suggestedMetadata) return
+  const handleAcceptOriginal = () => {
+    if (!selectedTrack?.originalMetadataCaptured) return
 
     setEditedMetadata((prev) => ({
       ...prev,
       [selectedTrack.id]: {
         ...prev[selectedTrack.id],
-        ...selectedTrack.suggestedMetadata,
+        artist: selectedTrack.originalArtist ?? undefined,
+        albumArtist: selectedTrack.originalAlbumArtist ?? undefined,
+        album: selectedTrack.originalAlbum ?? undefined,
+        title: selectedTrack.originalTitle ?? undefined,
+        year: selectedTrack.originalYear ?? undefined,
+        trackNumber: selectedTrack.originalTrackNumber ?? undefined,
       },
     }))
   }
 
   const handleFieldChange = (field: string, value: string | number) => {
+    if (!selectedTrack) return
     setEditedMetadata((prev) => ({
       ...prev,
       [selectedTrack.id]: {
@@ -86,11 +129,53 @@ export default function ReviewPage() {
     }))
   }
 
-  const handleApprove = () => {
-    // In a real app, this would save the changes and move to the next track
-    setTracks((prev) => prev.filter((_, i) => i !== selectedIndex))
-    if (selectedIndex >= tracks.length - 1 && selectedIndex > 0) {
-      setSelectedIndex(selectedIndex - 1)
+  const handleApprove = async () => {
+    if (!selectedTrack || actionLoading) return
+    try {
+      setActionLoading(true)
+      const edits = editedMetadata[selectedTrack.id] || {}
+      await submitManualReview(selectedTrack.id, {
+        decision: "approve",
+        ...(edits.artist !== undefined && { artist: edits.artist }),
+        ...(edits.albumArtist !== undefined && { albumArtist: edits.albumArtist }),
+        ...(edits.album !== undefined && { album: edits.album }),
+        ...(edits.title !== undefined && { title: edits.title }),
+        ...(edits.year !== undefined && { year: edits.year }),
+        ...(edits.trackNumber !== undefined && { trackNumber: edits.trackNumber }),
+      })
+      setTracks((prev) => prev.filter((t) => t.id !== selectedTrack.id))
+      if (selectedIndex >= tracks.length - 1 && selectedIndex > 0) {
+        setSelectedIndex(selectedIndex - 1)
+      }
+      setRejectReason("")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to approve track")
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleReject = async () => {
+    if (!selectedTrack || actionLoading) return
+    try {
+      setActionLoading(true)
+      await submitManualReview(selectedTrack.id, {
+        decision: "reject",
+        rejectReason: rejectReason || undefined,
+      })
+      setTracks((prev) =>
+        prev.map((t) =>
+          t.id === selectedTrack.id
+            ? { ...t, matchedBy: null, matchConfidence: null, matchWarnings: null, enrichmentError: rejectReason || "Manually rejected" }
+            : t
+        )
+      )
+      handleNext()
+      setRejectReason("")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reject track")
+    } finally {
+      setActionLoading(false)
     }
   }
 
@@ -98,17 +183,80 @@ export default function ReviewPage() {
     handleNext()
   }
 
-  const handleDelete = () => {
-    setTracks((prev) => prev.filter((_, i) => i !== selectedIndex))
-    if (selectedIndex >= tracks.length - 1 && selectedIndex > 0) {
-      setSelectedIndex(selectedIndex - 1)
+  const handleDelete = async () => {
+    if (!selectedTrack || actionLoading) return
+    try {
+      setActionLoading(true)
+      await softDeleteSong(selectedTrack.id)
+      setTracks((prev) => prev.filter((t) => t.id !== selectedTrack.id))
+      if (selectedIndex >= tracks.length - 1 && selectedIndex > 0) {
+        setSelectedIndex(selectedIndex - 1)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete track")
+    } finally {
+      setActionLoading(false)
     }
   }
 
-  const getValue = (field: keyof NonNullable<TrackImport["metadata"]>) => {
-    if (currentEdits[field] !== undefined) return currentEdits[field]
-    if (selectedTrack?.metadata?.[field] !== undefined) return selectedTrack.metadata[field]
+  const handleBulkApprove = async () => {
+    if (actionLoading) return
+    try {
+      setActionLoading(true)
+      setBulkApproveResult(null)
+      const result = await bulkApprove(bulkApproveMinConfidence)
+      setBulkApproveResult({ count: result.approvedCount })
+      if (result.approvedCount > 0) {
+        await loadTracks()
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to bulk approve")
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const getValue = (field: keyof MetadataEdits): string | number => {
+    if (!selectedTrack) return ""
+    const editValue = currentEdits[field]
+    if (editValue !== undefined) return editValue
+    const songValue = selectedTrack[field as keyof ApiSong]
+    if (songValue !== undefined && songValue !== null) return songValue as string | number
     return ""
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen flex-col bg-background">
+        <AppHeader />
+        <main className="flex flex-1 items-center justify-center p-4">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="size-8 animate-spin text-primary" />
+            <p className="text-muted-foreground">Loading tracks for review...</p>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
+  if (error && tracks.length === 0) {
+    return (
+      <div className="flex min-h-screen flex-col bg-background">
+        <AppHeader />
+        <main className="flex flex-1 items-center justify-center p-4">
+          <Card className="max-w-md text-center">
+            <CardContent className="p-8">
+              <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-destructive/10">
+                <X className="size-8 text-destructive" />
+              </div>
+              <h2 className="mb-2 text-xl font-semibold">Error</h2>
+              <p className="mb-4 text-muted-foreground">{error}</p>
+              <Button onClick={loadTracks}>Retry</Button>
+            </CardContent>
+          </Card>
+        </main>
+      </div>
+    )
   }
 
   if (tracks.length === 0) {
@@ -125,15 +273,25 @@ export default function ReviewPage() {
               <p className="mb-4 text-muted-foreground">
                 No more tracks need review. Great job!
               </p>
-              <Button asChild>
-                <a href="/overview">Back to Overview</a>
-              </Button>
+              <div className="flex gap-2 justify-center">
+                <Button variant="outline" onClick={loadTracks}>
+                  <RefreshCw className="mr-2 size-4" />
+                  Refresh
+                </Button>
+                <Button asChild>
+                  <a href="/overview">Back to Overview</a>
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </main>
       </div>
     )
   }
+
+  const eligibleForBulk = tracks.filter(
+    (t) => t.matchConfidence != null && t.matchConfidence >= bulkApproveMinConfidence
+  ).length
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -150,6 +308,56 @@ export default function ReviewPage() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              {/* Bulk Approve */}
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-2">
+                    <CheckCheck className="size-4" />
+                    Bulk Approve
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Bulk Approve Tracks</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Approve all tracks with match confidence at or above the threshold.
+                      {eligibleForBulk > 0
+                        ? ` ${eligibleForBulk} track${eligibleForBulk !== 1 ? "s" : ""} eligible.`
+                        : " No tracks are currently eligible at this threshold."}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <div className="py-2">
+                    <Label htmlFor="minConfidence" className="text-sm">
+                      Minimum Confidence
+                    </Label>
+                    <Input
+                      id="minConfidence"
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={bulkApproveMinConfidence}
+                      onChange={(e) => setBulkApproveMinConfidence(parseFloat(e.target.value) || 0.75)}
+                      className="mt-1"
+                    />
+                  </div>
+                  {bulkApproveResult && (
+                    <p className="text-sm text-muted-foreground">
+                      Approved {bulkApproveResult.count} track{bulkApproveResult.count !== 1 ? "s" : ""}.
+                    </p>
+                  )}
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleBulkApprove} disabled={actionLoading}>
+                      {actionLoading ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                      Approve {eligibleForBulk} Track{eligibleForBulk !== 1 ? "s" : ""}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+              <Button variant="outline" size="icon" onClick={loadTracks} title="Refresh">
+                <RefreshCw className="size-4" />
+              </Button>
               <span className="text-sm text-muted-foreground">
                 {selectedIndex + 1} of {tracks.length}
               </span>
@@ -174,19 +382,31 @@ export default function ReviewPage() {
             </div>
           </div>
 
+          {error && (
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+              {error}
+              <Button variant="ghost" size="sm" className="ml-2" onClick={() => setError(null)}>
+                Dismiss
+              </Button>
+            </div>
+          )}
+
           {/* Main Content */}
           <div className="grid flex-1 gap-4 overflow-hidden lg:grid-cols-2">
             {/* Left Panel - Track List */}
             <Card className="flex flex-col overflow-hidden lg:row-span-1">
               <div className="border-b border-border p-3">
-                <h2 className="font-medium">Pending Review</h2>
+                <h2 className="font-medium">Pending Review ({tracks.length})</h2>
               </div>
               <ScrollArea className="flex-1">
                 <div className="space-y-1 p-2">
                   {tracks.map((track, index) => (
                     <button
                       key={track.id}
-                      onClick={() => setSelectedIndex(index)}
+                      onClick={() => {
+                        setSelectedIndex(index)
+                        setRejectReason("")
+                      }}
                       className={`flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors ${
                         index === selectedIndex
                           ? "bg-primary/10 border border-primary/20"
@@ -198,16 +418,21 @@ export default function ReviewPage() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">
-                          {track.metadata?.title || "Unknown"}
+                          {track.title || track.fileName || "Unknown"}
                         </p>
                         <p className="truncate text-xs text-muted-foreground">
-                          {track.originalPath.split("/").pop()}
+                          {track.artist || "Unknown Artist"}
+                          {track.matchConfidence != null && (
+                            <span className="ml-1">
+                              ({Math.round(track.matchConfidence * 100)}% confidence)
+                            </span>
+                          )}
                         </p>
                       </div>
-                      {track.issues && track.issues.length > 0 && (
+                      {track.matchWarnings && track.matchWarnings.length > 0 && (
                         <Badge variant="outline" className="shrink-0 gap-1 text-amber-400 border-amber-400/30">
                           <AlertTriangle className="size-3" />
-                          {track.issues.length}
+                          {track.matchWarnings.length}
                         </Badge>
                       )}
                     </button>
@@ -245,49 +470,32 @@ export default function ReviewPage() {
                 <TabsContent value="edit" className="flex-1 overflow-hidden m-0">
                   <ScrollArea className="h-full">
                     <div className="space-y-4 p-4">
-                      {/* Album Art & Basic Info */}
-                      <div className="flex gap-4">
-                        <div className="size-24 shrink-0 overflow-hidden rounded-lg bg-secondary">
-                          {selectedTrack?.suggestedMetadata?.albumArt || currentEdits.albumArt ? (
-                            <img
-                              src={currentEdits.albumArt as string || selectedTrack?.suggestedMetadata?.albumArt}
-                              alt="Album art"
-                              className="size-full object-cover"
-                              crossOrigin="anonymous"
-                            />
-                          ) : (
-                            <div className="flex size-full items-center justify-center">
-                              <Music className="size-8 text-muted-foreground" />
-                            </div>
-                          )}
+                      {/* Basic Info */}
+                      <div className="space-y-2">
+                        <div>
+                          <Label htmlFor="title" className="text-xs text-muted-foreground">
+                            Title
+                          </Label>
+                          <Input
+                            id="title"
+                            value={getValue("title")}
+                            onChange={(e) => handleFieldChange("title", e.target.value)}
+                            className="h-8"
+                          />
                         </div>
-                        <div className="min-w-0 flex-1 space-y-2">
-                          <div>
-                            <Label htmlFor="title" className="text-xs text-muted-foreground">
-                              Title
-                            </Label>
-                            <Input
-                              id="title"
-                              value={getValue("title")}
-                              onChange={(e) => handleFieldChange("title", e.target.value)}
-                              className="h-8"
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="artist" className="text-xs text-muted-foreground">
-                              Artist
-                            </Label>
-                            <Input
-                              id="artist"
-                              value={getValue("artist")}
-                              onChange={(e) => handleFieldChange("artist", e.target.value)}
-                              className="h-8"
-                            />
-                          </div>
+                        <div>
+                          <Label htmlFor="artist" className="text-xs text-muted-foreground">
+                            Artist
+                          </Label>
+                          <Input
+                            id="artist"
+                            value={getValue("artist")}
+                            onChange={(e) => handleFieldChange("artist", e.target.value)}
+                            className="h-8"
+                          />
                         </div>
                       </div>
 
-                      {/* More fields */}
                       <div className="grid gap-4 sm:grid-cols-2">
                         <div>
                           <Label htmlFor="album" className="text-xs text-muted-foreground">
@@ -297,6 +505,17 @@ export default function ReviewPage() {
                             id="album"
                             value={getValue("album")}
                             onChange={(e) => handleFieldChange("album", e.target.value)}
+                            className="h-8"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="albumArtist" className="text-xs text-muted-foreground">
+                            Album Artist
+                          </Label>
+                          <Input
+                            id="albumArtist"
+                            value={getValue("albumArtist")}
+                            onChange={(e) => handleFieldChange("albumArtist", e.target.value)}
                             className="h-8"
                           />
                         </div>
@@ -313,57 +532,88 @@ export default function ReviewPage() {
                           />
                         </div>
                         <div>
-                          <Label htmlFor="genre" className="text-xs text-muted-foreground">
-                            Genre
+                          <Label htmlFor="trackNumber" className="text-xs text-muted-foreground">
+                            Track Number
                           </Label>
-                          <Select
-                            value={getValue("genre") as string}
-                            onValueChange={(value) => handleFieldChange("genre", value)}
-                          >
-                            <SelectTrigger className="h-8">
-                              <SelectValue placeholder="Select genre" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Rock">Rock</SelectItem>
-                              <SelectItem value="Pop">Pop</SelectItem>
-                              <SelectItem value="Electronic">Electronic</SelectItem>
-                              <SelectItem value="Jazz">Jazz</SelectItem>
-                              <SelectItem value="Classical">Classical</SelectItem>
-                              <SelectItem value="Hip Hop">Hip Hop</SelectItem>
-                              <SelectItem value="R&B">R&B</SelectItem>
-                              <SelectItem value="Country">Country</SelectItem>
-                              <SelectItem value="Metal">Metal</SelectItem>
-                              <SelectItem value="Alternative Rock">Alternative Rock</SelectItem>
-                              <SelectItem value="Progressive Rock">Progressive Rock</SelectItem>
-                              <SelectItem value="Unknown">Unknown</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          <Input
+                            id="trackNumber"
+                            type="number"
+                            value={getValue("trackNumber")}
+                            onChange={(e) => handleFieldChange("trackNumber", parseInt(e.target.value) || 0)}
+                            className="h-8"
+                          />
                         </div>
                         <div>
                           <Label className="text-xs text-muted-foreground">Format</Label>
                           <Input
-                            value={selectedTrack?.metadata?.format || ""}
+                            value={selectedTrack?.extension?.replace(/^\./, "").toUpperCase() || ""}
+                            disabled
+                            className="h-8 bg-secondary"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Matched By</Label>
+                          <Input
+                            value={selectedTrack?.matchedBy || "—"}
                             disabled
                             className="h-8 bg-secondary"
                           />
                         </div>
                       </div>
 
+                      {/* Match confidence */}
+                      {selectedTrack?.matchConfidence != null && (
+                        <div className="rounded-lg bg-secondary/50 p-3">
+                          <p className="mb-1 text-xs font-medium text-muted-foreground">
+                            Match Confidence
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <div className="h-2 flex-1 rounded-full bg-secondary">
+                              <div
+                                className={`h-2 rounded-full ${
+                                  selectedTrack.matchConfidence >= 0.8
+                                    ? "bg-green-500"
+                                    : selectedTrack.matchConfidence >= 0.6
+                                    ? "bg-amber-500"
+                                    : "bg-red-500"
+                                }`}
+                                style={{ width: `${Math.round(selectedTrack.matchConfidence * 100)}%` }}
+                              />
+                            </div>
+                            <span className="text-sm font-medium">
+                              {Math.round(selectedTrack.matchConfidence * 100)}%
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
                       {/* File Info */}
                       <div className="rounded-lg bg-secondary/50 p-3">
                         <p className="mb-2 text-xs font-medium text-muted-foreground">
                           Original File
                         </p>
-                        <p className="break-all text-sm">{selectedTrack?.originalPath}</p>
+                        <p className="break-all text-sm">{selectedTrack?.sourcePath}</p>
                       </div>
 
                       {/* Fingerprint */}
                       {selectedTrack?.fingerprint && (
                         <div className="flex items-center gap-2 rounded-lg bg-secondary/50 p-3">
                           <Fingerprint className="size-4 text-muted-foreground" />
-                          <code className="text-xs text-muted-foreground">
-                            {selectedTrack.fingerprint}
+                          <code className="text-xs text-muted-foreground break-all">
+                            {selectedTrack.fingerprint.length > 60
+                              ? `${selectedTrack.fingerprint.slice(0, 60)}...`
+                              : selectedTrack.fingerprint}
                           </code>
+                        </div>
+                      )}
+
+                      {/* Enrichment error */}
+                      {selectedTrack?.enrichmentError && (
+                        <div className="rounded-lg bg-amber-400/10 p-3">
+                          <p className="mb-1 text-xs font-medium text-amber-400">
+                            Enrichment Note
+                          </p>
+                          <p className="text-sm">{selectedTrack.enrichmentError}</p>
                         </div>
                       )}
                     </div>
@@ -373,50 +623,55 @@ export default function ReviewPage() {
                 <TabsContent value="compare" className="flex-1 overflow-hidden m-0">
                   <ScrollArea className="h-full">
                     <div className="p-4">
-                      {selectedTrack?.suggestedMetadata ? (
+                      {selectedTrack?.originalMetadataCaptured ? (
                         <div className="space-y-4">
                           <div className="flex items-center justify-between">
-                            <h3 className="font-medium">Suggested Match</h3>
-                            <Button size="sm" onClick={handleAcceptSuggestion} className="gap-2">
-                              <Check className="size-4" />
-                              Accept All
+                            <h3 className="font-medium">Current vs Original Metadata</h3>
+                            <Button size="sm" onClick={handleAcceptOriginal} className="gap-2">
+                              <RefreshCw className="size-4" />
+                              Restore Original
                             </Button>
                           </div>
 
                           <div className="space-y-3">
                             <CompareRow
                               label="Title"
-                              current={selectedTrack.metadata?.title}
-                              suggested={selectedTrack.suggestedMetadata.title}
+                              current={selectedTrack.title}
+                              original={selectedTrack.originalTitle}
                             />
                             <CompareRow
                               label="Artist"
-                              current={selectedTrack.metadata?.artist}
-                              suggested={selectedTrack.suggestedMetadata.artist}
+                              current={selectedTrack.artist}
+                              original={selectedTrack.originalArtist}
                             />
                             <CompareRow
                               label="Album"
-                              current={selectedTrack.metadata?.album}
-                              suggested={selectedTrack.suggestedMetadata.album}
+                              current={selectedTrack.album}
+                              original={selectedTrack.originalAlbum}
+                            />
+                            <CompareRow
+                              label="Album Artist"
+                              current={selectedTrack.albumArtist}
+                              original={selectedTrack.originalAlbumArtist}
                             />
                             <CompareRow
                               label="Year"
-                              current={selectedTrack.metadata?.year?.toString()}
-                              suggested={selectedTrack.suggestedMetadata.year?.toString()}
+                              current={selectedTrack.year?.toString()}
+                              original={selectedTrack.originalYear?.toString()}
                             />
                             <CompareRow
-                              label="Genre"
-                              current={selectedTrack.metadata?.genre}
-                              suggested={selectedTrack.suggestedMetadata.genre}
+                              label="Track Number"
+                              current={selectedTrack.trackNumber?.toString()}
+                              original={selectedTrack.originalTrackNumber?.toString()}
                             />
                           </div>
                         </div>
                       ) : (
                         <div className="flex flex-col items-center justify-center py-12 text-center">
                           <RefreshCw className="mb-4 size-12 text-muted-foreground" />
-                          <h3 className="font-medium">No Suggestions</h3>
+                          <h3 className="font-medium">No Original Metadata</h3>
                           <p className="text-sm text-muted-foreground">
-                            No automatic match was found for this track
+                            Original metadata was not captured for this track
                           </p>
                         </div>
                       )}
@@ -427,24 +682,24 @@ export default function ReviewPage() {
                 <TabsContent value="issues" className="flex-1 overflow-hidden m-0">
                   <ScrollArea className="h-full">
                     <div className="p-4">
-                      {selectedTrack?.issues && selectedTrack.issues.length > 0 ? (
+                      {selectedTrack?.matchWarnings && selectedTrack.matchWarnings.length > 0 ? (
                         <div className="space-y-2">
-                          {selectedTrack.issues.map((issue, index) => (
+                          {selectedTrack.matchWarnings.map((warning, index) => (
                             <div
                               key={index}
                               className="flex items-start gap-3 rounded-lg bg-amber-400/10 p-3"
                             >
                               <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-400" />
-                              <p className="text-sm">{issue}</p>
+                              <p className="text-sm">{warning}</p>
                             </div>
                           ))}
                         </div>
                       ) : (
                         <div className="flex flex-col items-center justify-center py-12 text-center">
                           <Check className="mb-4 size-12 text-primary" />
-                          <h3 className="font-medium">No Issues</h3>
+                          <h3 className="font-medium">No Warnings</h3>
                           <p className="text-sm text-muted-foreground">
-                            This track has no detected issues
+                            This track has no match warnings
                           </p>
                         </div>
                       )}
@@ -454,35 +709,54 @@ export default function ReviewPage() {
               </Tabs>
 
               {/* Action Buttons */}
-              <div className="flex flex-wrap gap-2 border-t border-border p-4">
-                <Button onClick={handleApprove} className="flex-1 gap-2 sm:flex-none">
-                  <Save className="size-4" />
-                  Approve & Copy
-                </Button>
-                <Button variant="outline" onClick={handleSkip} className="gap-2">
-                  <SkipForward className="size-4" />
-                  Skip
-                </Button>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="outline" className="gap-2 text-destructive hover:text-destructive">
-                      <Trash2 className="size-4" />
-                      Delete
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Delete this track?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        This will remove the track from the import queue. The original file will not be deleted.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={handleDelete}>Delete</AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+              <div className="space-y-3 border-t border-border p-4">
+                {/* Reject reason input */}
+                <div>
+                  <Label htmlFor="rejectReason" className="text-xs text-muted-foreground">
+                    Reject Reason (optional)
+                  </Label>
+                  <Textarea
+                    id="rejectReason"
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    placeholder="Why is this match incorrect?"
+                    className="mt-1 h-16 resize-none"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={handleApprove} disabled={actionLoading} className="flex-1 gap-2 sm:flex-none">
+                    {actionLoading ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                    Approve
+                  </Button>
+                  <Button variant="outline" onClick={handleReject} disabled={actionLoading} className="gap-2">
+                    {actionLoading ? <Loader2 className="size-4 animate-spin" /> : <X className="size-4" />}
+                    Reject
+                  </Button>
+                  <Button variant="outline" onClick={handleSkip} className="gap-2">
+                    <SkipForward className="size-4" />
+                    Skip
+                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="outline" className="gap-2 text-destructive hover:text-destructive">
+                        <Trash2 className="size-4" />
+                        Delete
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete this track?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will soft-delete the track so it is excluded from review and library build. The original file will not be deleted.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete}>Delete</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
               </div>
             </Card>
           </div>
@@ -495,28 +769,30 @@ export default function ReviewPage() {
 function CompareRow({
   label,
   current,
-  suggested,
+  original,
 }: {
   label: string
-  current?: string
-  suggested?: string
+  current?: string | null
+  original?: string | null
 }) {
-  const isDifferent = current !== suggested && suggested
+  const isDifferent = current !== original && original
 
   return (
     <div className="rounded-lg border border-border p-3">
       <p className="mb-2 text-xs font-medium text-muted-foreground">{label}</p>
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
-          <p className={`truncate text-sm ${isDifferent ? "text-muted-foreground line-through" : ""}`}>
+          <p className="text-xs text-muted-foreground mb-0.5">Enriched</p>
+          <p className={`truncate text-sm ${isDifferent ? "font-medium" : ""}`}>
             {current || "—"}
           </p>
         </div>
         {isDifferent && (
           <>
-            <ArrowRight className="size-4 shrink-0 text-primary" />
+            <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-primary">{suggested}</p>
+              <p className="text-xs text-muted-foreground mb-0.5">Original</p>
+              <p className="truncate text-sm text-muted-foreground">{original}</p>
             </div>
           </>
         )}
