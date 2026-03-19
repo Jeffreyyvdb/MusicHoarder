@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useMemo, useEffect } from "react"
+import { useState, useCallback, useMemo, useEffect, useRef } from "react"
 import {
   X,
   Music,
@@ -231,6 +231,8 @@ export function TrackDetails({ file, onClose, onResetEnrichment }: TrackDetailsP
                 hasSyncedLyrics={metadata.hasSyncedLyrics}
                 hasPlainLyrics={metadata.hasPlainLyrics}
                 isInstrumental={metadata.isInstrumental}
+                currentTimeMs={isThisSong ? currentTime * 1000 : null}
+                onSeek={isThisSong ? (timeMs: number) => seek(timeMs / 1000) : undefined}
               />
             </TabsContent>
 
@@ -484,6 +486,8 @@ function LyricsPanel({
   hasSyncedLyrics: hasSyncedFromProps,
   hasPlainLyrics: hasPlainFromProps,
   isInstrumental,
+  currentTimeMs,
+  onSeek,
 }: {
   songId: number | null
   syncedLyrics?: string
@@ -492,11 +496,17 @@ function LyricsPanel({
   hasSyncedLyrics?: boolean
   hasPlainLyrics?: boolean
   isInstrumental?: boolean
+  currentTimeMs?: number | null
+  onSeek?: (timeMs: number) => void
 }) {
   const [showSynced, setShowSynced] = useState(true)
   const [loadedSynced, setLoadedSynced] = useState<string | null | undefined>(syncedLyricsFromProps)
   const [loadedPlain, setLoadedPlain] = useState<string | null | undefined>(plainLyricsFromProps)
   const [loadState, setLoadState] = useState<"idle" | "loading" | "error">("idle")
+
+  const lineRefs = useRef<(HTMLDivElement | null)[]>([])
+  const containerRef = useRef<HTMLDivElement>(null)
+  const prevActiveRef = useRef(-1)
 
   // Flags: trust the API-provided booleans when content isn't preloaded in props
   const hasSynced = Boolean(loadedSynced) || Boolean(hasSyncedFromProps)
@@ -530,6 +540,36 @@ function LyricsPanel({
     () => (Boolean(loadedSynced) && showSynced ? parseLrc(loadedSynced!) : null),
     [loadedSynced, showSynced]
   )
+
+  const activeLineIndex = useMemo(() => {
+    if (!parsedLines || currentTimeMs == null || currentTimeMs < 0) return -1
+    let active = -1
+    for (let i = 0; i < parsedLines.length; i++) {
+      if (parsedLines[i].timeMs <= currentTimeMs) active = i
+      else break
+    }
+    return active
+  }, [parsedLines, currentTimeMs])
+
+  const isTracking = parsedLines != null && currentTimeMs != null && currentTimeMs >= 0
+
+  useEffect(() => {
+    prevActiveRef.current = -1
+  }, [parsedLines])
+
+  useEffect(() => {
+    if (activeLineIndex < 0 || activeLineIndex === prevActiveRef.current) return
+    prevActiveRef.current = activeLineIndex
+    const el = lineRefs.current[activeLineIndex]
+    const container = containerRef.current
+    if (!el || !container) return
+
+    const elRect = el.getBoundingClientRect()
+    const containerRect = container.getBoundingClientRect()
+    const offset = elRect.top - containerRect.top + container.scrollTop
+    const targetScroll = offset - container.clientHeight / 2 + el.clientHeight / 2
+    container.scrollTo({ top: Math.max(0, targetScroll), behavior: "smooth" })
+  }, [activeLineIndex])
 
   if (isInstrumental) {
     return (
@@ -626,19 +666,43 @@ function LyricsPanel({
         )}
       </div>
 
-      <div className="rounded-lg bg-secondary/50 p-4 max-h-72 overflow-y-auto">
+      <div
+        ref={containerRef}
+        className="rounded-lg bg-secondary/50 p-4 max-h-72 overflow-y-auto scroll-smooth"
+      >
         {parsedLines ? (
-          <div className="space-y-1 font-sans text-sm leading-relaxed">
-            {parsedLines.map((line, i) => (
-              <div key={i} className="flex gap-2">
-                <span className="shrink-0 text-xs text-muted-foreground/60 font-mono w-12 pt-0.5">
-                  {formatLrcTime(line.timeMs)}
-                </span>
-                <span className={cn("flex-1", !line.text && "opacity-0 select-none")}>
-                  {line.text || "·"}
-                </span>
-              </div>
-            ))}
+          <div className="font-sans text-sm leading-relaxed">
+            {parsedLines.map((line, i) => {
+              const isActive = isTracking && i === activeLineIndex
+              const isPast = isTracking && activeLineIndex >= 0 && i < activeLineIndex
+              const isFuture = isTracking && activeLineIndex >= 0 && i > activeLineIndex
+
+              return (
+                <div
+                  key={i}
+                  ref={(el) => { lineRefs.current[i] = el }}
+                  className={cn(
+                    "flex gap-2 rounded-sm px-1 -mx-1 py-0.5 transition-all duration-300",
+                    isActive && "bg-primary/10 text-primary font-semibold",
+                    isPast && "text-muted-foreground",
+                    isFuture && "text-muted-foreground/50",
+                    !isTracking && "text-foreground",
+                    onSeek && "cursor-pointer hover:bg-primary/5",
+                  )}
+                  onClick={onSeek ? () => onSeek(line.timeMs) : undefined}
+                >
+                  <span className={cn(
+                    "shrink-0 text-xs font-mono w-12 pt-0.5",
+                    isActive ? "text-primary/70" : "text-muted-foreground/60"
+                  )}>
+                    {formatLrcTime(line.timeMs)}
+                  </span>
+                  <span className={cn("flex-1", !line.text && "opacity-0 select-none")}>
+                    {line.text || "·"}
+                  </span>
+                </div>
+              )
+            })}
           </div>
         ) : (
           <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
