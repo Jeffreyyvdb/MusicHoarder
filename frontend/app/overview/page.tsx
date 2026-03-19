@@ -361,7 +361,7 @@ export default function OverviewPage() {
           </div>
 
           {/* Recent Activity & Quick Actions */}
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
             <Card className="lg:col-span-2">
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg">Recent Activity</CardTitle>
@@ -393,10 +393,10 @@ export default function OverviewPage() {
                     variant="outline"
                     className="w-full justify-start gap-3 h-auto py-3 hover:bg-muted hover:text-foreground dark:hover:bg-muted/50"
                   >
-                    <div className="flex size-8 items-center justify-center rounded-lg bg-amber-400/10">
+                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-400/10">
                       <FileWarning className="size-4 text-amber-400" />
                     </div>
-                    <div className="text-left">
+                    <div className="min-w-0 text-left whitespace-normal">
                       <p className="font-medium">Review Tracks</p>
                       <p className="text-xs text-muted-foreground">
                         {job.tracksReview} tracks need attention
@@ -409,10 +409,10 @@ export default function OverviewPage() {
                     variant="outline"
                     className="w-full justify-start gap-3 h-auto py-3 hover:bg-muted hover:text-foreground dark:hover:bg-muted/50"
                   >
-                    <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10">
+                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
                       <Music className="size-4 text-primary" />
                     </div>
-                    <div className="text-left">
+                    <div className="min-w-0 text-left whitespace-normal">
                       <p className="font-medium">Browse Library</p>
                       <p className="text-xs text-muted-foreground">View imported tracks</p>
                     </div>
