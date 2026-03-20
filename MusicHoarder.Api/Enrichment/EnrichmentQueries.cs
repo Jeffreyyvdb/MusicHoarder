@@ -14,8 +14,8 @@ internal static class EnrichmentQueries
             .Where(s => s.DeletedAtUtc == null)
             .Where(s => s.EnrichmentStatus == EnrichmentStatus.Pending)
             .Where(s =>
-                (s.Fingerprint != null && s.Fingerprint != string.Empty && s.DurationSeconds != null)
-                || (s.Artist != null && s.Artist != string.Empty && s.Title != null && s.Title != string.Empty)
-                || (s.Isrc != null && s.Isrc != string.Empty));
+                (!string.IsNullOrWhiteSpace(s.Fingerprint) && s.DurationSeconds != null)
+                || (!string.IsNullOrWhiteSpace(s.Artist) && !string.IsNullOrWhiteSpace(s.Title))
+                || !string.IsNullOrWhiteSpace(s.Isrc));
     }
 }
