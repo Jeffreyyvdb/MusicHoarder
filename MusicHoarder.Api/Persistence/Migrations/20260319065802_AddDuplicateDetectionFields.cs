@@ -26,7 +26,9 @@ namespace MusicHoarder.Api.Persistence.Migrations
                 """CREATE INDEX IF NOT EXISTS "IX_Songs_DuplicateOfId" ON "Songs" ("DuplicateOfId")""");
 
             migrationBuilder.Sql(
-                """CREATE INDEX IF NOT EXISTS "IX_Songs_Fingerprint" ON "Songs" ("Fingerprint")""");
+                """DROP INDEX IF EXISTS "IX_Songs_Fingerprint" """);
+            migrationBuilder.Sql(
+                """CREATE INDEX IF NOT EXISTS "IX_Songs_Fingerprint" ON "Songs" USING hash ("Fingerprint")""");
 
             migrationBuilder.Sql(
                 """
