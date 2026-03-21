@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useState, memo } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -54,6 +54,82 @@ interface MetadataEdits {
   trackNumber?: number
 }
 
+// ── Memoised sub-components ───────────────────────────────────────────────────
+
+const TrackListItem = memo(function TrackListItem({
+  track,
+  isSelected,
+  onSelect,
+}: {
+  track: ApiSong
+  isSelected: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      onClick={onSelect}
+      className={`flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors ${
+        isSelected
+          ? "bg-primary/10 border border-primary/20"
+          : "hover:bg-secondary"
+      }`}
+    >
+      <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary">
+        <Music className="size-5 text-muted-foreground" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">
+          {track.title || track.fileName || "Unknown"}
+        </p>
+        <p className="truncate text-xs text-muted-foreground">
+          {track.artist || "Unknown Artist"}
+          {track.matchConfidence != null && (
+            <span className="ml-1">
+              ({Math.round(track.matchConfidence * 100)}%)
+            </span>
+          )}
+        </p>
+      </div>
+      {track.matchWarnings && track.matchWarnings.length > 0 && (
+        <Badge variant="outline" className="shrink-0 gap-1 text-amber-400 border-amber-400/30">
+          <AlertTriangle className="size-3" />
+          {track.matchWarnings.length}
+        </Badge>
+      )}
+    </button>
+  )
+})
+
+const TrackList = memo(function TrackList({
+  tracks,
+  selectedIndex,
+  onSelect,
+}: {
+  tracks: ApiSong[]
+  selectedIndex: number
+  onSelect: (index: number) => void
+}) {
+  return (
+    <Card className="flex min-h-0 flex-col overflow-hidden">
+      <div className="shrink-0 border-b border-border p-3">
+        <h2 className="font-medium">Pending Review ({tracks.length})</h2>
+      </div>
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="space-y-1 p-2">
+          {tracks.map((track, index) => (
+            <TrackListItem
+              key={track.id}
+              track={track}
+              isSelected={index === selectedIndex}
+              onSelect={() => onSelect(index)}
+            />
+          ))}
+        </div>
+      </ScrollArea>
+    </Card>
+  )
+})
+
 export default function ReviewPage() {
   const [tracks, setTracks] = useState<ApiSong[]>([])
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -87,21 +163,32 @@ export default function ReviewPage() {
   const selectedTrack = tracks[selectedIndex]
   const currentEdits = selectedTrack ? editedMetadata[selectedTrack.id] || {} : {}
 
-  const handleNext = () => {
-    if (selectedIndex < tracks.length - 1) {
-      setSelectedIndex(selectedIndex + 1)
-      setRejectReason("")
-    }
-  }
+  const handleNext = useCallback(() => {
+    setSelectedIndex((i) => {
+      if (i < tracks.length - 1) {
+        setRejectReason("")
+        return i + 1
+      }
+      return i
+    })
+  }, [tracks.length])
 
-  const handlePrev = () => {
-    if (selectedIndex > 0) {
-      setSelectedIndex(selectedIndex - 1)
-      setRejectReason("")
-    }
-  }
+  const handlePrev = useCallback(() => {
+    setSelectedIndex((i) => {
+      if (i > 0) {
+        setRejectReason("")
+        return i - 1
+      }
+      return i
+    })
+  }, [])
 
-  const handleAcceptOriginal = () => {
+  const handleTrackSelect = useCallback((index: number) => {
+    setSelectedIndex(index)
+    setRejectReason("")
+  }, [])
+
+  const handleAcceptOriginal = useCallback(() => {
     if (!selectedTrack?.originalMetadataCaptured) return
 
     setEditedMetadata((prev) => ({
@@ -116,18 +203,19 @@ export default function ReviewPage() {
         trackNumber: selectedTrack.originalTrackNumber ?? undefined,
       },
     }))
-  }
+  }, [selectedTrack])
 
-  const handleFieldChange = (field: string, value: string | number) => {
-    if (!selectedTrack) return
+  const handleFieldChange = useCallback((field: string, value: string | number) => {
+    const trackId = selectedTrack?.id
+    if (trackId == null) return
     setEditedMetadata((prev) => ({
       ...prev,
-      [selectedTrack.id]: {
-        ...prev[selectedTrack.id],
+      [trackId]: {
+        ...prev[trackId],
         [field]: value,
       },
     }))
-  }
+  }, [selectedTrack?.id])
 
   const getDisplayValue = (field: keyof MetadataEdits): string | number => {
     if (!selectedTrack) return ""
@@ -138,7 +226,7 @@ export default function ReviewPage() {
     return ""
   }
 
-  const buildMetadataOverrides = (): Partial<MetadataEdits> => {
+  const buildMetadataOverrides = useCallback((): Partial<MetadataEdits> => {
     if (!selectedTrack) return {}
     const edits = editedMetadata[selectedTrack.id]
     if (!edits) return {}
@@ -151,9 +239,9 @@ export default function ReviewPage() {
     if (edits.year !== undefined) overrides.year = edits.year
     if (edits.trackNumber !== undefined) overrides.trackNumber = edits.trackNumber
     return overrides
-  }
+  }, [selectedTrack, editedMetadata])
 
-  const handleApprove = async () => {
+  const handleApprove = useCallback(async () => {
     if (!selectedTrack || actionLoading) return
     try {
       setActionLoading(true)
@@ -176,9 +264,9 @@ export default function ReviewPage() {
     } finally {
       setActionLoading(false)
     }
-  }
+  }, [selectedTrack, actionLoading, selectedIndex, buildMetadataOverrides])
 
-  const handleReject = async () => {
+  const handleReject = useCallback(async () => {
     if (!selectedTrack || actionLoading) return
     try {
       setActionLoading(true)
@@ -194,22 +282,18 @@ export default function ReviewPage() {
             : t
         )
       )
-      if (selectedIndex < tracks.length - 1) {
-        setSelectedIndex(selectedIndex + 1)
-      }
+      setSelectedIndex((i) => (i < tracks.length - 1 ? i + 1 : i))
       setRejectReason("")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reject track")
     } finally {
       setActionLoading(false)
     }
-  }
+  }, [selectedTrack, actionLoading, rejectReason, tracks.length])
 
-  const handleSkip = () => {
-    handleNext()
-  }
+  const handleSkip = handleNext
 
-  const handleDelete = async () => {
+  const handleDelete = useCallback(async () => {
     if (!selectedTrack || actionLoading) return
     try {
       setActionLoading(true)
@@ -227,7 +311,7 @@ export default function ReviewPage() {
     } finally {
       setActionLoading(false)
     }
-  }
+  }, [selectedTrack, actionLoading, selectedIndex])
 
   const handleBulkApprove = async () => {
     if (actionLoading) return
@@ -415,53 +499,12 @@ export default function ReviewPage() {
 
           {/* Main Content — fills remaining height */}
           <div className="grid min-h-0 flex-1 gap-4 pb-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-            {/* Left Panel - Track List */}
-            <Card className="flex min-h-0 flex-col overflow-hidden">
-              <div className="shrink-0 border-b border-border p-3">
-                <h2 className="font-medium">Pending Review ({tracks.length})</h2>
-              </div>
-              <ScrollArea className="min-h-0 flex-1">
-                <div className="space-y-1 p-2">
-                  {tracks.map((track, index) => (
-                    <button
-                      key={track.id}
-                      onClick={() => {
-                        setSelectedIndex(index)
-                        setRejectReason("")
-                      }}
-                      className={`flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors ${
-                        index === selectedIndex
-                          ? "bg-primary/10 border border-primary/20"
-                          : "hover:bg-secondary"
-                      }`}
-                    >
-                      <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary">
-                        <Music className="size-5 text-muted-foreground" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">
-                          {track.title || track.fileName || "Unknown"}
-                        </p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {track.artist || "Unknown Artist"}
-                          {track.matchConfidence != null && (
-                            <span className="ml-1">
-                              ({Math.round(track.matchConfidence * 100)}%)
-                            </span>
-                          )}
-                        </p>
-                      </div>
-                      {track.matchWarnings && track.matchWarnings.length > 0 && (
-                        <Badge variant="outline" className="shrink-0 gap-1 text-amber-400 border-amber-400/30">
-                          <AlertTriangle className="size-3" />
-                          {track.matchWarnings.length}
-                        </Badge>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </ScrollArea>
-            </Card>
+            {/* Left Panel - Track List (memoised — won't re-render on metadata edits) */}
+            <TrackList
+              tracks={tracks}
+              selectedIndex={selectedIndex}
+              onSelect={handleTrackSelect}
+            />
 
             {/* Right Panel - Edit Form + Action Bar */}
             <div className="flex min-h-0 flex-col gap-4">
