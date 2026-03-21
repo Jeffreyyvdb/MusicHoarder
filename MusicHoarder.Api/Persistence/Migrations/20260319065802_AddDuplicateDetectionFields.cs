@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
@@ -10,47 +10,39 @@ namespace MusicHoarder.Api.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<int>(
-                name: "Bitrate",
-                table: "Songs",
-                type: "integer",
-                nullable: true);
+            migrationBuilder.Sql(
+                """ALTER TABLE "Songs" ADD COLUMN IF NOT EXISTS "Bitrate" integer""");
 
-            migrationBuilder.AddColumn<int>(
-                name: "DuplicateOfId",
-                table: "Songs",
-                type: "integer",
-                nullable: true);
+            migrationBuilder.Sql(
+                """ALTER TABLE "Songs" ADD COLUMN IF NOT EXISTS "DuplicateOfId" integer""");
 
-            migrationBuilder.AddColumn<bool>(
-                name: "IsDuplicate",
-                table: "Songs",
-                type: "boolean",
-                nullable: false,
-                defaultValue: false);
+            migrationBuilder.Sql(
+                """ALTER TABLE "Songs" ADD COLUMN IF NOT EXISTS "IsDuplicate" boolean NOT NULL DEFAULT false""");
 
-            migrationBuilder.CreateIndex(
-                name: "IX_Songs_DeletedAtUtc_IsDuplicate",
-                table: "Songs",
-                columns: new[] { "DeletedAtUtc", "IsDuplicate" });
+            migrationBuilder.Sql(
+                """CREATE INDEX IF NOT EXISTS "IX_Songs_DeletedAtUtc_IsDuplicate" ON "Songs" ("DeletedAtUtc", "IsDuplicate")""");
 
-            migrationBuilder.CreateIndex(
-                name: "IX_Songs_DuplicateOfId",
-                table: "Songs",
-                column: "DuplicateOfId");
+            migrationBuilder.Sql(
+                """CREATE INDEX IF NOT EXISTS "IX_Songs_DuplicateOfId" ON "Songs" ("DuplicateOfId")""");
 
-            migrationBuilder.CreateIndex(
-                name: "IX_Songs_Fingerprint",
-                table: "Songs",
-                column: "Fingerprint");
+            migrationBuilder.Sql(
+                """CREATE INDEX IF NOT EXISTS "IX_Songs_Fingerprint" ON "Songs" ("Fingerprint")""");
 
-            migrationBuilder.AddForeignKey(
-                name: "FK_Songs_Songs_DuplicateOfId",
-                table: "Songs",
-                column: "DuplicateOfId",
-                principalTable: "Songs",
-                principalColumn: "Id",
-                onDelete: ReferentialAction.SetNull);
+            migrationBuilder.Sql(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint WHERE conname = 'FK_Songs_Songs_DuplicateOfId'
+                    ) THEN
+                        ALTER TABLE "Songs"
+                            ADD CONSTRAINT "FK_Songs_Songs_DuplicateOfId"
+                            FOREIGN KEY ("DuplicateOfId") REFERENCES "Songs" ("Id")
+                            ON DELETE SET NULL;
+                    END IF;
+                END
+                $$
+                """);
         }
 
         /// <inheritdoc />
