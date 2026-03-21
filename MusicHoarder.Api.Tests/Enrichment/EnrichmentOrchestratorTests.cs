@@ -168,6 +168,99 @@ public class EnrichmentOrchestratorTests
     }
 
     [Fact]
+    public async Task ProcessNextBatch_SongWithWhitespaceArtistAndTitle_NotSelected()
+    {
+        await using var db = CreateDb();
+        db.Songs.Add(new SongMetadata
+        {
+            SourcePath = "/source/whitespace-tags.mp3",
+            FileName = "whitespace-tags.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 5000,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            Artist = "   ",
+            Title = "\t",
+            Fingerprint = null,
+            DurationSeconds = null,
+            Isrc = null,
+            EnrichmentStatus = EnrichmentStatus.Pending,
+        });
+        await db.SaveChangesAsync();
+
+        var stubProvider = new StubEnrichmentProvider("TestProvider", 100,
+            canHandle: _ => true,
+            enrich: _ => throw new InvalidOperationException("should not be called"));
+        var orchestrator = CreateOrchestratorWithProviders(db, [stubProvider]);
+
+        var result = await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Equal(0, result.TotalTracks);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatch_SongWithWhitespaceFingerprint_NotSelected()
+    {
+        await using var db = CreateDb();
+        db.Songs.Add(new SongMetadata
+        {
+            SourcePath = "/source/whitespace-fp.mp3",
+            FileName = "whitespace-fp.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 5000,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            Artist = null,
+            Title = null,
+            Fingerprint = "  ",
+            DurationSeconds = 240,
+            Isrc = null,
+            EnrichmentStatus = EnrichmentStatus.Pending,
+        });
+        await db.SaveChangesAsync();
+
+        var stubProvider = new StubEnrichmentProvider("TestProvider", 100,
+            canHandle: _ => true,
+            enrich: _ => throw new InvalidOperationException("should not be called"));
+        var orchestrator = CreateOrchestratorWithProviders(db, [stubProvider]);
+
+        var result = await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Equal(0, result.TotalTracks);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatch_SongWithWhitespaceIsrc_NotSelected()
+    {
+        await using var db = CreateDb();
+        db.Songs.Add(new SongMetadata
+        {
+            SourcePath = "/source/whitespace-isrc.mp3",
+            FileName = "whitespace-isrc.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 5000,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            Artist = null,
+            Title = null,
+            Fingerprint = null,
+            DurationSeconds = null,
+            Isrc = "   ",
+            EnrichmentStatus = EnrichmentStatus.Pending,
+        });
+        await db.SaveChangesAsync();
+
+        var stubProvider = new StubEnrichmentProvider("TestProvider", 100,
+            canHandle: _ => true,
+            enrich: _ => throw new InvalidOperationException("should not be called"));
+        var orchestrator = CreateOrchestratorWithProviders(db, [stubProvider]);
+
+        var result = await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Equal(0, result.TotalTracks);
+    }
+
+    [Fact]
     public async Task ProcessNextBatch_AcoustIdThrows_SetsFailed()
     {
         await using var db = CreateDb();
@@ -603,7 +696,6 @@ public class EnrichmentOrchestratorTests
 
         await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
         var updated = await db.Songs.SingleAsync();
-
         Assert.Equal(LyricsStatus.Instrumental, updated.LyricsStatus);
         Assert.True(updated.IsInstrumental);
         Assert.Null(updated.SyncedLyrics);
@@ -655,6 +747,43 @@ public class EnrichmentOrchestratorTests
         Assert.Equal(LyricsStatus.Fetched, updated.LyricsStatus);
         Assert.Equal("Existing plain", updated.PlainLyrics);
         Assert.Equal(0, lrc.CallCount);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatch_MatchedSongWithoutArtistOrTitle_SkipsLyricsFetch()
+    {
+        await using var db = CreateDb();
+        db.Songs.Add(new SongMetadata
+        {
+            SourcePath = "/source/no-tags.mp3",
+            FileName = "no-tags.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 5000,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            Artist = null,
+            Title = null,
+            Fingerprint = "fp-has-data",
+            DurationSeconds = 180,
+            EnrichmentStatus = EnrichmentStatus.Pending,
+        });
+        await db.SaveChangesAsync();
+
+        var provider = new StubEnrichmentProvider("Provider1", 100,
+            canHandle: _ => true,
+            enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
+                "", "", "", null, null,
+                "mb-lyrics", null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched)));
+        var lrcLib = new StubLrcLibService(_ =>
+            Task.FromResult<LyricsResult?>(new LyricsResult("[00:00.00]Hello", "Hello", false)));
+
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider], lrcLibService: lrcLib);
+        await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
+        Assert.Equal(LyricsStatus.NotFetched, updated.LyricsStatus);
+        Assert.Equal(0, lrcLib.CallCount);
     }
 
     // --- Helpers ---
