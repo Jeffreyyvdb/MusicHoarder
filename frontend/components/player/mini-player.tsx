@@ -23,7 +23,7 @@ export function MiniPlayer() {
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-sidebar shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
+    <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-sidebar shadow-[0_-4px_24px_oklch(0%_0_0/0.08)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.35)]">
       {/* Mobile-only thin progress bar along the top edge */}
       <div className="block h-0.5 w-full bg-muted sm:hidden" aria-hidden="true">
         <div

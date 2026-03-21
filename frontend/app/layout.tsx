@@ -1,7 +1,8 @@
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
-import { Toaster } from 'sonner'
+import { Toaster } from '@/components/ui/sonner'
+import { ThemeProvider } from '@/components/theme-provider'
 import { PlayerProviderWrapper } from '@/components/player/player-provider-wrapper'
 import './globals.css'
 
@@ -27,13 +28,15 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className="font-sans antialiased">
-        <PlayerProviderWrapper>
-          {children}
-        </PlayerProviderWrapper>
-        <Toaster position="top-center" richColors closeButton />
-        <Analytics />
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <PlayerProviderWrapper>
+            {children}
+          </PlayerProviderWrapper>
+          <Toaster position="top-center" richColors closeButton />
+          <Analytics />
+        </ThemeProvider>
       </body>
     </html>
   )
