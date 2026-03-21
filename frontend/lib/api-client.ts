@@ -134,7 +134,14 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   })
 
   if (!response.ok) {
-    throw new Error(`Request failed for ${path}: ${response.status}`)
+    let detail = ""
+    try {
+      const body = await response.json() as Record<string, unknown>
+      detail = (body.message as string) ?? JSON.stringify(body)
+    } catch {
+      // ignore parse errors
+    }
+    throw new Error(detail || `Request failed for ${path}: ${response.status}`)
   }
 
   return (await response.json()) as T
