@@ -129,24 +129,47 @@ export default function ReviewPage() {
     }))
   }
 
+  const getDisplayValue = (field: keyof MetadataEdits): string | number => {
+    if (!selectedTrack) return ""
+    const editValue = currentEdits[field]
+    if (editValue !== undefined) return editValue
+    const songValue = selectedTrack[field as keyof ApiSong]
+    if (songValue !== undefined && songValue !== null) return songValue as string | number
+    return ""
+  }
+
+  const buildMetadataOverrides = (): Partial<MetadataEdits> => {
+    if (!selectedTrack) return {}
+    const edits = editedMetadata[selectedTrack.id]
+    if (!edits) return {}
+
+    const overrides: Partial<MetadataEdits> = {}
+    if (edits.artist !== undefined) overrides.artist = edits.artist
+    if (edits.albumArtist !== undefined) overrides.albumArtist = edits.albumArtist
+    if (edits.album !== undefined) overrides.album = edits.album
+    if (edits.title !== undefined) overrides.title = edits.title
+    if (edits.year !== undefined) overrides.year = edits.year
+    if (edits.trackNumber !== undefined) overrides.trackNumber = edits.trackNumber
+    return overrides
+  }
+
   const handleApprove = async () => {
     if (!selectedTrack || actionLoading) return
     try {
       setActionLoading(true)
-      const edits = editedMetadata[selectedTrack.id] || {}
+      setError(null)
+      const overrides = buildMetadataOverrides()
       await submitManualReview(selectedTrack.id, {
         decision: "approve",
-        ...(edits.artist !== undefined && { artist: edits.artist }),
-        ...(edits.albumArtist !== undefined && { albumArtist: edits.albumArtist }),
-        ...(edits.album !== undefined && { album: edits.album }),
-        ...(edits.title !== undefined && { title: edits.title }),
-        ...(edits.year !== undefined && { year: edits.year }),
-        ...(edits.trackNumber !== undefined && { trackNumber: edits.trackNumber }),
+        ...overrides,
       })
-      setTracks((prev) => prev.filter((t) => t.id !== selectedTrack.id))
-      if (selectedIndex >= tracks.length - 1 && selectedIndex > 0) {
-        setSelectedIndex(selectedIndex - 1)
-      }
+      setTracks((prev) => {
+        const next = prev.filter((t) => t.id !== selectedTrack.id)
+        if (selectedIndex >= next.length && selectedIndex > 0) {
+          setSelectedIndex(next.length - 1)
+        }
+        return next
+      })
       setRejectReason("")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to approve track")
@@ -159,6 +182,7 @@ export default function ReviewPage() {
     if (!selectedTrack || actionLoading) return
     try {
       setActionLoading(true)
+      setError(null)
       await submitManualReview(selectedTrack.id, {
         decision: "reject",
         rejectReason: rejectReason || undefined,
@@ -170,7 +194,9 @@ export default function ReviewPage() {
             : t
         )
       )
-      handleNext()
+      if (selectedIndex < tracks.length - 1) {
+        setSelectedIndex(selectedIndex + 1)
+      }
       setRejectReason("")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reject track")
@@ -187,11 +213,15 @@ export default function ReviewPage() {
     if (!selectedTrack || actionLoading) return
     try {
       setActionLoading(true)
+      setError(null)
       await softDeleteSong(selectedTrack.id)
-      setTracks((prev) => prev.filter((t) => t.id !== selectedTrack.id))
-      if (selectedIndex >= tracks.length - 1 && selectedIndex > 0) {
-        setSelectedIndex(selectedIndex - 1)
-      }
+      setTracks((prev) => {
+        const next = prev.filter((t) => t.id !== selectedTrack.id)
+        if (selectedIndex >= next.length && selectedIndex > 0) {
+          setSelectedIndex(next.length - 1)
+        }
+        return next
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete track")
     } finally {
@@ -203,6 +233,7 @@ export default function ReviewPage() {
     if (actionLoading) return
     try {
       setActionLoading(true)
+      setError(null)
       setBulkApproveResult(null)
       const result = await bulkApprove(bulkApproveMinConfidence)
       setBulkApproveResult({ count: result.approvedCount })
@@ -214,15 +245,6 @@ export default function ReviewPage() {
     } finally {
       setActionLoading(false)
     }
-  }
-
-  const getValue = (field: keyof MetadataEdits): string | number => {
-    if (!selectedTrack) return ""
-    const editValue = currentEdits[field]
-    if (editValue !== undefined) return editValue
-    const songValue = selectedTrack[field as keyof ApiSong]
-    if (songValue !== undefined && songValue !== null) return songValue as string | number
-    return ""
   }
 
   if (loading) {
@@ -294,13 +316,13 @@ export default function ReviewPage() {
   ).length
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex h-screen flex-col bg-background">
       <AppHeader />
 
-      <main className="flex flex-1 flex-col overflow-hidden p-4 md:p-6">
-        <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4 overflow-hidden">
+      <main className="flex flex-1 flex-col overflow-hidden">
+        <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col overflow-hidden px-4 md:px-6">
           {/* Header */}
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 className="text-2xl font-bold md:text-3xl">Manual Review</h1>
               <p className="text-muted-foreground">
@@ -383,7 +405,7 @@ export default function ReviewPage() {
           </div>
 
           {error && (
-            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+            <div className="mb-2 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
               {error}
               <Button variant="ghost" size="sm" className="ml-2" onClick={() => setError(null)}>
                 Dismiss
@@ -391,14 +413,14 @@ export default function ReviewPage() {
             </div>
           )}
 
-          {/* Main Content */}
-          <div className="grid flex-1 gap-4 overflow-hidden lg:grid-cols-2">
+          {/* Main Content — fills remaining height */}
+          <div className="grid min-h-0 flex-1 gap-4 pb-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
             {/* Left Panel - Track List */}
-            <Card className="flex flex-col overflow-hidden lg:row-span-1">
-              <div className="border-b border-border p-3">
+            <Card className="flex min-h-0 flex-col overflow-hidden">
+              <div className="shrink-0 border-b border-border p-3">
                 <h2 className="font-medium">Pending Review ({tracks.length})</h2>
               </div>
-              <ScrollArea className="flex-1">
+              <ScrollArea className="min-h-0 flex-1">
                 <div className="space-y-1 p-2">
                   {tracks.map((track, index) => (
                     <button
@@ -424,7 +446,7 @@ export default function ReviewPage() {
                           {track.artist || "Unknown Artist"}
                           {track.matchConfidence != null && (
                             <span className="ml-1">
-                              ({Math.round(track.matchConfidence * 100)}% confidence)
+                              ({Math.round(track.matchConfidence * 100)}%)
                             </span>
                           )}
                         </p>
@@ -441,290 +463,279 @@ export default function ReviewPage() {
               </ScrollArea>
             </Card>
 
-            {/* Right Panel - Edit Form */}
-            <Card className="flex flex-col overflow-hidden">
-              <Tabs defaultValue="edit" className="flex flex-1 flex-col overflow-hidden">
-                <div className="border-b border-border px-3">
-                  <TabsList className="h-12 w-full justify-start rounded-none border-0 bg-transparent p-0">
-                    <TabsTrigger
-                      value="edit"
-                      className="rounded-none border-0 border-b-2 border-transparent px-4 data-[state=active]:border-b-primary/50 data-[state=active]:border-l-transparent data-[state=active]:border-r-transparent data-[state=active]:border-t-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                    >
-                      Edit Metadata
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="compare"
-                      className="rounded-none border-0 border-b-2 border-transparent px-4 data-[state=active]:border-b-primary/50 data-[state=active]:border-l-transparent data-[state=active]:border-r-transparent data-[state=active]:border-t-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                    >
-                      Compare
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="issues"
-                      className="rounded-none border-0 border-b-2 border-transparent px-4 data-[state=active]:border-b-primary/50 data-[state=active]:border-l-transparent data-[state=active]:border-r-transparent data-[state=active]:border-t-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                    >
-                      Issues
-                    </TabsTrigger>
-                  </TabsList>
-                </div>
+            {/* Right Panel - Edit Form + Action Bar */}
+            <div className="flex min-h-0 flex-col gap-4">
+              <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <Tabs defaultValue="edit" className="flex flex-1 flex-col overflow-hidden">
+                  <div className="shrink-0 border-b border-border px-3">
+                    <TabsList className="h-12 w-full justify-start rounded-none border-0 bg-transparent p-0">
+                      <TabsTrigger
+                        value="edit"
+                        className="rounded-none border-0 border-b-2 border-transparent px-4 data-[state=active]:border-b-primary/50 data-[state=active]:border-l-transparent data-[state=active]:border-r-transparent data-[state=active]:border-t-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                      >
+                        Edit Metadata
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="compare"
+                        className="rounded-none border-0 border-b-2 border-transparent px-4 data-[state=active]:border-b-primary/50 data-[state=active]:border-l-transparent data-[state=active]:border-r-transparent data-[state=active]:border-t-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                      >
+                        Compare
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="issues"
+                        className="rounded-none border-0 border-b-2 border-transparent px-4 data-[state=active]:border-b-primary/50 data-[state=active]:border-l-transparent data-[state=active]:border-r-transparent data-[state=active]:border-t-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                      >
+                        Issues
+                      </TabsTrigger>
+                    </TabsList>
+                  </div>
 
-                <TabsContent value="edit" className="flex-1 overflow-hidden m-0">
-                  <ScrollArea className="h-full">
-                    <div className="space-y-4 p-4">
-                      {/* Basic Info */}
-                      <div className="space-y-2">
-                        <div>
-                          <Label htmlFor="title" className="text-xs text-muted-foreground">
-                            Title
-                          </Label>
-                          <Input
-                            id="title"
-                            value={getValue("title")}
-                            onChange={(e) => handleFieldChange("title", e.target.value)}
-                            className="h-8"
-                          />
+                  <TabsContent value="edit" className="min-h-0 flex-1 overflow-hidden m-0">
+                    <ScrollArea className="h-full">
+                      <div className="space-y-4 p-4">
+                        {/* Basic Info */}
+                        <div className="space-y-2">
+                          <div>
+                            <Label htmlFor="title" className="text-xs text-muted-foreground">
+                              Title
+                            </Label>
+                            <Input
+                              id="title"
+                              value={getDisplayValue("title")}
+                              onChange={(e) => handleFieldChange("title", e.target.value)}
+                              className="h-8"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="artist" className="text-xs text-muted-foreground">
+                              Artist
+                            </Label>
+                            <Input
+                              id="artist"
+                              value={getDisplayValue("artist")}
+                              onChange={(e) => handleFieldChange("artist", e.target.value)}
+                              className="h-8"
+                            />
+                          </div>
                         </div>
-                        <div>
-                          <Label htmlFor="artist" className="text-xs text-muted-foreground">
-                            Artist
-                          </Label>
-                          <Input
-                            id="artist"
-                            value={getValue("artist")}
-                            onChange={(e) => handleFieldChange("artist", e.target.value)}
-                            className="h-8"
-                          />
-                        </div>
-                      </div>
 
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <div>
-                          <Label htmlFor="album" className="text-xs text-muted-foreground">
-                            Album
-                          </Label>
-                          <Input
-                            id="album"
-                            value={getValue("album")}
-                            onChange={(e) => handleFieldChange("album", e.target.value)}
-                            className="h-8"
-                          />
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <div>
+                            <Label htmlFor="album" className="text-xs text-muted-foreground">
+                              Album
+                            </Label>
+                            <Input
+                              id="album"
+                              value={getDisplayValue("album")}
+                              onChange={(e) => handleFieldChange("album", e.target.value)}
+                              className="h-8"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="albumArtist" className="text-xs text-muted-foreground">
+                              Album Artist
+                            </Label>
+                            <Input
+                              id="albumArtist"
+                              value={getDisplayValue("albumArtist")}
+                              onChange={(e) => handleFieldChange("albumArtist", e.target.value)}
+                              className="h-8"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="year" className="text-xs text-muted-foreground">
+                              Year
+                            </Label>
+                            <Input
+                              id="year"
+                              type="number"
+                              value={getDisplayValue("year")}
+                              onChange={(e) => handleFieldChange("year", parseInt(e.target.value) || 0)}
+                              className="h-8"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="trackNumber" className="text-xs text-muted-foreground">
+                              Track Number
+                            </Label>
+                            <Input
+                              id="trackNumber"
+                              type="number"
+                              value={getDisplayValue("trackNumber")}
+                              onChange={(e) => handleFieldChange("trackNumber", parseInt(e.target.value) || 0)}
+                              className="h-8"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs text-muted-foreground">Format</Label>
+                            <Input
+                              value={selectedTrack?.extension?.replace(/^\./, "").toUpperCase() || ""}
+                              disabled
+                              className="h-8 bg-secondary"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs text-muted-foreground">Matched By</Label>
+                            <Input
+                              value={selectedTrack?.matchedBy || "—"}
+                              disabled
+                              className="h-8 bg-secondary"
+                            />
+                          </div>
                         </div>
-                        <div>
-                          <Label htmlFor="albumArtist" className="text-xs text-muted-foreground">
-                            Album Artist
-                          </Label>
-                          <Input
-                            id="albumArtist"
-                            value={getValue("albumArtist")}
-                            onChange={(e) => handleFieldChange("albumArtist", e.target.value)}
-                            className="h-8"
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="year" className="text-xs text-muted-foreground">
-                            Year
-                          </Label>
-                          <Input
-                            id="year"
-                            type="number"
-                            value={getValue("year")}
-                            onChange={(e) => handleFieldChange("year", parseInt(e.target.value) || 0)}
-                            className="h-8"
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="trackNumber" className="text-xs text-muted-foreground">
-                            Track Number
-                          </Label>
-                          <Input
-                            id="trackNumber"
-                            type="number"
-                            value={getValue("trackNumber")}
-                            onChange={(e) => handleFieldChange("trackNumber", parseInt(e.target.value) || 0)}
-                            className="h-8"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs text-muted-foreground">Format</Label>
-                          <Input
-                            value={selectedTrack?.extension?.replace(/^\./, "").toUpperCase() || ""}
-                            disabled
-                            className="h-8 bg-secondary"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs text-muted-foreground">Matched By</Label>
-                          <Input
-                            value={selectedTrack?.matchedBy || "—"}
-                            disabled
-                            className="h-8 bg-secondary"
-                          />
-                        </div>
-                      </div>
 
-                      {/* Match confidence */}
-                      {selectedTrack?.matchConfidence != null && (
+                        {/* Match confidence */}
+                        {selectedTrack?.matchConfidence != null && (
+                          <div className="rounded-lg bg-secondary/50 p-3">
+                            <p className="mb-1 text-xs font-medium text-muted-foreground">
+                              Match Confidence
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <div className="h-2 flex-1 rounded-full bg-secondary">
+                                <div
+                                  className={`h-2 rounded-full ${
+                                    selectedTrack.matchConfidence >= 0.8
+                                      ? "bg-green-500"
+                                      : selectedTrack.matchConfidence >= 0.6
+                                      ? "bg-amber-500"
+                                      : "bg-red-500"
+                                  }`}
+                                  style={{ width: `${Math.round(selectedTrack.matchConfidence * 100)}%` }}
+                                />
+                              </div>
+                              <span className="text-sm font-medium">
+                                {Math.round(selectedTrack.matchConfidence * 100)}%
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* File Info */}
                         <div className="rounded-lg bg-secondary/50 p-3">
-                          <p className="mb-1 text-xs font-medium text-muted-foreground">
-                            Match Confidence
+                          <p className="mb-2 text-xs font-medium text-muted-foreground">
+                            Original File
                           </p>
-                          <div className="flex items-center gap-2">
-                            <div className="h-2 flex-1 rounded-full bg-secondary">
-                              <div
-                                className={`h-2 rounded-full ${
-                                  selectedTrack.matchConfidence >= 0.8
-                                    ? "bg-green-500"
-                                    : selectedTrack.matchConfidence >= 0.6
-                                    ? "bg-amber-500"
-                                    : "bg-red-500"
-                                }`}
-                                style={{ width: `${Math.round(selectedTrack.matchConfidence * 100)}%` }}
+                          <p className="break-all text-sm">{selectedTrack?.sourcePath}</p>
+                        </div>
+
+                        {/* Fingerprint */}
+                        {selectedTrack?.fingerprint && (
+                          <div className="flex items-center gap-2 rounded-lg bg-secondary/50 p-3">
+                            <Fingerprint className="size-4 text-muted-foreground" />
+                            <code className="text-xs text-muted-foreground break-all">
+                              {selectedTrack.fingerprint.length > 60
+                                ? `${selectedTrack.fingerprint.slice(0, 60)}...`
+                                : selectedTrack.fingerprint}
+                            </code>
+                          </div>
+                        )}
+
+                        {/* Enrichment error */}
+                        {selectedTrack?.enrichmentError && (
+                          <div className="rounded-lg bg-amber-400/10 p-3">
+                            <p className="mb-1 text-xs font-medium text-amber-400">
+                              Enrichment Note
+                            </p>
+                            <p className="text-sm">{selectedTrack.enrichmentError}</p>
+                          </div>
+                        )}
+                      </div>
+                    </ScrollArea>
+                  </TabsContent>
+
+                  <TabsContent value="compare" className="min-h-0 flex-1 overflow-hidden m-0">
+                    <ScrollArea className="h-full">
+                      <div className="p-4">
+                        {selectedTrack?.originalMetadataCaptured ? (
+                          <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                              <h3 className="font-medium">Current vs Original Metadata</h3>
+                              <Button size="sm" onClick={handleAcceptOriginal} className="gap-2">
+                                <RefreshCw className="size-4" />
+                                Restore Original
+                              </Button>
+                            </div>
+
+                            <div className="space-y-3">
+                              <CompareRow
+                                label="Title"
+                                current={selectedTrack.title}
+                                original={selectedTrack.originalTitle}
+                              />
+                              <CompareRow
+                                label="Artist"
+                                current={selectedTrack.artist}
+                                original={selectedTrack.originalArtist}
+                              />
+                              <CompareRow
+                                label="Album"
+                                current={selectedTrack.album}
+                                original={selectedTrack.originalAlbum}
+                              />
+                              <CompareRow
+                                label="Album Artist"
+                                current={selectedTrack.albumArtist}
+                                original={selectedTrack.originalAlbumArtist}
+                              />
+                              <CompareRow
+                                label="Year"
+                                current={selectedTrack.year?.toString()}
+                                original={selectedTrack.originalYear?.toString()}
+                              />
+                              <CompareRow
+                                label="Track Number"
+                                current={selectedTrack.trackNumber?.toString()}
+                                original={selectedTrack.originalTrackNumber?.toString()}
                               />
                             </div>
-                            <span className="text-sm font-medium">
-                              {Math.round(selectedTrack.matchConfidence * 100)}%
-                            </span>
                           </div>
-                        </div>
-                      )}
-
-                      {/* File Info */}
-                      <div className="rounded-lg bg-secondary/50 p-3">
-                        <p className="mb-2 text-xs font-medium text-muted-foreground">
-                          Original File
-                        </p>
-                        <p className="break-all text-sm">{selectedTrack?.sourcePath}</p>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center py-12 text-center">
+                            <RefreshCw className="mb-4 size-12 text-muted-foreground" />
+                            <h3 className="font-medium">No Original Metadata</h3>
+                            <p className="text-sm text-muted-foreground">
+                              Original metadata was not captured for this track
+                            </p>
+                          </div>
+                        )}
                       </div>
+                    </ScrollArea>
+                  </TabsContent>
 
-                      {/* Fingerprint */}
-                      {selectedTrack?.fingerprint && (
-                        <div className="flex items-center gap-2 rounded-lg bg-secondary/50 p-3">
-                          <Fingerprint className="size-4 text-muted-foreground" />
-                          <code className="text-xs text-muted-foreground break-all">
-                            {selectedTrack.fingerprint.length > 60
-                              ? `${selectedTrack.fingerprint.slice(0, 60)}...`
-                              : selectedTrack.fingerprint}
-                          </code>
-                        </div>
-                      )}
-
-                      {/* Enrichment error */}
-                      {selectedTrack?.enrichmentError && (
-                        <div className="rounded-lg bg-amber-400/10 p-3">
-                          <p className="mb-1 text-xs font-medium text-amber-400">
-                            Enrichment Note
-                          </p>
-                          <p className="text-sm">{selectedTrack.enrichmentError}</p>
-                        </div>
-                      )}
-                    </div>
-                  </ScrollArea>
-                </TabsContent>
-
-                <TabsContent value="compare" className="flex-1 overflow-hidden m-0">
-                  <ScrollArea className="h-full">
-                    <div className="p-4">
-                      {selectedTrack?.originalMetadataCaptured ? (
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between">
-                            <h3 className="font-medium">Current vs Original Metadata</h3>
-                            <Button size="sm" onClick={handleAcceptOriginal} className="gap-2">
-                              <RefreshCw className="size-4" />
-                              Restore Original
-                            </Button>
+                  <TabsContent value="issues" className="min-h-0 flex-1 overflow-hidden m-0">
+                    <ScrollArea className="h-full">
+                      <div className="p-4">
+                        {selectedTrack?.matchWarnings && selectedTrack.matchWarnings.length > 0 ? (
+                          <div className="space-y-2">
+                            {selectedTrack.matchWarnings.map((warning, index) => (
+                              <div
+                                key={index}
+                                className="flex items-start gap-3 rounded-lg bg-amber-400/10 p-3"
+                              >
+                                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-400" />
+                                <p className="text-sm">{warning}</p>
+                              </div>
+                            ))}
                           </div>
-
-                          <div className="space-y-3">
-                            <CompareRow
-                              label="Title"
-                              current={selectedTrack.title}
-                              original={selectedTrack.originalTitle}
-                            />
-                            <CompareRow
-                              label="Artist"
-                              current={selectedTrack.artist}
-                              original={selectedTrack.originalArtist}
-                            />
-                            <CompareRow
-                              label="Album"
-                              current={selectedTrack.album}
-                              original={selectedTrack.originalAlbum}
-                            />
-                            <CompareRow
-                              label="Album Artist"
-                              current={selectedTrack.albumArtist}
-                              original={selectedTrack.originalAlbumArtist}
-                            />
-                            <CompareRow
-                              label="Year"
-                              current={selectedTrack.year?.toString()}
-                              original={selectedTrack.originalYear?.toString()}
-                            />
-                            <CompareRow
-                              label="Track Number"
-                              current={selectedTrack.trackNumber?.toString()}
-                              original={selectedTrack.originalTrackNumber?.toString()}
-                            />
+                        ) : (
+                          <div className="flex flex-col items-center justify-center py-12 text-center">
+                            <Check className="mb-4 size-12 text-primary" />
+                            <h3 className="font-medium">No Warnings</h3>
+                            <p className="text-sm text-muted-foreground">
+                              This track has no match warnings
+                            </p>
                           </div>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-center justify-center py-12 text-center">
-                          <RefreshCw className="mb-4 size-12 text-muted-foreground" />
-                          <h3 className="font-medium">No Original Metadata</h3>
-                          <p className="text-sm text-muted-foreground">
-                            Original metadata was not captured for this track
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </ScrollArea>
-                </TabsContent>
+                        )}
+                      </div>
+                    </ScrollArea>
+                  </TabsContent>
+                </Tabs>
+              </Card>
 
-                <TabsContent value="issues" className="flex-1 overflow-hidden m-0">
-                  <ScrollArea className="h-full">
-                    <div className="p-4">
-                      {selectedTrack?.matchWarnings && selectedTrack.matchWarnings.length > 0 ? (
-                        <div className="space-y-2">
-                          {selectedTrack.matchWarnings.map((warning, index) => (
-                            <div
-                              key={index}
-                              className="flex items-start gap-3 rounded-lg bg-amber-400/10 p-3"
-                            >
-                              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-400" />
-                              <p className="text-sm">{warning}</p>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-center justify-center py-12 text-center">
-                          <Check className="mb-4 size-12 text-primary" />
-                          <h3 className="font-medium">No Warnings</h3>
-                          <p className="text-sm text-muted-foreground">
-                            This track has no match warnings
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </ScrollArea>
-                </TabsContent>
-              </Tabs>
-
-              {/* Action Buttons */}
-              <div className="space-y-3 border-t border-border p-4">
-                {/* Reject reason input */}
-                <div>
-                  <Label htmlFor="rejectReason" className="text-xs text-muted-foreground">
-                    Reject Reason (optional)
-                  </Label>
-                  <Textarea
-                    id="rejectReason"
-                    value={rejectReason}
-                    onChange={(e) => setRejectReason(e.target.value)}
-                    placeholder="Why is this match incorrect?"
-                    className="mt-1 h-16 resize-none"
-                  />
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button onClick={handleApprove} disabled={actionLoading} className="flex-1 gap-2 sm:flex-none">
+              {/* Action Bar — always visible at the bottom of right panel */}
+              <Card className="shrink-0">
+                <div className="flex flex-wrap items-center gap-2 p-3">
+                  <Button onClick={handleApprove} disabled={actionLoading} className="gap-2">
                     {actionLoading ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
                     Approve
                   </Button>
@@ -756,9 +767,17 @@ export default function ReviewPage() {
                       </AlertDialogFooter>
                     </AlertDialogContent>
                   </AlertDialog>
+                  <div className="ml-auto flex items-center gap-2">
+                    <Input
+                      value={rejectReason}
+                      onChange={(e) => setRejectReason(e.target.value)}
+                      placeholder="Reject reason (optional)"
+                      className="h-8 w-48"
+                    />
+                  </div>
                 </div>
-              </div>
-            </Card>
+              </Card>
+            </div>
           </div>
         </div>
       </main>
