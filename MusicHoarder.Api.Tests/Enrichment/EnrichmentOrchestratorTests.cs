@@ -565,6 +565,120 @@ public class EnrichmentOrchestratorTests
         Assert.False(acoustIdCalled);
     }
 
+    [Fact]
+    public async Task ProcessNextBatch_MatchedSong_FetchesLyricsAndMarksFetched()
+    {
+        await using var db = CreateDb();
+        AddPendingSong(db, artist: "Artist", title: "Title");
+        await db.SaveChangesAsync();
+
+        var provider = new StubEnrichmentProvider("Provider1", 100,
+            canHandle: _ => true,
+            enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
+                "Artist", "Artist", "Title", null, null,
+                "mb-lyrics", null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched)));
+        var lrcLib = new StubLrcLibService(_ =>
+            Task.FromResult<LyricsResult?>(new LyricsResult("[00:00.00]Hello", "Hello", false)));
+
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider], lrcLibService: lrcLib);
+        var result = await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Equal(1, result.Enriched);
+        Assert.Equal(1, lrcLib.CallCount);
+
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
+        Assert.Equal(LyricsStatus.Fetched, updated.LyricsStatus);
+        Assert.Equal("[00:00.00]Hello", updated.SyncedLyrics);
+        Assert.Equal("Hello", updated.PlainLyrics);
+        Assert.False(updated.IsInstrumental);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatch_MatchedSong_InstrumentalLyrics_MarksInstrumental()
+    {
+        await using var db = CreateDb();
+        AddPendingSong(db, artist: "Artist", title: "Title");
+        await db.SaveChangesAsync();
+
+        var provider = new StubEnrichmentProvider("Provider1", 100,
+            canHandle: _ => true,
+            enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
+                "Artist", "Artist", "Title", null, null,
+                "mb-lyrics", null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched)));
+        var lrcLib = new StubLrcLibService(_ =>
+            Task.FromResult<LyricsResult?>(new LyricsResult("ignored", "ignored", true)));
+
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider], lrcLibService: lrcLib);
+        await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal(LyricsStatus.Instrumental, updated.LyricsStatus);
+        Assert.True(updated.IsInstrumental);
+        Assert.Null(updated.SyncedLyrics);
+        Assert.Null(updated.PlainLyrics);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatch_LyricsFetchThrows_MarksLyricsFailedButKeepsMatched()
+    {
+        await using var db = CreateDb();
+        AddPendingSong(db, artist: "Artist", title: "Title");
+        await db.SaveChangesAsync();
+
+        var provider = new StubEnrichmentProvider("Provider1", 100,
+            canHandle: _ => true,
+            enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
+                "Artist", "Artist", "Title", null, null,
+                "mb-lyrics", null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched)));
+        var lrcLib = new StubLrcLibService(_ => throw new HttpRequestException("lrc failed"));
+
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider], lrcLibService: lrcLib);
+        var result = await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Equal(1, result.Enriched);
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
+        Assert.Equal(LyricsStatus.Failed, updated.LyricsStatus);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatch_MatchedSongWithoutArtistOrTitle_SkipsLyricsFetch()
+    {
+        await using var db = CreateDb();
+        db.Songs.Add(new SongMetadata
+        {
+            SourcePath = "/source/no-tags.mp3",
+            FileName = "no-tags.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 5000,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            Artist = null,
+            Title = null,
+            Fingerprint = "fp-has-data",
+            DurationSeconds = 180,
+            EnrichmentStatus = EnrichmentStatus.Pending,
+        });
+        await db.SaveChangesAsync();
+
+        var provider = new StubEnrichmentProvider("Provider1", 100,
+            canHandle: _ => true,
+            enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
+                "", "", "", null, null,
+                "mb-lyrics", null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched)));
+        var lrcLib = new StubLrcLibService(_ =>
+            Task.FromResult<LyricsResult?>(new LyricsResult("[00:00.00]Hello", "Hello", false)));
+
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider], lrcLibService: lrcLib);
+        await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
+        Assert.Equal(LyricsStatus.NotFetched, updated.LyricsStatus);
+        Assert.Equal(0, lrcLib.CallCount);
+    }
+
     // --- Helpers ---
 
     private static SongMetadata AddPendingSong(
@@ -670,6 +784,18 @@ public class EnrichmentOrchestratorTests
     {
         public Task<LyricsResult?> FetchLyricsAsync(SongMetadata song, CancellationToken ct = default)
             => Task.FromResult<LyricsResult?>(null);
+    }
+
+    private sealed class StubLrcLibService(
+        Func<SongMetadata, Task<LyricsResult?>> handler) : ILrcLibService
+    {
+        public int CallCount { get; private set; }
+
+        public Task<LyricsResult?> FetchLyricsAsync(SongMetadata song, CancellationToken ct = default)
+        {
+            CallCount++;
+            return handler(song);
+        }
     }
 
     internal sealed class StubEnrichmentProvider(
