@@ -141,9 +141,14 @@ export default function SettingsPage() {
                           </li>
                           <li>Create a new app (or use an existing one)</li>
                           <li>
-                            Add a redirect URI matching your backend API (e.g.{" "}
-                            <code className="text-xs bg-secondary px-1 py-0.5 rounded">http://localhost:5107/api/spotify/callback</code>
-                            ) — Spotify sends the browser there after login
+                            Add a redirect URI for the API callback. Spotify does not allow{" "}
+                            <code className="text-xs bg-secondary px-1 py-0.5 rounded">localhost</code> — use loopback IP
+                            (e.g.{" "}
+                            <code className="text-xs bg-secondary px-1 py-0.5 rounded">
+                              http://127.0.0.1:5142/api/spotify/callback
+                            </code>
+                            ). Match <code className="text-xs bg-secondary px-1 py-0.5 rounded">Spotify:OAuthRedirectBaseUrl</code>{" "}
+                            in the API config.
                           </li>
                           <li>
                             After login, the API redirects you back to this app. With .NET Aspire (AppHost), that URL is set automatically. If you run the API without Aspire, set{" "}

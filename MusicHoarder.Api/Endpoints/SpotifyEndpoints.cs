@@ -10,10 +10,13 @@ public static class SpotifyEndpoints
     {
         var group = app.MapGroup("/api/spotify").WithTags("Spotify");
 
-        group.MapGet("/connect", async (HttpContext context, ISpotifyOAuthService spotifyOAuth, CancellationToken ct) =>
+        group.MapGet("/connect", async (
+                HttpContext context,
+                ISpotifyOAuthService spotifyOAuth,
+                IOptions<SpotifyOptions> spotifyOptions,
+                CancellationToken ct) =>
             {
-                var request = context.Request;
-                var redirectUri = $"{request.Scheme}://{request.Host}/api/spotify/callback";
+                var redirectUri = ResolveOAuthRedirectUri(context.Request, spotifyOptions.Value);
 
                 try
                 {
@@ -36,10 +39,10 @@ public static class SpotifyEndpoints
                 HttpContext context,
                 ISpotifyOAuthService spotifyOAuth,
                 IOptions<FrontendOptions> frontendOptions,
+                IOptions<SpotifyOptions> spotifyOptions,
                 CancellationToken ct) =>
             {
-                var request = context.Request;
-                var redirectUri = $"{request.Scheme}://{request.Host}/api/spotify/callback";
+                var redirectUri = ResolveOAuthRedirectUri(context.Request, spotifyOptions.Value);
                 var baseUrl = NormalizePublicBaseUrl(frontendOptions.Value.PublicBaseUrl);
                 var useBrowserRedirect = baseUrl.Length > 0;
 
@@ -182,6 +185,14 @@ public static class SpotifyEndpoints
         if (string.IsNullOrWhiteSpace(url))
             return string.Empty;
         return url.Trim().TrimEnd('/');
+    }
+
+    private static string ResolveOAuthRedirectUri(HttpRequest request, SpotifyOptions spotifyOptions)
+    {
+        var baseUrl = spotifyOptions.OAuthRedirectBaseUrl?.Trim().TrimEnd('/');
+        if (!string.IsNullOrEmpty(baseUrl))
+            return $"{baseUrl}/api/spotify/callback";
+        return $"{request.Scheme}://{request.Host}/api/spotify/callback";
     }
 }
 

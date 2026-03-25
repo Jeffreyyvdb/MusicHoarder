@@ -504,6 +504,16 @@ function SpotifyPageContent() {
               Link your Spotify account to browse your playlists and liked songs.
             </p>
 
+            {hasCredentials && process.env.NODE_ENV === "development" && (
+              <p className="text-muted-foreground mb-6 max-w-lg mx-auto text-left text-xs leading-relaxed">
+                Spotify does not allow <code className="rounded bg-muted px-1 py-0.5">localhost</code> in redirect
+                URIs—use loopback IP. Register{" "}
+                <code className="rounded bg-muted px-1 py-0.5">http://127.0.0.1:5142/api/spotify/callback</code> in
+                your Spotify app. If Spotify sends you to 5142 but the API uses another port, change the host/port in
+                the address bar (keep the path and query string) then press Enter.
+              </p>
+            )}
+
             {oauthBanner && (
               <div
                 className={`mb-6 rounded-lg border px-4 py-3 text-sm text-left ${

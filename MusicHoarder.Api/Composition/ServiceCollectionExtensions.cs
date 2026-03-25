@@ -25,6 +25,10 @@ public static class ServiceCollectionExtensions
             .AddOptions<FrontendOptions>()
             .BindConfiguration(FrontendOptions.SectionName);
 
+        services
+            .AddOptions<SpotifyOptions>()
+            .BindConfiguration(SpotifyOptions.SectionName);
+
         services.AddSingleton<JobManager>();
         services.AddSingleton<ScanProgressTracker>();
         services.AddSingleton<FingerprintProgressTracker>();
