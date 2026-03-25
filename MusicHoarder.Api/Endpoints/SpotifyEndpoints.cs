@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Spotify;
 
 namespace MusicHoarder.Api.Endpoints;
@@ -8,10 +10,13 @@ public static class SpotifyEndpoints
     {
         var group = app.MapGroup("/api/spotify").WithTags("Spotify");
 
-        group.MapGet("/connect", async (HttpContext context, ISpotifyOAuthService spotifyOAuth, CancellationToken ct) =>
+        group.MapGet("/connect", async (
+                HttpContext context,
+                ISpotifyOAuthService spotifyOAuth,
+                IOptions<SpotifyOptions> spotifyOptions,
+                CancellationToken ct) =>
             {
-                var request = context.Request;
-                var redirectUri = $"{request.Scheme}://{request.Host}/api/spotify/callback";
+                var redirectUri = ResolveOAuthRedirectUri(context.Request, spotifyOptions.Value);
 
                 try
                 {
@@ -26,14 +31,48 @@ public static class SpotifyEndpoints
             .WithName("SpotifyConnect")
             .WithSummary("Returns the Spotify authorization URL to initiate the OAuth flow.");
 
-        group.MapGet("/callback", async (string code, string? state, HttpContext context, ISpotifyOAuthService spotifyOAuth, CancellationToken ct) =>
+        group.MapGet("/callback", async (
+                string? code,
+                string? state,
+                string? error,
+                string? error_description,
+                HttpContext context,
+                ISpotifyOAuthService spotifyOAuth,
+                IOptions<FrontendOptions> frontendOptions,
+                IOptions<SpotifyOptions> spotifyOptions,
+                CancellationToken ct) =>
             {
-                var request = context.Request;
-                var redirectUri = $"{request.Scheme}://{request.Host}/api/spotify/callback";
+                var redirectUri = ResolveOAuthRedirectUri(context.Request, spotifyOptions.Value);
+                var baseUrl = NormalizePublicBaseUrl(frontendOptions.Value.PublicBaseUrl);
+                var useBrowserRedirect = baseUrl.Length > 0;
+
+                if (!string.IsNullOrEmpty(error))
+                {
+                    var msg = error_description ?? error;
+                    if (useBrowserRedirect)
+                        return Results.Redirect($"{baseUrl}/spotify?spotify_error={Uri.EscapeDataString(msg)}");
+                    return Results.BadRequest(new { message = msg });
+                }
+
+                if (string.IsNullOrEmpty(code))
+                {
+                    const string missing = "Authorization code missing.";
+                    if (useBrowserRedirect)
+                        return Results.Redirect($"{baseUrl}/spotify?spotify_error={Uri.EscapeDataString(missing)}");
+                    return Results.BadRequest(new { message = missing });
+                }
 
                 var result = await spotifyOAuth.ExchangeCodeAsync(code, redirectUri, ct);
                 if (!result.Success)
+                {
+                    const string genericFail = "Could not complete Spotify connection.";
+                    if (useBrowserRedirect)
+                        return Results.Redirect($"{baseUrl}/spotify?spotify_error={Uri.EscapeDataString(genericFail)}");
                     return Results.BadRequest(new { message = result.Error });
+                }
+
+                if (useBrowserRedirect)
+                    return Results.Redirect($"{baseUrl}/spotify?spotify_connected=1");
 
                 return Results.Ok(new { message = "Spotify account connected successfully." });
             })
@@ -139,6 +178,21 @@ public static class SpotifyEndpoints
             .WithSummary("Returns paginated tracks for a specific Spotify playlist.");
 
         return app;
+    }
+
+    private static string NormalizePublicBaseUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return string.Empty;
+        return url.Trim().TrimEnd('/');
+    }
+
+    private static string ResolveOAuthRedirectUri(HttpRequest request, SpotifyOptions spotifyOptions)
+    {
+        var baseUrl = spotifyOptions.OAuthRedirectBaseUrl?.Trim().TrimEnd('/');
+        if (!string.IsNullOrEmpty(baseUrl))
+            return $"{baseUrl}/api/spotify/callback";
+        return $"{request.Scheme}://{request.Host}/api/spotify/callback";
     }
 }
 
