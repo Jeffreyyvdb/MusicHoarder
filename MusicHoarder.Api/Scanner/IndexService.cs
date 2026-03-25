@@ -260,6 +260,7 @@ public class IndexService(
                 existing.DurationSeconds = metadata.DurationSeconds;
                 existing.DurationMs = metadata.DurationMs;
                 existing.Fingerprint = metadata.Fingerprint;
+                existing.Bitrate = metadata.Bitrate;
                 existing.IndexedAtUtc = metadata.IndexedAtUtc;
                 existing.DeletedAtUtc = null;
 
