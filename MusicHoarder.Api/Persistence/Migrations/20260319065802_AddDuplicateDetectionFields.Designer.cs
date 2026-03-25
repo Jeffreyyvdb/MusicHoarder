@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MusicHoarder.Api.Persistence;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MusicHoarder.Api.Persistence.Migrations
 {
     [DbContext(typeof(MusicHoarderDbContext))]
-    partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260319065802_AddDuplicateDetectionFields")]
+    partial class AddDuplicateDetectionFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -209,37 +212,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.HasIndex("DeletedAtUtc", "AlbumArtist", "Album", "Year", "Id");
 
                     b.ToTable("Songs");
-                });
-
-            modelBuilder.Entity("MusicHoarder.Api.Persistence.SpotifySettings", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("AccessToken")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ClientId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ClientSecret")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("ConnectedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("RefreshToken")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("TokenExpiresAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("SpotifySettings");
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.SongMetadata", b =>
