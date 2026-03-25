@@ -67,8 +67,9 @@ const TrackListItem = memo(function TrackListItem({
 }) {
   return (
     <button
+      type="button"
       onClick={onSelect}
-      className={`flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors ${
+      className={`flex w-full min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-lg p-3 text-left transition-colors ${
         isSelected
           ? "bg-primary/10 border border-primary/20"
           : "hover:bg-secondary"
@@ -77,7 +78,7 @@ const TrackListItem = memo(function TrackListItem({
       <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary">
         <Music className="size-5 text-muted-foreground" />
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 overflow-hidden">
         <p className="truncate text-sm font-medium">
           {track.title || track.fileName || "Unknown"}
         </p>
@@ -110,12 +111,12 @@ const TrackList = memo(function TrackList({
   onSelect: (index: number) => void
 }) {
   return (
-    <Card className="flex min-h-0 flex-col overflow-hidden">
+    <Card className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       <div className="shrink-0 border-b border-border p-3">
         <h2 className="font-medium">Pending Review ({tracks.length})</h2>
       </div>
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-1 p-2">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
+        <div className="w-full min-w-0 space-y-1 p-2">
           {tracks.map((track, index) => (
             <TrackListItem
               key={track.id}
@@ -125,7 +126,7 @@ const TrackList = memo(function TrackList({
             />
           ))}
         </div>
-      </ScrollArea>
+      </div>
     </Card>
   )
 })
@@ -498,13 +499,15 @@ export default function ReviewPage() {
           )}
 
           {/* Main Content — fills remaining height */}
-          <div className="grid min-h-0 flex-1 gap-4 pb-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+          <div className="grid min-h-0 min-w-0 flex-1 gap-4 pb-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
             {/* Left Panel - Track List (memoised — won't re-render on metadata edits) */}
-            <TrackList
-              tracks={tracks}
-              selectedIndex={selectedIndex}
-              onSelect={handleTrackSelect}
-            />
+            <div className="flex min-h-0 h-full min-w-0 flex-col overflow-hidden">
+              <TrackList
+                tracks={tracks}
+                selectedIndex={selectedIndex}
+                onSelect={handleTrackSelect}
+              />
+            </div>
 
             {/* Right Panel - Edit Form + Action Bar */}
             <div className="flex min-h-0 flex-col gap-4">
