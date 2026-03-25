@@ -37,8 +37,8 @@ export default function SettingsPage() {
       setIsLoading(true)
       try {
         const [creds, status] = await Promise.all([
-          fetchSpotifyCredentials(),
-          fetchSpotifyStatus(),
+          fetchSpotifyCredentials().catch(() => ({ clientId: null, hasClientSecret: false }) as SpotifyCredentialsResponse),
+          fetchSpotifyStatus().catch(() => ({ connected: false, hasCredentials: false, tokenExpired: false }) as SpotifyStatusResponse),
         ])
         setSavedCredentials(creds)
         setSpotifyStatus(status)
@@ -140,7 +140,7 @@ export default function SettingsPage() {
                             </a>
                           </li>
                           <li>Create a new app (or use an existing one)</li>
-                          <li>Add a redirect URI: <code className="text-xs bg-secondary px-1 py-0.5 rounded">{typeof window !== "undefined" ? `${window.location.origin}/api/mh/api/spotify/callback` : "http://localhost:3000/api/mh/api/spotify/callback"}</code></li>
+                          <li>Add a redirect URI matching your backend (e.g. <code className="text-xs bg-secondary px-1 py-0.5 rounded">http://localhost:5107/api/spotify/callback</code>)</li>
                           <li>Copy the Client ID and Client Secret from the app settings</li>
                         </ol>
                       </div>
