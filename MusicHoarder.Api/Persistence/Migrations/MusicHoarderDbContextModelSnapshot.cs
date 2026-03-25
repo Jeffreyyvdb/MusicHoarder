@@ -211,6 +211,16 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.ToTable("Songs");
                 });
 
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.SongMetadata", b =>
+                {
+                    b.HasOne("MusicHoarder.Api.Persistence.SongMetadata", "DuplicateOf")
+                        .WithMany()
+                        .HasForeignKey("DuplicateOfId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("DuplicateOf");
+                });
+
             modelBuilder.Entity("MusicHoarder.Api.Persistence.SpotifySettings", b =>
                 {
                     b.Property<int>("Id")
@@ -240,16 +250,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("SpotifySettings");
-                });
-
-            modelBuilder.Entity("MusicHoarder.Api.Persistence.SongMetadata", b =>
-                {
-                    b.HasOne("MusicHoarder.Api.Persistence.SongMetadata", "DuplicateOf")
-                        .WithMany()
-                        .HasForeignKey("DuplicateOfId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("DuplicateOf");
                 });
 #pragma warning restore 612, 618
         }
