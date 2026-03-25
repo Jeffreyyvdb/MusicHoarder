@@ -22,6 +22,7 @@ public static class WebApplicationExtensions
         app.MapEnrichmentEndpoints();
         app.MapDashboardEndpoints();
         app.MapSongsEndpoints();
+        app.MapSpotifyEndpoints();
         return app;
     }
 }
