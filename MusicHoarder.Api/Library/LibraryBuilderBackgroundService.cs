@@ -111,6 +111,7 @@ public class LibraryBuilderBackgroundService(
         return await db.Songs
             .AsNoTracking()
             .Where(s => s.DeletedAtUtc == null)
+            .Where(s => !s.IsDuplicate)
             .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched)
             .Where(s => s.LibraryBuildStatus != LibraryBuildStatus.Done
                 || s.DestinationPath == null
