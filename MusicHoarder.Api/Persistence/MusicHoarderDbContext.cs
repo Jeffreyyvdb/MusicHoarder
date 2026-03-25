@@ -4,6 +4,7 @@ namespace MusicHoarder.Api.Persistence;
 public class MusicHoarderDbContext(DbContextOptions options) : DbContext(options)
 {
     public DbSet<SongMetadata> Songs { get; set; }
+    public DbSet<SpotifySettings> SpotifySettings { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -18,6 +19,11 @@ public class MusicHoarderDbContext(DbContextOptions options) : DbContext(options
             entity.HasIndex(e => new { e.DeletedAtUtc, e.EnrichmentStatus, e.LibraryBuildStatus, e.Id });
             entity.HasIndex(e => new { e.DeletedAtUtc, e.AlbumArtist, e.Album, e.Year, e.Id });
             entity.HasIndex(e => e.DestinationPath);
+        });
+
+        modelBuilder.Entity<SpotifySettings>(entity =>
+        {
+            entity.HasKey(e => e.Id);
         });
     }
 }
