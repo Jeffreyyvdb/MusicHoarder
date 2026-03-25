@@ -81,6 +81,63 @@ public static class SpotifyEndpoints
             .WithName("GetSpotifyCredentials")
             .WithSummary("Returns the configured Spotify client ID and whether a secret is set.");
 
+        group.MapGet("/liked-songs", async (int? offset, int? limit, ISpotifyApiService spotifyApi, CancellationToken ct) =>
+            {
+                try
+                {
+                    var result = await spotifyApi.GetLikedSongsAsync(offset ?? 0, limit ?? 50, ct);
+                    return Results.Ok(result);
+                }
+                catch (SpotifyNotConnectedException)
+                {
+                    return Results.Json(new { error = "spotify_not_connected" }, statusCode: 401);
+                }
+                catch (SpotifyRateLimitException)
+                {
+                    return Results.Json(new { error = "rate_limit_exceeded" }, statusCode: 429);
+                }
+            })
+            .WithName("GetSpotifyLikedSongs")
+            .WithSummary("Returns paginated liked songs from the user's Spotify library.");
+
+        group.MapGet("/playlists", async (ISpotifyApiService spotifyApi, CancellationToken ct) =>
+            {
+                try
+                {
+                    var result = await spotifyApi.GetPlaylistsAsync(ct);
+                    return Results.Ok(result);
+                }
+                catch (SpotifyNotConnectedException)
+                {
+                    return Results.Json(new { error = "spotify_not_connected" }, statusCode: 401);
+                }
+                catch (SpotifyRateLimitException)
+                {
+                    return Results.Json(new { error = "rate_limit_exceeded" }, statusCode: 429);
+                }
+            })
+            .WithName("GetSpotifyPlaylists")
+            .WithSummary("Returns all user playlists (owned and followed) from Spotify.");
+
+        group.MapGet("/playlists/{playlistId}/tracks", async (string playlistId, int? offset, int? limit, ISpotifyApiService spotifyApi, CancellationToken ct) =>
+            {
+                try
+                {
+                    var result = await spotifyApi.GetPlaylistTracksAsync(playlistId, offset ?? 0, limit ?? 50, ct);
+                    return Results.Ok(result);
+                }
+                catch (SpotifyNotConnectedException)
+                {
+                    return Results.Json(new { error = "spotify_not_connected" }, statusCode: 401);
+                }
+                catch (SpotifyRateLimitException)
+                {
+                    return Results.Json(new { error = "rate_limit_exceeded" }, statusCode: 429);
+                }
+            })
+            .WithName("GetSpotifyPlaylistTracks")
+            .WithSummary("Returns paginated tracks for a specific Spotify playlist.");
+
         return app;
     }
 }
