@@ -363,13 +363,14 @@ export default function SpotifyPage() {
     setError(null)
     try {
       const [statusResult, credsResult] = await Promise.all([
-        fetchSpotifyStatus(),
-        fetchSpotifyCredentials(),
+        fetchSpotifyStatus().catch(() => ({ connected: false, hasCredentials: false, tokenExpired: false }) as SpotifyStatusResponse),
+        fetchSpotifyCredentials().catch(() => ({ clientId: null, hasClientSecret: false }) as SpotifyCredentialsResponse),
       ])
       setStatus(statusResult)
       setCredentials(credsResult)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load Spotify status")
+    } catch {
+      setStatus({ connected: false, hasCredentials: false, tokenExpired: false })
+      setCredentials({ clientId: null, hasClientSecret: false })
     } finally {
       setIsLoadingStatus(false)
     }
