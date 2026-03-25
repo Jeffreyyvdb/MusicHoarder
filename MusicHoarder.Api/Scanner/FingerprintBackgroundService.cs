@@ -11,6 +11,7 @@ public class FingerprintBackgroundService(
     JobManager jobManager,
     FingerprintProgressTracker progressTracker,
     IFpcalcService fpcalcService,
+    IDuplicateDetectionService duplicateDetectionService,
     IOptions<MusicEnricherOptions> options,
     ILogger<FingerprintBackgroundService> logger) : BackgroundService
 {
@@ -79,6 +80,20 @@ public class FingerprintBackgroundService(
 
                 progressTracker.CompleteRun(jobId);
                 var wasCancelled = ct.IsCancellationRequested && !stoppingToken.IsCancellationRequested;
+
+                if (!wasCancelled)
+                {
+                    try
+                    {
+                        logger.LogInformation("Running duplicate detection after fingerprint run {RunId}", jobId);
+                        await duplicateDetectionService.DetectDuplicatesAsync(stoppingToken);
+                    }
+                    catch (Exception dedupEx) when (dedupEx is not OperationCanceledException)
+                    {
+                        logger.LogWarning(dedupEx, "Duplicate detection failed after fingerprint run {RunId}", jobId);
+                    }
+                }
+
                 jobManager.SignalComplete(jobId, wasCancelled);
 
                 if (wasCancelled)

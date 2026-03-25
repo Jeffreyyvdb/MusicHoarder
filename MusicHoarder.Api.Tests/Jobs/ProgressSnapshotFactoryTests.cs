@@ -8,6 +8,85 @@ namespace MusicHoarder.Api.Tests.Jobs;
 public class ProgressSnapshotFactoryTests
 {
     [Fact]
+    public void Create_NoRunsStarted_ReturnsIdleCompleteAndZeroCounts()
+    {
+        var jobManager = new JobManager();
+        var scanTracker = new ScanProgressTracker();
+        var fingerprintTracker = new FingerprintProgressTracker();
+        var enrichmentTracker = new EnrichmentProgressTracker();
+        var buildTracker = new LibraryBuilderProgressTracker();
+
+        var snapshot = ProgressSnapshotFactory.Create(
+            jobManager,
+            scanTracker,
+            fingerprintTracker,
+            enrichmentTracker,
+            buildTracker);
+
+        Assert.Equal("Idle", snapshot.Status);
+        Assert.True(snapshot.IsComplete);
+        Assert.Equal(0, snapshot.Discovered);
+        Assert.Equal(0, snapshot.Scanned);
+        Assert.Equal(0, snapshot.Fingerprinted);
+        Assert.Equal(0, snapshot.Enriched);
+        Assert.Equal(0, snapshot.Built);
+        Assert.Equal(0, snapshot.Failed);
+        Assert.Equal("Idle", snapshot.Scan.Status);
+        Assert.Equal("Idle", snapshot.Fingerprint.Status);
+        Assert.Equal("Idle", snapshot.Enrich.Status);
+        Assert.Equal("Idle", snapshot.Build.Status);
+    }
+
+    [Fact]
+    public void Create_NoRunningJobs_ReturnsIdleAndComplete()
+    {
+        var manager = new JobManager();
+        var scanTracker = new ScanProgressTracker();
+        var fingerprintTracker = new FingerprintProgressTracker();
+        var enrichmentTracker = new EnrichmentProgressTracker();
+        var buildTracker = new LibraryBuilderProgressTracker();
+
+        var runId = Guid.NewGuid();
+        scanTracker.Start(runId, totalFiles: 4);
+        scanTracker.IncrementChanged();
+        scanTracker.Complete(runId);
+
+        var snapshot = ProgressSnapshotFactory.Create(
+            manager,
+            scanTracker,
+            fingerprintTracker,
+            enrichmentTracker,
+            buildTracker);
+
+        Assert.Equal("Idle", snapshot.Status);
+        Assert.True(snapshot.IsComplete);
+        Assert.Equal(4, snapshot.Discovered);
+        Assert.Equal(1, snapshot.Scanned);
+    }
+
+    [Fact]
+    public void Create_MultipleRunningSteps_ReturnsCompositeRunningStatus()
+    {
+        var jobManager = new JobManager();
+        Assert.True(jobManager.TryStartJob(JobType.Scan, out _, out _));
+        Assert.True(jobManager.TryStartJob(JobType.Build, out _, out _));
+
+        var snapshot = ProgressSnapshotFactory.Create(
+            jobManager,
+            new ScanProgressTracker(),
+            new FingerprintProgressTracker(),
+            new EnrichmentProgressTracker(),
+            new LibraryBuilderProgressTracker());
+
+        Assert.Equal("Scanning, Building", snapshot.Status);
+        Assert.False(snapshot.IsComplete);
+        Assert.Equal("Running", snapshot.Scan.Status);
+        Assert.Equal("Running", snapshot.Build.Status);
+        Assert.Equal("Idle", snapshot.Fingerprint.Status);
+        Assert.Equal("Idle", snapshot.Enrich.Status);
+    }
+
+    [Fact]
     public void Create_MultipleRunningSteps_BuildsCompositeStatusAndAggregatesCounters()
     {
         var manager = new JobManager();
@@ -55,44 +134,80 @@ public class ProgressSnapshotFactoryTests
     }
 
     [Fact]
-    public void Create_NoRunningJobs_ReturnsIdleAndComplete()
+    public void Create_AggregatesProgressAndFailureCountersAcrossTrackers()
     {
-        var manager = new JobManager();
+        var jobManager = new JobManager();
         var scanTracker = new ScanProgressTracker();
         var fingerprintTracker = new FingerprintProgressTracker();
         var enrichmentTracker = new EnrichmentProgressTracker();
         var buildTracker = new LibraryBuilderProgressTracker();
 
-        var runId = Guid.NewGuid();
-        scanTracker.Start(runId, totalFiles: 4);
+        var scanId = Guid.NewGuid();
+        scanTracker.Start(scanId, totalFiles: 10);
+        scanTracker.IncrementNew();
         scanTracker.IncrementChanged();
-        scanTracker.Complete(runId);
+        scanTracker.IncrementFailed();
+        scanTracker.AddSkipped(3);
+
+        var fpRunId = Guid.NewGuid();
+        fingerprintTracker.StartRun(fpRunId, totalTracks: 5);
+        fingerprintTracker.IncrementFingerprinted();
+        fingerprintTracker.IncrementFingerprinted();
+        fingerprintTracker.IncrementFailed();
+
+        var enrichRunId = Guid.NewGuid();
+        enrichmentTracker.StartCycle(enrichRunId, totalTracks: 4);
+        enrichmentTracker.IncrementEnriched();
+        enrichmentTracker.IncrementNeedsReview();
+        enrichmentTracker.IncrementFailed();
+
+        var buildRunId = Guid.NewGuid();
+        buildTracker.StartRun(buildRunId, totalTracks: 6);
+        buildTracker.IncrementBuilt();
+        buildTracker.IncrementBuilt();
+        buildTracker.IncrementFailed();
+        buildTracker.IncrementFailed();
 
         var snapshot = ProgressSnapshotFactory.Create(
-            manager,
+            jobManager,
             scanTracker,
             fingerprintTracker,
             enrichmentTracker,
             buildTracker);
 
-        Assert.Equal("Idle", snapshot.Status);
-        Assert.True(snapshot.IsComplete);
-        Assert.Equal(4, snapshot.Discovered);
-        Assert.Equal(1, snapshot.Scanned);
+        Assert.Equal(10, snapshot.Discovered);
+        Assert.Equal(6, snapshot.Scanned); // processed (3) + skipped (3)
+        Assert.Equal(2, snapshot.Fingerprinted);
+        Assert.Equal(1, snapshot.Enriched);
+        Assert.Equal(2, snapshot.Built);
+        Assert.Equal(5, snapshot.Failed); // scan 1 + fp 1 + enrich 1 + build 2
     }
 
     [Theory]
-    [InlineData("scan", true, JobType.Scan)]
-    [InlineData("  fingerprint  ", true, JobType.Fingerprint)]
-    [InlineData("ENRICH", true, JobType.Enrich)]
-    [InlineData("Build", true, JobType.Build)]
-    [InlineData("unknown", false, JobType.None)]
-    [InlineData(" ", false, JobType.None)]
-    public void TryParseJobType_HandlesCasingWhitespaceAndInvalidValues(string input, bool expected, JobType expectedType)
+    [InlineData("scan", JobType.Scan)]
+    [InlineData("  SCAN ", JobType.Scan)]
+    [InlineData("fingerprint", JobType.Fingerprint)]
+    [InlineData(" EnRiCh ", JobType.Enrich)]
+    [InlineData("BUILD", JobType.Build)]
+    public void TryParseJobType_ValidInput_ReturnsExpectedType(string input, JobType expected)
     {
         var parsed = ProgressSnapshotFactory.TryParseJobType(input, out var jobType);
 
-        Assert.Equal(expected, parsed);
-        Assert.Equal(expectedType, jobType);
+        Assert.True(parsed);
+        Assert.Equal(expected, jobType);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    [InlineData("index")]
+    [InlineData("scan_all")]
+    [InlineData("unknown")]
+    public void TryParseJobType_InvalidInput_ReturnsFalseAndNone(string input)
+    {
+        var parsed = ProgressSnapshotFactory.TryParseJobType(input, out var jobType);
+
+        Assert.False(parsed);
+        Assert.Equal(JobType.None, jobType);
     }
 }
