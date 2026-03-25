@@ -928,6 +928,97 @@ export async function softDeleteSong(songId: number): Promise<SoftDeleteResponse
   })
 }
 
+// ── Spotify API ───────────────────────────────────────────────────────────────
+
+export interface SpotifyStatusResponse {
+  connected: boolean
+  connectedAt?: string | null
+  hasCredentials: boolean
+  tokenExpired: boolean
+}
+
+export interface SpotifyConnectResponse {
+  authorizationUrl: string
+  state: string
+}
+
+export interface SpotifyCredentialsResponse {
+  clientId?: string | null
+  hasClientSecret: boolean
+}
+
+export interface SpotifyApiTrack {
+  spotifyId: string
+  title: string
+  artist: string
+  album: string
+  albumArt?: string | null
+  durationMs: number
+  addedAt: string
+}
+
+export interface SpotifyLikedSongsApiResponse {
+  total: number
+  offset: number
+  limit: number
+  items: SpotifyApiTrack[]
+}
+
+export interface SpotifyApiPlaylist {
+  spotifyId: string
+  name: string
+  description?: string | null
+  imageUrl?: string | null
+  trackCount: number
+  ownerName?: string | null
+}
+
+export interface SpotifyPlaylistsApiResponse {
+  items: SpotifyApiPlaylist[]
+}
+
+export interface SpotifyPlaylistTracksApiResponse {
+  total: number
+  offset: number
+  limit: number
+  items: SpotifyApiTrack[]
+}
+
+export async function fetchSpotifyStatus(): Promise<SpotifyStatusResponse> {
+  return requestJson<SpotifyStatusResponse>("/api/spotify/status")
+}
+
+export async function fetchSpotifyConnectUrl(): Promise<SpotifyConnectResponse> {
+  return requestJson<SpotifyConnectResponse>("/api/spotify/connect")
+}
+
+export async function disconnectSpotify(): Promise<{ message: string }> {
+  return requestJson<{ message: string }>("/api/spotify/disconnect", { method: "DELETE" })
+}
+
+export async function fetchSpotifyCredentials(): Promise<SpotifyCredentialsResponse> {
+  return requestJson<SpotifyCredentialsResponse>("/api/spotify/credentials")
+}
+
+export async function saveSpotifyCredentials(clientId: string, clientSecret: string): Promise<{ message: string }> {
+  return requestJson<{ message: string }>("/api/spotify/credentials", {
+    method: "PUT",
+    body: JSON.stringify({ clientId, clientSecret }),
+  })
+}
+
+export async function fetchSpotifyLikedSongs(offset = 0, limit = 50): Promise<SpotifyLikedSongsApiResponse> {
+  return requestJson<SpotifyLikedSongsApiResponse>(`/api/spotify/liked-songs?offset=${offset}&limit=${limit}`)
+}
+
+export async function fetchSpotifyPlaylists(): Promise<SpotifyPlaylistsApiResponse> {
+  return requestJson<SpotifyPlaylistsApiResponse>("/api/spotify/playlists")
+}
+
+export async function fetchSpotifyPlaylistTracks(playlistId: string, offset = 0, limit = 50): Promise<SpotifyPlaylistTracksApiResponse> {
+  return requestJson<SpotifyPlaylistTracksApiResponse>(`/api/spotify/playlists/${playlistId}/tracks?offset=${offset}&limit=${limit}`)
+}
+
 export async function fetchReviewTracks(): Promise<ApiSong[]> {
   if (isDemoMode) {
     const demoSongs = buildDemoSongs()
