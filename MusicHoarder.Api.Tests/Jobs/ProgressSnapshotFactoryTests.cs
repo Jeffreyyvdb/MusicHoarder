@@ -65,6 +65,26 @@ public class ProgressSnapshotFactoryTests
     }
 
     [Fact]
+    public void Create_WhenStepPausedWhileIdle_ShowsPausedStepAndIdleOverallStatus()
+    {
+        var manager = new JobManager();
+        var scanTracker = new ScanProgressTracker();
+        var fpTracker = new FingerprintProgressTracker();
+        var enrichmentTracker = new EnrichmentProgressTracker();
+        var buildTracker = new LibraryBuilderProgressTracker();
+
+        manager.PauseStep(JobType.Build);
+
+        var snapshot = ProgressSnapshotFactory.Create(
+            manager, scanTracker, fpTracker, enrichmentTracker, buildTracker);
+
+        Assert.Equal("Idle", snapshot.Status);
+        Assert.True(snapshot.IsComplete);
+        Assert.Equal("Paused", snapshot.Build.Status);
+        Assert.True(snapshot.Build.IsPaused);
+    }
+
+    [Fact]
     public void Create_MultipleRunningSteps_ReturnsCompositeRunningStatus()
     {
         var jobManager = new JobManager();
@@ -203,6 +223,7 @@ public class ProgressSnapshotFactoryTests
     [InlineData("index")]
     [InlineData("scan_all")]
     [InlineData("unknown")]
+    [InlineData("lyrics")]
     public void TryParseJobType_InvalidInput_ReturnsFalseAndNone(string input)
     {
         var parsed = ProgressSnapshotFactory.TryParseJobType(input, out var jobType);
