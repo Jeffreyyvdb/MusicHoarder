@@ -33,6 +33,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IEnrichmentProvider, TrackerEnrichmentProvider>();
         services.AddSingleton<IEnrichmentOrchestrator, EnrichmentOrchestrator>();
         services.AddSingleton<IDestinationPathResolver, DestinationPathResolver>();
+        services.AddSingleton<IDuplicateDetectionService, DuplicateDetectionService>();
         services.AddScoped<ILibraryTagWriter, TagLibLibraryTagWriter>();
         services.AddScoped<ILibraryBuilderService, LibraryBuilderService>();
 
