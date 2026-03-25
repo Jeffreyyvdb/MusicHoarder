@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Music, LayoutDashboard, FolderOpen, FileWarning, Users, Music2 } from "lucide-react"
+import { Music, LayoutDashboard, FolderOpen, FileWarning, Users, Music2, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ThemeToggle } from "@/components/theme-toggle"
 
@@ -12,6 +12,7 @@ const navItems = [
   { href: "/artists", label: "Artists", icon: Users },
   { href: "/spotify", label: "Spotify", icon: Music2 },
   { href: "/review", label: "Review", icon: FileWarning },
+  { href: "/settings", label: "Settings", icon: Settings },
 ]
 
 export function AppHeader() {
