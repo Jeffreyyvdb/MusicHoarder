@@ -7,6 +7,7 @@ using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Scanner;
+using MusicHoarder.Api.Spotify;
 
 namespace MusicHoarder.Api.Composition;
 
@@ -69,6 +70,15 @@ public static class ServiceCollectionExtensions
             var logger = sp.GetRequiredService<ILogger<LrcLibService>>();
             return new LrcLibService(httpClient, logger);
         });
+
+        services.AddSingleton<ISpotifyOAuthService>(sp =>
+        {
+            var httpClient = new HttpClient();
+            var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
+            var logger = sp.GetRequiredService<ILogger<SpotifyOAuthService>>();
+            return new SpotifyOAuthService(scopeFactory, httpClient, logger);
+        });
+        services.AddHostedService<SpotifyTokenRefreshService>();
 
         return services;
     }
