@@ -659,80 +659,94 @@ public class EnrichmentOrchestratorTests
     }
 
     [Fact]
-    public async Task ProcessNextBatch_MatchedSong_FetchesLyricsAndMarksFetched()
+    public async Task ProcessNextBatch_MatchedSong_LyricsFound_SetsFetchedLyricsState()
     {
         await using var db = CreateDb();
         AddPendingSong(db, artist: "Artist", title: "Title");
         await db.SaveChangesAsync();
 
-        var provider = new StubEnrichmentProvider("Provider1", 100,
-            canHandle: _ => true,
-            enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
-                "Artist", "Artist", "Title", null, null,
-                "mb-lyrics", null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched)));
-        var lrcLib = new StubLrcLibService(_ =>
-            Task.FromResult<LyricsResult?>(new LyricsResult("[00:00.00]Hello", "Hello", false)));
+        var acoustId = new StubAcoustIdService(_ => Task.FromResult<AcoustIdMatch?>(
+            new AcoustIdMatch("mb-lyrics", "Title", "Artist", "Artist", 0.95f, 240_000)));
+        var lrc = new StubLrcLibService(_ => Task.FromResult<LyricsResult?>(
+            new LyricsResult("[00:01.00]Synced line", "Plain line", false)));
+        var orchestrator = CreateOrchestrator(db, acoustId, lrc);
 
-        var orchestrator = CreateOrchestratorWithProviders(db, [provider], lrcLibService: lrcLib);
-        var result = await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
-
-        Assert.Equal(1, result.Enriched);
-        Assert.Equal(1, lrcLib.CallCount);
-
+        await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
         var updated = await db.Songs.SingleAsync();
-        Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
+
         Assert.Equal(LyricsStatus.Fetched, updated.LyricsStatus);
-        Assert.Equal("[00:00.00]Hello", updated.SyncedLyrics);
-        Assert.Equal("Hello", updated.PlainLyrics);
+        Assert.Equal("[00:01.00]Synced line", updated.SyncedLyrics);
+        Assert.Equal("Plain line", updated.PlainLyrics);
         Assert.False(updated.IsInstrumental);
+        Assert.Equal(1, lrc.CallCount);
     }
 
     [Fact]
-    public async Task ProcessNextBatch_MatchedSong_InstrumentalLyrics_MarksInstrumental()
+    public async Task ProcessNextBatch_MatchedSong_InstrumentalLyrics_SetsInstrumentalState()
     {
         await using var db = CreateDb();
         AddPendingSong(db, artist: "Artist", title: "Title");
         await db.SaveChangesAsync();
 
-        var provider = new StubEnrichmentProvider("Provider1", 100,
-            canHandle: _ => true,
-            enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
-                "Artist", "Artist", "Title", null, null,
-                "mb-lyrics", null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched)));
-        var lrcLib = new StubLrcLibService(_ =>
-            Task.FromResult<LyricsResult?>(new LyricsResult("ignored", "ignored", true)));
+        var acoustId = new StubAcoustIdService(_ => Task.FromResult<AcoustIdMatch?>(
+            new AcoustIdMatch("mb-inst", "Title", "Artist", "Artist", 0.95f, 240_000)));
+        var lrc = new StubLrcLibService(_ => Task.FromResult<LyricsResult?>(
+            new LyricsResult("ignored synced", "ignored plain", true)));
+        var orchestrator = CreateOrchestrator(db, acoustId, lrc);
 
-        var orchestrator = CreateOrchestratorWithProviders(db, [provider], lrcLibService: lrcLib);
         await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
-
         var updated = await db.Songs.SingleAsync();
         Assert.Equal(LyricsStatus.Instrumental, updated.LyricsStatus);
         Assert.True(updated.IsInstrumental);
         Assert.Null(updated.SyncedLyrics);
         Assert.Null(updated.PlainLyrics);
+        Assert.Equal(1, lrc.CallCount);
     }
 
     [Fact]
-    public async Task ProcessNextBatch_LyricsFetchThrows_MarksLyricsFailedButKeepsMatched()
+    public async Task ProcessNextBatch_MatchedSong_LyricsFetchThrows_MarksLyricsFailedButKeepsMatch()
     {
         await using var db = CreateDb();
         AddPendingSong(db, artist: "Artist", title: "Title");
         await db.SaveChangesAsync();
 
-        var provider = new StubEnrichmentProvider("Provider1", 100,
-            canHandle: _ => true,
-            enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
-                "Artist", "Artist", "Title", null, null,
-                "mb-lyrics", null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched)));
-        var lrcLib = new StubLrcLibService(_ => throw new HttpRequestException("lrc failed"));
+        var acoustId = new StubAcoustIdService(_ => Task.FromResult<AcoustIdMatch?>(
+            new AcoustIdMatch("mb-fail", "Title", "Artist", "Artist", 0.95f, 240_000)));
+        var lrc = new StubLrcLibService(_ => throw new HttpRequestException("lyrics timeout"));
+        var orchestrator = CreateOrchestrator(db, acoustId, lrc);
 
-        var orchestrator = CreateOrchestratorWithProviders(db, [provider], lrcLibService: lrcLib);
         var result = await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+        var updated = await db.Songs.SingleAsync();
 
         Assert.Equal(1, result.Enriched);
-        var updated = await db.Songs.SingleAsync();
         Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
+        Assert.Equal("AcoustID", updated.MatchedBy);
         Assert.Equal(LyricsStatus.Failed, updated.LyricsStatus);
+        Assert.Equal(1, lrc.CallCount);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatch_MatchedSong_AlreadyHasLyrics_DoesNotRefetchLyrics()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Artist", title: "Title");
+        song.LyricsStatus = LyricsStatus.Fetched;
+        song.PlainLyrics = "Existing plain";
+        await db.SaveChangesAsync();
+
+        var acoustId = new StubAcoustIdService(_ => Task.FromResult<AcoustIdMatch?>(
+            new AcoustIdMatch("mb-no-refetch", "Title", "Artist", "Artist", 0.95f, 240_000)));
+        var lrc = new StubLrcLibService(_ => Task.FromResult<LyricsResult?>(
+            new LyricsResult("[00:01.00]New synced", "New plain", false)));
+        var orchestrator = CreateOrchestrator(db, acoustId, lrc);
+
+        await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
+        var updated = await db.Songs.SingleAsync();
+
+        Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
+        Assert.Equal(LyricsStatus.Fetched, updated.LyricsStatus);
+        Assert.Equal("Existing plain", updated.PlainLyrics);
+        Assert.Equal(0, lrc.CallCount);
     }
 
     [Fact]
