@@ -114,10 +114,7 @@ public class EnrichmentBackgroundService(
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
         return await db.Songs
             .AsNoTracking()
-            .Where(s => s.DeletedAtUtc == null)
-            .Where(s => s.Fingerprint != null && s.Fingerprint != string.Empty)
-            .Where(s => s.DurationSeconds != null)
-            .Where(s => s.EnrichmentStatus == EnrichmentStatus.Pending)
+            .WhereReadyForEnrichment()
             .CountAsync(ct);
     }
 }

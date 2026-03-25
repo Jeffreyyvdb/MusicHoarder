@@ -6,7 +6,11 @@ public record EnrichmentMatchData(
     string? Artist,
     string? AlbumArtist,
     string? Title,
+    int? Year,
+    int? TrackNumber,
     string? MusicBrainzId,
+    string? SpotifyId,
+    string? Isrc,
     string MatchedBy,
     double AdjustedScore,
     string? WarningsJson,
@@ -86,9 +90,11 @@ public class SongMetadata
 
     public bool IsReadyForEnrichment =>
         !IsDeleted
-        && !string.IsNullOrWhiteSpace(Fingerprint)
-        && DurationSeconds is not null
-        && EnrichmentStatus == EnrichmentStatus.Pending;
+        && EnrichmentStatus == EnrichmentStatus.Pending
+        && (
+            (!string.IsNullOrWhiteSpace(Fingerprint) && DurationSeconds is not null)
+            || (!string.IsNullOrWhiteSpace(Artist) && !string.IsNullOrWhiteSpace(Title))
+            || !string.IsNullOrWhiteSpace(Isrc));
 
     public bool IsReadyForBuild =>
         !IsDeleted
@@ -152,7 +158,11 @@ public class SongMetadata
         Artist = string.IsNullOrWhiteSpace(match.Artist) ? Artist : match.Artist;
         AlbumArtist = string.IsNullOrWhiteSpace(match.AlbumArtist) ? AlbumArtist : match.AlbumArtist;
         Title = string.IsNullOrWhiteSpace(match.Title) ? Title : match.Title;
-        MusicBrainzId = match.MusicBrainzId;
+        if (match.Year is not null) Year = match.Year;
+        if (match.TrackNumber is not null) TrackNumber = match.TrackNumber;
+        MusicBrainzId = match.MusicBrainzId ?? MusicBrainzId;
+        SpotifyId = match.SpotifyId ?? SpotifyId;
+        if (!string.IsNullOrWhiteSpace(match.Isrc)) Isrc = match.Isrc;
         MatchedBy = match.MatchedBy;
         MatchConfidence = match.AdjustedScore;
         MatchWarnings = match.WarningsJson;
