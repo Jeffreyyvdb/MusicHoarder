@@ -140,7 +140,17 @@ export default function SettingsPage() {
                             </a>
                           </li>
                           <li>Create a new app (or use an existing one)</li>
-                          <li>Add a redirect URI matching your backend (e.g. <code className="text-xs bg-secondary px-1 py-0.5 rounded">http://localhost:5107/api/spotify/callback</code>)</li>
+                          <li>
+                            Add a redirect URI matching your backend API (e.g.{" "}
+                            <code className="text-xs bg-secondary px-1 py-0.5 rounded">http://localhost:5107/api/spotify/callback</code>
+                            ) — Spotify sends the browser there after login
+                          </li>
+                          <li>
+                            After login, the API redirects you back to this app. With .NET Aspire (AppHost), that URL is set automatically. If you run the API without Aspire, set{" "}
+                            <code className="text-xs bg-secondary px-1 py-0.5 rounded">Frontend:PublicBaseUrl</code> (or env{" "}
+                            <code className="text-xs bg-secondary px-1 py-0.5 rounded">Frontend__PublicBaseUrl</code>
+                            ) on the API to your Next.js origin (e.g. <code className="text-xs bg-secondary px-1 py-0.5 rounded">http://localhost:3000</code>)
+                          </li>
                           <li>Copy the Client ID and Client Secret from the app settings</li>
                         </ol>
                       </div>

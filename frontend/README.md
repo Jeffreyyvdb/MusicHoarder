@@ -15,6 +15,8 @@ Aspire starts:
 - `frontend` (Next.js app via pnpm)
 - PostgreSQL
 
+AppHost also sets `Frontend__PublicBaseUrl` on the API to the frontend HTTP endpoint so that after Spotify OAuth (callback hits the API), users are redirected back to the Next.js app instead of seeing raw JSON.
+
 ## Frontend API routing
 
 The frontend proxies backend requests through:
@@ -56,3 +58,7 @@ pnpm dev
 ```
 
 Make sure the API is reachable at `MUSICHOARDER_API_URL` or at the localhost fallback above.
+
+## Spotify OAuth (non-Aspire)
+
+Spotify’s redirect URI must point at the **API** (e.g. `http://localhost:5107/api/spotify/callback`). For the API to send users back to this app after login, configure **`Frontend:PublicBaseUrl`** on the API (or environment variable `Frontend__PublicBaseUrl`) to this app’s public origin, e.g. `http://localhost:3000`. `appsettings.Development.json` in the API project includes a localhost default for that.

@@ -21,6 +21,10 @@ public static class ServiceCollectionExtensions
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
+        services
+            .AddOptions<FrontendOptions>()
+            .BindConfiguration(FrontendOptions.SectionName);
+
         services.AddSingleton<JobManager>();
         services.AddSingleton<ScanProgressTracker>();
         services.AddSingleton<FingerprintProgressTracker>();
