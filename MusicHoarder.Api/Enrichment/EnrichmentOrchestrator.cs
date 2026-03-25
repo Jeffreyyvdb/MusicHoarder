@@ -1,7 +1,7 @@
+using System.Text.Json;
 using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -31,7 +31,7 @@ internal enum EnrichmentOutcome
 public class EnrichmentOrchestrator(
     IServiceScopeFactory scopeFactory,
     EnrichmentProgressTracker progressTracker,
-    IAcoustIdMatchValidator matchValidator,
+    IEnumerable<IEnrichmentProvider> providers,
     ILrcLibService lrcLibService,
     IOptions<MusicEnricherOptions> options,
     ILogger<EnrichmentOrchestrator> logger) : IEnrichmentOrchestrator
@@ -54,10 +54,7 @@ public class EnrichmentOrchestrator(
             var dbContext = loadScope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
             candidates = await dbContext.Songs
                 .AsNoTracking()
-                .Where(s => s.DeletedAtUtc == null)
-                .Where(s => s.Fingerprint != null && s.Fingerprint != string.Empty)
-                .Where(s => s.DurationSeconds != null)
-                .Where(s => s.EnrichmentStatus == EnrichmentStatus.Pending)
+                .WhereReadyForEnrichment()
                 .OrderBy(s => s.Id)
                 .Take(opts.EnrichmentBatchSize)
                 .Select(s => new EnrichmentTrackCandidate(s.Id))
@@ -156,7 +153,6 @@ public class EnrichmentOrchestrator(
     {
         using var scope = scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-        var acoustIdService = scope.ServiceProvider.GetRequiredService<IAcoustIdService>();
 
         var song = await dbContext.Songs.FirstOrDefaultAsync(s => s.Id == songId, ct);
         if (song is null || song.IsDeleted)
@@ -165,63 +161,79 @@ public class EnrichmentOrchestrator(
             return EnrichmentOutcome.Failed;
         }
 
-        if (string.IsNullOrWhiteSpace(song.Fingerprint) || song.DurationSeconds is null)
-        {
-            song.MarkEnrichmentNeedsReview("Missing fingerprint or duration");
-            await dbContext.SaveChangesAsync(ct);
-            logger.LogInformation("Enrichment needs review for {Track} (SongId={SongId}): missing fingerprint or duration",
-                song.TrackLabel, songId);
-            return EnrichmentOutcome.NeedsReview;
-        }
-
         try
         {
             song.RecordEnrichmentAttempt();
 
-            var match = await acoustIdService.LookupAsync(song.Fingerprint!, song.DurationSeconds.Value, ct);
-            if (match is null)
+            var enabledProviders = GetEnabledProviders();
+            EnrichmentProviderResult? bestFallback = null;
+            var errors = new List<string>();
+
+            foreach (var provider in enabledProviders)
             {
-                song.MarkEnrichmentNeedsReview("No confident AcoustID match");
+                if (!provider.CanHandle(song))
+                    continue;
+
+                try
+                {
+                    var result = await provider.TryEnrichAsync(song, ct);
+                    if (result is null)
+                        continue;
+
+                    if (result.RecommendedStatus == EnrichmentStatus.Matched)
+                    {
+                        ApplyProviderResult(song, result);
+                        await dbContext.SaveChangesAsync(ct);
+
+                        logger.LogInformation(
+                            "Enrichment matched {Track} (SongId={SongId}) via {Provider} with confidence {Confidence:F3}",
+                            song.TrackLabel, songId, result.MatchedBy, result.MatchConfidence);
+
+                        await FetchLyricsForSongAsync(song, dbContext, ct);
+                        return EnrichmentOutcome.Matched;
+                    }
+
+                    if (bestFallback is null || result.MatchConfidence > bestFallback.MatchConfidence)
+                        bestFallback = result;
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"{provider.Name}: {ex.Message}");
+                    logger.LogWarning(ex, "Provider {Provider} failed for {Track} (SongId={SongId})",
+                        provider.Name, song.TrackLabel, songId);
+                }
+            }
+
+            if (bestFallback is not null)
+            {
+                ApplyProviderResult(song, bestFallback);
                 await dbContext.SaveChangesAsync(ct);
-                logger.LogInformation("Enrichment needs review for {Track} (SongId={SongId}): no confident AcoustID match",
-                    song.TrackLabel, songId);
+
+                logger.LogInformation(
+                    "Enrichment needs review for {Track} (SongId={SongId}): best result from {Provider} with confidence {Confidence:F3}, warnings=[{Warnings}]",
+                    song.TrackLabel, songId, bestFallback.MatchedBy, bestFallback.MatchConfidence,
+                    string.Join(", ", bestFallback.MatchWarnings));
+
                 return EnrichmentOutcome.NeedsReview;
             }
 
-            var validation = matchValidator.Validate(match, song);
-
-            var effectiveArtist = string.IsNullOrWhiteSpace(match.Artist) ? song.Artist : match.Artist;
-            var resolvedAlbumArtist = string.IsNullOrWhiteSpace(match.AlbumArtist)
-                ? ArtistCreditNormalizer.GetPrimaryArtist(effectiveArtist)
-                : match.AlbumArtist;
-
-            song.ApplyEnrichmentMatch(new EnrichmentMatchData(
-                match.Artist,
-                resolvedAlbumArtist,
-                match.Title,
-                match.MusicBrainzRecordingId,
-                "AcoustID",
-                validation.AdjustedScore,
-                validation.WarningsJson,
-                validation.RecommendedStatus));
-
-            await dbContext.SaveChangesAsync(ct);
-
-            if (validation.RecommendedStatus == EnrichmentStatus.Matched)
+            if (errors.Count > 0)
             {
-                logger.LogInformation(
-                    "Enrichment matched {Track} (SongId={SongId}) via AcoustID with adjusted score {Score:F3} (raw={RawScore:F3}) and MusicBrainzId {MusicBrainzId}",
-                    song.TrackLabel, songId, validation.AdjustedScore, match.Score, song.MusicBrainzId);
-
-                await FetchLyricsForSongAsync(song, dbContext, ct);
-
-                return EnrichmentOutcome.Matched;
+                song.MarkEnrichmentFailed(string.Join("; ", errors));
+                await dbContext.SaveChangesAsync(ct);
+                logger.LogWarning("All providers failed for {Track} (SongId={SongId}): {Errors}",
+                    song.TrackLabel, songId, string.Join("; ", errors));
+                return EnrichmentOutcome.Failed;
             }
 
-            logger.LogInformation(
-                "Enrichment needs review for {Track} (SongId={SongId}): adjusted score {Score:F3} (raw={RawScore:F3}), warnings=[{Warnings}]",
-                song.TrackLabel, songId, validation.AdjustedScore, match.Score,
-                string.Join(", ", validation.Warnings));
+            song.MarkEnrichmentNeedsReview("No provider returned a match");
+            await dbContext.SaveChangesAsync(ct);
+            logger.LogInformation("Enrichment needs review for {Track} (SongId={SongId}): no provider returned a match",
+                song.TrackLabel, songId);
             return EnrichmentOutcome.NeedsReview;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -235,6 +247,48 @@ public class EnrichmentOrchestrator(
             logger.LogWarning(ex, "Failed enrichment for {Track} (SongId={SongId})", song.TrackLabel, songId);
             return EnrichmentOutcome.Failed;
         }
+    }
+
+    private IReadOnlyList<IEnrichmentProvider> GetEnabledProviders()
+    {
+        var opts = options.Value;
+        return providers
+            .Where(p => IsProviderEnabled(p, opts))
+            .OrderBy(p => p.Priority)
+            .ToList();
+    }
+
+    private static bool IsProviderEnabled(IEnrichmentProvider provider, MusicEnricherOptions opts)
+    {
+        return provider.Name switch
+        {
+            "AcoustID" => opts.EnableAcoustIdProvider,
+            "MusicBrainzWeb" => opts.EnableMusicBrainzWebProvider,
+            "SpotifyAPI" => opts.EnableSpotifyApiProvider,
+            "Tracker" => opts.EnableTrackerProvider,
+            _ => true
+        };
+    }
+
+    private static void ApplyProviderResult(SongMetadata song, EnrichmentProviderResult result)
+    {
+        var warningsJson = result.MatchWarnings.Count > 0
+            ? JsonSerializer.Serialize(result.MatchWarnings)
+            : null;
+
+        song.ApplyEnrichmentMatch(new EnrichmentMatchData(
+            result.Artist,
+            result.AlbumArtist,
+            result.Title,
+            result.Year,
+            result.TrackNumber,
+            result.MusicBrainzId,
+            result.SpotifyId,
+            result.Isrc,
+            result.MatchedBy,
+            result.MatchConfidence,
+            warningsJson,
+            result.RecommendedStatus));
     }
 
     private async Task FetchLyricsForSongAsync(SongMetadata song, MusicHoarderDbContext dbContext, CancellationToken ct)

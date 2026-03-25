@@ -312,6 +312,31 @@ function buildMessySourcePath(
   return `${base}/${fileName}`
 }
 
+const DEMO_SYNCED_LYRICS_POOL = [
+  `[00:00.00] Sunrise on the avenue\n[00:04.50] Colors bleeding through the haze\n[00:09.00] Every step I take is new\n[00:13.50] Walking through these golden days\n[00:18.00] \n[00:19.50] Turn the dial and find a sound\n[00:24.00] Let the melody unwind\n[00:28.50] Echoes spinning all around\n[00:33.00] Leaving yesterday behind`,
+  `[00:05.00] Neon lights and midnight rain\n[00:09.50] Driving down an empty lane\n[00:14.00] Radio is on again\n[00:18.50] Singing through the windowpane\n[00:23.00] \n[00:24.50] We don't need a masterplan\n[00:29.00] Just the road beneath our feet\n[00:33.50] Hand in hand we understand\n[00:38.00] Every stranger that we meet`,
+  `[00:02.00] Woke up to a silent room\n[00:06.50] Shadows dancing on the wall\n[00:11.00] Petals from a wilted bloom\n[00:15.50] Scattered down the empty hall\n[00:20.00] \n[00:21.50] Time moves slow when you're alone\n[00:26.00] Counting cracks along the floor\n[00:30.50] Dialing on a broken phone\n[00:35.00] Waiting for a knock at the door`,
+  `[00:08.00] Electric blue and cherry red\n[00:12.50] Frequencies inside my head\n[00:17.00] Dancing on a laser thread\n[00:21.50] Follow where the signal led\n[00:26.00] \n[00:27.50] Bass drop hits and walls collide\n[00:32.00] Neon pulses in my chest\n[00:36.50] Nothing left for us to hide\n[00:41.00] This is how we pass the test`,
+  `[00:03.00] Morning fog across the bay\n[00:07.50] Coffee steam and yesterday\n[00:12.00] Pages turn and drift away\n[00:16.50] Words I never thought I'd say\n[00:21.00] \n[00:22.50] Take my hand and close your eyes\n[00:27.00] Feel the earth beneath your skin\n[00:31.50] Underneath these open skies\n[00:36.00] Let the healing now begin`,
+  `[00:10.00] City hum and traffic flow\n[00:14.50] Skyscrapers begin to glow\n[00:19.00] Underground where rivers go\n[00:23.50] Secrets that the streets all know\n[00:28.00] \n[00:29.50] Subway doors slide open wide\n[00:34.00] Faces lost in passing light\n[00:38.50] Everyone has wounds inside\n[00:43.00] Holding on to make it right`,
+  `[00:00.00] Starlight falling like the rain\n[00:04.50] Catching fire on the plain\n[00:09.00] Every ending starts again\n[00:13.50] Joy is born from letting go of pain\n[00:18.00] \n[00:19.50] Open up the rusted gate\n[00:24.00] Futures bloom from broken ground\n[00:28.50] It is never, ever, too late\n[00:33.00] To become what you have found`,
+  `[00:06.00] Velvet sky at half past nine\n[00:10.50] Satellites begin to shine\n[00:15.00] Tracing out a dotted line\n[00:19.50] Connecting your world to mine\n[00:24.00] \n[00:25.50] Waves crash on a distant shore\n[00:30.00] Carrying the songs we wrote\n[00:34.50] Every tide reveals once more\n[00:39.00] Messages sealed inside a note`,
+  `[00:04.00] Dusty roads and summer heat\n[00:08.50] Gravel crunching under feet\n[00:13.00] Lemonade on repeat\n[00:17.50] Lazy days are bittersweet\n[00:22.00] \n[00:23.50] Fireflies at half past eight\n[00:28.00] Porch light glowing amber gold\n[00:32.50] Stories that we'd annotate\n[00:37.00] Memories that never get old`,
+  `[00:07.00] Pixel hearts on glowing screens\n[00:11.50] We are more than what it seems\n[00:16.00] Living somewhere in between\n[00:20.50] Reality and lucid dreams\n[00:25.00] \n[00:26.50] Upload all your fears tonight\n[00:31.00] Download courage, press restart\n[00:35.50] Every bug becomes a light\n[00:40.00] Code that's written from the heart`,
+]
+
+function demoSyncedLyricsForIndex(i: number): string {
+  return DEMO_SYNCED_LYRICS_POOL[i % DEMO_SYNCED_LYRICS_POOL.length]
+}
+
+function demoPlainLyricsFromSynced(synced: string): string {
+  return synced
+    .split("\n")
+    .map((line) => line.replace(/^\[\d{2}:\d{2}\.\d{2,3}\]\s*/, ""))
+    .filter((line) => line.trim().length > 0)
+    .join("\n")
+}
+
 function buildSyntheticDemoSongs(startId: number, totalBytesFromReal: number): ApiSong[] {
   const bytesRemaining = Math.max(0, DEMO_TOTAL_BYTES_TARGET - totalBytesFromReal)
   const bytesPerTrack = Math.floor(bytesRemaining / DEMO_SYNTHETIC_TRACK_COUNT)
@@ -337,6 +362,8 @@ function buildSyntheticDemoSongs(startId: number, totalBytesFromReal: number): A
     const destAlbum = album.replace(/[/\\]/g, "").trim() || "Unknown Album"
     const destinationPath = `${DESTINATION_ROOT}/${destArtist}/${destAlbum}/${cleanFileName}`
     const fileSizeBytes = bytesPerTrack + (i % 5) * 1024 * 1024
+    const synced = demoSyncedLyricsForIndex(i)
+    const plain = demoPlainLyricsFromSynced(synced)
     synthetic.push({
       id,
       sourcePath,
@@ -353,12 +380,12 @@ function buildSyntheticDemoSongs(startId: number, totalBytesFromReal: number): A
       musicBrainzId: null,
       spotifyId: null,
       enrichmentStatus: i % 5 === 0 ? "pending" : "complete",
-      lyricsStatus: i % 4 === 0 ? "NotFetched" : "Fetched",
-      hasSyncedLyrics: i % 3 !== 0,
-      hasPlainLyrics: i % 4 !== 0,
+      lyricsStatus: "Fetched",
+      hasSyncedLyrics: true,
+      hasPlainLyrics: true,
       isInstrumental: false,
-      syncedLyrics: null,
-      plainLyrics: null,
+      syncedLyrics: synced,
+      plainLyrics: plain,
       sampleRate: ext === "flac" ? 44100 : 48000,
       bitRate: ext === "flac" ? 1411 : 320,
     })
