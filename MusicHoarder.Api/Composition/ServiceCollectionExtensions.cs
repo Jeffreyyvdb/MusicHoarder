@@ -99,6 +99,13 @@ public static class ServiceCollectionExtensions
             var logger = sp.GetRequiredService<ILogger<SpotifyApiService>>();
             return new SpotifyApiService(scopeFactory, oauthService, httpClient, cache, logger);
         });
+        services.AddSingleton<ISpotifyLibraryComparisonService>(sp =>
+        {
+            var spotifyApi = sp.GetRequiredService<ISpotifyApiService>();
+            var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
+            var logger = sp.GetRequiredService<ILogger<SpotifyLibraryComparisonService>>();
+            return new SpotifyLibraryComparisonService(spotifyApi, scopeFactory, logger);
+        });
 
         return services;
     }
