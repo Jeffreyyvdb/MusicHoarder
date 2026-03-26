@@ -2,13 +2,16 @@ import type { FileItem } from "@/lib/types"
 import { isDemoMode } from "@/lib/app-mode"
 import { mockFileSystem, mockImportJob } from "@/lib/mock-data"
 import {
+  getDemoSpotifyComparisonSummary,
   getDemoSpotifyCredentials,
   getDemoSpotifyDisconnectMessage,
   getDemoSpotifyLikedSongs,
+  getDemoSpotifyLikedSongsComparison,
   getDemoSpotifyPlaylistTracks,
   getDemoSpotifyPlaylists,
   getDemoSpotifySaveCredentialsMessage,
   getDemoSpotifyStatus,
+  type DemoSpotifyComparisonMatchStatus,
 } from "@/lib/mock-spotify-api"
 
 const API_PREFIX = "/api/mh"
@@ -1002,6 +1005,42 @@ export interface SpotifyPlaylistTracksApiResponse {
   items: SpotifyApiTrack[]
 }
 
+export type SpotifyComparisonMatchStatus = "InLibrary" | "PossibleMatch" | "NotInLibrary"
+
+export interface SpotifyComparisonMatchedTrack {
+  id: number
+  title?: string | null
+  artist?: string | null
+  enrichmentStatus: string
+}
+
+export interface SpotifyComparisonItem {
+  spotifyId: string
+  title: string
+  artist: string
+  album: string
+  albumArt?: string | null
+  durationMs: number
+  addedAt: string
+  matchStatus: SpotifyComparisonMatchStatus
+  matchedTrack: SpotifyComparisonMatchedTrack | null
+  matchConfidence: number | null
+}
+
+export interface SpotifyComparisonApiResponse {
+  total: number
+  offset: number
+  limit: number
+  items: SpotifyComparisonItem[]
+}
+
+export interface SpotifyComparisonSummaryApiResponse {
+  total: number
+  inLibrary: number
+  possibleMatch: number
+  notInLibrary: number
+}
+
 export async function fetchSpotifyStatus(): Promise<SpotifyStatusResponse> {
   if (isDemoMode) return getDemoSpotifyStatus()
   return requestJson<SpotifyStatusResponse>("/api/spotify/status")
@@ -1047,6 +1086,31 @@ export async function fetchSpotifyPlaylistTracks(playlistId: string, offset = 0,
   return requestJson<SpotifyPlaylistTracksApiResponse>(
     `/api/spotify/playlists/${playlistId}/tracks?offset=${offset}&limit=${limit}`
   )
+}
+
+export async function fetchSpotifyLikedSongsComparisonSummary(): Promise<SpotifyComparisonSummaryApiResponse> {
+  if (isDemoMode) return getDemoSpotifyComparisonSummary()
+  return requestJson<SpotifyComparisonSummaryApiResponse>("/api/spotify/liked-songs/comparison/summary")
+}
+
+export async function fetchSpotifyLikedSongsComparison(
+  offset = 0,
+  limit = 50,
+  matchStatus?: SpotifyComparisonMatchStatus | null
+): Promise<SpotifyComparisonApiResponse> {
+  if (isDemoMode) {
+    return getDemoSpotifyLikedSongsComparison(
+      offset,
+      limit,
+      matchStatus as DemoSpotifyComparisonMatchStatus | null | undefined
+    )
+  }
+  const params = new URLSearchParams({
+    offset: String(offset),
+    limit: String(limit),
+  })
+  if (matchStatus) params.set("matchStatus", matchStatus)
+  return requestJson<SpotifyComparisonApiResponse>(`/api/spotify/liked-songs/comparison?${params.toString()}`)
 }
 
 export async function fetchReviewTracks(): Promise<ApiSong[]> {

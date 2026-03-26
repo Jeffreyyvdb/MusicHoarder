@@ -37,6 +37,107 @@ function buildDemoLikedTracksPool() {
 
 const likedTracksPool = buildDemoLikedTracksPool()
 
+export type DemoSpotifyComparisonMatchStatus = "InLibrary" | "PossibleMatch" | "NotInLibrary"
+
+function classifyDemoComparison(globalIndex: number): {
+  matchStatus: DemoSpotifyComparisonMatchStatus
+  matchedTrack: {
+    id: number
+    title: string | null
+    artist: string | null
+    enrichmentStatus: string
+  } | null
+  matchConfidence: number | null
+} {
+  const mod = globalIndex % 10
+  const localSongId = (globalIndex % 180) + 1
+  if (mod < 6) {
+    return {
+      matchStatus: "InLibrary",
+      matchedTrack: {
+        id: localSongId,
+        title: `Local title ${globalIndex}`,
+        artist: `Local artist ${globalIndex % 20}`,
+        enrichmentStatus: globalIndex % 3 === 0 ? "Matched" : "NeedsReview",
+      },
+      matchConfidence: globalIndex % 2 === 0 ? 1 : 0.95,
+    }
+  }
+  if (mod < 8) {
+    return {
+      matchStatus: "PossibleMatch",
+      matchedTrack: {
+        id: localSongId + 500,
+        title: `Near match for track ${globalIndex}`,
+        artist: `Similar Artist ${globalIndex % 7}`,
+        enrichmentStatus: "Pending",
+      },
+      matchConfidence: 86 + (globalIndex % 8),
+    }
+  }
+  return { matchStatus: "NotInLibrary", matchedTrack: null, matchConfidence: null }
+}
+
+function buildDemoComparisonItem(
+  track: ReturnType<typeof mapSeedTrackToApi>,
+  globalIndex: number
+) {
+  const { matchStatus, matchedTrack, matchConfidence } = classifyDemoComparison(globalIndex)
+  return {
+    spotifyId: track.spotifyId,
+    title: track.title,
+    artist: track.artist,
+    album: track.album,
+    albumArt: track.albumArt,
+    durationMs: track.durationMs,
+    addedAt: track.addedAt,
+    matchStatus,
+    matchedTrack,
+    matchConfidence,
+  }
+}
+
+export function getDemoSpotifyComparisonSummary() {
+  let inLibrary = 0
+  let possibleMatch = 0
+  let notInLibrary = 0
+  for (let i = 0; i < DEMO_LIKED_TOTAL; i++) {
+    const { matchStatus } = classifyDemoComparison(i)
+    if (matchStatus === "InLibrary") inLibrary++
+    else if (matchStatus === "PossibleMatch") possibleMatch++
+    else notInLibrary++
+  }
+  return {
+    total: DEMO_LIKED_TOTAL,
+    inLibrary,
+    possibleMatch,
+    notInLibrary,
+  }
+}
+
+export function getDemoSpotifyLikedSongsComparison(
+  offset: number,
+  limit: number,
+  matchStatus?: DemoSpotifyComparisonMatchStatus | null
+) {
+  if (matchStatus == null || matchStatus === undefined) {
+    const total = likedTracksPool.length
+    const slice = likedTracksPool.slice(offset, offset + limit)
+    const items = slice.map((track, i) => buildDemoComparisonItem(track, offset + i))
+    return { total, offset, limit, items }
+  }
+
+  const all: ReturnType<typeof buildDemoComparisonItem>[] = []
+  for (let i = 0; i < likedTracksPool.length; i++) {
+    const track = likedTracksPool[i]!
+    const item = buildDemoComparisonItem(track, i)
+    if (item.matchStatus === matchStatus) all.push(item)
+  }
+  const totalFiltered = all.length
+  const items = all.slice(offset, offset + limit)
+  return { total: totalFiltered, offset, limit, items }
+}
+
 function mapPlaylistToApi(p: (typeof mockSpotifyPlaylists)[0]) {
   return {
     spotifyId: p.id,

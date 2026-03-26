@@ -17,6 +17,8 @@ import {
   fetchSpotifyPlaylists,
   fetchSpotifyPlaylistTracks,
   fetchSpotifyCredentials,
+  fetchSpotifyLikedSongsComparison,
+  fetchSpotifyLikedSongsComparisonSummary,
 } from "@/lib/api-client"
 import { isDemoMode } from "@/lib/app-mode"
 import type {
@@ -24,6 +26,9 @@ import type {
   SpotifyApiTrack,
   SpotifyApiPlaylist,
   SpotifyCredentialsResponse,
+  SpotifyComparisonItem,
+  SpotifyComparisonMatchStatus,
+  SpotifyComparisonSummaryApiResponse,
 } from "@/lib/api-client"
 import {
   Music,
@@ -41,6 +46,10 @@ import {
   Settings,
   ArrowLeft,
   KeyRound,
+  Columns2,
+  Link2,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -54,6 +63,204 @@ function formatDuration(ms: number): string {
 function formatDateAdded(dateStr: string): string {
   const date = new Date(dateStr)
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+}
+
+function formatMatchConfidence(confidence: number | null | undefined): string {
+  if (confidence == null || !Number.isFinite(confidence)) return ""
+  const pct = confidence <= 1 ? Math.round(confidence * 100) : Math.round(confidence)
+  return `${pct}%`
+}
+
+type ComparisonFilterTab = "all" | SpotifyComparisonMatchStatus
+
+function ComparisonSummaryPills({
+  summary,
+  isLoading,
+}: {
+  summary: SpotifyComparisonSummaryApiResponse | null
+  isLoading: boolean
+}) {
+  if (isLoading && !summary) {
+    return (
+      <div className="flex flex-wrap gap-2">
+        <Skeleton className="h-8 w-36 rounded-full" />
+        <Skeleton className="h-8 w-40 rounded-full" />
+        <Skeleton className="h-8 w-36 rounded-full" />
+      </div>
+    )
+  }
+  if (!summary) return null
+  return (
+    <div className="flex flex-wrap gap-2">
+      <div className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-sm">
+        <span aria-hidden>✅</span>
+        <span className="font-medium tabular-nums">{summary.inLibrary}</span>
+        <span className="text-muted-foreground">in library</span>
+      </div>
+      <div className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/35 bg-amber-500/10 px-3 py-1 text-sm">
+        <span aria-hidden>🟡</span>
+        <span className="font-medium tabular-nums">{summary.possibleMatch}</span>
+        <span className="text-muted-foreground">possible matches</span>
+      </div>
+      <div className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-sm">
+        <span aria-hidden>❌</span>
+        <span className="font-medium tabular-nums">{summary.notInLibrary}</span>
+        <span className="text-muted-foreground">not in library</span>
+      </div>
+    </div>
+  )
+}
+
+function ComparisonTrackRow({
+  item,
+  index,
+  expanded,
+  onToggleExpand,
+}: {
+  item: SpotifyComparisonItem
+  index: number
+  expanded: boolean
+  onToggleExpand: () => void
+}) {
+  const isPossible = item.matchStatus === "PossibleMatch"
+  const isNotInLib = item.matchStatus === "NotInLibrary"
+  const matched = item.matchedTrack
+
+  return (
+    <div
+      className={
+        isNotInLib
+          ? "rounded-lg border border-rose-500/20 bg-rose-500/[0.06]"
+          : "rounded-lg"
+      }
+    >
+      <div
+        role={isPossible ? "button" : undefined}
+        tabIndex={isPossible ? 0 : undefined}
+        onClick={() => {
+          if (isPossible) onToggleExpand()
+        }}
+        onKeyDown={(e) => {
+          if (!isPossible) return
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault()
+            onToggleExpand()
+          }
+        }}
+        className={`flex items-center gap-3 px-3 py-2.5 transition-colors group ${
+          isPossible ? "cursor-pointer hover:bg-secondary/50" : "hover:bg-secondary/50"
+        }`}
+      >
+        <span className="w-8 text-right text-xs text-muted-foreground tabular-nums shrink-0">
+          {index + 1}
+        </span>
+
+        <div className="size-10 shrink-0 rounded overflow-hidden bg-secondary">
+          {item.albumArt ? (
+            <img
+              src={item.albumArt}
+              alt={item.album}
+              className="size-full object-cover"
+              crossOrigin="anonymous"
+            />
+          ) : (
+            <div className="flex size-full items-center justify-center">
+              <Music className="size-4 text-muted-foreground" />
+            </div>
+          )}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <p className="truncate text-sm font-medium">{item.title}</p>
+          <p className="text-xs text-muted-foreground truncate">{item.artist}</p>
+        </div>
+
+        <span className="text-sm text-muted-foreground truncate hidden md:block max-w-[200px]">
+          {item.album}
+        </span>
+
+        <span className="text-xs text-muted-foreground shrink-0 hidden lg:block w-24 text-right">
+          {formatDateAdded(item.addedAt)}
+        </span>
+
+        <span className="text-xs text-muted-foreground shrink-0 w-12 text-right">
+          {formatDuration(item.durationMs)}
+        </span>
+
+        <div className="shrink-0 flex items-center gap-1.5 min-w-[140px] justify-end">
+          {item.matchStatus === "InLibrary" && matched != null && (
+            <Link
+              href={`/app?song=${matched.id}`}
+              className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:text-emerald-300 hover:bg-emerald-500/25"
+              onClick={(e) => e.stopPropagation()}
+            >
+              In Library
+              <Link2 className="size-3" />
+            </Link>
+          )}
+          {item.matchStatus === "PossibleMatch" && matched != null && (
+            <div className="flex items-center gap-1">
+              <Link
+                href={`/app?song=${matched.id}`}
+                className="inline-flex items-center gap-1 rounded-full border border-amber-500/45 bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-900 dark:text-amber-200 hover:bg-amber-500/25 max-w-[200px]"
+                onClick={(e) => e.stopPropagation()}
+                title="Open matched track in library"
+              >
+                <span className="truncate">Possible match</span>
+                <span className="tabular-nums shrink-0">{formatMatchConfidence(item.matchConfidence)}</span>
+                <Link2 className="size-3 shrink-0" />
+              </Link>
+              {expanded ? (
+                <ChevronUp className="size-4 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="size-4 text-muted-foreground" />
+              )}
+            </div>
+          )}
+          {item.matchStatus === "NotInLibrary" && (
+            <span className="inline-flex rounded-full border border-muted-foreground/30 bg-muted/50 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+              Not in library
+            </span>
+          )}
+        </div>
+      </div>
+
+      {isPossible && expanded && matched != null && (
+        <div className="border-t border-border/80 bg-secondary/20 px-3 py-4 md:px-6">
+          <p className="text-xs font-medium text-muted-foreground mb-3 flex items-center gap-1.5">
+            <Columns2 className="size-3.5" />
+            Spotify vs local (possible match · {formatMatchConfidence(item.matchConfidence)})
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-lg border border-border bg-card/50 p-3 space-y-2">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Spotify</p>
+              <p className="text-sm font-medium">{item.title}</p>
+              <p className="text-xs text-muted-foreground">{item.artist}</p>
+              <p className="text-xs text-muted-foreground">{item.album}</p>
+              <p className="text-xs text-muted-foreground">{formatDuration(item.durationMs)}</p>
+            </div>
+            <div className="rounded-lg border border-border bg-card/50 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">MusicHoarder</p>
+                <Link
+                  href={`/app?song=${matched.id}`}
+                  className="text-xs text-primary inline-flex items-center gap-1 hover:underline"
+                >
+                  Open track
+                  <Link2 className="size-3" />
+                </Link>
+              </div>
+              <p className="text-sm font-medium">{matched.title ?? "—"}</p>
+              <p className="text-xs text-muted-foreground">{matched.artist ?? "—"}</p>
+              <p className="text-xs text-muted-foreground">
+                Enrichment: {matched.enrichmentStatus}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function TrackRow({ track, index }: { track: SpotifyApiTrack; index: number }) {
@@ -362,7 +569,22 @@ function SpotifyPageContent() {
   const [selectedPlaylist, setSelectedPlaylist] = useState<SpotifyApiPlaylist | null>(null)
   const [playlistSearchQuery, setPlaylistSearchQuery] = useState("")
 
+  const [spotifyMainTab, setSpotifyMainTab] = useState<"liked" | "playlists" | "comparison">("liked")
+  const [comparisonSummary, setComparisonSummary] =
+    useState<SpotifyComparisonSummaryApiResponse | null>(null)
+  const [comparisonItems, setComparisonItems] = useState<SpotifyComparisonItem[]>([])
+  const [comparisonTotal, setComparisonTotal] = useState(0)
+  const [comparisonFilter, setComparisonFilter] = useState<ComparisonFilterTab>("all")
+  const [comparisonLoading, setComparisonLoading] = useState(false)
+  const [comparisonLoadingMore, setComparisonLoadingMore] = useState(false)
+  const [comparisonError, setComparisonError] = useState<string | null>(null)
+  const [expandedComparisonIds, setExpandedComparisonIds] = useState<Set<string>>(() => new Set())
+
   const likedLimit = 50
+  const comparisonLimit = 50
+
+  const comparisonApiFilter: SpotifyComparisonMatchStatus | null =
+    comparisonFilter === "all" ? null : comparisonFilter
 
   const loadStatus = useCallback(async () => {
     setIsLoadingStatus(true)
@@ -436,6 +658,83 @@ function SpotifyPageContent() {
     }
   }, [status?.connected, loadLikedSongs, loadPlaylists])
 
+  const loadMoreComparison = useCallback(async () => {
+    if (comparisonItems.length >= comparisonTotal || comparisonLoadingMore || comparisonLoading) return
+    setComparisonLoadingMore(true)
+    setComparisonError(null)
+    try {
+      const page = await fetchSpotifyLikedSongsComparison(
+        comparisonItems.length,
+        comparisonLimit,
+        comparisonApiFilter
+      )
+      setComparisonItems((prev) => [...prev, ...page.items])
+    } catch (err) {
+      setComparisonError(err instanceof Error ? err.message : "Failed to load more")
+    } finally {
+      setComparisonLoadingMore(false)
+    }
+  }, [
+    comparisonItems.length,
+    comparisonTotal,
+    comparisonLoadingMore,
+    comparisonLoading,
+    comparisonApiFilter,
+    comparisonLimit,
+  ])
+
+  const loadComparisonRefresh = useCallback(async () => {
+    setComparisonLoading(true)
+    setComparisonError(null)
+    try {
+      const filter = comparisonFilter === "all" ? null : comparisonFilter
+      const [sum, page] = await Promise.all([
+        fetchSpotifyLikedSongsComparisonSummary(),
+        fetchSpotifyLikedSongsComparison(0, comparisonLimit, filter),
+      ])
+      setComparisonSummary(sum)
+      setComparisonItems(page.items)
+      setComparisonTotal(page.total)
+      setExpandedComparisonIds(new Set())
+    } catch (err) {
+      setComparisonError(err instanceof Error ? err.message : "Failed to load library comparison")
+    } finally {
+      setComparisonLoading(false)
+    }
+  }, [comparisonFilter, comparisonLimit])
+
+  useEffect(() => {
+    if (!status?.connected || spotifyMainTab !== "comparison") return
+
+    let cancelled = false
+    setComparisonLoading(true)
+    setComparisonError(null)
+
+    void (async () => {
+      try {
+        const filter = comparisonFilter === "all" ? null : comparisonFilter
+        const [sum, page] = await Promise.all([
+          fetchSpotifyLikedSongsComparisonSummary(),
+          fetchSpotifyLikedSongsComparison(0, comparisonLimit, filter),
+        ])
+        if (cancelled) return
+        setComparisonSummary(sum)
+        setComparisonItems(page.items)
+        setComparisonTotal(page.total)
+        setExpandedComparisonIds(new Set())
+      } catch (err) {
+        if (cancelled) return
+        setComparisonError(err instanceof Error ? err.message : "Failed to load library comparison")
+      } finally {
+        if (!cancelled) setComparisonLoading(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [status?.connected, spotifyMainTab, comparisonFilter, comparisonLimit])
+
   const handleConnect = async () => {
     setIsConnecting(true)
     setError(null)
@@ -456,6 +755,11 @@ function SpotifyPageContent() {
       setLikedSongs([])
       setPlaylists([])
       setSelectedPlaylist(null)
+      setComparisonSummary(null)
+      setComparisonItems([])
+      setComparisonTotal(0)
+      setComparisonError(null)
+      setExpandedComparisonIds(new Set())
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to disconnect")
     } finally {
@@ -668,9 +972,15 @@ function SpotifyPageContent() {
           </div>
         </div>
 
-        <Tabs defaultValue="liked" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <Tabs
+          value={spotifyMainTab}
+          onValueChange={(v) =>
+            setSpotifyMainTab(v as "liked" | "playlists" | "comparison")
+          }
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
           <div className="border-b border-border px-4 md:px-6">
-            <TabsList className="h-12 bg-transparent p-0">
+            <TabsList className="h-12 bg-transparent p-0 flex-wrap gap-y-1">
               <TabsTrigger
                 value="liked"
                 className="h-12 rounded-none border-0 border-b-2 border-transparent px-4 data-[state=active]:border-b-primary/50 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
@@ -684,6 +994,13 @@ function SpotifyPageContent() {
               >
                 <ListMusic className="size-4 mr-2" />
                 Playlists
+              </TabsTrigger>
+              <TabsTrigger
+                value="comparison"
+                className="h-12 rounded-none border-0 border-b-2 border-transparent px-4 data-[state=active]:border-b-primary/50 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+              >
+                <Columns2 className="size-4 mr-2" />
+                Library Comparison
               </TabsTrigger>
             </TabsList>
           </div>
@@ -802,6 +1119,162 @@ function SpotifyPageContent() {
                     </p>
                   </div>
                 )}
+              </ScrollArea>
+            )}
+          </TabsContent>
+
+          {/* Library Comparison (BRINK-69) */}
+          <TabsContent value="comparison" className="m-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="space-y-4 border-b border-border px-4 py-4 md:px-6">
+              <ComparisonSummaryPills summary={comparisonSummary} isLoading={comparisonLoading} />
+              <div className="flex flex-wrap gap-2">
+                {(
+                  [
+                    { id: "all" as const, label: "All" },
+                    { id: "InLibrary" as const, label: "In Library" },
+                    { id: "PossibleMatch" as const, label: "Possible Match" },
+                    { id: "NotInLibrary" as const, label: "Not in Library" },
+                  ] as const
+                ).map(({ id, label }) => (
+                  <Button
+                    key={id}
+                    type="button"
+                    variant={comparisonFilter === id ? "secondary" : "ghost"}
+                    size="sm"
+                    className="rounded-full"
+                    onClick={() => setComparisonFilter(id)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {comparisonError ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center px-4">
+                <AlertCircle className="size-10 text-destructive mb-3" />
+                <p className="text-muted-foreground">{comparisonError}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-4"
+                  onClick={() => void loadComparisonRefresh()}
+                >
+                  Retry
+                </Button>
+              </div>
+            ) : comparisonLoading && comparisonItems.length === 0 ? (
+              <TrackListSkeleton />
+            ) : (
+              <ScrollArea className="min-h-0 flex-1">
+                <div className="p-2 md:px-4 pb-6">
+                  {comparisonItems.map((item, i) => (
+                    <ComparisonTrackRow
+                      key={`${item.spotifyId}-${i}`}
+                      item={item}
+                      index={i}
+                      expanded={expandedComparisonIds.has(item.spotifyId)}
+                      onToggleExpand={() => {
+                        setExpandedComparisonIds((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(item.spotifyId)) next.delete(item.spotifyId)
+                          else next.add(item.spotifyId)
+                          return next
+                        })
+                      }}
+                    />
+                  ))}
+
+                  {!comparisonLoading &&
+                    comparisonItems.length === 0 &&
+                    comparisonSummary &&
+                    (() => {
+                      const s = comparisonSummary
+                      if (s.total === 0) {
+                        return (
+                          <div className="flex flex-col items-center justify-center py-14 text-center px-4">
+                            <Heart className="size-10 text-muted-foreground mb-3" />
+                            <p className="text-muted-foreground">No liked songs to compare yet.</p>
+                          </div>
+                        )
+                      }
+                      if (comparisonFilter === "all") {
+                        if (s.inLibrary === s.total) {
+                          return (
+                            <div className="flex flex-col items-center justify-center py-14 text-center px-4">
+                              <CheckCircle2 className="size-10 text-emerald-600 dark:text-emerald-400 mb-3" />
+                              <p className="text-muted-foreground">
+                                All your liked songs are in your library 🎉
+                              </p>
+                            </div>
+                          )
+                        }
+                        return (
+                          <div className="flex flex-col items-center justify-center py-14 text-center px-4">
+                            <Columns2 className="size-10 text-muted-foreground mb-3" />
+                            <p className="text-muted-foreground">No tracks on this page.</p>
+                          </div>
+                        )
+                      }
+                      if (comparisonFilter === "InLibrary" && s.inLibrary === 0) {
+                        return (
+                          <div className="flex flex-col items-center justify-center py-14 text-center px-4">
+                            <Music className="size-10 text-muted-foreground mb-3" />
+                            <p className="text-muted-foreground">
+                              None of your liked songs are in the library yet.
+                            </p>
+                          </div>
+                        )
+                      }
+                      if (comparisonFilter === "PossibleMatch" && s.possibleMatch === 0) {
+                        return (
+                          <div className="flex flex-col items-center justify-center py-14 text-center px-4">
+                            <CheckCircle2 className="size-10 text-amber-600 dark:text-amber-400 mb-3" />
+                            <p className="text-muted-foreground">
+                              No fuzzy matches — each song is either clearly in your library or missing.
+                            </p>
+                          </div>
+                        )
+                      }
+                      if (comparisonFilter === "NotInLibrary" && s.notInLibrary === 0) {
+                        return (
+                          <div className="flex flex-col items-center justify-center py-14 text-center px-4">
+                            <CheckCircle2 className="size-10 text-emerald-600 dark:text-emerald-400 mb-3" />
+                            <p className="text-muted-foreground">
+                              All your liked songs are in your library 🎉
+                            </p>
+                          </div>
+                        )
+                      }
+                      return (
+                        <div className="flex flex-col items-center justify-center py-14 text-center px-4">
+                          <AlertCircle className="size-10 text-muted-foreground mb-3" />
+                          <p className="text-muted-foreground">Nothing to show for this filter.</p>
+                        </div>
+                      )
+                    })()}
+
+                  {comparisonItems.length > 0 && comparisonItems.length < comparisonTotal && (
+                    <div className="flex justify-center pt-4">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={comparisonLoadingMore}
+                        onClick={() => void loadMoreComparison()}
+                      >
+                        {comparisonLoadingMore ? (
+                          <>
+                            <Loader2 className="size-4 mr-2 animate-spin" />
+                            Loading…
+                          </>
+                        ) : (
+                          `Load more (${comparisonItems.length} / ${comparisonTotal})`
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </ScrollArea>
             )}
           </TabsContent>

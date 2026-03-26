@@ -1401,6 +1401,24 @@ export function findFileById(files: FileItem[], id: string): FileItem | null {
   return null
 }
 
+/** Returns the immediate folder id that contains `fileId`, or null if not found / at root. */
+export function findAncestorFolderId(files: FileItem[], fileId: string): string | null {
+  function walk(items: FileItem[], ancestors: FileItem[]): string | null {
+    for (const item of items) {
+      if (item.id === fileId) {
+        const parent = ancestors[ancestors.length - 1]
+        return parent?.id ?? null
+      }
+      if (item.children?.length) {
+        const found = walk(item.children, [...ancestors, item])
+        if (found !== null) return found
+      }
+    }
+    return null
+  }
+  return walk(files, [])
+}
+
 export function getPathToFile(files: FileItem[], targetId: string): FileItem[] {
   const path: FileItem[] = []
   
