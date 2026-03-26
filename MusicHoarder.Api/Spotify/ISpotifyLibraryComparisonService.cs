@@ -2,7 +2,12 @@ namespace MusicHoarder.Api.Spotify;
 
 public interface ISpotifyLibraryComparisonService
 {
-    Task<SpotifyComparisonResponse> CompareAsync(int offset = 0, int limit = 50, CancellationToken ct = default);
+    Task<SpotifyComparisonResponse> CompareAsync(
+        int offset = 0,
+        int limit = 50,
+        ComparisonMatchStatus? matchStatus = null,
+        CancellationToken ct = default);
+
     Task<SpotifyComparisonSummaryResponse> GetSummaryAsync(CancellationToken ct = default);
 }
 
