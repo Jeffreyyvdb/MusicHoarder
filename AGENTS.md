@@ -335,6 +335,23 @@ Each service above may itself use multiple sub-services (AcoustID, MusicBrainz, 
 
 ---
 
+## Frontend: flex layouts, scrolling, and Radix ScrollArea (for AI agents)
+
+This comes up **often** when editing the Next.js app (`frontend/`): lists “look” right but **do not scroll** because flex items default to `min-height: auto`, so they grow with content instead of shrinking and clipping.
+
+**Rule:** Any flex child that should **take remaining height** and **contain a scrollable region** must be allowed to shrink below its content height:
+
+1. Put **`min-h-0`** on the flex child (and often on **every** intermediate flex column between `h-screen` / `flex-1` and the `ScrollArea`).
+2. Use **`overflow-hidden`** on flex column ancestors when you need a clear clipping boundary (optional but common).
+3. For **`ScrollArea`** (Radix): the root must end up with a **bounded height**. Prefer **`className="min-h-0 flex-1"`** (or **`h-full min-h-0`** inside a parent that already has a definite height). The shared component [`frontend/components/ui/scroll-area.tsx`](frontend/components/ui/scroll-area.tsx) includes **`min-h-0`** on the root by default; still add **`min-h-0`** on parent flex rows/columns as needed.
+4. For **`Tabs` / `TabsContent`**: panels that fill space and scroll inside should use **`min-h-0`** on the content wrapper; [`frontend/components/ui/tabs.tsx`](frontend/components/ui/tabs.tsx) defaults **`TabsContent`** to **`flex-1 min-h-0`**.
+
+**Smell:** `flex-1` + `ScrollArea` but no scroll → walk up the tree and add **`min-h-0`** until the scroll viewport has a fixed maximum height.
+
+**Reference implementations in this repo:** [`frontend/app/spotify/page.tsx`](frontend/app/spotify/page.tsx) (main + playlist detail), [`frontend/components/file-browser/file-browser.tsx`](frontend/components/file-browser/file-browser.tsx), [`frontend/app/review/page.tsx`](frontend/app/review/page.tsx).
+
+---
+
 ## Cursor Cloud specific instructions
 
 ### System dependencies
