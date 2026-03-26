@@ -9,7 +9,9 @@ public record EnrichmentMatchData(
     int? Year,
     int? TrackNumber,
     string? MusicBrainzId,
+    string? MusicBrainzReleaseId,
     string? SpotifyId,
+    string? AcoustIdTrackId,
     string? Isrc,
     string MatchedBy,
     double AdjustedScore,
@@ -47,7 +49,10 @@ public class SongMetadata
 
     public string? Isrc { get; set; }
     public string? MusicBrainzId { get; set; }
+    public string? MusicBrainzReleaseId { get; set; }
     public string? SpotifyId { get; set; }
+    public string? AcoustIdTrackId { get; set; }
+    public string? LrclibId { get; set; }
     public EnrichmentStatus EnrichmentStatus { get; set; } = EnrichmentStatus.Pending;
     public string? MatchedBy { get; set; }
     public double? MatchConfidence { get; set; }
@@ -161,7 +166,9 @@ public class SongMetadata
         if (match.Year is not null) Year = match.Year;
         if (match.TrackNumber is not null) TrackNumber = match.TrackNumber;
         MusicBrainzId = match.MusicBrainzId ?? MusicBrainzId;
+        MusicBrainzReleaseId = match.MusicBrainzReleaseId ?? MusicBrainzReleaseId;
         SpotifyId = match.SpotifyId ?? SpotifyId;
+        AcoustIdTrackId = match.AcoustIdTrackId ?? AcoustIdTrackId;
         if (!string.IsNullOrWhiteSpace(match.Isrc)) Isrc = match.Isrc;
         MatchedBy = match.MatchedBy;
         MatchConfidence = match.AdjustedScore;
@@ -204,6 +211,8 @@ public class SongMetadata
         EnrichedAtUtc = null;
         EnrichmentLastAttemptedAtUtc = null;
         EnrichmentError = null;
+        AcoustIdTrackId = null;
+        MusicBrainzReleaseId = null;
 
         // Reset lyrics so the next enrichment cycle re-fetches them.
         // This allows re-enriching to pick up lyrics that previously failed or weren't found.
@@ -273,9 +282,10 @@ public class SongMetadata
         && !string.IsNullOrWhiteSpace(Title)
         && !string.IsNullOrWhiteSpace(Artist);
 
-    public void ApplyLyricsResult(string? syncedLyrics, string? plainLyrics, bool instrumental)
+    public void ApplyLyricsResult(string? syncedLyrics, string? plainLyrics, bool instrumental, int? lrclibId = null)
     {
         IsInstrumental = instrumental;
+        if (lrclibId is not null) LrclibId = lrclibId.Value.ToString();
         if (instrumental)
         {
             LyricsStatus = LyricsStatus.Instrumental;
@@ -315,6 +325,7 @@ public class SongMetadata
         SyncedLyrics = null;
         PlainLyrics = null;
         IsInstrumental = null;
+        LrclibId = null;
     }
 
     // --- Soft delete ---
