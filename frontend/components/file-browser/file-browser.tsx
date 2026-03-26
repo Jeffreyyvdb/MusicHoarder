@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -14,7 +15,7 @@ import { FileGrid } from "./file-grid"
 import { BreadcrumbNav } from "./breadcrumb-nav"
 import { TrackDetails } from "./track-details"
 import { Toolbar } from "./toolbar"
-import { findFileById, getPathToFile } from "@/lib/mock-data"
+import { findAncestorFolderId, findFileById, getPathToFile } from "@/lib/mock-data"
 import type { FileItem } from "@/lib/types"
 import { FolderOpen, Menu } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -139,6 +140,7 @@ function getRecencyValue(item: FileItem): number {
 }
 
 export function FileBrowser() {
+  const searchParams = useSearchParams()
   const isMountedRef = useRef(true)
   const [songs, setSongs] = useState<ApiSong[]>([])
   const [libraryMode, setLibraryMode] = useState<LibraryPathMode>("destination")
@@ -157,6 +159,7 @@ export function FileBrowser() {
   const [isHydrated, setIsHydrated] = useState(false)
   // Track expanded folder IDs for the sidebar tree - managed here to persist across re-renders
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(() => new Set(["root"]))
+  const appliedSongDeepLinkRef = useRef<string | null>(null)
   const isMobile = useIsMobile()
   const { currentSong, detailsRequestId } = usePlayer()
   const dataModeMessage = isDemoMode
@@ -222,6 +225,7 @@ export function FileBrowser() {
     setShowDetails(false)
     // Reset expanded folders when switching library mode
     setExpandedFolderIds(new Set(["root"]))
+    appliedSongDeepLinkRef.current = null
   }, [libraryMode])
 
   const currentFolder = useMemo(
@@ -351,6 +355,37 @@ export function FileBrowser() {
     setSelectedFileId(songFileId)
     setShowDetails(true)
   }, [detailsRequestId, currentSong])
+
+  useEffect(() => {
+    if (isLoading || apiError) return
+    const raw = searchParams.get("song")
+    if (raw == null || raw === "") return
+    const songId = Number.parseInt(raw, 10)
+    if (!Number.isFinite(songId) || songId < 1) return
+
+    const fileId = `song:${songId}`
+    const file = findFileById(fileSystem, fileId)
+    if (!file) return
+
+    const key = `${libraryMode}:${songId}`
+    if (appliedSongDeepLinkRef.current === key) return
+    appliedSongDeepLinkRef.current = key
+
+    const parentId = findAncestorFolderId(fileSystem, fileId)
+    if (parentId) {
+      setCurrentFolderId(parentId)
+      const path = getPathToFile(fileSystem, parentId)
+      const ids = path.map((p) => p.id)
+      setExpandedFolderIds((prev) => {
+        const next = new Set(prev)
+        for (const id of ids) next.add(id)
+        return next
+      })
+    }
+
+    setSelectedFileId(fileId)
+    setShowDetails(true)
+  }, [isLoading, apiError, searchParams, fileSystem, libraryMode])
 
   const handleFolderSelect = (item: FileItem) => {
     if (item.type === "folder") {
