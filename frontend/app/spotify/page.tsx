@@ -18,6 +18,7 @@ import {
   fetchSpotifyPlaylistTracks,
   fetchSpotifyCredentials,
 } from "@/lib/api-client"
+import { isDemoMode } from "@/lib/app-mode"
 import type {
   SpotifyStatusResponse,
   SpotifyApiTrack,
@@ -504,7 +505,7 @@ function SpotifyPageContent() {
               Link your Spotify account to browse your playlists and liked songs.
             </p>
 
-            {hasCredentials && process.env.NODE_ENV === "development" && (
+            {!isDemoMode && hasCredentials && process.env.NODE_ENV === "development" && (
               <p className="text-muted-foreground mb-6 max-w-lg mx-auto text-left text-xs leading-relaxed">
                 Spotify does not allow <code className="rounded bg-muted px-1 py-0.5">localhost</code> in redirect
                 URIs—use loopback IP. Register{" "}
@@ -602,6 +603,14 @@ function SpotifyPageContent() {
       <AppHeader />
 
       <div className="flex flex-1 flex-col overflow-hidden">
+        {isDemoMode && (
+          <div className="mx-4 mt-4 md:mx-6 rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+            <p>
+              Demo mode: Spotify data is sample content only. Deploy the MusicHoarder API and disable demo mode to
+              connect a real account.
+            </p>
+          </div>
+        )}
         {oauthBanner && (
           <div
             className={`mx-4 mt-4 md:mx-6 rounded-lg border px-4 py-3 text-sm ${
@@ -636,22 +645,26 @@ function SpotifyPageContent() {
               </div>
               {status.connectedAt && (
                 <p className="text-sm text-muted-foreground mt-1">
-                  Connected since {new Date(status.connectedAt).toLocaleDateString()}
+                  {isDemoMode
+                    ? "Demo session (not a real Spotify connection)"
+                    : `Connected since ${new Date(status.connectedAt).toLocaleDateString()}`}
                 </p>
               )}
             </div>
-            <Button
-              variant="outline"
-              onClick={handleDisconnect}
-              disabled={isDisconnecting}
-            >
-              {isDisconnecting ? (
-                <Loader2 className="size-4 mr-2 animate-spin" />
-              ) : (
-                <LogOut className="size-4 mr-2" />
-              )}
-              Disconnect
-            </Button>
+            {!isDemoMode && (
+              <Button
+                variant="outline"
+                onClick={handleDisconnect}
+                disabled={isDisconnecting}
+              >
+                {isDisconnecting ? (
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                ) : (
+                  <LogOut className="size-4 mr-2" />
+                )}
+                Disconnect
+              </Button>
+            )}
           </div>
         </div>
 
