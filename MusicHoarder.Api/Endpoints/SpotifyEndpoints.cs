@@ -139,6 +139,44 @@ public static class SpotifyEndpoints
             .WithName("GetSpotifyLikedSongs")
             .WithSummary("Returns paginated liked songs from the user's Spotify library.");
 
+        group.MapGet("/liked-songs/comparison", async (int? offset, int? limit, ISpotifyLibraryComparisonService comparisonService, CancellationToken ct) =>
+            {
+                try
+                {
+                    var result = await comparisonService.CompareAsync(offset ?? 0, limit ?? 50, ct);
+                    return Results.Ok(result);
+                }
+                catch (SpotifyNotConnectedException)
+                {
+                    return Results.Json(new { error = "spotify_not_connected" }, statusCode: 401);
+                }
+                catch (SpotifyRateLimitException)
+                {
+                    return Results.Json(new { error = "rate_limit_exceeded" }, statusCode: 429);
+                }
+            })
+            .WithName("GetSpotifyLikedSongsComparison")
+            .WithSummary("Compares Spotify liked songs against the local library and returns match statuses.");
+
+        group.MapGet("/liked-songs/comparison/summary", async (ISpotifyLibraryComparisonService comparisonService, CancellationToken ct) =>
+            {
+                try
+                {
+                    var result = await comparisonService.GetSummaryAsync(ct);
+                    return Results.Ok(result);
+                }
+                catch (SpotifyNotConnectedException)
+                {
+                    return Results.Json(new { error = "spotify_not_connected" }, statusCode: 401);
+                }
+                catch (SpotifyRateLimitException)
+                {
+                    return Results.Json(new { error = "rate_limit_exceeded" }, statusCode: 429);
+                }
+            })
+            .WithName("GetSpotifyLikedSongsComparisonSummary")
+            .WithSummary("Returns a summary of how many liked songs are in the library, possible matches, or missing.");
+
         group.MapGet("/playlists", async (ISpotifyApiService spotifyApi, CancellationToken ct) =>
             {
                 try
