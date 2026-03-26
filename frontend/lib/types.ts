@@ -33,11 +33,19 @@ export interface TrackMetadata {
   isInstrumental?: boolean
   fingerprint?: string
   enrichmentStatus: "pending" | "processing" | "complete" | "failed" | "needsreview"
+  matchedBy?: string
   sources: {
     musicbrainz?: boolean
     lastfm?: boolean
     spotify?: boolean
     genius?: boolean
+  }
+  sourceIds: {
+    musicBrainzId?: string
+    musicBrainzReleaseId?: string
+    spotifyId?: string
+    acoustIdTrackId?: string
+    lrclibId?: string
   }
 }
 

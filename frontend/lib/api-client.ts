@@ -85,7 +85,10 @@ export interface ApiSong {
   durationSeconds?: number | null
   fingerprint?: string | null
   musicBrainzId?: string | null
+  musicBrainzReleaseId?: string | null
   spotifyId?: string | null
+  acoustIdTrackId?: string | null
+  lrclibId?: string | null
   enrichmentStatus?: string | number | null
   matchedBy?: string | null
   matchConfidence?: number | null
@@ -601,6 +604,7 @@ export function buildFileSystemFromSongs(
         fileSize: song.fileSizeBytes ?? 0,
         fingerprint: song.fingerprint ?? undefined,
         enrichmentStatus: mapEnrichmentStatus(song.enrichmentStatus),
+        matchedBy: song.matchedBy ?? undefined,
         lyricsStatus: (song.lyricsStatus ?? "NotFetched") as import("@/lib/types").LyricsStatus,
         hasSyncedLyrics: song.hasSyncedLyrics ?? false,
         hasPlainLyrics: song.hasPlainLyrics ?? false,
@@ -611,6 +615,13 @@ export function buildFileSystemFromSongs(
         sources: {
           musicbrainz: Boolean(song.musicBrainzId),
           spotify: Boolean(song.spotifyId),
+        },
+        sourceIds: {
+          musicBrainzId: song.musicBrainzId ?? undefined,
+          musicBrainzReleaseId: song.musicBrainzReleaseId ?? undefined,
+          spotifyId: song.spotifyId ?? undefined,
+          acoustIdTrackId: song.acoustIdTrackId ?? undefined,
+          lrclibId: song.lrclibId ?? undefined,
         },
       },
     }

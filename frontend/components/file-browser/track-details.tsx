@@ -233,6 +233,11 @@ export function TrackDetails({ file, onClose, onResetEnrichment }: TrackDetailsP
                 isInstrumental={metadata.isInstrumental}
                 currentTimeMs={isThisSong ? currentTime * 1000 : null}
                 onSeek={isThisSong ? (timeMs: number) => seek(timeMs / 1000) : undefined}
+                lrclibUrl={metadata.sourceIds.lrclibId
+                  ? `https://lrclib.net/api/get/${metadata.sourceIds.lrclibId}`
+                  : (metadata.artist && metadata.title
+                    ? `https://lrclib.net/search?q=${encodeURIComponent(`${metadata.artist} ${metadata.title}`)}`
+                    : undefined)}
               />
             </TabsContent>
 
@@ -240,26 +245,64 @@ export function TrackDetails({ file, onClose, onResetEnrichment }: TrackDetailsP
               <p className="text-sm text-muted-foreground">
                 Metadata enrichment sources
               </p>
+              {metadata.matchedBy && (
+                <div className="rounded-lg bg-secondary/50 px-3 py-2">
+                  <p className="text-xs text-muted-foreground mb-1">Matched via</p>
+                  <p className="text-sm font-medium">{metadata.matchedBy}</p>
+                </div>
+              )}
               <div className="space-y-2">
                 <SourceRow
-                  name="MusicBrainz"
-                  connected={metadata.sources.musicbrainz}
-                  url="https://musicbrainz.org"
+                  name="AcoustID"
+                  connected={Boolean(metadata.sourceIds.acoustIdTrackId)}
+                  url={metadata.sourceIds.acoustIdTrackId
+                    ? `https://acoustid.org/track/${metadata.sourceIds.acoustIdTrackId}`
+                    : "https://acoustid.org"}
+                  label={metadata.sourceIds.acoustIdTrackId
+                    ? `acoustid.org/track/${metadata.sourceIds.acoustIdTrackId.slice(0, 8)}…`
+                    : undefined}
                 />
                 <SourceRow
-                  name="Last.fm"
-                  connected={metadata.sources.lastfm}
-                  url="https://last.fm"
+                  name="MusicBrainz Recording"
+                  connected={Boolean(metadata.sourceIds.musicBrainzId)}
+                  url={metadata.sourceIds.musicBrainzId
+                    ? `https://musicbrainz.org/recording/${metadata.sourceIds.musicBrainzId}`
+                    : "https://musicbrainz.org"}
+                  label={metadata.sourceIds.musicBrainzId
+                    ? `musicbrainz.org/recording/${metadata.sourceIds.musicBrainzId.slice(0, 8)}…`
+                    : undefined}
                 />
+                {metadata.sourceIds.musicBrainzReleaseId && (
+                  <SourceRow
+                    name="MusicBrainz Release"
+                    connected={true}
+                    url={`https://musicbrainz.org/release/${metadata.sourceIds.musicBrainzReleaseId}`}
+                    label={`musicbrainz.org/release/${metadata.sourceIds.musicBrainzReleaseId.slice(0, 8)}…`}
+                  />
+                )}
                 <SourceRow
                   name="Spotify"
-                  connected={metadata.sources.spotify}
-                  url="https://spotify.com"
+                  connected={Boolean(metadata.sourceIds.spotifyId)}
+                  url={metadata.sourceIds.spotifyId
+                    ? `https://open.spotify.com/track/${metadata.sourceIds.spotifyId}`
+                    : "https://spotify.com"}
+                  label={metadata.sourceIds.spotifyId
+                    ? `open.spotify.com/track/${metadata.sourceIds.spotifyId.slice(0, 8)}…`
+                    : undefined}
                 />
                 <SourceRow
-                  name="Genius"
-                  connected={metadata.sources.genius}
-                  url="https://genius.com"
+                  name="LRCLIB (Lyrics)"
+                  connected={Boolean(metadata.sourceIds.lrclibId)}
+                  url={metadata.sourceIds.lrclibId
+                    ? `https://lrclib.net/api/get/${metadata.sourceIds.lrclibId}`
+                    : (metadata.artist && metadata.title
+                      ? `https://lrclib.net/search?q=${encodeURIComponent(`${metadata.artist} ${metadata.title}`)}`
+                      : "https://lrclib.net")}
+                  label={metadata.sourceIds.lrclibId
+                    ? `lrclib.net/api/get/${metadata.sourceIds.lrclibId}`
+                    : (metadata.artist && metadata.title
+                      ? `lrclib.net/search?q=${metadata.artist}+${metadata.title}`
+                      : undefined)}
                 />
               </div>
               <Separator className="my-3" />
@@ -338,28 +381,37 @@ function SourceRow({
   name,
   connected,
   url,
+  label,
 }: {
   name: string
   connected?: boolean
   url: string
+  label?: string
 }) {
   return (
-    <div className="flex items-center justify-between rounded-lg bg-secondary/50 px-3 py-2">
-      <div className="flex items-center gap-2">
+    <div className="flex items-center justify-between gap-2 rounded-lg bg-secondary/50 px-3 py-2">
+      <div className="flex items-center gap-2 min-w-0">
         {connected ? (
-          <CheckCircle2 className="size-4 text-primary" />
+          <CheckCircle2 className="size-4 shrink-0 text-primary" />
         ) : (
-          <div className="size-4 rounded-full border-2 border-muted-foreground/30" />
+          <div className="size-4 shrink-0 rounded-full border-2 border-muted-foreground/30" />
         )}
-        <span className="text-sm">{name}</span>
+        <span className="text-sm shrink-0">{name}</span>
       </div>
       <a
         href={url}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-muted-foreground transition-colors hover:text-foreground"
+        className={cn(
+          "flex items-center gap-1.5 text-xs transition-colors min-w-0",
+          connected
+            ? "text-primary hover:text-primary/80"
+            : "text-muted-foreground hover:text-foreground"
+        )}
+        title={url}
       >
-        <ExternalLink className="size-3.5" />
+        {label && <span className="truncate">{label}</span>}
+        <ExternalLink className="size-3 shrink-0" />
       </a>
     </div>
   )
@@ -488,6 +540,7 @@ function LyricsPanel({
   isInstrumental,
   currentTimeMs,
   onSeek,
+  lrclibUrl,
 }: {
   songId: number | null
   syncedLyrics?: string
@@ -498,6 +551,7 @@ function LyricsPanel({
   isInstrumental?: boolean
   currentTimeMs?: number | null
   onSeek?: (timeMs: number) => void
+  lrclibUrl?: string
 }) {
   const [showSynced, setShowSynced] = useState(true)
   const [loadedSynced, setLoadedSynced] = useState<string | null | undefined>(syncedLyricsFromProps)
@@ -710,6 +764,21 @@ function LyricsPanel({
           </pre>
         )}
       </div>
+
+      {lrclibUrl && (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span>Source:</span>
+          <a
+            href={lrclibUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-primary hover:text-primary/80 transition-colors"
+          >
+            LRCLIB
+            <ExternalLink className="size-3" />
+          </a>
+        </div>
+      )}
     </div>
   )
 }
