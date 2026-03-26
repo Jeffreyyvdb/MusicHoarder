@@ -283,7 +283,9 @@ public class EnrichmentOrchestrator(
             result.Year,
             result.TrackNumber,
             result.MusicBrainzId,
+            result.MusicBrainzReleaseId,
             result.SpotifyId,
+            result.AcoustIdTrackId,
             result.Isrc,
             result.MatchedBy,
             result.MatchConfidence,
@@ -311,12 +313,12 @@ public class EnrichmentOrchestrator(
             }
             else if (result.IsInstrumental)
             {
-                song.ApplyLyricsResult(null, null, true);
+                song.ApplyLyricsResult(null, null, true, result.LrclibId);
                 logger.LogInformation("Lyrics: instrumental confirmed for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
             }
             else
             {
-                song.ApplyLyricsResult(result.SyncedLyrics, result.PlainLyrics, false);
+                song.ApplyLyricsResult(result.SyncedLyrics, result.PlainLyrics, false, result.LrclibId);
                 var kind = result.SyncedLyrics is not null ? "synced" : "plain";
                 logger.LogInformation("Lyrics: fetched ({Kind}) for {Track} (SongId={SongId})", kind, song.TrackLabel, song.Id);
             }
