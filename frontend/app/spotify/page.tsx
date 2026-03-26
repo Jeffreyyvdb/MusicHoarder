@@ -18,6 +18,7 @@ import {
   fetchSpotifyPlaylistTracks,
   fetchSpotifyCredentials,
 } from "@/lib/api-client"
+import { isDemoMode } from "@/lib/app-mode"
 import type {
   SpotifyStatusResponse,
   SpotifyApiTrack,
@@ -255,7 +256,7 @@ function PlaylistDetailView({
     : tracks
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex items-center gap-4 border-b border-border px-4 py-4 md:px-6">
         <Button variant="ghost" size="sm" onClick={onBack} className="shrink-0">
           <ArrowLeft className="size-4 mr-1.5" />
@@ -312,7 +313,7 @@ function PlaylistDetailView({
       ) : isLoading ? (
         <TrackListSkeleton />
       ) : (
-        <ScrollArea className="flex-1">
+        <ScrollArea className="min-h-0 flex-1">
           <div className="p-2 md:px-4">
             {filteredTracks.map((track, i) => (
               <TrackRow key={`${track.spotifyId}-${i}`} track={track} index={offset + i} />
@@ -504,7 +505,7 @@ function SpotifyPageContent() {
               Link your Spotify account to browse your playlists and liked songs.
             </p>
 
-            {hasCredentials && process.env.NODE_ENV === "development" && (
+            {!isDemoMode && hasCredentials && process.env.NODE_ENV === "development" && (
               <p className="text-muted-foreground mb-6 max-w-lg mx-auto text-left text-xs leading-relaxed">
                 Spotify does not allow <code className="rounded bg-muted px-1 py-0.5">localhost</code> in redirect
                 URIs—use loopback IP. Register{" "}
@@ -601,7 +602,15 @@ function SpotifyPageContent() {
     <div className="flex h-screen flex-col bg-background">
       <AppHeader />
 
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {isDemoMode && (
+          <div className="mx-4 mt-4 md:mx-6 rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+            <p>
+              Demo mode: Spotify data is sample content only. Deploy the MusicHoarder API and disable demo mode to
+              connect a real account.
+            </p>
+          </div>
+        )}
         {oauthBanner && (
           <div
             className={`mx-4 mt-4 md:mx-6 rounded-lg border px-4 py-3 text-sm ${
@@ -636,26 +645,30 @@ function SpotifyPageContent() {
               </div>
               {status.connectedAt && (
                 <p className="text-sm text-muted-foreground mt-1">
-                  Connected since {new Date(status.connectedAt).toLocaleDateString()}
+                  {isDemoMode
+                    ? "Demo session (not a real Spotify connection)"
+                    : `Connected since ${new Date(status.connectedAt).toLocaleDateString()}`}
                 </p>
               )}
             </div>
-            <Button
-              variant="outline"
-              onClick={handleDisconnect}
-              disabled={isDisconnecting}
-            >
-              {isDisconnecting ? (
-                <Loader2 className="size-4 mr-2 animate-spin" />
-              ) : (
-                <LogOut className="size-4 mr-2" />
-              )}
-              Disconnect
-            </Button>
+            {!isDemoMode && (
+              <Button
+                variant="outline"
+                onClick={handleDisconnect}
+                disabled={isDisconnecting}
+              >
+                {isDisconnecting ? (
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                ) : (
+                  <LogOut className="size-4 mr-2" />
+                )}
+                Disconnect
+              </Button>
+            )}
           </div>
         </div>
 
-        <Tabs defaultValue="liked" className="flex flex-1 flex-col overflow-hidden">
+        <Tabs defaultValue="liked" className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="border-b border-border px-4 md:px-6">
             <TabsList className="h-12 bg-transparent p-0">
               <TabsTrigger
@@ -676,7 +689,7 @@ function SpotifyPageContent() {
           </div>
 
           {/* Liked Songs Tab */}
-          <TabsContent value="liked" className="flex-1 overflow-hidden m-0 flex flex-col">
+          <TabsContent value="liked" className="m-0 flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex items-center gap-3 border-b border-border px-4 py-3 md:px-6">
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -708,7 +721,7 @@ function SpotifyPageContent() {
             ) : isLoadingLiked ? (
               <TrackListSkeleton />
             ) : (
-              <ScrollArea className="flex-1">
+              <ScrollArea className="min-h-0 flex-1">
                 <div className="hidden md:flex items-center gap-3 px-6 py-2 text-xs text-muted-foreground border-b border-border/50">
                   <span className="w-8 text-right">#</span>
                   <span className="size-10" />
@@ -744,7 +757,7 @@ function SpotifyPageContent() {
           </TabsContent>
 
           {/* Playlists Tab */}
-          <TabsContent value="playlists" className="flex-1 overflow-hidden m-0 flex flex-col">
+          <TabsContent value="playlists" className="m-0 flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex items-center gap-3 border-b border-border px-4 py-3 md:px-6">
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -771,7 +784,7 @@ function SpotifyPageContent() {
             ) : isLoadingPlaylists ? (
               <PlaylistGridSkeleton />
             ) : (
-              <ScrollArea className="flex-1">
+              <ScrollArea className="min-h-0 flex-1">
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 p-4 md:p-6">
                   {filteredPlaylists.map((playlist) => (
                     <PlaylistCard
