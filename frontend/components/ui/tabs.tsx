@@ -57,7 +57,11 @@ function TabsContent({
   return (
     <TabsPrimitive.Content
       data-slot="tabs-content"
-      className={cn('flex-1 outline-none', className)}
+      className={cn(
+        // min-h-0 so tab panels can shrink in flex layouts and children (e.g. ScrollArea) can scroll.
+        'flex-1 min-h-0 outline-none',
+        className,
+      )}
       {...props}
     />
   )
