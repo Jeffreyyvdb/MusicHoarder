@@ -225,6 +225,41 @@ public class SpotifyLibraryComparisonServiceTests
         Assert.Null(result.Items[2].MatchedTrack);
     }
 
+    [Fact]
+    public async Task CompareAsync_WithMatchStatusFilter_ReturnsPagedSubset()
+    {
+        await using var db = CreateDb();
+        SeedTracks(db,
+            ("spotify:1", "Artist 1", "Title 1"),
+            (null, "Artist 2", "Title 2"));
+
+        var liked = new SpotifyLikedSongsResponse(3, 0, 50, new[]
+        {
+            MakeLikedSong("spotify:1", "Artist 1", "Title 1"),
+            MakeLikedSong("no-id", "Artist 2 (feat. X)", "Title 2"),
+            MakeLikedSong("no-id-2", "Unknown", "Unknown"),
+        });
+
+        var stubApi = new StubSpotifyApiService(liked);
+        var service = CreateService(db, stubApi);
+
+        var inLibraryPage = await service.CompareAsync(0, 50, ComparisonMatchStatus.InLibrary);
+        Assert.Equal(2, inLibraryPage.Total);
+        Assert.Equal(2, inLibraryPage.Items.Count);
+        Assert.All(inLibraryPage.Items, i => Assert.Equal(ComparisonMatchStatus.InLibrary, i.MatchStatus));
+
+        var notInPage = await service.CompareAsync(0, 50, ComparisonMatchStatus.NotInLibrary);
+        Assert.Equal(1, notInPage.Total);
+        Assert.Single(notInPage.Items);
+        Assert.Equal(ComparisonMatchStatus.NotInLibrary, notInPage.Items[0].MatchStatus);
+
+        var paged = await service.CompareAsync(1, 1, ComparisonMatchStatus.InLibrary);
+        Assert.Equal(2, paged.Total);
+        Assert.Single(paged.Items);
+        Assert.Equal(1, paged.Offset);
+        Assert.Equal(1, paged.Limit);
+    }
+
     #endregion
 
     #region GetSummaryAsync integration tests

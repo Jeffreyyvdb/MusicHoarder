@@ -12,13 +12,58 @@ public partial class SpotifyLibraryComparisonService(
 {
     private const double FuzzyThreshold = 85.0;
 
-    public async Task<SpotifyComparisonResponse> CompareAsync(int offset = 0, int limit = 50, CancellationToken ct = default)
+    public async Task<SpotifyComparisonResponse> CompareAsync(
+        int offset = 0,
+        int limit = 50,
+        ComparisonMatchStatus? matchStatus = null,
+        CancellationToken ct = default)
     {
-        var likedSongs = await spotifyApi.GetLikedSongsAsync(offset, limit, ct);
         var trackIndex = await LoadTrackIndexAsync(ct);
-        var items = MatchAll(likedSongs.Items, trackIndex);
 
-        return new SpotifyComparisonResponse(likedSongs.Total, likedSongs.Offset, likedSongs.Limit, items);
+        if (matchStatus is null)
+        {
+            var likedSongs = await spotifyApi.GetLikedSongsAsync(offset, limit, ct);
+            var items = MatchAll(likedSongs.Items, trackIndex);
+            return new SpotifyComparisonResponse(likedSongs.Total, likedSongs.Offset, likedSongs.Limit, items);
+        }
+
+        const int batchSize = 50;
+        var matched = new List<SpotifyComparisonItem>();
+        var spotifyOffset = 0;
+        var totalLiked = 0;
+
+        while (true)
+        {
+            var page = await spotifyApi.GetLikedSongsAsync(spotifyOffset, batchSize, ct);
+            if (page.Items.Count == 0) break;
+
+            totalLiked = page.Total;
+
+            foreach (var song in page.Items)
+            {
+                var (status, matchedTrack, confidence) = FindBestMatch(song, trackIndex);
+                if (status != matchStatus) continue;
+
+                matched.Add(new SpotifyComparisonItem(
+                    song.SpotifyId,
+                    song.Title,
+                    song.Artist,
+                    song.Album,
+                    song.AlbumArt,
+                    song.DurationMs,
+                    song.AddedAt,
+                    status,
+                    matchedTrack,
+                    confidence));
+            }
+
+            spotifyOffset += page.Items.Count;
+            if (spotifyOffset >= page.Total) break;
+        }
+
+        var totalFiltered = matched.Count;
+        var pageItems = matched.Skip(offset).Take(limit).ToList();
+        return new SpotifyComparisonResponse(totalFiltered, offset, limit, pageItems);
     }
 
     public async Task<SpotifyComparisonSummaryResponse> GetSummaryAsync(CancellationToken ct = default)
