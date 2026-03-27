@@ -16,7 +16,8 @@ public record EnrichmentMatchData(
     string MatchedBy,
     double AdjustedScore,
     string? WarningsJson,
-    EnrichmentStatus RecommendedStatus);
+    EnrichmentStatus RecommendedStatus,
+    string? Album = null);
 
 public class SongMetadata
 {
@@ -163,6 +164,7 @@ public class SongMetadata
         Artist = string.IsNullOrWhiteSpace(match.Artist) ? Artist : match.Artist;
         AlbumArtist = string.IsNullOrWhiteSpace(match.AlbumArtist) ? AlbumArtist : match.AlbumArtist;
         Title = string.IsNullOrWhiteSpace(match.Title) ? Title : match.Title;
+        Album = string.IsNullOrWhiteSpace(match.Album) ? Album : match.Album;
         if (match.Year is not null) Year = match.Year;
         if (match.TrackNumber is not null) TrackNumber = match.TrackNumber;
         MusicBrainzId = match.MusicBrainzId ?? MusicBrainzId;
