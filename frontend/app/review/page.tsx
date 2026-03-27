@@ -35,8 +35,11 @@ import {
   Loader2,
   CheckCheck,
   X,
+  ExternalLink,
 } from "lucide-react"
 import type { ApiSong } from "@/lib/api-client"
+import { lrclibWebSearchUrl } from "@/lib/lrclib-url"
+import { matchedViaAcoustId } from "@/lib/source-connection"
 import {
   fetchReviewTracks,
   submitManualReview,
@@ -685,6 +688,9 @@ export default function ReviewPage() {
                             <p className="text-sm">{selectedTrack.enrichmentError}</p>
                           </div>
                         )}
+
+                        {/* Source Deep-Links */}
+                        <SourceLinks track={selectedTrack} />
                       </div>
                     </ScrollArea>
                   </TabsContent>
@@ -827,6 +833,79 @@ export default function ReviewPage() {
           </div>
         </div>
       </main>
+    </div>
+  )
+}
+
+function SourceLinks({ track }: { track?: ApiSong | null }) {
+  if (!track) return null
+
+  const links: { name: string; url: string }[] = []
+
+  if (track.acoustIdTrackId) {
+    links.push({
+      name: `AcoustID Track`,
+      url: `https://acoustid.org/track/${track.acoustIdTrackId}`,
+    })
+  } else if (matchedViaAcoustId(track.matchedBy ?? undefined)) {
+    links.push({
+      name: "AcoustID",
+      url: "https://acoustid.org",
+    })
+  }
+
+  if (track.musicBrainzId) {
+    links.push({
+      name: `MusicBrainz Recording`,
+      url: `https://musicbrainz.org/recording/${track.musicBrainzId}`,
+    })
+  }
+
+  if (track.musicBrainzReleaseId) {
+    links.push({
+      name: `MusicBrainz Release`,
+      url: `https://musicbrainz.org/release/${track.musicBrainzReleaseId}`,
+    })
+  }
+
+  if (track.spotifyId) {
+    links.push({
+      name: `Spotify Track`,
+      url: `https://open.spotify.com/track/${track.spotifyId}`,
+    })
+  }
+
+  {
+    const lrclibSearch = lrclibWebSearchUrl(track.artist, track.title)
+    if (lrclibSearch || track.lrclibId) {
+      links.push({
+        name: "LRCLIB",
+        url: lrclibSearch ?? "https://lrclib.net",
+      })
+    }
+  }
+
+  if (links.length === 0) return null
+
+  return (
+    <div className="rounded-lg bg-secondary/50 p-3">
+      <p className="mb-2 text-xs font-medium text-muted-foreground">
+        Source Links
+      </p>
+      <div className="space-y-1.5">
+        {links.map((link) => (
+          <a
+            key={link.url}
+            href={link.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 text-sm text-primary hover:text-primary/80 transition-colors"
+          >
+            <ExternalLink className="size-3.5 shrink-0" />
+            <span className="truncate">{link.name}</span>
+          </a>
+        ))}
+      </div>
     </div>
   )
 }
