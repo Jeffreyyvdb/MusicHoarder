@@ -8,7 +8,12 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <InternalsVisibleTo Include="MusicHoarder.Api.Tests" />
+    </ItemGroup>
+
+    <ItemGroup>
         <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="13.2.0" />
+        <PackageReference Include="FuzzySharp" Version="2.0.2" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.5" />
         <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.5">
             <PrivateAssets>all</PrivateAssets>

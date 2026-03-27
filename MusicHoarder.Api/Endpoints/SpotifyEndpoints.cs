@@ -120,12 +120,13 @@ public static class SpotifyEndpoints
             .WithName("GetSpotifyCredentials")
             .WithSummary("Returns the configured Spotify client ID and whether a secret is set.");
 
-        group.MapGet("/liked-songs", async (int? offset, int? limit, ISpotifyApiService spotifyApi, CancellationToken ct) =>
+        group.MapGet("/liked-songs", async (int? offset, int? limit, ISpotifyApiService spotifyApi, ISpotifyLibraryComparisonService comparisonService, CancellationToken ct) =>
             {
                 try
                 {
                     var result = await spotifyApi.GetLikedSongsAsync(offset ?? 0, limit ?? 50, ct);
-                    return Results.Ok(result);
+                    var items = await comparisonService.AttachLibraryMatchesAsync(result.Items, ct);
+                    return Results.Ok(result with { Items = items });
                 }
                 catch (SpotifyNotConnectedException)
                 {
@@ -138,6 +139,55 @@ public static class SpotifyEndpoints
             })
             .WithName("GetSpotifyLikedSongs")
             .WithSummary("Returns paginated liked songs from the user's Spotify library.");
+
+        group.MapGet("/liked-songs/comparison", async (int? offset, int? limit, string? matchStatus, ISpotifyLibraryComparisonService comparisonService, CancellationToken ct) =>
+            {
+                try
+                {
+                    ComparisonMatchStatus? statusFilter = null;
+                    if (!string.IsNullOrWhiteSpace(matchStatus))
+                    {
+                        if (!Enum.TryParse(matchStatus, ignoreCase: true, out ComparisonMatchStatus parsed))
+                        {
+                            return Results.BadRequest(new { error = "invalid_match_status", message = "matchStatus must be InLibrary, PossibleMatch, or NotInLibrary." });
+                        }
+
+                        statusFilter = parsed;
+                    }
+
+                    var result = await comparisonService.CompareAsync(offset ?? 0, limit ?? 50, statusFilter, ct);
+                    return Results.Ok(result);
+                }
+                catch (SpotifyNotConnectedException)
+                {
+                    return Results.Json(new { error = "spotify_not_connected" }, statusCode: 401);
+                }
+                catch (SpotifyRateLimitException)
+                {
+                    return Results.Json(new { error = "rate_limit_exceeded" }, statusCode: 429);
+                }
+            })
+            .WithName("GetSpotifyLikedSongsComparison")
+            .WithSummary("Compares Spotify liked songs against the local library and returns match statuses.");
+
+        group.MapGet("/liked-songs/comparison/summary", async (ISpotifyLibraryComparisonService comparisonService, CancellationToken ct) =>
+            {
+                try
+                {
+                    var result = await comparisonService.GetSummaryAsync(ct);
+                    return Results.Ok(result);
+                }
+                catch (SpotifyNotConnectedException)
+                {
+                    return Results.Json(new { error = "spotify_not_connected" }, statusCode: 401);
+                }
+                catch (SpotifyRateLimitException)
+                {
+                    return Results.Json(new { error = "rate_limit_exceeded" }, statusCode: 429);
+                }
+            })
+            .WithName("GetSpotifyLikedSongsComparisonSummary")
+            .WithSummary("Returns a summary of how many liked songs are in the library, possible matches, or missing.");
 
         group.MapGet("/playlists", async (ISpotifyApiService spotifyApi, CancellationToken ct) =>
             {
@@ -158,12 +208,13 @@ public static class SpotifyEndpoints
             .WithName("GetSpotifyPlaylists")
             .WithSummary("Returns all user playlists (owned and followed) from Spotify.");
 
-        group.MapGet("/playlists/{playlistId}/tracks", async (string playlistId, int? offset, int? limit, ISpotifyApiService spotifyApi, CancellationToken ct) =>
+        group.MapGet("/playlists/{playlistId}/tracks", async (string playlistId, int? offset, int? limit, ISpotifyApiService spotifyApi, ISpotifyLibraryComparisonService comparisonService, CancellationToken ct) =>
             {
                 try
                 {
                     var result = await spotifyApi.GetPlaylistTracksAsync(playlistId, offset ?? 0, limit ?? 50, ct);
-                    return Results.Ok(result);
+                    var items = await comparisonService.AttachLibraryMatchesAsync(result.Items, ct);
+                    return Results.Ok(result with { Items = items });
                 }
                 catch (SpotifyNotConnectedException)
                 {

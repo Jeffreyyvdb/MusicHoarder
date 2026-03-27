@@ -250,7 +250,7 @@ export default function ArtistDiscographyPage({
     <div className="flex h-screen flex-col bg-background">
       <AppHeader />
 
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1">
         <div className="p-4 md:p-6">
           {/* Back Button */}
           <Link

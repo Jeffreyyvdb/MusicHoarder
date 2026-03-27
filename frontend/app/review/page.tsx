@@ -515,7 +515,7 @@ export default function ReviewPage() {
             {/* Right Panel - Edit Form + Action Bar */}
             <div className="flex min-h-0 flex-col gap-4">
               <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                <Tabs defaultValue="edit" className="flex flex-1 flex-col overflow-hidden">
+                <Tabs defaultValue="edit" className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <div className="shrink-0 border-b border-border px-3">
                     <TabsList className="h-12 w-full justify-start rounded-none border-0 bg-transparent p-0">
                       <TabsTrigger
@@ -540,7 +540,7 @@ export default function ReviewPage() {
                   </div>
 
                   <TabsContent value="edit" className="min-h-0 flex-1 overflow-hidden m-0">
-                    <ScrollArea className="h-full">
+                    <ScrollArea className="h-full min-h-0">
                       <div className="space-y-4 p-4">
                         {/* Basic Info */}
                         <div className="space-y-2">
@@ -696,7 +696,7 @@ export default function ReviewPage() {
                   </TabsContent>
 
                   <TabsContent value="compare" className="min-h-0 flex-1 overflow-hidden m-0">
-                    <ScrollArea className="h-full">
+                    <ScrollArea className="h-full min-h-0">
                       <div className="p-4">
                         {selectedTrack?.originalMetadataCaptured ? (
                           <div className="space-y-4">
@@ -755,7 +755,7 @@ export default function ReviewPage() {
                   </TabsContent>
 
                   <TabsContent value="issues" className="min-h-0 flex-1 overflow-hidden m-0">
-                    <ScrollArea className="h-full">
+                    <ScrollArea className="h-full min-h-0">
                       <div className="p-4">
                         {selectedTrack?.matchWarnings && selectedTrack.matchWarnings.length > 0 ? (
                           <div className="space-y-2">

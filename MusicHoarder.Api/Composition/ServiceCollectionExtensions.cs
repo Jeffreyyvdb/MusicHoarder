@@ -88,6 +88,7 @@ public static class ServiceCollectionExtensions
             return new SpotifyOAuthService(scopeFactory, httpClient, logger);
         });
         services.AddHostedService<SpotifyTokenRefreshService>();
+        services.AddHostedService<SpotifyLibraryMatchBackgroundService>();
 
         services.AddMemoryCache();
         services.AddSingleton<ISpotifyApiService>(sp =>
@@ -98,6 +99,13 @@ public static class ServiceCollectionExtensions
             var cache = sp.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>();
             var logger = sp.GetRequiredService<ILogger<SpotifyApiService>>();
             return new SpotifyApiService(scopeFactory, oauthService, httpClient, cache, logger);
+        });
+        services.AddSingleton<ISpotifyLibraryComparisonService>(sp =>
+        {
+            var spotifyApi = sp.GetRequiredService<ISpotifyApiService>();
+            var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
+            var logger = sp.GetRequiredService<ILogger<SpotifyLibraryComparisonService>>();
+            return new SpotifyLibraryComparisonService(spotifyApi, scopeFactory, logger);
         });
 
         return services;
