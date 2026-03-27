@@ -7,6 +7,14 @@ public interface ISpotifyApiService
     Task<SpotifyPlaylistTracksResponse> GetPlaylistTracksAsync(string playlistId, int offset = 0, int limit = 50, CancellationToken ct = default);
 }
 
+public record SpotifyLibraryMatchInfo(
+    string MatchStatus,
+    int? MatchedSongId,
+    double? MatchConfidence,
+    string? MatchedTitle,
+    string? MatchedArtist,
+    string? MatchedEnrichmentStatus);
+
 public record SpotifyTrackItem(
     string SpotifyId,
     string Title,
@@ -14,7 +22,8 @@ public record SpotifyTrackItem(
     string Album,
     string? AlbumArt,
     int DurationMs,
-    DateTime AddedAt);
+    DateTime AddedAt,
+    SpotifyLibraryMatchInfo? LibraryMatch = null);
 
 public record SpotifyLikedSongsResponse(
     int Total,

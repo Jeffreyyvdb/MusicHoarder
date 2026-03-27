@@ -225,6 +225,85 @@ public class SpotifyLibraryComparisonServiceTests
         Assert.Null(result.Items[2].MatchedTrack);
     }
 
+    [Fact]
+    public async Task CompareAsync_WithMatchStatusFilter_ReturnsPagedSubset()
+    {
+        await using var db = CreateDb();
+        SeedTracks(db,
+            ("spotify:1", "Artist 1", "Title 1"),
+            (null, "Artist 2", "Title 2"));
+
+        var t0 = DateTime.UtcNow;
+        db.SpotifyTrackLibraryMatches.AddRange(
+            new SpotifyTrackLibraryMatch
+            {
+                SpotifyTrackId = "spotify:1",
+                MatchStatus = (int)ComparisonMatchStatus.InLibrary,
+                MatchedSongId = 1,
+                MatchConfidence = 1,
+                MatchedTitle = "Title 1",
+                MatchedArtist = "Artist 1",
+                MatchedEnrichmentStatus = "Matched",
+                UpdatedAtUtc = t0,
+                Source = SpotifyLibraryComparisonService.SourceLikedSync,
+                SpotifyTitle = "Title 1",
+                SpotifyArtist = "Artist 1",
+                SpotifyAlbum = "Album",
+                SpotifyDurationMs = 200000,
+                SpotifyAddedAtUtc = t0,
+            },
+            new SpotifyTrackLibraryMatch
+            {
+                SpotifyTrackId = "no-id",
+                MatchStatus = (int)ComparisonMatchStatus.InLibrary,
+                MatchedSongId = 2,
+                MatchConfidence = 0.95,
+                MatchedTitle = "Title 2",
+                MatchedArtist = "Artist 2",
+                MatchedEnrichmentStatus = "Matched",
+                UpdatedAtUtc = t0.AddMinutes(-1),
+                Source = SpotifyLibraryComparisonService.SourceLikedSync,
+                SpotifyTitle = "Title 2",
+                SpotifyArtist = "Artist 2 (feat. X)",
+                SpotifyAlbum = "Album",
+                SpotifyDurationMs = 200000,
+                SpotifyAddedAtUtc = t0.AddMinutes(-1),
+            },
+            new SpotifyTrackLibraryMatch
+            {
+                SpotifyTrackId = "no-id-2",
+                MatchStatus = (int)ComparisonMatchStatus.NotInLibrary,
+                UpdatedAtUtc = t0.AddMinutes(-2),
+                Source = SpotifyLibraryComparisonService.SourceLikedSync,
+                SpotifyTitle = "Unknown",
+                SpotifyArtist = "Unknown",
+                SpotifyAlbum = "Album",
+                SpotifyDurationMs = 200000,
+                SpotifyAddedAtUtc = t0.AddMinutes(-2),
+            });
+        await db.SaveChangesAsync();
+
+        var liked = new SpotifyLikedSongsResponse(0, 0, 50, []);
+        var stubApi = new StubSpotifyApiService(liked);
+        var service = CreateService(db, stubApi);
+
+        var inLibraryPage = await service.CompareAsync(0, 50, ComparisonMatchStatus.InLibrary);
+        Assert.Equal(2, inLibraryPage.Total);
+        Assert.Equal(2, inLibraryPage.Items.Count);
+        Assert.All(inLibraryPage.Items, i => Assert.Equal(ComparisonMatchStatus.InLibrary, i.MatchStatus));
+
+        var notInPage = await service.CompareAsync(0, 50, ComparisonMatchStatus.NotInLibrary);
+        Assert.Equal(1, notInPage.Total);
+        Assert.Single(notInPage.Items);
+        Assert.Equal(ComparisonMatchStatus.NotInLibrary, notInPage.Items[0].MatchStatus);
+
+        var paged = await service.CompareAsync(1, 1, ComparisonMatchStatus.InLibrary);
+        Assert.Equal(2, paged.Total);
+        Assert.Single(paged.Items);
+        Assert.Equal(1, paged.Offset);
+        Assert.Equal(1, paged.Limit);
+    }
+
     #endregion
 
     #region GetSummaryAsync integration tests
@@ -233,17 +312,17 @@ public class SpotifyLibraryComparisonServiceTests
     public async Task GetSummaryAsync_ReturnsCounts()
     {
         await using var db = CreateDb();
-        SeedTracks(db,
-            ("spotify:1", "Artist 1", "Title 1"),
-            (null, "Artist 2", "Title 2"));
-
-        var page1 = new SpotifyLikedSongsResponse(3, 0, 50, new[]
+        db.SpotifySettings.Add(new SpotifySettings
         {
-            MakeLikedSong("spotify:1", "Artist 1", "Title 1"),
-            MakeLikedSong("no-id", "Artist 2 (feat. X)", "Title 2"),
-            MakeLikedSong("no-id-2", "Unknown", "Unknown"),
+            SpotifyLikedMatchTotal = 3,
+            SpotifyLikedMatchInLibrary = 2,
+            SpotifyLikedMatchPossible = 0,
+            SpotifyLikedMatchNotInLibrary = 1,
+            SpotifyLikedMatchStatsUpdatedAtUtc = DateTime.UtcNow,
         });
+        await db.SaveChangesAsync();
 
+        var page1 = new SpotifyLikedSongsResponse(0, 0, 50, []);
         var stubApi = new StubSpotifyApiService(page1);
         var service = CreateService(db, stubApi);
 

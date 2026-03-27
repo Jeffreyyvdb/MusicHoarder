@@ -11,48 +11,357 @@ public partial class SpotifyLibraryComparisonService(
     ILogger<SpotifyLibraryComparisonService> logger) : ISpotifyLibraryComparisonService
 {
     private const double FuzzyThreshold = 85.0;
+    public const string SourceLikedSync = "liked_sync";
+    public const string SourceApiPage = "api_page";
 
-    public async Task<SpotifyComparisonResponse> CompareAsync(int offset = 0, int limit = 50, CancellationToken ct = default)
+    public async Task<IReadOnlyDictionary<string, SpotifyLibraryMatchInfo>> UpsertMatchesForTracksAsync(
+        IReadOnlyList<SpotifyTrackItem> tracks,
+        string source,
+        CancellationToken ct = default)
     {
-        var likedSongs = await spotifyApi.GetLikedSongsAsync(offset, limit, ct);
-        var trackIndex = await LoadTrackIndexAsync(ct);
-        var items = MatchAll(likedSongs.Items, trackIndex);
+        if (tracks.Count == 0)
+            return new Dictionary<string, SpotifyLibraryMatchInfo>(StringComparer.OrdinalIgnoreCase);
 
-        return new SpotifyComparisonResponse(likedSongs.Total, likedSongs.Offset, likedSongs.Limit, items);
+        var index = await LoadTrackIndexAsync(ct);
+        var now = DateTime.UtcNow;
+
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+
+        var ids = tracks
+            .Select(t => t.SpotifyId)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var existingRows = await db.SpotifyTrackLibraryMatches
+            .Where(m => ids.Contains(m.SpotifyTrackId))
+            .ToListAsync(ct);
+        var existingById = existingRows.ToDictionary(r => r.SpotifyTrackId, StringComparer.OrdinalIgnoreCase);
+
+        var dict = new Dictionary<string, SpotifyLibraryMatchInfo>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var song in tracks.DistinctBy(t => t.SpotifyId, StringComparer.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(song.SpotifyId))
+                continue;
+
+            var (status, matched, confidence) = FindBestMatch(song, index);
+            var row = ToPersistedRow(song, status, matched, confidence, source, now);
+            if (existingById.TryGetValue(song.SpotifyId, out var existing))
+                CopyMatchOntoExisting(existing, row);
+            else
+            {
+                db.SpotifyTrackLibraryMatches.Add(row);
+                existingById[song.SpotifyId] = row;
+            }
+
+            dict[song.SpotifyId] = ToApiInfo(status, matched, confidence);
+        }
+
+        await db.SaveChangesAsync(ct);
+        return dict;
     }
 
-    public async Task<SpotifyComparisonSummaryResponse> GetSummaryAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<SpotifyTrackItem>> AttachLibraryMatchesAsync(
+        IReadOnlyList<SpotifyTrackItem> tracks,
+        CancellationToken ct = default)
     {
-        var trackIndex = await LoadTrackIndexAsync(ct);
+        if (tracks.Count == 0)
+            return tracks;
 
-        int total = 0, inLibrary = 0, possibleMatch = 0, notInLibrary = 0;
-        int spotifyOffset = 0;
+        var ids = tracks
+            .Select(t => t.SpotifyId)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+
+        var cached = await db.SpotifyTrackLibraryMatches
+            .AsNoTracking()
+            .Where(m => ids.Contains(m.SpotifyTrackId))
+            .ToListAsync(ct);
+
+        var byId = cached.ToDictionary(c => c.SpotifyTrackId, StringComparer.OrdinalIgnoreCase);
+        var missingTracks = tracks
+            .Where(t => !string.IsNullOrWhiteSpace(t.SpotifyId) && !byId.ContainsKey(t.SpotifyId))
+            .DistinctBy(t => t.SpotifyId, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        IReadOnlyDictionary<string, SpotifyLibraryMatchInfo>? computed = null;
+        if (missingTracks.Count > 0)
+            computed = await UpsertMatchesForTracksAsync(missingTracks, SourceApiPage, ct);
+
+        return tracks.Select(t =>
+        {
+            if (string.IsNullOrWhiteSpace(t.SpotifyId))
+                return t;
+            if (byId.TryGetValue(t.SpotifyId, out var row))
+                return t with { LibraryMatch = RowToMatchInfo(row) };
+            if (computed?.TryGetValue(t.SpotifyId, out var info) == true)
+                return t with { LibraryMatch = info };
+            return t;
+        }).ToList();
+    }
+
+    private static SpotifyLibraryMatchInfo RowToMatchInfo(SpotifyTrackLibraryMatch row) =>
+        new(
+            ((ComparisonMatchStatus)row.MatchStatus).ToString(),
+            row.MatchedSongId,
+            row.MatchConfidence,
+            row.MatchedTitle,
+            row.MatchedArtist,
+            row.MatchedEnrichmentStatus);
+
+    public async Task SyncLikedSongsMatchesAsync(CancellationToken ct = default)
+    {
+        var index = await LoadTrackIndexAsync(ct);
+        var now = DateTime.UtcNow;
+        int total = 0, inLibrary = 0, possible = 0, notIn = 0;
         const int batchSize = 50;
+        var spotifyOffset = 0;
+
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
         while (true)
         {
             var page = await spotifyApi.GetLikedSongsAsync(spotifyOffset, batchSize, ct);
-
-            if (page.Items.Count == 0) break;
+            if (page.Items.Count == 0)
+                break;
 
             total = page.Total;
 
-            foreach (var likedSong in page.Items)
+            var pageIds = page.Items
+                .Select(s => s.SpotifyId)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var existingRows = await db.SpotifyTrackLibraryMatches
+                .Where(m => pageIds.Contains(m.SpotifyTrackId))
+                .ToListAsync(ct);
+            var existingById = existingRows.ToDictionary(r => r.SpotifyTrackId, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var song in page.Items)
             {
-                var (status, _, _) = FindBestMatch(likedSong, trackIndex);
+                if (string.IsNullOrWhiteSpace(song.SpotifyId))
+                    continue;
+
+                var (status, matched, confidence) = FindBestMatch(song, index);
                 switch (status)
                 {
                     case ComparisonMatchStatus.InLibrary: inLibrary++; break;
-                    case ComparisonMatchStatus.PossibleMatch: possibleMatch++; break;
-                    case ComparisonMatchStatus.NotInLibrary: notInLibrary++; break;
+                    case ComparisonMatchStatus.PossibleMatch: possible++; break;
+                    case ComparisonMatchStatus.NotInLibrary: notIn++; break;
+                }
+
+                var row = ToPersistedRow(song, status, matched, confidence, SourceLikedSync, now);
+                if (existingById.TryGetValue(song.SpotifyId, out var existing))
+                    CopyMatchOntoExisting(existing, row);
+                else
+                {
+                    db.SpotifyTrackLibraryMatches.Add(row);
+                    existingById[song.SpotifyId] = row;
                 }
             }
 
+            await db.SaveChangesAsync(ct);
+
             spotifyOffset += page.Items.Count;
-            if (spotifyOffset >= page.Total) break;
+            if (spotifyOffset >= page.Total)
+                break;
         }
 
-        return new SpotifyComparisonSummaryResponse(total, inLibrary, possibleMatch, notInLibrary);
+        var settings = await db.SpotifySettings.FirstOrDefaultAsync(ct);
+        if (settings is not null)
+        {
+            settings.SpotifyLikedMatchTotal = total;
+            settings.SpotifyLikedMatchInLibrary = inLibrary;
+            settings.SpotifyLikedMatchPossible = possible;
+            settings.SpotifyLikedMatchNotInLibrary = notIn;
+            settings.SpotifyLikedMatchStatsUpdatedAtUtc = now;
+            await db.SaveChangesAsync(ct);
+        }
+
+        logger.LogInformation(
+            "Spotify liked library match sync finished: total={Total}, inLibrary={InLib}, possible={Possible}, notInLibrary={NotIn}",
+            total, inLibrary, possible, notIn);
+    }
+
+    public async Task<SpotifyComparisonResponse> CompareAsync(
+        int offset = 0,
+        int limit = 50,
+        ComparisonMatchStatus? matchStatus = null,
+        CancellationToken ct = default)
+    {
+        limit = Math.Clamp(limit, 1, 50);
+        offset = Math.Max(0, offset);
+
+        if (matchStatus is null)
+        {
+            var likedSongs = await spotifyApi.GetLikedSongsAsync(offset, limit, ct);
+            var withMatch = await AttachLibraryMatchesAsync(likedSongs.Items, ct);
+            var items = withMatch.Select(ToComparisonItemFromTrack).ToList();
+            return new SpotifyComparisonResponse(likedSongs.Total, likedSongs.Offset, likedSongs.Limit, items);
+        }
+
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+
+        var statusInt = (int)matchStatus.Value;
+        var baseQuery = db.SpotifyTrackLibraryMatches.AsNoTracking()
+            .Where(m => m.MatchStatus == statusInt);
+
+        var totalFiltered = await baseQuery.CountAsync(ct);
+        var rows = await baseQuery
+            .OrderByDescending(m => m.SpotifyAddedAtUtc ?? m.UpdatedAtUtc)
+            .ThenBy(m => m.SpotifyTrackId)
+            .Skip(offset)
+            .Take(limit)
+            .ToListAsync(ct);
+
+        var itemsFromDb = rows.Select(ToComparisonItemFromRow).ToList();
+        return new SpotifyComparisonResponse(totalFiltered, offset, limit, itemsFromDb);
+    }
+
+    public async Task<SpotifyComparisonSummaryResponse> GetSummaryAsync(CancellationToken ct = default)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+        var settings = await db.SpotifySettings.AsNoTracking().FirstOrDefaultAsync(ct);
+
+        if (settings?.SpotifyLikedMatchTotal is int t &&
+            settings.SpotifyLikedMatchInLibrary is int il &&
+            settings.SpotifyLikedMatchPossible is int pm &&
+            settings.SpotifyLikedMatchNotInLibrary is int ni)
+        {
+            return new SpotifyComparisonSummaryResponse(t, il, pm, ni);
+        }
+
+        // No background sync yet — avoid scanning Spotify on summary; return zeros until sync runs.
+        return new SpotifyComparisonSummaryResponse(0, 0, 0, 0);
+    }
+
+    private static SpotifyComparisonItem ToComparisonItemFromTrack(SpotifyTrackItem t)
+    {
+        var info = t.LibraryMatch;
+        var status = ParseStatus(info?.MatchStatus) ?? ComparisonMatchStatus.NotInLibrary;
+        ComparisonMatchedTrack? mt = null;
+        double? conf = info?.MatchConfidence;
+        if (info?.MatchedSongId is int id && id > 0)
+        {
+            mt = new ComparisonMatchedTrack(
+                id,
+                info.MatchedTitle,
+                info.MatchedArtist,
+                info.MatchedEnrichmentStatus ?? "");
+        }
+
+        return new SpotifyComparisonItem(
+            t.SpotifyId,
+            t.Title,
+            t.Artist,
+            t.Album,
+            t.AlbumArt,
+            t.DurationMs,
+            t.AddedAt,
+            status,
+            mt,
+            conf);
+    }
+
+    private static SpotifyComparisonItem ToComparisonItemFromRow(SpotifyTrackLibraryMatch m)
+    {
+        var status = (ComparisonMatchStatus)m.MatchStatus;
+        ComparisonMatchedTrack? mt = null;
+        if (m.MatchedSongId is int id && id > 0)
+        {
+            mt = new ComparisonMatchedTrack(
+                id,
+                m.MatchedTitle,
+                m.MatchedArtist,
+                m.MatchedEnrichmentStatus ?? "");
+        }
+
+        return new SpotifyComparisonItem(
+            m.SpotifyTrackId,
+            m.SpotifyTitle ?? "",
+            m.SpotifyArtist ?? "",
+            m.SpotifyAlbum ?? "",
+            null,
+            m.SpotifyDurationMs ?? 0,
+            m.SpotifyAddedAtUtc ?? m.UpdatedAtUtc,
+            status,
+            mt,
+            m.MatchConfidence);
+    }
+
+    private static ComparisonMatchStatus? ParseStatus(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return null;
+        return Enum.TryParse<ComparisonMatchStatus>(s, ignoreCase: true, out var v) ? v : null;
+    }
+
+    private static SpotifyLibraryMatchInfo ToApiInfo(
+        ComparisonMatchStatus status,
+        ComparisonMatchedTrack? matched,
+        double? confidence)
+    {
+        var mt = matched;
+        return new SpotifyLibraryMatchInfo(
+            status.ToString(),
+            mt?.Id,
+            confidence,
+            mt?.Title,
+            mt?.Artist,
+            mt?.EnrichmentStatus);
+    }
+
+    private static SpotifyTrackLibraryMatch ToPersistedRow(
+        SpotifyTrackItem song,
+        ComparisonMatchStatus status,
+        ComparisonMatchedTrack? matched,
+        double? confidence,
+        string source,
+        DateTime now)
+    {
+        return new SpotifyTrackLibraryMatch
+        {
+            SpotifyTrackId = song.SpotifyId,
+            MatchStatus = (int)status,
+            MatchedSongId = matched?.Id,
+            MatchConfidence = confidence,
+            MatchedTitle = matched?.Title,
+            MatchedArtist = matched?.Artist,
+            MatchedEnrichmentStatus = matched?.EnrichmentStatus,
+            UpdatedAtUtc = now,
+            Source = source,
+            SpotifyTitle = song.Title,
+            SpotifyArtist = song.Artist,
+            SpotifyAlbum = song.Album,
+            SpotifyDurationMs = song.DurationMs,
+            SpotifyAddedAtUtc = song.AddedAt == DateTime.MinValue ? null : song.AddedAt,
+        };
+    }
+
+    private static void CopyMatchOntoExisting(SpotifyTrackLibraryMatch target, SpotifyTrackLibraryMatch from)
+    {
+        target.MatchStatus = from.MatchStatus;
+        target.MatchedSongId = from.MatchedSongId;
+        target.MatchConfidence = from.MatchConfidence;
+        target.MatchedTitle = from.MatchedTitle;
+        target.MatchedArtist = from.MatchedArtist;
+        target.MatchedEnrichmentStatus = from.MatchedEnrichmentStatus;
+        target.UpdatedAtUtc = from.UpdatedAtUtc;
+        target.Source = from.Source;
+        target.SpotifyTitle = from.SpotifyTitle;
+        target.SpotifyArtist = from.SpotifyArtist;
+        target.SpotifyAlbum = from.SpotifyAlbum;
+        target.SpotifyDurationMs = from.SpotifyDurationMs;
+        target.SpotifyAddedAtUtc = from.SpotifyAddedAtUtc;
     }
 
     private async Task<TrackIndex> LoadTrackIndexAsync(CancellationToken ct)
@@ -73,31 +382,6 @@ public partial class SpotifyLibraryComparisonService(
 
         logger.LogDebug("Loaded {Count} library tracks for comparison", tracks.Count);
         return new TrackIndex(tracks);
-    }
-
-    private static IReadOnlyList<SpotifyComparisonItem> MatchAll(
-        IReadOnlyList<SpotifyTrackItem> likedSongs,
-        TrackIndex index)
-    {
-        var results = new List<SpotifyComparisonItem>(likedSongs.Count);
-
-        foreach (var song in likedSongs)
-        {
-            var (status, matched, confidence) = FindBestMatch(song, index);
-            results.Add(new SpotifyComparisonItem(
-                song.SpotifyId,
-                song.Title,
-                song.Artist,
-                song.Album,
-                song.AlbumArt,
-                song.DurationMs,
-                song.AddedAt,
-                status,
-                matched,
-                confidence));
-        }
-
-        return results;
     }
 
     internal static (ComparisonMatchStatus Status, ComparisonMatchedTrack? Track, double? Confidence)
