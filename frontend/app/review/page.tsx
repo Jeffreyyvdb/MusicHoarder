@@ -38,6 +38,8 @@ import {
   ExternalLink,
 } from "lucide-react"
 import type { ApiSong } from "@/lib/api-client"
+import { lrclibWebSearchUrl } from "@/lib/lrclib-url"
+import { matchedViaAcoustId } from "@/lib/source-connection"
 import {
   fetchReviewTracks,
   submitManualReview,
@@ -845,6 +847,11 @@ function SourceLinks({ track }: { track?: ApiSong | null }) {
       name: `AcoustID Track`,
       url: `https://acoustid.org/track/${track.acoustIdTrackId}`,
     })
+  } else if (matchedViaAcoustId(track.matchedBy ?? undefined)) {
+    links.push({
+      name: "AcoustID",
+      url: "https://acoustid.org",
+    })
   }
 
   if (track.musicBrainzId) {
@@ -868,16 +875,14 @@ function SourceLinks({ track }: { track?: ApiSong | null }) {
     })
   }
 
-  if (track.lrclibId) {
-    links.push({
-      name: `LRCLIB`,
-      url: `https://lrclib.net/api/get/${track.lrclibId}`,
-    })
-  } else if (track.artist && track.title) {
-    links.push({
-      name: `LRCLIB Search`,
-      url: `https://lrclib.net/search?q=${encodeURIComponent(`${track.artist} ${track.title}`)}`,
-    })
+  {
+    const lrclibSearch = lrclibWebSearchUrl(track.artist, track.title)
+    if (lrclibSearch || track.lrclibId) {
+      links.push({
+        name: "LRCLIB",
+        url: lrclibSearch ?? "https://lrclib.net",
+      })
+    }
   }
 
   if (links.length === 0) return null
