@@ -1,4 +1,5 @@
 import { mockSpotifyLikedSongs, mockSpotifyPlaylists } from "@/lib/mock-data"
+import type { SpotifyLibraryMatchInfo } from "@/lib/api-client"
 
 const DEMO_CONNECTED_AT = "2025-01-15T12:00:00.000Z"
 
@@ -37,10 +38,30 @@ function buildDemoLikedTracksPool() {
 
 const likedTracksPool = buildDemoLikedTracksPool()
 
-export type DemoSpotifyComparisonMatchStatus = "InLibrary" | "PossibleMatch" | "NotInLibrary"
+function toLibraryMatchInfo(
+  matchStatus: DemoMatchStatus,
+  matchedTrack: {
+    id: number
+    title: string | null
+    artist: string | null
+    enrichmentStatus: string
+  } | null,
+  matchConfidence: number | null
+): SpotifyLibraryMatchInfo {
+  return {
+    matchStatus,
+    matchedSongId: matchedTrack?.id ?? null,
+    matchConfidence,
+    matchedTitle: matchedTrack?.title ?? null,
+    matchedArtist: matchedTrack?.artist ?? null,
+    matchedEnrichmentStatus: matchedTrack?.enrichmentStatus ?? null,
+  }
+}
+
+type DemoMatchStatus = "InLibrary" | "PossibleMatch" | "NotInLibrary"
 
 function classifyDemoComparison(globalIndex: number): {
-  matchStatus: DemoSpotifyComparisonMatchStatus
+  matchStatus: DemoMatchStatus
   matchedTrack: {
     id: number
     title: string | null
@@ -78,64 +99,15 @@ function classifyDemoComparison(globalIndex: number): {
   return { matchStatus: "NotInLibrary", matchedTrack: null, matchConfidence: null }
 }
 
-function buildDemoComparisonItem(
-  track: ReturnType<typeof mapSeedTrackToApi>,
+function attachDemoLibraryMatch<T extends ReturnType<typeof mapSeedTrackToApi>>(
+  track: T,
   globalIndex: number
-) {
+): T & { libraryMatch: SpotifyLibraryMatchInfo } {
   const { matchStatus, matchedTrack, matchConfidence } = classifyDemoComparison(globalIndex)
   return {
-    spotifyId: track.spotifyId,
-    title: track.title,
-    artist: track.artist,
-    album: track.album,
-    albumArt: track.albumArt,
-    durationMs: track.durationMs,
-    addedAt: track.addedAt,
-    matchStatus,
-    matchedTrack,
-    matchConfidence,
+    ...track,
+    libraryMatch: toLibraryMatchInfo(matchStatus, matchedTrack, matchConfidence),
   }
-}
-
-export function getDemoSpotifyComparisonSummary() {
-  let inLibrary = 0
-  let possibleMatch = 0
-  let notInLibrary = 0
-  for (let i = 0; i < DEMO_LIKED_TOTAL; i++) {
-    const { matchStatus } = classifyDemoComparison(i)
-    if (matchStatus === "InLibrary") inLibrary++
-    else if (matchStatus === "PossibleMatch") possibleMatch++
-    else notInLibrary++
-  }
-  return {
-    total: DEMO_LIKED_TOTAL,
-    inLibrary,
-    possibleMatch,
-    notInLibrary,
-  }
-}
-
-export function getDemoSpotifyLikedSongsComparison(
-  offset: number,
-  limit: number,
-  matchStatus?: DemoSpotifyComparisonMatchStatus | null
-) {
-  if (matchStatus == null || matchStatus === undefined) {
-    const total = likedTracksPool.length
-    const slice = likedTracksPool.slice(offset, offset + limit)
-    const items = slice.map((track, i) => buildDemoComparisonItem(track, offset + i))
-    return { total, offset, limit, items }
-  }
-
-  const all: ReturnType<typeof buildDemoComparisonItem>[] = []
-  for (let i = 0; i < likedTracksPool.length; i++) {
-    const track = likedTracksPool[i]!
-    const item = buildDemoComparisonItem(track, i)
-    if (item.matchStatus === matchStatus) all.push(item)
-  }
-  const totalFiltered = all.length
-  const items = all.slice(offset, offset + limit)
-  return { total: totalFiltered, offset, limit, items }
 }
 
 function mapPlaylistToApi(p: (typeof mockSpotifyPlaylists)[0]) {
@@ -204,7 +176,9 @@ export function getDemoSpotifyCredentials() {
 
 export function getDemoSpotifyLikedSongs(offset: number, limit: number) {
   const total = likedTracksPool.length
-  const items = likedTracksPool.slice(offset, offset + limit)
+  const items = likedTracksPool
+    .slice(offset, offset + limit)
+    .map((track, i) => attachDemoLibraryMatch(track, offset + i))
   return { total, offset, limit, items }
 }
 
@@ -217,7 +191,9 @@ export function getDemoSpotifyPlaylists() {
 export function getDemoSpotifyPlaylistTracks(playlistId: string, offset: number, limit: number) {
   const all = getPlaylistTrackList(playlistId)
   const total = all.length
-  const items = all.slice(offset, offset + limit)
+  const items = all
+    .slice(offset, offset + limit)
+    .map((track, i) => attachDemoLibraryMatch(track, offset + i))
   return { total, offset, limit, items }
 }
 
