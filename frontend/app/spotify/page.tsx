@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { AppHeader } from "@/components/app-header"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -18,11 +19,13 @@ import {
   fetchSpotifyPlaylistTracks,
   fetchSpotifyCredentials,
 } from "@/lib/api-client"
+import { isDemoMode } from "@/lib/app-mode"
 import type {
   SpotifyStatusResponse,
   SpotifyApiTrack,
   SpotifyApiPlaylist,
   SpotifyCredentialsResponse,
+  SpotifyLibraryMatchStatus,
 } from "@/lib/api-client"
 import {
   Music,
@@ -40,6 +43,11 @@ import {
   Settings,
   ArrowLeft,
   KeyRound,
+  Link2,
+  ChevronDown,
+  ChevronUp,
+  Columns2,
+  Download,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -55,44 +63,195 @@ function formatDateAdded(dateStr: string): string {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
 }
 
-function TrackRow({ track, index }: { track: SpotifyApiTrack; index: number }) {
+function formatMatchConfidence(confidence: number | null | undefined): string {
+  if (confidence == null || !Number.isFinite(confidence)) return ""
+  const pct = confidence <= 1 ? Math.round(confidence * 100) : Math.round(confidence)
+  return `${pct}%`
+}
+
+function SpotifyTrackRowWithLibraryMatch({
+  track,
+  index,
+  showDateAdded,
+  expanded,
+  onToggleExpand,
+}: {
+  track: SpotifyApiTrack
+  index: number
+  showDateAdded: boolean
+  expanded: boolean
+  onToggleExpand: () => void
+}) {
+  const m = track.libraryMatch
+  const status = m?.matchStatus as SpotifyLibraryMatchStatus | undefined
+  const songId = m?.matchedSongId
+  const isPossible = status === "PossibleMatch"
+  const isNotInLib = status === "NotInLibrary"
+  const hasMatchInfo = Boolean(m && status)
+
   return (
-    <div className="flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-secondary/50 transition-colors group">
-      <span className="w-8 text-right text-xs text-muted-foreground tabular-nums shrink-0">
-        {index + 1}
-      </span>
+    <div
+      className={
+        isNotInLib
+          ? "rounded-lg border border-rose-500/20 bg-rose-500/[0.06]"
+          : "rounded-lg"
+      }
+    >
+      <div
+        role={isPossible ? "button" : undefined}
+        tabIndex={isPossible ? 0 : undefined}
+        onClick={() => {
+          if (isPossible) onToggleExpand()
+        }}
+        onKeyDown={(e) => {
+          if (!isPossible) return
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault()
+            onToggleExpand()
+          }
+        }}
+        className={`flex items-center gap-3 px-3 py-2.5 transition-colors group ${
+          isPossible ? "cursor-pointer hover:bg-secondary/50" : "hover:bg-secondary/50"
+        }`}
+      >
+        <span className="w-8 text-right text-xs text-muted-foreground tabular-nums shrink-0">
+          {index + 1}
+        </span>
 
-      <div className="size-10 shrink-0 rounded overflow-hidden bg-secondary">
-        {track.albumArt ? (
-          <img
-            src={track.albumArt}
-            alt={track.album}
-            className="size-full object-cover"
-            crossOrigin="anonymous"
-          />
-        ) : (
-          <div className="flex size-full items-center justify-center">
-            <Music className="size-4 text-muted-foreground" />
-          </div>
+        <div className="size-10 shrink-0 rounded overflow-hidden bg-secondary">
+          {track.albumArt ? (
+            <img
+              src={track.albumArt}
+              alt={track.album}
+              className="size-full object-cover"
+              crossOrigin="anonymous"
+            />
+          ) : (
+            <div className="flex size-full items-center justify-center">
+              <Music className="size-4 text-muted-foreground" />
+            </div>
+          )}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <p className="truncate text-sm font-medium">{track.title}</p>
+          <p className="text-xs text-muted-foreground truncate">{track.artist}</p>
+        </div>
+
+        <span className="text-sm text-muted-foreground truncate hidden md:block max-w-[200px]">
+          {track.album}
+        </span>
+
+        {showDateAdded && (
+          <span className="text-xs text-muted-foreground shrink-0 hidden lg:block w-24 text-right">
+            {formatDateAdded(track.addedAt)}
+          </span>
         )}
+
+        <span className="text-xs text-muted-foreground shrink-0 w-12 text-right">
+          {formatDuration(track.durationMs)}
+        </span>
+
+        <div className="shrink-0 flex items-center gap-1 justify-end min-w-[120px] max-w-[168px]">
+          {!hasMatchInfo && (
+            <span className="text-[10px] text-muted-foreground whitespace-nowrap hidden sm:inline" title="Match pending">
+              —
+            </span>
+          )}
+          {status === "InLibrary" && songId != null && (
+            <Button
+              asChild
+              size="sm"
+              variant="outline"
+              className="h-8 border-emerald-500/40 bg-emerald-500/15 px-2.5 text-xs font-medium text-emerald-800 hover:bg-emerald-500/25 dark:text-emerald-300"
+            >
+              <Link href={`/app?song=${songId}`} onClick={(e) => e.stopPropagation()}>
+                <CheckCircle2 className="size-3.5 shrink-0" />
+                In library
+              </Link>
+            </Button>
+          )}
+          {status === "PossibleMatch" && songId != null && (
+            <div className="flex items-center gap-0.5">
+              <Button
+                asChild
+                size="sm"
+                variant="outline"
+                className="h-8 border-amber-500/45 bg-amber-500/15 px-2.5 text-xs font-medium text-amber-900 hover:bg-amber-500/25 dark:text-amber-200"
+                title="Open best-guess local track"
+              >
+                <Link href={`/app?song=${songId}`} onClick={(e) => e.stopPropagation()}>
+                  ~{formatMatchConfidence(m?.matchConfidence)}
+                  <Link2 className="size-3.5 shrink-0" />
+                </Link>
+              </Button>
+              {expanded ? (
+                <ChevronUp className="size-3.5 text-muted-foreground shrink-0" />
+              ) : (
+                <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
+              )}
+            </div>
+          )}
+          {status === "NotInLibrary" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled
+                    className="h-8 border-rose-500/35 bg-rose-500/10 px-2.5 text-xs font-medium text-rose-900 dark:text-rose-200"
+                  >
+                    <Download className="size-3.5 shrink-0" />
+                    Download
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="max-w-[220px]">
+                <span className="font-medium">Coming soon</span>
+                <span className="mt-1 block text-[11px] leading-snug opacity-90">
+                  Track acquisition will be wired here later.
+                </span>
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </div>
       </div>
 
-      <div className="flex-1 min-w-0">
-        <p className="truncate text-sm font-medium">{track.title}</p>
-        <p className="text-xs text-muted-foreground truncate">{track.artist}</p>
-      </div>
-
-      <span className="text-sm text-muted-foreground truncate hidden md:block max-w-[200px]">
-        {track.album}
-      </span>
-
-      <span className="text-xs text-muted-foreground shrink-0 hidden lg:block w-24 text-right">
-        {formatDateAdded(track.addedAt)}
-      </span>
-
-      <span className="text-xs text-muted-foreground shrink-0 w-12 text-right">
-        {formatDuration(track.durationMs)}
-      </span>
+      {isPossible && expanded && songId != null && (
+        <div className="border-t border-border/80 bg-secondary/20 px-3 py-3 md:px-5">
+          <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
+            <Columns2 className="size-3.5" />
+            Spotify vs local ({formatMatchConfidence(m?.matchConfidence)})
+          </p>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-lg border border-border bg-card/50 p-2.5 space-y-1">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Spotify</p>
+              <p className="text-sm font-medium">{track.title}</p>
+              <p className="text-xs text-muted-foreground">{track.artist}</p>
+              <p className="text-xs text-muted-foreground">{track.album}</p>
+            </div>
+            <div className="rounded-lg border border-border bg-card/50 p-2.5 space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">MusicHoarder</p>
+                <Link
+                  href={`/app?song=${songId}`}
+                  className="text-xs text-primary inline-flex items-center gap-1 hover:underline"
+                >
+                  Open
+                  <Link2 className="size-3" />
+                </Link>
+              </div>
+              <p className="text-sm font-medium">{m?.matchedTitle ?? "—"}</p>
+              <p className="text-xs text-muted-foreground">{m?.matchedArtist ?? "—"}</p>
+              {m?.matchedEnrichmentStatus && (
+                <p className="text-xs text-muted-foreground">Enrichment: {m.matchedEnrichmentStatus}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -224,6 +383,7 @@ function PlaylistDetailView({
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
+  const [expandedMatchIds, setExpandedMatchIds] = useState<Set<string>>(() => new Set())
   const limit = 50
 
   const loadTracks = useCallback(async (newOffset: number) => {
@@ -255,7 +415,7 @@ function PlaylistDetailView({
     : tracks
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex items-center gap-4 border-b border-border px-4 py-4 md:px-6">
         <Button variant="ghost" size="sm" onClick={onBack} className="shrink-0">
           <ArrowLeft className="size-4 mr-1.5" />
@@ -312,10 +472,34 @@ function PlaylistDetailView({
       ) : isLoading ? (
         <TrackListSkeleton />
       ) : (
-        <ScrollArea className="flex-1">
-          <div className="p-2 md:px-4">
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="hidden md:flex items-center gap-3 px-6 py-2 text-xs text-muted-foreground border-b border-border/50">
+            <span className="w-8 text-right">#</span>
+            <span className="size-10" />
+            <span className="flex-1">Title</span>
+            <span className="hidden md:block max-w-[200px]">Album</span>
+            <span className="w-12 text-right">
+              <Clock className="size-3.5 inline" />
+            </span>
+            <span className="w-[120px] text-right shrink-0">Library</span>
+          </div>
+          <div className="flex flex-col gap-2 p-2 md:px-4">
             {filteredTracks.map((track, i) => (
-              <TrackRow key={`${track.spotifyId}-${i}`} track={track} index={offset + i} />
+              <SpotifyTrackRowWithLibraryMatch
+                key={`${track.spotifyId}-${i}`}
+                track={track}
+                index={offset + i}
+                showDateAdded={false}
+                expanded={expandedMatchIds.has(track.spotifyId)}
+                onToggleExpand={() => {
+                  setExpandedMatchIds((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(track.spotifyId)) next.delete(track.spotifyId)
+                    else next.add(track.spotifyId)
+                    return next
+                  })
+                }}
+              />
             ))}
             {filteredTracks.length === 0 && (
               <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -360,6 +544,8 @@ function SpotifyPageContent() {
   const [playlistsError, setPlaylistsError] = useState<string | null>(null)
   const [selectedPlaylist, setSelectedPlaylist] = useState<SpotifyApiPlaylist | null>(null)
   const [playlistSearchQuery, setPlaylistSearchQuery] = useState("")
+
+  const [expandedLikedMatchIds, setExpandedLikedMatchIds] = useState<Set<string>>(() => new Set())
 
   const likedLimit = 50
 
@@ -455,6 +641,7 @@ function SpotifyPageContent() {
       setLikedSongs([])
       setPlaylists([])
       setSelectedPlaylist(null)
+      setExpandedLikedMatchIds(new Set())
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to disconnect")
     } finally {
@@ -504,7 +691,7 @@ function SpotifyPageContent() {
               Link your Spotify account to browse your playlists and liked songs.
             </p>
 
-            {hasCredentials && process.env.NODE_ENV === "development" && (
+            {!isDemoMode && hasCredentials && process.env.NODE_ENV === "development" && (
               <p className="text-muted-foreground mb-6 max-w-lg mx-auto text-left text-xs leading-relaxed">
                 Spotify does not allow <code className="rounded bg-muted px-1 py-0.5">localhost</code> in redirect
                 URIs—use loopback IP. Register{" "}
@@ -601,7 +788,15 @@ function SpotifyPageContent() {
     <div className="flex h-screen flex-col bg-background">
       <AppHeader />
 
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {isDemoMode && (
+          <div className="mx-4 mt-4 md:mx-6 rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+            <p>
+              Demo mode: Spotify data is sample content only. Deploy the MusicHoarder API and disable demo mode to
+              connect a real account.
+            </p>
+          </div>
+        )}
         {oauthBanner && (
           <div
             className={`mx-4 mt-4 md:mx-6 rounded-lg border px-4 py-3 text-sm ${
@@ -636,26 +831,30 @@ function SpotifyPageContent() {
               </div>
               {status.connectedAt && (
                 <p className="text-sm text-muted-foreground mt-1">
-                  Connected since {new Date(status.connectedAt).toLocaleDateString()}
+                  {isDemoMode
+                    ? "Demo session (not a real Spotify connection)"
+                    : `Connected since ${new Date(status.connectedAt).toLocaleDateString()}`}
                 </p>
               )}
             </div>
-            <Button
-              variant="outline"
-              onClick={handleDisconnect}
-              disabled={isDisconnecting}
-            >
-              {isDisconnecting ? (
-                <Loader2 className="size-4 mr-2 animate-spin" />
-              ) : (
-                <LogOut className="size-4 mr-2" />
-              )}
-              Disconnect
-            </Button>
+            {!isDemoMode && (
+              <Button
+                variant="outline"
+                onClick={handleDisconnect}
+                disabled={isDisconnecting}
+              >
+                {isDisconnecting ? (
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                ) : (
+                  <LogOut className="size-4 mr-2" />
+                )}
+                Disconnect
+              </Button>
+            )}
           </div>
         </div>
 
-        <Tabs defaultValue="liked" className="flex flex-1 flex-col overflow-hidden">
+        <Tabs defaultValue="liked" className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="border-b border-border px-4 md:px-6">
             <TabsList className="h-12 bg-transparent p-0">
               <TabsTrigger
@@ -676,7 +875,7 @@ function SpotifyPageContent() {
           </div>
 
           {/* Liked Songs Tab */}
-          <TabsContent value="liked" className="flex-1 overflow-hidden m-0 flex flex-col">
+          <TabsContent value="liked" className="m-0 flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex items-center gap-3 border-b border-border px-4 py-3 md:px-6">
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -708,7 +907,7 @@ function SpotifyPageContent() {
             ) : isLoadingLiked ? (
               <TrackListSkeleton />
             ) : (
-              <ScrollArea className="flex-1">
+              <ScrollArea className="min-h-0 flex-1">
                 <div className="hidden md:flex items-center gap-3 px-6 py-2 text-xs text-muted-foreground border-b border-border/50">
                   <span className="w-8 text-right">#</span>
                   <span className="size-10" />
@@ -718,10 +917,25 @@ function SpotifyPageContent() {
                   <span className="w-12 text-right">
                     <Clock className="size-3.5 inline" />
                   </span>
+                  <span className="w-[120px] text-right shrink-0">Library</span>
                 </div>
-                <div className="p-2 md:px-4">
+                <div className="flex flex-col gap-2 p-2 md:px-4">
                   {filteredLikedSongs.map((track, i) => (
-                    <TrackRow key={`${track.spotifyId}-${i}`} track={track} index={likedOffset + i} />
+                    <SpotifyTrackRowWithLibraryMatch
+                      key={`${track.spotifyId}-${i}`}
+                      track={track}
+                      index={likedOffset + i}
+                      showDateAdded
+                      expanded={expandedLikedMatchIds.has(track.spotifyId)}
+                      onToggleExpand={() => {
+                        setExpandedLikedMatchIds((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(track.spotifyId)) next.delete(track.spotifyId)
+                          else next.add(track.spotifyId)
+                          return next
+                        })
+                      }}
+                    />
                   ))}
                   {filteredLikedSongs.length === 0 && !isLoadingLiked && (
                     <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -744,7 +958,7 @@ function SpotifyPageContent() {
           </TabsContent>
 
           {/* Playlists Tab */}
-          <TabsContent value="playlists" className="flex-1 overflow-hidden m-0 flex flex-col">
+          <TabsContent value="playlists" className="m-0 flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex items-center gap-3 border-b border-border px-4 py-3 md:px-6">
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -771,7 +985,7 @@ function SpotifyPageContent() {
             ) : isLoadingPlaylists ? (
               <PlaylistGridSkeleton />
             ) : (
-              <ScrollArea className="flex-1">
+              <ScrollArea className="min-h-0 flex-1">
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 p-4 md:p-6">
                   {filteredPlaylists.map((playlist) => (
                     <PlaylistCard

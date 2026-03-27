@@ -1,6 +1,15 @@
 import type { FileItem } from "@/lib/types"
 import { isDemoMode } from "@/lib/app-mode"
 import { mockFileSystem, mockImportJob } from "@/lib/mock-data"
+import {
+  getDemoSpotifyCredentials,
+  getDemoSpotifyDisconnectMessage,
+  getDemoSpotifyLikedSongs,
+  getDemoSpotifyPlaylistTracks,
+  getDemoSpotifyPlaylists,
+  getDemoSpotifySaveCredentialsMessage,
+  getDemoSpotifyStatus,
+} from "@/lib/mock-spotify-api"
 
 const API_PREFIX = "/api/mh"
 const INFRASTRUCTURE_PREFIX_SEGMENT = /^(volumes?|mnt|media|srv|share|shares|nas|data|storage|music|musichoarder|library|source|destination|users|home|tmp)$/i
@@ -655,6 +664,12 @@ export async function fetchOverview(): Promise<ApiOverview> {
     const copiedCount = demoSongs.filter(
       (s) => s.destinationPath && s.artist && s.artist !== "Unknown Artist"
     ).length
+    const fingerprintedCount =
+      demoSongs.filter((s) => Boolean(s.fingerprint)).length ||
+      Math.floor(demoSongs.length * 0.9)
+    const enrichedCount =
+      demoSongs.filter((s) => s.enrichmentStatus === "complete").length ||
+      Math.floor(demoSongs.length * 0.76)
     return {
       sourcePath: mockImportJob.sourcePath,
       destinationPath: mockImportJob.destinationPath,
@@ -664,6 +679,9 @@ export async function fetchOverview(): Promise<ApiOverview> {
         startedAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
         tracksDiscovered: demoSongs.length,
         tracksProcessed: demoSongs.length,
+        tracksFingerprinted: fingerprintedCount,
+        tracksEnriched: enrichedCount,
+        tracksBuildEligible: Math.min(enrichedCount, Math.max(copiedCount, Math.floor(demoSongs.length * 0.6))),
         tracksCopied: copiedCount,
         tracksReview: mockImportJob.tracksReview,
         tracksFailed: mockImportJob.tracksFailed,
@@ -958,6 +976,17 @@ export interface SpotifyCredentialsResponse {
   hasClientSecret: boolean
 }
 
+export type SpotifyLibraryMatchStatus = "InLibrary" | "PossibleMatch" | "NotInLibrary"
+
+export interface SpotifyLibraryMatchInfo {
+  matchStatus: SpotifyLibraryMatchStatus
+  matchedSongId: number | null
+  matchConfidence: number | null
+  matchedTitle?: string | null
+  matchedArtist?: string | null
+  matchedEnrichmentStatus?: string | null
+}
+
 export interface SpotifyApiTrack {
   spotifyId: string
   title: string
@@ -966,6 +995,7 @@ export interface SpotifyApiTrack {
   albumArt?: string | null
   durationMs: number
   addedAt: string
+  libraryMatch?: SpotifyLibraryMatchInfo | null
 }
 
 export interface SpotifyLikedSongsApiResponse {
@@ -996,22 +1026,29 @@ export interface SpotifyPlaylistTracksApiResponse {
 }
 
 export async function fetchSpotifyStatus(): Promise<SpotifyStatusResponse> {
+  if (isDemoMode) return getDemoSpotifyStatus()
   return requestJson<SpotifyStatusResponse>("/api/spotify/status")
 }
 
 export async function fetchSpotifyConnectUrl(): Promise<SpotifyConnectResponse> {
+  if (isDemoMode) {
+    throw new Error("Spotify login is not available in demo mode. Data shown is sample content only.")
+  }
   return requestJson<SpotifyConnectResponse>("/api/spotify/connect")
 }
 
 export async function disconnectSpotify(): Promise<{ message: string }> {
+  if (isDemoMode) return getDemoSpotifyDisconnectMessage()
   return requestJson<{ message: string }>("/api/spotify/disconnect", { method: "DELETE" })
 }
 
 export async function fetchSpotifyCredentials(): Promise<SpotifyCredentialsResponse> {
+  if (isDemoMode) return getDemoSpotifyCredentials()
   return requestJson<SpotifyCredentialsResponse>("/api/spotify/credentials")
 }
 
 export async function saveSpotifyCredentials(clientId: string, clientSecret: string): Promise<{ message: string }> {
+  if (isDemoMode) return getDemoSpotifySaveCredentialsMessage()
   return requestJson<{ message: string }>("/api/spotify/credentials", {
     method: "PUT",
     body: JSON.stringify({ clientId, clientSecret }),
@@ -1019,15 +1056,20 @@ export async function saveSpotifyCredentials(clientId: string, clientSecret: str
 }
 
 export async function fetchSpotifyLikedSongs(offset = 0, limit = 50): Promise<SpotifyLikedSongsApiResponse> {
+  if (isDemoMode) return getDemoSpotifyLikedSongs(offset, limit)
   return requestJson<SpotifyLikedSongsApiResponse>(`/api/spotify/liked-songs?offset=${offset}&limit=${limit}`)
 }
 
 export async function fetchSpotifyPlaylists(): Promise<SpotifyPlaylistsApiResponse> {
+  if (isDemoMode) return getDemoSpotifyPlaylists()
   return requestJson<SpotifyPlaylistsApiResponse>("/api/spotify/playlists")
 }
 
 export async function fetchSpotifyPlaylistTracks(playlistId: string, offset = 0, limit = 50): Promise<SpotifyPlaylistTracksApiResponse> {
-  return requestJson<SpotifyPlaylistTracksApiResponse>(`/api/spotify/playlists/${playlistId}/tracks?offset=${offset}&limit=${limit}`)
+  if (isDemoMode) return getDemoSpotifyPlaylistTracks(playlistId, offset, limit)
+  return requestJson<SpotifyPlaylistTracksApiResponse>(
+    `/api/spotify/playlists/${playlistId}/tracks?offset=${offset}&limit=${limit}`
+  )
 }
 
 export async function fetchReviewTracks(): Promise<ApiSong[]> {

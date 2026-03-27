@@ -16,7 +16,11 @@ function ScrollArea({
   return (
     <ScrollAreaPrimitive.Root
       data-slot="scroll-area"
-      className={cn('relative', className)}
+      className={cn(
+        // min-h-0 lets this shrink inside flex columns so the viewport gets a bounded height (see AGENTS.md).
+        'relative min-h-0',
+        className,
+      )}
       {...props}
     >
       <ScrollAreaPrimitive.Viewport
