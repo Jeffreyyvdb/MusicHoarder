@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MusicHoarder.Api.Persistence.Migrations
 {
     [DbContext(typeof(MusicHoarderDbContext))]
-    [Migration("20260326071234_AddSourceEntityDeepLinkFields")]
+    [Migration("20260327191529_AddSourceEntityDeepLinkFields")]
     partial class AddSourceEntityDeepLinkFields
     {
         /// <inheritdoc />
