@@ -88,6 +88,7 @@ public static class ServiceCollectionExtensions
             return new SpotifyOAuthService(scopeFactory, httpClient, logger);
         });
         services.AddHostedService<SpotifyTokenRefreshService>();
+        services.AddHostedService<SpotifyLibraryMatchBackgroundService>();
 
         services.AddMemoryCache();
         services.AddSingleton<ISpotifyApiService>(sp =>

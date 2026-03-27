@@ -1,4 +1,5 @@
 import { mockSpotifyLikedSongs, mockSpotifyPlaylists } from "@/lib/mock-data"
+import type { SpotifyLibraryMatchInfo } from "@/lib/api-client"
 
 const DEMO_CONNECTED_AT = "2025-01-15T12:00:00.000Z"
 
@@ -36,6 +37,78 @@ function buildDemoLikedTracksPool() {
 }
 
 const likedTracksPool = buildDemoLikedTracksPool()
+
+function toLibraryMatchInfo(
+  matchStatus: DemoMatchStatus,
+  matchedTrack: {
+    id: number
+    title: string | null
+    artist: string | null
+    enrichmentStatus: string
+  } | null,
+  matchConfidence: number | null
+): SpotifyLibraryMatchInfo {
+  return {
+    matchStatus,
+    matchedSongId: matchedTrack?.id ?? null,
+    matchConfidence,
+    matchedTitle: matchedTrack?.title ?? null,
+    matchedArtist: matchedTrack?.artist ?? null,
+    matchedEnrichmentStatus: matchedTrack?.enrichmentStatus ?? null,
+  }
+}
+
+type DemoMatchStatus = "InLibrary" | "PossibleMatch" | "NotInLibrary"
+
+function classifyDemoComparison(globalIndex: number): {
+  matchStatus: DemoMatchStatus
+  matchedTrack: {
+    id: number
+    title: string | null
+    artist: string | null
+    enrichmentStatus: string
+  } | null
+  matchConfidence: number | null
+} {
+  const mod = globalIndex % 10
+  const localSongId = (globalIndex % 180) + 1
+  if (mod < 6) {
+    return {
+      matchStatus: "InLibrary",
+      matchedTrack: {
+        id: localSongId,
+        title: `Local title ${globalIndex}`,
+        artist: `Local artist ${globalIndex % 20}`,
+        enrichmentStatus: globalIndex % 3 === 0 ? "Matched" : "NeedsReview",
+      },
+      matchConfidence: globalIndex % 2 === 0 ? 1 : 0.95,
+    }
+  }
+  if (mod < 8) {
+    return {
+      matchStatus: "PossibleMatch",
+      matchedTrack: {
+        id: localSongId + 500,
+        title: `Near match for track ${globalIndex}`,
+        artist: `Similar Artist ${globalIndex % 7}`,
+        enrichmentStatus: "Pending",
+      },
+      matchConfidence: 86 + (globalIndex % 8),
+    }
+  }
+  return { matchStatus: "NotInLibrary", matchedTrack: null, matchConfidence: null }
+}
+
+function attachDemoLibraryMatch<T extends ReturnType<typeof mapSeedTrackToApi>>(
+  track: T,
+  globalIndex: number
+): T & { libraryMatch: SpotifyLibraryMatchInfo } {
+  const { matchStatus, matchedTrack, matchConfidence } = classifyDemoComparison(globalIndex)
+  return {
+    ...track,
+    libraryMatch: toLibraryMatchInfo(matchStatus, matchedTrack, matchConfidence),
+  }
+}
 
 function mapPlaylistToApi(p: (typeof mockSpotifyPlaylists)[0]) {
   return {
@@ -103,7 +176,9 @@ export function getDemoSpotifyCredentials() {
 
 export function getDemoSpotifyLikedSongs(offset: number, limit: number) {
   const total = likedTracksPool.length
-  const items = likedTracksPool.slice(offset, offset + limit)
+  const items = likedTracksPool
+    .slice(offset, offset + limit)
+    .map((track, i) => attachDemoLibraryMatch(track, offset + i))
   return { total, offset, limit, items }
 }
 
@@ -116,7 +191,9 @@ export function getDemoSpotifyPlaylists() {
 export function getDemoSpotifyPlaylistTracks(playlistId: string, offset: number, limit: number) {
   const all = getPlaylistTrackList(playlistId)
   const total = all.length
-  const items = all.slice(offset, offset + limit)
+  const items = all
+    .slice(offset, offset + limit)
+    .map((track, i) => attachDemoLibraryMatch(track, offset + i))
   return { total, offset, limit, items }
 }
 

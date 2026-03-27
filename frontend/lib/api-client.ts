@@ -965,6 +965,17 @@ export interface SpotifyCredentialsResponse {
   hasClientSecret: boolean
 }
 
+export type SpotifyLibraryMatchStatus = "InLibrary" | "PossibleMatch" | "NotInLibrary"
+
+export interface SpotifyLibraryMatchInfo {
+  matchStatus: SpotifyLibraryMatchStatus
+  matchedSongId: number | null
+  matchConfidence: number | null
+  matchedTitle?: string | null
+  matchedArtist?: string | null
+  matchedEnrichmentStatus?: string | null
+}
+
 export interface SpotifyApiTrack {
   spotifyId: string
   title: string
@@ -973,6 +984,7 @@ export interface SpotifyApiTrack {
   albumArt?: string | null
   durationMs: number
   addedAt: string
+  libraryMatch?: SpotifyLibraryMatchInfo | null
 }
 
 export interface SpotifyLikedSongsApiResponse {
