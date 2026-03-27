@@ -290,7 +290,8 @@ public class EnrichmentOrchestrator(
             result.MatchedBy,
             result.MatchConfidence,
             warningsJson,
-            result.RecommendedStatus));
+            result.RecommendedStatus,
+            result.Album));
     }
 
     private async Task FetchLyricsForSongAsync(SongMetadata song, MusicHoarderDbContext dbContext, CancellationToken ct)

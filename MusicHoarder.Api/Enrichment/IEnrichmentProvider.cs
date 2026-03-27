@@ -16,7 +16,8 @@ public record EnrichmentProviderResult(
     string MatchedBy,
     double MatchConfidence,
     List<string> MatchWarnings,
-    EnrichmentStatus RecommendedStatus);
+    EnrichmentStatus RecommendedStatus,
+    string? Album = null);
 
 public interface IEnrichmentProvider
 {

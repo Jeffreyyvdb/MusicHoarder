@@ -80,6 +80,15 @@ public static class ServiceCollectionExtensions
             return new LrcLibService(httpClient, logger);
         });
 
+        services.AddSingleton<ISpotifyCatalogSearchService>(sp =>
+        {
+            var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            var cache = sp.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>();
+            var options = sp.GetRequiredService<IOptions<MusicEnricherOptions>>();
+            var logger = sp.GetRequiredService<ILogger<SpotifyCatalogSearchService>>();
+            return new SpotifyCatalogSearchService(httpClient, cache, options, logger);
+        });
+
         services.AddSingleton<ISpotifyOAuthService>(sp =>
         {
             var httpClient = new HttpClient();
