@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { AppHeader } from "@/components/app-header"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -46,6 +47,7 @@ import {
   ChevronDown,
   ChevronUp,
   Columns2,
+  Download,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -150,33 +152,39 @@ function SpotifyTrackRowWithLibraryMatch({
           {formatDuration(track.durationMs)}
         </span>
 
-        <div className="shrink-0 flex items-center gap-1 justify-end min-w-[100px] max-w-[148px]">
+        <div className="shrink-0 flex items-center gap-1 justify-end min-w-[120px] max-w-[168px]">
           {!hasMatchInfo && (
             <span className="text-[10px] text-muted-foreground whitespace-nowrap hidden sm:inline" title="Match pending">
               —
             </span>
           )}
           {status === "InLibrary" && songId != null && (
-            <Link
-              href={`/app?song=${songId}`}
-              className="inline-flex items-center gap-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-800 dark:text-emerald-300 hover:bg-emerald-500/25"
-              onClick={(e) => e.stopPropagation()}
+            <Button
+              asChild
+              size="sm"
+              variant="outline"
+              className="h-8 border-emerald-500/40 bg-emerald-500/15 px-2.5 text-xs font-medium text-emerald-800 hover:bg-emerald-500/25 dark:text-emerald-300"
             >
-              In lib
-              <Link2 className="size-2.5" />
-            </Link>
+              <Link href={`/app?song=${songId}`} onClick={(e) => e.stopPropagation()}>
+                <CheckCircle2 className="size-3.5 shrink-0" />
+                In library
+              </Link>
+            </Button>
           )}
           {status === "PossibleMatch" && songId != null && (
             <div className="flex items-center gap-0.5">
-              <Link
-                href={`/app?song=${songId}`}
-                className="inline-flex items-center gap-0.5 rounded-full border border-amber-500/45 bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-900 dark:text-amber-200 hover:bg-amber-500/25"
-                onClick={(e) => e.stopPropagation()}
+              <Button
+                asChild
+                size="sm"
+                variant="outline"
+                className="h-8 border-amber-500/45 bg-amber-500/15 px-2.5 text-xs font-medium text-amber-900 hover:bg-amber-500/25 dark:text-amber-200"
                 title="Open best-guess local track"
               >
-                ~{formatMatchConfidence(m?.matchConfidence)}
-                <Link2 className="size-2.5 shrink-0" />
-              </Link>
+                <Link href={`/app?song=${songId}`} onClick={(e) => e.stopPropagation()}>
+                  ~{formatMatchConfidence(m?.matchConfidence)}
+                  <Link2 className="size-3.5 shrink-0" />
+                </Link>
+              </Button>
               {expanded ? (
                 <ChevronUp className="size-3.5 text-muted-foreground shrink-0" />
               ) : (
@@ -185,9 +193,28 @@ function SpotifyTrackRowWithLibraryMatch({
             </div>
           )}
           {status === "NotInLibrary" && (
-            <span className="inline-flex rounded-full border border-muted-foreground/30 bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground whitespace-nowrap">
-              Missing
-            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled
+                    className="h-8 border-rose-500/35 bg-rose-500/10 px-2.5 text-xs font-medium text-rose-900 dark:text-rose-200"
+                  >
+                    <Download className="size-3.5 shrink-0" />
+                    Download
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="max-w-[220px]">
+                <span className="font-medium">Coming soon</span>
+                <span className="mt-1 block text-[11px] leading-snug opacity-90">
+                  Track acquisition will be wired here later.
+                </span>
+              </TooltipContent>
+            </Tooltip>
           )}
         </div>
       </div>
@@ -454,9 +481,9 @@ function PlaylistDetailView({
             <span className="w-12 text-right">
               <Clock className="size-3.5 inline" />
             </span>
-            <span className="w-[100px] text-right shrink-0">Library</span>
+            <span className="w-[120px] text-right shrink-0">Library</span>
           </div>
-          <div className="p-2 md:px-4">
+          <div className="flex flex-col gap-2 p-2 md:px-4">
             {filteredTracks.map((track, i) => (
               <SpotifyTrackRowWithLibraryMatch
                 key={`${track.spotifyId}-${i}`}
@@ -890,9 +917,9 @@ function SpotifyPageContent() {
                   <span className="w-12 text-right">
                     <Clock className="size-3.5 inline" />
                   </span>
-                  <span className="w-[100px] text-right shrink-0">Library</span>
+                  <span className="w-[120px] text-right shrink-0">Library</span>
                 </div>
-                <div className="p-2 md:px-4">
+                <div className="flex flex-col gap-2 p-2 md:px-4">
                   {filteredLikedSongs.map((track, i) => (
                     <SpotifyTrackRowWithLibraryMatch
                       key={`${track.spotifyId}-${i}`}
