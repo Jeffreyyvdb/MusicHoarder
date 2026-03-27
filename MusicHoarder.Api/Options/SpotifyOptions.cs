@@ -31,4 +31,9 @@ public class SpotifyOptions
     /// Must match a redirect URI registered in Spotify. When empty, the redirect URI is derived from the request.
     /// </summary>
     public string OAuthRedirectBaseUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// How often to refresh Spotify liked-song ↔ local library match cache in the background (0 = disabled).
+    /// </summary>
+    public int LibraryMatchSyncIntervalMinutes { get; set; } = 120;
 }
