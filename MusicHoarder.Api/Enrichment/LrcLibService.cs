@@ -7,7 +7,8 @@ namespace MusicHoarder.Api.Enrichment;
 public record LyricsResult(
     string? SyncedLyrics,
     string? PlainLyrics,
-    bool IsInstrumental);
+    bool IsInstrumental,
+    int? LrclibId = null);
 
 public interface ILrcLibService
 {
@@ -64,7 +65,7 @@ public sealed class LrcLibService(
                 return null;
             }
 
-            return BuildResult(dto.SyncedLyrics, dto.PlainLyrics, dto.Instrumental);
+            return BuildResult(dto.SyncedLyrics, dto.PlainLyrics, dto.Instrumental, dto.Id);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -104,7 +105,7 @@ public sealed class LrcLibService(
                 ?? results.FirstOrDefault(r => !string.IsNullOrWhiteSpace(r.PlainLyrics))
                 ?? results[0];
 
-            return BuildResult(best.SyncedLyrics, best.PlainLyrics, best.Instrumental);
+            return BuildResult(best.SyncedLyrics, best.PlainLyrics, best.Instrumental, best.Id);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -117,11 +118,11 @@ public sealed class LrcLibService(
         }
     }
 
-    private static LyricsResult BuildResult(string? syncedLyrics, string? plainLyrics, bool instrumental)
+    private static LyricsResult BuildResult(string? syncedLyrics, string? plainLyrics, bool instrumental, int? lrclibId = null)
     {
         var synced = string.IsNullOrWhiteSpace(syncedLyrics) ? null : syncedLyrics.Trim();
         var plain = string.IsNullOrWhiteSpace(plainLyrics) ? null : plainLyrics.Trim();
-        return new LyricsResult(synced, plain, instrumental);
+        return new LyricsResult(synced, plain, instrumental, lrclibId);
     }
 
     // --- JSON DTOs ---

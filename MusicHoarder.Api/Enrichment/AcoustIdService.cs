@@ -8,6 +8,7 @@ namespace MusicHoarder.Api.Enrichment;
 
 public record AcoustIdMatch(
     string MusicBrainzRecordingId,
+    string AcoustIdTrackId,
     string Title,
     string Artist,
     string AlbumArtist,
@@ -104,6 +105,7 @@ public sealed class AcoustIdService(
 
             return new AcoustIdMatch(
                 MusicBrainzRecordingId: recording.Id,
+                AcoustIdTrackId: best.Id,
                 Title: recording.Title ?? string.Empty,
                 Artist: displayArtist,
                 AlbumArtist: albumArtist,

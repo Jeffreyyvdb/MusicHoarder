@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MusicHoarder.Api.Persistence.Migrations
 {
     [DbContext(typeof(MusicHoarderDbContext))]
-    [Migration("20260325190315_AddSpotifySettings")]
-    partial class AddSpotifySettings
+    [Migration("20260327191529_AddSourceEntityDeepLinkFields")]
+    partial class AddSourceEntityDeepLinkFields
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -32,6 +32,9 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AcoustIdTrackId")
+                        .HasColumnType("text");
 
                     b.Property<string>("Album")
                         .HasColumnType("text");
@@ -116,6 +119,9 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<DateTime?>("LibraryBuiltAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("LrclibId")
+                        .HasColumnType("text");
+
                     b.Property<int>("LyricsStatus")
                         .HasColumnType("integer");
 
@@ -129,6 +135,9 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("MusicBrainzId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("MusicBrainzReleaseId")
                         .HasColumnType("text");
 
                     b.Property<string>("OriginalAlbum")
@@ -195,8 +204,9 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.HasIndex("DuplicateOfId");
 
-                    b.HasIndex("Fingerprint")
-                        .HasAnnotation("Npgsql:IndexMethod", "hash");
+                    b.HasIndex("Fingerprint");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Fingerprint"), "hash");
 
                     b.HasIndex("SourcePath")
                         .IsUnique();
@@ -237,12 +247,89 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<string>("RefreshToken")
                         .HasColumnType("text");
 
+                    b.Property<int?>("SpotifyLikedMatchInLibrary")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("SpotifyLikedMatchNotInLibrary")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("SpotifyLikedMatchPossible")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("SpotifyLikedMatchStatsUpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("SpotifyLikedMatchTotal")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime?>("TokenExpiresAtUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
                     b.ToTable("SpotifySettings");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.SpotifyTrackLibraryMatch", b =>
+                {
+                    b.Property<string>("SpotifyTrackId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<double?>("MatchConfidence")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("MatchStatus")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("MatchedArtist")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("MatchedEnrichmentStatus")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int?>("MatchedSongId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("MatchedTitle")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime?>("SpotifyAddedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SpotifyAlbum")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("SpotifyArtist")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<int?>("SpotifyDurationMs")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SpotifyTitle")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("SpotifyTrackId");
+
+                    b.HasIndex("MatchStatus");
+
+                    b.HasIndex("UpdatedAtUtc");
+
+                    b.ToTable("SpotifyTrackLibraryMatches");
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.SongMetadata", b =>

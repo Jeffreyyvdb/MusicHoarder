@@ -19,7 +19,7 @@ public class EnrichmentOrchestratorTests
         await db.SaveChangesAsync();
 
         var acoustId = new StubAcoustIdService(_ => Task.FromResult<AcoustIdMatch?>(
-            new AcoustIdMatch("mb-123", "Lucid Dreams", "Juice WRLD", "Juice WRLD", 0.95f, 240_000)));
+            new AcoustIdMatch("mb-123", "acoust-123", "Lucid Dreams", "Juice WRLD", "Juice WRLD", 0.95f, 240_000)));
         var orchestrator = CreateOrchestrator(db, acoustId);
 
         var result = await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
@@ -65,7 +65,7 @@ public class EnrichmentOrchestratorTests
         await db.SaveChangesAsync();
 
         var acoustId = new StubAcoustIdService(_ => Task.FromResult<AcoustIdMatch?>(
-            new AcoustIdMatch("mb-456", "Lucid Dreams", "Stevie Wonder", "Stevie Wonder", 0.90f, 240_000)));
+            new AcoustIdMatch("mb-456", "acoust-456", "Lucid Dreams", "Stevie Wonder", "Stevie Wonder", 0.90f, 240_000)));
         var orchestrator = CreateOrchestrator(db, acoustId);
 
         var result = await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
@@ -307,7 +307,7 @@ public class EnrichmentOrchestratorTests
         await db.SaveChangesAsync();
 
         var acoustId = new StubAcoustIdService(_ => Task.FromResult<AcoustIdMatch?>(
-            new AcoustIdMatch("mb-789", "New Title", "New Artist", "New Artist", 0.95f, 240_000)));
+            new AcoustIdMatch("mb-789", "acoust-789", "New Title", "New Artist", "New Artist", 0.95f, 240_000)));
         var orchestrator = CreateOrchestrator(db, acoustId);
 
         await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
@@ -336,7 +336,7 @@ public class EnrichmentOrchestratorTests
         await db.SaveChangesAsync();
 
         var acoustId = new StubAcoustIdService(_ => Task.FromResult<AcoustIdMatch?>(
-            new AcoustIdMatch("mb-999", "Third Title", "Third Artist", "Third Artist", 0.95f, 240_000)));
+            new AcoustIdMatch("mb-999", "acoust-999", "Third Title", "Third Artist", "Third Artist", 0.95f, 240_000)));
         var orchestrator = CreateOrchestrator(db, acoustId);
 
         await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
@@ -360,7 +360,7 @@ public class EnrichmentOrchestratorTests
         var acoustId = new StubAcoustIdService(fingerprint => fingerprint switch
         {
             "fp-match" => Task.FromResult<AcoustIdMatch?>(
-                new AcoustIdMatch("mb-1", "Lucid Dreams", "Juice WRLD", "Juice WRLD", 0.95f, 240_000)),
+                new AcoustIdMatch("mb-1", "acoust-1", "Lucid Dreams", "Juice WRLD", "Juice WRLD", 0.95f, 240_000)),
             "fp-review" => Task.FromResult<AcoustIdMatch?>(null),
             "fp-fail" => throw new HttpRequestException("boom"),
             _ => Task.FromResult<AcoustIdMatch?>(null)
@@ -398,7 +398,7 @@ public class EnrichmentOrchestratorTests
         await db.SaveChangesAsync();
 
         var acoustId = new StubAcoustIdService(_ => Task.FromResult<AcoustIdMatch?>(
-            new AcoustIdMatch("mb-blank", "New Title", "", "", 0.95f, 240_000)));
+            new AcoustIdMatch("mb-blank", "acoust-blank", "New Title", "", "", 0.95f, 240_000)));
         var orchestrator = CreateOrchestrator(db, acoustId);
 
         await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
@@ -417,7 +417,7 @@ public class EnrichmentOrchestratorTests
 
         var before = DateTime.UtcNow;
         var acoustId = new StubAcoustIdService(_ => Task.FromResult<AcoustIdMatch?>(
-            new AcoustIdMatch("mb-ts", "Title", "Artist", "Artist", 0.95f, 240_000)));
+            new AcoustIdMatch("mb-ts", "acoust-ts", "Title", "Artist", "Artist", 0.95f, 240_000)));
         var orchestrator = CreateOrchestrator(db, acoustId);
 
         await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
@@ -442,7 +442,7 @@ public class EnrichmentOrchestratorTests
                 called.Add("Provider1");
                 return Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
                     "Matched Artist", "Matched Artist", "Matched Title", null, null,
-                    "mb-1", null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched));
+                    "mb-1", null, null, null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched));
             });
         var provider2 = new StubEnrichmentProvider("Provider2", 200,
             canHandle: _ => true,
@@ -477,7 +477,7 @@ public class EnrichmentOrchestratorTests
             canHandle: _ => true,
             enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
                 "P2 Artist", "P2 Artist", "P2 Title", null, null,
-                null, "spotify-1", null, "Provider2", 0.90, [], EnrichmentStatus.Matched)));
+                null, null, "spotify-1", null, null, "Provider2", 0.90, [], EnrichmentStatus.Matched)));
 
         var orchestrator = CreateOrchestratorWithProviders(db, [provider1, provider2]);
         await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
@@ -499,12 +499,12 @@ public class EnrichmentOrchestratorTests
             canHandle: _ => true,
             enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
                 "P1 Artist", null, "P1 Title", null, null,
-                "mb-1", null, null, "Provider1", 0.40, ["low_score"], EnrichmentStatus.NeedsReview)));
+                "mb-1", null, null, null, null, "Provider1", 0.40, ["low_score"], EnrichmentStatus.NeedsReview)));
         var provider2 = new StubEnrichmentProvider("Provider2", 200,
             canHandle: _ => true,
             enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
                 "P2 Artist", null, "P2 Title", null, null,
-                null, "sp-1", null, "Provider2", 0.60, ["uncertain"], EnrichmentStatus.NeedsReview)));
+                null, null, "sp-1", null, null, "Provider2", 0.60, ["uncertain"], EnrichmentStatus.NeedsReview)));
 
         var orchestrator = CreateOrchestratorWithProviders(db, [provider1, provider2]);
         await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
@@ -547,7 +547,7 @@ public class EnrichmentOrchestratorTests
             canHandle: s => !string.IsNullOrWhiteSpace(s.Artist) && !string.IsNullOrWhiteSpace(s.Title),
             enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
                 "Artist", "Artist", "Title", null, null,
-                null, null, null, "FallbackProvider", 0.90, [], EnrichmentStatus.Matched)));
+                null, null, null, null, null, "FallbackProvider", 0.90, [], EnrichmentStatus.Matched)));
 
         var orchestrator = CreateOrchestratorWithProviders(db, [provider1, provider2]);
         await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
@@ -572,7 +572,7 @@ public class EnrichmentOrchestratorTests
             canHandle: _ => true,
             enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
                 "Artist", "Artist", "Title", null, null,
-                "mb-1", null, null, "WorkingProvider", 0.92, [], EnrichmentStatus.Matched)));
+                "mb-1", null, null, null, null, "WorkingProvider", 0.92, [], EnrichmentStatus.Matched)));
 
         var orchestrator = CreateOrchestratorWithProviders(db, [provider1, provider2]);
         var result = await orchestrator.ProcessNextBatchAsync(Guid.NewGuid());
@@ -618,7 +618,7 @@ public class EnrichmentOrchestratorTests
             canHandle: _ => true,
             enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
                 "Artist", "Artist", "Title", 2024, 5,
-                null, "spotify-abc", "USRC99999", "SpotifyAPI", 0.95,
+                null, null, "spotify-abc", null, "USRC99999", "SpotifyAPI", 0.95,
                 [], EnrichmentStatus.Matched)));
 
         var opts = CreateOptions();
@@ -669,7 +669,7 @@ public class EnrichmentOrchestratorTests
             canHandle: _ => true,
             enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
                 "Artist", "Artist", "Title", null, null,
-                "mb-lyrics", null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched)));
+                "mb-lyrics", null, null, null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched)));
         var lrcLib = new StubLrcLibService(_ =>
             Task.FromResult<LyricsResult?>(new LyricsResult("[00:00.00]Hello", "Hello", false)));
 
@@ -698,7 +698,7 @@ public class EnrichmentOrchestratorTests
             canHandle: _ => true,
             enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
                 "Artist", "Artist", "Title", null, null,
-                "mb-lyrics", null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched)));
+                "mb-lyrics", null, null, null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched)));
         var lrcLib = new StubLrcLibService(_ =>
             Task.FromResult<LyricsResult?>(new LyricsResult("ignored", "ignored", true)));
 
@@ -724,7 +724,7 @@ public class EnrichmentOrchestratorTests
             canHandle: _ => true,
             enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
                 "Artist", "Artist", "Title", null, null,
-                "mb-lyrics", null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched)));
+                "mb-lyrics", null, null, null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched)));
         var lrcLib = new StubLrcLibService(_ => throw new HttpRequestException("lrc failed"));
 
         var orchestrator = CreateOrchestratorWithProviders(db, [provider], lrcLibService: lrcLib);
@@ -761,7 +761,7 @@ public class EnrichmentOrchestratorTests
             canHandle: _ => true,
             enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
                 "", "", "", null, null,
-                "mb-lyrics", null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched)));
+                "mb-lyrics", null, null, null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched)));
         var lrcLib = new StubLrcLibService(_ =>
             Task.FromResult<LyricsResult?>(new LyricsResult("[00:00.00]Hello", "Hello", false)));
 
@@ -787,7 +787,7 @@ public class EnrichmentOrchestratorTests
             canHandle: _ => true,
             enrich: _ => Task.FromResult<EnrichmentProviderResult?>(new EnrichmentProviderResult(
                 "Artist", "Artist", "Title", null, null,
-                "mb-no-refetch", null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched)));
+                "mb-no-refetch", null, null, null, null, "Provider1", 0.95, [], EnrichmentStatus.Matched)));
         var lrcLib = new StubLrcLibService(_ =>
             Task.FromResult<LyricsResult?>(new LyricsResult("[00:01.00]New synced", "New plain", false)));
 

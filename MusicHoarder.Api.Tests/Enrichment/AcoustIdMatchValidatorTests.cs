@@ -244,6 +244,7 @@ public class AcoustIdMatchValidatorTests
     {
         return new AcoustIdMatch(
             MusicBrainzRecordingId: "mb-123",
+            AcoustIdTrackId: "acoust-123",
             Title: title,
             Artist: artist,
             AlbumArtist: artist,
