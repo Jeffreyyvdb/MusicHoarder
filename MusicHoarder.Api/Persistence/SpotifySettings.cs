@@ -52,5 +52,18 @@ public class SpotifySettings
         RefreshToken = null;
         TokenExpiresAtUtc = null;
         ConnectedAtUtc = null;
+        SpotifyLikedMatchStatsUpdatedAtUtc = null;
+        SpotifyLikedMatchTotal = null;
+        SpotifyLikedMatchInLibrary = null;
+        SpotifyLikedMatchPossible = null;
+        SpotifyLikedMatchNotInLibrary = null;
     }
+
+    /// <summary>Last full liked-songs library match sync (background).</summary>
+    public DateTime? SpotifyLikedMatchStatsUpdatedAtUtc { get; set; }
+
+    public int? SpotifyLikedMatchTotal { get; set; }
+    public int? SpotifyLikedMatchInLibrary { get; set; }
+    public int? SpotifyLikedMatchPossible { get; set; }
+    public int? SpotifyLikedMatchNotInLibrary { get; set; }
 }

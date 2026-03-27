@@ -87,6 +87,9 @@ public class SpotifyOAuthService(
                 s.StoreTokens(tokenResponse.AccessToken, tokenResponse.RefreshToken!, tokenResponse.ExpiresIn), ct);
 
             logger.LogInformation("Spotify OAuth tokens stored successfully");
+
+            RunInitialLibraryMatchSyncAfterConnect();
+
             return new SpotifyTokenResult(true);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -166,6 +169,16 @@ public class SpotifyOAuthService(
     public async Task DisconnectAsync(CancellationToken ct = default)
     {
         await MutateSettingsAsync(s => s.ClearTokens(), ct);
+
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+        var rows = await db.SpotifyTrackLibraryMatches.ToListAsync(ct);
+        if (rows.Count > 0)
+        {
+            db.SpotifyTrackLibraryMatches.RemoveRange(rows);
+            await db.SaveChangesAsync(ct);
+        }
+
         logger.LogInformation("Spotify account disconnected");
     }
 
@@ -213,6 +226,24 @@ public class SpotifyOAuthService(
         await db.SaveChangesAsync(ct);
 
         return settings;
+    }
+
+    private void RunInitialLibraryMatchSyncAfterConnect()
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2));
+                using var scope = scopeFactory.CreateScope();
+                var sync = scope.ServiceProvider.GetRequiredService<ISpotifyLibraryComparisonService>();
+                await sync.SyncLikedSongsMatchesAsync(CancellationToken.None);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "Initial Spotify liked-song library match sync after connect failed (will retry on background interval)");
+            }
+        });
     }
 
     private async Task MutateSettingsAsync(Action<SpotifySettings> mutate, CancellationToken ct)
