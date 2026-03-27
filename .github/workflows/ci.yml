@@ -1,5 +1,5 @@
-# Run tests on PRs and pushes to main so broken code doesn't reach main.
-name: Tests
+# Restore, build, and test — no deploy or container publishing.
+name: CI
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  build-and-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
