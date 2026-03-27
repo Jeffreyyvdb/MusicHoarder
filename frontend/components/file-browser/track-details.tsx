@@ -33,6 +33,8 @@ import { Slider } from "@/components/ui/slider"
 import type { FileItem, LyricsStatus } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { resetSongEnrichment, getSongStreamUrl, parseSongId, fetchTrackLyrics } from "@/lib/api-client"
+import { lrclibWebSearchUrl, lrclibWebUrl } from "@/lib/lrclib-url"
+import { acoustIdSourceConnected, lrclibSourceConnected } from "@/lib/source-connection"
 import { usePlayer } from "@/lib/player-context"
 
 interface TrackDetailsProps {
@@ -233,11 +235,7 @@ export function TrackDetails({ file, onClose, onResetEnrichment }: TrackDetailsP
                 isInstrumental={metadata.isInstrumental}
                 currentTimeMs={isThisSong ? currentTime * 1000 : null}
                 onSeek={isThisSong ? (timeMs: number) => seek(timeMs / 1000) : undefined}
-                lrclibUrl={metadata.sourceIds.lrclibId
-                  ? `https://lrclib.net/api/get/${metadata.sourceIds.lrclibId}`
-                  : (metadata.artist && metadata.title
-                    ? `https://lrclib.net/search?q=${encodeURIComponent(`${metadata.artist} ${metadata.title}`)}`
-                    : undefined)}
+                lrclibUrl={lrclibWebUrl(metadata.artist, metadata.title)}
               />
             </TabsContent>
 
@@ -254,7 +252,10 @@ export function TrackDetails({ file, onClose, onResetEnrichment }: TrackDetailsP
               <div className="space-y-2">
                 <SourceRow
                   name="AcoustID"
-                  connected={Boolean(metadata.sourceIds.acoustIdTrackId)}
+                  connected={acoustIdSourceConnected(
+                    metadata.sourceIds.acoustIdTrackId,
+                    metadata.matchedBy
+                  )}
                   url={metadata.sourceIds.acoustIdTrackId
                     ? `https://acoustid.org/track/${metadata.sourceIds.acoustIdTrackId}`
                     : "https://acoustid.org"}
@@ -292,17 +293,19 @@ export function TrackDetails({ file, onClose, onResetEnrichment }: TrackDetailsP
                 />
                 <SourceRow
                   name="LRCLIB (Lyrics)"
-                  connected={Boolean(metadata.sourceIds.lrclibId)}
-                  url={metadata.sourceIds.lrclibId
-                    ? `https://lrclib.net/api/get/${metadata.sourceIds.lrclibId}`
-                    : (metadata.artist && metadata.title
-                      ? `https://lrclib.net/search?q=${encodeURIComponent(`${metadata.artist} ${metadata.title}`)}`
-                      : "https://lrclib.net")}
-                  label={metadata.sourceIds.lrclibId
-                    ? `lrclib.net/api/get/${metadata.sourceIds.lrclibId}`
-                    : (metadata.artist && metadata.title
-                      ? `lrclib.net/search?q=${metadata.artist}+${metadata.title}`
-                      : undefined)}
+                  connected={lrclibSourceConnected({
+                    lrclibId: metadata.sourceIds.lrclibId,
+                    lyricsStatus: metadata.lyricsStatus,
+                    artist: metadata.artist,
+                    title: metadata.title,
+                    enrichmentStatus: metadata.enrichmentStatus,
+                  })}
+                  url={lrclibWebUrl(metadata.artist, metadata.title)}
+                  label={
+                    lrclibWebSearchUrl(metadata.artist, metadata.title)
+                      ? "lrclib.net/search/…"
+                      : undefined
+                  }
                 />
               </div>
               <Separator className="my-3" />
@@ -676,8 +679,23 @@ function LyricsPanel({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <LyricsStatusBadge status={lyricsStatus} />
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <LyricsStatusBadge status={lyricsStatus} />
+          {hasSynced && (
+            <span
+              title="Synced lyrics (LRC)"
+              aria-label="Synced lyrics (LRC)"
+              role="img"
+              className="inline-flex"
+            >
+              <CheckCircle2
+                className="size-4 shrink-0 text-green-600 dark:text-green-500"
+                aria-hidden
+              />
+            </span>
+          )}
+        </div>
         {showSyncedToggle && (
           <div className="flex rounded-md border border-border overflow-hidden text-xs">
             <button
