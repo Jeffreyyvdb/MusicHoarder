@@ -14,13 +14,24 @@ public class AcoustIdEnrichmentProvider(
     public bool CanHandle(SongMetadata song) =>
         !string.IsNullOrWhiteSpace(song.Fingerprint) && song.DurationSeconds is not null;
 
-    public async Task<EnrichmentProviderResult?> TryEnrichAsync(SongMetadata song, CancellationToken ct = default)
+    public async Task<ProviderOutcome> TryEnrichAsync(SongMetadata song, CancellationToken ct = default)
     {
-        var match = await acoustIdService.LookupAsync(song.Fingerprint!, song.DurationSeconds!.Value, ct);
+        AcoustIdMatch? match;
+        try
+        {
+            match = await acoustIdService.LookupAsync(song.Fingerprint!, song.DurationSeconds!.Value, ct);
+        }
+        catch (ProviderRateLimitedException ex)
+        {
+            logger.LogWarning("AcoustID rate limited for song {SongId}, retry after {Delay}s",
+                song.Id, ex.RetryAfter.TotalSeconds);
+            return new ProviderRateLimited(ex.RetryAfter);
+        }
+
         if (match is null)
         {
             logger.LogDebug("AcoustID returned no match for song {SongId}", song.Id);
-            return null;
+            return new ProviderNoMatch();
         }
 
         var validation = matchValidator.Validate(match, song);
@@ -30,7 +41,7 @@ public class AcoustIdEnrichmentProvider(
             ? ArtistCreditNormalizer.GetPrimaryArtist(effectiveArtist)
             : match.AlbumArtist;
 
-        return new EnrichmentProviderResult(
+        return new ProviderMatched(new EnrichmentProviderResult(
             Artist: match.Artist,
             AlbumArtist: resolvedAlbumArtist,
             Title: match.Title,
@@ -44,6 +55,6 @@ public class AcoustIdEnrichmentProvider(
             MatchedBy: Name,
             MatchConfidence: validation.AdjustedScore,
             MatchWarnings: validation.Warnings,
-            RecommendedStatus: validation.RecommendedStatus);
+            RecommendedStatus: validation.RecommendedStatus));
     }
 }

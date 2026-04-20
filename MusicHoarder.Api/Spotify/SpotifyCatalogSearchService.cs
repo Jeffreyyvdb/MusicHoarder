@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading.RateLimiting;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Options;
 
 namespace MusicHoarder.Api.Spotify;
@@ -45,11 +46,13 @@ public sealed class SpotifyCatalogSearchService(
         if (cache.TryGetValue(cacheKey, out IReadOnlyList<SpotifyCatalogTrack>? cached) && cached is not null)
             return cached;
 
+        // QueueLimit must be > 0 so concurrent enrichment workers wait for tokens instead of
+        // failing immediately (matches AcoustIdService rate-limiter behavior).
         var limiter = GetRateLimiter(opts.SpotifyApiRequestsPerSecond);
         using var lease = await limiter.AcquireAsync(permitCount: 1, ct);
         if (!lease.IsAcquired)
         {
-            logger.LogWarning("Spotify catalog rate limiter rejected search request");
+            logger.LogWarning("Spotify catalog rate limiter could not grant a permit (disposed or canceled)");
             return [];
         }
 
@@ -83,7 +86,7 @@ public sealed class SpotifyCatalogSearchService(
                     continue;
                 }
 
-                return [];
+                throw new ProviderRateLimitedException(retryAfter);
             }
 
             if (response.StatusCode == HttpStatusCode.Unauthorized && !refreshedTokenAfter401)
@@ -196,8 +199,9 @@ public sealed class SpotifyCatalogSearchService(
                 TokenLimit = requestsPerSecond,
                 TokensPerPeriod = requestsPerSecond,
                 ReplenishmentPeriod = TimeSpan.FromSeconds(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = int.MaxValue,
                 AutoReplenishment = true,
-                QueueLimit = 0
             });
             return _sharedRateLimiter;
         }

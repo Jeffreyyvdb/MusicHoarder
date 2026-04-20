@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -12,6 +13,7 @@ public class FingerprintBackgroundService(
     FingerprintProgressTracker progressTracker,
     IFpcalcService fpcalcService,
     IDuplicateDetectionService duplicateDetectionService,
+    EnrichmentPipelineChannel enrichmentChannel,
     IOptions<MusicEnricherOptions> options,
     ILogger<FingerprintBackgroundService> logger) : BackgroundService
 {
@@ -197,6 +199,16 @@ public class FingerprintBackgroundService(
         }
 
         await db2.SaveChangesAsync(ct);
+
+        var fingerprintedIds = results
+            .Where(r => r.Result is not null)
+            .Select(r => r.Id)
+            .ToList();
+        if (fingerprintedIds.Count > 0)
+        {
+            enrichmentChannel.EnqueueRange(fingerprintedIds);
+            logger.LogDebug("Enqueued {Count} fingerprinted songs for enrichment", fingerprintedIds.Count);
+        }
 
         var state = progressTracker.GetCurrent();
         if (state is { Processed: var processed })

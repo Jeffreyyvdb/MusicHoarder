@@ -4,6 +4,7 @@ namespace MusicHoarder.Api.Persistence;
 public class MusicHoarderDbContext(DbContextOptions options) : DbContext(options)
 {
     public DbSet<SongMetadata> Songs { get; set; }
+    public DbSet<SongProviderAttempt> SongProviderAttempts { get; set; }
     public DbSet<SpotifySettings> SpotifySettings { get; set; }
     public DbSet<SpotifyTrackLibraryMatch> SpotifyTrackLibraryMatches { get; set; }
 
@@ -27,6 +28,18 @@ public class MusicHoarderDbContext(DbContextOptions options) : DbContext(options
                 .WithMany()
                 .HasForeignKey(e => e.DuplicateOfId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<SongProviderAttempt>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.SongId, e.Provider }).IsUnique();
+            entity.HasIndex(e => new { e.Status, e.RetryAfterUtc });
+
+            entity.HasOne(e => e.Song)
+                .WithMany(s => s.ProviderAttempts)
+                .HasForeignKey(e => e.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<SpotifySettings>(entity =>
