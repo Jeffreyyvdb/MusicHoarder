@@ -10,8 +10,25 @@ import {
   fetchSpotifyCredentials,
   saveSpotifyCredentials,
   fetchSpotifyStatus,
+  purgeAll,
+  purgePostFingerprint,
 } from "@/lib/api-client"
-import type { SpotifyCredentialsResponse, SpotifyStatusResponse } from "@/lib/api-client"
+import type {
+  PurgeResult,
+  SpotifyCredentialsResponse,
+  SpotifyStatusResponse,
+} from "@/lib/api-client"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import {
   Settings,
   KeyRound,
@@ -19,8 +36,10 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Music,
   ExternalLink,
+  Trash2,
 } from "lucide-react"
 
 export default function SettingsPage() {
@@ -31,6 +50,12 @@ export default function SettingsPage() {
   const [savedCredentials, setSavedCredentials] = useState<SpotifyCredentialsResponse | null>(null)
   const [spotifyStatus, setSpotifyStatus] = useState<SpotifyStatusResponse | null>(null)
   const [saveResult, setSaveResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [purgeMode, setPurgeMode] = useState<"post-fingerprint" | "all" | null>(null)
+  const [purgeResult, setPurgeResult] = useState<
+    { success: true; mode: "post-fingerprint" | "all"; result: PurgeResult }
+    | { success: false; message: string }
+    | null
+  >(null)
 
   useEffect(() => {
     async function load() {
@@ -53,6 +78,26 @@ export default function SettingsPage() {
     }
     load()
   }, [])
+
+  const handlePurge = async (mode: "post-fingerprint" | "all") => {
+    setPurgeMode(mode)
+    setPurgeResult(null)
+    try {
+      const response = mode === "post-fingerprint" ? await purgePostFingerprint() : await purgeAll()
+      if (response.ok) {
+        setPurgeResult({ success: true, mode, result: response.result })
+      } else {
+        setPurgeResult({ success: false, message: response.message })
+      }
+    } catch (err) {
+      setPurgeResult({
+        success: false,
+        message: err instanceof Error ? err.message : "Purge failed.",
+      })
+    } finally {
+      setPurgeMode(null)
+    }
+  }
 
   const handleSave = async () => {
     if (!clientId.trim() || !clientSecret.trim()) {
@@ -230,6 +275,128 @@ export default function SettingsPage() {
                     Save Credentials
                   </Button>
                 </>
+              )}
+            </div>
+          </section>
+
+          {/* Danger Zone */}
+          <section className="mt-8 rounded-xl border border-destructive/40 bg-card">
+            <div className="flex items-center gap-3 border-b border-destructive/40 px-6 py-4">
+              <div className="flex size-8 items-center justify-center rounded-lg bg-destructive/10">
+                <AlertTriangle className="size-4 text-destructive" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h2 className="font-semibold">Danger zone</h2>
+                <p className="text-xs text-muted-foreground">
+                  Irreversible actions that purge pipeline state. Make sure no job is running.
+                </p>
+              </div>
+            </div>
+
+            <div className="divide-y divide-border">
+              <div className="flex flex-col gap-3 p-6 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex-1 pr-4">
+                  <h3 className="text-sm font-semibold">Reset enrichment data</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Keeps your scanned files and fingerprints. Clears enrichment results, provider attempts, lyrics, duplicate detection, and library-build status for every active song, and deletes any files that were copied to the destination folder.
+                  </p>
+                </div>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="gap-2 text-destructive hover:text-destructive shrink-0"
+                      disabled={purgeMode !== null}
+                    >
+                      {purgeMode === "post-fingerprint" ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="size-4" />
+                      )}
+                      Reset enrichment data
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Reset enrichment data?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This clears every song&apos;s enrichment, lyrics, duplicate flags, and library-build state, and deletes files copied to the destination folder. Fingerprints and scan data are preserved so the next run skips straight to enrichment. This cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => handlePurge("post-fingerprint")}>
+                        Reset enrichment data
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+
+              <div className="flex flex-col gap-3 p-6 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex-1 pr-4">
+                  <h3 className="text-sm font-semibold">Purge all data</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Removes every song, provider attempt, and cached Spotify match from the database, and deletes any files copied to the destination folder. Source files are not touched. The next run re-scans and re-fingerprints from source.
+                  </p>
+                </div>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="destructive"
+                      className="gap-2 shrink-0"
+                      disabled={purgeMode !== null}
+                    >
+                      {purgeMode === "all" ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="size-4" />
+                      )}
+                      Purge all data
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Purge all data?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This deletes every song record, provider attempt, and cached Spotify match, and removes files that were copied to the destination folder. Source files are not affected. This cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => handlePurge("all")}>
+                        Purge all data
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+
+              {purgeResult && (
+                <div className="px-6 pb-6 pt-4">
+                  {purgeResult.success ? (
+                    <div className="flex items-start gap-2 rounded-lg border border-[#1DB954]/50 bg-[#1DB954]/10 px-4 py-3 text-sm text-[#1DB954]">
+                      <CheckCircle2 className="size-4 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-medium">
+                          {purgeResult.mode === "post-fingerprint"
+                            ? "Reset enrichment data complete"
+                            : "Purged all data"}
+                        </p>
+                        <p className="text-xs opacity-90">
+                          {purgeResult.mode === "post-fingerprint"
+                            ? `Reset ${purgeResult.result.songsAffected.toLocaleString()} songs, deleted ${purgeResult.result.filesDeleted.toLocaleString()} destination files, cleared ${purgeResult.result.spotifyMatchesCleared.toLocaleString()} Spotify matches.`
+                            : `Deleted ${purgeResult.result.songsAffected.toLocaleString()} songs, removed ${purgeResult.result.filesDeleted.toLocaleString()} destination files, cleared ${purgeResult.result.spotifyMatchesCleared.toLocaleString()} Spotify matches.`}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                      <AlertCircle className="size-4 shrink-0 mt-0.5" />
+                      <p>{purgeResult.message}</p>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </section>
