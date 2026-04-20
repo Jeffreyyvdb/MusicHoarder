@@ -94,6 +94,7 @@ public class LibraryBuilderService(
     IServiceScopeFactory scopeFactory,
     IDestinationPathResolver destinationPathResolver,
     IFileSystem fileSystem,
+    ILibraryDestinationCleaner destinationCleaner,
     ILibraryTagWriter tagWriter,
     IOptions<MusicEnricherOptions> options,
     ILogger<LibraryBuilderService> logger) : ILibraryBuilderService
@@ -282,7 +283,7 @@ public class LibraryBuilderService(
             if (!string.IsNullOrWhiteSpace(song.PreviousDestinationPath)
                 && !PathsEqual(song.PreviousDestinationPath, destinationPath))
             {
-                DeleteManagedPathAndPrune(song.PreviousDestinationPath, options.Value.DestinationDirectory);
+                destinationCleaner.DeleteManagedPathAndPrune(song.PreviousDestinationPath, options.Value.DestinationDirectory);
             }
 
             song.MarkBuildDone(destinationPath);
@@ -429,56 +430,6 @@ public class LibraryBuilderService(
             artist,
             albumFolder,
             $"{trackPrefix}{title}{extension}");
-    }
-
-    private void DeleteManagedPathAndPrune(string path, string destinationRoot)
-    {
-        if (!fileSystem.File.Exists(path))
-        {
-            return;
-        }
-
-        fileSystem.File.Delete(path);
-        PruneEmptyDirectories(fileSystem.Path.GetDirectoryName(path), destinationRoot);
-    }
-
-    private void PruneEmptyDirectories(string? startDirectory, string destinationRoot)
-    {
-        if (string.IsNullOrWhiteSpace(startDirectory))
-        {
-            return;
-        }
-
-        var current = startDirectory;
-        var rootFullPath = fileSystem.Path.GetFullPath(destinationRoot);
-        while (!string.IsNullOrWhiteSpace(current) && IsWithinRoot(current, rootFullPath))
-        {
-            if (!fileSystem.Directory.Exists(current))
-            {
-                break;
-            }
-
-            var hasFiles = fileSystem.Directory.EnumerateFiles(current).Any();
-            var hasDirectories = fileSystem.Directory.EnumerateDirectories(current).Any();
-            if (hasFiles || hasDirectories)
-            {
-                break;
-            }
-
-            fileSystem.Directory.Delete(current);
-            if (PathsEqual(current, rootFullPath))
-            {
-                break;
-            }
-
-            current = fileSystem.Path.GetDirectoryName(current);
-        }
-    }
-
-    private bool IsWithinRoot(string path, string rootFullPath)
-    {
-        var fullPath = fileSystem.Path.GetFullPath(path);
-        return fullPath.StartsWith(rootFullPath, StringComparison.Ordinal);
     }
 
     private static bool PathsEqual(string a, string b)
