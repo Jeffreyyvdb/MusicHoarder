@@ -86,17 +86,10 @@ function SpotifyTrackRowWithLibraryMatch({
   const status = m?.matchStatus as SpotifyLibraryMatchStatus | undefined
   const songId = m?.matchedSongId
   const isPossible = status === "PossibleMatch"
-  const isNotInLib = status === "NotInLibrary"
   const hasMatchInfo = Boolean(m && status)
 
   return (
-    <div
-      className={
-        isNotInLib
-          ? "rounded-lg border border-rose-500/20 bg-rose-500/[0.06]"
-          : "rounded-lg"
-      }
-    >
+    <div className="rounded-lg">
       <div
         role={isPossible ? "button" : undefined}
         tabIndex={isPossible ? 0 : undefined}
@@ -163,7 +156,7 @@ function SpotifyTrackRowWithLibraryMatch({
               asChild
               size="sm"
               variant="outline"
-              className="h-8 border-emerald-500/40 bg-emerald-500/15 px-2.5 text-xs font-medium text-emerald-800 hover:bg-emerald-500/25 dark:text-emerald-300"
+              className="h-8 border-primary/40 bg-primary/15 px-2.5 text-xs font-medium text-primary hover:bg-primary/25"
             >
               <Link href={`/app?song=${songId}`} onClick={(e) => e.stopPropagation()}>
                 <CheckCircle2 className="size-3.5 shrink-0" />
@@ -705,7 +698,7 @@ function SpotifyPageContent() {
               <div
                 className={`mb-6 rounded-lg border px-4 py-3 text-sm text-left ${
                   oauthBanner.type === "success"
-                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                    ? "border-primary/40 bg-primary/10 text-primary"
                     : "border-destructive/50 bg-destructive/10 text-destructive"
                 }`}
               >
