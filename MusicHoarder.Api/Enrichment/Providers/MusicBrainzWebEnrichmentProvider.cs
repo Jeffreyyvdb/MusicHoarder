@@ -16,9 +16,9 @@ public class MusicBrainzWebEnrichmentProvider(
         !string.IsNullOrWhiteSpace(song.Isrc)
         || (!string.IsNullOrWhiteSpace(song.Artist) && !string.IsNullOrWhiteSpace(song.Title));
 
-    public Task<EnrichmentProviderResult?> TryEnrichAsync(SongMetadata song, CancellationToken ct = default)
+    public Task<ProviderOutcome> TryEnrichAsync(SongMetadata song, CancellationToken ct = default)
     {
         logger.LogDebug("MusicBrainzWeb provider not yet implemented; skipping song {SongId}", song.Id);
-        return Task.FromResult<EnrichmentProviderResult?>(null);
+        return Task.FromResult<ProviderOutcome>(new ProviderNoMatch());
     }
 }

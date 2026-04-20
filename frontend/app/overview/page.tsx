@@ -23,6 +23,8 @@ import {
   Search,
   Play,
   Pause,
+  RefreshCw,
+  Zap,
 } from "lucide-react"
 import Link from "next/link"
 import { AppHeader } from "@/components/app-header"
@@ -139,7 +141,6 @@ export default function OverviewPage() {
 
   const job = overview?.job ?? initialOverview.job
 
-  // Per-step SSE snapshots
   const scanSnap = liveProgress?.scan
   const fpSnap = liveProgress?.fingerprint
   const enrichSnap = liveProgress?.enrich
@@ -149,9 +150,7 @@ export default function OverviewPage() {
   const fpRunning = fpSnap?.status === "Running"
   const enrichRunning = enrichSnap?.status === "Running"
   const buildRunning = buildSnap?.status === "Running"
-  const anyRunning = scanRunning || fpRunning || enrichRunning || buildRunning
 
-  // Elapsed time
   const [elapsedMin, setElapsedMin] = useState<number | null>(null)
   useEffect(() => {
     const startedAt = overview?.job?.startedAt
@@ -163,9 +162,6 @@ export default function OverviewPage() {
     return () => clearInterval(t)
   }, [overview?.job?.startedAt])
 
-  // Use per-step live values when that specific step is running,
-  // otherwise always use cumulative DB counts. Math.max prevents
-  // counters from dropping during the transition.
   const discovered = Math.max(liveProgress?.discovered ?? 0, job.tracksDiscovered)
   const scanned = scanRunning
     ? Math.max(liveProgress?.scanned ?? 0, job.tracksProcessed)
@@ -194,6 +190,8 @@ export default function OverviewPage() {
   if (buildRunning) runningLabels.push("Building")
   const overallStatus = runningLabels.length > 0 ? runningLabels.join(", ") : "Idle"
 
+  const enrichPaused = enrichSnap?.isPaused ?? false
+
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <AppHeader />
@@ -203,8 +201,8 @@ export default function OverviewPage() {
           {/* Page Header */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="text-2xl font-bold md:text-3xl">Import Overview</h1>
-              <p className="text-muted-foreground">Monitor and control your music pipeline</p>
+              <h1 className="text-2xl font-bold md:text-3xl">Pipeline Overview</h1>
+              <p className="text-muted-foreground">Your music pipeline runs automatically on startup</p>
             </div>
           </div>
 
@@ -255,7 +253,7 @@ export default function OverviewPage() {
           <Card>
             <CardHeader className="pb-3">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                <CardTitle className="mr-auto text-lg">Pipeline Progress</CardTitle>
+                <CardTitle className="mr-auto text-lg">Pipeline</CardTitle>
                 <div className="flex shrink-0 items-center gap-2">
                   <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                     <Clock className="size-4 shrink-0" />
@@ -268,7 +266,7 @@ export default function OverviewPage() {
             <CardContent className="space-y-5">
               <PipelineStage
                 icon={Search}
-                label="Scan Metadata"
+                label="Scan"
                 count={scanned}
                 total={discovered}
                 unit="files"
@@ -277,10 +275,11 @@ export default function OverviewPage() {
                 triggering={triggering}
                 stepKey="scan"
                 onAction={handleStepAction}
+                mode="trigger"
               />
               <PipelineStage
                 icon={Disc3}
-                label="Fingerprinting"
+                label="Fingerprint"
                 count={fingerprinted}
                 total={discovered}
                 unit="tracks"
@@ -289,10 +288,12 @@ export default function OverviewPage() {
                 triggering={triggering}
                 stepKey="fingerprint"
                 onAction={handleStepAction}
+                mode="auto"
+                subtitle="Runs automatically after scan"
               />
               <PipelineStage
                 icon={Sparkles}
-                label="Enrich Metadata"
+                label="Enrich"
                 count={enriched}
                 total={discovered}
                 unit="tracks"
@@ -301,6 +302,10 @@ export default function OverviewPage() {
                 triggering={triggering}
                 stepKey="enrich"
                 onAction={handleStepAction}
+                mode="continuous"
+                subtitle={enrichPaused
+                  ? "Paused — tracks will queue until resumed"
+                  : "Processes tracks as they arrive from fingerprinting"}
               />
               <PipelineStage
                 icon={PackageCheck}
@@ -313,6 +318,7 @@ export default function OverviewPage() {
                 triggering={triggering}
                 stepKey="build"
                 onAction={handleStepAction}
+                mode="trigger"
                 subtitle={buildEligible < discovered && buildEligible > 0
                   ? `${(discovered - buildEligible).toLocaleString()} tracks need review first`
                   : undefined}
@@ -388,6 +394,22 @@ export default function OverviewPage() {
                 <CardTitle className="text-lg">Quick Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
+                <Button
+                  variant="outline"
+                  className="w-full justify-start gap-3 h-auto py-3 hover:bg-muted hover:text-foreground dark:hover:bg-muted/50"
+                  disabled={triggering === "scan" || scanRunning}
+                  onClick={() => handleStepAction("scan", "start")}
+                >
+                  <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-secondary">
+                    <RefreshCw className={`size-4 text-muted-foreground ${scanRunning ? "animate-spin" : ""}`} />
+                  </div>
+                  <div className="min-w-0 text-left whitespace-normal">
+                    <p className="font-medium">Re-scan Source</p>
+                    <p className="text-xs text-muted-foreground">
+                      {scanRunning ? "Scanning..." : "Check for new or changed files"}
+                    </p>
+                  </div>
+                </Button>
                 <Link href="/review" className="block">
                   <Button
                     variant="outline"
@@ -449,6 +471,8 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
+type PipelineMode = "trigger" | "auto" | "continuous"
+
 function PipelineStage({
   icon: Icon,
   label,
@@ -461,6 +485,7 @@ function PipelineStage({
   stepKey,
   onAction,
   subtitle,
+  mode = "trigger",
 }: {
   icon: React.ComponentType<{ className?: string }>
   label: string
@@ -473,10 +498,12 @@ function PipelineStage({
   stepKey: string
   onAction: (step: string, action: "start" | "pause" | "resume") => void
   subtitle?: string
+  mode?: PipelineMode
 }) {
   const running = step?.status === "Running"
   const paused = step?.isPaused ?? false
   const done = !running && total > 0 && count >= total
+  const isContinuous = mode === "continuous"
 
   return (
     <div className="space-y-2">
@@ -491,12 +518,18 @@ function PipelineStage({
           <Icon className={`size-4 shrink-0 ${running ? "text-primary" : done ? "text-green-400" : ""}`} />
           <span className="truncate">{label}</span>
           {running && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-primary" />}
+          {isContinuous && !paused && !running && (
+            <Badge variant="outline" className="shrink-0 border-primary/30 px-1.5 py-0 text-[10px] text-primary/70">
+              <Zap className="mr-0.5 size-2.5" />
+              Active
+            </Badge>
+          )}
           {paused && !running && (
             <Badge variant="outline" className="shrink-0 border-amber-500/40 px-1.5 py-0 text-[10px] text-amber-400">
               Paused
             </Badge>
           )}
-          {done && !running && (
+          {done && !running && !isContinuous && (
             <CheckCircle2 className="size-3.5 shrink-0 text-green-400" />
           )}
         </span>
@@ -513,6 +546,7 @@ function PipelineStage({
             paused={paused}
             triggering={triggering}
             onAction={onAction}
+            mode={mode}
           />
         </div>
       </div>
@@ -530,14 +564,17 @@ function StepControl({
   paused,
   triggering,
   onAction,
+  mode = "trigger",
 }: {
   stepKey: string
   running: boolean
   paused: boolean
   triggering: string | null
   onAction: (step: string, action: "start" | "pause" | "resume") => void
+  mode?: PipelineMode
 }) {
   const isTriggering = triggering === stepKey
+  const isContinuous = mode === "continuous"
 
   if (running) {
     return (
@@ -565,6 +602,36 @@ function StepControl({
         title={`Resume ${stepKey}`}
       >
         <Play className="size-3.5" />
+      </Button>
+    )
+  }
+
+  if (isContinuous) {
+    return (
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-6"
+        disabled={isTriggering}
+        onClick={() => onAction(stepKey, "pause")}
+        title={`Pause ${stepKey}`}
+      >
+        <Pause className="size-3.5" />
+      </Button>
+    )
+  }
+
+  if (mode === "auto") {
+    return (
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-6"
+        disabled={isTriggering}
+        onClick={() => onAction(stepKey, "start")}
+        title={`Trigger ${stepKey}`}
+      >
+        <RefreshCw className="size-3.5" />
       </Button>
     )
   }

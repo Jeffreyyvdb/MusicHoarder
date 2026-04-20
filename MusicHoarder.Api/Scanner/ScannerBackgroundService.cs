@@ -14,6 +14,11 @@ public class ScannerBackgroundService(
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (jobManager.TryStartJob(JobType.Scan, out _, out _))
+        {
+            logger.LogInformation("Auto-triggered initial scan of {SourceDirectory}", options.Value.SourceDirectory);
+        }
+
         await foreach (var jobId in jobManager.ScanTriggers.ReadAllAsync(stoppingToken))
         {
             var jobToken = jobManager.GetCurrentCancellationToken();

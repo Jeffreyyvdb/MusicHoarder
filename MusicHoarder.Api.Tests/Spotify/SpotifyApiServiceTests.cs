@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Spotify;
 
@@ -399,7 +400,8 @@ public class SpotifyApiServiceTests
         var scopeFactory = new SpotifyScopeFactory(db);
         var oauthHttpClient = new HttpClient(oauthHandler ?? new FakeHttpHandler(HttpStatusCode.OK, "{}"));
         var oauthLogger = NullLogger<SpotifyOAuthService>.Instance;
-        var oauthService = new SpotifyOAuthService(scopeFactory, oauthHttpClient, oauthLogger);
+        var oauthOpts = Microsoft.Extensions.Options.Options.Create(new SpotifyOptions());
+        var oauthService = new SpotifyOAuthService(scopeFactory, oauthHttpClient, oauthOpts, oauthLogger);
 
         var apiHttpClient = new HttpClient(apiHandler ?? new FakeHttpHandler(HttpStatusCode.OK, "{}"));
         var cache = new MemoryCache(new MemoryCacheOptions());

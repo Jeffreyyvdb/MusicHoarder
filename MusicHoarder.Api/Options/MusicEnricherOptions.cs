@@ -58,6 +58,18 @@ public class MusicEnricherOptions
     [Range(1, 300)]
     public int EnrichmentIdleDelaySeconds { get; set; } = 15;
 
+    /// <summary>Max concurrent songs calling the AcoustID provider simultaneously.</summary>
+    [Range(1, 20)]
+    public int AcoustIdConcurrency { get; set; } = 3;
+
+    /// <summary>Max concurrent songs calling the Spotify API provider simultaneously.</summary>
+    [Range(1, 20)]
+    public int SpotifyApiConcurrency { get; set; } = 1;
+
+    /// <summary>Interval in seconds for the periodic sweep that re-enqueues rate-limited songs.</summary>
+    [Range(30, 1800)]
+    public int EnrichmentRetrySweepIntervalSeconds { get; set; } = 300;
+
     /// <summary>Enable the AcoustID enrichment provider (fingerprint → MusicBrainz via AcoustID).</summary>
     public bool EnableAcoustIdProvider { get; set; } = true;
 
@@ -69,6 +81,41 @@ public class MusicEnricherOptions
 
     /// <summary>Enable the community tracker enrichment provider (unreleased/leak files).</summary>
     public bool EnableTrackerProvider { get; set; } = false;
+
+    /// <summary>Max Spotify Web API search requests per second (catalog enrichment, client-credentials).</summary>
+    [Range(1, 20)]
+    public int SpotifyApiRequestsPerSecond { get; set; } = 4;
+
+    /// <summary>Track candidates to request from Spotify search (1–50).</summary>
+    [Range(1, 50)]
+    public int SpotifyApiSearchLimit { get; set; } = 10;
+
+    /// <summary>How long to cache Spotify search responses in memory.</summary>
+    [Range(1, 1440)]
+    public int SpotifyApiSearchCacheMinutes { get; set; } = 30;
+
+    /// <summary>Minimum adjusted confidence to return any result from Spotify provider (&lt; this → no match).</summary>
+    [Range(0.0, 1.0)]
+    public double SpotifyApiMinConfidence { get; set; } = 0.7;
+
+    /// <summary>Minimum adjusted confidence for <see cref="EnrichmentStatus.Matched"/> (otherwise NeedsReview).</summary>
+    [Range(0.0, 1.0)]
+    public double SpotifyApiMatchedThreshold { get; set; } = 0.85;
+
+    /// <summary>Additive boost (0–0.3) applied when file ISRC matches Spotify track external ISRC.</summary>
+    [Range(0.0, 0.3)]
+    public double SpotifyApiIsrcConfidenceBoost { get; set; } = 0.12;
+
+    /// <summary>Multiply confidence when duration differs by more than <see cref="SpotifyApiDurationDeltaThresholdSeconds"/>.</summary>
+    [Range(0.1, 1.0)]
+    public double SpotifyApiDurationMismatchPenalty { get; set; } = 0.7;
+
+    /// <summary>Duration delta (seconds) above which <see cref="SpotifyApiDurationMismatchPenalty"/> applies.</summary>
+    [Range(1, 120)]
+    public int SpotifyApiDurationDeltaThresholdSeconds { get; set; } = 20;
+
+    /// <summary>Optional ISO 3166-1 alpha-2 market for Spotify search (empty = omit).</summary>
+    public string SpotifyApiMarket { get; set; } = "";
 
     /// <summary>Number of tracks processed per library-build cycle.</summary>
     [Range(1, 10000)]
