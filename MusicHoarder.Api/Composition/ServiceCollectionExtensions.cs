@@ -6,6 +6,7 @@ using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Pipeline;
 using MusicHoarder.Api.Scanner;
 using MusicHoarder.Api.Spotify;
 
@@ -45,7 +46,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDestinationPathResolver, DestinationPathResolver>();
         services.AddSingleton<IDuplicateDetectionService, DuplicateDetectionService>();
         services.AddScoped<ILibraryTagWriter, TagLibLibraryTagWriter>();
+        services.AddScoped<ILibraryDestinationCleaner, LibraryDestinationCleaner>();
         services.AddScoped<ILibraryBuilderService, LibraryBuilderService>();
+        services.AddScoped<IPipelinePurgeService, PipelinePurgeService>();
 
         services.AddHostedService<ScannerBackgroundService>();
         services.AddHostedService<FingerprintBackgroundService>();

@@ -3,6 +3,7 @@ using System.Text.Json;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Library;
+using MusicHoarder.Api.Pipeline;
 using MusicHoarder.Api.Scanner;
 
 namespace MusicHoarder.Api.Endpoints;
@@ -112,6 +113,34 @@ public static class EnrichmentEndpoints
                 Results.Json(new { message = "Tracker scraping is not yet implemented." }, statusCode: 501))
             .WithName("ScrapeTrackers")
             .WithSummary("Trigger on-demand tracker scraping (not yet implemented).");
+
+        group.MapPost("/purge-post-fingerprint", async (
+                JobManager jobManager,
+                IPipelinePurgeService purgeService,
+                CancellationToken ct) =>
+            {
+                if (jobManager.IsAnyRunning())
+                    return Results.Conflict(new { message = "A job is currently running. Stop it before purging." });
+
+                var result = await purgeService.ResetPostFingerprintAsync(ct);
+                return Results.Ok(result);
+            })
+            .WithName("PurgePostFingerprint")
+            .WithSummary("Reset enrichment, lyrics, duplicate, and library-build state for every non-deleted song. Keeps scan + fingerprint data intact and deletes copied destination files.");
+
+        group.MapPost("/purge-all", async (
+                JobManager jobManager,
+                IPipelinePurgeService purgeService,
+                CancellationToken ct) =>
+            {
+                if (jobManager.IsAnyRunning())
+                    return Results.Conflict(new { message = "A job is currently running. Stop it before purging." });
+
+                var result = await purgeService.PurgeAllAsync(ct);
+                return Results.Ok(result);
+            })
+            .WithName("PurgeAll")
+            .WithSummary("Hard-delete every song, provider attempt, cached Spotify match, and copied destination file.");
 
         return app;
     }
