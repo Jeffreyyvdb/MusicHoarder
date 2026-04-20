@@ -287,10 +287,13 @@ public class LibraryBuilderServiceTests
         var resolver = new DestinationPathResolver(options);
         var scopeFactory = new SingleScopeFactory(db, tagWriter);
 
+        var cleaner = new LibraryDestinationCleaner(fileSystem);
+
         return new LibraryBuilderService(
             scopeFactory,
             resolver,
             fileSystem,
+            cleaner,
             tagWriter,
             options,
             NullLogger<LibraryBuilderService>.Instance);

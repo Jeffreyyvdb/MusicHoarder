@@ -313,6 +313,16 @@ public class SongMetadata
         DestinationPath = null;
     }
 
+    public void ResetPostFingerprint()
+    {
+        ResetEnrichment(restoreOriginal: true);
+        ResetLibraryBuild();
+        PreviousDestinationPath = null;
+        IsDuplicate = false;
+        DuplicateOfId = null;
+        IsUnreleased = false;
+    }
+
     // --- Lyrics lifecycle ---
 
     public bool IsReadyForLyricsFetch =>
