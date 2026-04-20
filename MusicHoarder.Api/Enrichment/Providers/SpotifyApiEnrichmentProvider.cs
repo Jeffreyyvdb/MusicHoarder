@@ -12,6 +12,7 @@ public class SpotifyApiEnrichmentProvider(
     IServiceScopeFactory scopeFactory,
     ISpotifyCatalogSearchService catalogSearch,
     IOptions<MusicEnricherOptions> options,
+    IOptions<SpotifyOptions> spotifyOptions,
     ILogger<SpotifyApiEnrichmentProvider> logger) : IEnrichmentProvider
 {
     private const double FuzzyThreshold = 85.0;
@@ -22,33 +23,42 @@ public class SpotifyApiEnrichmentProvider(
     public bool CanHandle(SongMetadata song) =>
         !string.IsNullOrWhiteSpace(song.Artist) && !string.IsNullOrWhiteSpace(song.Title);
 
-    public async Task<EnrichmentProviderResult?> TryEnrichAsync(SongMetadata song, CancellationToken ct = default)
+    public async Task<ProviderOutcome> TryEnrichAsync(SongMetadata song, CancellationToken ct = default)
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
         var settings = await db.SpotifySettings.AsNoTracking().FirstOrDefaultAsync(ct);
+        var (clientId, clientSecret) = SpotifyAppCredentialsResolver.Resolve(settings, spotifyOptions.Value);
 
-        if (settings is null || !settings.HasCredentials)
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
         {
             logger.LogDebug("Spotify API enrichment skipped: no ClientId/ClientSecret (SongId={SongId})", song.Id);
-            return null;
+            return new ProviderNoMatch();
         }
-
-        var clientId = settings.ClientId!.Trim();
-        var clientSecret = settings.ClientSecret!.Trim();
 
         var query = BuildSearchQuery(song.Artist!, song.Title!);
         if (string.IsNullOrWhiteSpace(query))
         {
             logger.LogDebug("Spotify API enrichment: empty query after normalize (SongId={SongId})", song.Id);
-            return null;
+            return new ProviderNoMatch();
         }
 
-        var tracks = await catalogSearch.SearchTracksAsync(clientId, clientSecret, query, ct);
+        IReadOnlyList<SpotifyCatalogTrack> tracks;
+        try
+        {
+            tracks = await catalogSearch.SearchTracksAsync(clientId, clientSecret, query, ct);
+        }
+        catch (ProviderRateLimitedException ex)
+        {
+            logger.LogWarning("Spotify rate limited for song {SongId}, retry after {Delay}s",
+                song.Id, ex.RetryAfter.TotalSeconds);
+            return new ProviderRateLimited(ex.RetryAfter);
+        }
+
         if (tracks.Count == 0)
         {
             logger.LogDebug("Spotify search returned no tracks for SongId={SongId}", song.Id);
-            return null;
+            return new ProviderNoMatch();
         }
 
         var opts = options.Value;
@@ -68,7 +78,7 @@ public class SpotifyApiEnrichmentProvider(
         }
 
         if (bestTrack is null || bestScore < opts.SpotifyApiMinConfidence - 1e-9)
-            return null;
+            return new ProviderNoMatch();
 
         var blocking = HasBlockingWarning(bestWarnings);
         var status = bestScore >= opts.SpotifyApiMatchedThreshold - 1e-9 && !blocking
@@ -78,7 +88,7 @@ public class SpotifyApiEnrichmentProvider(
         var effectiveArtist = string.IsNullOrWhiteSpace(bestTrack.Artist) ? song.Artist : bestTrack.Artist;
         var albumArtist = ArtistCreditNormalizer.GetPrimaryArtist(effectiveArtist) ?? effectiveArtist;
 
-        return new EnrichmentProviderResult(
+        return new ProviderMatched(new EnrichmentProviderResult(
             Artist: effectiveArtist,
             AlbumArtist: albumArtist,
             Title: string.IsNullOrWhiteSpace(bestTrack.Title) ? song.Title : bestTrack.Title,
@@ -93,7 +103,7 @@ public class SpotifyApiEnrichmentProvider(
             MatchConfidence: Math.Clamp(bestScore, 0, 1),
             MatchWarnings: bestWarnings,
             RecommendedStatus: status,
-            Album: string.IsNullOrWhiteSpace(bestTrack.AlbumName) ? null : bestTrack.AlbumName);
+            Album: string.IsNullOrWhiteSpace(bestTrack.AlbumName) ? null : bestTrack.AlbumName));
     }
 
     private static string BuildSearchQuery(string artist, string title)

@@ -58,6 +58,18 @@ public class MusicEnricherOptions
     [Range(1, 300)]
     public int EnrichmentIdleDelaySeconds { get; set; } = 15;
 
+    /// <summary>Max concurrent songs calling the AcoustID provider simultaneously.</summary>
+    [Range(1, 20)]
+    public int AcoustIdConcurrency { get; set; } = 3;
+
+    /// <summary>Max concurrent songs calling the Spotify API provider simultaneously.</summary>
+    [Range(1, 20)]
+    public int SpotifyApiConcurrency { get; set; } = 1;
+
+    /// <summary>Interval in seconds for the periodic sweep that re-enqueues rate-limited songs.</summary>
+    [Range(30, 1800)]
+    public int EnrichmentRetrySweepIntervalSeconds { get; set; } = 300;
+
     /// <summary>Enable the AcoustID enrichment provider (fingerprint → MusicBrainz via AcoustID).</summary>
     public bool EnableAcoustIdProvider { get; set; } = true;
 

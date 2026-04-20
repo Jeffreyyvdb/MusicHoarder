@@ -3,6 +3,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Spotify;
@@ -10,6 +12,7 @@ namespace MusicHoarder.Api.Spotify;
 public class SpotifyOAuthService(
     IServiceScopeFactory scopeFactory,
     HttpClient httpClient,
+    IOptions<SpotifyOptions> spotifyOptions,
     ILogger<SpotifyOAuthService> logger) : ISpotifyOAuthService
 {
     private static readonly string[] Scopes =
@@ -26,15 +29,16 @@ public class SpotifyOAuthService(
     public async Task<SpotifyConnectResult> GetAuthorizationUrlAsync(string redirectUri, CancellationToken ct = default)
     {
         var settings = await ReadSettingsAsync(ct);
+        var (clientId, clientSecret) = SpotifyAppCredentialsResolver.Resolve(settings, spotifyOptions.Value);
 
-        if (!settings.HasCredentials)
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
             throw new InvalidOperationException("Spotify ClientId and ClientSecret must be configured before connecting.");
 
         var state = GenerateState();
         var scopeString = string.Join(" ", Scopes);
 
         var url = $"{AuthorizeUrl}" +
-                  $"?client_id={Uri.EscapeDataString(settings.ClientId!)}" +
+                  $"?client_id={Uri.EscapeDataString(clientId)}" +
                   $"&response_type=code" +
                   $"&redirect_uri={Uri.EscapeDataString(redirectUri)}" +
                   $"&scope={Uri.EscapeDataString(scopeString)}" +
@@ -47,8 +51,9 @@ public class SpotifyOAuthService(
     public async Task<SpotifyTokenResult> ExchangeCodeAsync(string code, string redirectUri, CancellationToken ct = default)
     {
         var settings = await ReadSettingsAsync(ct);
+        var (clientId, clientSecret) = SpotifyAppCredentialsResolver.Resolve(settings, spotifyOptions.Value);
 
-        if (!settings.HasCredentials)
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
             return new SpotifyTokenResult(false, "Spotify credentials not configured.");
 
         var requestBody = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -64,7 +69,7 @@ public class SpotifyOAuthService(
             Headers =
             {
                 Authorization = new AuthenticationHeaderValue("Basic",
-                    Convert.ToBase64String(Encoding.UTF8.GetBytes($"{settings.ClientId}:{settings.ClientSecret}")))
+                    Convert.ToBase64String(Encoding.UTF8.GetBytes($"{clientId}:{clientSecret}")))
             }
         };
 
@@ -106,7 +111,8 @@ public class SpotifyOAuthService(
         if (string.IsNullOrWhiteSpace(settings.RefreshToken))
             return new SpotifyTokenResult(false, "No refresh token available.");
 
-        if (!settings.HasCredentials)
+        var (clientId, clientSecret) = SpotifyAppCredentialsResolver.Resolve(settings, spotifyOptions.Value);
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
             return new SpotifyTokenResult(false, "Spotify credentials not configured.");
 
         var requestBody = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -121,7 +127,7 @@ public class SpotifyOAuthService(
             Headers =
             {
                 Authorization = new AuthenticationHeaderValue("Basic",
-                    Convert.ToBase64String(Encoding.UTF8.GetBytes($"{settings.ClientId}:{settings.ClientSecret}")))
+                    Convert.ToBase64String(Encoding.UTF8.GetBytes($"{clientId}:{clientSecret}")))
             }
         };
 
@@ -162,7 +168,7 @@ public class SpotifyOAuthService(
         return new SpotifyStatusResult(
             settings.IsConnected,
             settings.ConnectedAtUtc,
-            settings.HasCredentials,
+            SpotifyAppCredentialsResolver.HasAppCredentials(settings, spotifyOptions.Value),
             tokenExpired);
     }
 
@@ -196,7 +202,8 @@ public class SpotifyOAuthService(
     public async Task<SpotifyCredentialsResult> GetCredentialsAsync(CancellationToken ct = default)
     {
         var settings = await ReadSettingsAsync(ct);
-        return new SpotifyCredentialsResult(settings.ClientId, !string.IsNullOrWhiteSpace(settings.ClientSecret));
+        var (clientId, clientSecret) = SpotifyAppCredentialsResolver.Resolve(settings, spotifyOptions.Value);
+        return new SpotifyCredentialsResult(clientId, !string.IsNullOrWhiteSpace(clientSecret));
     }
 
     public async Task EnsureValidTokenAsync(CancellationToken ct = default)

@@ -83,6 +83,10 @@ public class SongMetadata
 
     public DateTime? DeletedAtUtc { get; set; }
 
+    // --- Provider attempts ---
+
+    public ICollection<SongProviderAttempt> ProviderAttempts { get; set; } = new List<SongProviderAttempt>();
+
     // --- Lyrics ---
 
     public string? PlainLyrics { get; set; }
@@ -216,9 +220,43 @@ public class SongMetadata
         AcoustIdTrackId = null;
         MusicBrainzReleaseId = null;
 
-        // Reset lyrics so the next enrichment cycle re-fetches them.
-        // This allows re-enriching to pick up lyrics that previously failed or weren't found.
+        ProviderAttempts.Clear();
+
         ResetLyrics();
+    }
+
+    /// <summary>
+    /// Derives the summary <see cref="EnrichmentStatus"/> from the set of
+    /// <see cref="ProviderAttempts"/> for this song and the list of enabled providers.
+    /// </summary>
+    public EnrichmentStatus ComputeSummaryStatus(IReadOnlySet<EnrichmentProvider> enabledProviders)
+    {
+        if (enabledProviders.Count == 0)
+            return EnrichmentStatus.NeedsReview;
+
+        var attempts = ProviderAttempts
+            .Where(a => enabledProviders.Contains(a.Provider))
+            .ToList();
+
+        if (attempts.Any(a => a.Status == ProviderAttemptStatus.Matched))
+            return EnrichmentStatus.Matched;
+
+        if (attempts.Any(a => a.Status == ProviderAttemptStatus.RateLimited))
+            return EnrichmentStatus.Pending;
+
+        var allTerminal = enabledProviders.All(p =>
+            attempts.Any(a => a.Provider == p &&
+                a.Status is ProviderAttemptStatus.Matched
+                    or ProviderAttemptStatus.NoMatch
+                    or ProviderAttemptStatus.Failed));
+
+        if (allTerminal)
+        {
+            var anyFailed = attempts.Any(a => a.Status == ProviderAttemptStatus.Failed);
+            return anyFailed ? EnrichmentStatus.Failed : EnrichmentStatus.NeedsReview;
+        }
+
+        return EnrichmentStatus.Pending;
     }
 
     // --- Duplicate detection lifecycle ---

@@ -27,6 +27,17 @@ public class SpotifyOptions
     public const string SectionName = "Spotify";
 
     /// <summary>
+    /// Spotify app Client ID. Prefer <c>dotnet user-secrets set "Spotify:ClientId" "…"</c> for local dev so
+    /// credentials survive database resets when the <c>SpotifySettings</c> row is empty.
+    /// </summary>
+    public string ClientId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Spotify app Client Secret. Use user-secrets or environment variables; do not commit real values.
+    /// </summary>
+    public string ClientSecret { get; set; } = string.Empty;
+
+    /// <summary>
     /// Fixed API base URL for OAuth <c>redirect_uri</c> (no trailing slash), e.g. <c>http://127.0.0.1:5142</c>.
     /// Must match a redirect URI registered in Spotify. When empty, the redirect URI is derived from the request.
     /// </summary>

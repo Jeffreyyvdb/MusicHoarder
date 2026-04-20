@@ -40,6 +40,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IEnrichmentProvider, MusicBrainzWebEnrichmentProvider>();
         services.AddSingleton<IEnrichmentProvider, SpotifyApiEnrichmentProvider>();
         services.AddSingleton<IEnrichmentProvider, TrackerEnrichmentProvider>();
+        services.AddSingleton<EnrichmentPipelineChannel>();
         services.AddSingleton<IEnrichmentOrchestrator, EnrichmentOrchestrator>();
         services.AddSingleton<IDestinationPathResolver, DestinationPathResolver>();
         services.AddSingleton<IDuplicateDetectionService, DuplicateDetectionService>();
@@ -93,8 +94,9 @@ public static class ServiceCollectionExtensions
         {
             var httpClient = new HttpClient();
             var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
+            var spotifyOpts = sp.GetRequiredService<IOptions<SpotifyOptions>>();
             var logger = sp.GetRequiredService<ILogger<SpotifyOAuthService>>();
-            return new SpotifyOAuthService(scopeFactory, httpClient, logger);
+            return new SpotifyOAuthService(scopeFactory, httpClient, spotifyOpts, logger);
         });
         services.AddHostedService<SpotifyTokenRefreshService>();
         services.AddHostedService<SpotifyLibraryMatchBackgroundService>();

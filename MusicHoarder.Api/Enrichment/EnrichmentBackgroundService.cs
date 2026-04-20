@@ -1,8 +1,8 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
-using Microsoft.EntityFrameworkCore;
 
 namespace MusicHoarder.Api.Enrichment;
 
@@ -10,6 +10,7 @@ public class EnrichmentBackgroundService(
     IServiceScopeFactory scopeFactory,
     JobManager jobManager,
     EnrichmentProgressTracker progressTracker,
+    EnrichmentPipelineChannel pipelineChannel,
     IEnrichmentOrchestrator orchestrator,
     IOptions<MusicEnricherOptions> options,
     ILogger<EnrichmentBackgroundService> logger) : BackgroundService
@@ -18,103 +19,145 @@ public class EnrichmentBackgroundService(
     {
         var opts = options.Value;
         logger.LogInformation(
-            "Enrichment background service started. BatchSize={BatchSize}, Concurrency={Concurrency}",
-            opts.EnrichmentBatchSize,
+            "Enrichment background service started (channel-fed). WorkerConcurrency={Concurrency}",
             opts.EnrichmentWorkerConcurrency);
 
-        while (!stoppingToken.IsCancellationRequested)
+        await BackfillPendingSongsAsync(stoppingToken);
+
+        var sweepTask = RunRetrySweepLoopAsync(stoppingToken);
+
+        var workerTasks = Enumerable.Range(0, opts.EnrichmentWorkerConcurrency)
+            .Select(i => RunWorkerAsync(i, stoppingToken))
+            .ToArray();
+
+        await Task.WhenAll([sweepTask, .. workerTasks]);
+    }
+
+    private async Task BackfillPendingSongsAsync(CancellationToken ct)
+    {
+        try
         {
-            Guid jobId;
-            CancellationToken jobToken;
-            int pendingCount;
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
-            // 1. Check for a manual trigger from the HTTP endpoint first.
-            if (jobManager.EnrichTriggers.TryRead(out var manualJobId))
+            var pendingIds = await db.Songs
+                .AsNoTracking()
+                .WhereReadyForEnrichment()
+                .OrderBy(s => s.Id)
+                .Select(s => s.Id)
+                .ToListAsync(ct);
+
+            if (pendingIds.Count > 0)
             {
-                jobId = manualJobId;
-                jobToken = jobManager.GetCurrentCancellationToken();
-                pendingCount = await CountPendingAsync(stoppingToken);
-            }
-            else
-            {
-                // 2. Auto-poll: check if there is pending work.
-                pendingCount = await CountPendingAsync(stoppingToken);
-
-                if (pendingCount == 0)
-                {
-                    // Idle: wait for a manual trigger or the idle delay, whichever comes first.
-                    var triggerTask = jobManager.EnrichTriggers.WaitToReadAsync(stoppingToken).AsTask();
-                    var delayTask = Task.Delay(TimeSpan.FromSeconds(opts.EnrichmentIdleDelaySeconds), stoppingToken);
-                    await Task.WhenAny(triggerTask, delayTask);
-                    continue;
-                }
-
-                // Try to acquire the global job lock before starting an auto-triggered cycle.
-                jobId = Guid.NewGuid();
-                if (!jobManager.TryRegisterAutoJob(JobType.Enrich, jobId, out jobToken))
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(opts.EnrichmentIdleDelaySeconds), stoppingToken);
-                    continue;
-                }
+                pipelineChannel.EnqueueRange(pendingIds);
+                logger.LogInformation("Backfilled {Count} pending songs into enrichment channel", pendingIds.Count);
             }
 
-            var cycleStarted = false;
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, jobToken);
-            var ct = linkedCts.Token;
+            var retryIds = await db.SongProviderAttempts
+                .AsNoTracking()
+                .WhereRetryableProviderAttempts(DateTime.UtcNow)
+                .ToListAsync(ct);
 
+            if (retryIds.Count > 0)
+            {
+                pipelineChannel.EnqueueRange(retryIds);
+                logger.LogInformation("Backfilled {Count} retryable songs into enrichment channel", retryIds.Count);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to backfill pending/retryable songs on startup");
+        }
+    }
+
+    private async Task RunRetrySweepLoopAsync(CancellationToken ct)
+    {
+        var interval = TimeSpan.FromSeconds(options.Value.EnrichmentRetrySweepIntervalSeconds);
+
+        while (!ct.IsCancellationRequested)
+        {
             try
             {
-                progressTracker.StartCycle(jobId, pendingCount);
-                cycleStarted = true;
+                await Task.Delay(interval, ct);
 
-                logger.LogInformation(
-                    "Starting enrichment cycle {RunId} with {PendingCount} pending tracks",
-                    jobId, pendingCount);
+                using var scope = scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
-                while (!ct.IsCancellationRequested)
+                var retryIds = await db.SongProviderAttempts
+                    .AsNoTracking()
+                    .WhereRetryableProviderAttempts(DateTime.UtcNow)
+                    .ToListAsync(ct);
+
+                if (retryIds.Count > 0)
                 {
-                    var result = await orchestrator.ProcessNextBatchAsync(jobId, ct);
-                    if (result.TotalTracks == 0) break;
-
-                    var state = progressTracker.GetCurrent();
-                    if (state is { RunId: var stateRunId, Processed: var processed }
-                        && stateRunId == jobId
-                        && processed >= pendingCount)
-                    {
-                        break;
-                    }
+                    pipelineChannel.EnqueueRange(retryIds);
+                    logger.LogInformation("Retry sweep enqueued {Count} rate-limited songs", retryIds.Count);
                 }
-
-                progressTracker.CompleteCycle(jobId);
-                var wasCancelled = ct.IsCancellationRequested && !stoppingToken.IsCancellationRequested;
-                jobManager.SignalComplete(jobId, wasCancelled);
-
-                if (wasCancelled)
-                    logger.LogInformation("Enrichment run {RunId} cancelled via cancel endpoint", jobId);
             }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
-                if (cycleStarted) progressTracker.CompleteCycle(jobId);
-                jobManager.SignalComplete(jobId, cancelled: true);
-                logger.LogInformation("Enrichment run {RunId} stopped with application", jobId);
+                break;
             }
             catch (Exception ex)
             {
-                if (cycleStarted) progressTracker.CompleteCycle(jobId);
-                jobManager.SignalFailed(jobId);
-                logger.LogError(ex, "Enrichment run {RunId} failed", jobId);
-                await Task.Delay(TimeSpan.FromSeconds(opts.EnrichmentIdleDelaySeconds), stoppingToken);
+                logger.LogWarning(ex, "Retry sweep failed");
             }
         }
     }
 
-    private async Task<int> CountPendingAsync(CancellationToken ct)
+    private async Task RunWorkerAsync(int workerId, CancellationToken ct)
     {
-        using var scope = scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-        return await db.Songs
-            .AsNoTracking()
-            .WhereReadyForEnrichment()
-            .CountAsync(ct);
+        logger.LogDebug("Enrichment worker {WorkerId} started", workerId);
+
+        await foreach (var songId in pipelineChannel.Reader.ReadAllAsync(ct))
+        {
+            if (ct.IsCancellationRequested)
+                break;
+
+            if (jobManager.IsStepPaused(JobType.Enrich))
+            {
+                await WaitUntilResumedAsync(ct);
+                if (ct.IsCancellationRequested)
+                    break;
+            }
+
+            try
+            {
+                var outcome = await orchestrator.ProcessSongAsync(songId, ct);
+
+                switch (outcome)
+                {
+                    case EnrichmentOutcome.Matched:
+                        progressTracker.IncrementEnriched();
+                        break;
+                    case EnrichmentOutcome.NeedsReview:
+                        progressTracker.IncrementNeedsReview();
+                        break;
+                    case EnrichmentOutcome.Failed:
+                        progressTracker.IncrementFailed();
+                        break;
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Enrichment worker {WorkerId} failed processing song {SongId}",
+                    workerId, songId);
+                progressTracker.IncrementFailed();
+            }
+        }
+
+        logger.LogDebug("Enrichment worker {WorkerId} stopped", workerId);
+    }
+
+    private async Task WaitUntilResumedAsync(CancellationToken ct)
+    {
+        while (jobManager.IsStepPaused(JobType.Enrich) && !ct.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2), ct);
+        }
     }
 }

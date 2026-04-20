@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Enrichment.Providers;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -12,7 +13,47 @@ namespace MusicHoarder.Api.Tests.Enrichment;
 public class SpotifyApiEnrichmentProviderTests
 {
     [Fact]
-    public async Task TryEnrichAsync_NoSpotifyCredentials_ReturnsNull()
+    public async Task TryEnrichAsync_WithCredentialsFromSpotifyOptions_WhenDbEmpty_CallsCatalogSearch()
+    {
+        await using var db = CreateDb();
+        var track = new SpotifyCatalogTrack(
+            "id1",
+            "Lucid Dreams",
+            "Juice WRLD",
+            "Album",
+            2018,
+            1,
+            239_000,
+            null);
+        var catalog = new StubCatalogSearchService(_ => Task.FromResult<IReadOnlyList<SpotifyCatalogTrack>>([track]));
+        var spotifyOpts = Microsoft.Extensions.Options.Options.Create(new SpotifyOptions
+        {
+            ClientId = "cfg-id",
+            ClientSecret = "cfg-secret",
+        });
+        var provider = CreateProvider(db, catalog, spotifyOpts: spotifyOpts);
+
+        var song = new SongMetadata
+        {
+            SourcePath = "/a.mp3",
+            FileName = "a.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 1,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            Artist = "Juice WRLD",
+            Title = "Lucid Dreams",
+            DurationSeconds = 239,
+            EnrichmentStatus = EnrichmentStatus.Pending,
+        };
+
+        var result = await provider.TryEnrichAsync(song);
+        Assert.IsType<ProviderMatched>(result);
+        Assert.Equal(1, catalog.CallCount);
+    }
+
+    [Fact]
+    public async Task TryEnrichAsync_NoSpotifyCredentials_ReturnsNoMatch()
     {
         await using var db = CreateDb();
         var catalog = new StubCatalogSearchService(_ => Task.FromResult<IReadOnlyList<SpotifyCatalogTrack>>([]));
@@ -32,7 +73,7 @@ public class SpotifyApiEnrichmentProviderTests
         };
 
         var result = await provider.TryEnrichAsync(song);
-        Assert.Null(result);
+        Assert.IsType<ProviderNoMatch>(result);
         Assert.Equal(0, catalog.CallCount);
     }
 
@@ -81,14 +122,14 @@ public class SpotifyApiEnrichmentProviderTests
         };
 
         var result = await provider.TryEnrichAsync(song);
-        Assert.NotNull(result);
-        Assert.Equal(EnrichmentStatus.Matched, result!.RecommendedStatus);
-        Assert.Equal("spotifyTrackId", result.SpotifyId);
-        Assert.Equal("Goodbye & Good Riddance", result.Album);
-        Assert.Equal(2018, result.Year);
-        Assert.Equal(3, result.TrackNumber);
-        Assert.Equal("SpotifyAPI", result.MatchedBy);
-        Assert.True(result.MatchConfidence >= 0.85);
+        var matched = Assert.IsType<ProviderMatched>(result);
+        Assert.Equal(EnrichmentStatus.Matched, matched.Result.RecommendedStatus);
+        Assert.Equal("spotifyTrackId", matched.Result.SpotifyId);
+        Assert.Equal("Goodbye & Good Riddance", matched.Result.Album);
+        Assert.Equal(2018, matched.Result.Year);
+        Assert.Equal(3, matched.Result.TrackNumber);
+        Assert.Equal("SpotifyAPI", matched.Result.MatchedBy);
+        Assert.True(matched.Result.MatchConfidence >= 0.85);
     }
 
     [Fact]
@@ -126,13 +167,13 @@ public class SpotifyApiEnrichmentProviderTests
         };
 
         var result = await provider.TryEnrichAsync(song);
-        Assert.NotNull(result);
-        Assert.Equal(EnrichmentStatus.NeedsReview, result!.RecommendedStatus);
-        Assert.Contains("duration_mismatch", result.MatchWarnings);
+        var matched = Assert.IsType<ProviderMatched>(result);
+        Assert.Equal(EnrichmentStatus.NeedsReview, matched.Result.RecommendedStatus);
+        Assert.Contains("duration_mismatch", matched.Result.MatchWarnings);
     }
 
     [Fact]
-    public async Task TryEnrichAsync_IsrcMismatch_ReturnsNull_WhenScoreBelowMin()
+    public async Task TryEnrichAsync_IsrcMismatch_ReturnsNoMatch_WhenScoreBelowMin()
     {
         await using var db = CreateDb();
         db.SpotifySettings.Add(new SpotifySettings { ClientId = "id", ClientSecret = "secret" });
@@ -167,7 +208,37 @@ public class SpotifyApiEnrichmentProviderTests
         };
 
         var result = await provider.TryEnrichAsync(song);
-        Assert.Null(result);
+        Assert.IsType<ProviderNoMatch>(result);
+    }
+
+    [Fact]
+    public async Task TryEnrichAsync_RateLimited_ReturnsProviderRateLimited()
+    {
+        await using var db = CreateDb();
+        db.SpotifySettings.Add(new SpotifySettings { ClientId = "id", ClientSecret = "secret" });
+        await db.SaveChangesAsync();
+
+        var catalog = new StubCatalogSearchService(_ =>
+            throw new ProviderRateLimitedException(TimeSpan.FromSeconds(30)));
+        var provider = CreateProvider(db, catalog);
+
+        var song = new SongMetadata
+        {
+            SourcePath = "/a.mp3",
+            FileName = "a.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 1,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            Artist = "Juice WRLD",
+            Title = "Lucid Dreams",
+            DurationSeconds = 239,
+            EnrichmentStatus = EnrichmentStatus.Pending,
+        };
+
+        var result = await provider.TryEnrichAsync(song);
+        var rateLimited = Assert.IsType<ProviderRateLimited>(result);
+        Assert.Equal(TimeSpan.FromSeconds(30), rateLimited.RetryAfter);
     }
 
     [Fact]
@@ -207,18 +278,21 @@ public class SpotifyApiEnrichmentProviderTests
     private static SpotifyApiEnrichmentProvider CreateProvider(
         MusicHoarderDbContext db,
         ISpotifyCatalogSearchService catalog,
-        IOptions<MusicEnricherOptions>? opts = null)
+        IOptions<MusicEnricherOptions>? opts = null,
+        IOptions<SpotifyOptions>? spotifyOpts = null)
     {
         opts ??= Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
             SourceDirectory = "/s",
             DestinationDirectory = "/d",
         });
+        spotifyOpts ??= Microsoft.Extensions.Options.Options.Create(new SpotifyOptions());
         var scopeFactory = new DbOnlyScopeFactory(db);
         return new SpotifyApiEnrichmentProvider(
             scopeFactory,
             catalog,
             opts,
+            spotifyOpts,
             NullLogger<SpotifyApiEnrichmentProvider>.Instance);
     }
 
