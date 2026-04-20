@@ -16,12 +16,18 @@ public record EnrichmentProviderResult(
     string MatchedBy,
     double MatchConfidence,
     List<string> MatchWarnings,
-    EnrichmentStatus RecommendedStatus);
+    EnrichmentStatus RecommendedStatus,
+    string? Album = null);
+
+public abstract record ProviderOutcome;
+public sealed record ProviderMatched(EnrichmentProviderResult Result) : ProviderOutcome;
+public sealed record ProviderNoMatch : ProviderOutcome;
+public sealed record ProviderRateLimited(TimeSpan RetryAfter) : ProviderOutcome;
 
 public interface IEnrichmentProvider
 {
     string Name { get; }
     int Priority { get; }
     bool CanHandle(SongMetadata song);
-    Task<EnrichmentProviderResult?> TryEnrichAsync(SongMetadata song, CancellationToken ct = default);
+    Task<ProviderOutcome> TryEnrichAsync(SongMetadata song, CancellationToken ct = default);
 }

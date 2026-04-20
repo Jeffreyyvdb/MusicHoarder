@@ -1,5 +1,6 @@
+using System.Collections.Concurrent;
+using System.Text;
 using System.Text.Json;
-using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Options;
@@ -7,234 +8,169 @@ using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Enrichment;
 
-public record EnrichmentBatchResult(
-    int TotalTracks,
-    int Enriched,
-    int Failed,
-    int NeedsReview,
-    TimeSpan Duration);
-
-public interface IEnrichmentOrchestrator
-{
-    Task<EnrichmentBatchResult> ProcessNextBatchAsync(Guid runId, CancellationToken ct = default);
-}
-
-internal record EnrichmentTrackCandidate(int SongId);
-
-internal enum EnrichmentOutcome
+public enum EnrichmentOutcome
 {
     Matched,
     NeedsReview,
     Failed,
+    Skipped,
 }
 
-public class EnrichmentOrchestrator(
-    IServiceScopeFactory scopeFactory,
-    EnrichmentProgressTracker progressTracker,
-    IEnumerable<IEnrichmentProvider> providers,
-    ILrcLibService lrcLibService,
-    IOptions<MusicEnricherOptions> options,
-    ILogger<EnrichmentOrchestrator> logger) : IEnrichmentOrchestrator
+public interface IEnrichmentOrchestrator
 {
-    private sealed class BatchCounters
+    Task<EnrichmentOutcome> ProcessSongAsync(int songId, CancellationToken ct = default);
+    IReadOnlySet<EnrichmentProvider> GetEnabledProviderEnums();
+}
+
+public class EnrichmentOrchestrator : IEnrichmentOrchestrator
+{
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IEnumerable<IEnrichmentProvider> _providers;
+    private readonly ILrcLibService _lrcLibService;
+    private readonly IOptions<MusicEnricherOptions> _options;
+    private readonly ILogger<EnrichmentOrchestrator> _logger;
+
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _providerSemaphores = new();
+
+    public EnrichmentOrchestrator(
+        IServiceScopeFactory scopeFactory,
+        IEnumerable<IEnrichmentProvider> providers,
+        ILrcLibService lrcLibService,
+        IOptions<MusicEnricherOptions> options,
+        ILogger<EnrichmentOrchestrator> logger)
     {
-        public int Enriched;
-        public int NeedsReview;
-        public int Failed;
+        _scopeFactory = scopeFactory;
+        _providers = providers;
+        _lrcLibService = lrcLibService;
+        _options = options;
+        _logger = logger;
+
+        InitializeSemaphores(options.Value);
     }
 
-    public async Task<EnrichmentBatchResult> ProcessNextBatchAsync(Guid runId, CancellationToken ct = default)
+    public async Task<EnrichmentOutcome> ProcessSongAsync(int songId, CancellationToken ct = default)
     {
-        var startTime = DateTime.UtcNow;
-        var opts = options.Value;
-
-        List<EnrichmentTrackCandidate> candidates;
-        using (var loadScope = scopeFactory.CreateScope())
-        {
-            var dbContext = loadScope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-            candidates = await dbContext.Songs
-                .AsNoTracking()
-                .WhereReadyForEnrichment()
-                .OrderBy(s => s.Id)
-                .Take(opts.EnrichmentBatchSize)
-                .Select(s => new EnrichmentTrackCandidate(s.Id))
-                .ToListAsync(ct);
-        }
-
-        if (candidates.Count == 0)
-        {
-            return new EnrichmentBatchResult(0, 0, 0, 0, DateTime.UtcNow - startTime);
-        }
-
-        logger.LogInformation("Starting enrichment batch {RunId} with {Count} tracks", runId, candidates.Count);
-
-        var workChannel = Channel.CreateBounded<EnrichmentTrackCandidate>(new BoundedChannelOptions(opts.EnrichmentBatchSize)
-        {
-            FullMode = BoundedChannelFullMode.Wait,
-            SingleReader = false,
-            SingleWriter = true
-        });
-
-        foreach (var candidate in candidates)
-        {
-            await workChannel.Writer.WriteAsync(candidate, ct);
-        }
-
-        workChannel.Writer.Complete();
-
-        var counters = new BatchCounters();
-        var workers = Enumerable.Range(0, opts.EnrichmentWorkerConcurrency)
-            .Select(_ => ConsumeWorkAsync(runId, workChannel.Reader, counters, ct))
-            .ToArray();
-
-        await Task.WhenAll(workers);
-
-        var duration = DateTime.UtcNow - startTime;
-        logger.LogInformation(
-            "Enrichment batch {RunId} complete: Total={Total}, Enriched={Enriched}, NeedsReview={NeedsReview}, Failed={Failed}, Duration={Duration:F1}s",
-            runId,
-            candidates.Count,
-            counters.Enriched,
-            counters.NeedsReview,
-            counters.Failed,
-            duration.TotalSeconds);
-
-        return new EnrichmentBatchResult(
-            candidates.Count,
-            counters.Enriched,
-            counters.Failed,
-            counters.NeedsReview,
-            duration);
-    }
-
-    private async Task ConsumeWorkAsync(
-        Guid runId,
-        ChannelReader<EnrichmentTrackCandidate> reader,
-        BatchCounters counters,
-        CancellationToken ct)
-    {
-        await foreach (var candidate in reader.ReadAllAsync(ct))
-        {
-            ct.ThrowIfCancellationRequested();
-
-            var outcome = await ProcessTrackAsync(candidate.SongId, ct);
-            switch (outcome)
-            {
-                case EnrichmentOutcome.Matched:
-                    progressTracker.IncrementEnriched();
-                    Interlocked.Increment(ref counters.Enriched);
-                    break;
-                case EnrichmentOutcome.NeedsReview:
-                    progressTracker.IncrementNeedsReview();
-                    Interlocked.Increment(ref counters.NeedsReview);
-                    break;
-                case EnrichmentOutcome.Failed:
-                    progressTracker.IncrementFailed();
-                    Interlocked.Increment(ref counters.Failed);
-                    break;
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(outcome), outcome, null);
-            }
-
-            var processed = progressTracker.GetCurrent()?.Processed ?? 0;
-            if (processed % 100 == 0)
-            {
-                var total = progressTracker.GetCurrent()?.TotalTracks ?? 0;
-                logger.LogInformation(
-                    "Enrichment progress {RunId}: {Processed}/{Total} processed",
-                    runId,
-                    processed,
-                    total);
-            }
-        }
-    }
-
-    private async Task<EnrichmentOutcome> ProcessTrackAsync(int songId, CancellationToken ct)
-    {
-        using var scope = scopeFactory.CreateScope();
+        using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
-        var song = await dbContext.Songs.FirstOrDefaultAsync(s => s.Id == songId, ct);
+        var song = await dbContext.Songs
+            .Include(s => s.ProviderAttempts)
+            .FirstOrDefaultAsync(s => s.Id == songId, ct);
+
         if (song is null || song.IsDeleted)
         {
-            logger.LogDebug("Skipping enrichment for missing/deleted song {SongId}", songId);
-            return EnrichmentOutcome.Failed;
+            _logger.LogDebug("Skipping enrichment for missing/deleted song {SongId}", songId);
+            return EnrichmentOutcome.Skipped;
         }
 
-        try
+        var enabledProviders = GetEnabledProviders();
+        var enabledEnums = GetEnabledProviderEnums();
+
+        if (enabledProviders.Count == 0)
         {
-            song.RecordEnrichmentAttempt();
+            _logger.LogDebug("No enrichment providers enabled, skipping song {SongId}", songId);
+            return EnrichmentOutcome.Skipped;
+        }
 
-            var enabledProviders = GetEnabledProviders();
-            EnrichmentProviderResult? bestFallback = null;
-            var errors = new List<string>();
+        var existingAttempts = song.ProviderAttempts.ToDictionary(a => a.Provider);
+        var anyProviderActed = false;
+        var matchApplied = false;
 
-            foreach (var provider in enabledProviders)
+        foreach (var provider in enabledProviders)
+        {
+            if (!provider.CanHandle(song))
+                continue;
+
+            var providerEnum = MapProviderName(provider.Name);
+            if (providerEnum is null)
+                continue;
+
+            if (existingAttempts.TryGetValue(providerEnum.Value, out var existing))
             {
-                if (!provider.CanHandle(song))
+                if (existing.Status is ProviderAttemptStatus.Matched
+                    or ProviderAttemptStatus.NoMatch
+                    or ProviderAttemptStatus.Failed)
                     continue;
 
-                try
-                {
-                    var result = await provider.TryEnrichAsync(song, ct);
-                    if (result is null)
-                        continue;
-
-                    if (result.RecommendedStatus == EnrichmentStatus.Matched)
-                    {
-                        ApplyProviderResult(song, result);
-                        await dbContext.SaveChangesAsync(ct);
-
-                        logger.LogInformation(
-                            "Enrichment matched {Track} (SongId={SongId}) via {Provider} with confidence {Confidence:F3}",
-                            song.TrackLabel, songId, result.MatchedBy, result.MatchConfidence);
-
-                        await FetchLyricsForSongAsync(song, dbContext, ct);
-                        return EnrichmentOutcome.Matched;
-                    }
-
-                    if (bestFallback is null || result.MatchConfidence > bestFallback.MatchConfidence)
-                        bestFallback = result;
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    errors.Add($"{provider.Name}: {ex.Message}");
-                    logger.LogWarning(ex, "Provider {Provider} failed for {Track} (SongId={SongId})",
-                        provider.Name, song.TrackLabel, songId);
-                }
+                if (existing.Status == ProviderAttemptStatus.RateLimited
+                    && existing.RetryAfterUtc > DateTime.UtcNow)
+                    continue;
             }
 
-            if (bestFallback is not null)
+            anyProviderActed = true;
+            song.RecordEnrichmentAttempt();
+
+            var semaphore = GetProviderSemaphore(provider.Name);
+            await semaphore.WaitAsync(ct);
+            try
             {
-                ApplyProviderResult(song, bestFallback);
-                await dbContext.SaveChangesAsync(ct);
+                var outcome = await TryProviderAsync(provider, providerEnum.Value, song, dbContext, existingAttempts, ct);
+                if (outcome == EnrichmentOutcome.Matched)
+                {
+                    await dbContext.SaveChangesAsync(ct);
+                    await FetchLyricsForSongAsync(song, dbContext, ct);
+                    return EnrichmentOutcome.Matched;
+                }
 
-                logger.LogInformation(
-                    "Enrichment needs review for {Track} (SongId={SongId}): best result from {Provider} with confidence {Confidence:F3}, warnings=[{Warnings}]",
-                    song.TrackLabel, songId, bestFallback.MatchedBy, bestFallback.MatchConfidence,
-                    string.Join(", ", bestFallback.MatchWarnings));
-
-                return EnrichmentOutcome.NeedsReview;
+                if (outcome == EnrichmentOutcome.NeedsReview
+                    && song.EnrichmentStatus != EnrichmentStatus.Pending)
+                    matchApplied = true;
             }
-
-            if (errors.Count > 0)
+            finally
             {
-                song.MarkEnrichmentFailed(string.Join("; ", errors));
-                await dbContext.SaveChangesAsync(ct);
-                logger.LogWarning("All providers failed for {Track} (SongId={SongId}): {Errors}",
-                    song.TrackLabel, songId, string.Join("; ", errors));
-                return EnrichmentOutcome.Failed;
+                semaphore.Release();
             }
+        }
 
-            song.MarkEnrichmentNeedsReview("No provider returned a match");
-            await dbContext.SaveChangesAsync(ct);
-            logger.LogInformation("Enrichment needs review for {Track} (SongId={SongId}): no provider returned a match",
-                song.TrackLabel, songId);
-            return EnrichmentOutcome.NeedsReview;
+        if (!anyProviderActed)
+        {
+            if (song.EnrichmentStatus != EnrichmentStatus.Pending)
+                return EnrichmentOutcome.Skipped;
+
+            var currentSummary = song.ComputeSummaryStatus(enabledEnums);
+            if (currentSummary == song.EnrichmentStatus)
+                return EnrichmentOutcome.Skipped;
+        }
+
+        if (!matchApplied)
+            UpdateSummaryStatus(song, enabledEnums);
+
+        await dbContext.SaveChangesAsync(ct);
+
+        return song.EnrichmentStatus switch
+        {
+            EnrichmentStatus.Matched => EnrichmentOutcome.Matched,
+            EnrichmentStatus.NeedsReview => EnrichmentOutcome.NeedsReview,
+            EnrichmentStatus.Failed => EnrichmentOutcome.Failed,
+            _ => EnrichmentOutcome.Skipped,
+        };
+    }
+
+    public IReadOnlySet<EnrichmentProvider> GetEnabledProviderEnums()
+    {
+        var opts = _options.Value;
+        var set = new HashSet<EnrichmentProvider>();
+        foreach (var p in _providers)
+        {
+            if (!IsProviderEnabled(p, opts)) continue;
+            var e = MapProviderName(p.Name);
+            if (e is not null) set.Add(e.Value);
+        }
+        return set;
+    }
+
+    private async Task<EnrichmentOutcome> TryProviderAsync(
+        IEnrichmentProvider provider,
+        EnrichmentProvider providerEnum,
+        SongMetadata song,
+        MusicHoarderDbContext dbContext,
+        Dictionary<EnrichmentProvider, SongProviderAttempt> existingAttempts,
+        CancellationToken ct)
+    {
+        ProviderOutcome outcome;
+        try
+        {
+            outcome = await provider.TryEnrichAsync(song, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -242,17 +178,112 @@ public class EnrichmentOrchestrator(
         }
         catch (Exception ex)
         {
-            song.MarkEnrichmentFailed(ex.Message);
-            await dbContext.SaveChangesAsync(ct);
-            logger.LogWarning(ex, "Failed enrichment for {Track} (SongId={SongId})", song.TrackLabel, songId);
+            _logger.LogWarning(ex, "Provider {Provider} threw for {Track} (SongId={SongId})",
+                provider.Name, song.TrackLabel, song.Id);
+
+            UpsertAttempt(song, providerEnum, ProviderAttemptStatus.Failed,
+                error: ex.Message, existingAttempts: existingAttempts);
             return EnrichmentOutcome.Failed;
+        }
+
+        switch (outcome)
+        {
+            case ProviderRateLimited rl:
+                _logger.LogInformation("Provider {Provider} rate-limited for {Track} (SongId={SongId}), retry after {Delay}s",
+                    provider.Name, song.TrackLabel, song.Id, rl.RetryAfter.TotalSeconds);
+                UpsertAttempt(song, providerEnum, ProviderAttemptStatus.RateLimited,
+                    retryAfterUtc: DateTime.UtcNow + rl.RetryAfter, existingAttempts: existingAttempts);
+                return EnrichmentOutcome.Skipped;
+
+            case ProviderNoMatch:
+                _logger.LogDebug("Provider {Provider} returned no match for {Track} (SongId={SongId})",
+                    provider.Name, song.TrackLabel, song.Id);
+                UpsertAttempt(song, providerEnum, ProviderAttemptStatus.NoMatch,
+                    existingAttempts: existingAttempts);
+                return EnrichmentOutcome.NeedsReview;
+
+            case ProviderMatched matched:
+            {
+                var result = matched.Result;
+
+                if (result.RecommendedStatus == EnrichmentStatus.Matched)
+                {
+                    ApplyProviderResult(song, result);
+                    UpsertAttempt(song, providerEnum, ProviderAttemptStatus.Matched,
+                        matchedDataJson: SerializeResult(result), existingAttempts: existingAttempts);
+
+                    _logger.LogInformation(
+                        "Enrichment matched {Track} (SongId={SongId}) via {Provider} with confidence {Confidence:F3}",
+                        song.TrackLabel, song.Id, result.MatchedBy, result.MatchConfidence);
+                    return EnrichmentOutcome.Matched;
+                }
+
+                ApplyProviderResult(song, result);
+                UpsertAttempt(song, providerEnum, ProviderAttemptStatus.Matched,
+                    matchedDataJson: SerializeResult(result), existingAttempts: existingAttempts);
+
+                _logger.LogInformation(
+                    "Provider {Provider} returned low-confidence match for {Track} (SongId={SongId}), confidence={Confidence:F3}",
+                    provider.Name, song.TrackLabel, song.Id, result.MatchConfidence);
+                return EnrichmentOutcome.NeedsReview;
+            }
+
+            default:
+                return EnrichmentOutcome.Skipped;
+        }
+    }
+
+    private static void UpsertAttempt(
+        SongMetadata song,
+        EnrichmentProvider provider,
+        ProviderAttemptStatus status,
+        DateTime? retryAfterUtc = null,
+        string? matchedDataJson = null,
+        string? error = null,
+        Dictionary<EnrichmentProvider, SongProviderAttempt>? existingAttempts = null)
+    {
+        if (existingAttempts is not null && existingAttempts.TryGetValue(provider, out var existing))
+        {
+            existing.Status = status;
+            existing.AttemptedAtUtc = DateTime.UtcNow;
+            existing.RetryAfterUtc = retryAfterUtc;
+            existing.MatchedDataJson = matchedDataJson;
+            existing.Error = error;
+        }
+        else
+        {
+            var attempt = new SongProviderAttempt
+            {
+                SongId = song.Id,
+                Provider = provider,
+                Status = status,
+                AttemptedAtUtc = DateTime.UtcNow,
+                RetryAfterUtc = retryAfterUtc,
+                MatchedDataJson = matchedDataJson,
+                Error = error,
+            };
+            song.ProviderAttempts.Add(attempt);
+            existingAttempts?.TryAdd(provider, attempt);
+        }
+    }
+
+    private static void UpdateSummaryStatus(SongMetadata song, IReadOnlySet<EnrichmentProvider> enabledProviders)
+    {
+        var newStatus = song.ComputeSummaryStatus(enabledProviders);
+        if (newStatus != song.EnrichmentStatus)
+        {
+            song.EnrichmentStatus = newStatus;
+            if (newStatus is EnrichmentStatus.NeedsReview or EnrichmentStatus.Failed)
+            {
+                song.EnrichedAtUtc = DateTime.UtcNow;
+            }
         }
     }
 
     private IReadOnlyList<IEnrichmentProvider> GetEnabledProviders()
     {
-        var opts = options.Value;
-        return providers
+        var opts = _options.Value;
+        return _providers
             .Where(p => IsProviderEnabled(p, opts))
             .OrderBy(p => p.Priority)
             .ToList();
@@ -269,6 +300,26 @@ public class EnrichmentOrchestrator(
             _ => true
         };
     }
+
+    internal static EnrichmentProvider? MapProviderName(string name) => name switch
+    {
+        "AcoustID" => EnrichmentProvider.AcoustID,
+        "SpotifyAPI" => EnrichmentProvider.SpotifyAPI,
+        "MusicBrainzWeb" => EnrichmentProvider.MusicBrainzWeb,
+        "Tracker" => EnrichmentProvider.Tracker,
+        _ => null
+    };
+
+    private void InitializeSemaphores(MusicEnricherOptions opts)
+    {
+        _providerSemaphores["AcoustID"] = new SemaphoreSlim(opts.AcoustIdConcurrency, opts.AcoustIdConcurrency);
+        _providerSemaphores["SpotifyAPI"] = new SemaphoreSlim(opts.SpotifyApiConcurrency, opts.SpotifyApiConcurrency);
+        _providerSemaphores["MusicBrainzWeb"] = new SemaphoreSlim(1, 1);
+        _providerSemaphores["Tracker"] = new SemaphoreSlim(1, 1);
+    }
+
+    private SemaphoreSlim GetProviderSemaphore(string providerName) =>
+        _providerSemaphores.GetOrAdd(providerName, _ => new SemaphoreSlim(1, 1));
 
     private static void ApplyProviderResult(SongMetadata song, EnrichmentProviderResult result)
     {
@@ -290,37 +341,41 @@ public class EnrichmentOrchestrator(
             result.MatchedBy,
             result.MatchConfidence,
             warningsJson,
-            result.RecommendedStatus));
+            result.RecommendedStatus,
+            result.Album));
     }
+
+    private static string SerializeResult(EnrichmentProviderResult result) =>
+        JsonSerializer.Serialize(result);
 
     private async Task FetchLyricsForSongAsync(SongMetadata song, MusicHoarderDbContext dbContext, CancellationToken ct)
     {
         if (!song.IsReadyForLyricsFetch)
         {
-            logger.LogDebug("Skipping lyrics fetch for {Track} (SongId={SongId}): not eligible (status={LyricsStatus})",
+            _logger.LogDebug("Skipping lyrics fetch for {Track} (SongId={SongId}): not eligible (status={LyricsStatus})",
                 song.TrackLabel, song.Id, song.LyricsStatus);
             return;
         }
 
         try
         {
-            var result = await lrcLibService.FetchLyricsAsync(song, ct);
+            var result = await _lrcLibService.FetchLyricsAsync(song, ct);
 
             if (result is null)
             {
                 song.MarkLyricsNotFound();
-                logger.LogDebug("No lyrics found for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
+                _logger.LogDebug("No lyrics found for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
             }
             else if (result.IsInstrumental)
             {
                 song.ApplyLyricsResult(null, null, true, result.LrclibId);
-                logger.LogInformation("Lyrics: instrumental confirmed for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
+                _logger.LogInformation("Lyrics: instrumental confirmed for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
             }
             else
             {
                 song.ApplyLyricsResult(result.SyncedLyrics, result.PlainLyrics, false, result.LrclibId);
                 var kind = result.SyncedLyrics is not null ? "synced" : "plain";
-                logger.LogInformation("Lyrics: fetched ({Kind}) for {Track} (SongId={SongId})", kind, song.TrackLabel, song.Id);
+                _logger.LogInformation("Lyrics: fetched ({Kind}) for {Track} (SongId={SongId})", kind, song.TrackLabel, song.Id);
             }
 
             await dbContext.SaveChangesAsync(ct);
@@ -333,7 +388,7 @@ public class EnrichmentOrchestrator(
         {
             song.MarkLyricsFailed();
             await dbContext.SaveChangesAsync(ct);
-            logger.LogWarning(ex, "Lyrics fetch failed for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
+            _logger.LogWarning(ex, "Lyrics fetch failed for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
         }
     }
 }

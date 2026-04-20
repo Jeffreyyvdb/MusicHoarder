@@ -18,4 +18,17 @@ internal static class EnrichmentQueries
                 || (!string.IsNullOrWhiteSpace(s.Artist) && !string.IsNullOrWhiteSpace(s.Title))
                 || !string.IsNullOrWhiteSpace(s.Isrc));
     }
+
+    /// <summary>
+    /// Returns IDs of songs that have at least one <see cref="ProviderAttemptStatus.RateLimited"/>
+    /// attempt whose <see cref="SongProviderAttempt.RetryAfterUtc"/> has elapsed.
+    /// </summary>
+    public static IQueryable<int> WhereRetryableProviderAttempts(this IQueryable<SongProviderAttempt> query, DateTime now)
+    {
+        return query
+            .Where(a => a.Status == ProviderAttemptStatus.RateLimited)
+            .Where(a => a.RetryAfterUtc == null || a.RetryAfterUtc <= now)
+            .Select(a => a.SongId)
+            .Distinct();
+    }
 }

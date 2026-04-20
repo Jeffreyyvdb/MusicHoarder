@@ -3,6 +3,8 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Spotify;
 
@@ -39,10 +41,26 @@ public class SpotifyOAuthServiceTests
     public async Task GetAuthorizationUrl_WithoutCredentials_ThrowsInvalidOperationException()
     {
         await using var db = CreateDb();
-        var service = CreateService(db);
+        var service = CreateService(db, spotifyOptions: Microsoft.Extensions.Options.Options.Create(new SpotifyOptions()));
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.GetAuthorizationUrlAsync("http://localhost/callback"));
+    }
+
+    [Fact]
+    public async Task GetAuthorizationUrl_WithCredentialsFromConfig_WhenDbHasNoSecrets_ReturnsValidUrl()
+    {
+        await using var db = CreateDb();
+        var spotifyOpts = Microsoft.Extensions.Options.Options.Create(new SpotifyOptions
+        {
+            ClientId = "from-config-id",
+            ClientSecret = "from-config-secret",
+        });
+        var service = CreateService(db, spotifyOptions: spotifyOpts);
+
+        var result = await service.GetAuthorizationUrlAsync("http://localhost/callback");
+
+        Assert.Contains("client_id=from-config-id", result.AuthorizationUrl);
     }
 
     [Fact]
@@ -397,12 +415,16 @@ public class SpotifyOAuthServiceTests
         return new MusicHoarderDbContext(options);
     }
 
-    private static SpotifyOAuthService CreateService(MusicHoarderDbContext db, HttpMessageHandler? handler = null)
+    private static SpotifyOAuthService CreateService(
+        MusicHoarderDbContext db,
+        HttpMessageHandler? handler = null,
+        IOptions<SpotifyOptions>? spotifyOptions = null)
     {
         var scopeFactory = new SpotifyScopeFactory(db);
         var httpClient = new HttpClient(handler ?? new FakeHttpHandler(HttpStatusCode.OK, "{}"));
         var logger = NullLogger<SpotifyOAuthService>.Instance;
-        return new SpotifyOAuthService(scopeFactory, httpClient, logger);
+        spotifyOptions ??= Microsoft.Extensions.Options.Options.Create(new SpotifyOptions());
+        return new SpotifyOAuthService(scopeFactory, httpClient, spotifyOptions, logger);
     }
 
     private sealed class FakeHttpHandler(

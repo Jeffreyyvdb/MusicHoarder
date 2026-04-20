@@ -57,11 +57,11 @@ public sealed class AcoustIdService(
             using var responseMessage = await httpClient.GetAsync(url, ct);
             if ((int)responseMessage.StatusCode == 429)
             {
-                var retryAfter = responseMessage.Headers.RetryAfter?.Delta;
+                var retryAfter = responseMessage.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(5);
                 logger.LogWarning(
                     "AcoustID returned 429 Too Many Requests. RetryAfter={RetryAfterSeconds}",
-                    retryAfter?.TotalSeconds);
-                return null;
+                    retryAfter.TotalSeconds);
+                throw new ProviderRateLimitedException(retryAfter);
             }
 
             if (!responseMessage.IsSuccessStatusCode)
