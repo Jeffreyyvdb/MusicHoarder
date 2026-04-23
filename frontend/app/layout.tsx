@@ -4,6 +4,7 @@ import { Analytics } from '@vercel/analytics/next'
 import { Toaster } from '@/components/ui/sonner'
 import { ThemeProvider } from '@/components/theme-provider'
 import { PlayerProviderWrapper } from '@/components/player/player-provider-wrapper'
+import { UmamiAnalytics } from '@/components/analytics/umami-analytics'
 import './globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -36,6 +37,7 @@ export default function RootLayout({
           </PlayerProviderWrapper>
           <Toaster position="top-center" richColors closeButton />
           <Analytics />
+          <UmamiAnalytics />
         </ThemeProvider>
       </body>
     </html>
