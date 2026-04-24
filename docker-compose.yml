@@ -30,6 +30,12 @@ services:
       - MusicEnricher__SourceDirectory=/music/source
       - MusicEnricher__DestinationDirectory=/music/destination
       - MusicEnricher__AcoustIdApiKey=${ACOUSTID_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/alive"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,8 +49,15 @@ services:
       - "3000:3000"
     environment:
       - MUSICHOARDER_API_URL=http://musichoarder:8080
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     depends_on:
-      - musichoarder
+      musichoarder:
+        condition: service_healthy
 
 volumes:
   postgres-data:

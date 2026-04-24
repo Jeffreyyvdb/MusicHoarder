@@ -1,8 +1,10 @@
 "use client"
 
 import { useMemo } from "react"
+import Link from "next/link"
 import { Disc3, Music } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { cn } from "@/lib/utils"
 import type { ApiSong } from "@/lib/api-client"
 
 interface AlbumGridViewProps {
@@ -18,6 +20,7 @@ interface AlbumSummary {
   year: number | null
   trackCount: number
   initials: string
+  coverUrl: string | null
 }
 
 const UNKNOWN_ALBUM = "Unknown Album"
@@ -55,6 +58,7 @@ function groupByAlbum(songs: ApiSong[]): AlbumSummary[] {
         year: song.year ?? null,
         trackCount: 1,
         initials: computeInitials(title),
+        coverUrl: song.albumArt ?? null,
       })
     }
   }
@@ -123,10 +127,33 @@ export function AlbumGridView({
 }
 
 function AlbumCard({ album }: { album: AlbumSummary }) {
+  const coverUrl = album.coverUrl
   return (
-    <div className="group flex flex-col gap-2">
+    <Link
+      href={`/app?album=${encodeURIComponent(album.key)}`}
+      className="group flex flex-col gap-2 rounded-lg outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      aria-label={`Open album ${album.title} by ${album.artist}`}
+    >
       <div className="relative aspect-square overflow-hidden rounded-lg border border-border bg-gradient-to-br from-secondary to-muted shadow-sm transition-all group-hover:border-primary/40 group-hover:shadow-md">
-        <div className="flex size-full items-center justify-center">
+        {coverUrl ? (
+          <img
+            key={coverUrl}
+            src={coverUrl}
+            alt=""
+            loading="lazy"
+            className="size-full object-cover transition-transform group-hover:scale-[1.02]"
+            onError={(e) => {
+              // Hide broken images so the initials fallback underneath shows through.
+              ;(e.currentTarget as HTMLImageElement).style.display = "none"
+            }}
+          />
+        ) : null}
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-0 flex items-center justify-center",
+            coverUrl && "opacity-0"
+          )}
+        >
           <span className="text-3xl font-semibold tracking-wide text-muted-foreground/60">
             {album.initials}
           </span>
@@ -143,6 +170,6 @@ function AlbumCard({ album }: { album: AlbumSummary }) {
           {album.year ? ` · ${album.year}` : ""}
         </p>
       </div>
-    </div>
+    </Link>
   )
 }
