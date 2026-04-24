@@ -114,35 +114,79 @@ public static class EnrichmentEndpoints
             .WithName("ScrapeTrackers")
             .WithSummary("Trigger on-demand tracker scraping (not yet implemented).");
 
-        group.MapPost("/purge-post-fingerprint", async (
+        group.MapPost("/purge-post-fingerprint", (
                 JobManager jobManager,
-                IPipelinePurgeService purgeService,
-                CancellationToken ct) =>
-            {
-                if (jobManager.IsAnyRunning())
-                    return Results.Conflict(new { message = "A job is currently running. Stop it before purging." });
-
-                var result = await purgeService.ResetPostFingerprintAsync(ct);
-                return Results.Ok(result);
-            })
+                IServiceScopeFactory scopeFactory,
+                PurgeStatusTracker tracker,
+                ILoggerFactory loggerFactory) =>
+                StartPurge(
+                    mode: "post-fingerprint",
+                    jobManager,
+                    scopeFactory,
+                    tracker,
+                    loggerFactory,
+                    (service, jobId, ct) => service.ResetPostFingerprintAsync(jobId, ct)))
             .WithName("PurgePostFingerprint")
-            .WithSummary("Reset enrichment, lyrics, duplicate, and library-build state for every non-deleted song. Keeps scan + fingerprint data intact and deletes copied destination files.");
+            .WithSummary("Start a background reset of enrichment, lyrics, duplicate, and library-build state. Returns 202 Accepted with a jobId; poll /purge-status for progress.");
 
-        group.MapPost("/purge-all", async (
+        group.MapPost("/purge-all", (
                 JobManager jobManager,
-                IPipelinePurgeService purgeService,
-                CancellationToken ct) =>
-            {
-                if (jobManager.IsAnyRunning())
-                    return Results.Conflict(new { message = "A job is currently running. Stop it before purging." });
-
-                var result = await purgeService.PurgeAllAsync(ct);
-                return Results.Ok(result);
-            })
+                IServiceScopeFactory scopeFactory,
+                PurgeStatusTracker tracker,
+                ILoggerFactory loggerFactory) =>
+                StartPurge(
+                    mode: "all",
+                    jobManager,
+                    scopeFactory,
+                    tracker,
+                    loggerFactory,
+                    (service, jobId, ct) => service.PurgeAllAsync(jobId, ct)))
             .WithName("PurgeAll")
-            .WithSummary("Hard-delete every song, provider attempt, cached Spotify match, and copied destination file.");
+            .WithSummary("Start a background hard-delete of every song, provider attempt, cached Spotify match, and copied destination file. Returns 202 Accepted.");
+
+        group.MapGet("/purge-status", (PurgeStatusTracker tracker) => Results.Ok(tracker.Get()))
+            .WithName("GetPurgeStatus")
+            .WithSummary("Get the current purge status snapshot. Includes the last completed result until a new purge starts.");
 
         return app;
+    }
+
+    private static IResult StartPurge(
+        string mode,
+        JobManager jobManager,
+        IServiceScopeFactory scopeFactory,
+        PurgeStatusTracker tracker,
+        ILoggerFactory loggerFactory,
+        Func<IPipelinePurgeService, Guid, CancellationToken, Task<PurgeResult>> run)
+    {
+        if (!jobManager.TryStartJob(JobType.Purge, out var jobId, out var cancellationToken))
+            return Results.Conflict(new { message = "A purge is already running. Wait for it to finish." });
+
+        var logger = loggerFactory.CreateLogger("MusicHoarder.Api.Pipeline.PipelinePurge");
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = scopeFactory.CreateScope();
+                var service = scope.ServiceProvider.GetRequiredService<IPipelinePurgeService>();
+                await run(service, jobId, cancellationToken);
+                jobManager.SignalComplete(JobType.Purge, jobId);
+            }
+            catch (OperationCanceledException)
+            {
+                jobManager.SignalComplete(JobType.Purge, jobId, cancelled: true);
+                tracker.Fail("Purge was cancelled.");
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Purge ({Mode}) failed", mode);
+                jobManager.SignalFailed(JobType.Purge, jobId);
+                tracker.Fail(ex.Message);
+            }
+        });
+
+        return Results.Accepted("/api/enrichment/purge-status", new { jobId, mode });
     }
 
     private static IResult StreamProgress(

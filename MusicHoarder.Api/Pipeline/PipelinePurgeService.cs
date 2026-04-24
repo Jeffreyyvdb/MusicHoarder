@@ -1,91 +1,149 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Pipeline;
 
-public record PurgeResult(int SongsAffected, int FilesDeleted, int SpotifyMatchesCleared);
+public record PurgeResult(
+    int SongsAffected,
+    int FilesDeleted,
+    int FilesFailed,
+    int SpotifyMatchesCleared);
 
 public interface IPipelinePurgeService
 {
-    Task<PurgeResult> ResetPostFingerprintAsync(CancellationToken ct = default);
-    Task<PurgeResult> PurgeAllAsync(CancellationToken ct = default);
+    Task<PurgeResult> ResetPostFingerprintAsync(Guid jobId, CancellationToken ct = default);
+    Task<PurgeResult> PurgeAllAsync(Guid jobId, CancellationToken ct = default);
 }
 
 public class PipelinePurgeService(
     MusicHoarderDbContext db,
     IOptions<MusicEnricherOptions> options,
     ILibraryDestinationCleaner destinationCleaner,
+    JobManager jobManager,
+    PurgeStatusTracker tracker,
     ILogger<PipelinePurgeService> logger) : IPipelinePurgeService
 {
-    public async Task<PurgeResult> ResetPostFingerprintAsync(CancellationToken ct = default)
+    private const int FileDeleteConcurrency = 4;
+
+    private static readonly JobType[] PipelineSteps =
+        [JobType.Scan, JobType.Fingerprint, JobType.Enrich, JobType.Build];
+
+    public async Task<PurgeResult> ResetPostFingerprintAsync(Guid jobId, CancellationToken ct = default)
     {
-        var destinationRoot = options.Value.DestinationDirectory;
-
-        var songs = await db.Songs
-            .Include(s => s.ProviderAttempts)
-            .Where(s => s.DeletedAtUtc == null)
-            .ToListAsync(ct);
-
-        var filesDeleted = DeleteDestinationFiles(songs, destinationRoot);
-
-        foreach (var song in songs)
+        tracker.Start("post-fingerprint", jobId);
+        PausePipelineSteps();
+        try
         {
-            song.ResetPostFingerprint();
+            var destinationRoot = options.Value.DestinationDirectory;
+
+            var songs = await db.Songs
+                .Include(s => s.ProviderAttempts)
+                .Where(s => s.DeletedAtUtc == null)
+                .ToListAsync(ct);
+
+            var songsWithFiles = songs.Where(s => !string.IsNullOrWhiteSpace(s.DestinationPath)).ToList();
+            tracker.SetTotals(songs.Count, songsWithFiles.Count);
+
+            var (filesDeleted, filesFailed) = await DeleteDestinationFilesAsync(songsWithFiles, destinationRoot, ct);
+
+            foreach (var song in songs) song.ResetPostFingerprint();
+            tracker.SetSongsProcessed(songs.Count);
+
+            var matchesCleared = await ClearSpotifyMatchesAsync(ct);
+
+            await db.SaveChangesAsync(ct);
+
+            tracker.Complete(matchesCleared);
+            logger.LogInformation(
+                "Reset post-fingerprint state for {SongCount} songs, deleted {FileCount} destination files ({FailedCount} failed), cleared {MatchCount} Spotify matches.",
+                songs.Count, filesDeleted, filesFailed, matchesCleared);
+
+            return new PurgeResult(songs.Count, filesDeleted, filesFailed, matchesCleared);
         }
-
-        var matchesCleared = await ClearSpotifyMatchesAsync(ct);
-
-        await db.SaveChangesAsync(ct);
-
-        logger.LogInformation(
-            "Reset post-fingerprint state for {SongCount} songs, deleted {FileCount} destination files, cleared {MatchCount} Spotify matches.",
-            songs.Count, filesDeleted, matchesCleared);
-
-        return new PurgeResult(songs.Count, filesDeleted, matchesCleared);
+        finally
+        {
+            ResumePipelineSteps();
+        }
     }
 
-    public async Task<PurgeResult> PurgeAllAsync(CancellationToken ct = default)
+    public async Task<PurgeResult> PurgeAllAsync(Guid jobId, CancellationToken ct = default)
     {
-        var destinationRoot = options.Value.DestinationDirectory;
+        tracker.Start("all", jobId);
+        PausePipelineSteps();
+        try
+        {
+            var destinationRoot = options.Value.DestinationDirectory;
 
-        var songs = await db.Songs.ToListAsync(ct);
-        var filesDeleted = DeleteDestinationFiles(songs, destinationRoot);
+            var songs = await db.Songs.ToListAsync(ct);
+            var songsWithFiles = songs.Where(s => !string.IsNullOrWhiteSpace(s.DestinationPath)).ToList();
+            tracker.SetTotals(songs.Count, songsWithFiles.Count);
 
-        var matchesCleared = await ClearSpotifyMatchesAsync(ct);
+            var (filesDeleted, filesFailed) = await DeleteDestinationFilesAsync(songsWithFiles, destinationRoot, ct);
 
-        db.Songs.RemoveRange(songs);
+            var matchesCleared = await ClearSpotifyMatchesAsync(ct);
 
-        await db.SaveChangesAsync(ct);
+            db.Songs.RemoveRange(songs);
+            tracker.SetSongsProcessed(songs.Count);
 
-        logger.LogInformation(
-            "Purged all pipeline data: {SongCount} songs deleted, {FileCount} destination files removed, {MatchCount} Spotify matches cleared.",
-            songs.Count, filesDeleted, matchesCleared);
+            await db.SaveChangesAsync(ct);
 
-        return new PurgeResult(songs.Count, filesDeleted, matchesCleared);
+            tracker.Complete(matchesCleared);
+            logger.LogInformation(
+                "Purged all pipeline data: {SongCount} songs deleted, {FileCount} destination files removed ({FailedCount} failed), {MatchCount} Spotify matches cleared.",
+                songs.Count, filesDeleted, filesFailed, matchesCleared);
+
+            return new PurgeResult(songs.Count, filesDeleted, filesFailed, matchesCleared);
+        }
+        finally
+        {
+            ResumePipelineSteps();
+        }
     }
 
-    private int DeleteDestinationFiles(IEnumerable<SongMetadata> songs, string destinationRoot)
+    private void PausePipelineSteps()
     {
-        var deleted = 0;
-        foreach (var song in songs)
-        {
-            if (string.IsNullOrWhiteSpace(song.DestinationPath)) continue;
-            try
+        foreach (var step in PipelineSteps) jobManager.PauseStep(step);
+    }
+
+    private void ResumePipelineSteps()
+    {
+        foreach (var step in PipelineSteps) jobManager.ResumeStep(step);
+    }
+
+    private async Task<(int deleted, int failed)> DeleteDestinationFilesAsync(
+        IReadOnlyList<SongMetadata> songs,
+        string destinationRoot,
+        CancellationToken ct)
+    {
+        var counters = new Counters();
+
+        await Parallel.ForEachAsync(
+            songs,
+            new ParallelOptions { MaxDegreeOfParallelism = FileDeleteConcurrency, CancellationToken = ct },
+            (song, _) =>
             {
-                destinationCleaner.DeleteManagedPathAndPrune(song.DestinationPath, destinationRoot);
-                deleted++;
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex,
-                    "Failed to delete destination file for song {SongId} at {Path}",
-                    song.Id, song.DestinationPath);
-            }
-        }
-        return deleted;
+                try
+                {
+                    destinationCleaner.DeleteManagedPathAndPrune(song.DestinationPath!, destinationRoot);
+                    var d = Interlocked.Increment(ref counters.Deleted);
+                    tracker.UpdateFilesProgress(d, Volatile.Read(ref counters.Failed));
+                }
+                catch (Exception ex)
+                {
+                    var f = Interlocked.Increment(ref counters.Failed);
+                    tracker.UpdateFilesProgress(Volatile.Read(ref counters.Deleted), f);
+                    logger.LogWarning(ex,
+                        "Failed to delete destination file for song {SongId} at {Path}",
+                        song.Id, song.DestinationPath);
+                }
+                return ValueTask.CompletedTask;
+            });
+
+        return (counters.Deleted, counters.Failed);
     }
 
     private async Task<int> ClearSpotifyMatchesAsync(CancellationToken ct)
@@ -93,5 +151,11 @@ public class PipelinePurgeService(
         var matches = await db.SpotifyTrackLibraryMatches.ToListAsync(ct);
         db.SpotifyTrackLibraryMatches.RemoveRange(matches);
         return matches.Count;
+    }
+
+    private sealed class Counters
+    {
+        public int Deleted;
+        public int Failed;
     }
 }

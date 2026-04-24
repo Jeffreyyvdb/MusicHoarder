@@ -36,7 +36,7 @@ Use `NEXT_PUBLIC_DEMO_MODE` to control whether API-backed frontend data is serve
 
 In production mode, API failures are surfaced as UI errors and do not fall back to mock data.
 
-The **`/spotify`** page participates in demo mode: with `NEXT_PUBLIC_DEMO_MODE=true` you do **not** need `MUSICHOARDER_API_URL` for that route. The UI shows a connected state with sample playlists and liked songs (no real Spotify OAuth). For a live deployment on Vercel that only showcases the product, set `NEXT_PUBLIC_DEMO_MODE=true` and omit the API URL unless other pages require it.
+The **`/spotify`** page participates in demo mode: with `NEXT_PUBLIC_DEMO_MODE=true` you do **not** need `MUSICHOARDER_API_URL` for that route. The UI shows a connected state with sample playlists and liked songs (no real Spotify OAuth). For a demo-only deployment that just showcases the product, set `NEXT_PUBLIC_DEMO_MODE=true` and omit the API URL unless other pages require it.
 
 Examples:
 

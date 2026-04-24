@@ -35,6 +35,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<FingerprintProgressTracker>();
         services.AddSingleton<EnrichmentProgressTracker>();
         services.AddSingleton<LibraryBuilderProgressTracker>();
+        services.AddSingleton<PurgeStatusTracker>();
         services.AddSingleton<IFpcalcService, FpcalcService>();
         services.AddSingleton<IAcoustIdMatchValidator, AcoustIdMatchValidator>();
         services.AddSingleton<IEnrichmentProvider, AcoustIdEnrichmentProvider>();

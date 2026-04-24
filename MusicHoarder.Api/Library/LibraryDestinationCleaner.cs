@@ -11,12 +11,17 @@ public class LibraryDestinationCleaner(IFileSystem fileSystem) : ILibraryDestina
 {
     public void DeleteManagedPathAndPrune(string path, string destinationRoot)
     {
-        if (!fileSystem.File.Exists(path))
+        try
         {
+            if (!fileSystem.File.Exists(path)) return;
+            fileSystem.File.Delete(path);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            // Parent directory already pruned (parallel delete); file is effectively gone.
             return;
         }
 
-        fileSystem.File.Delete(path);
         PruneEmptyDirectories(fileSystem.Path.GetDirectoryName(path), destinationRoot);
     }
 
@@ -36,14 +41,27 @@ public class LibraryDestinationCleaner(IFileSystem fileSystem) : ILibraryDestina
                 break;
             }
 
-            var hasFiles = fileSystem.Directory.EnumerateFiles(current).Any();
-            var hasDirectories = fileSystem.Directory.EnumerateDirectories(current).Any();
-            if (hasFiles || hasDirectories)
+            try
             {
+                if (fileSystem.Directory.EnumerateFiles(current).Any()
+                    || fileSystem.Directory.EnumerateDirectories(current).Any())
+                {
+                    break;
+                }
+
+                fileSystem.Directory.Delete(current);
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // Raced with another delete or external change; nothing left to prune on this branch.
+                break;
+            }
+            catch (IOException)
+            {
+                // Directory not empty (NAS eventual consistency) or transient IO error; stop pruning.
                 break;
             }
 
-            fileSystem.Directory.Delete(current);
             if (PathsEqual(current, rootFullPath))
             {
                 break;
