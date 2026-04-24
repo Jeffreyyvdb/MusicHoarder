@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import {
@@ -12,10 +13,10 @@ import {
   Users,
 } from "lucide-react"
 
-import { cn } from "@/lib/utils"
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -24,10 +25,15 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
-  SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import {
+  fetchOverview,
+  fetchStats,
+  type ApiOverview,
+  type ApiStats,
+} from "@/lib/api-client"
 
 type LibraryView = "albums" | "source" | "destination"
 
@@ -46,15 +52,12 @@ const navItems = [
   { href: "/settings", label: "Settings", icon: Settings },
 ]
 
-const enrichmentSources: { name: string; color: string }[] = [
-  { name: "MusicBrainz", color: "bg-purple-500" },
-  { name: "AcoustID", color: "bg-blue-500" },
-  { name: "Spotify", color: "bg-green-500" },
-  { name: "Last.fm", color: "bg-red-500" },
-  { name: "LRCLIB", color: "bg-emerald-600" },
-  { name: "Genius", color: "bg-yellow-500" },
-  { name: "Cover Art Archive", color: "bg-fuchsia-500" },
-]
+function formatLibrarySize(bytes: number): string {
+  const gib = bytes / (1024 * 1024 * 1024)
+  if (gib >= 1) return `${gib.toFixed(1)} GB`
+  const mib = bytes / (1024 * 1024)
+  return `${mib.toFixed(0)} MB`
+}
 
 export function AppSidebar() {
   const pathname = usePathname()
@@ -64,6 +67,36 @@ export function AppSidebar() {
   const activeLibraryView: LibraryView = onLibrary
     ? ((searchParams.get("view") as LibraryView | null) ?? "albums")
     : "albums"
+
+  const [overview, setOverview] = useState<ApiOverview | null>(null)
+  const [stats, setStats] = useState<ApiStats | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const [ov, st] = await Promise.all([fetchOverview(), fetchStats()])
+        if (!cancelled) {
+          setOverview(ov)
+          setStats(st)
+        }
+      } catch {
+        // Silently ignore — sidebar captions are a progressive enhancement.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const pathsByView: Record<LibraryView, string | null> = {
+    albums: null,
+    source: overview?.sourcePath ?? null,
+    destination: overview?.destinationPath ?? null,
+  }
+
+  const totalBytes = stats?.storage?.totalBytes ?? null
+  const totalTracks = stats?.tracks?.total ?? null
 
   return (
     <Sidebar collapsible="icon">
@@ -118,14 +151,25 @@ export function AppSidebar() {
                             view.value === "albums"
                               ? "/app"
                               : `/app?view=${view.value}`
+                          const isActiveView = activeLibraryView === view.value
+                          const path = pathsByView[view.value]
                           return (
                             <SidebarMenuSubItem key={view.value}>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={activeLibraryView === view.value}
+                              <Link
+                                href={href}
+                                data-active={isActiveView || undefined}
+                                className="flex min-w-0 flex-col gap-0.5 rounded-md px-2 py-1.5 text-sm text-sidebar-foreground/80 outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground"
                               >
-                                <Link href={href}>{view.label}</Link>
-                              </SidebarMenuSubButton>
+                                <span className="truncate">{view.label}</span>
+                                {path && (
+                                  <span
+                                    className="truncate font-mono text-[10px] leading-tight text-muted-foreground"
+                                    title={path}
+                                  >
+                                    {path}
+                                  </span>
+                                )}
+                              </Link>
                             </SidebarMenuSubItem>
                           )
                         })}
@@ -137,27 +181,28 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-
-        <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-          <SidebarGroupLabel>Enrichment sources</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <ul className="flex flex-col gap-0.5 px-2 py-1 text-sm">
-              {enrichmentSources.map((source) => (
-                <li
-                  key={source.name}
-                  className="flex items-center gap-2 py-1 text-muted-foreground"
-                >
-                  <span
-                    className={cn("size-2 shrink-0 rounded-full", source.color)}
-                    aria-hidden
-                  />
-                  <span className="truncate">{source.name}</span>
-                </li>
-              ))}
-            </ul>
-          </SidebarGroupContent>
-        </SidebarGroup>
       </SidebarContent>
+
+      {(totalBytes !== null || totalTracks !== null) && (
+        <SidebarFooter className="group-data-[collapsible=icon]:hidden">
+          <div className="rounded-lg bg-sidebar-accent/60 p-3">
+            <div className="flex items-center gap-2 text-sm">
+              <FolderOpen className="size-4 text-primary" />
+              <span className="font-medium">Library Size</span>
+            </div>
+            {totalBytes !== null && (
+              <p className="mt-1 text-2xl font-bold">
+                {formatLibrarySize(totalBytes)}
+              </p>
+            )}
+            {totalTracks !== null && (
+              <p className="text-xs text-muted-foreground">
+                {totalTracks.toLocaleString()} tracks total
+              </p>
+            )}
+          </div>
+        </SidebarFooter>
+      )}
 
       <SidebarRail />
     </Sidebar>
