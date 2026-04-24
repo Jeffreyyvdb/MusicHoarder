@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { AppHeader } from "@/components/app-header"
+import { AppShell } from "@/components/app-shell"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -659,12 +659,11 @@ function SpotifyPageContent() {
 
   if (isLoadingStatus) {
     return (
-      <div className="flex h-screen flex-col bg-background">
-        <AppHeader />
+      <AppShell>
         <div className="flex flex-1 items-center justify-center">
           <Loader2 className="size-8 animate-spin text-muted-foreground" />
         </div>
-      </div>
+      </AppShell>
     )
   }
 
@@ -672,8 +671,7 @@ function SpotifyPageContent() {
     const hasCredentials = credentials?.hasClientSecret && credentials?.clientId
 
     return (
-      <div className="flex h-screen flex-col bg-background">
-        <AppHeader />
+      <AppShell>
         <div className="flex flex-1 items-center justify-center p-6">
           <div className="max-w-md text-center">
             <div className="mx-auto mb-6 flex size-20 items-center justify-center rounded-full bg-[#1DB954]/10">
@@ -761,26 +759,23 @@ function SpotifyPageContent() {
             )}
           </div>
         </div>
-      </div>
+      </AppShell>
     )
   }
 
   if (selectedPlaylist) {
     return (
-      <div className="flex h-screen flex-col bg-background">
-        <AppHeader />
+      <AppShell>
         <PlaylistDetailView
           playlist={selectedPlaylist}
           onBack={() => setSelectedPlaylist(null)}
         />
-      </div>
+      </AppShell>
     )
   }
 
   return (
-    <div className="flex h-screen flex-col bg-background">
-      <AppHeader />
-
+    <AppShell>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {isDemoMode && (
           <div className="mx-4 mt-4 md:mx-6 rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
@@ -1001,18 +996,17 @@ function SpotifyPageContent() {
           </TabsContent>
         </Tabs>
       </div>
-    </div>
+    </AppShell>
   )
 }
 
 function SpotifyPageFallback() {
   return (
-    <div className="flex h-screen flex-col bg-background">
-      <AppHeader />
+    <AppShell>
       <div className="flex flex-1 items-center justify-center">
         <Loader2 className="size-8 animate-spin text-muted-foreground" />
       </div>
-    </div>
+    </AppShell>
   )
 }
 

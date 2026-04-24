@@ -1,60 +1,32 @@
 "use client"
 
-import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { Music, LayoutDashboard, FolderOpen, FileWarning, Users, Music2, Settings } from "lucide-react"
-import { cn } from "@/lib/utils"
+import * as React from "react"
+import { Search } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
-
-const navItems = [
-  { href: "/overview", label: "Overview", icon: LayoutDashboard },
-  { href: "/app", label: "Library", icon: FolderOpen },
-  { href: "/artists", label: "Artists", icon: Users },
-  { href: "/spotify", label: "Spotify", icon: Music2 },
-  { href: "/review", label: "Review", icon: FileWarning },
-  { href: "/settings", label: "Settings", icon: Settings },
-]
+import { SidebarTrigger } from "@/components/ui/sidebar"
+import { Separator } from "@/components/ui/separator"
+import { Input } from "@/components/ui/input"
 
 export function AppHeader() {
-  const pathname = usePathname()
-
   return (
-    <header className="border-b border-border bg-sidebar">
-      <div className="flex h-14 items-center gap-3 px-4 md:px-6">
-        {/* Logo */}
-        <Link href="/overview" className="flex items-center gap-2 mr-6 shrink-0">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-primary">
-            <Music className="size-4 text-primary-foreground" />
-          </div>
-          <span className="text-lg font-semibold hidden sm:block">MusicHoarder</span>
-        </Link>
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background/80 px-3 backdrop-blur md:px-4">
+      <SidebarTrigger className="-ml-1" />
+      <Separator orientation="vertical" className="mx-1 h-5" />
 
-        {/* Navigation */}
-        <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-          {navItems.map((item) => {
-            const isActive = item.href === "/app"
-              ? pathname === "/app" || pathname.startsWith("/app/")
-              : pathname.startsWith(item.href)
-
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-secondary text-foreground"
-                    : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
-                )}
-              >
-                <item.icon className="size-4" />
-                <span className="hidden sm:inline">{item.label}</span>
-              </Link>
-            )
-          })}
-        </nav>
-        <ThemeToggle className="ml-auto" />
+      <div className="relative flex min-w-0 flex-1 items-center">
+        <Search
+          className="pointer-events-none absolute left-3 size-4 text-muted-foreground"
+          aria-hidden
+        />
+        <Input
+          type="search"
+          placeholder="Search your library..."
+          className="h-9 w-full max-w-xl border-0 bg-secondary pl-9 shadow-none focus-visible:ring-1"
+          aria-label="Search your library"
+        />
       </div>
+
+      <ThemeToggle variant="ghost" />
     </header>
   )
 }
