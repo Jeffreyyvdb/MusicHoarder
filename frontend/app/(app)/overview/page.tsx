@@ -27,7 +27,6 @@ import {
   Zap,
 } from "lucide-react"
 import Link from "next/link"
-import { AppHeader } from "@/components/app-header"
 import {
   fetchOverview,
   triggerEnrichmentScan,
@@ -193,10 +192,7 @@ export default function OverviewPage() {
   const enrichPaused = enrichSnap?.isPaused ?? false
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
-      <AppHeader />
-
-      <main className="flex-1 p-4 md:p-6 lg:p-8">
+    <main className="flex-1 p-4 md:p-6 lg:p-8">
         <div className="mx-auto max-w-7xl space-y-6">
           {/* Page Header */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -444,8 +440,7 @@ export default function OverviewPage() {
             </Card>
           </div>
         </div>
-      </main>
-    </div>
+    </main>
   )
 }
 
