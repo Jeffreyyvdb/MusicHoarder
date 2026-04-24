@@ -46,7 +46,6 @@ import {
   softDeleteSong,
   bulkApprove,
 } from "@/lib/api-client"
-import { AppHeader } from "@/components/app-header"
 
 interface MetadataEdits {
   artist?: string
@@ -337,65 +336,56 @@ export default function ReviewPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen flex-col bg-background">
-        <AppHeader />
-        <main className="flex flex-1 items-center justify-center p-4">
-          <div className="flex flex-col items-center gap-4">
-            <Loader2 className="size-8 animate-spin text-primary" />
-            <p className="text-muted-foreground">Loading tracks for review...</p>
-          </div>
-        </main>
-      </div>
+      <main className="flex flex-1 items-center justify-center p-4">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="size-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Loading tracks for review...</p>
+        </div>
+      </main>
     )
   }
 
   if (error && tracks.length === 0) {
     return (
-      <div className="flex min-h-screen flex-col bg-background">
-        <AppHeader />
-        <main className="flex flex-1 items-center justify-center p-4">
-          <Card className="max-w-md text-center">
-            <CardContent className="p-8">
-              <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-destructive/10">
-                <X className="size-8 text-destructive" />
-              </div>
-              <h2 className="mb-2 text-xl font-semibold">Error</h2>
-              <p className="mb-4 text-muted-foreground">{error}</p>
-              <Button onClick={loadTracks}>Retry</Button>
-            </CardContent>
-          </Card>
-        </main>
-      </div>
+      <main className="flex flex-1 items-center justify-center p-4">
+        <Card className="max-w-md text-center">
+          <CardContent className="p-8">
+            <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-destructive/10">
+              <X className="size-8 text-destructive" />
+            </div>
+            <h2 className="mb-2 text-xl font-semibold">Error</h2>
+            <p className="mb-4 text-muted-foreground">{error}</p>
+            <Button onClick={loadTracks}>Retry</Button>
+          </CardContent>
+        </Card>
+      </main>
     )
   }
 
   if (tracks.length === 0) {
     return (
-      <div className="flex min-h-screen flex-col bg-background">
-        <AppHeader />
-        <main className="flex flex-1 items-center justify-center p-4">
-          <Card className="max-w-md text-center">
-            <CardContent className="p-8">
-              <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-primary/10">
-                <Check className="size-8 text-primary" />
-              </div>
-              <h2 className="mb-2 text-xl font-semibold">All Done!</h2>
-              <p className="mb-4 text-muted-foreground">
-                No more tracks need review. Great job!
-              </p>
-              <div className="flex gap-2 justify-center">
-                <Button variant="outline" onClick={loadTracks}>
-                  <RefreshCw className="mr-2 size-4" />
-                  Refresh
-                </Button>
-                <Button asChild>
-                  <a href="/overview">Back to Overview</a>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </main>
-      </div>
+      <main className="flex flex-1 items-center justify-center p-4">
+        <Card className="max-w-md text-center">
+          <CardContent className="p-8">
+            <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-primary/10">
+              <Check className="size-8 text-primary" />
+            </div>
+            <h2 className="mb-2 text-xl font-semibold">All Done!</h2>
+            <p className="mb-4 text-muted-foreground">
+              No more tracks need review. Great job!
+            </p>
+            <div className="flex gap-2 justify-center">
+              <Button variant="outline" onClick={loadTracks}>
+                <RefreshCw className="mr-2 size-4" />
+                Refresh
+              </Button>
+              <Button asChild>
+                <a href="/overview">Back to Overview</a>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </main>
     )
   }
 
@@ -404,10 +394,7 @@ export default function ReviewPage() {
   ).length
 
   return (
-    <div className="flex h-screen flex-col bg-background">
-      <AppHeader />
-
-      <main className="flex flex-1 flex-col overflow-hidden">
+      <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col overflow-hidden px-4 md:px-6">
           {/* Header */}
           <div className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -833,7 +820,6 @@ export default function ReviewPage() {
           </div>
         </div>
       </main>
-    </div>
   )
 }
 

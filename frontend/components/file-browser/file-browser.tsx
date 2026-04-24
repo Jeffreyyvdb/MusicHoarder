@@ -20,7 +20,6 @@ import type { FileItem } from "@/lib/types"
 import { FolderOpen, Menu } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { AppHeader } from "../app-header"
 import {
   buildFileSystemFromSongs,
   fetchSongs,
@@ -478,9 +477,7 @@ export function FileBrowser() {
   )
 
   return (
-    <div className={cn("flex h-screen flex-col bg-background", currentSong && "pb-[60px] sm:pb-[68px]")}>
-      <AppHeader />
-
+    <div className={cn("flex min-h-0 flex-1 flex-col", currentSong && "pb-[60px] sm:pb-[68px]")}>
       {/* Mobile sidebar sheet */}
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
         <SheetContent side="left" className="w-72 p-0">

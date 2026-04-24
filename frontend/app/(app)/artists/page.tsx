@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { AppHeader } from "@/components/app-header"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { mockArtists } from "@/lib/mock-data"
@@ -16,10 +15,7 @@ export default function ArtistsPage() {
   )
 
   return (
-    <div className="flex h-screen flex-col bg-background">
-      <AppHeader />
-
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* Page Header */}
         <div className="border-b border-border bg-card/30 px-4 py-6 md:px-6">
           <h1 className="text-2xl font-bold">Artists</h1>
@@ -117,6 +113,5 @@ export default function ArtistsPage() {
           </div>
         </ScrollArea>
       </div>
-    </div>
   )
 }
