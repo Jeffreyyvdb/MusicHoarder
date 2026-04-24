@@ -16,9 +16,10 @@ import { BreadcrumbNav } from "./breadcrumb-nav"
 import { TrackDetails } from "./track-details"
 import { Toolbar } from "./toolbar"
 import { AlbumGridView } from "./album-grid-view"
+import { AlbumDetailView } from "./album-detail-view"
 import { findAncestorFolderId, findFileById, getPathToFile } from "@/lib/mock-data"
 import type { FileItem } from "@/lib/types"
-import { FolderOpen, Menu } from "lucide-react"
+import { Menu } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { AppShell } from "../app-shell"
@@ -431,33 +432,10 @@ export function FileBrowser() {
     setShowDetails(false)
   }
 
-  // Calculate library size for sidebar
-  const libraryStats = useMemo(() => {
-    let totalTracks = 0
-    let totalSize = 0
-
-    function countFiles(items: FileItem[]) {
-      for (const item of items) {
-        if (item.type === "audio" && item.metadata) {
-          totalTracks++
-          totalSize += item.metadata.fileSize
-        }
-        if (item.children) countFiles(item.children)
-      }
-    }
-
-    countFiles(fileSystem)
-    return { totalTracks, totalSize }
-  }, [fileSystem])
-
-  // Sidebar content - uses external expanded state to persist across selections
+  // Folder-tree panel — visually matches the main app sidebar so the two
+  // read as one continuous navigation surface rather than stacked panels.
   const sidebarContent = (
-    <div className="flex h-full min-h-0 flex-col border-r border-border bg-card/30">
-      <div className="border-b border-border px-4 py-3">
-        <h2 className="text-sm font-medium text-muted-foreground">
-          {libraryMode === "destination" ? "Destination Library" : "Source Library"}
-        </h2>
-      </div>
+    <div className="flex h-full min-h-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
       <ScrollArea className="min-h-0 flex-1 p-2">
         <FolderTree
           items={fileSystem}
@@ -467,24 +445,12 @@ export function FileBrowser() {
           onExpandedChange={setExpandedFolderIds}
         />
       </ScrollArea>
-
-      {/* Sidebar Footer */}
-      <div className="border-t border-border p-4">
-        <div className="rounded-lg bg-muted/60 p-3">
-          <div className="flex items-center gap-2 text-sm">
-            <FolderOpen className="size-4 text-primary" />
-            <span className="font-medium">Library Size</span>
-          </div>
-          <p className="mt-1 text-2xl font-bold">
-            {(libraryStats.totalSize / (1024 * 1024 * 1024)).toFixed(1)} GB
-          </p>
-          <p className="text-xs text-muted-foreground">{libraryStats.totalTracks} tracks total</p>
-        </div>
-      </div>
     </div>
   )
 
   if (libraryView === "albums") {
+    const albumParam = searchParams.get("album")
+    const albumKey = albumParam ? decodeURIComponent(albumParam) : null
     return (
       <AppShell className={cn(currentSong && "pb-[60px] sm:pb-[68px]")}>
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -496,11 +462,19 @@ export function FileBrowser() {
               {apiError}
             </div>
           )}
-          <AlbumGridView
-            songs={songs}
-            isLoading={isLoading}
-            searchQuery={searchQuery}
-          />
+          {albumKey ? (
+            <AlbumDetailView
+              songs={songs}
+              albumKey={albumKey}
+              isLoading={isLoading}
+            />
+          ) : (
+            <AlbumGridView
+              songs={songs}
+              isLoading={isLoading}
+              searchQuery={searchQuery}
+            />
+          )}
         </div>
       </AppShell>
     )
