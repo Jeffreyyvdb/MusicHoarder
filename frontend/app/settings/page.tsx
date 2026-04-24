@@ -12,9 +12,11 @@ import {
   fetchSpotifyStatus,
   purgeAll,
   purgePostFingerprint,
+  fetchPurgeStatus,
 } from "@/lib/api-client"
 import type {
-  PurgeResult,
+  PurgeMode,
+  PurgeSnapshot,
   SpotifyCredentialsResponse,
   SpotifyStatusResponse,
 } from "@/lib/api-client"
@@ -50,26 +52,24 @@ export default function SettingsPage() {
   const [savedCredentials, setSavedCredentials] = useState<SpotifyCredentialsResponse | null>(null)
   const [spotifyStatus, setSpotifyStatus] = useState<SpotifyStatusResponse | null>(null)
   const [saveResult, setSaveResult] = useState<{ success: boolean; message: string } | null>(null)
-  const [purgeMode, setPurgeMode] = useState<"post-fingerprint" | "all" | null>(null)
-  const [purgeResult, setPurgeResult] = useState<
-    { success: true; mode: "post-fingerprint" | "all"; result: PurgeResult }
-    | { success: false; message: string }
-    | null
-  >(null)
+  const [purgeSnapshot, setPurgeSnapshot] = useState<PurgeSnapshot | null>(null)
+  const [purgeStartError, setPurgeStartError] = useState<string | null>(null)
 
   useEffect(() => {
     async function load() {
       setIsLoading(true)
       try {
-        const [creds, status] = await Promise.all([
+        const [creds, status, purge] = await Promise.all([
           fetchSpotifyCredentials().catch(() => ({ clientId: null, hasClientSecret: false }) as SpotifyCredentialsResponse),
           fetchSpotifyStatus().catch(() => ({ connected: false, hasCredentials: false, tokenExpired: false }) as SpotifyStatusResponse),
+          fetchPurgeStatus().catch(() => null),
         ])
         setSavedCredentials(creds)
         setSpotifyStatus(status)
         if (creds.clientId) {
           setClientId(creds.clientId)
         }
+        if (purge) setPurgeSnapshot(purge)
       } catch {
         // Settings page should load even if API is down
       } finally {
@@ -79,25 +79,52 @@ export default function SettingsPage() {
     load()
   }, [])
 
-  const handlePurge = async (mode: "post-fingerprint" | "all") => {
-    setPurgeMode(mode)
-    setPurgeResult(null)
-    try {
-      const response = mode === "post-fingerprint" ? await purgePostFingerprint() : await purgeAll()
-      if (response.ok) {
-        setPurgeResult({ success: true, mode, result: response.result })
-      } else {
-        setPurgeResult({ success: false, message: response.message })
+  // While a purge is running, poll its status every 1.5s. Stops when it completes or fails,
+  // and restarts if the user kicks off a new purge.
+  useEffect(() => {
+    if (purgeSnapshot?.status !== "running") return
+
+    let cancelled = false
+    const tick = async () => {
+      try {
+        const snap = await fetchPurgeStatus()
+        if (!cancelled) setPurgeSnapshot(snap)
+      } catch {
+        // keep polling on transient errors
       }
-    } catch (err) {
-      setPurgeResult({
-        success: false,
-        message: err instanceof Error ? err.message : "Purge failed.",
-      })
-    } finally {
-      setPurgeMode(null)
     }
+    const id = setInterval(tick, 1500)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [purgeSnapshot?.status])
+
+  const handlePurge = async (mode: PurgeMode) => {
+    setPurgeStartError(null)
+    const response = mode === "post-fingerprint" ? await purgePostFingerprint() : await purgeAll()
+    if (!response.ok) {
+      setPurgeStartError(response.message)
+      return
+    }
+    // Optimistically reflect "running" — the poll loop will take over with real progress.
+    setPurgeSnapshot({
+      status: "running",
+      mode,
+      jobId: response.jobId,
+      startedAt: new Date().toISOString(),
+      completedAt: null,
+      songsTotal: 0,
+      songsProcessed: 0,
+      filesTotal: 0,
+      filesDeleted: 0,
+      filesFailed: 0,
+      spotifyMatchesCleared: 0,
+      error: null,
+    })
   }
+
+  const purgeRunning = purgeSnapshot?.status === "running"
 
   const handleSave = async () => {
     if (!clientId.trim() || !clientSecret.trim()) {
@@ -306,9 +333,9 @@ export default function SettingsPage() {
                     <Button
                       variant="outline"
                       className="gap-2 text-destructive hover:text-destructive shrink-0"
-                      disabled={purgeMode !== null}
+                      disabled={purgeRunning}
                     >
-                      {purgeMode === "post-fingerprint" ? (
+                      {purgeRunning && purgeSnapshot?.mode === "post-fingerprint" ? (
                         <Loader2 className="size-4 animate-spin" />
                       ) : (
                         <Trash2 className="size-4" />
@@ -320,7 +347,7 @@ export default function SettingsPage() {
                     <AlertDialogHeader>
                       <AlertDialogTitle>Reset enrichment data?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        This clears every song&apos;s enrichment, lyrics, duplicate flags, and library-build state, and deletes files copied to the destination folder. Fingerprints and scan data are preserved so the next run skips straight to enrichment. This cannot be undone.
+                        This clears every song&apos;s enrichment, lyrics, duplicate flags, and library-build state, and deletes files copied to the destination folder. Fingerprints and scan data are preserved so the next run skips straight to enrichment. This runs in the background — you can navigate away and the progress will be here when you come back. This cannot be undone.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -345,9 +372,9 @@ export default function SettingsPage() {
                     <Button
                       variant="destructive"
                       className="gap-2 shrink-0"
-                      disabled={purgeMode !== null}
+                      disabled={purgeRunning}
                     >
-                      {purgeMode === "all" ? (
+                      {purgeRunning && purgeSnapshot?.mode === "all" ? (
                         <Loader2 className="size-4 animate-spin" />
                       ) : (
                         <Trash2 className="size-4" />
@@ -359,7 +386,7 @@ export default function SettingsPage() {
                     <AlertDialogHeader>
                       <AlertDialogTitle>Purge all data?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        This deletes every song record, provider attempt, and cached Spotify match, and removes files that were copied to the destination folder. Source files are not affected. This cannot be undone.
+                        This deletes every song record, provider attempt, and cached Spotify match, and removes files that were copied to the destination folder. Source files are not affected. This runs in the background — you can navigate away and the progress will be here when you come back. This cannot be undone.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -372,35 +399,87 @@ export default function SettingsPage() {
                 </AlertDialog>
               </div>
 
-              {purgeResult && (
+              {purgeStartError && (
                 <div className="px-6 pb-6 pt-4">
-                  {purgeResult.success ? (
-                    <div className="flex items-start gap-2 rounded-lg border border-[#1DB954]/50 bg-[#1DB954]/10 px-4 py-3 text-sm text-[#1DB954]">
-                      <CheckCircle2 className="size-4 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-medium">
-                          {purgeResult.mode === "post-fingerprint"
-                            ? "Reset enrichment data complete"
-                            : "Purged all data"}
-                        </p>
-                        <p className="text-xs opacity-90">
-                          {purgeResult.mode === "post-fingerprint"
-                            ? `Reset ${purgeResult.result.songsAffected.toLocaleString()} songs, deleted ${purgeResult.result.filesDeleted.toLocaleString()} destination files, cleared ${purgeResult.result.spotifyMatchesCleared.toLocaleString()} Spotify matches.`
-                            : `Deleted ${purgeResult.result.songsAffected.toLocaleString()} songs, removed ${purgeResult.result.filesDeleted.toLocaleString()} destination files, cleared ${purgeResult.result.spotifyMatchesCleared.toLocaleString()} Spotify matches.`}
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                      <AlertCircle className="size-4 shrink-0 mt-0.5" />
-                      <p>{purgeResult.message}</p>
-                    </div>
-                  )}
+                  <div className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                    <AlertCircle className="size-4 shrink-0 mt-0.5" />
+                    <p>{purgeStartError}</p>
+                  </div>
+                </div>
+              )}
+
+              {purgeSnapshot && purgeSnapshot.status !== "idle" && (
+                <div className="px-6 pb-6 pt-4">
+                  <PurgeStatusBanner snapshot={purgeSnapshot} />
                 </div>
               )}
             </div>
           </section>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function PurgeStatusBanner({ snapshot }: { snapshot: PurgeSnapshot }) {
+  const modeLabel = snapshot.mode === "post-fingerprint" ? "Reset enrichment data" : "Purge all data"
+
+  if (snapshot.status === "running") {
+    const songsPct = snapshot.songsTotal > 0 ? (snapshot.songsProcessed / snapshot.songsTotal) * 100 : 0
+    const filesPct =
+      snapshot.filesTotal > 0
+        ? ((snapshot.filesDeleted + snapshot.filesFailed) / snapshot.filesTotal) * 100
+        : 0
+    const overallPct = snapshot.filesTotal > 0 ? filesPct : songsPct
+
+    return (
+      <div className="flex items-start gap-2 rounded-lg border border-border bg-secondary/30 px-4 py-3 text-sm">
+        <Loader2 className="size-4 shrink-0 mt-0.5 animate-spin text-muted-foreground" />
+        <div className="flex-1 min-w-0">
+          <p className="font-medium">{modeLabel} running…</p>
+          <p className="text-xs text-muted-foreground">
+            {snapshot.filesTotal > 0
+              ? `${snapshot.filesDeleted.toLocaleString()} / ${snapshot.filesTotal.toLocaleString()} destination files deleted${snapshot.filesFailed > 0 ? ` (${snapshot.filesFailed.toLocaleString()} failed)` : ""}.`
+              : `Preparing ${snapshot.songsTotal.toLocaleString()} songs…`}
+          </p>
+          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+            <div
+              className="h-full rounded-full bg-primary transition-[width] duration-300"
+              style={{ width: `${Math.min(100, overallPct).toFixed(1)}%` }}
+            />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (snapshot.status === "completed") {
+    const prefix = snapshot.mode === "post-fingerprint" ? "Reset" : "Deleted"
+    return (
+      <div className="flex items-start gap-2 rounded-lg border border-[#1DB954]/50 bg-[#1DB954]/10 px-4 py-3 text-sm text-[#1DB954]">
+        <CheckCircle2 className="size-4 shrink-0 mt-0.5" />
+        <div>
+          <p className="font-medium">{modeLabel} complete</p>
+          <p className="text-xs opacity-90">
+            {`${prefix} ${snapshot.songsProcessed.toLocaleString()} songs, removed ${snapshot.filesDeleted.toLocaleString()} destination files, cleared ${snapshot.spotifyMatchesCleared.toLocaleString()} Spotify matches.`}
+          </p>
+          {snapshot.filesFailed > 0 && (
+            <p className="text-xs opacity-90 mt-1">
+              {snapshot.filesFailed.toLocaleString()} file{snapshot.filesFailed === 1 ? "" : "s"} could not be deleted (see server logs).
+            </p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // failed
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+      <AlertCircle className="size-4 shrink-0 mt-0.5" />
+      <div>
+        <p className="font-medium">{modeLabel} failed</p>
+        <p className="text-xs opacity-90">{snapshot.error ?? "Unknown error — check server logs."}</p>
       </div>
     </div>
   )
