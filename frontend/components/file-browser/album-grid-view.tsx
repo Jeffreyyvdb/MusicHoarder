@@ -127,6 +127,7 @@ export function AlbumGridView({
 }
 
 function AlbumCard({ album }: { album: AlbumSummary }) {
+  const coverUrl = album.coverUrl
   return (
     <Link
       href={`/app?album=${encodeURIComponent(album.key)}`}
@@ -134,9 +135,10 @@ function AlbumCard({ album }: { album: AlbumSummary }) {
       aria-label={`Open album ${album.title} by ${album.artist}`}
     >
       <div className="relative aspect-square overflow-hidden rounded-lg border border-border bg-gradient-to-br from-secondary to-muted shadow-sm transition-all group-hover:border-primary/40 group-hover:shadow-md">
-        {album.coverUrl ? (
+        {coverUrl ? (
           <img
-            src={album.coverUrl}
+            key={coverUrl}
+            src={coverUrl}
             alt=""
             loading="lazy"
             className="size-full object-cover transition-transform group-hover:scale-[1.02]"
@@ -149,7 +151,7 @@ function AlbumCard({ album }: { album: AlbumSummary }) {
         <div
           className={cn(
             "pointer-events-none absolute inset-0 flex items-center justify-center",
-            album.coverUrl && "opacity-0"
+            coverUrl && "opacity-0"
           )}
         >
           <span className="text-3xl font-semibold tracking-wide text-muted-foreground/60">
