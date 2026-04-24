@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -38,9 +38,9 @@ public class PipelinePurgeServiceTests
         });
         await db.SaveChangesAsync();
 
-        var service = CreateService(db, fileSystem);
+        var (service, tracker) = CreateService(db, fileSystem);
 
-        var result = await service.ResetPostFingerprintAsync();
+        var result = await service.ResetPostFingerprintAsync(Guid.NewGuid());
 
         Assert.Equal(1, result.SongsAffected);
         Assert.Equal(1, result.FilesDeleted);
@@ -56,6 +56,16 @@ public class PipelinePurgeServiceTests
         Assert.Empty(reloaded.ProviderAttempts);
         Assert.False(fileSystem.File.Exists(destinationPath));
         Assert.Empty(await db.SpotifyTrackLibraryMatches.ToListAsync());
+
+        var snapshot = tracker.Get();
+        Assert.Equal("completed", snapshot.Status);
+        Assert.Equal("post-fingerprint", snapshot.Mode);
+        Assert.Equal(1, snapshot.SongsTotal);
+        Assert.Equal(1, snapshot.SongsProcessed);
+        Assert.Equal(1, snapshot.FilesTotal);
+        Assert.Equal(1, snapshot.FilesDeleted);
+        Assert.Equal(0, snapshot.FilesFailed);
+        Assert.Equal(1, snapshot.SpotifyMatchesCleared);
     }
 
     [Fact]
@@ -71,9 +81,9 @@ public class PipelinePurgeServiceTests
         db.Songs.AddRange(activeSong, deletedSong);
         await db.SaveChangesAsync();
 
-        var service = CreateService(db, fileSystem);
+        var (service, _) = CreateService(db, fileSystem);
 
-        var result = await service.ResetPostFingerprintAsync();
+        var result = await service.ResetPostFingerprintAsync(Guid.NewGuid());
 
         Assert.Equal(1, result.SongsAffected);
 
@@ -116,9 +126,9 @@ public class PipelinePurgeServiceTests
         });
         await db.SaveChangesAsync();
 
-        var service = CreateService(db, fileSystem);
+        var (service, tracker) = CreateService(db, fileSystem);
 
-        var result = await service.PurgeAllAsync();
+        var result = await service.PurgeAllAsync(Guid.NewGuid());
 
         Assert.Equal(2, result.SongsAffected);
         Assert.Equal(1, result.FilesDeleted);
@@ -127,6 +137,11 @@ public class PipelinePurgeServiceTests
         Assert.Empty(await db.SongProviderAttempts.ToListAsync());
         Assert.Empty(await db.SpotifyTrackLibraryMatches.ToListAsync());
         Assert.False(fileSystem.File.Exists(destinationPath));
+
+        var snapshot = tracker.Get();
+        Assert.Equal("completed", snapshot.Status);
+        Assert.Equal("all", snapshot.Mode);
+        Assert.Equal(2, snapshot.SongsTotal);
     }
 
     [Fact]
@@ -140,15 +155,151 @@ public class PipelinePurgeServiceTests
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var service = CreateService(db, fileSystem);
+        var (service, _) = CreateService(db, fileSystem);
 
-        var result = await service.ResetPostFingerprintAsync();
+        var result = await service.ResetPostFingerprintAsync(Guid.NewGuid());
 
         Assert.Equal(1, result.SongsAffected);
         Assert.Equal(1, result.FilesDeleted);
+        Assert.Equal(0, result.FilesFailed);
     }
 
-    private static PipelinePurgeService CreateService(MusicHoarderDbContext db, IFileSystem fileSystem)
+    [Fact]
+    public async Task ResetPostFingerprint_CountsUnexpectedFilesystemErrorsAsFailed()
+    {
+        var destinationPath = "/dest/Artist/Album/01 - Track.mp3";
+
+        await using var db = CreateDbContext();
+        var song = CreateEnrichedSong("/src/track.mp3");
+        song.MarkBuildDone(destinationPath);
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
+        {
+            SourceDirectory = "/source",
+            DestinationDirectory = "/dest",
+        });
+        var tracker = new PurgeStatusTracker();
+        var service = new PipelinePurgeService(
+            db,
+            options,
+            new ThrowingCleaner(),
+            new JobManager(),
+            tracker,
+            NullLogger<PipelinePurgeService>.Instance);
+
+        var result = await service.ResetPostFingerprintAsync(Guid.NewGuid());
+
+        Assert.Equal(1, result.SongsAffected);
+        Assert.Equal(0, result.FilesDeleted);
+        Assert.Equal(1, result.FilesFailed);
+
+        // DB state is still reset so the next run can re-enrich.
+        var reloaded = await db.Songs.SingleAsync();
+        Assert.Equal(EnrichmentStatus.Pending, reloaded.EnrichmentStatus);
+
+        var snapshot = tracker.Get();
+        Assert.Equal(1, snapshot.FilesFailed);
+    }
+
+    [Fact]
+    public async Task ResetPostFingerprint_PausesAllStepsAndResumesAfter()
+    {
+        var fileSystem = new MockFileSystem();
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateEnrichedSong("/src/track.mp3"));
+        await db.SaveChangesAsync();
+
+        var jobManager = new JobManager();
+        var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
+        {
+            SourceDirectory = "/source",
+            DestinationDirectory = "/dest",
+        });
+        var service = new PipelinePurgeService(
+            db,
+            options,
+            new LibraryDestinationCleaner(fileSystem),
+            jobManager,
+            new PurgeStatusTracker(),
+            NullLogger<PipelinePurgeService>.Instance);
+
+        await service.ResetPostFingerprintAsync(Guid.NewGuid());
+
+        foreach (var step in new[] { JobType.Scan, JobType.Fingerprint, JobType.Enrich, JobType.Build })
+        {
+            Assert.False(jobManager.IsStepPaused(step), $"{step} should be resumed after purge completes.");
+        }
+    }
+
+    [Fact]
+    public async Task ResetPostFingerprint_DeletesFilesInParallelWithoutLosingCounts()
+    {
+        // Parallel.ForEachAsync over a real temp directory — MockFileSystem is not thread-safe,
+        // and we want to prove prune-races between threads don't corrupt counts or orphan files.
+        var tempRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"musichoarder-purge-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var filePaths = new List<string>();
+            for (var i = 0; i < 32; i++)
+            {
+                var album = System.IO.Path.Combine(tempRoot, "Artist", $"Album{i / 4}");
+                Directory.CreateDirectory(album);
+                var file = System.IO.Path.Combine(album, $"{i:00} - Track.mp3");
+                await File.WriteAllTextAsync(file, "audio-bytes");
+                filePaths.Add(file);
+            }
+
+            await using var db = CreateDbContext();
+            for (var i = 0; i < filePaths.Count; i++)
+            {
+                var song = CreateEnrichedSong($"/src/track-{i}.mp3");
+                song.MarkBuildDone(filePaths[i]);
+                db.Songs.Add(song);
+            }
+            await db.SaveChangesAsync();
+
+            var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
+            {
+                SourceDirectory = "/source",
+                DestinationDirectory = tempRoot,
+            });
+            var cleaner = new LibraryDestinationCleaner(new FileSystem());
+            var service = new PipelinePurgeService(
+                db,
+                options,
+                cleaner,
+                new JobManager(),
+                new PurgeStatusTracker(),
+                NullLogger<PipelinePurgeService>.Instance);
+
+            var result = await service.ResetPostFingerprintAsync(Guid.NewGuid());
+
+            Assert.Equal(filePaths.Count, result.SongsAffected);
+            Assert.Equal(filePaths.Count, result.FilesDeleted);
+            Assert.Equal(0, result.FilesFailed);
+            foreach (var path in filePaths)
+            {
+                Assert.False(File.Exists(path), $"{path} should be deleted");
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    private sealed class ThrowingCleaner : ILibraryDestinationCleaner
+    {
+        public void DeleteManagedPathAndPrune(string path, string destinationRoot)
+            => throw new IOException("simulated permission error");
+    }
+
+    private static (PipelinePurgeService service, PurgeStatusTracker tracker) CreateService(
+        MusicHoarderDbContext db,
+        IFileSystem fileSystem)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
@@ -156,11 +307,15 @@ public class PipelinePurgeServiceTests
             DestinationDirectory = "/dest",
         });
         var cleaner = new LibraryDestinationCleaner(fileSystem);
-        return new PipelinePurgeService(
+        var tracker = new PurgeStatusTracker();
+        var service = new PipelinePurgeService(
             db,
             options,
             cleaner,
+            new JobManager(),
+            tracker,
             NullLogger<PipelinePurgeService>.Instance);
+        return (service, tracker);
     }
 
     private static SongMetadata CreateEnrichedSong(string sourcePath)
