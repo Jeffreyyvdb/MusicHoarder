@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
-import { Analytics } from '@vercel/analytics/next'
 import { Toaster } from '@/components/ui/sonner'
 import { ThemeProvider } from '@/components/theme-provider'
 import { PlayerProviderWrapper } from '@/components/player/player-provider-wrapper'
@@ -88,7 +87,6 @@ export default function RootLayout({
             {children}
           </PlayerProviderWrapper>
           <Toaster position="top-center" richColors closeButton />
-          <Analytics />
           <UmamiAnalytics />
         </ThemeProvider>
       </body>

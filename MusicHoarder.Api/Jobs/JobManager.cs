@@ -2,7 +2,7 @@ using System.Threading.Channels;
 
 namespace MusicHoarder.Api.Jobs;
 
-public enum JobType { None, Scan, Fingerprint, Enrich, Build }
+public enum JobType { None, Scan, Fingerprint, Enrich, Build, Purge }
 
 public enum JobRunStatus { Idle, Running, Completed, Cancelled, Failed }
 
@@ -50,6 +50,7 @@ public class JobManager
         [JobType.Fingerprint] = new(),
         [JobType.Enrich] = new(),
         [JobType.Build] = new(),
+        [JobType.Purge] = new(),
     };
 
     private readonly Channel<Guid> _scanChannel =
@@ -104,7 +105,9 @@ public class JobManager
             cancellationToken = step.Cts!.Token;
         }
 
-        GetChannel(jobType).Writer.TryWrite(jobId);
+        // Purge is not driven by the auto-trigger channel — the endpoint kicks off its own Task.
+        if (jobType != JobType.Purge)
+            GetChannel(jobType).Writer.TryWrite(jobId);
         return true;
     }
 
