@@ -73,16 +73,14 @@ export function AppSidebar() {
 
   useEffect(() => {
     let cancelled = false
+    // Decouple the two fetches so a transient failure on one endpoint does
+    // not wipe the other's contribution to the sidebar (path captions vs
+    // Library Size footer are independent).
     void (async () => {
-      try {
-        const [ov, st] = await Promise.all([fetchOverview(), fetchStats()])
-        if (!cancelled) {
-          setOverview(ov)
-          setStats(st)
-        }
-      } catch {
-        // Silently ignore — sidebar captions are a progressive enhancement.
-      }
+      const [ovRes, stRes] = await Promise.allSettled([fetchOverview(), fetchStats()])
+      if (cancelled) return
+      if (ovRes.status === "fulfilled") setOverview(ovRes.value)
+      if (stRes.status === "fulfilled") setStats(stRes.value)
     })()
     return () => {
       cancelled = true
@@ -183,18 +181,16 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      {(totalBytes !== null || totalTracks !== null) && (
+      {totalBytes !== null && (
         <SidebarFooter className="group-data-[collapsible=icon]:hidden">
           <div className="rounded-lg bg-sidebar-accent/60 p-3">
             <div className="flex items-center gap-2 text-sm">
               <FolderOpen className="size-4 text-primary" />
               <span className="font-medium">Library Size</span>
             </div>
-            {totalBytes !== null && (
-              <p className="mt-1 text-2xl font-bold">
-                {formatLibrarySize(totalBytes)}
-              </p>
-            )}
+            <p className="mt-1 text-2xl font-bold">
+              {formatLibrarySize(totalBytes)}
+            </p>
             {totalTracks !== null && (
               <p className="text-xs text-muted-foreground">
                 {totalTracks.toLocaleString()} tracks total

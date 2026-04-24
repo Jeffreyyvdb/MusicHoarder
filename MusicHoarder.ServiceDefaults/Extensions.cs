@@ -108,16 +108,23 @@ public static class Extensions
 
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
-        // Exposed in every environment so Docker / Dokploy healthchecks can gate
-        // zero-downtime rollouts. The liveness check is intentionally cheap and
-        // does not leak dependency state — see the "live" tag filter below.
-        // Reference: https://aka.ms/dotnet/aspire/healthchecks
-        app.MapHealthChecks(HealthEndpointPath);
-
+        // /alive is exposed in every environment so Docker / Dokploy healthchecks
+        // can gate zero-downtime rollouts. It is tag-filtered to "live" checks so
+        // any dependency check added later cannot leak state through it.
         app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
         {
             Predicate = r => r.Tags.Contains("live")
         });
+
+        // /health runs every registered check (including any future dependency
+        // checks) and is only safe in Development. Keep it guarded so an
+        // innocuous AddDbContextCheck / provider-reachability check added later
+        // does not become an anonymous infra probe in production.
+        // Reference: https://aka.ms/dotnet/aspire/healthchecks
+        if (app.Environment.IsDevelopment())
+        {
+            app.MapHealthChecks(HealthEndpointPath);
+        }
 
         return app;
     }
