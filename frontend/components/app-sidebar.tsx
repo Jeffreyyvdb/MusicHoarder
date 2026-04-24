@@ -72,11 +72,11 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild tooltip="MusicHoarder">
               <Link href="/overview">
-                <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                <div className="flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                   <Music className="size-4" />
                 </div>
-                <div className="flex min-w-0 flex-col leading-tight">
-                  <span className="truncate font-semibold">MusicHoarder</span>
+                <div className="grid min-w-0 flex-1 text-left leading-tight">
+                  <span className="truncate text-sm font-semibold">MusicHoarder</span>
                   <span className="truncate text-xs text-muted-foreground">
                     Library manager
                   </span>
