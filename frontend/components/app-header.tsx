@@ -26,7 +26,7 @@ export function AppHeader() {
         />
       </div>
 
-      <ThemeToggle variant="ghost" />
+      <ThemeToggle />
     </header>
   )
 }
