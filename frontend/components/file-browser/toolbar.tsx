@@ -11,7 +11,6 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import type { LibraryPathMode } from "@/lib/api-client"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,8 +39,6 @@ interface ToolbarProps {
   onSortByChange: (value: LibrarySortBy) => void
   onSortDirectionChange: (value: LibrarySortDirection) => void
   onFilterByChange: (value: LibraryFilterBy) => void
-  libraryMode: LibraryPathMode
-  onLibraryModeChange: (mode: LibraryPathMode) => void
   onRefresh: () => void
   isRefreshing: boolean
 }
@@ -57,8 +54,6 @@ export function Toolbar({
   onSortByChange,
   onSortDirectionChange,
   onFilterByChange,
-  libraryMode,
-  onLibraryModeChange,
   onRefresh,
   isRefreshing,
 }: ToolbarProps) {
@@ -114,25 +109,6 @@ export function Toolbar({
           onClick={() => onViewModeChange("list")}
         >
           <List className="size-4" />
-        </Button>
-      </div>
-
-      <div className="hidden shrink-0 items-center gap-1 rounded-lg bg-secondary p-1 sm:flex">
-        <Button
-          variant="ghost"
-          size="sm"
-          className={cn("h-7 px-2 text-xs", libraryMode === "destination" && "bg-background shadow-sm")}
-          onClick={() => onLibraryModeChange("destination")}
-        >
-          Destination
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className={cn("h-7 px-2 text-xs", libraryMode === "source" && "bg-background shadow-sm")}
-          onClick={() => onLibraryModeChange("source")}
-        >
-          Source
         </Button>
       </div>
 

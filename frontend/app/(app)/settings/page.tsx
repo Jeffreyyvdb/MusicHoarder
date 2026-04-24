@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { AppHeader } from "@/components/app-header"
+import { AppShell } from "@/components/app-shell"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -150,9 +150,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-background">
-      <AppHeader />
-
+    <AppShell>
       <div className="flex-1 overflow-auto">
         <div className="mx-auto max-w-2xl p-6 md:p-8">
           <div className="flex items-center gap-3 mb-8">
@@ -417,7 +415,7 @@ export default function SettingsPage() {
           </section>
         </div>
       </div>
-    </div>
+    </AppShell>
   )
 }
 

@@ -2,7 +2,7 @@
 
 import { useState, use } from "react"
 import Link from "next/link"
-import { AppHeader } from "@/components/app-header"
+import { AppShell } from "@/components/app-shell"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
@@ -229,12 +229,11 @@ export default function ArtistDiscographyPage({
 
   if (!artist) {
     return (
-      <div className="flex h-screen flex-col bg-background">
-        <AppHeader />
+      <AppShell>
         <div className="flex flex-1 items-center justify-center">
           <p className="text-muted-foreground">Artist not found</p>
         </div>
-      </div>
+      </AppShell>
     )
   }
 
@@ -247,9 +246,7 @@ export default function ArtistDiscographyPage({
   const albumsMissing = discography.filter((a) => a.tracksOwned === 0).length
 
   return (
-    <div className="flex h-screen flex-col bg-background">
-      <AppHeader />
-
+    <AppShell>
       <ScrollArea className="min-h-0 flex-1">
         <div className="p-4 md:p-6">
           {/* Back Button */}
@@ -393,6 +390,6 @@ export default function ArtistDiscographyPage({
           </Tabs>
         </div>
       </ScrollArea>
-    </div>
+    </AppShell>
   )
 }
