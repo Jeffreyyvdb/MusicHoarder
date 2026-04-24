@@ -679,7 +679,7 @@ function SpotifyPageContent() {
             <div className="mx-auto mb-6 flex size-20 items-center justify-center rounded-full bg-[#1DB954]/10">
               <Music className="size-10 text-[#1DB954]" />
             </div>
-            <h2 className="text-2xl font-bold mb-2">Connect Spotify</h2>
+            <h1 className="text-2xl font-bold mb-2">Connect Spotify</h1>
             <p className="text-muted-foreground mb-8">
               Link your Spotify account to browse your playlists and liked songs.
             </p>
