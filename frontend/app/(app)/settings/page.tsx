@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { AppShell } from "@/components/app-shell"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -122,7 +123,8 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <AppShell>
+      <div className="flex-1 overflow-auto">
         <div className="mx-auto max-w-2xl p-6 md:p-8">
           <div className="flex items-center gap-3 mb-8">
             <div className="flex size-10 items-center justify-center rounded-lg bg-secondary">
@@ -397,6 +399,7 @@ export default function SettingsPage() {
             </div>
           </section>
         </div>
-    </div>
+      </div>
+    </AppShell>
   )
 }

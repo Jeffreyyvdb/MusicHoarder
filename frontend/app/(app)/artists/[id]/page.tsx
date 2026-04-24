@@ -2,6 +2,7 @@
 
 import { useState, use } from "react"
 import Link from "next/link"
+import { AppShell } from "@/components/app-shell"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
@@ -228,9 +229,11 @@ export default function ArtistDiscographyPage({
 
   if (!artist) {
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <p className="text-muted-foreground">Artist not found</p>
-      </div>
+      <AppShell>
+        <div className="flex flex-1 items-center justify-center">
+          <p className="text-muted-foreground">Artist not found</p>
+        </div>
+      </AppShell>
     )
   }
 
@@ -243,7 +246,8 @@ export default function ArtistDiscographyPage({
   const albumsMissing = discography.filter((a) => a.tracksOwned === 0).length
 
   return (
-    <ScrollArea className="min-h-0 flex-1">
+    <AppShell>
+      <ScrollArea className="min-h-0 flex-1">
         <div className="p-4 md:p-6">
           {/* Back Button */}
           <Link
@@ -386,5 +390,6 @@ export default function ArtistDiscographyPage({
           </Tabs>
         </div>
       </ScrollArea>
+    </AppShell>
   )
 }

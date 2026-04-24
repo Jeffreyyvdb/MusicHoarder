@@ -1,21 +1,21 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import {
-  Music,
-  LayoutDashboard,
-  FolderOpen,
   FileWarning,
-  Users,
+  FolderOpen,
+  LayoutDashboard,
+  Music,
   Music2,
   Settings,
+  Users,
 } from "lucide-react"
+
 import { cn } from "@/lib/utils"
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -23,7 +23,19 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
+  SidebarRail,
 } from "@/components/ui/sidebar"
+
+type LibraryView = "albums" | "source" | "destination"
+
+const libraryViews: { value: LibraryView; label: string }[] = [
+  { value: "albums", label: "Albums" },
+  { value: "source", label: "Source" },
+  { value: "destination", label: "Destination" },
+]
 
 const navItems = [
   { href: "/overview", label: "Overview", icon: LayoutDashboard },
@@ -31,6 +43,7 @@ const navItems = [
   { href: "/artists", label: "Artists", icon: Users },
   { href: "/spotify", label: "Spotify", icon: Music2 },
   { href: "/review", label: "Review", icon: FileWarning },
+  { href: "/settings", label: "Settings", icon: Settings },
 ]
 
 const enrichmentSources: { name: string; color: string }[] = [
@@ -43,30 +56,35 @@ const enrichmentSources: { name: string; color: string }[] = [
   { name: "Cover Art Archive", color: "bg-fuchsia-500" },
 ]
 
-function isNavActive(pathname: string, href: string) {
-  if (href === "/app") {
-    return pathname === "/app" || pathname.startsWith("/app/")
-  }
-  return pathname.startsWith(href)
-}
-
 export function AppSidebar() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const onLibrary =
+    pathname === "/app" || pathname.startsWith("/app/")
+  const activeLibraryView: LibraryView = onLibrary
+    ? ((searchParams.get("view") as LibraryView | null) ?? "albums")
+    : "albums"
 
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <Link href="/overview" className="flex items-center gap-2 px-2 py-1.5">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary">
-            <Music className="size-4 text-primary-foreground" />
-          </div>
-          <div className="flex min-w-0 flex-col group-data-[collapsible=icon]:hidden">
-            <span className="truncate text-sm font-semibold leading-tight">MusicHoarder</span>
-            <span className="truncate text-xs text-muted-foreground leading-tight">
-              Library manager
-            </span>
-          </div>
-        </Link>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton size="lg" asChild tooltip="MusicHoarder">
+              <Link href="/overview">
+                <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                  <Music className="size-4" />
+                </div>
+                <div className="flex min-w-0 flex-col leading-tight">
+                  <span className="truncate font-semibold">MusicHoarder</span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    Library manager
+                  </span>
+                </div>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarHeader>
 
       <SidebarContent>
@@ -74,20 +92,48 @@ export function AppSidebar() {
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navItems.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={isNavActive(pathname, item.href)}
-                    tooltip={item.label}
-                  >
-                    <Link href={item.href}>
-                      <item.icon />
-                      <span>{item.label}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {navItems.map((item) => {
+                const isActive =
+                  item.href === "/app"
+                    ? onLibrary
+                    : pathname.startsWith(item.href)
+
+                return (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive}
+                      tooltip={item.label}
+                    >
+                      <Link href={item.href}>
+                        <item.icon className="size-4" />
+                        <span>{item.label}</span>
+                      </Link>
+                    </SidebarMenuButton>
+
+                    {item.href === "/app" && onLibrary && (
+                      <SidebarMenuSub>
+                        {libraryViews.map((view) => {
+                          const href =
+                            view.value === "albums"
+                              ? "/app"
+                              : `/app?view=${view.value}`
+                          return (
+                            <SidebarMenuSubItem key={view.value}>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={activeLibraryView === view.value}
+                              >
+                                <Link href={href}>{view.label}</Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          )
+                        })}
+                      </SidebarMenuSub>
+                    )}
+                  </SidebarMenuItem>
+                )
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -113,22 +159,7 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              asChild
-              isActive={isNavActive(pathname, "/settings")}
-              tooltip="Settings"
-            >
-              <Link href="/settings">
-                <Settings />
-                <span>Settings</span>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarFooter>
+      <SidebarRail />
     </Sidebar>
   )
 }
