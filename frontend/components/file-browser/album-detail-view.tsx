@@ -104,6 +104,7 @@ export function AlbumDetailView({
     0
   )
   const initials = computeInitials(title)
+  const coverUrl = albumSongs.find((s) => s.albumArt)?.albumArt ?? null
 
   const playFirst = () => {
     const target = albumSongs[0]
@@ -128,11 +129,22 @@ export function AlbumDetailView({
 
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-6">
           <div className="relative aspect-square w-40 shrink-0 overflow-hidden rounded-lg border border-border bg-gradient-to-br from-secondary to-muted shadow-sm sm:w-48">
-            <div className="flex size-full items-center justify-center">
-              <span className="text-4xl font-semibold tracking-wide text-muted-foreground/60">
-                {initials}
-              </span>
-            </div>
+            {coverUrl ? (
+              <img
+                src={coverUrl}
+                alt=""
+                className="size-full object-cover"
+                onError={(e) => {
+                  ;(e.currentTarget as HTMLImageElement).style.display = "none"
+                }}
+              />
+            ) : (
+              <div className="flex size-full items-center justify-center">
+                <span className="text-4xl font-semibold tracking-wide text-muted-foreground/60">
+                  {initials}
+                </span>
+              </div>
+            )}
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
