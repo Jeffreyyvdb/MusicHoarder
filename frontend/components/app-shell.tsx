@@ -3,11 +3,11 @@
 import { Suspense } from "react"
 
 import { cn } from "@/lib/utils"
+import { AppHeader } from "@/components/app-header"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   SidebarInset,
   SidebarProvider,
-  SidebarTrigger,
 } from "@/components/ui/sidebar"
 
 type AppShellProps = {
@@ -22,9 +22,7 @@ export function AppShell({ children, className }: AppShellProps) {
         <AppSidebar />
       </Suspense>
       <SidebarInset className={cn("h-svh bg-background", className)}>
-        <div className="sticky top-0 z-20 flex h-12 items-center gap-2 border-b border-border bg-background/80 px-3 backdrop-blur-sm md:hidden">
-          <SidebarTrigger />
-        </div>
+        <AppHeader />
         {children}
       </SidebarInset>
     </SidebarProvider>

@@ -6,11 +6,14 @@ import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
+type ThemeToggleVariant = "outline" | "ghost"
+
 type ThemeToggleProps = {
   className?: string
+  variant?: ThemeToggleVariant
 }
 
-export function ThemeToggle({ className }: ThemeToggleProps) {
+export function ThemeToggle({ className, variant = "outline" }: ThemeToggleProps) {
   const { setTheme, resolvedTheme } = useTheme()
   const [mounted, setMounted] = React.useState(false)
 
@@ -18,12 +21,18 @@ export function ThemeToggle({ className }: ThemeToggleProps) {
     setMounted(true)
   }, [])
 
+  const sizeClasses = variant === "ghost" ? "size-9" : "size-9 shrink-0"
+  const outlineClasses =
+    variant === "outline"
+      ? "border-border bg-background/80 backdrop-blur-sm shadow-sm hover:bg-accent"
+      : ""
+
   if (!mounted) {
     return (
       <Button
-        variant="outline"
+        variant={variant}
         size="icon"
-        className={cn("size-9 shrink-0 border-border bg-background/80 backdrop-blur-sm", className)}
+        className={cn(sizeClasses, outlineClasses, className)}
         disabled
         aria-hidden
         tabIndex={-1}
@@ -38,12 +47,9 @@ export function ThemeToggle({ className }: ThemeToggleProps) {
   return (
     <Button
       type="button"
-      variant="outline"
+      variant={variant}
       size="icon"
-      className={cn(
-        "size-9 shrink-0 border-border bg-background/80 backdrop-blur-sm shadow-sm transition-colors hover:bg-accent",
-        className
-      )}
+      className={cn(sizeClasses, outlineClasses, "transition-colors", className)}
       onClick={() => setTheme(isDark ? "light" : "dark")}
       aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
       title={isDark ? "Light mode" : "Dark mode"}
