@@ -27,7 +27,7 @@ import {
   Zap,
 } from "lucide-react"
 import Link from "next/link"
-import { AppHeader } from "@/components/app-header"
+import { AppShell } from "@/components/app-shell"
 import {
   fetchOverview,
   triggerEnrichmentScan,
@@ -193,9 +193,7 @@ export default function OverviewPage() {
   const enrichPaused = enrichSnap?.isPaused ?? false
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
-      <AppHeader />
-
+    <AppShell className="h-auto min-h-svh">
       <main className="flex-1 p-4 md:p-6 lg:p-8">
         <div className="mx-auto max-w-7xl space-y-6">
           {/* Page Header */}
@@ -445,7 +443,7 @@ export default function OverviewPage() {
           </div>
         </div>
       </main>
-    </div>
+    </AppShell>
   )
 }
 

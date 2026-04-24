@@ -46,7 +46,7 @@ import {
   softDeleteSong,
   bulkApprove,
 } from "@/lib/api-client"
-import { AppHeader } from "@/components/app-header"
+import { AppShell } from "@/components/app-shell"
 
 interface MetadataEdits {
   artist?: string
@@ -337,22 +337,20 @@ export default function ReviewPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen flex-col bg-background">
-        <AppHeader />
+      <AppShell>
         <main className="flex flex-1 items-center justify-center p-4">
           <div className="flex flex-col items-center gap-4">
             <Loader2 className="size-8 animate-spin text-primary" />
             <p className="text-muted-foreground">Loading tracks for review...</p>
           </div>
         </main>
-      </div>
+      </AppShell>
     )
   }
 
   if (error && tracks.length === 0) {
     return (
-      <div className="flex min-h-screen flex-col bg-background">
-        <AppHeader />
+      <AppShell>
         <main className="flex flex-1 items-center justify-center p-4">
           <Card className="max-w-md text-center">
             <CardContent className="p-8">
@@ -365,14 +363,13 @@ export default function ReviewPage() {
             </CardContent>
           </Card>
         </main>
-      </div>
+      </AppShell>
     )
   }
 
   if (tracks.length === 0) {
     return (
-      <div className="flex min-h-screen flex-col bg-background">
-        <AppHeader />
+      <AppShell>
         <main className="flex flex-1 items-center justify-center p-4">
           <Card className="max-w-md text-center">
             <CardContent className="p-8">
@@ -395,7 +392,7 @@ export default function ReviewPage() {
             </CardContent>
           </Card>
         </main>
-      </div>
+      </AppShell>
     )
   }
 
@@ -404,9 +401,7 @@ export default function ReviewPage() {
   ).length
 
   return (
-    <div className="flex h-screen flex-col bg-background">
-      <AppHeader />
-
+    <AppShell>
       <main className="flex flex-1 flex-col overflow-hidden">
         <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col overflow-hidden px-4 md:px-6">
           {/* Header */}
@@ -833,7 +828,7 @@ export default function ReviewPage() {
           </div>
         </div>
       </main>
-    </div>
+    </AppShell>
   )
 }
 
