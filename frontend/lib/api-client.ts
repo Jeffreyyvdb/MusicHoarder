@@ -795,31 +795,36 @@ export async function cancelJob(): Promise<{ message: string }> {
   return requestJson<{ message: string }>("/api/enrichment/cancel", { method: "POST" })
 }
 
-export interface PurgeResult {
-  songsAffected: number
+export type PurgeStatus = "idle" | "running" | "completed" | "failed"
+export type PurgeMode = "post-fingerprint" | "all"
+
+export interface PurgeSnapshot {
+  status: PurgeStatus
+  mode: PurgeMode | null
+  jobId: string | null
+  startedAt: string | null
+  completedAt: string | null
+  songsTotal: number
+  songsProcessed: number
+  filesTotal: number
   filesDeleted: number
+  filesFailed: number
   spotifyMatchesCleared: number
+  error: string | null
 }
 
-export type PurgeApiResult =
-  | { ok: true; result: PurgeResult }
+export type PurgeStartResult =
+  | { ok: true; jobId: string; mode: PurgeMode }
   | { ok: false; status: number; message: string }
 
-async function requestPurge(path: string): Promise<PurgeApiResult> {
+async function startPurge(path: string, mode: PurgeMode): Promise<PurgeStartResult> {
   const response = await fetch(`${API_PREFIX}${path}`, {
     method: "POST",
     cache: "no-store",
   })
   const body = (await response.json().catch(() => ({}))) as Record<string, unknown>
-  if (response.ok) {
-    return {
-      ok: true,
-      result: {
-        songsAffected: Number(body.songsAffected ?? 0),
-        filesDeleted: Number(body.filesDeleted ?? 0),
-        spotifyMatchesCleared: Number(body.spotifyMatchesCleared ?? 0),
-      },
-    }
+  if (response.status === 202) {
+    return { ok: true, jobId: String(body.jobId ?? ""), mode }
   }
   return {
     ok: false,
@@ -828,24 +833,43 @@ async function requestPurge(path: string): Promise<PurgeApiResult> {
   }
 }
 
-export async function purgePostFingerprint(): Promise<PurgeApiResult> {
+export async function purgePostFingerprint(): Promise<PurgeStartResult> {
   if (isDemoMode) {
-    return {
-      ok: true,
-      result: { songsAffected: 0, filesDeleted: 0, spotifyMatchesCleared: 0 },
-    }
+    return { ok: true, jobId: `demo-purge-${Date.now()}`, mode: "post-fingerprint" }
   }
-  return requestPurge("/api/enrichment/purge-post-fingerprint")
+  return startPurge("/api/enrichment/purge-post-fingerprint", "post-fingerprint")
 }
 
-export async function purgeAll(): Promise<PurgeApiResult> {
+export async function purgeAll(): Promise<PurgeStartResult> {
   if (isDemoMode) {
-    return {
-      ok: true,
-      result: { songsAffected: 0, filesDeleted: 0, spotifyMatchesCleared: 0 },
-    }
+    return { ok: true, jobId: `demo-purge-${Date.now()}`, mode: "all" }
   }
-  return requestPurge("/api/enrichment/purge-all")
+  return startPurge("/api/enrichment/purge-all", "all")
+}
+
+function toPurgeSnapshot(body: Record<string, unknown>): PurgeSnapshot {
+  return {
+    status: (body.status as PurgeStatus) ?? "idle",
+    mode: (body.mode as PurgeMode | null) ?? null,
+    jobId: (body.jobId as string | null) ?? null,
+    startedAt: (body.startedAt as string | null) ?? null,
+    completedAt: (body.completedAt as string | null) ?? null,
+    songsTotal: Number(body.songsTotal ?? 0),
+    songsProcessed: Number(body.songsProcessed ?? 0),
+    filesTotal: Number(body.filesTotal ?? 0),
+    filesDeleted: Number(body.filesDeleted ?? 0),
+    filesFailed: Number(body.filesFailed ?? 0),
+    spotifyMatchesCleared: Number(body.spotifyMatchesCleared ?? 0),
+    error: (body.error as string | null) ?? null,
+  }
+}
+
+export async function fetchPurgeStatus(): Promise<PurgeSnapshot> {
+  if (isDemoMode) {
+    return toPurgeSnapshot({ status: "idle" })
+  }
+  const body = await requestJson<Record<string, unknown>>("/api/enrichment/purge-status")
+  return toPurgeSnapshot(body)
 }
 
 export async function pauseStep(step: string): Promise<{ message: string }> {
