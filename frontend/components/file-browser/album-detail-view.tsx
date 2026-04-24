@@ -131,6 +131,7 @@ export function AlbumDetailView({
           <div className="relative aspect-square w-40 shrink-0 overflow-hidden rounded-lg border border-border bg-gradient-to-br from-secondary to-muted shadow-sm sm:w-48">
             {coverUrl ? (
               <img
+                key={coverUrl}
                 src={coverUrl}
                 alt=""
                 className="size-full object-cover"
