@@ -120,6 +120,9 @@ export interface ApiSong {
   sampleRate?: number | null
   /** Bitrate in kbps (e.g. 320, 1411). Shown in track details when present. */
   bitRate?: number | null
+  /** Optional album cover URL. Populated in demo mode; the real backend currently
+   * leaves this unset and the UI falls back to an initials tile. */
+  albumArt?: string | null
 }
 
 interface SongsResponse {
@@ -349,59 +352,378 @@ function demoPlainLyricsFromSynced(synced: string): string {
     .join("\n")
 }
 
+// Artist → factual list of real album titles. Titles are short and factual;
+// no lyrics, descriptions or creative content is reproduced.
+const DEMO_DISCOGRAPHY: { artist: string; albums: string[] }[] = [
+  {
+    artist: "Arctic Monkeys",
+    albums: [
+      "AM",
+      "Whatever People Say I Am, That's What I'm Not",
+      "Favourite Worst Nightmare",
+      "Humbug",
+      "Suck It and See",
+      "Tranquility Base Hotel & Casino",
+      "The Car",
+    ],
+  },
+  {
+    artist: "Tame Impala",
+    albums: ["Currents", "Lonerism", "Innerspeaker", "The Slow Rush"],
+  },
+  {
+    artist: "Tyler, the Creator",
+    albums: [
+      "Flower Boy",
+      "IGOR",
+      "Call Me If You Get Lost",
+      "Goblin",
+      "Wolf",
+      "Cherry Bomb",
+      "Chromakopia",
+    ],
+  },
+  {
+    artist: "Kendrick Lamar",
+    albums: [
+      "DAMN.",
+      "good kid, m.A.A.d city",
+      "To Pimp a Butterfly",
+      "Mr. Morale & the Big Steppers",
+      "Section.80",
+      "GNX",
+    ],
+  },
+  {
+    artist: "Billie Eilish",
+    albums: [
+      "When We All Fall Asleep, Where Do We Go?",
+      "Happier Than Ever",
+      "Hit Me Hard and Soft",
+      "Don't Smile at Me",
+    ],
+  },
+  {
+    artist: "Lana Del Rey",
+    albums: [
+      "Born to Die",
+      "Ultraviolence",
+      "Honeymoon",
+      "Lust for Life",
+      "Norman Fucking Rockwell!",
+      "Blue Banisters",
+      "Did You Know That There's a Tunnel Under Ocean Blvd",
+    ],
+  },
+  {
+    artist: "The Strokes",
+    albums: [
+      "Is This It",
+      "Room on Fire",
+      "First Impressions of Earth",
+      "Angles",
+      "Comedown Machine",
+      "The New Abnormal",
+    ],
+  },
+  {
+    artist: "MGMT",
+    albums: [
+      "Oracular Spectacular",
+      "Congratulations",
+      "MGMT",
+      "Little Dark Age",
+      "Loss of Life",
+    ],
+  },
+  {
+    artist: "Gorillaz",
+    albums: [
+      "Gorillaz",
+      "Demon Days",
+      "Plastic Beach",
+      "Humanz",
+      "The Now Now",
+      "Song Machine, Season One: Strange Timez",
+      "Cracker Island",
+    ],
+  },
+  {
+    artist: "LCD Soundsystem",
+    albums: [
+      "LCD Soundsystem",
+      "Sound of Silver",
+      "This Is Happening",
+      "American Dream",
+    ],
+  },
+  {
+    artist: "Phoenix",
+    albums: [
+      "Wolfgang Amadeus Phoenix",
+      "Bankrupt!",
+      "Ti Amo",
+      "Alpha Zulu",
+      "It's Never Been Like That",
+    ],
+  },
+  {
+    artist: "Vampire Weekend",
+    albums: [
+      "Vampire Weekend",
+      "Contra",
+      "Modern Vampires of the City",
+      "Father of the Bride",
+      "Only God Was Above Us",
+    ],
+  },
+  {
+    artist: "Arcade Fire",
+    albums: [
+      "Funeral",
+      "Neon Bible",
+      "The Suburbs",
+      "Reflektor",
+      "Everything Now",
+      "WE",
+    ],
+  },
+  {
+    artist: "Kanye West",
+    albums: [
+      "The College Dropout",
+      "Late Registration",
+      "Graduation",
+      "808s & Heartbreak",
+      "My Beautiful Dark Twisted Fantasy",
+      "Yeezus",
+      "The Life of Pablo",
+      "ye",
+      "Donda",
+    ],
+  },
+  {
+    artist: "Frank Ocean",
+    albums: ["Channel Orange", "Blonde", "Endless", "Nostalgia, Ultra"],
+  },
+  {
+    artist: "Childish Gambino",
+    albums: [
+      "Because the Internet",
+      "Awaken, My Love!",
+      "3.15.20",
+      "Camp",
+      "Atavista",
+      "Bando Stone & the New World",
+    ],
+  },
+  {
+    artist: "Anderson .Paak",
+    albums: ["Malibu", "Oxnard", "Ventura"],
+  },
+  {
+    artist: "Mac DeMarco",
+    albums: [
+      "2",
+      "Salad Days",
+      "Another One",
+      "This Old Dog",
+      "Here Comes the Cowboy",
+      "Five Easy Hot Dogs",
+    ],
+  },
+]
+
+// Generic evocative song-title fragments; not real song titles, just placeholders
+// that read more naturally than "Track 1 / Track 2".
+const DEMO_TRACK_TITLES = [
+  "Golden Hour",
+  "Velvet Hour",
+  "Paper Planes",
+  "Lighthouse",
+  "Satellite",
+  "No Good Reason",
+  "Gold Dust",
+  "Silver Tongue",
+  "Rearview",
+  "Headlights",
+  "City Lights",
+  "Northern Sky",
+  "Tidal Wave",
+  "Undertow",
+  "Half Moon",
+  "Pale Blue",
+  "Slow Dance",
+  "Neon Rush",
+  "Static",
+  "Home Again",
+  "Open Sky",
+  "The Drive",
+  "Borderline",
+  "Alibi",
+  "Apology",
+  "Orbit",
+  "Eclipse",
+  "Backroads",
+  "Heat Lightning",
+  "Dust and Bones",
+  "Empty Rooms",
+  "Second Chance",
+  "Ghost Town",
+  "Porcelain",
+  "Sleeplines",
+  "Crossfire",
+]
+
+// Stable 32-bit FNV-1a hash — deterministic cover / title selection from strings.
+function hashString(value: string): number {
+  let h = 2166136261
+  for (let i = 0; i < value.length; i++) {
+    h ^= value.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
+function demoCoverArtForAlbum(artist: string, album: string): string {
+  // picsum.photos serves a deterministic 400x400 image for each seed; no lookup,
+  // no rate limit, CORS-friendly. Stands in for real album art in demo mode.
+  const seed = encodeURIComponent(`${artist}::${album}`)
+  return `https://picsum.photos/seed/${seed}/400/400`
+}
+
 function buildSyntheticDemoSongs(startId: number, totalBytesFromReal: number): ApiSong[] {
   const bytesRemaining = Math.max(0, DEMO_TOTAL_BYTES_TARGET - totalBytesFromReal)
   const bytesPerTrack = Math.floor(bytesRemaining / DEMO_SYNTHETIC_TRACK_COUNT)
-  const artists = [
-    "Arctic Monkeys", "Tame Impala", "Tyler the Creator", "Kendrick Lamar", "Billie Eilish",
-    "Lana Del Rey", "The Strokes", "MGMT", "Gorillaz", "LCD Soundsystem", "Phoenix", "Vampire Weekend",
-    "Arcade Fire", "Kanye West", "Frank Ocean", "Childish Gambino", "Anderson .Paak", "Mac DeMarco",
-  ]
   const synthetic: ApiSong[] = []
-  for (let i = 0; i < DEMO_SYNTHETIC_TRACK_COUNT; i++) {
-    const id = startId + i
-    const artist = artists[i % artists.length]
-    const albumNum = Math.floor(i / artists.length) % 20 + 1
-    const trackNum = (i % 12) + 1
-    const album = `Album ${albumNum}`
-    const title = `Track ${trackNum}`
-    const ext = i % 3 === 0 ? "mp3" : "flac"
-    const cleanFileName = `${String(trackNum).padStart(2, "0")} - ${title}.${ext}`
-    const messyFileName =
-      i % 6 === 0 ? `track_${String(trackNum).padStart(2, "0")}.${ext}` : cleanFileName
-    const sourcePath = buildMessySourcePath(i, artist, album, messyFileName)
-    const destArtist = artist.replace(/[/\\]/g, "").trim() || "Unknown"
-    const destAlbum = album.replace(/[/\\]/g, "").trim() || "Unknown Album"
-    const destinationPath = `${DESTINATION_ROOT}/${destArtist}/${destAlbum}/${cleanFileName}`
-    const fileSizeBytes = bytesPerTrack + (i % 5) * 1024 * 1024
-    const synced = demoSyncedLyricsForIndex(i)
-    const plain = demoPlainLyricsFromSynced(synced)
-    synthetic.push({
-      id,
-      sourcePath,
-      destinationPath,
-      fileName: cleanFileName,
-      extension: `.${ext}`,
-      fileSizeBytes,
-      artist,
-      album,
-      title,
-      year: 2010 + (i % 15),
-      durationSeconds: 180 + (i % 240),
-      fingerprint: null,
-      musicBrainzId: null,
-      spotifyId: null,
-      enrichmentStatus: i % 5 === 0 ? "pending" : "complete",
-      lyricsStatus: "Fetched",
-      hasSyncedLyrics: true,
-      hasPlainLyrics: true,
-      isInstrumental: false,
-      syncedLyrics: synced,
-      plainLyrics: plain,
-      sampleRate: ext === "flac" ? 44100 : 48000,
-      bitRate: ext === "flac" ? 1411 : 320,
-    })
+
+  // Walk artist-by-album so every album gets a complete, sequential track list
+  // (1..N) instead of slicing every album by the same i%12 cycle.
+  let i = 0
+  outer: for (const { artist, albums } of DEMO_DISCOGRAPHY) {
+    for (const album of albums) {
+      const albumKey = `${artist}::${album}`
+      const albumHash = hashString(albumKey)
+      const tracksPerAlbum = 8 + (albumHash % 7) // 8..14, realistic range
+      const titleOffset = albumHash % DEMO_TRACK_TITLES.length
+      const yearForAlbum = 1998 + (albumHash % 27) // 1998..2024
+      const albumArtUrl = demoCoverArtForAlbum(artist, album)
+
+      for (let t = 0; t < tracksPerAlbum; t++) {
+        if (i >= DEMO_SYNTHETIC_TRACK_COUNT) break outer
+        const trackNum = t + 1
+        const title =
+          DEMO_TRACK_TITLES[(titleOffset + t) % DEMO_TRACK_TITLES.length]
+        const ext = i % 3 === 0 ? "mp3" : "flac"
+        const safeTitle = title.replace(/[/\\]/g, "")
+        const cleanFileName = `${String(trackNum).padStart(2, "0")} - ${safeTitle}.${ext}`
+        const messyFileName =
+          i % 6 === 0
+            ? `track_${String(trackNum).padStart(2, "0")}.${ext}`
+            : cleanFileName
+        const sourcePath = buildMessySourcePath(i, artist, album, messyFileName)
+        const destArtist = artist.replace(/[/\\]/g, "").trim() || "Unknown"
+        const destAlbum = album.replace(/[/\\]/g, "").trim() || "Unknown Album"
+        const destinationPath = `${DESTINATION_ROOT}/${destArtist}/${destAlbum}/${cleanFileName}`
+        const fileSizeBytes = bytesPerTrack + (i % 5) * 1024 * 1024
+        const synced = demoSyncedLyricsForIndex(i)
+        const plain = demoPlainLyricsFromSynced(synced)
+        synthetic.push({
+          id: startId + i,
+          sourcePath,
+          destinationPath,
+          fileName: cleanFileName,
+          extension: `.${ext}`,
+          fileSizeBytes,
+          artist,
+          album,
+          title,
+          trackNumber: trackNum,
+          year: yearForAlbum,
+          durationSeconds: 150 + ((albumHash + t * 31) % 240),
+          fingerprint: null,
+          musicBrainzId: null,
+          spotifyId: null,
+          enrichmentStatus: i % 5 === 0 ? "pending" : "complete",
+          lyricsStatus: "Fetched",
+          hasSyncedLyrics: true,
+          hasPlainLyrics: true,
+          isInstrumental: false,
+          syncedLyrics: synced,
+          plainLyrics: plain,
+          sampleRate: ext === "flac" ? 44100 : 48000,
+          bitRate: ext === "flac" ? 1411 : 320,
+          albumArt: albumArtUrl,
+        })
+        i++
+      }
+    }
   }
+
+  // If the curated discography didn't fill the target track count, loop back
+  // through the discography from album 0 again so the library still feels full.
+  if (i < DEMO_SYNTHETIC_TRACK_COUNT) {
+    let cycle = 1
+    while (i < DEMO_SYNTHETIC_TRACK_COUNT) {
+      for (const { artist, albums } of DEMO_DISCOGRAPHY) {
+        for (const album of albums) {
+          if (i >= DEMO_SYNTHETIC_TRACK_COUNT) break
+          // Suffix album name on subsequent cycles so the synthetic key stays unique
+          // and the grid doesn't accumulate inflated track counts on one album.
+          const cycledAlbum = `${album} (Disc ${cycle + 1})`
+          const albumKey = `${artist}::${cycledAlbum}`
+          const albumHash = hashString(albumKey)
+          const tracksPerAlbum = 8 + (albumHash % 7)
+          const titleOffset = albumHash % DEMO_TRACK_TITLES.length
+          const yearForAlbum = 1998 + (albumHash % 27)
+          const albumArtUrl = demoCoverArtForAlbum(artist, cycledAlbum)
+          for (let t = 0; t < tracksPerAlbum; t++) {
+            if (i >= DEMO_SYNTHETIC_TRACK_COUNT) break
+            const trackNum = t + 1
+            const title =
+              DEMO_TRACK_TITLES[(titleOffset + t) % DEMO_TRACK_TITLES.length]
+            const ext = i % 3 === 0 ? "mp3" : "flac"
+            const cleanFileName = `${String(trackNum).padStart(2, "0")} - ${title.replace(/[/\\]/g, "")}.${ext}`
+            const sourcePath = buildMessySourcePath(i, artist, cycledAlbum, cleanFileName)
+            const destinationPath = `${DESTINATION_ROOT}/${artist}/${cycledAlbum}/${cleanFileName}`
+            const fileSizeBytes = bytesPerTrack + (i % 5) * 1024 * 1024
+            const synced = demoSyncedLyricsForIndex(i)
+            const plain = demoPlainLyricsFromSynced(synced)
+            synthetic.push({
+              id: startId + i,
+              sourcePath,
+              destinationPath,
+              fileName: cleanFileName,
+              extension: `.${ext}`,
+              fileSizeBytes,
+              artist,
+              album: cycledAlbum,
+              title,
+              trackNumber: trackNum,
+              year: yearForAlbum,
+              durationSeconds: 150 + ((albumHash + t * 31) % 240),
+              fingerprint: null,
+              musicBrainzId: null,
+              spotifyId: null,
+              enrichmentStatus: i % 5 === 0 ? "pending" : "complete",
+              lyricsStatus: "Fetched",
+              hasSyncedLyrics: true,
+              hasPlainLyrics: true,
+              isInstrumental: false,
+              syncedLyrics: synced,
+              plainLyrics: plain,
+              sampleRate: ext === "flac" ? 44100 : 48000,
+              bitRate: ext === "flac" ? 1411 : 320,
+              albumArt: albumArtUrl,
+            })
+            i++
+          }
+        }
+      }
+      cycle++
+    }
+  }
+
   return synthetic
 }
 
