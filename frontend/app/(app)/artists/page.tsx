@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
+import { AppShell } from "@/components/app-shell"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { mockArtists } from "@/lib/mock-data"
@@ -15,6 +16,7 @@ export default function ArtistsPage() {
   )
 
   return (
+    <AppShell>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* Page Header */}
         <div className="border-b border-border bg-card/30 px-4 py-6 md:px-6">
@@ -113,5 +115,6 @@ export default function ArtistsPage() {
           </div>
         </ScrollArea>
       </div>
+    </AppShell>
   )
 }
