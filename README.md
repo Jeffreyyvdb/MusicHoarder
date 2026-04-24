@@ -79,66 +79,54 @@ All options live under the `MusicEnricher` section in `appsettings.json` or as e
 
 ---
 
-## CI/CD — GitHub Actions
+## CI/CD — Dokploy
 
-Every push to `main` automatically builds and pushes a fresh Docker image to GHCR. Pull and restart the container manually when you want to deploy (e.g. `docker compose pull && docker compose up -d`), or use another updater of your choice.
+Both the API and the frontend are built and deployed by Dokploy directly from this repository using Dokploy's **Docker** build type (reads the `Dockerfile` at the configured build context). GitHub Actions only runs tests — it no longer builds or publishes container images.
 
 ```
 Push to main
      ↓
-GitHub Actions — run tests → build + push image to GHCR
+GitHub Actions — run xUnit tests (ci.yml)
      ↓
-ghcr.io/jeffreyyvdb/musichoarder:latest
-     ↓
-Pull and restart the container manually (or use another updater).
+Dokploy (Hetzner VPS) — git pull → docker build → redeploy
 ```
 
-No SSH access, no open ports, no VPN required.
+### Dokploy applications
 
-### GitHub Actions workflow
+Create two applications in Dokploy, both pointing at this repo and the `main` branch:
 
-`.github/workflows/deploy.yml` runs on every push to `main`:
+| App | Build type | Build context | Dockerfile | Notes |
+|-----|------------|---------------|------------|-------|
+| API | Docker | `/` (repo root) | `Dockerfile` | Exposes port `8080` |
+| Frontend | Docker | `frontend/` | `frontend/Dockerfile` | Exposes port `3000`. Set build arg `NEXT_PUBLIC_DEMO_MODE=true` for the demo deployment |
 
-1. Runs the xUnit test suite.
-2. Builds the Docker image using a multi-stage `Dockerfile`.
-3. Pushes two tags to GHCR:
-   - `ghcr.io/jeffreyyvdb/musichoarder:latest` — for deployment (e.g. `docker compose pull && docker compose up -d`).
-   - `ghcr.io/jeffreyyvdb/musichoarder:sha-<commit>` — for rollback.
-4. Uses GitHub Actions cache (`type=gha`) so subsequent builds that only change .NET code complete in ~1–2 minutes.
+Enable Dokploy's GitHub webhook on each app so a push to `main` triggers a rebuild automatically. Runtime env vars (`ConnectionStrings__musichoarderdb`, `MusicEnricher__*`, `MUSICHOARDER_API_URL`, etc.) are configured per-app in Dokploy.
 
-No additional secrets are required — `GITHUB_TOKEN` is used automatically for GHCR authentication.
+Because the frontend bakes `NEXT_PUBLIC_*` values at build time, `NEXT_PUBLIC_DEMO_MODE` must be set as a **build arg** in Dokploy, not a runtime env var.
 
-### Homelab deployment
+### Self-hosted / homelab deployment (docker-compose)
 
-#### One-time setup
+`docker-compose.yml` at the repo root is an alternative self-hosted path that builds the images locally instead of pulling prebuilt ones (images are no longer published to GHCR).
 
-1. **Copy `docker-compose.yml`** to the homelab (e.g. `~/musichoarder/docker-compose.yml`).
+1. **Copy `docker-compose.yml`** and `.env.example` to the host.
 
 2. **Create a `.env` file** next to `docker-compose.yml`:
 
    ```env
    POSTGRES_PASSWORD=a-strong-random-password
    ACOUSTID_API_KEY=your-acoustid-key
+   MUSIC_SOURCE_PATH=/mnt/nas/music-source
+   MUSIC_DESTINATION_PATH=/mnt/nas/music-clean
    ```
 
-3. **Authenticate Docker with GHCR** (only needed if the package is private):
-
-   Create a GitHub Personal Access Token (PAT) with `read:packages` scope, then:
+3. **Build and start the stack** (from a checkout of this repo):
 
    ```bash
-   echo "<YOUR_PAT>" | docker login ghcr.io -u jeffreyyvdb --password-stdin
-   ```
-
-   This writes credentials to `/root/.docker/config.json`, so `docker compose pull` on this host can authenticate to GHCR.
-
-4. **Start the stack**:
-
-   ```bash
-   docker compose pull
+   docker compose build
    docker compose up -d
    ```
 
-   The API is reachable at `http://<homelab-ip>:5050`.
+   The API is reachable at `http://<host-ip>:5050` and the frontend at `http://<host-ip>:3000`.
 
 #### Volume mounts
 
@@ -153,14 +141,15 @@ volumes:
 
 #### Rollback
 
-Pull a specific SHA-tagged image and recreate the container:
+Check out a known-good commit and rebuild:
 
 ```bash
-docker pull ghcr.io/jeffreyyvdb/musichoarder:sha-abc1234
-docker compose stop musichoarder
-docker compose run --rm -d musichoarder
-# or edit docker-compose.yml image tag and docker compose up -d
+git checkout <commit-sha>
+docker compose build
+docker compose up -d
 ```
+
+On Dokploy, use the application's deployment history to redeploy a previous commit.
 
 ---
 
