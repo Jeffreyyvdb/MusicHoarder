@@ -15,6 +15,7 @@ import { FileGrid } from "./file-grid"
 import { BreadcrumbNav } from "./breadcrumb-nav"
 import { TrackDetails } from "./track-details"
 import { Toolbar } from "./toolbar"
+import { AlbumGridView } from "./album-grid-view"
 import { findAncestorFolderId, findFileById, getPathToFile } from "@/lib/mock-data"
 import type { FileItem } from "@/lib/types"
 import { FolderOpen, Menu } from "lucide-react"
@@ -143,7 +144,13 @@ export function FileBrowser() {
   const searchParams = useSearchParams()
   const isMountedRef = useRef(true)
   const [songs, setSongs] = useState<ApiSong[]>([])
-  const [libraryMode, setLibraryMode] = useState<LibraryPathMode>("destination")
+  const viewParam = searchParams.get("view")
+  const libraryView: "albums" | "source" | "destination" =
+    viewParam === "source" || viewParam === "destination"
+      ? viewParam
+      : "albums"
+  const libraryMode: LibraryPathMode =
+    libraryView === "source" ? "source" : "destination"
   const [currentFolderId, setCurrentFolderId] = useState<string>("root")
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
@@ -445,8 +452,8 @@ export function FileBrowser() {
 
   // Sidebar content - uses external expanded state to persist across selections
   const sidebarContent = (
-    <div className="flex h-full min-h-0 flex-col bg-sidebar">
-      <div className="border-b border-sidebar-border px-4 py-3">
+    <div className="flex h-full min-h-0 flex-col border-r border-border bg-card/30">
+      <div className="border-b border-border px-4 py-3">
         <h2 className="text-sm font-medium text-muted-foreground">
           {libraryMode === "destination" ? "Destination Library" : "Source Library"}
         </h2>
@@ -462,8 +469,8 @@ export function FileBrowser() {
       </ScrollArea>
 
       {/* Sidebar Footer */}
-      <div className="border-t border-sidebar-border p-4">
-        <div className="rounded-lg bg-sidebar-accent p-3">
+      <div className="border-t border-border p-4">
+        <div className="rounded-lg bg-muted/60 p-3">
           <div className="flex items-center gap-2 text-sm">
             <FolderOpen className="size-4 text-primary" />
             <span className="font-medium">Library Size</span>
@@ -476,6 +483,28 @@ export function FileBrowser() {
       </div>
     </div>
   )
+
+  if (libraryView === "albums") {
+    return (
+      <AppShell className={cn(currentSong && "pb-[60px] sm:pb-[68px]")}>
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="border-b border-border bg-card/30 px-4 py-2 text-xs text-muted-foreground md:px-6">
+            {dataModeMessage}
+          </div>
+          {apiError && (
+            <div className="border-b border-border bg-card/30 px-4 py-2 text-xs text-destructive md:px-6">
+              {apiError}
+            </div>
+          )}
+          <AlbumGridView
+            songs={songs}
+            isLoading={isLoading}
+            searchQuery={searchQuery}
+          />
+        </div>
+      </AppShell>
+    )
+  }
 
   return (
     <AppShell className={cn(currentSong && "pb-[60px] sm:pb-[68px]")}>
@@ -535,8 +564,6 @@ export function FileBrowser() {
                 onSortByChange={setSortBy}
                 onSortDirectionChange={setSortDirection}
                 onFilterByChange={setFilterBy}
-                libraryMode={libraryMode}
-                onLibraryModeChange={setLibraryMode}
                 onRefresh={() => void loadSongs("refresh")}
                 isRefreshing={isRefreshing}
               />
@@ -574,7 +601,7 @@ export function FileBrowser() {
               {/* Status Bar */}
               <div className="flex items-center justify-between border-t border-border bg-card/30 px-4 py-1.5 text-xs text-muted-foreground">
                 <span>
-                  {visibleItems.length} items ({libraryMode})
+                  {visibleItems.length} items ({libraryView})
                 </span>
                 {selectedFile && (
                   <span className="truncate max-w-[200px]">
@@ -622,8 +649,6 @@ export function FileBrowser() {
             onSortByChange={setSortBy}
             onSortDirectionChange={setSortDirection}
             onFilterByChange={setFilterBy}
-            libraryMode={libraryMode}
-            onLibraryModeChange={setLibraryMode}
             onRefresh={() => void loadSongs("refresh")}
             isRefreshing={isRefreshing}
           />
@@ -661,7 +686,7 @@ export function FileBrowser() {
           {/* Status Bar */}
           <div className="flex items-center justify-between border-t border-border bg-card/30 px-3 py-1.5 text-xs text-muted-foreground">
             <span>
-              {visibleItems.length} items ({libraryMode})
+              {visibleItems.length} items ({libraryView})
             </span>
             {selectedFile && (
               <span className="truncate max-w-[150px]">

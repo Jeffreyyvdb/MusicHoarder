@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import {
   FileWarning,
   FolderOpen,
@@ -24,8 +24,19 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+
+type LibraryView = "albums" | "source" | "destination"
+
+const libraryViews: { value: LibraryView; label: string }[] = [
+  { value: "albums", label: "Albums" },
+  { value: "source", label: "Source" },
+  { value: "destination", label: "Destination" },
+]
 
 const navItems = [
   { href: "/overview", label: "Overview", icon: LayoutDashboard },
@@ -38,6 +49,12 @@ const navItems = [
 
 export function AppSidebar() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const onLibrary =
+    pathname === "/app" || pathname.startsWith("/app/")
+  const activeLibraryView: LibraryView = onLibrary
+    ? ((searchParams.get("view") as LibraryView | null) ?? "albums")
+    : "albums"
 
   return (
     <Sidebar collapsible="icon">
@@ -69,7 +86,7 @@ export function AppSidebar() {
               {navItems.map((item) => {
                 const isActive =
                   item.href === "/app"
-                    ? pathname === "/app" || pathname.startsWith("/app/")
+                    ? onLibrary
                     : pathname.startsWith(item.href)
 
                 return (
@@ -84,6 +101,27 @@ export function AppSidebar() {
                         <span>{item.label}</span>
                       </Link>
                     </SidebarMenuButton>
+
+                    {item.href === "/app" && onLibrary && (
+                      <SidebarMenuSub>
+                        {libraryViews.map((view) => {
+                          const href =
+                            view.value === "albums"
+                              ? "/app"
+                              : `/app?view=${view.value}`
+                          return (
+                            <SidebarMenuSubItem key={view.value}>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={activeLibraryView === view.value}
+                              >
+                                <Link href={href}>{view.label}</Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          )
+                        })}
+                      </SidebarMenuSub>
+                    )}
                   </SidebarMenuItem>
                 )
               })}

@@ -1,5 +1,7 @@
 "use client"
 
+import { Suspense } from "react"
+
 import { cn } from "@/lib/utils"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
@@ -16,7 +18,9 @@ type AppShellProps = {
 export function AppShell({ children, className }: AppShellProps) {
   return (
     <SidebarProvider>
-      <AppSidebar />
+      <Suspense fallback={null}>
+        <AppSidebar />
+      </Suspense>
       <SidebarInset className={cn("h-svh bg-background", className)}>
         <div className="sticky top-0 z-20 flex h-12 items-center gap-2 border-b border-border bg-background/80 px-3 backdrop-blur-sm md:hidden">
           <SidebarTrigger />
