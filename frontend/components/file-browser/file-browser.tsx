@@ -16,6 +16,7 @@ import { BreadcrumbNav } from "./breadcrumb-nav"
 import { TrackDetails } from "./track-details"
 import { Toolbar } from "./toolbar"
 import { AlbumGridView } from "./album-grid-view"
+import { AlbumDetailView } from "./album-detail-view"
 import { findAncestorFolderId, findFileById, getPathToFile } from "@/lib/mock-data"
 import type { FileItem } from "@/lib/types"
 import { Menu } from "lucide-react"
@@ -448,6 +449,8 @@ export function FileBrowser() {
   )
 
   if (libraryView === "albums") {
+    const albumParam = searchParams.get("album")
+    const albumKey = albumParam ? decodeURIComponent(albumParam) : null
     return (
       <AppShell className={cn(currentSong && "pb-[60px] sm:pb-[68px]")}>
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -459,11 +462,19 @@ export function FileBrowser() {
               {apiError}
             </div>
           )}
-          <AlbumGridView
-            songs={songs}
-            isLoading={isLoading}
-            searchQuery={searchQuery}
-          />
+          {albumKey ? (
+            <AlbumDetailView
+              songs={songs}
+              albumKey={albumKey}
+              isLoading={isLoading}
+            />
+          ) : (
+            <AlbumGridView
+              songs={songs}
+              isLoading={isLoading}
+              searchQuery={searchQuery}
+            />
+          )}
         </div>
       </AppShell>
     )
