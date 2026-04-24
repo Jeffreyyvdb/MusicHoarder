@@ -1,9 +1,15 @@
 "use client"
 
 import * as React from "react"
-import { Moon, Sun } from "lucide-react"
+import { Check, Monitor, Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 
 type ThemeToggleVariant = "outline" | "ghost"
@@ -13,8 +19,14 @@ type ThemeToggleProps = {
   variant?: ThemeToggleVariant
 }
 
-export function ThemeToggle({ className, variant = "outline" }: ThemeToggleProps) {
-  const { setTheme, resolvedTheme } = useTheme()
+const THEME_OPTIONS = [
+  { value: "light", label: "Light", icon: Sun },
+  { value: "dark", label: "Dark", icon: Moon },
+  { value: "system", label: "System", icon: Monitor },
+] as const
+
+export function ThemeToggle({ className, variant = "ghost" }: ThemeToggleProps) {
+  const { theme, setTheme, resolvedTheme } = useTheme()
   const [mounted, setMounted] = React.useState(false)
 
   React.useEffect(() => {
@@ -43,22 +55,46 @@ export function ThemeToggle({ className, variant = "outline" }: ThemeToggleProps
   }
 
   const isDark = resolvedTheme === "dark"
+  const active = theme ?? "system"
 
   return (
-    <Button
-      type="button"
-      variant={variant}
-      size="icon"
-      className={cn(sizeClasses, outlineClasses, "transition-colors", className)}
-      onClick={() => setTheme(isDark ? "light" : "dark")}
-      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-      title={isDark ? "Light mode" : "Dark mode"}
-    >
-      {isDark ? (
-        <Sun className="size-[1.125rem] text-foreground" />
-      ) : (
-        <Moon className="size-[1.125rem] text-foreground" />
-      )}
-    </Button>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant={variant}
+          size="icon"
+          className={cn(sizeClasses, outlineClasses, "transition-colors", className)}
+          aria-label="Change theme"
+          title="Change theme"
+        >
+          {isDark ? (
+            <Moon className="size-[1.125rem] text-foreground" />
+          ) : (
+            <Sun className="size-[1.125rem] text-foreground" />
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-36">
+        {THEME_OPTIONS.map(({ value, label, icon: Icon }) => {
+          const selected = active === value
+          return (
+            <DropdownMenuItem
+              key={value}
+              onSelect={() => setTheme(value)}
+              className="justify-between"
+            >
+              <span className="flex items-center gap-2">
+                <Icon className="size-4" />
+                {label}
+              </span>
+              {selected ? (
+                <Check className="size-4 text-muted-foreground" />
+              ) : null}
+            </DropdownMenuItem>
+          )
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
