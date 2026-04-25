@@ -777,14 +777,6 @@ function SpotifyPageContent() {
   return (
     <AppShell>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {isDemoMode && (
-          <div className="mx-4 mt-4 md:mx-6 rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
-            <p>
-              Demo mode: Spotify data is sample content only. Deploy the MusicHoarder API and disable demo mode to
-              connect a real account.
-            </p>
-          </div>
-        )}
         {oauthBanner && (
           <div
             className={`mx-4 mt-4 md:mx-6 rounded-lg border px-4 py-3 text-sm ${
@@ -817,11 +809,9 @@ function SpotifyPageContent() {
                 <h1 className="text-2xl font-bold">Spotify</h1>
                 <Badge className="bg-[#1DB954]/20 text-[#1DB954] border-0">Connected</Badge>
               </div>
-              {status.connectedAt && (
+              {status.connectedAt && !isDemoMode && (
                 <p className="text-sm text-muted-foreground mt-1">
-                  {isDemoMode
-                    ? "Demo session (not a real Spotify connection)"
-                    : `Connected since ${new Date(status.connectedAt).toLocaleDateString()}`}
+                  Connected since {new Date(status.connectedAt).toLocaleDateString()}
                 </p>
               )}
             </div>

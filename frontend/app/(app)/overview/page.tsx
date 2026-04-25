@@ -205,18 +205,17 @@ export default function OverviewPage() {
           </div>
 
           {/* Status Banner */}
-          {(isDemoMode || banner) && (
+          {banner && (
             <div
               className={`rounded-md border px-3 py-2 text-sm ${
-                banner?.type === "error"
+                banner.type === "error"
                   ? "border-red-500/30 bg-red-500/10 text-red-400"
-                  : banner?.type === "success"
+                  : banner.type === "success"
                     ? "border-green-500/30 bg-green-500/10 text-green-400"
                     : "border-border bg-card text-muted-foreground"
               }`}
             >
-              {isDemoMode && !banner && <p>Demo mode is enabled. Showing fake data.</p>}
-              {banner && <p>{banner.text}</p>}
+              <p>{banner.text}</p>
             </div>
           )}
 
