@@ -4,6 +4,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { ThemeProvider } from '@/components/theme-provider'
 import { PlayerProviderWrapper } from '@/components/player/player-provider-wrapper'
 import { UmamiAnalytics } from '@/components/analytics/umami-analytics'
+import { DemoModeBanner } from '@/components/demo-mode-banner'
 import './globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -83,6 +84,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className="font-sans antialiased">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <DemoModeBanner />
           <PlayerProviderWrapper>
             {children}
           </PlayerProviderWrapper>
