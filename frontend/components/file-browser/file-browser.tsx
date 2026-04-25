@@ -29,7 +29,6 @@ import {
   type ApiSong,
   type LibraryPathMode,
 } from "@/lib/api-client"
-import { isDemoMode } from "@/lib/app-mode"
 import { usePlayer } from "@/lib/player-context"
 
 type LibrarySortBy = "name" | "dateModified" | "size" | "type"
@@ -170,9 +169,6 @@ export function FileBrowser() {
   const appliedSongDeepLinkRef = useRef<string | null>(null)
   const isMobile = useIsMobile()
   const { currentSong, detailsRequestId } = usePlayer()
-  const dataModeMessage = isDemoMode
-    ? "Demo mode is enabled. Library data is served from fake data."
-    : "Production mode is enabled. Library data is served from the API."
   const fileSystem = useMemo(
     () => (songs.length > 0 ? buildFileSystemFromSongs(songs, libraryMode) : EMPTY_LIBRARY),
     [songs, libraryMode]
@@ -454,9 +450,6 @@ export function FileBrowser() {
     return (
       <AppShell className={cn(currentSong && "pb-[60px] sm:pb-[68px]")}>
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="border-b border-border bg-card/30 px-4 py-2 text-xs text-muted-foreground md:px-6">
-            {dataModeMessage}
-          </div>
           {apiError && (
             <div className="border-b border-border bg-card/30 px-4 py-2 text-xs text-destructive md:px-6">
               {apiError}
@@ -541,12 +534,9 @@ export function FileBrowser() {
                 onRefresh={() => void loadSongs("refresh")}
                 isRefreshing={isRefreshing}
               />
-              <div className="border-b border-border bg-card/30 px-4 py-2 text-xs text-muted-foreground">
-                {dataModeMessage}
-              </div>
               {isLoading && (
                 <div className="border-b border-border bg-card/30 px-4 py-2 text-xs text-muted-foreground">
-                  {isDemoMode ? "Loading demo library data..." : "Loading library from API..."}
+                  Loading library...
                 </div>
               )}
               {coverageWarning && (
@@ -626,12 +616,9 @@ export function FileBrowser() {
             onRefresh={() => void loadSongs("refresh")}
             isRefreshing={isRefreshing}
           />
-          <div className="border-b border-border bg-card/30 px-3 py-2 text-xs text-muted-foreground">
-            {dataModeMessage}
-          </div>
           {isLoading && (
             <div className="border-b border-border bg-card/30 px-3 py-2 text-xs text-muted-foreground">
-              {isDemoMode ? "Loading demo library data..." : "Loading library from API..."}
+              Loading library...
             </div>
           )}
           {coverageWarning && (
