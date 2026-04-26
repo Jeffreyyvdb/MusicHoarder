@@ -221,7 +221,14 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                     return EnrichmentOutcome.Matched;
                 }
 
-                ApplyProviderResult(song, result);
+                // Sub-threshold / blocked: persist the candidate on the attempt for review tooling
+                // but DO NOT overwrite the row's Artist/Title/Album/IDs. Writing a wrong-but-plausible
+                // candidate to the row poisons subsequent providers' search queries (they read
+                // song.Artist/Title) and surfaces wrong values in the UI as if they were enriched.
+                var warningsJson = result.MatchWarnings.Count > 0
+                    ? JsonSerializer.Serialize(result.MatchWarnings)
+                    : null;
+                song.MarkProviderNeedsReview(result.MatchedBy, result.MatchConfidence, warningsJson);
                 UpsertAttempt(song, providerEnum, ProviderAttemptStatus.Matched,
                     matchedDataJson: SerializeResult(result), existingAttempts: existingAttempts);
 

@@ -196,6 +196,24 @@ public class SongMetadata
         MatchWarnings = null;
     }
 
+    // Records a provider's sub-threshold/needs-review hit on the row's review-bookkeeping
+    // fields without overwriting Artist/Title/Album/IDs. Only "promotes" the row's
+    // MatchedBy/MatchConfidence when the new confidence beats the previously-recorded one,
+    // so the row tracks the best available candidate for review and bulk-approve.
+    public void MarkProviderNeedsReview(string matchedBy, double confidence, string? warningsJson)
+    {
+        EnrichmentStatus = EnrichmentStatus.NeedsReview;
+        EnrichedAtUtc = DateTime.UtcNow;
+        EnrichmentError = null;
+
+        if (MatchConfidence is null || confidence > MatchConfidence.Value)
+        {
+            MatchedBy = matchedBy;
+            MatchConfidence = confidence;
+            MatchWarnings = warningsJson;
+        }
+    }
+
     public void MarkEnrichmentFailed(string error)
     {
         var now = DateTime.UtcNow;
