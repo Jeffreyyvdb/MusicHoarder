@@ -34,6 +34,8 @@ import {
   type ApiOverview,
   type ApiStats,
 } from "@/lib/api-client"
+import { usePlayer } from "@/lib/player-context"
+import { cn } from "@/lib/utils"
 
 type LibraryView = "albums" | "source" | "destination"
 
@@ -70,6 +72,7 @@ export function AppSidebar() {
 
   const [overview, setOverview] = useState<ApiOverview | null>(null)
   const [stats, setStats] = useState<ApiStats | null>(null)
+  const { currentSong } = usePlayer()
 
   useEffect(() => {
     let cancelled = false
@@ -182,7 +185,13 @@ export function AppSidebar() {
       </SidebarContent>
 
       {totalBytes !== null && (
-        <SidebarFooter className="group-data-[collapsible=icon]:hidden">
+        <SidebarFooter
+          className={cn(
+            "group-data-[collapsible=icon]:hidden",
+            // Reserve space so the fixed MiniPlayer doesn't overlap the footer card.
+            currentSong && "mb-14 sm:mb-16",
+          )}
+        >
           <div className="rounded-lg bg-sidebar-accent/60 p-3">
             <div className="flex items-center gap-2 text-sm">
               <FolderOpen className="size-4 text-primary" />
