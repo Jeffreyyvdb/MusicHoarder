@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -547,6 +548,69 @@ public class EnrichmentOrchestratorTests
 
         Assert.True(wasCalled);
         Assert.Equal(EnrichmentOutcome.Matched, outcome);
+    }
+
+    [Fact]
+    public async Task ProcessSong_ProviderNoMatch_WithBestCandidate_PersistsCandidateJson()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Artist", title: "Title");
+        await db.SaveChangesAsync();
+
+        var bestCandidate = new EnrichmentProviderResult(
+            Artist: "Spotify Artist",
+            AlbumArtist: "Spotify Artist",
+            Title: "Spotify Title",
+            Year: 2018,
+            TrackNumber: 4,
+            MusicBrainzId: null,
+            MusicBrainzReleaseId: null,
+            SpotifyId: "spotify-near-miss",
+            AcoustIdTrackId: null,
+            Isrc: null,
+            MatchedBy: "SpotifyAPI",
+            MatchConfidence: 0.42,
+            MatchWarnings: ["artist_mismatch"],
+            RecommendedStatus: EnrichmentStatus.NeedsReview,
+            Album: "Spotify Album");
+
+        var provider = new StubEnrichmentProvider("AcoustID", 100,
+            canHandle: _ => true,
+            enrich: _ => Task.FromResult<ProviderOutcome>(new ProviderNoMatch(bestCandidate)));
+
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider]);
+        await orchestrator.ProcessSongAsync(song.Id);
+
+        var attempt = await db.SongProviderAttempts.SingleAsync();
+        Assert.Equal(ProviderAttemptStatus.NoMatch, attempt.Status);
+        Assert.NotNull(attempt.MatchedDataJson);
+
+        var roundTrip = JsonSerializer.Deserialize<EnrichmentProviderResult>(attempt.MatchedDataJson!);
+        Assert.NotNull(roundTrip);
+        Assert.Equal("Spotify Title", roundTrip!.Title);
+        Assert.Equal("Spotify Artist", roundTrip.Artist);
+        Assert.Equal("spotify-near-miss", roundTrip.SpotifyId);
+        Assert.Equal(0.42, roundTrip.MatchConfidence);
+        Assert.Contains("artist_mismatch", roundTrip.MatchWarnings);
+    }
+
+    [Fact]
+    public async Task ProcessSong_ProviderNoMatch_WithoutBestCandidate_PersistsNullJson()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Artist", title: "Title");
+        await db.SaveChangesAsync();
+
+        var provider = new StubEnrichmentProvider("AcoustID", 100,
+            canHandle: _ => true,
+            enrich: _ => Task.FromResult<ProviderOutcome>(new ProviderNoMatch()));
+
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider]);
+        await orchestrator.ProcessSongAsync(song.Id);
+
+        var attempt = await db.SongProviderAttempts.SingleAsync();
+        Assert.Equal(ProviderAttemptStatus.NoMatch, attempt.Status);
+        Assert.Null(attempt.MatchedDataJson);
     }
 
     [Fact]

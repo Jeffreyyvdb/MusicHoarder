@@ -21,7 +21,7 @@ public record EnrichmentProviderResult(
 
 public abstract record ProviderOutcome;
 public sealed record ProviderMatched(EnrichmentProviderResult Result) : ProviderOutcome;
-public sealed record ProviderNoMatch : ProviderOutcome;
+public sealed record ProviderNoMatch(EnrichmentProviderResult? BestCandidate = null) : ProviderOutcome;
 public sealed record ProviderRateLimited(TimeSpan RetryAfter) : ProviderOutcome;
 
 public interface IEnrichmentProvider
