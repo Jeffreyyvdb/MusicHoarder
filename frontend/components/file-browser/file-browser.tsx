@@ -447,6 +447,7 @@ export function FileBrowser() {
   if (libraryView === "albums") {
     const albumParam = searchParams.get("album")
     const albumKey = albumParam ? decodeURIComponent(albumParam) : null
+    const detailsOpen = showDetails && selectedFile?.type === "audio"
     return (
       <AppShell className={cn(currentSong && "pb-[60px] sm:pb-[68px]")}>
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -469,6 +470,25 @@ export function FileBrowser() {
             />
           )}
         </div>
+        <Sheet open={detailsOpen} onOpenChange={(open) => !open && setShowDetails(false)}>
+          <SheetContent
+            side={isMobile ? "bottom" : "right"}
+            className={cn(
+              "p-0 [&>button]:hidden",
+              isMobile ? "h-[85vh]" : "w-full sm:max-w-md"
+            )}
+          >
+            <SheetTitle className="sr-only">Track Details</SheetTitle>
+            <SheetDescription className="sr-only">View track metadata, lyrics, and sources</SheetDescription>
+            {selectedFile?.type === "audio" && (
+              <TrackDetails
+                file={selectedFile}
+                onClose={() => setShowDetails(false)}
+                onResetEnrichment={() => void loadSongs("refresh")}
+              />
+            )}
+          </SheetContent>
+        </Sheet>
       </AppShell>
     )
   }
