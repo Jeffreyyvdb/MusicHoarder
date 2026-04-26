@@ -449,7 +449,7 @@ export function FileBrowser() {
     const albumKey = albumParam ? decodeURIComponent(albumParam) : null
     const detailsOpen = showDetails && selectedFile?.type === "audio"
     return (
-      <AppShell className={cn(currentSong && "pb-[60px] sm:pb-[68px]")}>
+      <AppShell>
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {apiError && (
             <div className="border-b border-border bg-card/30 px-4 py-2 text-xs text-destructive md:px-6">
@@ -494,7 +494,7 @@ export function FileBrowser() {
   }
 
   return (
-    <AppShell className={cn(currentSong && "pb-[60px] sm:pb-[68px]")}>
+    <AppShell>
       {/* Mobile sidebar sheet */}
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
         <SheetContent side="left" className="w-72 p-0">
@@ -523,7 +523,7 @@ export function FileBrowser() {
 
       {/* Main Content - Desktop with resizable panels */}
       {!isHydrated || !isMobile ? (
-        <ResizablePanelGroup id="library-browser-panels" direction="horizontal" className="flex-1">
+        <ResizablePanelGroup id="library-browser-panels" direction="horizontal" className="flex-1 min-h-0">
           {/* Sidebar */}
           <ResizablePanel id="library-sidebar-panel" order={1} defaultSize={20} minSize={15} maxSize={30}>
             {sidebarContent}
