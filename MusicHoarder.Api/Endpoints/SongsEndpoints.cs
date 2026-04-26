@@ -432,6 +432,7 @@ public static class SongsEndpoints
         var minConfidence = request?.MinConfidence ?? 0.75;
 
         var candidates = await db.Songs
+            .Include(s => s.ProviderAttempts)
             .Where(s => s.DeletedAtUtc == null
                 && s.EnrichmentStatus == EnrichmentStatus.NeedsReview
                 && s.MatchConfidence != null
@@ -439,8 +440,19 @@ public static class SongsEndpoints
             .ToListAsync();
 
         var approvedIds = new List<int>();
+        var skippedIds = new List<int>();
         foreach (var song in candidates)
         {
+            // The orchestrator no longer writes the candidate's metadata onto the song row
+            // when a provider returns NeedsReview, so bulk-approve must apply the winning
+            // candidate from the provider attempt's MatchedDataJson before flipping to Matched.
+            // Skip rows where the recorded MatchedBy provider has no candidate JSON we can apply.
+            if (!TryApplyWinningCandidate(song))
+            {
+                skippedIds.Add(song.Id);
+                continue;
+            }
+
             song.EnrichmentStatus = EnrichmentStatus.Matched;
             song.EnrichmentError = null;
             song.ResetLibraryBuild();
@@ -454,7 +466,54 @@ public static class SongsEndpoints
             MinConfidence = minConfidence,
             ApprovedCount = approvedIds.Count,
             ApprovedIds = approvedIds,
+            SkippedCount = skippedIds.Count,
+            SkippedIds = skippedIds,
         });
+    }
+
+    internal static bool TryApplyWinningCandidate(Persistence.SongMetadata song)
+    {
+        if (string.IsNullOrWhiteSpace(song.MatchedBy)) return false;
+
+        var providerEnum = EnrichmentOrchestrator.MapProviderName(song.MatchedBy);
+        if (providerEnum is null) return false;
+
+        var attempt = song.ProviderAttempts.FirstOrDefault(a =>
+            a.Provider == providerEnum.Value && a.Status == ProviderAttemptStatus.Matched);
+        if (attempt is null || string.IsNullOrWhiteSpace(attempt.MatchedDataJson)) return false;
+
+        EnrichmentProviderResult? candidate;
+        try
+        {
+            candidate = JsonSerializer.Deserialize<EnrichmentProviderResult>(attempt.MatchedDataJson);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+        if (candidate is null) return false;
+
+        var warningsJson = candidate.MatchWarnings.Count > 0
+            ? JsonSerializer.Serialize(candidate.MatchWarnings)
+            : null;
+
+        song.ApplyEnrichmentMatch(new EnrichmentMatchData(
+            candidate.Artist,
+            candidate.AlbumArtist,
+            candidate.Title,
+            candidate.Year,
+            candidate.TrackNumber,
+            candidate.MusicBrainzId,
+            candidate.MusicBrainzReleaseId,
+            candidate.SpotifyId,
+            candidate.AcoustIdTrackId,
+            candidate.Isrc,
+            candidate.MatchedBy,
+            candidate.MatchConfidence,
+            warningsJson,
+            EnrichmentStatus.Matched,
+            candidate.Album));
+        return true;
     }
 
     private static async Task<IResult> SoftDeleteSong(int id, MusicHoarderDbContext db)
