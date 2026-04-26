@@ -195,11 +195,14 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                     retryAfterUtc: DateTime.UtcNow + rl.RetryAfter, existingAttempts: existingAttempts);
                 return EnrichmentOutcome.Skipped;
 
-            case ProviderNoMatch:
+            case ProviderNoMatch noMatch:
                 _logger.LogDebug("Provider {Provider} returned no match for {Track} (SongId={SongId})",
                     provider.Name, song.TrackLabel, song.Id);
+                var noMatchJson = noMatch.BestCandidate is { } candidate
+                    ? SerializeResult(candidate)
+                    : null;
                 UpsertAttempt(song, providerEnum, ProviderAttemptStatus.NoMatch,
-                    existingAttempts: existingAttempts);
+                    matchedDataJson: noMatchJson, existingAttempts: existingAttempts);
                 return EnrichmentOutcome.NeedsReview;
 
             case ProviderMatched matched:

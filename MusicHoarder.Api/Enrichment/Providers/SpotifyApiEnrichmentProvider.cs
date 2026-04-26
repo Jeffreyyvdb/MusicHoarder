@@ -77,33 +77,46 @@ public class SpotifyApiEnrichmentProvider(
             }
         }
 
-        if (bestTrack is null || bestScore < opts.SpotifyApiMinConfidence - 1e-9)
+        if (bestTrack is null)
             return new ProviderNoMatch();
+
+        if (bestScore < opts.SpotifyApiMinConfidence - 1e-9)
+            return new ProviderNoMatch(BuildResult(song, bestTrack, bestScore, bestWarnings, EnrichmentStatus.NeedsReview));
 
         var blocking = HasBlockingWarning(bestWarnings);
         var status = bestScore >= opts.SpotifyApiMatchedThreshold - 1e-9 && !blocking
             ? EnrichmentStatus.Matched
             : EnrichmentStatus.NeedsReview;
 
-        var effectiveArtist = string.IsNullOrWhiteSpace(bestTrack.Artist) ? song.Artist : bestTrack.Artist;
+        return new ProviderMatched(BuildResult(song, bestTrack, bestScore, bestWarnings, status));
+    }
+
+    private EnrichmentProviderResult BuildResult(
+        SongMetadata song,
+        SpotifyCatalogTrack track,
+        double score,
+        List<string> warnings,
+        EnrichmentStatus status)
+    {
+        var effectiveArtist = string.IsNullOrWhiteSpace(track.Artist) ? song.Artist : track.Artist;
         var albumArtist = ArtistCreditNormalizer.GetPrimaryArtist(effectiveArtist) ?? effectiveArtist;
 
-        return new ProviderMatched(new EnrichmentProviderResult(
+        return new EnrichmentProviderResult(
             Artist: effectiveArtist,
             AlbumArtist: albumArtist,
-            Title: string.IsNullOrWhiteSpace(bestTrack.Title) ? song.Title : bestTrack.Title,
-            Year: bestTrack.ReleaseYear,
-            TrackNumber: bestTrack.TrackNumber,
+            Title: string.IsNullOrWhiteSpace(track.Title) ? song.Title : track.Title,
+            Year: track.ReleaseYear,
+            TrackNumber: track.TrackNumber,
             MusicBrainzId: null,
             MusicBrainzReleaseId: null,
-            SpotifyId: bestTrack.Id,
+            SpotifyId: track.Id,
             AcoustIdTrackId: null,
-            Isrc: string.IsNullOrWhiteSpace(bestTrack.Isrc) ? null : NormalizeIsrc(bestTrack.Isrc),
+            Isrc: string.IsNullOrWhiteSpace(track.Isrc) ? null : NormalizeIsrc(track.Isrc),
             MatchedBy: Name,
-            MatchConfidence: Math.Clamp(bestScore, 0, 1),
-            MatchWarnings: bestWarnings,
+            MatchConfidence: Math.Clamp(score, 0, 1),
+            MatchWarnings: warnings,
             RecommendedStatus: status,
-            Album: string.IsNullOrWhiteSpace(bestTrack.AlbumName) ? null : bestTrack.AlbumName));
+            Album: string.IsNullOrWhiteSpace(track.AlbumName) ? null : track.AlbumName);
     }
 
     private static string BuildSearchQuery(string artist, string title)

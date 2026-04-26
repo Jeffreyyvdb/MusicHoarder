@@ -11,6 +11,10 @@ public static class SongsEndpoints
     public static IEndpointRouteBuilder MapSongsEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/songs", ListSongs).WithName("ListSongs");
+        app.MapGet("/songs/{id:int}/enrichment-detail", GetEnrichmentDetail)
+            .WithName("GetEnrichmentDetail")
+            .WithSummary("Dev: source vs current metadata + every provider attempt for one song.")
+            .WithTags("Tracks");
         app.MapGet("/api/tracks/{id:int}/lyrics", GetTrackLyrics).WithName("GetTrackLyrics");
         app.MapPost("/enrichment/reset", ResetEnrichmentBatch).WithName("ResetEnrichmentBatch");
         app.MapPost("/songs/{id:int}/reset-enrichment", ResetSongEnrichment).WithName("ResetSongEnrichment");
@@ -473,6 +477,142 @@ public static class SongsEndpoints
             song.DeletedAtUtc,
             Message = "Song has been soft-deleted and will be excluded from review and library build."
         });
+    }
+
+    private static async Task<IResult> GetEnrichmentDetail(int id, MusicHoarderDbContext db)
+    {
+        var song = await db.Songs
+            .AsNoTracking()
+            .Include(s => s.ProviderAttempts)
+            .FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null);
+
+        if (song is null)
+            return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+        object? source = song.OriginalMetadataCaptured
+            ? new
+            {
+                capturedAtUtc = song.OriginalMetadataCapturedAtUtc,
+                title = song.OriginalTitle,
+                artist = song.OriginalArtist,
+                albumArtist = song.OriginalAlbumArtist,
+                album = song.OriginalAlbum,
+                year = song.OriginalYear,
+                trackNumber = song.OriginalTrackNumber,
+                isrc = song.OriginalIsrc,
+                musicBrainzId = song.OriginalMusicBrainzId,
+                spotifyId = song.OriginalSpotifyId,
+            }
+            : null;
+
+        var current = new
+        {
+            title = song.Title,
+            artist = song.Artist,
+            albumArtist = song.AlbumArtist,
+            album = song.Album,
+            year = song.Year,
+            trackNumber = song.TrackNumber,
+            isrc = song.Isrc,
+            musicBrainzId = song.MusicBrainzId,
+            musicBrainzReleaseId = song.MusicBrainzReleaseId,
+            spotifyId = song.SpotifyId,
+            acoustIdTrackId = song.AcoustIdTrackId,
+        };
+
+        var diff = song.OriginalMetadataCaptured ? BuildMetadataDiff(song) : new List<object>();
+
+        var providerAttempts = song.ProviderAttempts
+            .OrderBy(a => a.Provider)
+            .Select(a => new
+            {
+                provider = a.Provider.ToString(),
+                status = a.Status.ToString(),
+                attemptedAtUtc = a.AttemptedAtUtc,
+                retryAfterUtc = a.RetryAfterUtc,
+                error = a.Error,
+                candidate = DeserializeCandidate(a.MatchedDataJson),
+            })
+            .ToList();
+
+        return Results.Ok(new
+        {
+            id = song.Id,
+            sourcePath = song.SourcePath,
+            fileName = song.FileName,
+            destinationPath = song.DestinationPath,
+            enrichmentStatus = song.EnrichmentStatus.ToString(),
+            matchedBy = song.MatchedBy,
+            matchConfidence = song.MatchConfidence,
+            matchWarnings = DeserializeWarnings(song.MatchWarnings),
+            enrichmentError = song.EnrichmentError,
+            originalMetadataCaptured = song.OriginalMetadataCaptured,
+            source,
+            current,
+            diff,
+            providerAttempts,
+        });
+    }
+
+    internal static List<object> BuildMetadataDiff(SongMetadata s)
+    {
+        var diff = new List<object>();
+        AddIfChanged(diff, "title", s.OriginalTitle, s.Title);
+        AddIfChanged(diff, "artist", s.OriginalArtist, s.Artist);
+        AddIfChanged(diff, "albumArtist", s.OriginalAlbumArtist, s.AlbumArtist);
+        AddIfChanged(diff, "album", s.OriginalAlbum, s.Album);
+        AddIfChangedInt(diff, "year", s.OriginalYear, s.Year);
+        AddIfChangedInt(diff, "trackNumber", s.OriginalTrackNumber, s.TrackNumber);
+        AddIfChanged(diff, "isrc", s.OriginalIsrc, s.Isrc);
+        AddIfChanged(diff, "musicBrainzId", s.OriginalMusicBrainzId, s.MusicBrainzId);
+        AddIfChanged(diff, "spotifyId", s.OriginalSpotifyId, s.SpotifyId);
+        return diff;
+    }
+
+    private static void AddIfChanged(List<object> diff, string field, string? src, string? cur)
+    {
+        var srcN = string.IsNullOrWhiteSpace(src) ? null : src.Trim();
+        var curN = string.IsNullOrWhiteSpace(cur) ? null : cur.Trim();
+        if (!string.Equals(srcN, curN, StringComparison.Ordinal))
+            diff.Add(new { field, source = (object?)src, current = (object?)cur });
+    }
+
+    private static void AddIfChangedInt(List<object> diff, string field, int? src, int? cur)
+    {
+        if (src != cur)
+            diff.Add(new { field, source = (object?)src, current = (object?)cur });
+    }
+
+    internal static object? DeserializeCandidate(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            var r = JsonSerializer.Deserialize<EnrichmentProviderResult>(json);
+            if (r is null) return null;
+            return new
+            {
+                title = r.Title,
+                artist = r.Artist,
+                albumArtist = r.AlbumArtist,
+                album = r.Album,
+                year = r.Year,
+                trackNumber = r.TrackNumber,
+                isrc = r.Isrc,
+                musicBrainzId = r.MusicBrainzId,
+                musicBrainzReleaseId = r.MusicBrainzReleaseId,
+                spotifyId = r.SpotifyId,
+                acoustIdTrackId = r.AcoustIdTrackId,
+                matchedBy = r.MatchedBy,
+                matchConfidence = r.MatchConfidence,
+                matchWarnings = r.MatchWarnings,
+                recommendedStatus = r.RecommendedStatus.ToString(),
+            };
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string[]? DeserializeWarnings(string? json)
