@@ -1,0 +1,214 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Jobs;
+using MusicHoarder.Api.Options;
+using MusicHoarder.Api.Persistence;
+
+namespace MusicHoarder.Api.Tests.Enrichment;
+
+public class EnrichmentRetrySweepTests
+{
+    [Fact]
+    public async Task Refresh_FlipsToPending_WhenNewProviderEnabled()
+    {
+        await using var db = CreateDb();
+        var song = AddSong(db, EnrichmentStatus.NeedsReview);
+        song.ProviderAttempts.Add(new SongProviderAttempt
+        {
+            SongId = song.Id,
+            Provider = EnrichmentProvider.AcoustID,
+            Status = ProviderAttemptStatus.NoMatch,
+            AttemptedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var channel = new EnrichmentPipelineChannel();
+        var service = CreateService(
+            db, channel,
+            enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.AcoustID, EnrichmentProvider.SpotifyAPI });
+
+        await service.RefreshStaleStatusesAsync(CancellationToken.None);
+
+        var updated = await db.Songs.AsNoTracking().SingleAsync();
+        Assert.Equal(EnrichmentStatus.Pending, updated.EnrichmentStatus);
+        Assert.True(channel.Reader.TryRead(out var enqueued));
+        Assert.Equal(song.Id, enqueued);
+    }
+
+    [Fact]
+    public async Task Refresh_LeavesStatus_WhenAllEnabledProvidersTerminal()
+    {
+        await using var db = CreateDb();
+        var song = AddSong(db, EnrichmentStatus.NeedsReview);
+        song.ProviderAttempts.Add(new SongProviderAttempt
+        {
+            SongId = song.Id,
+            Provider = EnrichmentProvider.AcoustID,
+            Status = ProviderAttemptStatus.NoMatch,
+            AttemptedAtUtc = DateTime.UtcNow,
+        });
+        song.ProviderAttempts.Add(new SongProviderAttempt
+        {
+            SongId = song.Id,
+            Provider = EnrichmentProvider.SpotifyAPI,
+            Status = ProviderAttemptStatus.NoMatch,
+            AttemptedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var channel = new EnrichmentPipelineChannel();
+        var service = CreateService(
+            db, channel,
+            enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.AcoustID, EnrichmentProvider.SpotifyAPI });
+
+        await service.RefreshStaleStatusesAsync(CancellationToken.None);
+
+        var updated = await db.Songs.AsNoTracking().SingleAsync();
+        Assert.Equal(EnrichmentStatus.NeedsReview, updated.EnrichmentStatus);
+        Assert.False(channel.Reader.TryRead(out _));
+    }
+
+    [Fact]
+    public async Task Retry_ResetsNeedsReview_WhenFlagSet_PreservesCurrentMetadata()
+    {
+        await using var db = CreateDb();
+        var song = AddSong(db, EnrichmentStatus.NeedsReview);
+        // Capture original + apply enrichment so RestoreOriginalMetadata would
+        // change Title/Artist if invoked with restoreOriginal: true.
+        song.CaptureOriginalMetadata();
+        song.OriginalTitle = "Original Title";
+        song.OriginalArtist = "Original Artist";
+        song.Title = "Edited Title";
+        song.Artist = "Edited Artist";
+        song.ProviderAttempts.Add(new SongProviderAttempt
+        {
+            SongId = song.Id,
+            Provider = EnrichmentProvider.AcoustID,
+            Status = ProviderAttemptStatus.NoMatch,
+            AttemptedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var channel = new EnrichmentPipelineChannel();
+        var service = CreateService(
+            db, channel,
+            enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.AcoustID },
+            retryNeedsReview: true);
+
+        await service.RetryStaleStatusesAsync(CancellationToken.None);
+
+        var updated = await db.Songs
+            .Include(s => s.ProviderAttempts)
+            .AsNoTracking()
+            .SingleAsync();
+        Assert.Equal(EnrichmentStatus.Pending, updated.EnrichmentStatus);
+        Assert.Empty(updated.ProviderAttempts);
+        // Critical: current (edited) metadata must be preserved — only an
+        // explicit user reset should restore originals.
+        Assert.Equal("Edited Title", updated.Title);
+        Assert.Equal("Edited Artist", updated.Artist);
+        Assert.True(channel.Reader.TryRead(out var enqueued));
+        Assert.Equal(song.Id, enqueued);
+    }
+
+    [Fact]
+    public async Task Retry_NoOp_WhenBothFlagsOff()
+    {
+        await using var db = CreateDb();
+        AddSong(db, EnrichmentStatus.NeedsReview);
+        AddSong(db, EnrichmentStatus.Failed);
+        await db.SaveChangesAsync();
+
+        var channel = new EnrichmentPipelineChannel();
+        var service = CreateService(db, channel, enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.AcoustID });
+
+        await service.RetryStaleStatusesAsync(CancellationToken.None);
+
+        var statuses = await db.Songs.AsNoTracking().Select(s => s.EnrichmentStatus).ToListAsync();
+        Assert.Contains(EnrichmentStatus.NeedsReview, statuses);
+        Assert.Contains(EnrichmentStatus.Failed, statuses);
+        Assert.False(channel.Reader.TryRead(out _));
+    }
+
+    private static SongMetadata AddSong(MusicHoarderDbContext db, EnrichmentStatus status)
+    {
+        var song = new SongMetadata
+        {
+            SourcePath = $"/source/{Guid.NewGuid():N}.mp3",
+            FileName = "song.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 1_000,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            Artist = "Artist",
+            Title = "Title",
+            Fingerprint = "fp",
+            DurationSeconds = 200,
+            DurationMs = 200_000,
+            EnrichmentStatus = status,
+        };
+        db.Songs.Add(song);
+        return song;
+    }
+
+    private static MusicHoarderDbContext CreateDb()
+    {
+        var options = new DbContextOptionsBuilder<MusicHoarderDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options;
+        return new MusicHoarderDbContext(options);
+    }
+
+    private static EnrichmentBackgroundService CreateService(
+        MusicHoarderDbContext db,
+        EnrichmentPipelineChannel channel,
+        IReadOnlySet<EnrichmentProvider> enabled,
+        bool retryNeedsReview = false,
+        bool retryFailed = false)
+    {
+        var opts = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
+        {
+            SourceDirectory = "/source",
+            DestinationDirectory = "/dest",
+            RetryNeedsReviewOnStartup = retryNeedsReview,
+            RetryFailedOnStartup = retryFailed,
+        });
+
+        return new EnrichmentBackgroundService(
+            new SimpleScopeFactory(db),
+            new JobManager(),
+            new EnrichmentProgressTracker(),
+            channel,
+            new StubOrchestrator(enabled),
+            opts,
+            NullLogger<EnrichmentBackgroundService>.Instance);
+    }
+
+    private sealed class StubOrchestrator(IReadOnlySet<EnrichmentProvider> enabled) : IEnrichmentOrchestrator
+    {
+        public Task<EnrichmentOutcome> ProcessSongAsync(int songId, CancellationToken ct = default)
+            => Task.FromResult(EnrichmentOutcome.Skipped);
+
+        public IReadOnlySet<EnrichmentProvider> GetEnabledProviderEnums() => enabled;
+    }
+
+    private sealed class SimpleScopeFactory(MusicHoarderDbContext db) : IServiceScopeFactory
+    {
+        public IServiceScope CreateScope() => new SimpleScope(new SimpleProvider(db));
+    }
+
+    private sealed class SimpleScope(IServiceProvider provider) : IServiceScope
+    {
+        public IServiceProvider ServiceProvider { get; } = provider;
+        public void Dispose() { }
+    }
+
+    private sealed class SimpleProvider(MusicHoarderDbContext db) : IServiceProvider
+    {
+        public object? GetService(Type serviceType) =>
+            serviceType == typeof(MusicHoarderDbContext) ? db : null;
+    }
+}
