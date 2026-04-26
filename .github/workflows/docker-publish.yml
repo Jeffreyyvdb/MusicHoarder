@@ -1,0 +1,98 @@
+# Build the API and frontend images, push to GHCR, then trigger a Dokploy redeploy
+# for each app. GHCR doesn't fire push webhooks, so the deploy is API-triggered.
+name: Build & deploy to Dokploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build:
+    name: Build ${{ matrix.app.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - name: api
+            image: musichoarder-api
+            context: .
+            dockerfile: Dockerfile
+            build_args: ""
+          - name: web
+            image: musichoarder-web
+            context: ./frontend
+            dockerfile: ./frontend/Dockerfile
+            build_args: |
+              NEXT_PUBLIC_DEMO_MODE=false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lowercase image path
+        id: img
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "ref=${REGISTRY}/${owner}/${{ matrix.app.image }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.app.context }}
+          file: ${{ matrix.app.dockerfile }}
+          push: true
+          tags: |
+            ${{ steps.img.outputs.ref }}:latest
+            ${{ steps.img.outputs.ref }}:sha-${{ github.sha }}
+          build-args: ${{ matrix.app.build_args }}
+          cache-from: type=gha,scope=${{ matrix.app.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app.name }}
+
+  deploy:
+    name: Deploy ${{ matrix.target.name }}
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: api
+            secret: DOKPLOY_API_APPLICATION_ID
+          - name: web
+            secret: DOKPLOY_WEB_APPLICATION_ID
+    steps:
+      - name: Trigger Dokploy redeploy (${{ matrix.target.name }})
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          APPLICATION_ID: ${{ secrets[matrix.target.secret] }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APPLICATION_ID:-}" ]; then
+            echo "::error::Missing secret ${{ matrix.target.secret }}"
+            exit 1
+          fi
+          status=$(curl -fsS --max-time 60 -o /tmp/deploy.json -w "%{http_code}" \
+            -X POST "${DOKPLOY_URL%/}/api/application.deploy" \
+            -H "x-api-key: ${DOKPLOY_API_KEY}" \
+            -H "Content-Type: application/json" \
+            --data "{\"applicationId\":\"${APPLICATION_ID}\"}")
+          echo "HTTP ${status}"
+          cat /tmp/deploy.json || true
+          test "${status}" = "200"
