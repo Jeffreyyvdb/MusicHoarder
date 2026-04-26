@@ -242,6 +242,88 @@ public class SpotifyApiEnrichmentProviderTests
     }
 
     [Fact]
+    public async Task TryEnrichAsync_BelowMinConfidence_ReturnsNoMatchWithBestCandidate()
+    {
+        await using var db = CreateDb();
+        db.SpotifySettings.Add(new SpotifySettings { ClientId = "id", ClientSecret = "secret" });
+        await db.SaveChangesAsync();
+
+        // Candidate has wildly different artist/title — score will fall well below MinConfidence.
+        var track = new SpotifyCatalogTrack(
+            "near-miss-id",
+            "Different Title Entirely",
+            "Different Artist Entirely",
+            "Different Album",
+            2010,
+            7,
+            239_000,
+            null);
+        var catalog = new StubCatalogSearchService(_ => Task.FromResult<IReadOnlyList<SpotifyCatalogTrack>>([track]));
+        var opts = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
+        {
+            SourceDirectory = "/s",
+            DestinationDirectory = "/d",
+            SpotifyApiMinConfidence = 0.7,
+            SpotifyApiMatchedThreshold = 0.85,
+        });
+        var provider = CreateProvider(db, catalog, opts);
+
+        var song = new SongMetadata
+        {
+            SourcePath = "/a.mp3",
+            FileName = "a.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 1,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            Artist = "Juice WRLD",
+            Title = "Lucid Dreams",
+            DurationSeconds = 239,
+            EnrichmentStatus = EnrichmentStatus.Pending,
+        };
+
+        var result = await provider.TryEnrichAsync(song);
+        var noMatch = Assert.IsType<ProviderNoMatch>(result);
+        Assert.NotNull(noMatch.BestCandidate);
+        Assert.Equal("Different Title Entirely", noMatch.BestCandidate!.Title);
+        Assert.Equal("Different Artist Entirely", noMatch.BestCandidate.Artist);
+        Assert.Equal("Different Album", noMatch.BestCandidate.Album);
+        Assert.Equal("near-miss-id", noMatch.BestCandidate.SpotifyId);
+        Assert.True(noMatch.BestCandidate.MatchConfidence < 0.7,
+            $"Expected confidence below MinConfidence threshold, got {noMatch.BestCandidate.MatchConfidence:F3}");
+        Assert.Equal(EnrichmentStatus.NeedsReview, noMatch.BestCandidate.RecommendedStatus);
+    }
+
+    [Fact]
+    public async Task TryEnrichAsync_NoCandidatesAtAll_ReturnsBareNoMatch()
+    {
+        await using var db = CreateDb();
+        db.SpotifySettings.Add(new SpotifySettings { ClientId = "id", ClientSecret = "secret" });
+        await db.SaveChangesAsync();
+
+        var catalog = new StubCatalogSearchService(_ => Task.FromResult<IReadOnlyList<SpotifyCatalogTrack>>([]));
+        var provider = CreateProvider(db, catalog);
+
+        var song = new SongMetadata
+        {
+            SourcePath = "/a.mp3",
+            FileName = "a.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 1,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            Artist = "Juice WRLD",
+            Title = "Lucid Dreams",
+            DurationSeconds = 239,
+            EnrichmentStatus = EnrichmentStatus.Pending,
+        };
+
+        var result = await provider.TryEnrichAsync(song);
+        var noMatch = Assert.IsType<ProviderNoMatch>(result);
+        Assert.Null(noMatch.BestCandidate);
+    }
+
+    [Fact]
     public async Task ApplyEnrichmentMatch_WithAlbum_PersistsAlbum()
     {
         var song = new SongMetadata
