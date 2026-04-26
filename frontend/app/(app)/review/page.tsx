@@ -36,6 +36,8 @@ import {
   CheckCheck,
   X,
   ExternalLink,
+  Play,
+  Pause,
 } from "lucide-react"
 import type { ApiSong } from "@/lib/api-client"
 import { lrclibWebSearchUrl } from "@/lib/lrclib-url"
@@ -45,8 +47,10 @@ import {
   submitManualReview,
   softDeleteSong,
   bulkApprove,
+  getSongStreamUrl,
 } from "@/lib/api-client"
 import { AppShell } from "@/components/app-shell"
+import { usePlayer } from "@/lib/player-context"
 
 interface MetadataEdits {
   artist?: string
@@ -144,6 +148,7 @@ export default function ReviewPage() {
   const [rejectReason, setRejectReason] = useState("")
   const [bulkApproveMinConfidence, setBulkApproveMinConfidence] = useState(0.75)
   const [bulkApproveResult, setBulkApproveResult] = useState<{ count: number } | null>(null)
+  const { currentSong, isPlaying, playSong, togglePlay } = usePlayer()
 
   const loadTracks = useCallback(async () => {
     try {
@@ -296,6 +301,22 @@ export default function ReviewPage() {
   }, [selectedTrack, actionLoading, rejectReason, tracks.length])
 
   const handleSkip = handleNext
+
+  const isPlayingSelected = !!selectedTrack && currentSong?.id === selectedTrack.id && isPlaying
+
+  const handlePlayPause = useCallback(() => {
+    if (!selectedTrack) return
+    if (currentSong?.id === selectedTrack.id) {
+      togglePlay()
+      return
+    }
+    playSong({
+      id: selectedTrack.id,
+      title: (selectedTrack.title ?? selectedTrack.fileName ?? "Unknown").trim() || "Unknown",
+      artist: (selectedTrack.artist ?? "Unknown Artist").trim() || "Unknown Artist",
+      streamUrl: getSongStreamUrl(selectedTrack.id),
+    })
+  }, [selectedTrack, currentSong, playSong, togglePlay])
 
   const handleDelete = useCallback(async () => {
     if (!selectedTrack || actionLoading) return
@@ -782,6 +803,16 @@ export default function ReviewPage() {
               {/* Action Bar — always visible at the bottom of right panel */}
               <Card className="shrink-0">
                 <div className="flex flex-wrap items-center gap-2 p-3">
+                  <Button
+                    variant="outline"
+                    onClick={handlePlayPause}
+                    disabled={!selectedTrack}
+                    className="gap-2"
+                    title={isPlayingSelected ? "Pause" : "Play"}
+                  >
+                    {isPlayingSelected ? <Pause className="size-4" /> : <Play className="size-4" />}
+                    {isPlayingSelected ? "Pause" : "Play"}
+                  </Button>
                   <Button onClick={handleApprove} disabled={actionLoading} className="gap-2">
                     {actionLoading ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
                     Approve
