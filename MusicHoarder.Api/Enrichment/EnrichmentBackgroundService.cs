@@ -22,6 +22,8 @@ public class EnrichmentBackgroundService(
             "Enrichment background service started (channel-fed). WorkerConcurrency={Concurrency}",
             opts.EnrichmentWorkerConcurrency);
 
+        await RefreshStaleStatusesAsync(stoppingToken);
+        await RetryStaleStatusesAsync(stoppingToken);
         await BackfillPendingSongsAsync(stoppingToken);
 
         var sweepTask = RunRetrySweepLoopAsync(stoppingToken);
@@ -31,6 +33,101 @@ public class EnrichmentBackgroundService(
             .ToArray();
 
         await Task.WhenAll([sweepTask, .. workerTasks]);
+    }
+
+    /// <summary>
+    /// Recomputes summary status for every non-Pending song against the currently
+    /// enabled provider set. Songs whose status would now be Pending (because a
+    /// newly-enabled provider has no attempt yet) are flipped and enqueued.
+    /// ProviderAttempts are kept — the orchestrator skips providers with terminal
+    /// attempts, so the re-run only hits the new provider.
+    /// </summary>
+    internal async Task RefreshStaleStatusesAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+            var enabled = orchestrator.GetEnabledProviderEnums();
+
+            if (enabled.Count == 0)
+                return;
+
+            var candidates = await db.Songs
+                .Include(s => s.ProviderAttempts)
+                .Where(s => s.DeletedAtUtc == null)
+                .Where(s => s.EnrichmentStatus != EnrichmentStatus.Pending)
+                .ToListAsync(ct);
+
+            var flipped = new List<int>();
+            foreach (var song in candidates)
+            {
+                if (song.ComputeSummaryStatus(enabled) != EnrichmentStatus.Pending)
+                    continue;
+
+                song.EnrichmentStatus = EnrichmentStatus.Pending;
+                song.EnrichmentError = null;
+                flipped.Add(song.Id);
+            }
+
+            if (flipped.Count > 0)
+            {
+                await db.SaveChangesAsync(ct);
+                pipelineChannel.EnqueueRange(flipped);
+                logger.LogInformation(
+                    "Refresh sweep flipped {Count} songs to Pending after provider-set change",
+                    flipped.Count);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to refresh stale enrichment statuses on startup");
+        }
+    }
+
+    /// <summary>
+    /// Opt-in: when <see cref="MusicEnricherOptions.RetryNeedsReviewOnStartup"/> or
+    /// <see cref="MusicEnricherOptions.RetryFailedOnStartup"/> is set, reset matching
+    /// rows back to Pending (clearing ProviderAttempts so every enabled provider
+    /// retries from scratch) and enqueue them.
+    /// </summary>
+    internal async Task RetryStaleStatusesAsync(CancellationToken ct)
+    {
+        var opts = options.Value;
+        if (!opts.RetryNeedsReviewOnStartup && !opts.RetryFailedOnStartup)
+            return;
+
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+
+            var statusesToRetry = new List<EnrichmentStatus>();
+            if (opts.RetryNeedsReviewOnStartup) statusesToRetry.Add(EnrichmentStatus.NeedsReview);
+            if (opts.RetryFailedOnStartup) statusesToRetry.Add(EnrichmentStatus.Failed);
+
+            var candidates = await db.Songs
+                .Include(s => s.ProviderAttempts)
+                .Where(s => s.DeletedAtUtc == null)
+                .Where(s => statusesToRetry.Contains(s.EnrichmentStatus))
+                .ToListAsync(ct);
+
+            if (candidates.Count == 0)
+                return;
+
+            foreach (var song in candidates)
+                song.ResetEnrichment(restoreOriginal: false);
+
+            await db.SaveChangesAsync(ct);
+            pipelineChannel.EnqueueRange(candidates.Select(s => s.Id));
+            logger.LogInformation(
+                "Retry sweep reset {Count} songs to Pending (RetryNeedsReview={NR}, RetryFailed={F})",
+                candidates.Count, opts.RetryNeedsReviewOnStartup, opts.RetryFailedOnStartup);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to retry stale enrichment statuses on startup");
+        }
     }
 
     private async Task BackfillPendingSongsAsync(CancellationToken ct)

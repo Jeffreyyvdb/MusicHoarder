@@ -70,6 +70,12 @@ public class MusicEnricherOptions
     [Range(30, 1800)]
     public int EnrichmentRetrySweepIntervalSeconds { get; set; } = 300;
 
+    /// <summary>On API startup, reset every NeedsReview song to Pending (clears its provider attempts) and re-queue it.</summary>
+    public bool RetryNeedsReviewOnStartup { get; set; } = false;
+
+    /// <summary>On API startup, reset every Failed song to Pending (clears its provider attempts) and re-queue it.</summary>
+    public bool RetryFailedOnStartup { get; set; } = false;
+
     /// <summary>Enable the AcoustID enrichment provider (fingerprint → MusicBrainz via AcoustID).</summary>
     public bool EnableAcoustIdProvider { get; set; } = true;
 
