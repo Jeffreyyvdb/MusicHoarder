@@ -18,6 +18,7 @@
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
   import { fetchOverview, type ApiOverview } from '$lib/api-client';
   import { breadcrumbStore } from '$lib/stores/breadcrumbs.svelte';
+  import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { cn } from '$lib/utils';
 
   type LibraryLayout = 'grid' | 'list' | 'col';
@@ -155,7 +156,10 @@
       ? Math.max(0, (overview.job.tracksDiscovered ?? 0) - (overview.job.tracksProcessed ?? 0))
       : 0
   );
-  const indexing = $derived(overview?.job?.status === 'running');
+  // Prefer SSE-driven liveness from the pipeline-overlay store (per-second),
+  // falling back to the polled overview when the SSE hasn't reported yet.
+  const indexing = $derived(pipelineOverlay.isAnyRunning || overview?.job?.status === 'running');
+  const pipelineDrawerOpen = $derived(pipelineOverlay.isOpen);
 
   const showViewToggle = $derived(onAlbumsRoot && !albumKey);
 </script>
@@ -263,11 +267,14 @@
       </div>
     {/if}
 
-    <a
-      href="/overview"
+    <button
+      type="button"
+      onclick={() => pipelineOverlay.toggle()}
+      aria-pressed={pipelineDrawerOpen}
+      title={pipelineDrawerOpen ? 'Hide pipeline' : 'Show pipeline'}
       class={cn(
         'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors',
-        onOverview
+        pipelineDrawerOpen
           ? 'bg-primary/15 text-primary border-transparent'
           : 'bg-surface-sunken border-border text-muted-foreground hover:text-foreground'
       )}
@@ -275,7 +282,7 @@
       <span class={cn('size-1.5 rounded-full', indexing ? 'bg-primary mh-toolbar-pulse' : 'bg-muted-foreground/50')}></span>
       <span class="hidden sm:inline">Pipeline</span>
       <span class="text-muted-foreground/80 font-mono text-[10px]">{queueRemaining.toLocaleString()}</span>
-    </a>
+    </button>
 
     <a
       href="/settings"
