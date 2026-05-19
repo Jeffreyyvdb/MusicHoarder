@@ -50,7 +50,7 @@
     "paneforge": "^1.0.2",
     "prettier": "^3.4.0",
     "prettier-plugin-svelte": "^3.3.0",
-    "prettier-plugin-tailwindcss": "^0.6.10",
+    "prettier-plugin-tailwindcss": "^0.8.0",
     "semantic-release": "^25.0.0",
     "svelte": "^5.55.7",
     "svelte-check": "^4.1.0",
