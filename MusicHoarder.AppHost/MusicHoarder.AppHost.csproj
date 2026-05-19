@@ -1,4 +1,4 @@
-<Project Sdk="Aspire.AppHost.Sdk/13.2.0">
+<Project Sdk="Aspire.AppHost.Sdk/13.3.4">
 
     <PropertyGroup>
         <OutputType>Exe</OutputType>
@@ -13,8 +13,9 @@
     </ItemGroup>
 
     <ItemGroup>
-      <PackageReference Include="Aspire.Hosting.JavaScript" Version="13.2.0" />
-      <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.2.0" />
+      <PackageReference Include="Aspire.Hosting.Docker" Version="13.3.4" />
+      <PackageReference Include="Aspire.Hosting.JavaScript" Version="13.3.4" />
+      <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.3.4" />
     </ItemGroup>
 
 </Project>

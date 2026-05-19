@@ -1,5 +1,12 @@
-.next
 node_modules
+.svelte-kit
+build
+.next
 .git
-*.md
-.env*
+.gitignore
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+README.md
