@@ -90,3 +90,20 @@ This comes up repeatedly in `frontend/`: lists look right but do not scroll beca
 ## Pipeline dependencies
 
 `fpcalc` (from `libchromaprint-tools`) must be on `PATH` or configured via `MusicEnricher:FpcalcPath`. Without it, songs get indexed but with `Fingerprint = null` and `DurationSeconds = null`, which means the AcoustID provider skips them and the library builder never promotes them to `Destination`. Without `MusicEnricher:AcoustIdApiKey`, the AcoustID provider falls back and songs typically land in `NeedsReview` rather than `Matched`. The frontend Library page's **Destination** view only shows rows where `LibraryBuildStatus == Done` and `DestinationPath` is set.
+
+## Releases
+
+Only the **frontend** is versioned by [semantic-release](https://github.com/semantic-release/semantic-release). Every push to `main` that touches `frontend/**` runs `.github/workflows/frontend-release.yml`, which gates on `bun run check` + `bun run lint` + `bun run build` and then publishes a [GitHub Release](https://github.com/Jeffreyyvdb/MusicHoarder/releases) with a fresh tag of the form `frontend-v${version}` if the new commits warrant one. The Releases page is the canonical changelog; `frontend/CHANGELOG.md` is a stub pointing at it. The .NET API is **not** semver-tagged — it ships via `docker-publish.yml` as `ghcr.io/.../musichoarder-api:sha-<commit>`.
+
+**Commit messages are load-bearing** for any commit that touches `frontend/`: they must follow [Conventional Commits](https://www.conventionalcommits.org/).
+
+| Prefix on the commit subject                       | Release bump      |
+| -------------------------------------------------- | ----------------- |
+| `fix:` / `fix(scope):`                             | patch (0.0.**X**) |
+| `feat:` / `feat(scope):`                           | minor (0.**Y**.0) |
+| `feat!:` / any commit with `BREAKING CHANGE:` foot | major (**X**.0.0) |
+| `chore:`, `docs:`, `refactor:`, `test:`, `style:`  | no release        |
+
+To dry-run locally from `frontend/`: `bun run release:dry` (requires Node ≥ v22.14 on PATH — semantic-release v25+ doesn't run under Bun's Node-compat layer; CI installs Node 24 alongside Bun and invokes `npx semantic-release` for that one step). `frontend/package.json`'s `version` field is intentionally stale — the canonical version is the latest `frontend-v*` git tag. No release commit is pushed back to `main`, so the `main` branch's required-status-check rules need no bypass actor; tags and Releases are created via the GitHub Releases API. Following the [semantic-release maintainers' recommendation](https://semantic-release.gitbook.io/semantic-release/support/faq#making-commits-during-the-release-process-adds-significant-complexity), `@semantic-release/git` and `@semantic-release/changelog` are not used.
+
+Dependabot (`.github/dependabot.yml`) covers three ecosystems with a release-age cooldown (3d patch / 5d minor / 7d major where the ecosystem supports per-semver levels): `bun` for `frontend/` deps, `github-actions` for workflow versions, and `nuget` for the .NET projects. Bun's prod-deps PRs use the `fix(deps)` prefix and *will* cut a frontend patch release when they land — that's intentional. Nuget bumps use `chore(deps)` so they never trigger a frontend release. The `dependabot-auto-merge.yml` workflow squash-auto-merges bun patch + minor grouped PRs only; nuget and github-actions wait for human review.
