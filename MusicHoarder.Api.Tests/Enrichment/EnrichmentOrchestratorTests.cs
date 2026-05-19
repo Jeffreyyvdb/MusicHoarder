@@ -7,6 +7,7 @@ using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Enrichment.Providers;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Settings;
 
 namespace MusicHoarder.Api.Tests.Enrichment;
 
@@ -883,6 +884,7 @@ public class EnrichmentOrchestratorTests
             providerList,
             lrcLibService ?? new NoOpLrcLibService(),
             opts,
+            new TestRuntimeSettingsService(opts.Value),
             NullLogger<EnrichmentOrchestrator>.Instance);
     }
 
@@ -900,6 +902,7 @@ public class EnrichmentOrchestratorTests
             providerList,
             lrcLibService ?? new NoOpLrcLibService(),
             opts,
+            new TestRuntimeSettingsService(opts.Value),
             NullLogger<EnrichmentOrchestrator>.Instance);
     }
 
@@ -962,5 +965,28 @@ public class EnrichmentOrchestratorTests
             if (serviceType == typeof(MusicHoarderDbContext)) return db;
             return null;
         }
+    }
+
+    private sealed class TestRuntimeSettingsService : IRuntimeSettingsService
+    {
+        private readonly EffectiveSettings _effective;
+
+        public TestRuntimeSettingsService(MusicEnricherOptions opts)
+        {
+            _effective = new EffectiveSettings(
+                opts.EnableAcoustIdProvider,
+                opts.EnableMusicBrainzWebProvider,
+                opts.EnableSpotifyApiProvider,
+                opts.EnableTrackerProvider,
+                opts.SpotifyApiMatchedThreshold,
+                opts.AcoustIdScoreThreshold,
+                opts.EnrichmentWorkerConcurrency,
+                opts.LibraryBuilderWorkerConcurrency,
+                UpdatedAtUtc: null);
+        }
+
+        public Task<EffectiveSettings> GetAsync(CancellationToken ct = default) => Task.FromResult(_effective);
+
+        public Task<EffectiveSettings> UpdateAsync(RuntimeSettingsUpdate update, CancellationToken ct = default) => Task.FromResult(_effective);
     }
 }

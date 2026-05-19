@@ -1780,6 +1780,91 @@ export async function fetchSpotifyPlaylistTracks(playlistId: string, offset = 0,
   )
 }
 
+// ---------------------------------------------------------------------------
+// Settings API
+// ---------------------------------------------------------------------------
+
+export interface SettingsPathsView {
+  sourceDirectory: string
+  destinationDirectory: string
+  fpcalcPath: string
+}
+
+export interface SettingsProvidersView {
+  acoustId: boolean
+  musicBrainzWeb: boolean
+  spotifyApi: boolean
+  tracker: boolean
+}
+
+export interface SettingsPipelineView {
+  spotifyApiMatchedThreshold: number
+  acoustIdScoreThreshold: number
+  enrichmentWorkerConcurrency: number
+  libraryBuilderWorkerConcurrency: number
+}
+
+export interface SettingsSpotifyView {
+  oAuthRedirectBaseUrl: string
+  scopes: string[]
+}
+
+export interface SettingsResponse {
+  paths: SettingsPathsView
+  providers: SettingsProvidersView
+  pipeline: SettingsPipelineView
+  spotify: SettingsSpotifyView
+  updatedAtUtc: string | null
+}
+
+export interface SettingsUpdateRequest {
+  providers?: Partial<SettingsProvidersView>
+  pipeline?: Partial<SettingsPipelineView>
+}
+
+export async function fetchSettings(): Promise<SettingsResponse> {
+  if (isDemoMode) {
+    return {
+      paths: {
+        sourceDirectory: "/demo/source",
+        destinationDirectory: "/demo/destination",
+        fpcalcPath: "fpcalc",
+      },
+      providers: {
+        acoustId: true,
+        musicBrainzWeb: false,
+        spotifyApi: true,
+        tracker: false,
+      },
+      pipeline: {
+        spotifyApiMatchedThreshold: 0.85,
+        acoustIdScoreThreshold: 0.85,
+        enrichmentWorkerConcurrency: 2,
+        libraryBuilderWorkerConcurrency: 2,
+      },
+      spotify: {
+        oAuthRedirectBaseUrl: "",
+        scopes: [
+          "user-library-read",
+          "playlist-read-private",
+          "playlist-read-collaborative",
+          "user-top-read",
+        ],
+      },
+      updatedAtUtc: null,
+    }
+  }
+  return requestJson<SettingsResponse>("/api/settings")
+}
+
+export async function updateSettings(update: SettingsUpdateRequest): Promise<void> {
+  if (isDemoMode) return
+  await requestJson<unknown>("/api/settings", {
+    method: "PUT",
+    body: JSON.stringify(update),
+  })
+}
+
 export async function fetchReviewTracks(): Promise<ApiSong[]> {
   if (isDemoMode) {
     const demoSongs = buildDemoSongs()
