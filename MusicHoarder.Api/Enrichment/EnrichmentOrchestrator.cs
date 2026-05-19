@@ -58,6 +58,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         var dbContext = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
         var song = await dbContext.Songs
+            .IgnoreQueryFilters()
             .Include(s => s.ProviderAttempts)
             .FirstOrDefaultAsync(s => s.Id == songId, ct);
 

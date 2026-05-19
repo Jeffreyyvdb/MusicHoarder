@@ -29,4 +29,8 @@
         <ProjectReference Include="..\MusicHoarder.ServiceDefaults\MusicHoarder.ServiceDefaults.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+        <EmbeddedResource Include="Auth\Resources\demo-songs.json" />
+    </ItemGroup>
+
 </Project>
