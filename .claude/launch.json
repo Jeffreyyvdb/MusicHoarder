@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "AppHost (Aspire full stack)",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "MusicHoarder.AppHost"],
+      "port": 58412
+    },
+    {
+      "name": "Frontend (Vite dev, standalone)",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["--cwd", "frontend", "run", "dev"],
+      "port": 5173
+    }
+  ]
+}
