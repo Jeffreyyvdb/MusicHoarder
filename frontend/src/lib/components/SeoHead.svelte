@@ -15,7 +15,7 @@
     title,
     description,
     path,
-    ogImage = '/apple-icon.png',
+    ogImage = '/og-image.png',
     ogImageAlt,
     ogType = 'website',
     noindex = false
