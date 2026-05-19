@@ -23,6 +23,7 @@ public static class WebApplicationExtensions
         app.MapDashboardEndpoints();
         app.MapSongsEndpoints();
         app.MapSpotifyEndpoints();
+        app.MapSettingsEndpoints();
         return app;
     }
 }
