@@ -1,0 +1,94 @@
+version: 2
+updates:
+  - package-ecosystem: 'bun'
+    directory: '/frontend'
+    schedule:
+      interval: 'weekly'
+    open-pull-requests-limit: 10
+    # Defense against supply-chain attacks (e.g. Shai-Hulud): only propose
+    # versions that have been published long enough for the registry/community
+    # to catch and yank malicious releases. Security advisories from GitHub's
+    # advisory database are not subject to cooldown.
+    cooldown:
+      default-days: 5
+      semver-major-days: 7
+      semver-minor-days: 5
+      semver-patch-days: 3
+      include:
+        - '*'
+    commit-message:
+      prefix: 'fix(deps)'
+      prefix-development: 'chore(deps)'
+      include: 'scope'
+    # Patch + minor bumps are grouped per dependency-type so the weekly
+    # delivery is at most two bun PRs (prod-deps, dev-deps) instead of one
+    # per package. Majors stay ungrouped — they're rare and deserve
+    # individual scrutiny.
+    #
+    # Auto-merge still gates correctly: dependabot/fetch-metadata reports
+    # the highest semver bump in a grouped PR, so a group containing any
+    # major reports `semver-major` and skips auto-merge.
+    groups:
+      production-deps:
+        dependency-type: 'production'
+        update-types:
+          - 'patch'
+          - 'minor'
+      development-deps:
+        dependency-type: 'development'
+        update-types:
+          - 'patch'
+          - 'minor'
+    labels:
+      - 'dependencies'
+      - 'bun'
+
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    # github-actions ecosystem only supports `default-days` for cooldown
+    # (no per-semver-level fields).
+    cooldown:
+      default-days: 5
+    commit-message:
+      prefix: 'chore(ci)'
+      include: 'scope'
+    # All github-actions bumps land in one weekly PR. Actions versions
+    # don't tend to break things subtly, and this ecosystem doesn't drive
+    # semantic-release, so a single grouped PR is enough.
+    groups:
+      github-actions:
+        patterns:
+          - '*'
+    labels:
+      - 'dependencies'
+      - 'github-actions'
+
+  - package-ecosystem: 'nuget'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    open-pull-requests-limit: 10
+    cooldown:
+      default-days: 5
+      semver-major-days: 7
+      semver-minor-days: 5
+      semver-patch-days: 3
+      include:
+        - '*'
+    # `chore(deps)` (not `fix(deps)`) so .NET bumps never trigger the
+    # frontend's semantic-release pipeline. The .NET API isn't versioned
+    # via semver tags — it ships via the docker-publish workflow's
+    # sha-tagged GHCR images, so the prefix is purely informational.
+    commit-message:
+      prefix: 'chore(deps)'
+      include: 'scope'
+    groups:
+      nuget-deps:
+        update-types:
+          - 'patch'
+          - 'minor'
+    labels:
+      - 'dependencies'
+      - 'nuget'
