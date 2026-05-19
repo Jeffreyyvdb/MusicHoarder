@@ -132,7 +132,14 @@
     playlistsError = null;
     try {
       const result = await fetchSpotifyPlaylists();
-      playlists = result.items;
+      // Spotify can return the same playlist twice (e.g. owned + followed).
+      // Dedupe by spotifyId so the keyed each block doesn't crash.
+      const seen = new Set<string>();
+      playlists = result.items.filter((p) => {
+        if (seen.has(p.spotifyId)) return false;
+        seen.add(p.spotifyId);
+        return true;
+      });
     } catch (err) {
       playlistsError = err instanceof Error ? err.message : 'Failed to load playlists';
     } finally {
