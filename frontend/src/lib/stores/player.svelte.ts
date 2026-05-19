@@ -13,6 +13,12 @@ let currentTime = $state(0);
 let duration = $state(0);
 let volumeState = $state(1);
 let detailsRequestId = $state(0);
+/**
+ * Set to true while the in-page TrackPanel is mounted with its own waveform
+ * player. The global MiniPlayer hides itself when this is true to avoid
+ * stacking two bottom-anchored controls.
+ */
+let panelMountedCount = $state(0);
 
 let audioEl: HTMLAudioElement | null = null;
 let rafHandle: number | null = null;
@@ -128,6 +134,13 @@ function requestShowDetails() {
   detailsRequestId += 1;
 }
 
+function registerPanel(): () => void {
+  panelMountedCount += 1;
+  return () => {
+    panelMountedCount = Math.max(0, panelMountedCount - 1);
+  };
+}
+
 export function attachAudioElement(el: HTMLAudioElement): () => void {
   audioEl = el;
 
@@ -189,6 +202,9 @@ export const playerStore = {
   get detailsRequestId() {
     return detailsRequestId;
   },
+  get isPanelMounted() {
+    return panelMountedCount > 0;
+  },
   playSong,
   pause,
   resume,
@@ -196,5 +212,6 @@ export const playerStore = {
   seek,
   setVolume,
   stop,
-  requestShowDetails
+  requestShowDetails,
+  registerPanel
 };
