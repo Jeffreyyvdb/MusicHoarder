@@ -7,6 +7,7 @@ using MusicHoarder.Api.Enrichment.Providers;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Spotify;
+using MusicHoarder.Api.Tests.Auth;
 
 namespace MusicHoarder.Api.Tests.Enrichment;
 
@@ -35,6 +36,7 @@ public class SpotifyApiEnrichmentProviderTests
 
         var song = new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/a.mp3",
             FileName = "a.mp3",
             Extension = ".mp3",
@@ -61,6 +63,7 @@ public class SpotifyApiEnrichmentProviderTests
 
         var song = new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/a.mp3",
             FileName = "a.mp3",
             Extension = ".mp3",
@@ -81,7 +84,7 @@ public class SpotifyApiEnrichmentProviderTests
     public async Task TryEnrichAsync_StrongMatch_ReturnsMatchedWithSpotifyIdAndAlbum()
     {
         await using var db = CreateDb();
-        db.SpotifySettings.Add(new SpotifySettings { ClientId = "id", ClientSecret = "secret" });
+        db.SpotifySettings.Add(new SpotifySettings {     OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId, ClientId = "id", ClientSecret = "secret" });
         await db.SaveChangesAsync();
 
         var track = new SpotifyCatalogTrack(
@@ -109,6 +112,7 @@ public class SpotifyApiEnrichmentProviderTests
 
         var song = new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/a.mp3",
             FileName = "a.mp3",
             Extension = ".mp3",
@@ -136,7 +140,7 @@ public class SpotifyApiEnrichmentProviderTests
     public async Task TryEnrichAsync_DurationMismatch_BlocksMatched_GoesNeedsReview()
     {
         await using var db = CreateDb();
-        db.SpotifySettings.Add(new SpotifySettings { ClientId = "id", ClientSecret = "secret" });
+        db.SpotifySettings.Add(new SpotifySettings {     OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId, ClientId = "id", ClientSecret = "secret" });
         await db.SaveChangesAsync();
 
         var track = new SpotifyCatalogTrack(
@@ -154,6 +158,7 @@ public class SpotifyApiEnrichmentProviderTests
 
         var song = new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/a.mp3",
             FileName = "a.mp3",
             Extension = ".mp3",
@@ -176,7 +181,7 @@ public class SpotifyApiEnrichmentProviderTests
     public async Task TryEnrichAsync_IsrcMismatch_ReturnsNoMatch_WhenScoreBelowMin()
     {
         await using var db = CreateDb();
-        db.SpotifySettings.Add(new SpotifySettings { ClientId = "id", ClientSecret = "secret" });
+        db.SpotifySettings.Add(new SpotifySettings {     OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId, ClientId = "id", ClientSecret = "secret" });
         await db.SaveChangesAsync();
 
         var track = new SpotifyCatalogTrack(
@@ -194,6 +199,7 @@ public class SpotifyApiEnrichmentProviderTests
 
         var song = new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/a.mp3",
             FileName = "a.mp3",
             Extension = ".mp3",
@@ -215,7 +221,7 @@ public class SpotifyApiEnrichmentProviderTests
     public async Task TryEnrichAsync_RateLimited_ReturnsProviderRateLimited()
     {
         await using var db = CreateDb();
-        db.SpotifySettings.Add(new SpotifySettings { ClientId = "id", ClientSecret = "secret" });
+        db.SpotifySettings.Add(new SpotifySettings {     OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId, ClientId = "id", ClientSecret = "secret" });
         await db.SaveChangesAsync();
 
         var catalog = new StubCatalogSearchService(_ =>
@@ -224,6 +230,7 @@ public class SpotifyApiEnrichmentProviderTests
 
         var song = new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/a.mp3",
             FileName = "a.mp3",
             Extension = ".mp3",
@@ -245,7 +252,7 @@ public class SpotifyApiEnrichmentProviderTests
     public async Task TryEnrichAsync_BelowMinConfidence_ReturnsNoMatchWithBestCandidate()
     {
         await using var db = CreateDb();
-        db.SpotifySettings.Add(new SpotifySettings { ClientId = "id", ClientSecret = "secret" });
+        db.SpotifySettings.Add(new SpotifySettings {     OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId, ClientId = "id", ClientSecret = "secret" });
         await db.SaveChangesAsync();
 
         // Candidate has wildly different artist/title — score will fall well below MinConfidence.
@@ -270,6 +277,7 @@ public class SpotifyApiEnrichmentProviderTests
 
         var song = new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/a.mp3",
             FileName = "a.mp3",
             Extension = ".mp3",
@@ -298,7 +306,7 @@ public class SpotifyApiEnrichmentProviderTests
     public async Task TryEnrichAsync_NoCandidatesAtAll_ReturnsBareNoMatch()
     {
         await using var db = CreateDb();
-        db.SpotifySettings.Add(new SpotifySettings { ClientId = "id", ClientSecret = "secret" });
+        db.SpotifySettings.Add(new SpotifySettings {     OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId, ClientId = "id", ClientSecret = "secret" });
         await db.SaveChangesAsync();
 
         var catalog = new StubCatalogSearchService(_ => Task.FromResult<IReadOnlyList<SpotifyCatalogTrack>>([]));
@@ -306,6 +314,7 @@ public class SpotifyApiEnrichmentProviderTests
 
         var song = new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/a.mp3",
             FileName = "a.mp3",
             Extension = ".mp3",
@@ -328,6 +337,7 @@ public class SpotifyApiEnrichmentProviderTests
     {
         var song = new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/a.mp3",
             FileName = "a.mp3",
             Extension = ".mp3",
@@ -373,6 +383,7 @@ public class SpotifyApiEnrichmentProviderTests
         return new SpotifyApiEnrichmentProvider(
             scopeFactory,
             catalog,
+            new TestOwnerLookupService(),
             opts,
             spotifyOpts,
             NullLogger<SpotifyApiEnrichmentProvider>.Instance);

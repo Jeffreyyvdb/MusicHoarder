@@ -90,6 +90,7 @@ public class SongMetadataResetTests
     {
         var song = new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/src/track.mp3",
             FileName = "track.mp3",
             Extension = ".mp3",

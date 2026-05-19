@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Library;
@@ -27,7 +28,8 @@ public static class EnrichmentEndpoints
                 return Results.Accepted("/api/enrichment/status", new { jobId });
             })
             .WithName("TriggerEnrichmentScan")
-            .WithSummary("Trigger the ScannerService to index the source library.");
+            .WithSummary("Trigger the ScannerService to index the source library.")
+            .RequireOwner();
 
         group.MapPost("/enrich", (JobManager jobManager) =>
             {
@@ -37,7 +39,8 @@ public static class EnrichmentEndpoints
                 return Results.Accepted("/api/enrichment/status", new { jobId });
             })
             .WithName("TriggerEnrich")
-            .WithSummary("Trigger the EnrichmentService to enrich pending tracks via AcoustID/MusicBrainz.");
+            .WithSummary("Trigger the EnrichmentService to enrich pending tracks via AcoustID/MusicBrainz.")
+            .RequireOwner();
 
         group.MapPost("/fingerprint", (JobManager jobManager) =>
             {
@@ -47,7 +50,8 @@ public static class EnrichmentEndpoints
                 return Results.Accepted("/api/enrichment/status", new { jobId });
             })
             .WithName("TriggerFingerprint")
-            .WithSummary("Trigger the FingerprintService to fingerprint tracks with missing fingerprints.");
+            .WithSummary("Trigger the FingerprintService to fingerprint tracks with missing fingerprints.")
+            .RequireOwner();
 
         group.MapPost("/build", (JobManager jobManager) =>
             {
@@ -57,7 +61,8 @@ public static class EnrichmentEndpoints
                 return Results.Accepted("/api/enrichment/status", new { jobId });
             })
             .WithName("TriggerBuild")
-            .WithSummary("Trigger the LibraryBuilderService to copy and tag matched tracks to the destination.");
+            .WithSummary("Trigger the LibraryBuilderService to copy and tag matched tracks to the destination.")
+            .RequireOwner();
 
         group.MapPost("/cancel", (JobManager jobManager) =>
             {
@@ -67,7 +72,8 @@ public static class EnrichmentEndpoints
                 return Results.Ok(new { message = "Cancellation requested for the running job." });
             })
             .WithName("CancelJob")
-            .WithSummary("Cancel the currently running job.");
+            .WithSummary("Cancel the currently running job.")
+            .RequireOwner();
 
         group.MapPost("/pause", (string step, JobManager jobManager) =>
             {
@@ -78,7 +84,8 @@ public static class EnrichmentEndpoints
                 return Results.Ok(new { message = $"{step} paused.", step, paused = true });
             })
             .WithName("PauseStep")
-            .WithSummary("Pause a pipeline step. Cancels any in-flight job for that step and prevents auto-triggering.");
+            .WithSummary("Pause a pipeline step. Cancels any in-flight job for that step and prevents auto-triggering.")
+            .RequireOwner();
 
         group.MapPost("/resume", (string step, JobManager jobManager) =>
             {
@@ -89,7 +96,8 @@ public static class EnrichmentEndpoints
                 return Results.Ok(new { message = $"{step} resumed.", step, paused = false });
             })
             .WithName("ResumeStep")
-            .WithSummary("Resume a paused pipeline step so it can auto-trigger again.");
+            .WithSummary("Resume a paused pipeline step so it can auto-trigger again.")
+            .RequireOwner();
 
         group.MapGet("/status", (
                 JobManager jobManager,
@@ -127,7 +135,8 @@ public static class EnrichmentEndpoints
                     loggerFactory,
                     (service, jobId, ct) => service.ResetPostFingerprintAsync(jobId, ct)))
             .WithName("PurgePostFingerprint")
-            .WithSummary("Start a background reset of enrichment, lyrics, duplicate, and library-build state. Returns 202 Accepted with a jobId; poll /purge-status for progress.");
+            .WithSummary("Start a background reset of enrichment, lyrics, duplicate, and library-build state. Returns 202 Accepted with a jobId; poll /purge-status for progress.")
+            .RequireOwner();
 
         group.MapPost("/purge-all", (
                 JobManager jobManager,
@@ -142,7 +151,8 @@ public static class EnrichmentEndpoints
                     loggerFactory,
                     (service, jobId, ct) => service.PurgeAllAsync(jobId, ct)))
             .WithName("PurgeAll")
-            .WithSummary("Start a background hard-delete of every song, provider attempt, cached Spotify match, and copied destination file. Returns 202 Accepted.");
+            .WithSummary("Start a background hard-delete of every song, provider attempt, cached Spotify match, and copied destination file. Returns 202 Accepted.")
+            .RequireOwner();
 
         group.MapGet("/purge-status", (PurgeStatusTracker tracker) => Results.Ok(tracker.Get()))
             .WithName("GetPurgeStatus")

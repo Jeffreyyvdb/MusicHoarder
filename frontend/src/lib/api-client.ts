@@ -1781,6 +1781,65 @@ export async function fetchSpotifyPlaylistTracks(playlistId: string, offset = 0,
 }
 
 // ---------------------------------------------------------------------------
+// Auth API
+// ---------------------------------------------------------------------------
+
+export type AuthRole = "Owner" | "Demo"
+
+export interface AuthMe {
+  id: string
+  email: string
+  role: AuthRole
+  displayName: string | null
+}
+
+export interface RequestLinkResult {
+  ok: boolean
+  /** Present only in dev / Console-fallback mode so devs can click without email. */
+  magicLinkUrl?: string | null
+}
+
+export async function fetchCurrentUser(): Promise<AuthMe | null> {
+  if (isDemoMode) {
+    return { id: "demo", email: "demo@musichoarder.local", role: "Demo", displayName: "Demo" }
+  }
+  const response = await fetch(`${API_PREFIX}/api/auth/me`, { cache: "no-store" })
+  if (response.status === 401) return null
+  if (!response.ok) throw new Error(`auth/me failed: ${response.status}`)
+  return (await response.json()) as AuthMe
+}
+
+export async function requestMagicLink(email: string): Promise<RequestLinkResult> {
+  if (isDemoMode) return { ok: true }
+  const response = await fetch(`${API_PREFIX}/api/auth/request-link`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email }),
+    cache: "no-store",
+  })
+  if (response.status === 503) return { ok: false }
+  const body = (await response.json().catch(() => ({}))) as { magicLinkUrl?: string | null }
+  return { ok: true, magicLinkUrl: body.magicLinkUrl ?? null }
+}
+
+export async function signOut(allSessions = false): Promise<void> {
+  if (isDemoMode) return
+  await fetch(`${API_PREFIX}/api/auth/logout${allSessions ? "?all=true" : ""}`, {
+    method: "POST",
+    cache: "no-store",
+  })
+}
+
+export async function signInAsDemo(): Promise<void> {
+  if (isDemoMode) return
+  const response = await fetch(`${API_PREFIX}/api/auth/demo-login`, {
+    method: "POST",
+    cache: "no-store",
+  })
+  if (!response.ok) throw new Error(`demo-login failed: ${response.status}`)
+}
+
+// ---------------------------------------------------------------------------
 // Settings API
 // ---------------------------------------------------------------------------
 

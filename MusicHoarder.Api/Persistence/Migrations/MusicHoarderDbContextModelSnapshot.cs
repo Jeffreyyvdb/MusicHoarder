@@ -22,6 +22,143 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("MusicHoarder.Api.Auth.MagicLinkToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ConsumedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("IssuedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RequestedFromIp")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("RequestedUserAgent")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<byte[]>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "ConsumedAtUtc", "ExpiresAtUtc");
+
+                    b.ToTable("MagicLinkTokens");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Auth.Session", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("IssuedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("RevokedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UserAgent")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAtUtc");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Sessions");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Auth.User", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DisplayName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("EmailNormalized")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<bool>("IsDisabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastLoginAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Role")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmailNormalized")
+                        .IsUnique();
+
+                    b.ToTable("Users");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("9c0f1e3d-7b6a-4d2e-9c8f-0a1b2c3d4e5f"),
+                            CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            DisplayName = "Owner",
+                            Email = "owner@unconfigured.local",
+                            EmailNormalized = "OWNER@UNCONFIGURED.LOCAL",
+                            IsDisabled = false,
+                            Role = 0
+                        },
+                        new
+                        {
+                            Id = new Guid("d0e1f2a3-b4c5-4d6e-9f80-112233445566"),
+                            CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            DisplayName = "Demo",
+                            Email = "demo@unconfigured.local",
+                            EmailNormalized = "DEMO@UNCONFIGURED.LOCAL",
+                            IsDisabled = false,
+                            Role = 1
+                        });
+                });
+
             modelBuilder.Entity("MusicHoarder.Api.Persistence.RuntimeSettings", b =>
                 {
                     b.Property<int>("Id")
@@ -135,6 +272,9 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<bool?>("IsInstrumental")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsSynthetic")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsUnreleased")
                         .HasColumnType("boolean");
 
@@ -210,6 +350,9 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<int?>("OriginalYear")
                         .HasColumnType("integer");
 
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("PlainLyrics")
                         .HasColumnType("text");
 
@@ -245,12 +388,14 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Fingerprint"), "hash");
 
-                    b.HasIndex("SourcePath")
-                        .IsUnique();
-
                     b.HasIndex("DeletedAtUtc", "IsDuplicate");
 
                     b.HasIndex("DeletedAtUtc", "LastModifiedUtc");
+
+                    b.HasIndex("OwnerUserId", "DeletedAtUtc");
+
+                    b.HasIndex("OwnerUserId", "SourcePath")
+                        .IsUnique();
 
                     b.HasIndex("DeletedAtUtc", "EnrichmentStatus", "Id");
 
@@ -320,6 +465,9 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<DateTime?>("ConnectedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("RefreshToken")
                         .HasColumnType("text");
 
@@ -343,11 +491,17 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("OwnerUserId")
+                        .IsUnique();
+
                     b.ToTable("SpotifySettings");
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.SpotifyTrackLibraryMatch", b =>
                 {
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("SpotifyTrackId")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
@@ -399,13 +553,35 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<DateTime>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.HasKey("SpotifyTrackId");
+                    b.HasKey("OwnerUserId", "SpotifyTrackId");
 
                     b.HasIndex("MatchStatus");
 
                     b.HasIndex("UpdatedAtUtc");
 
                     b.ToTable("SpotifyTrackLibraryMatches");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Auth.MagicLinkToken", b =>
+                {
+                    b.HasOne("MusicHoarder.Api.Auth.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Auth.Session", b =>
+                {
+                    b.HasOne("MusicHoarder.Api.Auth.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.SongMetadata", b =>
