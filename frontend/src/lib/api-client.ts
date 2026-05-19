@@ -942,7 +942,14 @@ function buildSyntheticDemoSongs(startId: number, totalBytesFromReal: number): A
   return synthetic
 }
 
-function mapEnrichmentStatus(status?: string | number | null): "pending" | "processing" | "complete" | "failed" | "needsreview" {
+export type NormalizedEnrichmentStatus =
+  | "pending"
+  | "processing"
+  | "complete"
+  | "failed"
+  | "needsreview"
+
+export function mapEnrichmentStatus(status?: string | number | null): NormalizedEnrichmentStatus {
   if (typeof status === "number") {
     switch (status) {
       case 1:
@@ -1176,6 +1183,93 @@ export function buildFileSystemFromSongs(
   }
 
   return [root]
+}
+
+// ── Album grouping ────────────────────────────────────────────────────────────
+
+const UNKNOWN_ALBUM = "Unknown Album"
+const UNKNOWN_ARTIST = "Unknown Artist"
+
+/** Aggregated view of all songs sharing an `(albumArtist, album)` pair. */
+export interface AlbumSummary {
+  /** Stable key — `${artistLower}::${titleLower}`. Matches the `?album=` URL param the existing UI emits. */
+  key: string
+  title: string
+  artist: string
+  year: number | null
+  trackCount: number
+  /** Sum of durationSeconds across known tracks. */
+  durationSeconds: number
+  /** Sum of fileSizeBytes across known tracks. */
+  byteSize: number
+  /** First non-null genre encountered; null otherwise. */
+  genre: string | null
+  /** First non-null musicBrainzReleaseId encountered. */
+  musicBrainzReleaseId: string | null
+  /** First non-null albumArt URL encountered. */
+  coverUrl: string | null
+  /** Songs ordered by track number then title. */
+  songs: ApiSong[]
+}
+
+function nonEmpty(value: string | null | undefined): string | null {
+  const trimmed = (value ?? "").trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+/**
+ * Group raw songs into album summaries used by Gallery / AlbumPage.
+ * Same key shape as the previous AlbumGridView (artistLower::titleLower) so
+ * existing `?album=` URLs keep working across the migration.
+ */
+export function buildAlbumsFromSongs(songs: ApiSong[]): AlbumSummary[] {
+  const map = new Map<string, AlbumSummary>()
+  for (const song of songs) {
+    const title = nonEmpty(song.album) ?? UNKNOWN_ALBUM
+    const artist = nonEmpty(song.albumArtist) ?? nonEmpty(song.artist) ?? UNKNOWN_ARTIST
+    const key = `${artist.toLowerCase()}::${title.toLowerCase()}`
+    let entry = map.get(key)
+    if (!entry) {
+      entry = {
+        key,
+        title,
+        artist,
+        year: song.year ?? null,
+        trackCount: 0,
+        durationSeconds: 0,
+        byteSize: 0,
+        genre: null,
+        musicBrainzReleaseId: null,
+        coverUrl: null,
+        songs: [],
+      }
+      map.set(key, entry)
+    }
+    entry.trackCount += 1
+    entry.durationSeconds += song.durationSeconds ?? 0
+    entry.byteSize += song.fileSizeBytes ?? 0
+    if (song.year && (!entry.year || song.year < entry.year)) entry.year = song.year
+    if (!entry.musicBrainzReleaseId && song.musicBrainzReleaseId) {
+      entry.musicBrainzReleaseId = song.musicBrainzReleaseId
+    }
+    if (!entry.coverUrl && song.albumArt) entry.coverUrl = song.albumArt
+    entry.songs.push(song)
+  }
+  for (const album of map.values()) {
+    album.songs.sort((a, b) => {
+      const na = a.trackNumber ?? Number.POSITIVE_INFINITY
+      const nb = b.trackNumber ?? Number.POSITIVE_INFINITY
+      if (na !== nb) return na - nb
+      const ta = (a.title ?? a.fileName).toLocaleLowerCase()
+      const tb = (b.title ?? b.fileName).toLocaleLowerCase()
+      return ta.localeCompare(tb)
+    })
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    const artistCmp = a.artist.localeCompare(b.artist)
+    if (artistCmp !== 0) return artistCmp
+    return a.title.localeCompare(b.title)
+  })
 }
 
 export async function fetchStats(): Promise<ApiStats> {
