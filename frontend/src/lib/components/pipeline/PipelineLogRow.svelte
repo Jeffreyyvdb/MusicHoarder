@@ -1,0 +1,41 @@
+<script lang="ts">
+  import type { ApiOverviewActivity } from '$lib/api-client';
+  import { cn } from '$lib/utils';
+
+  type Props = { activity: ApiOverviewActivity; faded?: number };
+  const { activity, faded = 0 }: Props = $props();
+
+  // Map backend activity type → design's "stage tag" + a tailwind colour class.
+  // This is purely visual sugar — the underlying values come from /overview.
+  const TAG: Record<ApiOverviewActivity['type'], { tag: string; tone: string }> = {
+    discovered: { tag: 'scan', tone: 'text-primary/70' },
+    enriched: { tag: 'meta', tone: 'text-sky-400' },
+    copied: { tag: 'write', tone: 'text-primary' },
+    review: { tag: 'meta', tone: 'text-amber-400' },
+    failed: { tag: 'err', tone: 'text-red-400' }
+  };
+
+  const t = $derived(TAG[activity.type] ?? TAG.discovered);
+  const msgTone = $derived(
+    activity.type === 'failed'
+      ? 'text-red-400'
+      : activity.type === 'review'
+        ? 'text-amber-400'
+        : 'text-muted-foreground'
+  );
+  const subject = $derived(
+    activity.artist && activity.artist !== 'unknown'
+      ? `${activity.artist} — ${activity.track}`
+      : activity.track
+  );
+  const opacity = $derived(Math.max(0.45, 1 - faded * 0.04));
+</script>
+
+<div
+  class="grid grid-cols-[80px_60px_1fr] items-baseline gap-2 rounded px-1.5 py-0.5 hover:bg-muted/40"
+  style:opacity={opacity}
+>
+  <span class="text-muted-foreground/70 font-mono text-[10px] tabular-nums">{activity.time}</span>
+  <span class={cn('font-mono text-[10px] font-semibold', t.tone)}>[{t.tag}]</span>
+  <span class={cn('truncate font-mono text-[11px]', msgTone)}>{subject}</span>
+</div>
