@@ -44,7 +44,7 @@
     "@tailwindcss/vite": "^4.3.0",
     "@types/node": "^22.10.0",
     "eslint": "^10.0.0",
-    "eslint-config-prettier": "^9.1.0",
+    "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-svelte": "^3.10.0",
     "globals": "^15.14.0",
     "paneforge": "^1.0.2",
