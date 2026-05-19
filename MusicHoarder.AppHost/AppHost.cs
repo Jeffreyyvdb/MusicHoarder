@@ -10,9 +10,8 @@ var api = builder.AddProject<Projects.MusicHoarder_Api>("musichoarder-api")
     .WithExternalHttpEndpoints()
     .WithUrl("/scalar", "Scalar");
 
-var frontend = builder.AddJavaScriptApp("frontend", "../frontend")
-    .WithPnpm()
-    .WithHttpEndpoint(env: "PORT")
+var frontend = builder.AddViteApp("frontend", "../frontend")
+    .WithBun()
     .WithReference(api)
     .WithEnvironment("MUSICHOARDER_API_URL", api.GetEndpoint("http"))
     .WaitForStart(api)
