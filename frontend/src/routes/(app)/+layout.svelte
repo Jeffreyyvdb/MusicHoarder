@@ -16,7 +16,7 @@
   <Sidebar.Inset
     class={cn(
       'bg-background h-svh',
-      playerStore.currentSong && 'pb-[60px] sm:pb-[68px]'
+      playerStore.currentSong && !playerStore.isPanelMounted && 'pb-[60px] sm:pb-[68px]'
     )}
   >
     <AppHeader />
@@ -24,4 +24,6 @@
   </Sidebar.Inset>
 </Sidebar.Provider>
 
+<!-- Always mount MiniPlayer so its hidden audio element persists across nav.
+     MiniPlayer hides its UI internally when the in-page TrackPanel is mounted. -->
 <MiniPlayer />
