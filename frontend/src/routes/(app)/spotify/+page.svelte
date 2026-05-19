@@ -1,55 +1,487 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card';
-  import { AlertCircle } from '@lucide/svelte';
+  import { Button } from '$lib/components/ui/button';
+  import { ScrollArea } from '$lib/components/ui/scroll-area';
+  import { Badge } from '$lib/components/ui/badge';
+  import * as Tabs from '$lib/components/ui/tabs';
+  import { Input } from '$lib/components/ui/input';
+  import {
+    fetchSpotifyStatus,
+    fetchSpotifyConnectUrl,
+    disconnectSpotify,
+    fetchSpotifyLikedSongs,
+    fetchSpotifyPlaylists,
+    fetchSpotifyCredentials,
+    type SpotifyStatusResponse,
+    type SpotifyApiTrack,
+    type SpotifyApiPlaylist,
+    type SpotifyCredentialsResponse
+  } from '$lib/api-client';
+  import { isDemoMode } from '$lib/app-mode';
+  import {
+    Music,
+    Search,
+    Heart,
+    ListMusic,
+    Clock,
+    AlertCircle,
+    CheckCircle2,
+    LogOut,
+    ExternalLink,
+    Loader2,
+    Settings,
+    KeyRound
+  } from '@lucide/svelte';
+  import SpotifyTrackRow from '$lib/components/spotify/SpotifyTrackRow.svelte';
+  import PlaylistCard from '$lib/components/spotify/PlaylistCard.svelte';
+  import PaginationControls from '$lib/components/spotify/PaginationControls.svelte';
+  import TrackListSkeleton from '$lib/components/spotify/TrackListSkeleton.svelte';
+  import PlaylistGridSkeleton from '$lib/components/spotify/PlaylistGridSkeleton.svelte';
+  import PlaylistDetailView from '$lib/components/spotify/PlaylistDetailView.svelte';
 
+  let status = $state<SpotifyStatusResponse | null>(null);
+  let credentials = $state<SpotifyCredentialsResponse | null>(null);
+  let isLoadingStatus = $state(true);
+  let isConnecting = $state(false);
+  let isDisconnecting = $state(false);
+  let error = $state<string | null>(null);
   let oauthBanner = $state<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  let likedSongs = $state<SpotifyApiTrack[]>([]);
+  let likedTotal = $state(0);
+  let likedOffset = $state(0);
+  let isLoadingLiked = $state(false);
+  let likedError = $state<string | null>(null);
+  let likedSearchQuery = $state('');
+
+  let playlists = $state<SpotifyApiPlaylist[]>([]);
+  let isLoadingPlaylists = $state(false);
+  let playlistsError = $state<string | null>(null);
+  let selectedPlaylist = $state<SpotifyApiPlaylist | null>(null);
+  let playlistSearchQuery = $state('');
+
+  let expandedLikedMatchIds = $state(new Set<string>());
+
+  const likedLimit = 50;
+
+  async function loadStatus() {
+    isLoadingStatus = true;
+    error = null;
+    try {
+      const [statusResult, credsResult] = await Promise.all([
+        fetchSpotifyStatus().catch(
+          () =>
+            ({
+              connected: false,
+              hasCredentials: false,
+              tokenExpired: false
+            }) as SpotifyStatusResponse
+        ),
+        fetchSpotifyCredentials().catch(
+          () => ({ clientId: null, hasClientSecret: false }) as SpotifyCredentialsResponse
+        )
+      ]);
+      status = statusResult;
+      credentials = credsResult;
+    } catch {
+      status = { connected: false, hasCredentials: false, tokenExpired: false };
+      credentials = { clientId: null, hasClientSecret: false };
+    } finally {
+      isLoadingStatus = false;
+    }
+  }
+
+  $effect(() => {
+    void loadStatus();
+  });
+
+  // Read OAuth callback query params, set banner, clean the URL, then reload status.
   $effect(() => {
     const connected = page.url.searchParams.get('spotify_connected');
     const oauthErr = page.url.searchParams.get('spotify_error');
+    if (connected !== '1' && oauthErr == null) return;
 
     if (connected === '1') {
       oauthBanner = { type: 'success', message: 'Spotify connected successfully.' };
-      void goto('/spotify', { replaceState: true, noScroll: true });
-    } else if (oauthErr) {
-      oauthBanner = { type: 'error', message: `Spotify error: ${oauthErr}` };
-      void goto('/spotify', { replaceState: true, noScroll: true });
+    } else if (oauthErr != null) {
+      oauthBanner = { type: 'error', message: oauthErr };
+    }
+    void goto('/spotify', { replaceState: true, noScroll: true });
+    void loadStatus();
+  });
+
+  async function loadLikedSongs(offset: number) {
+    isLoadingLiked = true;
+    likedError = null;
+    try {
+      const result = await fetchSpotifyLikedSongs(offset, likedLimit);
+      likedSongs = result.items;
+      likedTotal = result.total;
+      likedOffset = result.offset;
+    } catch (err) {
+      likedError = err instanceof Error ? err.message : 'Failed to load liked songs';
+    } finally {
+      isLoadingLiked = false;
+    }
+  }
+
+  async function loadPlaylists() {
+    isLoadingPlaylists = true;
+    playlistsError = null;
+    try {
+      const result = await fetchSpotifyPlaylists();
+      playlists = result.items;
+    } catch (err) {
+      playlistsError = err instanceof Error ? err.message : 'Failed to load playlists';
+    } finally {
+      isLoadingPlaylists = false;
+    }
+  }
+
+  // Load data when Spotify connects.
+  $effect(() => {
+    if (status?.connected) {
+      void loadLikedSongs(0);
+      void loadPlaylists();
     }
   });
+
+  async function handleConnect() {
+    isConnecting = true;
+    error = null;
+    try {
+      const result = await fetchSpotifyConnectUrl();
+      window.location.href = result.authorizationUrl;
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to start Spotify connection';
+      isConnecting = false;
+    }
+  }
+
+  async function handleDisconnect() {
+    isDisconnecting = true;
+    try {
+      await disconnectSpotify();
+      if (status) {
+        status = { ...status, connected: false, connectedAt: null, tokenExpired: false };
+      }
+      likedSongs = [];
+      playlists = [];
+      selectedPlaylist = null;
+      expandedLikedMatchIds = new Set();
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to disconnect';
+    } finally {
+      isDisconnecting = false;
+    }
+  }
+
+  function toggleExpandedLiked(id: string) {
+    const next = new Set(expandedLikedMatchIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    expandedLikedMatchIds = next;
+  }
+
+  const filteredLikedSongs = $derived(
+    likedSearchQuery
+      ? likedSongs.filter(
+          (t) =>
+            t.title.toLowerCase().includes(likedSearchQuery.toLowerCase()) ||
+            t.artist.toLowerCase().includes(likedSearchQuery.toLowerCase()) ||
+            t.album.toLowerCase().includes(likedSearchQuery.toLowerCase())
+        )
+      : likedSongs
+  );
+
+  const filteredPlaylists = $derived(
+    playlistSearchQuery
+      ? playlists.filter((p) =>
+          p.name.toLowerCase().includes(playlistSearchQuery.toLowerCase())
+        )
+      : playlists
+  );
+
+  const hasCredentials = $derived(
+    credentials?.hasClientSecret && credentials?.clientId
+  );
 </script>
 
-<div class="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6">
-  <div>
-    <h1 class="text-2xl font-bold">Spotify</h1>
-    <p class="text-muted-foreground mt-1 text-sm">Connect Spotify and sync your library</p>
+{#if isLoadingStatus}
+  <div class="flex flex-1 items-center justify-center">
+    <Loader2 class="text-muted-foreground size-8 animate-spin" />
   </div>
-
-  {#if oauthBanner}
-    <div
-      class="rounded-lg border px-4 py-3 text-sm {oauthBanner.type === 'success'
-        ? 'border-primary/40 bg-primary/10 text-primary'
-        : 'border-destructive/40 bg-destructive/10 text-destructive'}"
-    >
-      {oauthBanner.message}
-    </div>
-  {/if}
-
-  <Card>
-    <CardHeader>
-      <CardTitle class="flex items-center gap-2 text-base">
-        <AlertCircle class="text-amber-500 size-5" />
-        Spotify page port pending
-      </CardTitle>
-    </CardHeader>
-    <CardContent class="text-muted-foreground text-sm">
-      <p>
-        Ports from <code>frontend/app/(app)/spotify/page.tsx</code> (1009 lines). Sections: OAuth
-        status card, liked songs list with virtualized scroll, playlist sync UI, track match
-        results. Calls <code>getSpotifyStatus</code>, <code>linkSpotifyAccount</code>, etc.
-        (already in <code>$lib/api-client</code>). The OAuth callback handling above is in place.
+{:else if !status?.connected}
+  <div class="flex flex-1 items-center justify-center p-6">
+    <div class="max-w-md text-center">
+      <div
+        class="mx-auto mb-6 flex size-20 items-center justify-center rounded-full bg-[#1DB954]/10"
+      >
+        <Music class="size-10 text-[#1DB954]" />
+      </div>
+      <h1 class="mb-2 text-2xl font-bold">Connect Spotify</h1>
+      <p class="text-muted-foreground mb-8">
+        Link your Spotify account to browse your playlists and liked songs.
       </p>
-    </CardContent>
-  </Card>
-</div>
+
+      {#if oauthBanner}
+        <div
+          class="mb-6 rounded-lg border px-4 py-3 text-left text-sm {oauthBanner.type === 'success'
+            ? 'border-primary/40 bg-primary/10 text-primary'
+            : 'border-destructive/50 bg-destructive/10 text-destructive'}"
+        >
+          <div class="flex items-start gap-2">
+            {#if oauthBanner.type === 'success'}
+              <CheckCircle2 class="mt-0.5 size-4 shrink-0" />
+            {:else}
+              <AlertCircle class="mt-0.5 size-4 shrink-0" />
+            {/if}
+            <p class="flex-1">{oauthBanner.message}</p>
+            <button
+              type="button"
+              onclick={() => (oauthBanner = null)}
+              class="shrink-0 text-xs underline opacity-80 hover:opacity-100"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      {/if}
+
+      {#if error}
+        <div
+          class="border-destructive/50 bg-destructive/10 text-destructive mb-6 rounded-lg border px-4 py-3 text-sm"
+        >
+          {error}
+        </div>
+      {/if}
+
+      {#if !hasCredentials}
+        <div class="space-y-4">
+          <div class="border-border bg-card rounded-lg border p-4 text-left">
+            <div class="mb-2 flex items-center gap-2">
+              <KeyRound class="text-muted-foreground size-4" />
+              <span class="text-sm font-medium">Spotify API credentials required</span>
+            </div>
+            <p class="text-muted-foreground mb-3 text-xs">
+              You need to configure your Spotify Client ID and Client Secret before connecting.
+            </p>
+            <Button variant="outline" size="sm" class="w-full" href="/settings">
+              <Settings class="mr-2 size-4" />
+              Go to Settings
+            </Button>
+          </div>
+        </div>
+      {:else}
+        <Button
+          size="lg"
+          class="bg-[#1DB954] px-8 text-white hover:bg-[#1DB954]/90"
+          onclick={handleConnect}
+          disabled={isConnecting}
+        >
+          {#if isConnecting}
+            <Loader2 class="mr-2 size-5 animate-spin" />
+          {:else}
+            <ExternalLink class="mr-2 size-5" />
+          {/if}
+          Connect with Spotify
+        </Button>
+      {/if}
+    </div>
+  </div>
+{:else if selectedPlaylist}
+  <PlaylistDetailView
+    playlist={selectedPlaylist}
+    onBack={() => (selectedPlaylist = null)}
+  />
+{:else}
+  <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+    {#if oauthBanner}
+      <div
+        class="mx-4 mt-4 rounded-lg border px-4 py-3 text-sm md:mx-6 {oauthBanner.type ===
+        'success'
+          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+          : 'border-destructive/50 bg-destructive/10 text-destructive'}"
+      >
+        <div class="flex items-start gap-2">
+          {#if oauthBanner.type === 'success'}
+            <CheckCircle2 class="mt-0.5 size-4 shrink-0" />
+          {:else}
+            <AlertCircle class="mt-0.5 size-4 shrink-0" />
+          {/if}
+          <p class="flex-1">{oauthBanner.message}</p>
+          <button
+            type="button"
+            onclick={() => (oauthBanner = null)}
+            class="shrink-0 text-xs underline opacity-80 hover:opacity-100"
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+    {/if}
+
+    <div class="border-border bg-card/30 border-b px-4 py-5 md:px-6">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-2xl font-bold">Spotify</h1>
+            <Badge class="border-0 bg-[#1DB954]/20 text-[#1DB954]">Connected</Badge>
+          </div>
+          {#if status.connectedAt && !isDemoMode}
+            <p class="text-muted-foreground mt-1 text-sm">
+              Connected since {new Date(status.connectedAt).toLocaleDateString()}
+            </p>
+          {/if}
+        </div>
+        {#if !isDemoMode}
+          <Button variant="outline" onclick={handleDisconnect} disabled={isDisconnecting}>
+            {#if isDisconnecting}
+              <Loader2 class="mr-2 size-4 animate-spin" />
+            {:else}
+              <LogOut class="mr-2 size-4" />
+            {/if}
+            Disconnect
+          </Button>
+        {/if}
+      </div>
+    </div>
+
+    <Tabs.Root value="liked" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div class="border-border border-b px-4 md:px-6">
+        <Tabs.List class="h-12 bg-transparent p-0">
+          <Tabs.Trigger
+            value="liked"
+            class="data-[state=active]:border-b-primary/50 h-12 rounded-none border-0 border-b-2 border-transparent px-4 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+          >
+            <Heart class="mr-2 size-4" />
+            Liked Songs
+          </Tabs.Trigger>
+          <Tabs.Trigger
+            value="playlists"
+            class="data-[state=active]:border-b-primary/50 h-12 rounded-none border-0 border-b-2 border-transparent px-4 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+          >
+            <ListMusic class="mr-2 size-4" />
+            Playlists
+          </Tabs.Trigger>
+        </Tabs.List>
+      </div>
+
+      <Tabs.Content value="liked" class="m-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div class="border-border flex items-center gap-3 border-b px-4 py-3 md:px-6">
+          <div class="relative max-w-md flex-1">
+            <Search class="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+            <Input
+              placeholder="Search liked songs..."
+              bind:value={likedSearchQuery}
+              class="bg-secondary border-0 pl-9"
+            />
+          </div>
+          <span class="text-muted-foreground shrink-0 text-sm">{likedTotal} songs</span>
+        </div>
+
+        {#if likedError}
+          <div class="flex flex-col items-center justify-center py-12 text-center">
+            <AlertCircle class="text-destructive mb-3 size-10" />
+            <p class="text-muted-foreground">{likedError}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              class="mt-4"
+              onclick={() => loadLikedSongs(likedOffset)}
+            >
+              Retry
+            </Button>
+          </div>
+        {:else if isLoadingLiked}
+          <TrackListSkeleton />
+        {:else}
+          <ScrollArea class="min-h-0 flex-1">
+            <div
+              class="text-muted-foreground border-border/50 hidden items-center gap-3 border-b px-6 py-2 text-xs md:flex"
+            >
+              <span class="w-8 text-right">#</span>
+              <span class="size-10"></span>
+              <span class="flex-1">Title</span>
+              <span class="hidden max-w-[200px] md:block">Album</span>
+              <span class="hidden w-24 text-right lg:block">Date Added</span>
+              <span class="w-12 text-right"><Clock class="inline size-3.5" /></span>
+              <span class="w-[120px] shrink-0 text-right">Library</span>
+            </div>
+            <div class="flex flex-col gap-2 p-2 md:px-4">
+              {#each filteredLikedSongs as track, i (`${track.spotifyId}-${i}`)}
+                <SpotifyTrackRow
+                  {track}
+                  index={likedOffset + i}
+                  showDateAdded
+                  expanded={expandedLikedMatchIds.has(track.spotifyId)}
+                  onToggleExpand={() => toggleExpandedLiked(track.spotifyId)}
+                />
+              {/each}
+              {#if filteredLikedSongs.length === 0 && !isLoadingLiked}
+                <div class="flex flex-col items-center justify-center py-12 text-center">
+                  <Heart class="text-muted-foreground mb-3 size-10" />
+                  <p class="text-muted-foreground">
+                    {likedSearchQuery ? 'No matching songs found' : 'No liked songs yet'}
+                  </p>
+                </div>
+              {/if}
+            </div>
+            <PaginationControls
+              offset={likedOffset}
+              limit={likedLimit}
+              total={likedTotal}
+              onPageChange={loadLikedSongs}
+              isLoading={isLoadingLiked}
+            />
+          </ScrollArea>
+        {/if}
+      </Tabs.Content>
+
+      <Tabs.Content value="playlists" class="m-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div class="border-border flex items-center gap-3 border-b px-4 py-3 md:px-6">
+          <div class="relative max-w-md flex-1">
+            <Search class="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+            <Input
+              placeholder="Search playlists..."
+              bind:value={playlistSearchQuery}
+              class="bg-secondary border-0 pl-9"
+            />
+          </div>
+          <span class="text-muted-foreground shrink-0 text-sm">{playlists.length} playlists</span>
+        </div>
+
+        {#if playlistsError}
+          <div class="flex flex-col items-center justify-center py-12 text-center">
+            <AlertCircle class="text-destructive mb-3 size-10" />
+            <p class="text-muted-foreground">{playlistsError}</p>
+            <Button variant="outline" size="sm" class="mt-4" onclick={loadPlaylists}>
+              Retry
+            </Button>
+          </div>
+        {:else if isLoadingPlaylists}
+          <PlaylistGridSkeleton />
+        {:else}
+          <ScrollArea class="min-h-0 flex-1">
+            <div
+              class="grid grid-cols-2 gap-4 p-4 sm:grid-cols-3 md:grid-cols-4 md:p-6 lg:grid-cols-5"
+            >
+              {#each filteredPlaylists as playlist (playlist.spotifyId)}
+                <PlaylistCard {playlist} onClick={() => (selectedPlaylist = playlist)} />
+              {/each}
+            </div>
+            {#if filteredPlaylists.length === 0 && !isLoadingPlaylists}
+              <div class="flex flex-col items-center justify-center py-12 text-center">
+                <ListMusic class="text-muted-foreground mb-3 size-10" />
+                <p class="text-muted-foreground">
+                  {playlistSearchQuery ? 'No matching playlists' : 'No playlists found'}
+                </p>
+              </div>
+            {/if}
+          </ScrollArea>
+        {/if}
+      </Tabs.Content>
+    </Tabs.Root>
+  </div>
+{/if}
