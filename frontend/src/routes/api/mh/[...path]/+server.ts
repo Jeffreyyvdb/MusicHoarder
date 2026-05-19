@@ -25,6 +25,13 @@ async function proxy(request: Request, pathSegments: string, search: string): Pr
   const responseHeaders = new Headers(response.headers);
   responseHeaders.delete('content-encoding');
   responseHeaders.delete('content-length');
+  // Hop-by-hop / connection-specific headers — forbidden under HTTP/2, which the
+  // dev server now uses since Aspire serves the frontend over HTTPS.
+  responseHeaders.delete('transfer-encoding');
+  responseHeaders.delete('connection');
+  responseHeaders.delete('keep-alive');
+  responseHeaders.delete('proxy-connection');
+  responseHeaders.delete('upgrade');
 
   return new Response(response.body, {
     status: response.status,
