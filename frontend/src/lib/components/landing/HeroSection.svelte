@@ -54,7 +54,7 @@
     </div>
 
     <div class="text-muted-foreground font-mono text-[12px]">
-      Open source · MIT · runs on your own hardware · no telemetry
+      Open source · MIT · runs on your own hardware
     </div>
   </div>
 
