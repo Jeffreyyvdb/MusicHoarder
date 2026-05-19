@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import * as Resizable from '$lib/components/ui/resizable';
   import * as Sheet from '$lib/components/ui/sheet';
-  import AlbumGridView from '$lib/components/file-browser/AlbumGridView.svelte';
+  import Gallery from '$lib/components/file-browser/Gallery.svelte';
   import AlbumDetailView from '$lib/components/file-browser/AlbumDetailView.svelte';
   import TrackDetails from '$lib/components/file-browser/TrackDetails.svelte';
   import {
@@ -145,7 +145,7 @@
     {#if openAlbum && albumKey}
       <AlbumDetailView {songs} {albumKey} {isLoading} />
     {:else}
-      <AlbumGridView songs={sectionFilteredSongs} {isLoading} {searchQuery} />
+      <Gallery songs={sectionFilteredSongs} {section} {searchQuery} {isLoading} />
     {/if}
   {:else}
     <Resizable.PaneGroup id="library-albums-panels" direction="horizontal" class="min-h-0 flex-1">
@@ -153,7 +153,7 @@
         {#if openAlbum && albumKey}
           <AlbumDetailView {songs} {albumKey} {isLoading} />
         {:else}
-          <AlbumGridView songs={sectionFilteredSongs} {isLoading} {searchQuery} />
+          <Gallery songs={sectionFilteredSongs} {section} {searchQuery} {isLoading} />
         {/if}
       </Resizable.Pane>
       <Resizable.Handle />
