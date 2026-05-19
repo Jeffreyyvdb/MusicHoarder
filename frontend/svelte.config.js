@@ -8,6 +8,14 @@ const config = {
     adapter: adapter(),
     alias: {
       $lib: 'src/lib'
+    },
+    experimental: {
+      tracing: {
+        server: true
+      },
+      instrumentation: {
+        server: true
+      }
     }
   }
 };
