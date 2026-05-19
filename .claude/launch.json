@@ -10,7 +10,8 @@
     {
       "name": "Frontend (Vite dev, standalone)",
       "runtimeExecutable": "bun",
-      "runtimeArgs": ["--cwd", "frontend", "run", "dev"],
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "frontend",
       "port": 5173
     }
   ]
