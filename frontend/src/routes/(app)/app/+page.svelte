@@ -4,7 +4,7 @@
   import * as Resizable from '$lib/components/ui/resizable';
   import * as Sheet from '$lib/components/ui/sheet';
   import Gallery from '$lib/components/file-browser/Gallery.svelte';
-  import AlbumDetailView from '$lib/components/file-browser/AlbumDetailView.svelte';
+  import AlbumPage from '$lib/components/file-browser/AlbumPage.svelte';
   import TrackDetails from '$lib/components/file-browser/TrackDetails.svelte';
   import {
     buildAlbumsFromSongs,
@@ -143,7 +143,7 @@
 
   {#if isMobile.current || !trackPanelOpen}
     {#if openAlbum && albumKey}
-      <AlbumDetailView {songs} {albumKey} {isLoading} />
+      <AlbumPage {songs} {albumKey} {isLoading} />
     {:else}
       <Gallery songs={sectionFilteredSongs} {section} {searchQuery} {isLoading} />
     {/if}
@@ -151,7 +151,7 @@
     <Resizable.PaneGroup id="library-albums-panels" direction="horizontal" class="min-h-0 flex-1">
       <Resizable.Pane id="library-albums-main" order={1} defaultSize={70}>
         {#if openAlbum && albumKey}
-          <AlbumDetailView {songs} {albumKey} {isLoading} />
+          <AlbumPage {songs} {albumKey} {isLoading} />
         {:else}
           <Gallery songs={sectionFilteredSongs} {section} {searchQuery} {isLoading} />
         {/if}
