@@ -27,23 +27,23 @@
   ];
 </script>
 
-<section
-  id="features"
-  class="border-border mx-auto grid max-w-[1280px] grid-cols-1 border-y px-6 sm:grid-cols-2 md:grid-cols-3 md:px-14"
->
-  {#each features as [title, body], i (title)}
-    <div
-      class="border-border relative py-7 pr-6"
-      class:border-r={i % 3 !== 2}
-      class:border-t={i >= 3}
-    >
-      <div class="text-primary font-mono text-[11px] font-semibold">
-        {String(i + 1).padStart(2, '0')}
+<section id="features" class="mx-auto max-w-[1280px] scroll-mt-8 px-6 md:px-14">
+  <div class="border-border grid grid-cols-1 border-y md:grid-cols-3">
+    {#each features as [title, body], i (title)}
+      <div
+        class="border-border relative px-7 py-8"
+        class:max-md:border-t={i > 0}
+        class:md:border-r={i % 3 !== 2}
+        class:md:border-t={i >= 3}
+      >
+        <div class="text-primary font-mono text-[11px] font-semibold">
+          {String(i + 1).padStart(2, '0')}
+        </div>
+        <div class="mt-2.5 mb-1.5 text-[17px] font-semibold tracking-[-0.01em]">{title}</div>
+        <div class="text-muted-foreground text-[13px] leading-[1.55] text-pretty">
+          {body}
+        </div>
       </div>
-      <div class="mt-2.5 mb-1.5 text-[17px] font-semibold tracking-[-0.01em]">{title}</div>
-      <div class="text-muted-foreground max-w-[320px] text-[13px] leading-[1.5] text-pretty">
-        {body}
-      </div>
-    </div>
-  {/each}
+    {/each}
+  </div>
 </section>
