@@ -323,9 +323,9 @@
                 <AlertDialog.Description>
                   Approve all tracks with match confidence at or above the threshold.
                   {#if eligibleForBulk > 0}
-                    {' '}{eligibleForBulk} track{eligibleForBulk !== 1 ? 's' : ''} eligible.
+                    &nbsp;{eligibleForBulk} track{eligibleForBulk !== 1 ? 's' : ''} eligible.
                   {:else}
-                    {' '}No tracks are currently eligible at this threshold.
+                    &nbsp;No tracks are currently eligible at this threshold.
                   {/if}
                 </AlertDialog.Description>
               </AlertDialog.Header>

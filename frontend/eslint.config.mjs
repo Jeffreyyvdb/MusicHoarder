@@ -24,7 +24,15 @@ export default ts.config(
       // The content is JSON.stringify of static data, not user input.
       'svelte/no-at-html-tags': 'off',
       // Plain href links to known routes are fine — resolve() is for dynamic params.
-      'svelte/no-navigation-without-resolve': 'off'
+      'svelte/no-navigation-without-resolve': 'off',
+      // We use plain Set/Map with the immutable-copy reassignment pattern, which
+      // triggers $state reactivity correctly. SvelteSet/SvelteMap would only
+      // matter if we mutated the collection in place.
+      'svelte/prefer-svelte-reactivity': 'off',
+      // The $state + $effect-resync pattern is intentional in a few places where
+      // the local copy needs to drift before propagating (e.g. debounced
+      // searches, expanded-by-default lists).
+      'svelte/prefer-writable-derived': 'off'
     }
   },
   {
