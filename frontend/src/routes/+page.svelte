@@ -1,12 +1,11 @@
 <script lang="ts">
   import SeoHead from '$lib/components/SeoHead.svelte';
   import JsonLd from '$lib/components/JsonLd.svelte';
+  import LandingNav from '$lib/components/landing/LandingNav.svelte';
   import HeroSection from '$lib/components/landing/HeroSection.svelte';
-  import BeforeAfterSection from '$lib/components/landing/BeforeAfterSection.svelte';
-  import HowItWorksSection from '$lib/components/landing/HowItWorksSection.svelte';
   import FeaturesSection from '$lib/components/landing/FeaturesSection.svelte';
+  import HowItWorksSection from '$lib/components/landing/HowItWorksSection.svelte';
   import TechStackSection from '$lib/components/landing/TechStackSection.svelte';
-  import CTASection from '$lib/components/landing/CTASection.svelte';
   import Footer from '$lib/components/landing/Footer.svelte';
   import {
     softwareApplicationSchema,
@@ -25,12 +24,11 @@
 <JsonLd data={organizationSchema} />
 <JsonLd data={faqPageSchema} />
 
-<main class="bg-background min-h-screen">
+<main class="bg-background text-foreground min-h-screen overflow-x-hidden pb-12">
+  <LandingNav />
   <HeroSection />
-  <BeforeAfterSection />
-  <HowItWorksSection />
   <FeaturesSection />
+  <HowItWorksSection />
   <TechStackSection />
-  <CTASection />
   <Footer />
 </main>

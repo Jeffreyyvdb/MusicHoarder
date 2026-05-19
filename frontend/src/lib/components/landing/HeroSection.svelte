@@ -1,77 +1,102 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button';
-  import ThemeToggle from '$lib/components/ThemeToggle.svelte';
-  import GithubIcon from '$lib/components/GithubIcon.svelte';
-  import { Star } from '@lucide/svelte';
+  import { Play } from '@lucide/svelte';
+
+  type LogRow = readonly [stage: string, msg: string, level: 'ok' | 'warn'];
+
+  const log: LogRow[] = [
+    ['scan', 'discovered 47 new audio files', 'ok'],
+    ['fp', 'AcoustID match (0.94) → 3f9e8c72-1a4b…', 'ok'],
+    ['meta', 'MusicBrainz: Radiohead — In Rainbows — "Nude"', 'ok'],
+    ['art', 'CAA: fetched front-1500.jpg (214 KB)', 'ok'],
+    ['lyr', 'LRCLIB: synced lyrics (142 lines)', 'ok'],
+    ['dupe', 'duplicate → keeping FLAC over 320 MP3', 'warn'],
+    ['write', '→ /dest/Radiohead/In Rainbows (2007)/03 Nude.flac', 'ok'],
+    ['fp', 'low confidence (0.62) — flagged for review', 'warn']
+  ];
 </script>
 
 <section
-  class="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-6 py-24"
+  class="mx-auto grid max-w-[1280px] items-center gap-10 px-6 pt-3 pb-14 md:grid-cols-[1.1fr_1fr] md:gap-16 md:px-14 md:pt-3 md:pb-14"
 >
-  <div class="absolute top-4 right-4 z-20 sm:top-6 sm:right-6 md:top-8 md:right-8">
-    <ThemeToggle />
-  </div>
-
-  <div
-    class="absolute inset-0 bg-[linear-gradient(oklch(0%_0_0/0.06)_1px,transparent_1px),linear-gradient(90deg,oklch(0%_0_0/0.06)_1px,transparent_1px)] bg-[size:64px_64px] dark:bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)]"
-  ></div>
-
-  <div class="bg-primary/10 absolute top-1/4 left-1/4 h-96 w-96 rounded-full blur-3xl"></div>
-  <div class="bg-accent/5 absolute right-1/4 bottom-1/4 h-96 w-96 rounded-full blur-3xl"></div>
-
-  <div class="relative z-10 mx-auto max-w-4xl text-center">
+  <div class="pt-3">
     <div
-      class="border-border bg-card/50 mb-8 inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm backdrop-blur-sm"
+      class="text-muted-foreground font-mono text-[11px] font-semibold tracking-[0.12em] uppercase"
     >
-      <span class="bg-primary h-2 w-2 animate-pulse rounded-full"></span>
-      <span class="text-muted-foreground">Self-hosted & Open Source</span>
+      CATALOGUE · ENRICH · ARCHIVE
     </div>
 
-    <h1 class="mb-6 text-4xl font-bold tracking-tight text-balance md:text-6xl lg:text-7xl">
-      Your music library is a mess.
-      <span class="text-primary mt-2 block">MusicHoarder fixes it.</span>
+    <h1
+      class="mt-3.5 mb-5 text-[clamp(44px,5.5vw,76px)] leading-[0.98] font-bold tracking-[-0.035em] text-balance"
+    >
+      A library for the<br />music you actually<br /><em class="text-primary font-normal italic"
+        >collect.</em
+      >
     </h1>
 
     <p
-      class="text-muted-foreground mx-auto mb-12 max-w-2xl text-lg leading-relaxed text-pretty md:text-xl"
+      class="text-muted-foreground mb-7 max-w-[540px] text-[16px] leading-[1.55] text-pretty"
     >
-      Wrong titles, missing albums, files named "track01_final_FINAL.mp3". MusicHoarder identifies,
-      enriches, and organizes your entire collection automatically.
+      MusicHoarder ingests your messy folders, identifies every track by acoustic fingerprint, pulls
+      metadata from nine open sources, and writes a tidy, deduplicated library to disk —
+      <span class="text-primary font-mono text-[13px]"
+        >&nbsp;artist / album (year) /&nbsp;</span
+      >
+      — the way it should be.
     </p>
 
-    <div class="flex flex-col items-center justify-center gap-4 sm:flex-row">
-      <Button
-        size="lg"
-        class="h-12 gap-2 px-8 text-base font-medium"
-        href="https://github.com/Jeffreyyvdb/MusicHoarder"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        <Star class="h-5 w-5" />
-        Star on GitHub
+    <div class="mb-6 flex flex-wrap gap-2.5">
+      <Button size="lg" class="gap-1.5" href="/app">
+        <Play class="h-3.5 w-3.5 fill-current" />
+        Start hoarding
       </Button>
-      <Button
-        size="lg"
-        variant="outline"
-        class="h-12 gap-2 px-8 text-base font-medium"
-        href="/app"
-      >
-        Launch App
-      </Button>
+      <Button size="lg" variant="outline" href="/app">I already have an account</Button>
     </div>
 
-    <div class="text-muted-foreground mt-12 flex items-center justify-center gap-8 text-sm">
-      <div class="flex items-center gap-2">
-        <GithubIcon class="h-4 w-4" />
-        <span>MIT License</span>
+    <div class="text-muted-foreground font-mono text-[12px]">
+      Open source · MIT · runs on your own hardware · no telemetry
+    </div>
+  </div>
+
+  <div class="md:justify-self-end">
+    <div
+      class="bg-card border-border overflow-hidden rounded-[10px] border"
+      style="box-shadow: 0 8px 24px rgba(0,0,0,0.08), 0 0 0 0.5px rgba(0,0,0,0.06);"
+    >
+      <div
+        class="bg-surface-sunken border-border text-muted-foreground flex items-center gap-2 border-b px-4 py-3 text-[11px] font-semibold tracking-[0.04em] uppercase"
+      >
+        <span class="bg-primary relative h-[7px] w-[7px] rounded-full">
+          <span class="bg-primary absolute inset-0 animate-ping rounded-full opacity-60"></span>
+        </span>
+        <span>live pipeline</span>
+        <span
+          class="ml-auto max-w-[240px] truncate font-mono text-[11px] font-normal tracking-normal normal-case"
+        >
+          ~/Downloads/music_dump_2024
+        </span>
       </div>
-      <div class="flex items-center gap-2">
-        <span class="bg-primary h-1.5 w-1.5 rounded-full"></span>
-        <span>.NET + SvelteKit</span>
+
+      <div class="max-h-[280px] overflow-hidden px-4 py-3 font-mono text-[11px] leading-[1.6]">
+        {#each log as [stage, msg, level] (stage + msg)}
+          <div class="flex gap-2 py-0.5">
+            <span
+              class="flex-shrink-0 font-mono"
+              style:color={level === 'warn' ? '#a0721a' : 'var(--primary)'}
+            >
+              [{stage}]
+            </span>
+            <span class="text-muted-foreground flex-1 truncate font-mono">{msg}</span>
+          </div>
+        {/each}
       </div>
-      <div class="flex items-center gap-2">
-        <span class="bg-primary h-1.5 w-1.5 rounded-full"></span>
-        <span>Docker Ready</span>
+
+      <div
+        class="bg-surface-sunken border-border text-muted-foreground flex justify-between border-t px-4 py-2.5 text-[11px]"
+      >
+        <span>processed <strong class="text-foreground font-semibold">8,955</strong></span>
+        <span>remaining <strong class="text-foreground font-semibold">3,892</strong></span>
+        <span>eta <strong class="text-foreground font-semibold">00:14:32</strong></span>
       </div>
     </div>
   </div>
