@@ -1,60 +1,53 @@
-# Based on the official Next.js Docker template:
-# https://nextjs.org/docs/app/getting-started/deploying#docker
+# Multi-stage build for SvelteKit + Bun + adapter-node.
+# Build stage uses Bun for fast installs; runtime stage uses Bun to serve
+# the adapter-node output via `bun build/index.js`.
 
-FROM node:22-alpine AS deps
+FROM oven/bun:1-alpine AS build
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@10.22.0 --activate
+COPY package.json bun.lock ./
+RUN --mount=type=cache,id=bun,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile
 
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
-
-# ─────────────────────────────────────────────────────────
-FROM node:22-alpine AS builder
-WORKDIR /app
-
-RUN corepack enable && corepack prepare pnpm@10.22.0 --activate
-
-COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-ARG NEXT_PUBLIC_DEMO_MODE=false
-ENV NEXT_PUBLIC_DEMO_MODE=$NEXT_PUBLIC_DEMO_MODE
-ARG NEXT_PUBLIC_UMAMI_SRC
-ENV NEXT_PUBLIC_UMAMI_SRC=$NEXT_PUBLIC_UMAMI_SRC
-ARG NEXT_PUBLIC_UMAMI_RECORDER_SRC
-ENV NEXT_PUBLIC_UMAMI_RECORDER_SRC=$NEXT_PUBLIC_UMAMI_RECORDER_SRC
-ARG NEXT_PUBLIC_UMAMI_WEBSITE_ID
-ENV NEXT_PUBLIC_UMAMI_WEBSITE_ID=$NEXT_PUBLIC_UMAMI_WEBSITE_ID
-ENV NEXT_TELEMETRY_DISABLED=1
-
-RUN pnpm run build
-
-# ─────────────────────────────────────────────────────────
-FROM node:22-alpine AS runner
-WORKDIR /app
+ARG PUBLIC_DEMO_MODE=false
+ENV PUBLIC_DEMO_MODE=$PUBLIC_DEMO_MODE
+ARG PUBLIC_SITE_URL
+ENV PUBLIC_SITE_URL=$PUBLIC_SITE_URL
+ARG PUBLIC_UMAMI_SRC
+ENV PUBLIC_UMAMI_SRC=$PUBLIC_UMAMI_SRC
+ARG PUBLIC_UMAMI_RECORDER_SRC
+ENV PUBLIC_UMAMI_RECORDER_SRC=$PUBLIC_UMAMI_RECORDER_SRC
+ARG PUBLIC_UMAMI_WEBSITE_ID
+ENV PUBLIC_UMAMI_WEBSITE_ID=$PUBLIC_UMAMI_WEBSITE_ID
 
 ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
+RUN bun run build
+RUN bun install --frozen-lockfile --production
 
-RUN addgroup --system --gid 1001 nodejs \
-    && adduser --system --uid 1001 nextjs
+# ─────────────────────────────────────────────────────────
+FROM oven/bun:1-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOST=0.0.0.0
 
-COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+RUN apk add --no-cache curl \
+    && addgroup --system --gid 1001 svelte \
+    && adduser --system --uid 1001 svelte
 
-RUN apk add --no-cache curl
+COPY --from=build --chown=svelte:svelte /app/build ./build
+COPY --from=build --chown=svelte:svelte /app/node_modules ./node_modules
+COPY --from=build --chown=svelte:svelte /app/package.json ./package.json
 
-USER nextjs
+USER svelte
 
 EXPOSE 3000
-ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
 
 # Dokploy reads this to gate zero-downtime traffic switching
 # (https://docs.dokploy.com/docs/core/applications/zero-downtime).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD curl -fsS http://localhost:3000/api/health || exit 1
 
-CMD ["node", "server.js"]
+CMD ["bun", "build/index.js"]

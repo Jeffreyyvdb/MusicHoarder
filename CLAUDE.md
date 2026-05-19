@@ -13,9 +13,15 @@ All commands run from the repo root unless noted.
 # Provisions PostgreSQL in Docker, starts API + frontend, auto-applies EF migrations.
 dotnet run --project MusicHoarder.AppHost
 
-# One-time required user-secrets before first run (validated on startup):
-dotnet user-secrets set "MusicEnricher:SourceDirectory" "/tmp/musichoarder-source" --project MusicHoarder.Api
-dotnet user-secrets set "MusicEnricher:DestinationDirectory" "/tmp/musichoarder-dest" --project MusicHoarder.Api
+# First run: required values are modeled as AppHost parameters and prompted in the
+# dashboard. To pre-seed (recommended for repeatable boots) set them as AppHost
+# user-secrets — note the `Parameters:` prefix and the AppHost project:
+dotnet user-secrets set "Parameters:source-directory" "/tmp/musichoarder-source" --project MusicHoarder.AppHost
+dotnet user-secrets set "Parameters:destination-directory" "/tmp/musichoarder-dest" --project MusicHoarder.AppHost
+# Optional (otherwise dashboard prompts as blank, providers gracefully degrade):
+dotnet user-secrets set "Parameters:acoustid-api-key" "..." --project MusicHoarder.AppHost
+dotnet user-secrets set "Parameters:spotify-client-id" "..." --project MusicHoarder.AppHost
+dotnet user-secrets set "Parameters:spotify-client-secret" "..." --project MusicHoarder.AppHost
 
 # Tests (xUnit, in-memory EF provider — no Postgres/Docker required)
 dotnet test MusicHoarder.Api.Tests/MusicHoarder.Api.Tests.csproj
@@ -25,19 +31,20 @@ dotnet test MusicHoarder.Api.Tests/MusicHoarder.Api.Tests.csproj --filter "Fully
 dotnet test MusicHoarder.Api.Tests/MusicHoarder.Api.Tests.csproj --filter "DisplayName~matches_song_via_acoustid"
 
 # Frontend standalone (point at API port from the Aspire dashboard)
-cd frontend && MUSICHOARDER_API_URL=http://localhost:<api-port> PORT=3000 pnpm dev
-cd frontend && pnpm build           # ESLint-free build path
-cd frontend && pnpm lint            # uses eslint.config.mjs
+cd frontend && MUSICHOARDER_API_URL=http://localhost:<api-port> PORT=3000 bun run dev
+cd frontend && bun run build        # SvelteKit + adapter-node build
+cd frontend && bun run check        # svelte-check + TypeScript
+cd frontend && bun run lint         # ESLint (flat config)
 ```
 
-CI (`.github/workflows/ci.yml`) only builds and tests `MusicHoarder.Api.Tests`; it does not run the frontend. Docker must be running locally before `AppHost` starts, because Aspire provisions PostgreSQL as a container.
+CI (`.github/workflows/ci.yml`) only builds and tests `MusicHoarder.Api.Tests`. A separate `frontend-release.yml` runs semantic-release on `main` pushes that touch `frontend/`. Docker must be running locally before `AppHost` starts, because Aspire provisions PostgreSQL as a container.
 
 ## Solution layout
 
 - **`MusicHoarder.Api`** — ASP.NET Core minimal API. Composition root is `Program.cs` → `AddMusicHoarderServices()` + `MapMusicHoarderEndpoints()`. Hosts the full pipeline as `BackgroundService`s and EF Core persistence (Npgsql).
-- **`MusicHoarder.AppHost`** — Aspire entry point. Wires Postgres, API, and the Next.js frontend (`.WithPnpm()`), injects `Frontend__PublicBaseUrl` into the API for Spotify OAuth redirects.
+- **`MusicHoarder.AppHost`** — Aspire entry point. Wires Postgres (`ContainerLifetime.Persistent` + named data volume), API, and the SvelteKit frontend (`AddViteApp(...).WithBun()` with an HTTPS endpoint and Aspire dev cert). All required secrets/paths are modeled as `AddParameter(...)` and injected into the API as env vars (`MusicEnricher__*`, `Spotify__*`); the dashboard prompts for any missing values on first run. Frontend gets `MUSICHOARDER_API_URL` (HTTP for the internal Node→ASP.NET proxy hop); API gets `Frontend__PublicBaseUrl` (HTTPS, used for Spotify OAuth redirect-back). `AddDockerComposeEnvironment("compose")` lets `aspire publish` emit a `docker-compose.yml` for Dokploy.
 - **`MusicHoarder.ServiceDefaults`** — Shared OpenTelemetry / health-check / resilient-HTTP defaults; `MapDefaultEndpoints()` is called from the API.
-- **`frontend/`** — Next.js 16 + React 19 app. All backend calls go through the same-origin proxy route `/api/mh/[...path]` defined in `frontend/app/api/mh/` so the browser never needs CORS. `NEXT_PUBLIC_DEMO_MODE=true` switches the UI to mock data (no API required).
+- **`frontend/`** — SvelteKit 2 + Svelte 5 (runes) + Bun. All backend calls go through the same-origin proxy route `/api/mh/[...path]` defined in `frontend/src/routes/api/mh/[...path]/+server.ts` so the browser never needs CORS. `PUBLIC_DEMO_MODE=true` switches the UI to mock data (no API required). The `(app)` route group sets `ssr = false` because the audio player and demo-mode flag read browser-only state; the marketing `/` route keeps SSR.
 - **`MusicHoarder.Api.Tests`** — xUnit + `Microsoft.EntityFrameworkCore.InMemory`. Mirror the source folder layout (`Enrichment/`, `Jobs/`, `Library/`, `Scanner/`, `Spotify/`).
 
 ## Pipeline architecture
@@ -63,9 +70,9 @@ Progress is surfaced via per-stage singletons (`ScanProgressTracker`, `Fingerpri
 
 ## Configuration
 
-Everything non-secret lives under the `MusicEnricher` config section (`MusicEnricherOptions.cs`). It uses `ValidateDataAnnotations().ValidateOnStart()`, so missing `SourceDirectory` / `DestinationDirectory` will fail the app on boot. Concurrency knobs (`SmbConcurrency`, `FingerprintConcurrency`, `EnrichmentWorkerConcurrency`, `LibraryBuilderWorkerConcurrency`, per-provider concurrency/rps) and Spotify matching thresholds (`SpotifyApiMatchedThreshold`, `SpotifyApiIsrcConfidenceBoost`, `SpotifyApiDurationMismatchPenalty`) all live here — prefer adding options over hardcoding.
+Everything non-secret lives under the `MusicEnricher` config section (`MusicEnricherOptions.cs`). It uses `ValidateDataAnnotations().ValidateOnStart()`, so missing `SourceDirectory` / `DestinationDirectory` will fail the app on boot — these (and the AcoustID + Spotify credentials) come from AppHost parameters (`Parameters:source-directory`, `Parameters:destination-directory`, `Parameters:acoustid-api-key`, `Parameters:spotify-client-id`, `Parameters:spotify-client-secret`) stored in the AppHost user-secrets store. Concurrency knobs (`SmbConcurrency`, `FingerprintConcurrency`, `EnrichmentWorkerConcurrency`, `LibraryBuilderWorkerConcurrency`, per-provider concurrency/rps) and Spotify matching thresholds (`SpotifyApiMatchedThreshold`, `SpotifyApiIsrcConfidenceBoost`, `SpotifyApiDurationMismatchPenalty`) live in `appsettings.json` — prefer adding options over hardcoding.
 
-Env var form uses the double-underscore convention (`MusicEnricher__AcoustIdApiKey`, `ConnectionStrings__musichoarderdb`). Aspire injects the Postgres connection string automatically in dev.
+Env var form uses the double-underscore convention (`MusicEnricher__AcoustIdApiKey`, `ConnectionStrings__musichoarderdb`). Aspire injects the Postgres connection string automatically in dev. Frontend env vars exposed to the browser use SvelteKit's `PUBLIC_*` prefix (e.g. `PUBLIC_DEMO_MODE`, `PUBLIC_UMAMI_WEBSITE_ID`) — *not* `NEXT_PUBLIC_*`.
 
 ## Persistence
 
@@ -78,7 +85,7 @@ Env var form uses the double-underscore convention (`MusicEnricher__AcoustIdApiK
 
 ## Frontend flex / scrolling gotcha
 
-This comes up repeatedly in `frontend/`: lists look right but do not scroll because flex items default to `min-height: auto`. Any flex child that should take remaining height and contain a scrollable region (Radix `ScrollArea`, `TabsContent`) needs `min-h-0` on the child **and every intermediate flex ancestor** between `h-screen`/`flex-1` and the scroll viewport. Reference implementations: `frontend/app/spotify/page.tsx`, `frontend/components/file-browser/file-browser.tsx`, `frontend/app/review/page.tsx`. The shared `components/ui/scroll-area.tsx` and `components/ui/tabs.tsx` already include `min-h-0`; the fix is almost always further up the tree.
+This comes up repeatedly in `frontend/`: lists look right but do not scroll because flex items default to `min-height: auto`. Any flex child that should take remaining height and contain a scrollable region (bits-ui `ScrollArea`, `Tabs.Content`) needs `min-h-0` on the child **and every intermediate flex ancestor** between `h-screen`/`flex-1` and the scroll viewport. The shadcn-svelte `scroll-area` and `tabs` primitives already include `min-h-0`; the fix is almost always further up the tree. Pages live under `src/routes/(app)/<name>/+page.svelte`.
 
 ## Pipeline dependencies
 
