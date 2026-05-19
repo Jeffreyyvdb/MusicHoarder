@@ -31,7 +31,8 @@
     ExternalLink,
     Loader2,
     Settings,
-    KeyRound
+    KeyRound,
+    Play
   } from '@lucide/svelte';
   import SpotifyTrackRow from '$lib/components/spotify/SpotifyTrackRow.svelte';
   import PlaylistCard from '$lib/components/spotify/PlaylistCard.svelte';
@@ -131,7 +132,14 @@
     playlistsError = null;
     try {
       const result = await fetchSpotifyPlaylists();
-      playlists = result.items;
+      // Spotify can return the same playlist twice (e.g. owned + followed).
+      // Dedupe by spotifyId so the keyed each block doesn't crash.
+      const seen = new Set<string>();
+      playlists = result.items.filter((p) => {
+        if (seen.has(p.spotifyId)) return false;
+        seen.add(p.spotifyId);
+        return true;
+      });
     } catch (err) {
       playlistsError = err instanceof Error ? err.message : 'Failed to load playlists';
     } finally {
@@ -369,35 +377,100 @@
       </div>
 
       <Tabs.Content value="liked" class="m-0 flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div class="border-border flex items-center gap-3 border-b px-4 py-3 md:px-6">
-          <div class="relative max-w-md flex-1">
-            <Search class="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-            <Input
-              placeholder="Search liked songs..."
-              bind:value={likedSearchQuery}
-              class="bg-secondary border-0 pl-9"
-            />
-          </div>
-          <span class="text-muted-foreground shrink-0 text-sm">{likedTotal} songs</span>
-        </div>
+        <ScrollArea class="min-h-0 flex-1">
+          <!-- Spotify-style hero — Liked Songs as a virtual playlist -->
+          <div
+            class="relative px-6 pt-10 pb-7 text-white sm:px-9"
+            style="background: linear-gradient(180deg, oklch(0.35 0.16 320) 0%, color-mix(in oklch, oklch(0.35 0.16 320) 60%, transparent) 60%, transparent 100%), linear-gradient(135deg, color-mix(in oklch, oklch(0.62 0.16 5) 40%, transparent), transparent);"
+          >
+            <div class="relative z-10 flex flex-col items-end gap-6 sm:flex-row sm:gap-8">
+              <div
+                class="relative grid shrink-0 place-items-center overflow-hidden shadow-[0_24px_48px_rgba(0,0,0,0.35)]"
+                style="width: 232px; height: 232px; border-radius: 6px; background: linear-gradient(135deg, oklch(0.45 0.18 320) 0%, oklch(0.62 0.16 5) 100%);"
+              >
+                <div class="mh-cover-grain pointer-events-none absolute inset-0"></div>
+                <Heart
+                  class="relative z-[2] size-24 fill-white text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.3)]"
+                />
+              </div>
 
-        {#if likedError}
-          <div class="flex flex-col items-center justify-center py-12 text-center">
-            <AlertCircle class="text-destructive mb-3 size-10" />
-            <p class="text-muted-foreground">{likedError}</p>
-            <Button
-              variant="outline"
-              size="sm"
-              class="mt-4"
-              onclick={() => loadLikedSongs(likedOffset)}
-            >
-              Retry
-            </Button>
+              <div class="min-w-0 flex-1 pb-2">
+                <div class="text-[11px] font-semibold tracking-wider opacity-85 uppercase">
+                  Playlist
+                </div>
+                <h1
+                  class="mt-3 text-[clamp(36px,5.5vw,80px)] leading-[0.95] font-extrabold tracking-[-0.03em] [text-wrap:balance]"
+                >
+                  Liked Songs
+                </h1>
+                <div class="mt-5 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[13px] opacity-90">
+                  <span class="inline-flex items-center gap-2 font-semibold">
+                    <span
+                      class="ring-2 ring-white/50 inline-block size-4 rounded-full"
+                      style="background: oklch(0.62 0.16 5);"
+                    ></span>
+                    <span>You</span>
+                  </span>
+                  <span class="opacity-50">·</span>
+                  <span>
+                    {likedTotal} song{likedTotal === 1 ? '' : 's'}
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
-        {:else if isLoadingLiked}
-          <TrackListSkeleton />
-        {:else}
-          <ScrollArea class="min-h-0 flex-1">
+
+          <!-- Action bar -->
+          <div
+            class="border-border flex items-center gap-3 border-b bg-gradient-to-b from-black/5 to-transparent px-6 py-5 sm:px-9 dark:from-white/5"
+          >
+            <button
+              type="button"
+              aria-label="Play liked songs"
+              disabled
+              title="Playback for Spotify is not wired up yet"
+              class="bg-[#1DB954] text-white grid place-items-center rounded-full shadow-[0_6px_16px_rgba(29,185,84,0.4)] transition-transform hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
+              style="width: 52px; height: 52px;"
+            >
+              <Play class="size-5 fill-current" />
+            </button>
+
+            <div class="text-muted-foreground ml-auto flex items-center gap-3 text-xs">
+              <span class="bg-[#1DB954]/15 text-[#1DB954] rounded px-2.5 py-1 font-mono">
+                SPOTIFY
+              </span>
+            </div>
+          </div>
+
+          <!-- Filter -->
+          <div class="border-border flex items-center gap-3 border-b px-4 py-3 md:px-6">
+            <div class="relative max-w-md flex-1">
+              <Search class="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+              <Input
+                placeholder="Search liked songs..."
+                bind:value={likedSearchQuery}
+                class="bg-secondary border-0 pl-9"
+              />
+            </div>
+            <span class="text-muted-foreground shrink-0 text-sm">{likedTotal} songs</span>
+          </div>
+
+          {#if likedError}
+            <div class="flex flex-col items-center justify-center py-12 text-center">
+              <AlertCircle class="text-destructive mb-3 size-10" />
+              <p class="text-muted-foreground">{likedError}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                class="mt-4"
+                onclick={() => loadLikedSongs(likedOffset)}
+              >
+                Retry
+              </Button>
+            </div>
+          {:else if isLoadingLiked}
+            <TrackListSkeleton />
+          {:else}
             <div
               class="text-muted-foreground border-border/50 hidden items-center gap-3 border-b px-6 py-2 text-xs md:flex"
             >
@@ -435,8 +508,8 @@
               onPageChange={loadLikedSongs}
               isLoading={isLoadingLiked}
             />
-          </ScrollArea>
-        {/if}
+          {/if}
+        </ScrollArea>
       </Tabs.Content>
 
       <Tabs.Content value="playlists" class="m-0 flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -485,3 +558,11 @@
     </Tabs.Root>
   </div>
 {/if}
+
+<style>
+  .mh-cover-grain {
+    background:
+      radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.25), transparent 50%),
+      radial-gradient(circle at 70% 80%, rgba(0, 0, 0, 0.2), transparent 50%);
+  }
+</style>
