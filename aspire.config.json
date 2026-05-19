@@ -1,0 +1,5 @@
+{
+  "appHost": {
+    "path": "MusicHoarder.AppHost/MusicHoarder.AppHost.csproj"
+  }
+}
