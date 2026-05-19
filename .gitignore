@@ -480,6 +480,3 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
-
-# Auto-generated symlinks from `npx skills` (source of truth is .agents/skills/ + skills-lock.json)
-.claude/skills/
