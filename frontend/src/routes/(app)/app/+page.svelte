@@ -5,18 +5,12 @@
   import * as Sheet from '$lib/components/ui/sheet';
   import Gallery from '$lib/components/file-browser/Gallery.svelte';
   import AlbumPage from '$lib/components/file-browser/AlbumPage.svelte';
-  import TrackDetails from '$lib/components/file-browser/TrackDetails.svelte';
-  import {
-    buildAlbumsFromSongs,
-    fetchSongs,
-    type ApiSong
-  } from '$lib/api-client';
+  import TrackPanel from '$lib/components/file-browser/TrackPanel.svelte';
+  import { buildAlbumsFromSongs, fetchSongs, type ApiSong } from '$lib/api-client';
   import { applySectionFilter, isSectionId } from '$lib/album-sections';
   import { breadcrumbStore } from '$lib/stores/breadcrumbs.svelte';
   import { cn } from '$lib/utils';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { findFileById } from '$lib/mock-data';
-  import { buildFileSystemFromSongs } from '$lib/api-client';
   import { playerStore } from '$lib/stores/player.svelte';
 
   const isMobile = new IsMobile();
@@ -57,8 +51,15 @@
   });
 
   const sectionFilteredSongs = $derived(applySectionFilter(songs, section));
-  const albums = $derived(buildAlbumsFromSongs(sectionFilteredSongs));
-  const openAlbum = $derived(albumKey ? albums.find((a) => a.key === albumKey) ?? null : null);
+  const allAlbumsForLookup = $derived(buildAlbumsFromSongs(songs));
+  const filteredAlbums = $derived(buildAlbumsFromSongs(sectionFilteredSongs));
+  const openAlbum = $derived(
+    albumKey
+      ? (filteredAlbums.find((a) => a.key === albumKey) ??
+          allAlbumsForLookup.find((a) => a.key === albumKey) ??
+          null)
+      : null
+  );
 
   $effect(() => {
     if (openAlbum) {
@@ -78,31 +79,31 @@
     if (!Number.isFinite(songId) || appliedSongDeepLink === songId) return;
     const song = songs.find((s) => s.id === songId);
     if (!song) return;
-    const allAlbums = buildAlbumsFromSongs(songs);
-    const owningAlbum = allAlbums.find((a) => a.songs.some((s) => s.id === songId));
+    const owningAlbum = allAlbumsForLookup.find((a) => a.songs.some((s) => s.id === songId));
     if (!owningAlbum) return;
     appliedSongDeepLink = songId;
+    const trackNumber = owningAlbum.songs.findIndex((s) => s.id === songId) + 1;
     const url = new URL(page.url);
     url.searchParams.delete('song');
     url.searchParams.set('album', owningAlbum.key);
-    if (song.trackNumber) url.searchParams.set('track', String(song.trackNumber));
+    url.searchParams.set('track', String(song.trackNumber ?? trackNumber));
     void goto(url.pathname + url.search, { replaceState: true, noScroll: true });
   });
 
-  // Selected track within the open album.
-  const selectedSong = $derived.by(() => {
+  // Selected track within the open album (matches by trackNumber, falls back to index+1).
+  const selectedTrack = $derived.by(() => {
     if (!openAlbum || !trackParam) return null;
     const n = Number.parseInt(trackParam, 10);
     if (!Number.isFinite(n)) return null;
-    return openAlbum.songs.find((s) => s.trackNumber === n) ?? null;
-  });
-
-  // Construct the FileItem shape that TrackDetails expects from the selected song.
-  const selectedFileItem = $derived.by(() => {
-    if (!selectedSong) return null;
-    const fs = buildFileSystemFromSongs(songs, 'destination');
-    const file = findFileById(fs, `song:${selectedSong.id}`);
-    return file?.type === 'audio' ? file : null;
+    const byNumber = openAlbum.songs.find((s) => (s.trackNumber ?? null) === n);
+    if (byNumber) {
+      const idx = openAlbum.songs.indexOf(byNumber);
+      return { song: byNumber, index: idx };
+    }
+    if (n >= 1 && n <= openAlbum.songs.length) {
+      return { song: openAlbum.songs[n - 1], index: n - 1 };
+    }
+    return null;
   });
 
   function closeTrack() {
@@ -120,18 +121,18 @@
     prevDetailsRequestId = reqId;
     const playing = playerStore.currentSong;
     if (!playing) return;
-    const allAlbums = buildAlbumsFromSongs(songs);
-    const owningAlbum = allAlbums.find((a) => a.songs.some((s) => s.id === playing.id));
+    const owningAlbum = allAlbumsForLookup.find((a) => a.songs.some((s) => s.id === playing.id));
     if (!owningAlbum) return;
-    const song = owningAlbum.songs.find((s) => s.id === playing.id);
+    const idx = owningAlbum.songs.findIndex((s) => s.id === playing.id);
+    const song = owningAlbum.songs[idx];
     if (!song) return;
     const url = new URL(page.url);
     url.searchParams.set('album', owningAlbum.key);
-    if (song.trackNumber) url.searchParams.set('track', String(song.trackNumber));
+    url.searchParams.set('track', String(song.trackNumber ?? idx + 1));
     void goto(url.pathname + url.search, { replaceState: true, noScroll: true });
   });
 
-  const trackPanelOpen = $derived(!!selectedFileItem);
+  const trackPanelOpen = $derived(!!selectedTrack && !!openAlbum);
 </script>
 
 <div class={cn('flex min-h-0 flex-1 flex-col overflow-hidden')}>
@@ -157,10 +158,18 @@
         {/if}
       </Resizable.Pane>
       <Resizable.Handle />
-      <Resizable.Pane id="library-albums-details" order={2} defaultSize={30} minSize={25} maxSize={40}>
-        {#if selectedFileItem}
-          <TrackDetails
-            file={selectedFileItem}
+      <Resizable.Pane
+        id="library-albums-details"
+        order={2}
+        defaultSize={32}
+        minSize={28}
+        maxSize={45}
+      >
+        {#if openAlbum && selectedTrack}
+          <TrackPanel
+            album={openAlbum}
+            song={selectedTrack.song}
+            trackIndex={selectedTrack.index}
             onClose={closeTrack}
             onResetEnrichment={() => void loadSongs()}
           />
@@ -170,16 +179,17 @@
   {/if}
 
   {#if isMobile.current}
-    <Sheet.Root
-      open={trackPanelOpen}
-      onOpenChange={(open) => !open && closeTrack()}
-    >
-      <Sheet.Content side="bottom" class="h-[85vh] p-0 [&>button]:hidden">
-        <Sheet.Title class="sr-only">Track Details</Sheet.Title>
-        <Sheet.Description class="sr-only">View track metadata, lyrics, and sources</Sheet.Description>
-        {#if selectedFileItem}
-          <TrackDetails
-            file={selectedFileItem}
+    <Sheet.Root open={trackPanelOpen} onOpenChange={(open) => !open && closeTrack()}>
+      <Sheet.Content side="bottom" class="h-[88vh] p-0 [&>button]:hidden">
+        <Sheet.Title class="sr-only">Track details</Sheet.Title>
+        <Sheet.Description class="sr-only">
+          View track metadata, lyrics, fingerprint, and enrichment sources
+        </Sheet.Description>
+        {#if openAlbum && selectedTrack}
+          <TrackPanel
+            album={openAlbum}
+            song={selectedTrack.song}
+            trackIndex={selectedTrack.index}
             onClose={closeTrack}
             onResetEnrichment={() => void loadSongs()}
           />

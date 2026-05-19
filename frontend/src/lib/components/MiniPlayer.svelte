@@ -27,7 +27,7 @@
 <!-- Hidden audio element — always mounted so it persists across page navigation -->
 <audio bind:this={audioEl} preload="metadata" style="display: none"></audio>
 
-{#if playerStore.currentSong}
+{#if playerStore.currentSong && !playerStore.isPanelMounted}
   {@const song = playerStore.currentSong}
   <div
     class="border-border bg-sidebar fixed right-0 bottom-0 left-0 z-50 border-t shadow-[0_-4px_24px_oklch(0%_0_0/0.08)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.35)]"
