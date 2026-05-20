@@ -21,10 +21,12 @@ public static class WebApplicationExtensions
         app.MapLegacyScanEndpoints();
         app.MapEnrichmentEndpoints();
         app.MapDashboardEndpoints();
+        app.MapRunsEndpoints();
         app.MapSongsEndpoints();
         app.MapSpotifyEndpoints();
         app.MapSettingsEndpoints();
         app.MapAuthEndpoints();
+        app.MapDebugEndpoints();
         return app;
     }
 }

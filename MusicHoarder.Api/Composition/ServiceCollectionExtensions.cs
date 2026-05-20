@@ -105,6 +105,7 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<FingerprintBackgroundService>();
         services.AddHostedService<EnrichmentBackgroundService>();
         services.AddHostedService<LibraryBuilderBackgroundService>();
+        services.AddHostedService<IngestRunMonitor>();
 
         services.AddHealthChecks()
             .AddCheck<LibraryDirectoriesHealthCheck>("library-directories", tags: ["pipeline"]);
