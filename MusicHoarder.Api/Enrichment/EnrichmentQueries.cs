@@ -20,14 +20,19 @@ internal static class EnrichmentQueries
     }
 
     /// <summary>
-    /// Returns IDs of songs that have at least one <see cref="ProviderAttemptStatus.RateLimited"/>
-    /// attempt whose <see cref="SongProviderAttempt.RetryAfterUtc"/> has elapsed.
+    /// Returns IDs of songs with a retryable provider attempt: either a rate-limited attempt
+    /// whose <see cref="SongProviderAttempt.RetryAfterUtc"/> has elapsed, or a terminal
+    /// NoMatch/Failed attempt whose cooldown (<see cref="SongProviderAttempt.NextRetryAfterUtc"/>)
+    /// has elapsed. Manually-approved (locked) songs are excluded.
     /// </summary>
     public static IQueryable<int> WhereRetryableProviderAttempts(this IQueryable<SongProviderAttempt> query, DateTime now)
     {
         return query
-            .Where(a => a.Status == ProviderAttemptStatus.RateLimited)
-            .Where(a => a.RetryAfterUtc == null || a.RetryAfterUtc <= now)
+            .Where(a => !a.Song.IsManuallyApproved)
+            .Where(a =>
+                (a.Status == ProviderAttemptStatus.RateLimited && (a.RetryAfterUtc == null || a.RetryAfterUtc <= now))
+                || ((a.Status == ProviderAttemptStatus.NoMatch || a.Status == ProviderAttemptStatus.Failed)
+                    && a.NextRetryAfterUtc != null && a.NextRetryAfterUtc <= now))
             .Select(a => a.SongId)
             .Distinct();
     }

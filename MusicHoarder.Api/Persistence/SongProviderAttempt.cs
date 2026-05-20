@@ -30,7 +30,16 @@ public class SongProviderAttempt
     public EnrichmentProvider Provider { get; set; }
     public ProviderAttemptStatus Status { get; set; }
     public DateTime AttemptedAtUtc { get; set; }
+
+    /// <summary>When a <see cref="ProviderAttemptStatus.RateLimited"/> attempt may be retried.</summary>
     public DateTime? RetryAfterUtc { get; set; }
+
+    /// <summary>
+    /// For terminal <see cref="ProviderAttemptStatus.NoMatch"/> / <see cref="ProviderAttemptStatus.Failed"/>
+    /// attempts: when the provider should be retried (catalogs grow over time). Null = never.
+    /// </summary>
+    public DateTime? NextRetryAfterUtc { get; set; }
+
     public string? MatchedDataJson { get; set; }
     public string? Error { get; set; }
 }
