@@ -14,9 +14,7 @@ name: Build & push (Aspire) → Dokploy
 
 on:
   push:
-    # TEMP: claude/great-lehmann-9ff255 added so we can test on the branch before merge.
-    # Revert to `[main]` before merging.
-    branches: [main, claude/great-lehmann-9ff255]
+    branches: [main]
     tags: ["v[0-9]*.[0-9]*.[0-9]*"]
   workflow_dispatch:
 
