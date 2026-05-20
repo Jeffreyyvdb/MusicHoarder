@@ -6,6 +6,8 @@
   import Gallery from '$lib/components/file-browser/Gallery.svelte';
   import AlbumPage from '$lib/components/file-browser/AlbumPage.svelte';
   import TrackPanel from '$lib/components/file-browser/TrackPanel.svelte';
+  import MobileLibrary from '$lib/components/mobile/MobileLibrary.svelte';
+  import MobileAlbum from '$lib/components/mobile/MobileAlbum.svelte';
   import { buildAlbumsFromSongs, fetchSongs, type ApiSong } from '$lib/api-client';
   import { applySectionFilter, isSectionId } from '$lib/album-sections';
   import { breadcrumbStore } from '$lib/stores/breadcrumbs.svelte';
@@ -142,7 +144,13 @@
     </div>
   {/if}
 
-  {#if isMobile.current || !trackPanelOpen}
+  {#if isMobile.current}
+    {#if openAlbum && albumKey}
+      <MobileAlbum {songs} {albumKey} />
+    {:else}
+      <MobileLibrary {songs} {section} {searchQuery} {isLoading} />
+    {/if}
+  {:else if !trackPanelOpen}
     {#if openAlbum && albumKey}
       <AlbumPage {songs} {albumKey} {isLoading} />
     {:else}

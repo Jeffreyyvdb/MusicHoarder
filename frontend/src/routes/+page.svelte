@@ -7,6 +7,7 @@
   import HowItWorksSection from '$lib/components/landing/HowItWorksSection.svelte';
   import TechStackSection from '$lib/components/landing/TechStackSection.svelte';
   import Footer from '$lib/components/landing/Footer.svelte';
+  import MobileLanding from '$lib/components/mobile/MobileLanding.svelte';
   import {
     softwareApplicationSchema,
     organizationSchema,
@@ -24,7 +25,11 @@
 <JsonLd data={organizationSchema} />
 <JsonLd data={faqPageSchema} />
 
-<main class="bg-background text-foreground min-h-screen overflow-x-hidden pb-12">
+<div class="md:hidden">
+  <MobileLanding />
+</div>
+
+<main class="bg-background text-foreground hidden min-h-screen overflow-x-hidden pb-12 md:block">
   <LandingNav />
   <HeroSection />
   <FeaturesSection />

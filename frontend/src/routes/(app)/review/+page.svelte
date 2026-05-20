@@ -34,6 +34,10 @@
     getSongStreamUrl
   } from '$lib/api-client';
   import { playerStore } from '$lib/stores/player.svelte';
+  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
+  import MobileReview from '$lib/components/mobile/MobileReview.svelte';
+
+  const isMobile = new IsMobile();
 
   type MetadataEdits = {
     artist?: string;
@@ -70,6 +74,7 @@
   }
 
   $effect(() => {
+    if (isMobile.current) return;
     void loadTracks();
   });
 
@@ -256,7 +261,9 @@
   );
 </script>
 
-{#if loading}
+{#if isMobile.current}
+  <MobileReview />
+{:else if loading}
   <main class="flex flex-1 items-center justify-center p-4">
     <div class="flex flex-col items-center gap-4">
       <Loader2 class="text-primary size-8 animate-spin" />
@@ -294,7 +301,7 @@
             <RefreshCw class="mr-2 size-4" />
             Refresh
           </Button>
-          <Button href="/overview">Back to Overview</Button>
+          <Button href="/runs">Back to Runs</Button>
         </div>
       </CardContent>
     </Card>

@@ -35,6 +35,10 @@
   } from '$lib/api-client';
   import { isDemoMode } from '$lib/app-mode';
   import type { StepAction } from '$lib/components/overview/StepControl.svelte';
+  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
+  import MobileRuns from '$lib/components/mobile/MobileRuns.svelte';
+
+  const isMobile = new IsMobile();
 
   type StatusBannerType = 'success' | 'error' | 'info';
 
@@ -193,12 +197,17 @@
   const enrichPaused = $derived(enrichSnap?.isPaused ?? false);
 </script>
 
+{#if isMobile.current}
+  <MobileRuns />
+{:else}
 <main class="flex-1 p-4 md:p-6 lg:p-8">
   <div class="mx-auto max-w-7xl space-y-6">
     <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <h1 class="text-2xl font-bold md:text-3xl">Pipeline Overview</h1>
-        <p class="text-muted-foreground">Your music pipeline runs automatically on startup</p>
+        <h1 class="text-2xl font-bold md:text-3xl">Runs · history</h1>
+        <p class="text-muted-foreground">
+          Live pipeline status and recent ingest activity. Runs start automatically on launch.
+        </p>
       </div>
     </div>
 
@@ -437,3 +446,4 @@
     </div>
   </div>
 </main>
+{/if}

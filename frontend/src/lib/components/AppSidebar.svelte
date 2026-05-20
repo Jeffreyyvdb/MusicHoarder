@@ -4,12 +4,12 @@
   import {
     AlertTriangle,
     Calendar,
+    Clock,
     Copy,
     FileWarning,
     FolderOpen,
     HardDrive,
     Inbox,
-    LayoutDashboard,
     Library,
     ListMusic,
     LogOut,
@@ -33,7 +33,7 @@
   import { cn } from '$lib/utils';
 
   const navItems = [
-    { href: '/overview', label: 'Overview', icon: LayoutDashboard },
+    { href: '/runs', label: 'Runs', icon: Clock },
     { href: '/app', label: 'Library', icon: Library },
     { href: '/artists', label: 'Artists', icon: Users },
     { href: '/spotify', label: 'Spotify', icon: Music2 },
@@ -202,7 +202,7 @@
       <Sidebar.MenuItem>
         <Sidebar.MenuButton size="lg" tooltipContent="MusicHoarder">
           {#snippet child({ props })}
-            <a {...props} href="/overview">
+            <a {...props} href="/runs">
               <div
                 class="bg-primary text-primary-foreground flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg shadow-sm"
               >
