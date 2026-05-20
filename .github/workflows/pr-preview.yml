@@ -26,7 +26,7 @@ on:
 
 # One run per PR; a new push cancels an in-flight build for the same PR.
 concurrency:
-  group: pr-preview-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+  group: pr-preview-${{ github.event.pull_request.number || github.event.inputs.pr_number || 'manual' }}
   cancel-in-progress: true
 
 permissions:
@@ -42,7 +42,9 @@ jobs:
     name: Build images + deploy preview
     runs-on: ubuntu-latest
     # Skip on PR close (that's the teardown job). Run for manual dispatch, or for non-close PR
-    # events whose head branch lives in THIS repo (not a fork).
+    # events whose head branch lives in THIS repo (not a fork). workflow_dispatch is an unguarded
+    # escape hatch by design — only users with write access can trigger it, so a maintainer
+    # manually previewing a fork PR is a trusted action.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.action != 'closed' &&
@@ -126,9 +128,11 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const url = "${{ steps.provision.outputs.preview_url }}";
+            // toJSON keeps this a valid JS string literal even if the URL ever contains a quote.
+            const url = ${{ toJSON(steps.provision.outputs.preview_url) }};
             const marker = "<!-- mh-preview -->";
             const body = `${marker}\n🎧 **Preview environment deployed**\n\n${url}\n\n` +
+              `⏳ The stack takes ~1 min to come up — give it a moment if the link 502s at first.\n\n` +
               `Full isolated stack (Postgres + API + frontend). Sign in with the magic link from ` +
               `the API logs in Dokploy. Torn down when this PR closes.`;
             const { data: comments } = await github.rest.issues.listComments({
@@ -156,6 +160,8 @@ jobs:
       github.event.action == 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
     steps:
+      # Teardown only deletes by composeId, so it needs the API creds + environment id but NOT
+      # PREVIEW_BASE_DOMAIN (which the deploy preflight checks) — hence the shorter list here.
       - name: Preflight — preview configured?
         id: pre
         env:
@@ -193,6 +199,8 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           OWNER: ${{ github.repository_owner }}
         run: |
+          # No `-e`: every fallible call below is guarded with `|| ...`, and the whole step is
+          # continue-on-error, so pruning is strictly best-effort and never blocks teardown.
           set -uo pipefail
           for pkg in musichoarder/api musichoarder/frontend; do
             enc=$(jq -rn --arg p "$pkg" '$p|@uri')

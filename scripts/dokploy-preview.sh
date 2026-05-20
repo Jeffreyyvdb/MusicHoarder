@@ -36,6 +36,7 @@ CMD="${1:-}"
 : "${DOKPLOY_PREVIEW_ENVIRONMENT_ID:?DOKPLOY_PREVIEW_ENVIRONMENT_ID is required}"
 : "${PR:?PR is required}"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"  # robust regardless of caller CWD
 BASE="${DOKPLOY_URL%/}"
 NAME="pr-${PR}"                 # compose display name within the previews environment
 APP_NAME="mh-pr-${PR}"          # docker stack / isolated-network name (must be globally unique)
@@ -59,16 +60,17 @@ api() {
   rm -f "$out" "$out".err
 }
 
-# project.all over raw REST returns a bare array; the MCP wrapper nests it under .data. Tolerate
-# both with `(.data? // .)` so lookups never silently miss (which would create duplicate stacks).
+# Both helpers take a pre-fetched project.all payload on stdin so a fresh provision needs only one
+# API round-trip. project.all over raw REST returns a bare array; the MCP wrapper nests it under
+# .data — `(.data? // .)` tolerates both so lookups never silently miss (→ duplicate stacks).
 find_compose_id() {
-  api project.all | jq -r --arg env "$DOKPLOY_PREVIEW_ENVIRONMENT_ID" --arg name "$NAME" '
+  jq -r --arg env "$DOKPLOY_PREVIEW_ENVIRONMENT_ID" --arg name "$NAME" '
     [ (.data? // .)[].environments[] | select(.environmentId == $env) | .compose[]?
       | select(.name == $name) | .composeId ] | first // empty'
 }
 
 count_preview_stacks() {
-  api project.all | jq -r --arg env "$DOKPLOY_PREVIEW_ENVIRONMENT_ID" '
+  jq -r --arg env "$DOKPLOY_PREVIEW_ENVIRONMENT_ID" '
     [ (.data? // .)[].environments[] | select(.environmentId == $env) | .compose[]?
       | select(.name | startswith("pr-")) ] | length'
 }
@@ -86,7 +88,7 @@ provision() {
   local public_url="https://${host}"
 
   local compose_file
-  compose_file="$(cat "$(dirname "$0")/../docker-compose.preview.yaml")"
+  compose_file="$(cat "${SCRIPT_DIR}/../docker-compose.preview.yaml")"
 
   # Newline-separated KEY=value, exactly as Dokploy stores compose env (filled into ${...}).
   local env_block
@@ -107,15 +109,20 @@ RESEND_FROM_ADDRESS=noreply@musichoarder.local
 EOF
 )"
 
-  local compose_id
-  compose_id="$(find_compose_id)"
+  # One project.all fetch serves both the existing-stack lookup and the cap count.
+  local projects compose_id
+  projects="$(api project.all)"
+  compose_id="$(printf '%s' "$projects" | find_compose_id)"
 
   if [[ -z "$compose_id" ]]; then
     local existing
-    existing="$(count_preview_stacks)"
+    existing="$(printf '%s' "$projects" | count_preview_stacks)"
     if (( existing >= max )); then
-      echo "::error::Preview stack cap reached (${existing}/${max}). Close an open PR's preview or raise PREVIEW_MAX_STACKS." >&2
-      return 2
+      # Non-fatal: the author's PR shouldn't show a red check because *other* PRs hold open
+      # previews. Skip cleanly (no preview_url → the comment step is a no-op) and let genuine
+      # provisioning errors below still fail loudly.
+      echo "::warning::Preview stack cap reached (${existing}/${max}). Skipping preview for ${NAME} — close an open PR's preview or raise PREVIEW_MAX_STACKS." >&2
+      return 0
     fi
     echo "Creating compose '${NAME}' (appName=${APP_NAME})..."
     compose_id="$(api compose.create "$(jq -n \
@@ -157,7 +164,7 @@ EOF
 
 destroy() {
   local compose_id
-  compose_id="$(find_compose_id)"
+  compose_id="$(api project.all | find_compose_id)"
   if [[ -z "$compose_id" ]]; then
     echo "No preview compose named '${NAME}' found — nothing to destroy."
     return 0

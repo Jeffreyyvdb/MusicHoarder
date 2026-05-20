@@ -47,13 +47,17 @@ jobs:
             exit 0
           fi
 
-          for name in $names; do
+          while IFS= read -r name; do
+            [ -n "$name" ] || continue
             pr="${name#pr-}"
             state=$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json state -q .state 2>/dev/null || echo "MISSING")
             if [ "$state" = "OPEN" ]; then
               echo "PR #${pr} still open — keeping ${name}."
             else
               echo "PR #${pr} state=${state} — destroying ${name}."
-              PR="$pr" ./scripts/dokploy-preview.sh destroy
+              # Don't let one transient destroy failure abort the whole sweep — log and move on;
+              # the still-orphaned stack gets retried on the next daily run.
+              PR="$pr" ./scripts/dokploy-preview.sh destroy \
+                || echo "::warning::failed to destroy ${name}; will retry on the next run."
             fi
-          done
+          done <<< "$names"
