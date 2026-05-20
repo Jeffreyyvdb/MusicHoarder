@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Pipeline;
 using Microsoft.EntityFrameworkCore;
 
 namespace MusicHoarder.Api.Library;
@@ -10,6 +11,7 @@ public class LibraryBuilderBackgroundService(
     IServiceScopeFactory scopeFactory,
     JobManager jobManager,
     LibraryBuilderProgressTracker progressTracker,
+    IDirectoryAvailability directoryAvailability,
     IOptions<MusicEnricherOptions> options,
     ILogger<LibraryBuilderBackgroundService> logger) : BackgroundService
 {
@@ -26,14 +28,32 @@ public class LibraryBuilderBackgroundService(
             Guid jobId;
             CancellationToken jobToken;
 
+            // The builder copies from source and writes to destination, so it needs both
+            // reachable. When offline (e.g. travelling away from the home NAS) idle-wait
+            // instead of failing every track.
+            var directoriesAvailable = directoryAvailability.Current.AllAvailable;
+
             // 1. Check for a manual trigger from the HTTP endpoint first.
             if (jobManager.BuildTriggers.TryRead(out var manualJobId))
             {
                 jobId = manualJobId;
                 jobToken = jobManager.GetCurrentCancellationToken();
+                if (!directoriesAvailable)
+                {
+                    logger.LogWarning("Library build {JobId} skipped — source/destination directory is offline", jobId);
+                    jobManager.SignalComplete(jobId, cancelled: true);
+                    continue;
+                }
             }
             else
             {
+                if (!directoriesAvailable)
+                {
+                    try { await Task.Delay(TimeSpan.FromSeconds(opts.LibraryBuilderIdleDelaySeconds), stoppingToken); }
+                    catch (OperationCanceledException) { break; }
+                    continue;
+                }
+
                 // 2. Auto-poll: check if there is pending work.
                 var pendingCount = await CountPendingAsync(stoppingToken);
 
