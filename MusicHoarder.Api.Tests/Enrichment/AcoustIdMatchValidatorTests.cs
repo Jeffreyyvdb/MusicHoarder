@@ -260,6 +260,7 @@ public class AcoustIdMatchValidatorTests
     {
         return new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/source/track.mp3",
             FileName = "track.mp3",
             Extension = ".mp3",

@@ -24,12 +24,23 @@ services:
     volumes:
       - ${MUSIC_SOURCE_PATH}:/music/source:ro
       - ${MUSIC_DESTINATION_PATH}:/music/destination
+      # Persist DataProtection keys across container restarts so existing session cookies stay
+      # valid. Without this, every redeploy logs everyone out.
+      - musichoarder-dpkeys:/data/dpkeys
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ConnectionStrings__musichoarderdb=Host=postgres;Database=musichoarderdb;Username=musichoarder;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       - MusicEnricher__SourceDirectory=/music/source
       - MusicEnricher__DestinationDirectory=/music/destination
       - MusicEnricher__AcoustIdApiKey=${ACOUSTID_API_KEY:-}
+      - Spotify__ClientId=${SPOTIFY_CLIENT_ID:-}
+      - Spotify__ClientSecret=${SPOTIFY_CLIENT_SECRET:-}
+      - Auth__OwnerEmail=${OWNER_EMAIL:?OWNER_EMAIL is required}
+      - Auth__DemoUserEmail=${DEMO_USER_EMAIL:-demo@musichoarder.local}
+      - Auth__DataProtectionKeysPath=/data/dpkeys
+      - Resend__ApiKey=${RESEND_API_KEY:-}
+      - Resend__FromAddress=${RESEND_FROM_ADDRESS:-noreply@musichoarder.local}
+      - Frontend__PublicBaseUrl=${PUBLIC_BASE_URL:?PUBLIC_BASE_URL is required}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/alive"]
       interval: 30s
@@ -61,3 +72,4 @@ services:
 
 volumes:
   postgres-data:
+  musichoarder-dpkeys:

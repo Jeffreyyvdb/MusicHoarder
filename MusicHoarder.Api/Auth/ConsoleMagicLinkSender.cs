@@ -1,0 +1,26 @@
+namespace MusicHoarder.Api.Auth;
+
+/// <summary>
+/// Default sender when no Resend key is configured. Writes the link to the logs at
+/// Information so it's visible in the Aspire dashboard / docker logs. Never used in
+/// production once Resend is wired.
+/// </summary>
+public sealed class ConsoleMagicLinkSender : IMagicLinkSender
+{
+    private readonly ILogger<ConsoleMagicLinkSender> _logger;
+
+    public ConsoleMagicLinkSender(ILogger<ConsoleMagicLinkSender> logger)
+    {
+        _logger = logger;
+    }
+
+    public bool IsConsoleFallback => true;
+
+    public Task SendAsync(User user, string magicLinkUrl, CancellationToken ct = default)
+    {
+        _logger.LogInformation(
+            "[MAGIC LINK] for {Email} ({Role}): {Url}",
+            user.Email, user.Role, magicLinkUrl);
+        return Task.CompletedTask;
+    }
+}

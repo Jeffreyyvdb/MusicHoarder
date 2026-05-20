@@ -145,9 +145,12 @@ public class FingerprintBackgroundService(
         using (var scope = scopeFactory.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+            // Background service: bypass the per-user query filter. Skip synthetic (demo) rows
+            // because they have no real file to fingerprint.
             var query = db.Songs
+                .IgnoreQueryFilters()
                 .AsNoTracking()
-                .Where(s => s.DeletedAtUtc == null)
+                .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
                 .Where(s => s.Fingerprint == null || s.Fingerprint == string.Empty);
 
             if (_permanentlyFailed.Count > 0)
@@ -195,6 +198,7 @@ public class FingerprintBackgroundService(
         var db2 = scope2.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
         var ids = results.Select(r => r.Id).ToList();
         var songs = await db2.Songs
+            .IgnoreQueryFilters()
             .Where(s => ids.Contains(s.Id))
             .ToDictionaryAsync(s => s.Id, ct);
 
@@ -258,8 +262,9 @@ public class FingerprintBackgroundService(
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
         var query = db.Songs
+            .IgnoreQueryFilters()
             .AsNoTracking()
-            .Where(s => s.DeletedAtUtc == null)
+            .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
             .Where(s => s.Fingerprint == null || s.Fingerprint == string.Empty);
 
         if (_permanentlyFailed.Count > 0)
