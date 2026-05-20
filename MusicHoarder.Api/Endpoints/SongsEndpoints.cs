@@ -18,6 +18,14 @@ public static class SongsEndpoints
         app.MapGet("/api/tracks/{id:int}/lyrics", GetTrackLyrics).WithName("GetTrackLyrics");
         app.MapPost("/enrichment/reset", ResetEnrichmentBatch).WithName("ResetEnrichmentBatch");
         app.MapPost("/songs/{id:int}/reset-enrichment", ResetSongEnrichment).WithName("ResetSongEnrichment");
+        app.MapPost("/songs/{id:int}/unlock", UnlockSong)
+            .WithName("UnlockSong")
+            .WithSummary("Clear a song's manual-approval lock so the pipeline can re-enrich it.")
+            .WithTags("Tracks");
+        app.MapPost("/songs/{id:int}/changes/{changeId:int}/revert", RevertMetadataChange)
+            .WithName("RevertMetadataChange")
+            .WithSummary("Revert a previously-applied automatic metadata change to its old value.")
+            .WithTags("Tracks");
         app.MapGet("/songs/{id:int}/stream", StreamSong).WithName("StreamSong");
 
         app.MapGet("/api/library/duplicates", ListDuplicates)
@@ -209,13 +217,21 @@ public static class SongsEndpoints
         });
     }
 
-    private static async Task<IResult> ResetSongEnrichment(int id, MusicHoarderDbContext db, bool restoreOriginalMetadata = true)
+    private static async Task<IResult> ResetSongEnrichment(int id, MusicHoarderDbContext db, bool restoreOriginalMetadata = true, bool force = false)
     {
         var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id);
         if (song is null)
             return Results.NotFound(new { message = $"Song with id {id} not found." });
 
-        song.ResetEnrichment(restoreOriginalMetadata);
+        if (song.IsManuallyApproved && !force)
+            return Results.UnprocessableEntity(new
+            {
+                message = "Song is locked (manually approved). Pass force=true (or unlock it first) to reset.",
+                song.Id,
+                song.IsManuallyApproved,
+            });
+
+        song.ResetEnrichment(restoreOriginalMetadata, force);
         song.ResetLibraryBuild();
 
         await db.SaveChangesAsync();
@@ -226,9 +242,55 @@ public static class SongsEndpoints
             song.FileName,
             song.EnrichmentStatus,
             song.LibraryBuildStatus,
+            song.IsManuallyApproved,
             RestoredOriginalMetadata = restoreOriginalMetadata && song.OriginalMetadataCaptured,
             Message = "Song enrichment has been reset. It will be re-enriched in the next enrichment cycle."
         });
+    }
+
+    private static async Task<IResult> UnlockSong(int id, MusicHoarderDbContext db)
+    {
+        var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id);
+        if (song is null)
+            return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+        song.UnlockManualApproval();
+        await db.SaveChangesAsync();
+
+        return Results.Ok(new { song.Id, song.FileName, song.IsManuallyApproved });
+    }
+
+    private static async Task<IResult> RevertMetadataChange(int id, int changeId, MusicHoarderDbContext db)
+    {
+        var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id);
+        if (song is null)
+            return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+        var change = await db.SongMetadataChanges.FirstOrDefaultAsync(c => c.Id == changeId && c.SongId == id);
+        if (change is null)
+            return Results.NotFound(new { message = $"Change {changeId} not found for song {id}." });
+
+        if (change.AppliedAtUtc is null || change.RevertedAtUtc is not null)
+            return Results.UnprocessableEntity(new { message = "Only an applied, not-yet-reverted change can be reverted." });
+
+        ApplyFieldValue(song, change.FieldName, change.OldValue);
+        change.RevertedAtUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        return Results.Ok(new { song.Id, change.FieldName, revertedTo = change.OldValue });
+    }
+
+    private static void ApplyFieldValue(SongMetadata song, string field, string? value)
+    {
+        switch (field)
+        {
+            case "Artist": song.Artist = value; break;
+            case "AlbumArtist": song.AlbumArtist = value; break;
+            case "Title": song.Title = value; break;
+            case "Album": song.Album = value; break;
+            case "Year": song.Year = int.TryParse(value, out var y) ? y : null; break;
+            case "TrackNumber": song.TrackNumber = int.TryParse(value, out var t) ? t : null; break;
+        }
     }
 
     private static async Task<IResult> StreamSong(int id, MusicHoarderDbContext db)
@@ -398,6 +460,7 @@ public static class SongsEndpoints
 
             song.EnrichmentStatus = EnrichmentStatus.Matched;
             song.EnrichmentError = null;
+            song.LockManualApproval();
             song.ResetLibraryBuild();
         }
         else
@@ -455,6 +518,7 @@ public static class SongsEndpoints
 
             song.EnrichmentStatus = EnrichmentStatus.Matched;
             song.EnrichmentError = null;
+            song.LockManualApproval();
             song.ResetLibraryBuild();
             approvedIds.Add(song.Id);
         }
@@ -589,10 +653,32 @@ public static class SongsEndpoints
                 status = a.Status.ToString(),
                 attemptedAtUtc = a.AttemptedAtUtc,
                 retryAfterUtc = a.RetryAfterUtc,
+                nextRetryAfterUtc = a.NextRetryAfterUtc,
                 error = a.Error,
                 candidate = DeserializeCandidate(a.MatchedDataJson),
             })
             .ToList();
+
+        // Field-level change history: applied changes (undoable) and proposed changes (pending review).
+        var changeLog = await db.SongMetadataChanges
+            .AsNoTracking()
+            .Where(c => c.SongId == id)
+            .OrderByDescending(c => c.CreatedAtUtc)
+            .Select(c => new
+            {
+                c.Id,
+                field = c.FieldName,
+                oldValue = c.OldValue,
+                newValue = c.NewValue,
+                source = c.Source,
+                confidence = c.Confidence,
+                createdAtUtc = c.CreatedAtUtc,
+                appliedAtUtc = c.AppliedAtUtc,
+                revertedAtUtc = c.RevertedAtUtc,
+                applied = c.AppliedAtUtc != null && c.RevertedAtUtc == null,
+                proposed = c.AppliedAtUtc == null && c.RevertedAtUtc == null,
+            })
+            .ToListAsync();
 
         return Results.Ok(new
         {
@@ -601,6 +687,8 @@ public static class SongsEndpoints
             fileName = song.FileName,
             destinationPath = song.DestinationPath,
             enrichmentStatus = song.EnrichmentStatus.ToString(),
+            isManuallyApproved = song.IsManuallyApproved,
+            manuallyApprovedAtUtc = song.ManuallyApprovedAtUtc,
             matchedBy = song.MatchedBy,
             matchConfidence = song.MatchConfidence,
             matchWarnings = DeserializeWarnings(song.MatchWarnings),
@@ -610,6 +698,7 @@ public static class SongsEndpoints
             current,
             diff,
             providerAttempts,
+            changeLog,
         });
     }
 

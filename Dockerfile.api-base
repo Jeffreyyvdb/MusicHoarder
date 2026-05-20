@@ -1,0 +1,15 @@
+# Base image for the MusicHoarder API container.
+#
+# Aspire builds the API image via the .NET SDK container target (`dotnet publish -t:PublishContainer`),
+# which can't run apt. So we bake the runtime dependencies into this base and point the API project
+# at it via <ContainerBaseImage>. CI builds + pushes this to GHCR before `aspire do push`.
+#
+# Contents beyond the stock aspnet runtime:
+#   - libchromaprint-tools  → provides `fpcalc` for acoustic fingerprinting (AcoustID).
+#   - curl                  → used by container healthchecks.
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libchromaprint-tools \
+    curl \
+    && rm -rf /var/lib/apt/lists/*

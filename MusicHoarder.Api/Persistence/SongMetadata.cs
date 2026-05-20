@@ -76,6 +76,14 @@ public class SongMetadata
     public DateTime? EnrichmentLastAttemptedAtUtc { get; set; }
     public string? EnrichmentError { get; set; }
 
+    /// <summary>
+    /// When set, the user has explicitly approved/locked this song's match. The enrichment
+    /// pipeline skips it and <see cref="ResetEnrichment"/> is a no-op unless forced, so a
+    /// re-scan can never silently undo a curated decision.
+    /// </summary>
+    public bool IsManuallyApproved { get; set; }
+    public DateTime? ManuallyApprovedAtUtc { get; set; }
+
     public bool OriginalMetadataCaptured { get; set; }
     public string? OriginalArtist { get; set; }
     public string? OriginalAlbumArtist { get; set; }
@@ -237,8 +245,29 @@ public class SongMetadata
         EnrichedAtUtc = now;
     }
 
-    public void ResetEnrichment(bool restoreOriginal = true)
+    /// <summary>Locks the song's match so the pipeline won't touch it and resets can't undo it.</summary>
+    public void LockManualApproval()
     {
+        IsManuallyApproved = true;
+        ManuallyApprovedAtUtc = DateTime.UtcNow;
+    }
+
+    /// <summary>Clears the manual-approval lock, allowing the pipeline to re-enrich it.</summary>
+    public void UnlockManualApproval()
+    {
+        IsManuallyApproved = false;
+        ManuallyApprovedAtUtc = null;
+    }
+
+    public void ResetEnrichment(bool restoreOriginal = true, bool force = false)
+    {
+        // Honor a manual-approval lock unless explicitly forced (e.g. an "unlock & reset" action).
+        if (IsManuallyApproved && !force)
+            return;
+
+        if (force)
+            UnlockManualApproval();
+
         if (restoreOriginal)
             RestoreOriginalMetadata();
 
@@ -260,36 +289,13 @@ public class SongMetadata
     /// <summary>
     /// Derives the summary <see cref="EnrichmentStatus"/> from the set of
     /// <see cref="ProviderAttempts"/> for this song and the list of enabled providers.
+    /// Delegates to <see cref="Enrichment.ConsensusEvaluator"/> so a single (unreliable)
+    /// AcoustID hit can no longer mark a song Matched on its own — corroboration is required.
     /// </summary>
     public EnrichmentStatus ComputeSummaryStatus(IReadOnlySet<EnrichmentProvider> enabledProviders)
-    {
-        if (enabledProviders.Count == 0)
-            return EnrichmentStatus.NeedsReview;
-
-        var attempts = ProviderAttempts
-            .Where(a => enabledProviders.Contains(a.Provider))
-            .ToList();
-
-        if (attempts.Any(a => a.Status == ProviderAttemptStatus.Matched))
-            return EnrichmentStatus.Matched;
-
-        if (attempts.Any(a => a.Status == ProviderAttemptStatus.RateLimited))
-            return EnrichmentStatus.Pending;
-
-        var allTerminal = enabledProviders.All(p =>
-            attempts.Any(a => a.Provider == p &&
-                a.Status is ProviderAttemptStatus.Matched
-                    or ProviderAttemptStatus.NoMatch
-                    or ProviderAttemptStatus.Failed));
-
-        if (allTerminal)
-        {
-            var anyFailed = attempts.Any(a => a.Status == ProviderAttemptStatus.Failed);
-            return anyFailed ? EnrichmentStatus.Failed : EnrichmentStatus.NeedsReview;
-        }
-
-        return EnrichmentStatus.Pending;
-    }
+        => Enrichment.ConsensusEvaluator
+            .Evaluate(this, enabledProviders, Enrichment.ConsensusEvaluator.DefaultIdentityOptions)
+            .Status;
 
     // --- Duplicate detection lifecycle ---
 

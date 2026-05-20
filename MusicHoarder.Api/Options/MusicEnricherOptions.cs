@@ -136,6 +136,57 @@ public class MusicEnricherOptions
     /// <summary>Optional ISO 3166-1 alpha-2 market for Spotify search (empty = omit).</summary>
     public string SpotifyApiMarket { get; set; } = "";
 
+    // --- MusicBrainz web service ---
+
+    /// <summary>User-Agent sent to MusicBrainz (required by their policy). Include contact info.</summary>
+    public string MusicBrainzUserAgent { get; set; } = "MusicHoarder/1.0 (https://github.com/Jeffreyyvdb/MusicHoarder)";
+
+    /// <summary>MusicBrainz rate limit (their policy is 1 request/second per app).</summary>
+    [Range(1, 10)]
+    public int MusicBrainzRequestsPerSecond { get; set; } = 1;
+
+    /// <summary>Days before a terminal NoMatch provider attempt is retried (catalogs grow). 0 = never.</summary>
+    [Range(0, 3650)]
+    public int EnrichmentNoMatchRetryDays { get; set; } = 30;
+
+    /// <summary>Days before a terminal Failed provider attempt is retried (failures are often transient). 0 = never.</summary>
+    [Range(0, 3650)]
+    public int EnrichmentFailedRetryDays { get; set; } = 7;
+
+    /// <summary>Minimum confidence to return any result from the MusicBrainz provider.</summary>
+    [Range(0.0, 1.0)]
+    public double MusicBrainzMinConfidence { get; set; } = 0.7;
+
+    /// <summary>Minimum confidence for the MusicBrainz provider to recommend Matched.</summary>
+    [Range(0.0, 1.0)]
+    public double MusicBrainzMatchedThreshold { get; set; } = 0.85;
+
+    // --- Consensus / identity matching ---
+
+    /// <summary>Minimum own-confidence for a provider candidate to act as a corroborating vote.</summary>
+    [Range(0.0, 1.0)]
+    public double ConsensusCorroborationFloor { get; set; } = 0.5;
+
+    /// <summary>Fuzzy ratio (0–100) above which two candidate artist names are considered the same.</summary>
+    [Range(0, 100)]
+    public double IdentityArtistThreshold { get; set; } = 85;
+
+    /// <summary>Fuzzy ratio (0–100) above which two candidate titles are considered the same.</summary>
+    [Range(0, 100)]
+    public double IdentityTitleThreshold { get; set; } = 85;
+
+    /// <summary>Max duration delta (seconds) for two candidates to be considered the same recording.</summary>
+    [Range(0, 120)]
+    public double IdentityDurationDeltaSeconds { get; set; } = 8;
+
+    /// <summary>
+    /// Minimum consensus confidence (with ≥2 agreeing providers) required to auto-overwrite a
+    /// *good* existing curated value. Below this, a conflicting change is proposed for review
+    /// rather than applied — so a curated library is never silently degraded.
+    /// </summary>
+    [Range(0.0, 1.0)]
+    public double AutoUpgradeConfidence { get; set; } = 0.96;
+
     /// <summary>Number of tracks processed per library-build cycle.</summary>
     [Range(1, 10000)]
     public int LibraryBuilderBatchSize { get; set; } = 100;

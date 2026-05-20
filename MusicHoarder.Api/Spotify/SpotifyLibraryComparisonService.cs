@@ -1,7 +1,7 @@
-using System.Text.RegularExpressions;
 using FuzzySharp;
 using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Spotify;
@@ -453,34 +453,9 @@ public partial class SpotifyLibraryComparisonService(
     private static ComparisonMatchedTrack ToMatchedTrack(TrackIndexEntry entry) =>
         new(entry.Id, entry.Title, entry.Artist, entry.EnrichmentStatus.ToString());
 
-    internal static string Normalize(string? s)
-    {
-        if (string.IsNullOrWhiteSpace(s))
-            return string.Empty;
-
-        var result = s.ToLowerInvariant();
-        result = ParenthesesPattern().Replace(result, "");
-        result = BracketsPattern().Replace(result, "");
-        result = FeaturingPattern().Replace(result, "");
-        result = PunctuationPattern().Replace(result, "");
-        result = WhitespacePattern().Replace(result, " ");
-        return result.Trim();
-    }
-
-    [GeneratedRegex(@"\(.*?\)", RegexOptions.Compiled)]
-    private static partial Regex ParenthesesPattern();
-
-    [GeneratedRegex(@"\[.*?\]", RegexOptions.Compiled)]
-    private static partial Regex BracketsPattern();
-
-    [GeneratedRegex(@"\b(feat\.?|ft\.?)\s.*", RegexOptions.Compiled | RegexOptions.IgnoreCase)]
-    private static partial Regex FeaturingPattern();
-
-    [GeneratedRegex(@"[^\w\s]", RegexOptions.Compiled)]
-    private static partial Regex PunctuationPattern();
-
-    [GeneratedRegex(@"\s+", RegexOptions.Compiled)]
-    private static partial Regex WhitespacePattern();
+    // Delegates to the shared normalizer so all providers + library comparison agree on
+    // case/punctuation/feat./diacritic handling.
+    internal static string Normalize(string? s) => TitleNormalizer.NormalizeForSearch(s);
 }
 
 internal sealed class TrackIndexEntry
