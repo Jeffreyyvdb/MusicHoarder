@@ -46,6 +46,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The API image's base (set via <ContainerBaseImage>) bundles fpcalc + curl, which the .NET
+      # SDK container target can't apt-install. Build + push it before `aspire do push` pulls it.
+      # Plain `docker build` (not buildx) keeps the default builder so Aspire's build+tag flow works.
+      - name: Build & push API base image
+        run: |
+          IMG=ghcr.io/jeffreyyvdb/musichoarder/api-base:latest
+          docker build -f Dockerfile.api-base -t "$IMG" .
+          docker push "$IMG"
+
       # The AppHost models config as parameters; the pipeline resolves them before the push even
       # though none are baked into the images (they're runtime ${...} placeholders in the compose,
       # filled in Dokploy). Supply throwaway values so --non-interactive never prompts.

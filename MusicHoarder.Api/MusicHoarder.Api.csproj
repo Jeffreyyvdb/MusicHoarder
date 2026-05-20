@@ -5,6 +5,14 @@
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <UserSecretsId>390a686e-832c-410d-9272-d0b27a40d789</UserSecretsId>
+        <!-- Aspire builds this image via the .NET SDK container target (not the repo Dockerfile).
+             Use a base image that bundles fpcalc (libchromaprint-tools) + curl — see
+             Dockerfile.api-base, built + pushed to GHCR by CI before `aspire do push`. The SDK
+             target can't apt-install. Only affects container publish; `dotnet run` in dev ignores it. -->
+        <ContainerBaseImage>ghcr.io/jeffreyyvdb/musichoarder/api-base:latest</ContainerBaseImage>
+        <!-- The SDK container target defaults to a non-root user; run as root so the app can create
+             and write the DataProtection keys dir and the mounted music/keys volumes. -->
+        <ContainerUser>root</ContainerUser>
     </PropertyGroup>
 
     <ItemGroup>

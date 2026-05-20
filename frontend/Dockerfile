@@ -49,7 +49,9 @@ EXPOSE 3000
 
 # Dokploy reads this to gate zero-downtime traffic switching
 # (https://docs.dokploy.com/docs/core/applications/zero-downtime).
+# Probe $PORT (not a hardcoded port) so it follows the runtime port — Aspire's compose runs the
+# server on PORT=8001, not the image default 3000.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -fsS http://localhost:3000/api/health || exit 1
+    CMD curl -fsS "http://localhost:${PORT:-3000}/api/health" || exit 1
 
 CMD ["bun", "build/index.js"]
