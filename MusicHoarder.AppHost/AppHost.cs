@@ -36,7 +36,7 @@ var postgres = builder.AddPostgres("postgres")
     .WithDataVolume("musichoarder-volume");
 var postgresdb = postgres.AddDatabase("musichoarderdb");
 
-var api = builder.AddProject<Projects.MusicHoarder_Api>("musichoarder-api")
+var api = builder.AddProject<Projects.MusicHoarder_Api>("api")
     .WaitFor(postgresdb)
     .WithReference(postgresdb)
     .WithEnvironment("MusicEnricher__SourceDirectory", sourceDirectory)

@@ -1,6 +1,11 @@
 # Build the API + frontend images on a native amd64 runner via `aspire do push`
-# (the Aspire pipeline reads MusicHoarder.AppHost and pushes ghcr.io/<owner>/musichoarder/*:latest),
+# (the Aspire pipeline reads MusicHoarder.AppHost and pushes
+#   ghcr.io/<owner>/musichoarder/api  and  ghcr.io/<owner>/musichoarder/frontend  as :latest),
 # then optionally trigger a Dokploy Compose redeploy that re-pulls them.
+#
+# Tagging: every build publishes :latest. Pushing a semver git tag (e.g. `v1.4.2`) additionally
+# tags the images :1.4.2, :1.4 and :1 (standard container semver), reusing the just-built :latest
+# manifest — no rebuild.
 #
 # Why this exists: building these linux/amd64 images locally on an Apple Silicon Mac runs the
 # frontend's Vite build under x86 emulation and is painfully slow. GitHub's ubuntu runners are
@@ -12,12 +17,7 @@ on:
     # TEMP: claude/great-lehmann-9ff255 added so we can test on the branch before merge.
     # Revert to `[main]` before merging.
     branches: [main, claude/great-lehmann-9ff255]
-    paths:
-      - "MusicHoarder.Api/**"
-      - "MusicHoarder.ServiceDefaults/**"
-      - "MusicHoarder.AppHost/**"
-      - "frontend/**"
-      - ".github/workflows/aspire-deploy.yml"
+    tags: ["v[0-9]*.[0-9]*.[0-9]*"]
   workflow_dispatch:
 
 permissions:
@@ -64,6 +64,25 @@ jobs:
           Parameters__resend-api-key: ""
           Parameters__resend-from-address: "noreply@example.com"
         run: aspire do push --non-interactive
+
+      # On a `v*` git tag, add semver tags pointing at the just-pushed :latest manifest (no rebuild).
+      - name: Tag semver (on v* tags)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          version="${GITHUB_REF_NAME#v}"   # v1.4.2 -> 1.4.2
+          major="${version%%.*}"           # 1
+          minor="${version%.*}"            # 1.4
+          for name in api frontend; do
+            img="ghcr.io/${owner}/musichoarder/${name}"
+            docker buildx imagetools create \
+              -t "${img}:${version}" \
+              -t "${img}:${minor}" \
+              -t "${img}:${major}" \
+              "${img}:latest"
+            echo "Tagged ${img} -> ${version}, ${minor}, ${major}"
+          done
 
   deploy:
     name: Redeploy Dokploy Compose
