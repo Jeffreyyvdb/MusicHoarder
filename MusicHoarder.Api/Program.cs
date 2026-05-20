@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Auth.Middleware;
 using MusicHoarder.Api.Composition;
+using MusicHoarder.Api.OpenApi;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.ServiceDefaults;
 using Scalar.AspNetCore;
@@ -21,7 +22,7 @@ builder.Services.AddDbContext<MusicHoarderDbContext>((sp, options) =>
 });
 builder.EnrichNpgsqlDbContext<MusicHoarderDbContext>();
 
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options => options.AddDocumentTransformer<CookieSecuritySchemeTransformer>());
 
 var app = builder.Build();
 
@@ -32,7 +33,8 @@ await app.ApplyPendingMigrationsAsync();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
-    app.MapScalarApiReference();
+    app.MapScalarApiReference(options => options
+        .AddPreferredSecuritySchemes(CookieSecuritySchemeTransformer.SchemeId));
 }
 
 if (!app.Environment.IsDevelopment())
