@@ -19,8 +19,11 @@ public static class EnrichmentEndpoints
     {
         var group = app.MapGroup("/api/enrichment").WithTags("Enrichment");
 
-        group.MapPost("/scan", (JobManager jobManager) =>
+        group.MapPost("/scan", (JobManager jobManager, IDirectoryAvailability availability) =>
             {
+                if (!availability.Current.SourceAvailable)
+                    return Results.Conflict(new { message = "Source directory is offline. Reconnect to your music library before scanning." });
+
                 if (!jobManager.TryStartJob(JobType.Scan, out var jobId, out _))
                     return Results.Conflict(new { message = "A job is already running. Use POST /api/enrichment/cancel to stop it first." });
 
@@ -39,8 +42,11 @@ public static class EnrichmentEndpoints
             .WithName("TriggerEnrich")
             .WithSummary("Trigger the EnrichmentService to enrich pending tracks via AcoustID/MusicBrainz.");
 
-        group.MapPost("/fingerprint", (JobManager jobManager) =>
+        group.MapPost("/fingerprint", (JobManager jobManager, IDirectoryAvailability availability) =>
             {
+                if (!availability.Current.SourceAvailable)
+                    return Results.Conflict(new { message = "Source directory is offline. Reconnect to your music library before fingerprinting." });
+
                 if (!jobManager.TryStartJob(JobType.Fingerprint, out var jobId, out _))
                     return Results.Conflict(new { message = "Fingerprint step is already running." });
 
@@ -49,8 +55,11 @@ public static class EnrichmentEndpoints
             .WithName("TriggerFingerprint")
             .WithSummary("Trigger the FingerprintService to fingerprint tracks with missing fingerprints.");
 
-        group.MapPost("/build", (JobManager jobManager) =>
+        group.MapPost("/build", (JobManager jobManager, IDirectoryAvailability availability) =>
             {
+                if (!availability.Current.AllAvailable)
+                    return Results.Conflict(new { message = "Source/destination directory is offline. Reconnect to your music library before building." });
+
                 if (!jobManager.TryStartJob(JobType.Build, out var jobId, out _))
                     return Results.Conflict(new { message = "Build step is already running." });
 
@@ -104,6 +113,11 @@ public static class EnrichmentEndpoints
             })
             .WithName("GetEnrichmentStatus")
             .WithSummary("Get the current job status and a progress snapshot.");
+
+        group.MapGet("/library-availability", (IDirectoryAvailability availability) =>
+                Results.Ok(availability.Current))
+            .WithName("GetLibraryAvailability")
+            .WithSummary("Whether the configured source/destination directories are currently reachable.");
 
         group.MapGet("/progress", StreamProgress)
             .WithName("StreamEnrichmentProgress")

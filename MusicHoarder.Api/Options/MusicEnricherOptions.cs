@@ -12,6 +12,19 @@ public class MusicEnricherOptions
     [Required(ErrorMessage = "MusicEnricher:DestinationDirectory is required.")]
     public string DestinationDirectory { get; set; } = string.Empty;
 
+    /// <summary>
+    /// How often (seconds) to probe whether the source/destination directories are
+    /// reachable. Pipeline stages that touch the filesystem gate on the cached result,
+    /// so an unreachable network share (e.g. laptop away from home) degrades gracefully
+    /// instead of spamming errors.
+    /// </summary>
+    [Range(5, 3600)]
+    public int DirectoryProbeIntervalSeconds { get; set; } = 30;
+
+    /// <summary>Per-directory timeout (seconds) for a reachability probe, so a hung SMB mount can't block the monitor.</summary>
+    [Range(1, 120)]
+    public int DirectoryProbeTimeoutSeconds { get; set; } = 5;
+
     /// <summary>Maximum concurrent file reads (tag reading + fpcalc) for SMB safety.</summary>
     [Range(1, 64)]
     public int SmbConcurrency { get; set; } = 8;
