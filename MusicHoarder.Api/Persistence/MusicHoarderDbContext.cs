@@ -36,6 +36,7 @@ public class MusicHoarderDbContext : DbContext
 
     public DbSet<SongMetadata> Songs { get; set; } = null!;
     public DbSet<SongProviderAttempt> SongProviderAttempts { get; set; } = null!;
+    public DbSet<SongMetadataChange> SongMetadataChanges { get; set; } = null!;
     public DbSet<SpotifySettings> SpotifySettings { get; set; } = null!;
     public DbSet<SpotifyTrackLibraryMatch> SpotifyTrackLibraryMatches { get; set; } = null!;
     public DbSet<RuntimeSettings> RuntimeSettings { get; set; } = null!;
@@ -66,6 +67,8 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => e.Fingerprint).HasMethod("hash");
             entity.HasIndex(e => new { e.DeletedAtUtc, e.IsDuplicate });
             entity.HasIndex(e => new { e.OwnerUserId, e.DeletedAtUtc });
+            // Supports identifier-based lookups / dedupe by ISRC.
+            entity.HasIndex(e => e.Isrc);
 
             entity.HasOne(e => e.DuplicateOf)
                 .WithMany()
@@ -91,6 +94,19 @@ public class MusicHoarderDbContext : DbContext
             // SongProviderAttempt inherits tenancy through its parent Song. No own query filter is
             // needed — joins via Song apply Song's filter. Direct queries against this DbSet must
             // include a Song-based predicate when used outside background services.
+        });
+
+        modelBuilder.Entity<SongMetadataChange>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.SongId, e.CreatedAtUtc });
+
+            entity.HasOne(e => e.Song)
+                .WithMany()
+                .HasForeignKey(e => e.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Inherits tenancy via its parent Song (joined queries apply Song's filter).
         });
 
         modelBuilder.Entity<SpotifySettings>(entity =>
