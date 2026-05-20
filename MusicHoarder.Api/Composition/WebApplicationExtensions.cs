@@ -25,6 +25,7 @@ public static class WebApplicationExtensions
         app.MapSpotifyEndpoints();
         app.MapSettingsEndpoints();
         app.MapAuthEndpoints();
+        app.MapDebugEndpoints();
         return app;
     }
 }
