@@ -1,4 +1,5 @@
-# Restore, build, and test — no deploy or container publishing.
+# Restore, build, and test the .NET solution and the SvelteKit frontend.
+# No deploy or container publishing — that's docker-publish.yml.
 name: CI
 
 on:
@@ -7,8 +8,15 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-and-test:
+  dotnet:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,3 +34,22 @@ jobs:
 
       - name: Test
         run: dotnet test MusicHoarder.Api.Tests/MusicHoarder.Api.Tests.csproj --no-build -c Release --verbosity normal
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run lint
+      - run: bun run check
