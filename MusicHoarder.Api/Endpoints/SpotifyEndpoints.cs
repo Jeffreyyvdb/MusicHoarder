@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Spotify;
@@ -81,8 +82,13 @@ public static class SpotifyEndpoints
             .WithName("SpotifyCallback")
             .WithSummary("Handles the OAuth callback from Spotify, exchanges the authorization code for tokens.");
 
-        group.MapGet("/status", async (ISpotifyOAuthService spotifyOAuth, CancellationToken ct) =>
+        group.MapGet("/status", async (ISpotifyOAuthService spotifyOAuth, ICurrentUserAccessor currentUser, CancellationToken ct) =>
             {
+                // Spotify state is the OWNER's (services resolve WellKnownUsers.OwnerId regardless of
+                // caller), so report a clean "not connected" to non-owners rather than leaking it.
+                if (currentUser.User?.IsOwner != true)
+                    return Results.Ok(new { connected = false, connectedAt = (DateTime?)null, hasCredentials = false, tokenExpired = false });
+
                 var status = await spotifyOAuth.GetStatusAsync(ct);
                 return Results.Ok(new
                 {
@@ -116,8 +122,11 @@ public static class SpotifyEndpoints
             .WithSummary("Save Spotify API client credentials (ClientId and ClientSecret).")
             .RequireOwner();
 
-        group.MapGet("/credentials", async (ISpotifyOAuthService spotifyOAuth, CancellationToken ct) =>
+        group.MapGet("/credentials", async (ISpotifyOAuthService spotifyOAuth, ICurrentUserAccessor currentUser, CancellationToken ct) =>
             {
+                if (currentUser.User?.IsOwner != true)
+                    return Results.Ok(new { clientId = (string?)null, hasClientSecret = false });
+
                 var creds = await spotifyOAuth.GetCredentialsAsync(ct);
                 return Results.Ok(new { clientId = creds.ClientId, hasClientSecret = creds.HasClientSecret });
             })
@@ -142,7 +151,8 @@ public static class SpotifyEndpoints
                 }
             })
             .WithName("GetSpotifyLikedSongs")
-            .WithSummary("Returns paginated liked songs from the user's Spotify library.");
+            .WithSummary("Returns paginated liked songs from the user's Spotify library.")
+            .AddEndpointFilter<SpotifyOwnerReadFilter>();
 
         group.MapGet("/liked-songs/comparison", async (int? offset, int? limit, string? matchStatus, ISpotifyLibraryComparisonService comparisonService, CancellationToken ct) =>
             {
@@ -172,7 +182,8 @@ public static class SpotifyEndpoints
                 }
             })
             .WithName("GetSpotifyLikedSongsComparison")
-            .WithSummary("Compares Spotify liked songs against the local library and returns match statuses.");
+            .WithSummary("Compares Spotify liked songs against the local library and returns match statuses.")
+            .AddEndpointFilter<SpotifyOwnerReadFilter>();
 
         group.MapGet("/liked-songs/comparison/summary", async (ISpotifyLibraryComparisonService comparisonService, CancellationToken ct) =>
             {
@@ -191,7 +202,8 @@ public static class SpotifyEndpoints
                 }
             })
             .WithName("GetSpotifyLikedSongsComparisonSummary")
-            .WithSummary("Returns a summary of how many liked songs are in the library, possible matches, or missing.");
+            .WithSummary("Returns a summary of how many liked songs are in the library, possible matches, or missing.")
+            .AddEndpointFilter<SpotifyOwnerReadFilter>();
 
         group.MapGet("/playlists", async (ISpotifyApiService spotifyApi, CancellationToken ct) =>
             {
@@ -210,7 +222,8 @@ public static class SpotifyEndpoints
                 }
             })
             .WithName("GetSpotifyPlaylists")
-            .WithSummary("Returns all user playlists (owned and followed) from Spotify.");
+            .WithSummary("Returns all user playlists (owned and followed) from Spotify.")
+            .AddEndpointFilter<SpotifyOwnerReadFilter>();
 
         group.MapGet("/playlists/{playlistId}/tracks", async (string playlistId, int? offset, int? limit, ISpotifyApiService spotifyApi, ISpotifyLibraryComparisonService comparisonService, CancellationToken ct) =>
             {
@@ -230,7 +243,8 @@ public static class SpotifyEndpoints
                 }
             })
             .WithName("GetSpotifyPlaylistTracks")
-            .WithSummary("Returns paginated tracks for a specific Spotify playlist.");
+            .WithSummary("Returns paginated tracks for a specific Spotify playlist.")
+            .AddEndpointFilter<SpotifyOwnerReadFilter>();
 
         return app;
     }
@@ -252,3 +266,21 @@ public static class SpotifyEndpoints
 }
 
 public record SpotifyCredentialsRequest(string ClientId, string ClientSecret);
+
+/// <summary>
+/// Spotify read endpoints operate on the OWNER's connection (the services resolve
+/// <c>WellKnownUsers.OwnerId</c> regardless of the caller), so a non-owner must never receive the
+/// owner's Spotify data. Short-circuits to the same <c>spotify_not_connected</c> contract the
+/// frontend already handles, so a demo user sees a clean "not connected" state instead of a leak.
+/// </summary>
+internal sealed class SpotifyOwnerReadFilter : IEndpointFilter
+{
+    public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    {
+        var accessor = context.HttpContext.RequestServices.GetRequiredService<ICurrentUserAccessor>();
+        if (accessor.User?.IsOwner != true)
+            return Results.Json(new { error = "spotify_not_connected" }, statusCode: StatusCodes.Status401Unauthorized);
+
+        return await next(context);
+    }
+}
