@@ -286,6 +286,7 @@ public class DuplicateDetectionServiceTests
     {
         return new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = sourcePath,
             FileName = Path.GetFileName(sourcePath),
             Extension = extension,

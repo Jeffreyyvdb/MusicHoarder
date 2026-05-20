@@ -335,20 +335,20 @@ Each service above may itself use multiple sub-services (AcoustID, MusicBrainz, 
 
 ---
 
-## Frontend: flex layouts, scrolling, and Radix ScrollArea (for AI agents)
+## Frontend: flex layouts, scrolling, and bits-ui ScrollArea (for AI agents)
 
-This comes up **often** when editing the Next.js app (`frontend/`): lists “look” right but **do not scroll** because flex items default to `min-height: auto`, so they grow with content instead of shrinking and clipping.
+This comes up **often** when editing the SvelteKit app (`frontend/`): lists “look” right but **do not scroll** because flex items default to `min-height: auto`, so they grow with content instead of shrinking and clipping.
 
 **Rule:** Any flex child that should **take remaining height** and **contain a scrollable region** must be allowed to shrink below its content height:
 
 1. Put **`min-h-0`** on the flex child (and often on **every** intermediate flex column between `h-screen` / `flex-1` and the `ScrollArea`).
 2. Use **`overflow-hidden`** on flex column ancestors when you need a clear clipping boundary (optional but common).
-3. For **`ScrollArea`** (Radix): the root must end up with a **bounded height**. Prefer **`className="min-h-0 flex-1"`** (or **`h-full min-h-0`** inside a parent that already has a definite height). The shared component [`frontend/components/ui/scroll-area.tsx`](frontend/components/ui/scroll-area.tsx) includes **`min-h-0`** on the root by default; still add **`min-h-0`** on parent flex rows/columns as needed.
-4. For **`Tabs` / `TabsContent`**: panels that fill space and scroll inside should use **`min-h-0`** on the content wrapper; [`frontend/components/ui/tabs.tsx`](frontend/components/ui/tabs.tsx) defaults **`TabsContent`** to **`flex-1 min-h-0`**.
+3. For **`ScrollArea`** (bits-ui): the root must end up with a **bounded height**. Prefer **`class="min-h-0 flex-1"`** (or **`h-full min-h-0`** inside a parent that already has a definite height). The shared component [`frontend/src/lib/components/ui/scroll-area/scroll-area.svelte`](frontend/src/lib/components/ui/scroll-area/scroll-area.svelte) includes **`min-h-0`** on the root by default; still add **`min-h-0`** on parent flex rows/columns as needed.
+4. For **`Tabs` / `Tabs.Content`**: panels that fill space and scroll inside should use **`min-h-0`** on the content wrapper; [`frontend/src/lib/components/ui/tabs/tabs-content.svelte`](frontend/src/lib/components/ui/tabs/tabs-content.svelte) defaults to **`flex-1 min-h-0`**.
 
 **Smell:** `flex-1` + `ScrollArea` but no scroll → walk up the tree and add **`min-h-0`** until the scroll viewport has a fixed maximum height.
 
-**Reference implementations in this repo:** [`frontend/app/spotify/page.tsx`](frontend/app/spotify/page.tsx) (main + playlist detail), [`frontend/components/file-browser/file-browser.tsx`](frontend/components/file-browser/file-browser.tsx), [`frontend/app/review/page.tsx`](frontend/app/review/page.tsx).
+**Reference implementations in this repo:** [`frontend/src/routes/(app)/spotify/+page.svelte`](frontend/src/routes/(app)/spotify/+page.svelte) (main + playlist detail), [`frontend/src/routes/(app)/app/files/+page.svelte`](frontend/src/routes/(app)/app/files/+page.svelte), [`frontend/src/routes/(app)/review/+page.svelte`](frontend/src/routes/(app)/review/+page.svelte).
 
 ---
 
@@ -356,7 +356,7 @@ This comes up **often** when editing the Next.js app (`frontend/`): lists “loo
 
 ### System dependencies
 
-The VM snapshot pre-installs .NET 10 SDK, Docker (with fuse-overlayfs for DinD), Node.js 22, pnpm, and `fpcalc` (from `libchromaprint-tools`). The update script handles `dotnet restore` and `pnpm install` on startup.
+The VM snapshot pre-installs .NET 10 SDK, Docker (with fuse-overlayfs for DinD), Bun, Node.js 22 (for the semantic-release step only), and `fpcalc` (from `libchromaprint-tools`). The update script handles `dotnet restore` and `bun install` on startup.
 
 ### Running the full stack
 
@@ -369,12 +369,12 @@ dotnet user-secrets set "MusicEnricher:DestinationDirectory" "/tmp/musichoarder-
 dotnet run --project MusicHoarder.AppHost
 ```
 
-This starts the Aspire dashboard (https://localhost:17072), provisions PostgreSQL as a Docker container, launches `MusicHoarder.Api`, and attempts to start the frontend via npm. EF Core migrations auto-apply in development.
+This starts the Aspire dashboard (https://localhost:17072), provisions PostgreSQL as a Docker container, launches `MusicHoarder.Api`, and starts the frontend via Bun. EF Core migrations auto-apply in development.
 
-**Gotcha — frontend via AppHost**: The AppHost uses `.WithNpm()` but the frontend only has a `pnpm-lock.yaml` (no `package-lock.json`). To run the frontend reliably, start it separately:
+**Frontend via AppHost**: The AppHost runs the frontend with `.WithBun()`. To run it separately:
 
 ```bash
-cd frontend && MUSICHOARDER_API_URL=http://localhost:<api-port> PORT=3000 pnpm dev
+cd frontend && MUSICHOARDER_API_URL=http://localhost:<api-port> PORT=3000 bun run dev
 ```
 
 The API port is dynamically assigned by Aspire — find it in the Aspire dashboard or via `netstat -tlnp | grep MusicHoarder`.
@@ -404,7 +404,7 @@ All 19 xUnit tests use an in-memory EF Core provider and do not require PostgreS
 
 ### Frontend lint
 
-The `pnpm lint` script in `frontend/` references `eslint` and `eslint-config-next`, which are not listed as dependencies in `package.json`. This is a known gap — `pnpm lint` will fail until those are added. The frontend builds cleanly with `pnpm build`.
+Lint the frontend with `bun run lint` (ESLint flat config, `eslint.config.mjs`). Type-check with `bun run check` (svelte-check + TypeScript) and build with `bun run build`.
 
 ### Docker requirement
 

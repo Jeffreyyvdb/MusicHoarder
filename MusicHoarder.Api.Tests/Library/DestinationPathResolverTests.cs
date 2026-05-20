@@ -220,6 +220,7 @@ public class DestinationPathResolverTests
     {
         return new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/source/song.mp3",
             FileSizeBytes = 1000,
             FileName = "song.mp3",

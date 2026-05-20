@@ -7,6 +7,8 @@
   import * as Tabs from '$lib/components/ui/tabs';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import PurgeStatusBanner from '$lib/components/settings/PurgeStatusBanner.svelte';
+  import { goto } from '$app/navigation';
+  import { page } from '$app/state';
   import {
     fetchSpotifyCredentials,
     saveSpotifyCredentials,
@@ -16,6 +18,7 @@
     purgeAll,
     purgePostFingerprint,
     fetchPurgeStatus,
+    signOut,
     type PurgeMode,
     type PurgeSnapshot,
     type SettingsResponse,
@@ -39,8 +42,18 @@
     Database,
     Tag,
     SlidersHorizontal,
-    Copy
+    Copy,
+    UserRound,
+    LogOut
   } from '@lucide/svelte';
+
+  const user = $derived(page.data.user as { id: string; email: string; role: 'Owner' | 'Demo'; displayName: string | null } | undefined);
+  const initials = $derived((user?.displayName ?? user?.email ?? '?').slice(0, 2).toUpperCase());
+
+  async function handleSignOut(allSessions = false) {
+    await signOut(allSessions);
+    await goto('/login', { invalidateAll: true });
+  }
 
   // Spotify credential form state
   let clientId = $state('');
@@ -272,8 +285,11 @@
         <Loader2 class="text-muted-foreground size-6 animate-spin" />
       </div>
     {:else}
-      <Tabs.Root value="paths" class="w-full">
+      <Tabs.Root value="account" class="w-full">
         <Tabs.List class="mb-6 flex w-full flex-wrap justify-start gap-1">
+          <Tabs.Trigger value="account" class="gap-1.5"
+            ><UserRound class="size-3.5" />Account</Tabs.Trigger
+          >
           <Tabs.Trigger value="paths" class="gap-1.5"><Folder class="size-3.5" />Paths</Tabs.Trigger>
           <Tabs.Trigger value="enrichment" class="gap-1.5"
             ><Tag class="size-3.5" />Enrichment</Tabs.Trigger
@@ -288,6 +304,60 @@
             ><Database class="size-3.5" />Data &amp; resets</Tabs.Trigger
           >
         </Tabs.List>
+
+        <!-- =================== ACCOUNT =================== -->
+        <Tabs.Content value="account" class="mt-0">
+          <section class="border-border bg-card rounded-xl border">
+            <header class="border-border border-b px-6 py-4">
+              <h2 class="font-semibold">Account</h2>
+              <p class="text-muted-foreground text-xs">
+                Signed-in user. Magic-link sign-in only — no passwords. Roles control who can
+                mutate pipeline state.
+              </p>
+            </header>
+
+            <div class="space-y-5 p-6">
+              <div class="flex items-center gap-4">
+                <div
+                  class="text-foreground flex size-12 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500/80 to-indigo-500/80 font-semibold text-white shadow-sm"
+                >
+                  {initials}
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="truncate text-sm font-medium">
+                    {user?.displayName ?? user?.email ?? '—'}
+                  </div>
+                  <div class="text-muted-foreground truncate font-mono text-xs">
+                    {user?.email ?? '—'}
+                  </div>
+                </div>
+                <Badge variant={user?.role === 'Owner' ? 'default' : 'secondary'}>
+                  {user?.role ?? 'Anonymous'}
+                </Badge>
+              </div>
+
+              {#if user?.role === 'Demo'}
+                <div
+                  class="border-border bg-secondary/40 text-foreground/80 rounded-lg border px-4 py-3 text-xs"
+                >
+                  You're signed in as the demo account. You can browse the seeded library but
+                  mutating actions (scan, enrich, settings PUT, purge) return <span
+                    class="bg-secondary rounded px-1 font-mono">403 owner_required</span
+                  >.
+                </div>
+              {/if}
+
+              <div class="border-border flex flex-wrap items-center gap-2 border-t pt-4">
+                <Button variant="outline" onclick={() => handleSignOut(false)}>
+                  <LogOut class="mr-2 size-4" /> Sign out
+                </Button>
+                <Button variant="ghost" onclick={() => handleSignOut(true)}>
+                  Sign out everywhere
+                </Button>
+              </div>
+            </div>
+          </section>
+        </Tabs.Content>
 
         <!-- =================== PATHS =================== -->
         <Tabs.Content value="paths" class="mt-0">

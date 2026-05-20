@@ -4,6 +4,7 @@ using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Pipeline;
 
 namespace MusicHoarder.Api.Scanner;
 
@@ -14,6 +15,7 @@ public class FingerprintBackgroundService(
     IFpcalcService fpcalcService,
     IDuplicateDetectionService duplicateDetectionService,
     EnrichmentPipelineChannel enrichmentChannel,
+    IDirectoryAvailability directoryAvailability,
     IOptions<MusicEnricherOptions> options,
     ILogger<FingerprintBackgroundService> logger) : BackgroundService
 {
@@ -35,14 +37,30 @@ public class FingerprintBackgroundService(
             CancellationToken jobToken;
             int pendingCount;
 
+            // Fingerprinting reads the source files via fpcalc; if the source is offline we'd
+            // just mark every track permanently-failed. Idle-wait until it's reachable again.
+            var sourceAvailable = directoryAvailability.Current.SourceAvailable;
+
             if (jobManager.FingerprintTriggers.TryRead(out var manualJobId))
             {
                 jobId = manualJobId;
                 jobToken = jobManager.GetCurrentCancellationToken();
+                if (!sourceAvailable)
+                {
+                    logger.LogWarning("Fingerprint {JobId} skipped — source directory is offline", jobId);
+                    jobManager.SignalComplete(jobId, cancelled: true);
+                    continue;
+                }
                 pendingCount = await CountPendingAsync(stoppingToken);
             }
             else
             {
+                if (!sourceAvailable)
+                {
+                    if (!await DelayIdleAsync(opts.FingerprintIdleDelaySeconds, stoppingToken)) break;
+                    continue;
+                }
+
                 pendingCount = await CountPendingAsync(stoppingToken);
 
                 if (pendingCount == 0)
@@ -127,9 +145,12 @@ public class FingerprintBackgroundService(
         using (var scope = scopeFactory.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+            // Background service: bypass the per-user query filter. Skip synthetic (demo) rows
+            // because they have no real file to fingerprint.
             var query = db.Songs
+                .IgnoreQueryFilters()
                 .AsNoTracking()
-                .Where(s => s.DeletedAtUtc == null)
+                .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
                 .Where(s => s.Fingerprint == null || s.Fingerprint == string.Empty);
 
             if (_permanentlyFailed.Count > 0)
@@ -177,6 +198,7 @@ public class FingerprintBackgroundService(
         var db2 = scope2.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
         var ids = results.Select(r => r.Id).ToList();
         var songs = await db2.Songs
+            .IgnoreQueryFilters()
             .Where(s => ids.Contains(s.Id))
             .ToDictionaryAsync(s => s.Id, ct);
 
@@ -221,13 +243,28 @@ public class FingerprintBackgroundService(
         return batch.Count;
     }
 
+    /// <summary>Idle delay that returns false if the app is shutting down.</summary>
+    private static async Task<bool> DelayIdleAsync(int seconds, CancellationToken stoppingToken)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(seconds), stoppingToken);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+    }
+
     private async Task<int> CountPendingAsync(CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
         var query = db.Songs
+            .IgnoreQueryFilters()
             .AsNoTracking()
-            .Where(s => s.DeletedAtUtc == null)
+            .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
             .Where(s => s.Fingerprint == null || s.Fingerprint == string.Empty);
 
         if (_permanentlyFailed.Count > 0)

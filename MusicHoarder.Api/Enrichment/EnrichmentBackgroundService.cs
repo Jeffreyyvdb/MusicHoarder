@@ -54,8 +54,9 @@ public class EnrichmentBackgroundService(
                 return;
 
             var candidates = await db.Songs
+                .IgnoreQueryFilters()
                 .Include(s => s.ProviderAttempts)
-                .Where(s => s.DeletedAtUtc == null)
+                .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
                 .Where(s => s.EnrichmentStatus != EnrichmentStatus.Pending)
                 .ToListAsync(ct);
 
@@ -107,8 +108,9 @@ public class EnrichmentBackgroundService(
             if (opts.RetryFailedOnStartup) statusesToRetry.Add(EnrichmentStatus.Failed);
 
             var candidates = await db.Songs
+                .IgnoreQueryFilters()
                 .Include(s => s.ProviderAttempts)
-                .Where(s => s.DeletedAtUtc == null)
+                .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
                 .Where(s => statusesToRetry.Contains(s.EnrichmentStatus))
                 .ToListAsync(ct);
 
@@ -138,7 +140,9 @@ public class EnrichmentBackgroundService(
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
             var pendingIds = await db.Songs
+                .IgnoreQueryFilters()
                 .AsNoTracking()
+                .Where(s => !s.IsSynthetic)
                 .WhereReadyForEnrichment()
                 .OrderBy(s => s.Id)
                 .Select(s => s.Id)
