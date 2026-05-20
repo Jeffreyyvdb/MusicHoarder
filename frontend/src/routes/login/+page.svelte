@@ -41,7 +41,7 @@
     isStartingDemo = true;
     try {
       await signInAsDemo();
-      await goto('/app/overview', { invalidateAll: true });
+      await goto('/overview', { invalidateAll: true });
     } catch (err) {
       result = {
         ok: false,
