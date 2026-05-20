@@ -7,7 +7,7 @@
     [
       "@semantic-release/exec",
       {
-        "successCmd": "echo \"new_release_version=${nextRelease.version}\" >> \"${GITHUB_OUTPUT:-/dev/null}\""
+        "successCmd": "echo \"new_release_version=${nextRelease.version}\" >> \"$GITHUB_OUTPUT\""
       }
     ],
     [
