@@ -5,6 +5,10 @@
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <UserSecretsId>390a686e-832c-410d-9272-d0b27a40d789</UserSecretsId>
+        <!-- Aspire builds this image via the .NET SDK container target (not the repo Dockerfile),
+             which defaults to a non-root user. Run as root so the app can create/write the
+             DataProtection keys dir and the mounted music/keys volumes. -->
+        <ContainerUser>root</ContainerUser>
     </PropertyGroup>
 
     <ItemGroup>
