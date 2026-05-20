@@ -7,7 +7,6 @@
     Copy,
     FileWarning,
     FolderOpen,
-    HardDrive,
     Inbox,
     LayoutDashboard,
     Library,
@@ -194,6 +193,14 @@
     if (n == null) return '…';
     return n.toLocaleString();
   }
+
+  function collapsePath(path: string): string {
+    const trimmed = path.replace(/\/+$/, '');
+    const last = trimmed.split('/').pop();
+    return last ? `…/${last}` : trimmed;
+  }
+
+  const reviewCount = $derived(counts.missing);
 </script>
 
 <Sidebar.Root collapsible="icon">
@@ -223,29 +230,18 @@
 
   <Sidebar.Content>
     {#if sourcePath || destPath}
-      <Sidebar.Group class="group-data-[collapsible=icon]:hidden">
-        <Sidebar.GroupLabel>Paths</Sidebar.GroupLabel>
-        <Sidebar.GroupContent class="px-2 pt-1">
+      <Sidebar.Group class="group-data-[collapsible=icon]:hidden py-1">
+        <Sidebar.GroupContent class="px-2">
           {#if sourcePath}
-            <div class="mb-2">
-              <div class="text-muted-foreground/80 text-[9.5px] font-semibold tracking-[0.08em] uppercase">
-                Source
-              </div>
-              <div class="mt-0.5 flex items-center gap-1.5 text-[11px]">
-                <FolderOpen class="text-muted-foreground size-3 shrink-0" />
-                <span class="text-muted-foreground truncate font-mono" title={sourcePath}>{sourcePath}</span>
-              </div>
+            <div class="flex items-center gap-1.5 px-2 py-[3px]">
+              <span class="text-muted-foreground/80 w-6 shrink-0 font-mono text-[9px] font-semibold tracking-[0.08em]">SRC</span>
+              <span class="text-muted-foreground truncate font-mono text-[10.5px]" title={sourcePath}>{collapsePath(sourcePath)}</span>
             </div>
           {/if}
           {#if destPath}
-            <div>
-              <div class="text-muted-foreground/80 text-[9.5px] font-semibold tracking-[0.08em] uppercase">
-                Destination
-              </div>
-              <div class="mt-0.5 flex items-center gap-1.5 text-[11px]">
-                <HardDrive class="text-muted-foreground size-3 shrink-0" />
-                <span class="text-muted-foreground truncate font-mono" title={destPath}>{destPath}</span>
-              </div>
+            <div class="flex items-center gap-1.5 px-2 py-[3px]">
+              <span class="text-muted-foreground/80 w-6 shrink-0 font-mono text-[9px] font-semibold tracking-[0.08em]">DST</span>
+              <span class="text-muted-foreground truncate font-mono text-[10.5px]" title={destPath}>{collapsePath(destPath)}</span>
             </div>
           {/if}
         </Sidebar.GroupContent>
@@ -263,7 +259,12 @@
                 {#snippet child({ props })}
                   <a {...props} href={item.href}>
                     <item.icon class="size-4" />
-                    <span>{item.label}</span>
+                    <span class="flex-1">{item.label}</span>
+                    {#if item.href === '/review' && reviewCount != null && reviewCount > 0}
+                      <span
+                        class="rounded-full bg-amber-500 px-1.5 py-px font-mono text-[9.5px] font-semibold text-white group-data-[collapsible=icon]:hidden"
+                      >{reviewCount}</span>
+                    {/if}
                   </a>
                 {/snippet}
               </Sidebar.MenuButton>
@@ -350,33 +351,52 @@
 
   <Sidebar.Footer
     class={cn(
-      'group-data-[collapsible=icon]:hidden gap-1.5',
+      'group-data-[collapsible=icon]:hidden gap-0 px-4 pt-3 pb-3.5',
       playerStore.currentSong && 'mb-14 sm:mb-16'
     )}
   >
     {#if queueRemaining != null && queueRemaining > 0}
-      <div class="flex items-center gap-2 px-2 py-1 text-[11px]">
-        <span class="bg-primary mh-pulse-dot size-1.5 rounded-full"></span>
-        <span class="text-muted-foreground flex-1">Indexing</span>
-        <span class="text-foreground/80 font-mono">{queueRemaining.toLocaleString()} left</span>
+      <div class="flex items-center gap-2 py-[3px] text-[11px]">
+        <span class="bg-primary mh-pulse-dot size-[7px] shrink-0 rounded-full"></span>
+        <span class="text-muted-foreground flex-1 whitespace-nowrap">Indexing</span>
+        <span class="text-foreground/80 font-mono text-[10.5px] whitespace-nowrap">{queueRemaining.toLocaleString()} left</span>
+      </div>
+    {/if}
+    {#if totalBytes !== null}
+      <div class="flex items-center gap-2 py-[3px] text-[11px]">
+        <span class="text-muted-foreground flex-1 whitespace-nowrap">Storage</span>
+        <span class="text-foreground/80 font-mono text-[10.5px] whitespace-nowrap">
+          {formatLibrarySize(totalBytes)} / 2 TB
+        </span>
+      </div>
+      <div class="bg-sidebar-border mt-1.5 h-[3px] overflow-hidden rounded-full">
+        <div class="bg-primary h-full transition-[width] duration-300" style="width: {storagePct ?? 0}%;"></div>
       </div>
     {/if}
     {#if page.data.user}
       {@const u = page.data.user as { email: string; role: 'Owner' | 'Demo'; displayName: string | null }}
-      <div class="bg-sidebar-accent/40 flex items-center gap-2 rounded-lg px-2 py-2">
+      <div class="border-sidebar-border mt-3 flex items-center gap-[9px] border-t pt-3">
         <div
-          class="flex size-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500/80 to-indigo-500/80 text-[11px] font-semibold text-white"
+          class="flex size-[30px] shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-700/90 to-cyan-300/90 text-[11px] font-semibold text-white shadow-sm"
         >
           {(u.displayName ?? u.email).slice(0, 2).toUpperCase()}
         </div>
         <div class="min-w-0 flex-1">
-          <div class="truncate text-xs font-medium">{u.displayName ?? u.email}</div>
-          <div class="text-muted-foreground truncate font-mono text-[10px]">{u.role}</div>
+          <div class="truncate text-[12px] font-medium">{u.displayName ?? u.email}</div>
+          <div class="text-muted-foreground truncate font-mono text-[10px]">{u.email}</div>
         </div>
+        <a
+          href="/settings"
+          aria-label="Settings"
+          data-active={pathname.startsWith('/settings') || undefined}
+          class="text-muted-foreground hover:bg-sidebar-accent hover:text-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-primary grid size-[26px] place-items-center rounded-md transition-colors"
+        >
+          <Settings class="size-3.5" />
+        </a>
         <button
           type="button"
           aria-label="Sign out"
-          class="hover:text-foreground text-muted-foreground rounded p-1"
+          class="text-muted-foreground hover:bg-sidebar-accent hover:text-foreground grid size-[26px] place-items-center rounded-md transition-colors"
           onclick={async () => {
             await signOut();
             await goto('/login', { invalidateAll: true });
@@ -384,23 +404,6 @@
         >
           <LogOut class="size-3.5" />
         </button>
-      </div>
-    {/if}
-    {#if totalBytes !== null}
-      <div class="bg-sidebar-accent/40 rounded-lg p-3">
-        <div class="flex items-center gap-2 text-sm">
-          <HardDrive class="text-primary size-4" />
-          <span class="font-medium">Library Size</span>
-        </div>
-        <p class="mt-1 text-xl font-bold">{formatLibrarySize(totalBytes)}</p>
-        {#if totalTracks !== null}
-          <p class="text-muted-foreground text-[11px]">
-            {totalTracks.toLocaleString()} tracks · {storagePct ?? 0}% of 2 TB
-          </p>
-        {/if}
-        <div class="bg-border mt-2 h-[3px] overflow-hidden rounded-full">
-          <div class="bg-primary h-full transition-[width] duration-300" style="width: {storagePct ?? 0}%;"></div>
-        </div>
       </div>
     {/if}
   </Sidebar.Footer>
