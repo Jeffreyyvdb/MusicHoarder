@@ -28,3 +28,9 @@ export function getApiBaseUrl(): string {
 
   return LOCAL_API_FALLBACK;
 }
+
+// Upstream Umami host for the same-origin analytics proxy (`/stats/[...path]`).
+// Runtime-only (not a PUBLIC_ var) so flipping it is a Dokploy env change, no rebuild.
+export function getUmamiOrigin(): string | undefined {
+  return env.UMAMI_ORIGIN || undefined;
+}

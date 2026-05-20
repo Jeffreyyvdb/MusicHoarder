@@ -51,6 +51,23 @@ MUSICHOARDER_API_URL=https://your-api-host
 
 Umami analytics are loaded when `PUBLIC_UMAMI_SRC` and `PUBLIC_UMAMI_WEBSITE_ID` are set. Session replay is optional via `PUBLIC_UMAMI_RECORDER_SRC`.
 
+### Same-origin proxy (anti-adblock)
+
+Loading the tracker directly from the Umami host is blocked by many adblockers (they target the `umami.` subdomain, `/script.js`, and the `/api/send` collect endpoint). To serve it first-party, the app proxies Umami under `/stats` via `src/routes/stats/[...path]/+server.ts`. Enable it with:
+
+```bash
+# Build-time (PUBLIC_*, inlined into the bundle)
+PUBLIC_UMAMI_SRC="/stats/script.js"
+PUBLIC_UMAMI_RECORDER_SRC="/stats/recorder.js"   # only if using the recorder
+PUBLIC_UMAMI_HOST_URL="/stats"                    # sends events to /stats/api/send
+PUBLIC_UMAMI_WEBSITE_ID="<your-website-id>"
+
+# Runtime (server-side; set in Dokploy env, no rebuild needed)
+UMAMI_ORIGIN="https://your-umami-host"
+```
+
+The proxy forwards `X-Forwarded-For` + `User-Agent` upstream so Umami still records the real visitor IP and geo. Leave `UMAMI_ORIGIN` unset to disable the proxy (`/stats/*` returns `503`).
+
 ## Local frontend-only run (optional)
 
 If you run the frontend without AppHost:
