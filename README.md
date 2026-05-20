@@ -104,6 +104,47 @@ Enable Dokploy's GitHub webhook on each app so a push to `main` triggers a rebui
 
 Because the frontend bakes `PUBLIC_*` values at build time, `PUBLIC_DEMO_MODE` must be set as a **build arg** in Dokploy, not a runtime env var.
 
+### PR preview environments
+
+Every pull request from a branch **in this repo** (fork PRs are skipped — see below) gets its own
+isolated, full-stack preview on Dokploy at `https://pr-<n>.<PREVIEW_BASE_DOMAIN>`. Dokploy's native
+Preview Deployments only support single Application services, not Compose apps
+([dokploy#2028](https://github.com/Dokploy/dokploy/issues/2028)), so `.github/workflows/pr-preview.yml`
+rolls its own: it builds `:pr-<n>` images, then `scripts/dokploy-preview.sh` creates an **isolated**
+compose stack (own Postgres + API + frontend, namespaced by `appName=mh-pr-<n>`) from
+`docker-compose.preview.yaml`. The stack is torn down when the PR closes; a daily
+`pr-preview-cleanup.yml` reaps any that slip through.
+
+Sign in to a preview with the magic link printed in the API logs (Dokploy log viewer) — previews
+run with Resend disabled so no email provider is needed.
+
+**Security:** previews never build or run fork code on the server (this is a public repo). The
+workflow guards every job with `github.event.pull_request.head.repo.full_name == github.repository`.
+
+**One-time setup:**
+
+1. **DNS** — add a wildcard `A` record `*.<PREVIEW_BASE_DOMAIN>` pointing at the Dokploy server IP
+   (e.g. `*.preview.musichoarder.example.com`). TLS is issued per-host by Dokploy/Traefik via
+   Let's Encrypt.
+2. **Dokploy** — create a dedicated **environment** (or project) for previews and note its
+   `environmentId` (never use the production environment). Seed a small read-only sample library at
+   `/srv/mh-preview/sample-source` on the server so previews have files to scan.
+3. **GitHub Actions secrets:**
+
+   | Secret | Purpose |
+   |--------|---------|
+   | `DOKPLOY_URL`, `DOKPLOY_API_KEY` | Dokploy REST API (shared with the prod deploy) |
+   | `DOKPLOY_PREVIEW_ENVIRONMENT_ID` | environment previews are created in |
+   | `PREVIEW_BASE_DOMAIN` | e.g. `preview.musichoarder.example.com` |
+   | `PREVIEW_POSTGRES_PASSWORD` | throwaway Postgres password for previews |
+   | `PREVIEW_OWNER_EMAIL` | owner account for magic-link sign-in |
+   | `GHCR_CLEANUP_TOKEN` *(optional)* | PAT with `delete:packages` to prune `:pr-<n>` images |
+
+Validate end-to-end before relying on it: run the **PR preview (Dokploy)** workflow via
+`workflow_dispatch` with a real PR number, confirm the `pr-<n>` compose appears and deploys, then
+re-run / close to confirm teardown. Tunables: `PREVIEW_MAX_STACKS` (default 5),
+`PREVIEW_SOURCE_DIR`, `PREVIEW_DEST_ROOT` (env in the provision step).
+
 ### Self-hosted / homelab deployment (docker-compose)
 
 `docker-compose.yml` at the repo root is an alternative self-hosted path that builds the images locally instead of pulling prebuilt ones (images are no longer published to GHCR).

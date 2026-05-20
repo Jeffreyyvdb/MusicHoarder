@@ -1,0 +1,93 @@
+# Per-PR preview stack deployed to Dokploy (one isolated copy per pull request).
+#
+# This is the raw compose body posted to Dokploy by scripts/dokploy-preview.sh. It is image-based
+# (no `build:`) — the PR workflow builds ghcr.io/.../api:pr-<n> and frontend:pr-<n> and passes them
+# in as ${API_IMAGE} / ${FRONTEND_IMAGE} via the compose env. Dokploy's "Isolated Deployment"
+# namespaces the network/volumes/containers per appName (mh-pr-<n>), so concurrent PR stacks and
+# production never collide.
+#
+# No host `ports:` are published — Traefik routes the PR domain to the frontend service over the
+# isolated docker network, so multiple PR stacks can't fight over the same host port. Services use
+# `expose` only.
+#
+# Every ${VAR} is filled by the provisioning script via compose.update env; see that script and
+# the README "PR preview environments" section for the full list.
+services:
+  postgres:
+    image: postgres:17
+    restart: always
+    environment:
+      POSTGRES_USER: musichoarder
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: musichoarderdb
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U musichoarder -d musichoarderdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    image: ${API_IMAGE}
+    pull_policy: always
+    restart: always
+    expose:
+      - "8080"
+    volumes:
+      # Persist DataProtection keys so a redeploy (new commit on the PR) doesn't invalidate the
+      # tester's session cookie.
+      - musichoarder-dpkeys:/data/dpkeys
+      - ${SOURCE_DIRECTORY}:/music/source:ro
+      - ${DESTINATION_DIRECTORY}:/music/destination
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__musichoarderdb=Host=postgres;Database=musichoarderdb;Username=musichoarder;Password=${POSTGRES_PASSWORD}
+      - MusicEnricher__SourceDirectory=/music/source
+      - MusicEnricher__DestinationDirectory=/music/destination
+      - MusicEnricher__AcoustIdApiKey=${ACOUSTID_API_KEY:-}
+      - Spotify__ClientId=${SPOTIFY_CLIENT_ID:-}
+      - Spotify__ClientSecret=${SPOTIFY_CLIENT_SECRET:-}
+      - Auth__OwnerEmail=${OWNER_EMAIL}
+      - Auth__DemoUserEmail=${DEMO_USER_EMAIL:-demo@musichoarder.local}
+      - Auth__DataProtectionKeysPath=/data/dpkeys
+      # Resend left blank on previews — magic-link sign-in URLs are logged to the API logs
+      # (viewable in the Dokploy log viewer) instead of emailed.
+      - Resend__ApiKey=${RESEND_API_KEY:-}
+      - Resend__FromAddress=${RESEND_FROM_ADDRESS:-noreply@musichoarder.local}
+      - Frontend__PublicBaseUrl=${FRONTEND_PUBLIC_BASE_URL}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/alive"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    image: ${FRONTEND_IMAGE}
+    pull_policy: always
+    restart: always
+    expose:
+      - "8001"
+    environment:
+      - NODE_ENV=production
+      - PORT=8001
+      - HOST=0.0.0.0
+      - HOSTNAME=0.0.0.0
+      - MUSICHOARDER_API_URL=http://api:8080
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  musichoarder-dpkeys:
