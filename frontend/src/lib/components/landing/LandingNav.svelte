@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button';
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
+  import { isDemoMode } from '$lib/app-mode';
 </script>
 
 <nav class="mx-auto flex max-w-[1280px] items-center justify-between px-6 py-6 md:px-14">
@@ -52,7 +53,10 @@
       Source
     </a>
     <ThemeToggle />
-    <Button variant="ghost" size="sm" href="/app">Sign in</Button>
-    <Button size="sm" href="/app">Get an account</Button>
+    {#if isDemoMode}
+      <Button size="sm" href="/app">Try the demo</Button>
+    {:else}
+      <Button variant="ghost" size="sm" href="/app">Sign in</Button>
+    {/if}
   </div>
 </nav>
