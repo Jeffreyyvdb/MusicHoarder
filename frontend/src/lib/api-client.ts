@@ -1517,6 +1517,27 @@ export async function fetchJobStatus(): Promise<JobStatusResponse> {
   return requestJson<JobStatusResponse>("/api/enrichment/status")
 }
 
+export interface LibraryAvailability {
+  sourceAvailable: boolean
+  destinationAvailable: boolean
+  sourceDirectory: string
+  destinationDirectory: string
+  checkedAtUtc: string
+}
+
+export async function fetchLibraryAvailability(): Promise<LibraryAvailability> {
+  if (isDemoMode) {
+    return {
+      sourceAvailable: true,
+      destinationAvailable: true,
+      sourceDirectory: mockImportJob.sourcePath,
+      destinationDirectory: mockImportJob.destinationPath,
+      checkedAtUtc: new Date().toISOString(),
+    }
+  }
+  return requestJson<LibraryAvailability>("/api/enrichment/library-availability")
+}
+
 /**
  * Opens an SSE connection to `/api/enrichment/progress`.
  * Calls `onSnapshot` for every event, and `onClose` when the server closes
