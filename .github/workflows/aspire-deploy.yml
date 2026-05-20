@@ -9,7 +9,9 @@ name: Build & push (Aspire) → Dokploy
 
 on:
   push:
-    branches: [main]
+    # TEMP: claude/great-lehmann-9ff255 added so we can test on the branch before merge.
+    # Revert to `[main]` before merging.
+    branches: [main, claude/great-lehmann-9ff255]
     paths:
       - "MusicHoarder.Api/**"
       - "MusicHoarder.ServiceDefaults/**"
