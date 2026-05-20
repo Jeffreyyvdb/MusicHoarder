@@ -1,0 +1,91 @@
+# Build the API + frontend images on a native amd64 runner via `aspire do push`
+# (the Aspire pipeline reads MusicHoarder.AppHost and pushes ghcr.io/<owner>/musichoarder/*:latest),
+# then optionally trigger a Dokploy Compose redeploy that re-pulls them.
+#
+# Why this exists: building these linux/amd64 images locally on an Apple Silicon Mac runs the
+# frontend's Vite build under x86 emulation and is painfully slow. GitHub's ubuntu runners are
+# native amd64, so the build is fast here and never touches a developer machine.
+name: Build & push (Aspire) → Dokploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "MusicHoarder.Api/**"
+      - "MusicHoarder.ServiceDefaults/**"
+      - "MusicHoarder.AppHost/**"
+      - "frontend/**"
+      - ".github/workflows/aspire-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  push:
+    name: aspire do push → GHCR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install Aspire CLI
+        run: |
+          curl -sSL https://aspire.dev/install.sh | bash
+          echo "$HOME/.aspire/bin" >> "$GITHUB_PATH"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The AppHost models config as parameters; the pipeline resolves them before the push even
+      # though none are baked into the images (they're runtime ${...} placeholders in the compose,
+      # filled in Dokploy). Supply throwaway values so --non-interactive never prompts.
+      - name: aspire do push
+        env:
+          Parameters__source-directory: /music/source
+          Parameters__destination-directory: /music/destination
+          Parameters__acoustid-api-key: ""
+          Parameters__spotify-client-id: ""
+          Parameters__spotify-client-secret: ""
+          Parameters__frontend-public-base-url: "https://musichoarder-compose.jeffreyyvdb.com"
+          Parameters__owner-email: "owner@example.com"
+          Parameters__demo-user-email: "demo@example.com"
+          Parameters__resend-api-key: ""
+          Parameters__resend-from-address: "noreply@example.com"
+        run: aspire do push --non-interactive
+
+  deploy:
+    name: Redeploy Dokploy Compose
+    needs: push
+    runs-on: ubuntu-latest
+    steps:
+      # GHCR doesn't fire push webhooks, so the redeploy is API-triggered. Skips cleanly until the
+      # Compose service exists and DOKPLOY_COMPOSE_ID (+ URL/API key) secrets are set.
+      - name: Trigger Dokploy compose redeploy
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${COMPOSE_ID:-}" ] || [ -z "${DOKPLOY_URL:-}" ] || [ -z "${DOKPLOY_API_KEY:-}" ]; then
+            echo "::notice::DOKPLOY_COMPOSE_ID / DOKPLOY_URL / DOKPLOY_API_KEY not all set — skipping redeploy (images were still pushed)."
+            exit 0
+          fi
+          status=$(curl -fsS --max-time 60 -o /tmp/deploy.json -w "%{http_code}" \
+            -X POST "${DOKPLOY_URL%/}/api/compose.deploy" \
+            -H "x-api-key: ${DOKPLOY_API_KEY}" \
+            -H "Content-Type: application/json" \
+            --data "{\"composeId\":\"${COMPOSE_ID}\"}")
+          echo "HTTP ${status}"
+          cat /tmp/deploy.json || true
+          test "${status}" = "200"

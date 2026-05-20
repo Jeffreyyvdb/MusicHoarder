@@ -52,7 +52,10 @@ var api = builder.AddProject<Projects.MusicHoarder_Api>("musichoarder-api")
     .WithExternalHttpEndpoints()
     .WithUrl("/scalar", "Scalar");
 #pragma warning disable ASPIRECOMPUTE003
-api.WithContainerRegistry(ghcr);
+#pragma warning disable ASPIREPIPELINES003 // WithRemoteImageTag is experimental.
+// Push a stable :latest tag so CI overwrites it each run and a Dokploy redeploy re-pulls it.
+api.WithContainerRegistry(ghcr).WithRemoteImageTag("latest");
+#pragma warning restore ASPIREPIPELINES003
 #pragma warning restore ASPIRECOMPUTE003
 
 #pragma warning disable ASPIREJAVASCRIPT001
@@ -71,7 +74,9 @@ var frontend = builder.AddViteApp("frontend", "../frontend")
 #pragma warning restore ASPIREJAVASCRIPT001
 
 #pragma warning disable ASPIRECOMPUTE003
-frontend.WithContainerRegistry(ghcr);
+#pragma warning disable ASPIREPIPELINES003 // WithRemoteImageTag is experimental.
+frontend.WithContainerRegistry(ghcr).WithRemoteImageTag("latest");
+#pragma warning restore ASPIREPIPELINES003
 #pragma warning restore ASPIRECOMPUTE003
 
 api.WithEnvironment(context =>
