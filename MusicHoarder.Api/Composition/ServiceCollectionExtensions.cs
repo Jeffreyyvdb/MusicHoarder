@@ -125,6 +125,19 @@ public static class ServiceCollectionExtensions
             return new AcoustIdService(httpClient, options, logger);
         });
 
+        services.AddSingleton<IMusicBrainzWebService>(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<MusicEnricherOptions>>();
+            var httpClient = new HttpClient
+            {
+                BaseAddress = new Uri("https://musicbrainz.org/ws/2/"),
+                Timeout = TimeSpan.FromSeconds(30),
+            };
+            httpClient.DefaultRequestHeaders.Add("User-Agent", options.Value.MusicBrainzUserAgent);
+            var logger = sp.GetRequiredService<ILogger<MusicBrainzWebService>>();
+            return new MusicBrainzWebService(httpClient, options, logger);
+        });
+
         services.AddSingleton<ILrcLibService>(sp =>
         {
             var httpClient = new HttpClient

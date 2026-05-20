@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Settings;
@@ -68,6 +69,12 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             return EnrichmentOutcome.Skipped;
         }
 
+        if (song.IsManuallyApproved)
+        {
+            _logger.LogDebug("Skipping enrichment for manually-approved (locked) song {SongId}", songId);
+            return EnrichmentOutcome.Skipped;
+        }
+
         var effective = await _runtimeSettings.GetAsync(ct).ConfigureAwait(false);
         var enabledProviders = GetEnabledProviders(effective);
         var enabledEnums = BuildEnabledEnums(effective);
@@ -80,8 +87,11 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
 
         var existingAttempts = song.ProviderAttempts.ToDictionary(a => a.Provider);
         var anyProviderActed = false;
-        var matchApplied = false;
 
+        // Run every eligible provider (no stop-at-first-match): a single provider can no
+        // longer finalize a song. The final decision is made by ConsensusEvaluator below,
+        // and providers always read the *original* song fields (we never mutate the row
+        // mid-pass), so a wrong-but-plausible hit can't poison a later provider's query.
         foreach (var provider in enabledProviders)
         {
             if (!provider.CanHandle(song))
@@ -93,10 +103,16 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
 
             if (existingAttempts.TryGetValue(providerEnum.Value, out var existing))
             {
-                if (existing.Status is ProviderAttemptStatus.Matched
-                    or ProviderAttemptStatus.NoMatch
-                    or ProviderAttemptStatus.Failed)
+                // Matched candidates are kept; re-running won't improve them.
+                if (existing.Status == ProviderAttemptStatus.Matched)
                     continue;
+
+                // Terminal NoMatch/Failed are retried once their cooldown elapses (catalogs grow).
+                if (existing.Status is ProviderAttemptStatus.NoMatch or ProviderAttemptStatus.Failed)
+                {
+                    if (existing.NextRetryAfterUtc is null || existing.NextRetryAfterUtc > DateTime.UtcNow)
+                        continue;
+                }
 
                 if (existing.Status == ProviderAttemptStatus.RateLimited
                     && existing.RetryAfterUtc > DateTime.UtcNow)
@@ -110,17 +126,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             await semaphore.WaitAsync(ct);
             try
             {
-                var outcome = await TryProviderAsync(provider, providerEnum.Value, song, dbContext, existingAttempts, ct);
-                if (outcome == EnrichmentOutcome.Matched)
-                {
-                    await dbContext.SaveChangesAsync(ct);
-                    await FetchLyricsForSongAsync(song, dbContext, ct);
-                    return EnrichmentOutcome.Matched;
-                }
-
-                if (outcome == EnrichmentOutcome.NeedsReview
-                    && song.EnrichmentStatus != EnrichmentStatus.Pending)
-                    matchApplied = true;
+                await PersistProviderOutcomeAsync(provider, providerEnum.Value, song, existingAttempts, ct);
             }
             finally
             {
@@ -128,28 +134,105 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             }
         }
 
-        if (!anyProviderActed)
-        {
-            if (song.EnrichmentStatus != EnrichmentStatus.Pending)
-                return EnrichmentOutcome.Skipped;
+        var consensus = ConsensusEvaluator.Evaluate(
+            song, enabledEnums, BuildIdentityOptions(), _options.Value.ConsensusCorroborationFloor);
 
-            var currentSummary = song.ComputeSummaryStatus(enabledEnums);
-            if (currentSummary == song.EnrichmentStatus)
-                return EnrichmentOutcome.Skipped;
-        }
+        // Nothing acted and the verdict is unchanged → no-op.
+        if (!anyProviderActed && consensus.Status == song.EnrichmentStatus)
+            return ToOutcome(song.EnrichmentStatus);
 
-        if (!matchApplied)
-            UpdateSummaryStatus(song, enabledEnums);
-
+        var matched = ApplyConsensus(song, consensus, dbContext);
         await dbContext.SaveChangesAsync(ct);
 
-        return song.EnrichmentStatus switch
+        if (matched)
+            await FetchLyricsForSongAsync(song, dbContext, ct);
+
+        return ToOutcome(song.EnrichmentStatus);
+    }
+
+    private static EnrichmentOutcome ToOutcome(EnrichmentStatus status) => status switch
+    {
+        EnrichmentStatus.Matched => EnrichmentOutcome.Matched,
+        EnrichmentStatus.NeedsReview => EnrichmentOutcome.NeedsReview,
+        EnrichmentStatus.Failed => EnrichmentOutcome.Failed,
+        _ => EnrichmentOutcome.Skipped,
+    };
+
+    private IdentityMatchOptions BuildIdentityOptions()
+    {
+        var o = _options.Value;
+        return new IdentityMatchOptions(o.IdentityArtistThreshold, o.IdentityTitleThreshold, o.IdentityDurationDeltaSeconds);
+    }
+
+    /// <summary>
+    /// Applies the consensus verdict to the row. Returns true when the song ended Matched.
+    /// On NeedsReview the row's user-visible metadata is NOT overwritten — only the
+    /// review bookkeeping (best candidate + confidence) is recorded.
+    /// </summary>
+    private bool ApplyConsensus(SongMetadata song, ConsensusEvaluator.ConsensusResult consensus, MusicHoarderDbContext dbContext)
+    {
+        switch (consensus.Status)
         {
-            EnrichmentStatus.Matched => EnrichmentOutcome.Matched,
-            EnrichmentStatus.NeedsReview => EnrichmentOutcome.NeedsReview,
-            EnrichmentStatus.Failed => EnrichmentOutcome.Failed,
-            _ => EnrichmentOutcome.Skipped,
-        };
+            case EnrichmentStatus.Matched when consensus.Winner is not null:
+                var warningsJson = consensus.Winner.MatchWarnings.Count > 0
+                    ? JsonSerializer.Serialize(consensus.Winner.MatchWarnings)
+                    : null;
+
+                // Quality-aware, non-destructive merge: fill holes, keep curated values unless a
+                // strong multi-provider consensus justifies an upgrade; record every change.
+                var changes = MetadataMerger.ApplyMatch(
+                    song, consensus.Winner, consensus.Confidence, consensus.AgreeingProviders.Count,
+                    _options.Value.AutoUpgradeConfidence, warningsJson);
+
+                var now = DateTime.UtcNow;
+                foreach (var c in changes)
+                {
+                    dbContext.SongMetadataChanges.Add(new SongMetadataChange
+                    {
+                        SongId = song.Id,
+                        FieldName = c.Field,
+                        OldValue = c.OldValue,
+                        NewValue = c.NewValue,
+                        Source = consensus.Winner.MatchedBy,
+                        Confidence = consensus.Confidence,
+                        CreatedAtUtc = now,
+                        AppliedAtUtc = c.Applied ? now : null,
+                    });
+                }
+
+                _logger.LogInformation(
+                    "Enrichment matched {Track} (SongId={SongId}) by consensus of [{Providers}] confidence {Confidence:F3}; {Applied} applied, {Proposed} proposed",
+                    song.TrackLabel, song.Id, string.Join(", ", consensus.AgreeingProviders), consensus.Confidence,
+                    changes.Count(c => c.Applied), changes.Count(c => !c.Applied));
+                return true;
+
+            case EnrichmentStatus.NeedsReview:
+                if (consensus.Winner is not null)
+                {
+                    var reviewWarnings = consensus.Winner.MatchWarnings.Count > 0
+                        ? JsonSerializer.Serialize(consensus.Winner.MatchWarnings)
+                        : null;
+                    song.MarkProviderNeedsReview(consensus.Winner.MatchedBy, consensus.Confidence, reviewWarnings);
+                }
+                else
+                {
+                    song.EnrichmentStatus = EnrichmentStatus.NeedsReview;
+                    song.EnrichedAtUtc = DateTime.UtcNow;
+                }
+                return false;
+
+            case EnrichmentStatus.Failed:
+                var failError = song.ProviderAttempts
+                    .Where(a => a.Status == ProviderAttemptStatus.Failed)
+                    .Select(a => a.Error)
+                    .FirstOrDefault(e => !string.IsNullOrWhiteSpace(e));
+                song.MarkEnrichmentFailed(failError ?? "All enabled providers failed.");
+                return false;
+
+            default:
+                // Pending — incomplete picture (provider rate-limited or not all attempted yet).
+                return false;
+        }
     }
 
     public async Task<IReadOnlySet<EnrichmentProvider>> GetEnabledProviderEnumsAsync(CancellationToken ct = default)
@@ -170,11 +253,17 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         return set;
     }
 
-    private async Task<EnrichmentOutcome> TryProviderAsync(
+    /// <summary>
+    /// Runs a provider and records its attempt. Does NOT mutate the song's row — the row
+    /// decision is deferred to <see cref="ConsensusEvaluator"/>. A <see cref="ProviderMatched"/>
+    /// is always stored as a <see cref="ProviderAttemptStatus.Matched"/> attempt with its
+    /// candidate JSON (the candidate's own RecommendedStatus is preserved in the JSON for the
+    /// evaluator to weigh).
+    /// </summary>
+    private async Task PersistProviderOutcomeAsync(
         IEnrichmentProvider provider,
         EnrichmentProvider providerEnum,
         SongMetadata song,
-        MusicHoarderDbContext dbContext,
         Dictionary<EnrichmentProvider, SongProviderAttempt> existingAttempts,
         CancellationToken ct)
     {
@@ -193,8 +282,9 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                 provider.Name, song.TrackLabel, song.Id);
 
             UpsertAttempt(song, providerEnum, ProviderAttemptStatus.Failed,
-                error: ex.Message, existingAttempts: existingAttempts);
-            return EnrichmentOutcome.Failed;
+                error: ex.Message, existingAttempts: existingAttempts,
+                nextRetryAfterUtc: CooldownFor(ProviderAttemptStatus.Failed));
+            return;
         }
 
         switch (outcome)
@@ -204,7 +294,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                     provider.Name, song.TrackLabel, song.Id, rl.RetryAfter.TotalSeconds);
                 UpsertAttempt(song, providerEnum, ProviderAttemptStatus.RateLimited,
                     retryAfterUtc: DateTime.UtcNow + rl.RetryAfter, existingAttempts: existingAttempts);
-                return EnrichmentOutcome.Skipped;
+                break;
 
             case ProviderNoMatch noMatch:
                 _logger.LogDebug("Provider {Provider} returned no match for {Track} (SongId={SongId})",
@@ -213,44 +303,17 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                     ? SerializeResult(candidate)
                     : null;
                 UpsertAttempt(song, providerEnum, ProviderAttemptStatus.NoMatch,
-                    matchedDataJson: noMatchJson, existingAttempts: existingAttempts);
-                return EnrichmentOutcome.NeedsReview;
+                    matchedDataJson: noMatchJson, existingAttempts: existingAttempts,
+                    nextRetryAfterUtc: CooldownFor(ProviderAttemptStatus.NoMatch));
+                break;
 
             case ProviderMatched matched:
-            {
-                var result = matched.Result;
-
-                if (result.RecommendedStatus == EnrichmentStatus.Matched)
-                {
-                    ApplyProviderResult(song, result);
-                    UpsertAttempt(song, providerEnum, ProviderAttemptStatus.Matched,
-                        matchedDataJson: SerializeResult(result), existingAttempts: existingAttempts);
-
-                    _logger.LogInformation(
-                        "Enrichment matched {Track} (SongId={SongId}) via {Provider} with confidence {Confidence:F3}",
-                        song.TrackLabel, song.Id, result.MatchedBy, result.MatchConfidence);
-                    return EnrichmentOutcome.Matched;
-                }
-
-                // Sub-threshold / blocked: persist the candidate on the attempt for review tooling
-                // but DO NOT overwrite the row's Artist/Title/Album/IDs. Writing a wrong-but-plausible
-                // candidate to the row poisons subsequent providers' search queries (they read
-                // song.Artist/Title) and surfaces wrong values in the UI as if they were enriched.
-                var warningsJson = result.MatchWarnings.Count > 0
-                    ? JsonSerializer.Serialize(result.MatchWarnings)
-                    : null;
-                song.MarkProviderNeedsReview(result.MatchedBy, result.MatchConfidence, warningsJson);
+                _logger.LogDebug(
+                    "Provider {Provider} produced a candidate for {Track} (SongId={SongId}), confidence={Confidence:F3}, recommends={Recommended}",
+                    provider.Name, song.TrackLabel, song.Id, matched.Result.MatchConfidence, matched.Result.RecommendedStatus);
                 UpsertAttempt(song, providerEnum, ProviderAttemptStatus.Matched,
-                    matchedDataJson: SerializeResult(result), existingAttempts: existingAttempts);
-
-                _logger.LogInformation(
-                    "Provider {Provider} returned low-confidence match for {Track} (SongId={SongId}), confidence={Confidence:F3}",
-                    provider.Name, song.TrackLabel, song.Id, result.MatchConfidence);
-                return EnrichmentOutcome.NeedsReview;
-            }
-
-            default:
-                return EnrichmentOutcome.Skipped;
+                    matchedDataJson: SerializeResult(matched.Result), existingAttempts: existingAttempts);
+                break;
         }
     }
 
@@ -259,6 +322,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         EnrichmentProvider provider,
         ProviderAttemptStatus status,
         DateTime? retryAfterUtc = null,
+        DateTime? nextRetryAfterUtc = null,
         string? matchedDataJson = null,
         string? error = null,
         Dictionary<EnrichmentProvider, SongProviderAttempt>? existingAttempts = null)
@@ -268,6 +332,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             existing.Status = status;
             existing.AttemptedAtUtc = DateTime.UtcNow;
             existing.RetryAfterUtc = retryAfterUtc;
+            existing.NextRetryAfterUtc = nextRetryAfterUtc;
             existing.MatchedDataJson = matchedDataJson;
             existing.Error = error;
         }
@@ -280,6 +345,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                 Status = status,
                 AttemptedAtUtc = DateTime.UtcNow,
                 RetryAfterUtc = retryAfterUtc,
+                NextRetryAfterUtc = nextRetryAfterUtc,
                 MatchedDataJson = matchedDataJson,
                 Error = error,
             };
@@ -288,17 +354,17 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         }
     }
 
-    private static void UpdateSummaryStatus(SongMetadata song, IReadOnlySet<EnrichmentProvider> enabledProviders)
+    private DateTime? CooldownFor(ProviderAttemptStatus status)
     {
-        var newStatus = song.ComputeSummaryStatus(enabledProviders);
-        if (newStatus != song.EnrichmentStatus)
+        var o = _options.Value;
+        return status switch
         {
-            song.EnrichmentStatus = newStatus;
-            if (newStatus is EnrichmentStatus.NeedsReview or EnrichmentStatus.Failed)
-            {
-                song.EnrichedAtUtc = DateTime.UtcNow;
-            }
-        }
+            ProviderAttemptStatus.NoMatch => o.EnrichmentNoMatchRetryDays > 0
+                ? DateTime.UtcNow.AddDays(o.EnrichmentNoMatchRetryDays) : null,
+            ProviderAttemptStatus.Failed => o.EnrichmentFailedRetryDays > 0
+                ? DateTime.UtcNow.AddDays(o.EnrichmentFailedRetryDays) : null,
+            _ => null,
+        };
     }
 
     private IReadOnlyList<IEnrichmentProvider> GetEnabledProviders(EffectiveSettings effective)
@@ -340,30 +406,6 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
 
     private SemaphoreSlim GetProviderSemaphore(string providerName) =>
         _providerSemaphores.GetOrAdd(providerName, _ => new SemaphoreSlim(1, 1));
-
-    private static void ApplyProviderResult(SongMetadata song, EnrichmentProviderResult result)
-    {
-        var warningsJson = result.MatchWarnings.Count > 0
-            ? JsonSerializer.Serialize(result.MatchWarnings)
-            : null;
-
-        song.ApplyEnrichmentMatch(new EnrichmentMatchData(
-            result.Artist,
-            result.AlbumArtist,
-            result.Title,
-            result.Year,
-            result.TrackNumber,
-            result.MusicBrainzId,
-            result.MusicBrainzReleaseId,
-            result.SpotifyId,
-            result.AcoustIdTrackId,
-            result.Isrc,
-            result.MatchedBy,
-            result.MatchConfidence,
-            warningsJson,
-            result.RecommendedStatus,
-            result.Album));
-    }
 
     private static string SerializeResult(EnrichmentProviderResult result) =>
         JsonSerializer.Serialize(result);

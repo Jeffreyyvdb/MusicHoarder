@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MusicHoarder.Api.Persistence;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MusicHoarder.Api.Persistence.Migrations
 {
     [DbContext(typeof(MusicHoarderDbContext))]
-    partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260520214523_AddSongMetadataChangeLog")]
+    partial class AddSongMetadataChangeLog
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -159,66 +162,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         });
                 });
 
-            modelBuilder.Entity("MusicHoarder.Api.Persistence.IngestRun", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("DestinationPath")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("EndedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("LogTailJson")
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("OwnerUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("SourcePath")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("StartedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("integer");
-
-                    b.Property<double>("ThroughputPerSec")
-                        .HasColumnType("double precision");
-
-                    b.Property<int>("TracksCopied")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("TracksDiscovered")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("TracksEnriched")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("TracksFailed")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("TracksFingerprinted")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("TracksProcessed")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("TracksReview")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OwnerUserId", "StartedAtUtc");
-
-                    b.ToTable("IngestRuns");
-                });
-
             modelBuilder.Entity("MusicHoarder.Api.Persistence.RuntimeSettings", b =>
                 {
                     b.Property<int>("Id")
@@ -332,9 +275,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<bool?>("IsInstrumental")
                         .HasColumnType("boolean");
 
-                    b.Property<bool>("IsManuallyApproved")
-                        .HasColumnType("boolean");
-
                     b.Property<bool>("IsSynthetic")
                         .HasColumnType("boolean");
 
@@ -364,9 +304,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.Property<int>("LyricsStatus")
                         .HasColumnType("integer");
-
-                    b.Property<DateTime?>("ManuallyApprovedAtUtc")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<double?>("MatchConfidence")
                         .HasColumnType("double precision");
@@ -536,9 +473,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.Property<string>("MatchedDataJson")
                         .HasColumnType("text");
-
-                    b.Property<DateTime?>("NextRetryAfterUtc")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("Provider")
                         .HasColumnType("integer");

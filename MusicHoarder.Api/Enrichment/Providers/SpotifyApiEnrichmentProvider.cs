@@ -2,6 +2,7 @@ using FuzzySharp;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -52,7 +53,19 @@ public class SpotifyApiEnrichmentProvider(
         IReadOnlyList<SpotifyCatalogTrack> tracks;
         try
         {
-            tracks = await catalogSearch.SearchTracksAsync(clientId, clientSecret, query, ct);
+            // Identifier-first: if the file already carries an ISRC, ask Spotify for that exact
+            // recording before falling back to a fuzzy artist+title search.
+            var fileIsrc = NormalizeIsrc(song.Isrc);
+            tracks = [];
+            if (!string.IsNullOrEmpty(fileIsrc))
+            {
+                tracks = await catalogSearch.SearchTracksAsync(clientId, clientSecret, $"isrc:{fileIsrc}", ct);
+                if (tracks.Count > 0)
+                    logger.LogDebug("Spotify ISRC lookup hit for SongId={SongId} ({Isrc})", song.Id, fileIsrc);
+            }
+
+            if (tracks.Count == 0)
+                tracks = await catalogSearch.SearchTracksAsync(clientId, clientSecret, query, ct);
         }
         catch (ProviderRateLimitedException ex)
         {
@@ -189,11 +202,20 @@ public class SpotifyApiEnrichmentProvider(
             }
         }
 
+        // Keep a "Live"/"Remix"/"Acoustic" candidate from satisfying a studio request (and vice-versa).
+        var sourceQual = VersionQualifier.Detect(song.Title, song.Album);
+        var candQual = VersionQualifier.Detect(track.Title, track.AlbumName);
+        if (!VersionQualifier.Compare(sourceQual, candQual))
+        {
+            warnings.Add("version_mismatch");
+            score *= 0.6;
+        }
+
         return (Math.Clamp(score, 0, 1), warnings);
     }
 
     private static bool HasBlockingWarning(List<string> warnings) =>
-        warnings.Exists(static w => w is "duration_mismatch" or "artist_mismatch" or "title_mismatch" or "isrc_mismatch");
+        warnings.Exists(static w => w is "duration_mismatch" or "artist_mismatch" or "title_mismatch" or "isrc_mismatch" or "version_mismatch");
 
     private static string NormalizeIsrc(string? isrc)
     {
