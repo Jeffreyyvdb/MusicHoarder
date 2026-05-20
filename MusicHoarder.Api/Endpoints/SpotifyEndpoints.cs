@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Spotify;
 
@@ -29,7 +30,8 @@ public static class SpotifyEndpoints
                 }
             })
             .WithName("SpotifyConnect")
-            .WithSummary("Returns the Spotify authorization URL to initiate the OAuth flow.");
+            .WithSummary("Returns the Spotify authorization URL to initiate the OAuth flow.")
+            .RequireOwner();
 
         group.MapGet("/callback", async (
                 string? code,
@@ -99,7 +101,8 @@ public static class SpotifyEndpoints
                 return Results.Ok(new { message = "Spotify account disconnected." });
             })
             .WithName("SpotifyDisconnect")
-            .WithSummary("Clears all stored Spotify tokens and disconnects the account.");
+            .WithSummary("Clears all stored Spotify tokens and disconnects the account.")
+            .RequireOwner();
 
         group.MapPut("/credentials", async (SpotifyCredentialsRequest body, ISpotifyOAuthService spotifyOAuth, CancellationToken ct) =>
             {
@@ -110,7 +113,8 @@ public static class SpotifyEndpoints
                 return Results.Ok(new { message = "Spotify credentials saved." });
             })
             .WithName("SaveSpotifyCredentials")
-            .WithSummary("Save Spotify API client credentials (ClientId and ClientSecret).");
+            .WithSummary("Save Spotify API client credentials (ClientId and ClientSecret).")
+            .RequireOwner();
 
         group.MapGet("/credentials", async (ISpotifyOAuthService spotifyOAuth, CancellationToken ct) =>
             {

@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using FuzzySharp;
 using Microsoft.EntityFrameworkCore;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Spotify;
@@ -8,6 +9,7 @@ namespace MusicHoarder.Api.Spotify;
 public partial class SpotifyLibraryComparisonService(
     ISpotifyApiService spotifyApi,
     IServiceScopeFactory scopeFactory,
+    IOwnerLookupService ownerLookup,
     ILogger<SpotifyLibraryComparisonService> logger) : ISpotifyLibraryComparisonService
 {
     private const double FuzzyThreshold = 85.0;
@@ -34,8 +36,10 @@ public partial class SpotifyLibraryComparisonService(
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        var ownerId = ownerLookup.OwnerUserId;
         var existingRows = await db.SpotifyTrackLibraryMatches
-            .Where(m => ids.Contains(m.SpotifyTrackId))
+            .IgnoreQueryFilters()
+            .Where(m => m.OwnerUserId == ownerId && ids.Contains(m.SpotifyTrackId))
             .ToListAsync(ct);
         var existingById = existingRows.ToDictionary(r => r.SpotifyTrackId, StringComparer.OrdinalIgnoreCase);
 
@@ -79,9 +83,11 @@ public partial class SpotifyLibraryComparisonService(
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
+        var ownerId = ownerLookup.OwnerUserId;
         var cached = await db.SpotifyTrackLibraryMatches
+            .IgnoreQueryFilters()
             .AsNoTracking()
-            .Where(m => ids.Contains(m.SpotifyTrackId))
+            .Where(m => m.OwnerUserId == ownerId && ids.Contains(m.SpotifyTrackId))
             .ToListAsync(ct);
 
         var byId = cached.ToDictionary(c => c.SpotifyTrackId, StringComparer.OrdinalIgnoreCase);
@@ -140,8 +146,10 @@ public partial class SpotifyLibraryComparisonService(
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            var ownerId = ownerLookup.OwnerUserId;
             var existingRows = await db.SpotifyTrackLibraryMatches
-                .Where(m => pageIds.Contains(m.SpotifyTrackId))
+                .IgnoreQueryFilters()
+                .Where(m => m.OwnerUserId == ownerId && pageIds.Contains(m.SpotifyTrackId))
                 .ToListAsync(ct);
             var existingById = existingRows.ToDictionary(r => r.SpotifyTrackId, StringComparer.OrdinalIgnoreCase);
 
@@ -175,7 +183,10 @@ public partial class SpotifyLibraryComparisonService(
                 break;
         }
 
-        var settings = await db.SpotifySettings.FirstOrDefaultAsync(ct);
+        var ownerIdSync = ownerLookup.OwnerUserId;
+        var settings = await db.SpotifySettings
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(s => s.OwnerUserId == ownerIdSync, ct);
         if (settings is not null)
         {
             settings.SpotifyLikedMatchTotal = total;
@@ -212,8 +223,11 @@ public partial class SpotifyLibraryComparisonService(
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
         var statusInt = (int)matchStatus.Value;
-        var baseQuery = db.SpotifyTrackLibraryMatches.AsNoTracking()
-            .Where(m => m.MatchStatus == statusInt);
+        var ownerIdCmp = ownerLookup.OwnerUserId;
+        var baseQuery = db.SpotifyTrackLibraryMatches
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(m => m.OwnerUserId == ownerIdCmp && m.MatchStatus == statusInt);
 
         var totalFiltered = await baseQuery.CountAsync(ct);
         var rows = await baseQuery
@@ -231,7 +245,11 @@ public partial class SpotifyLibraryComparisonService(
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-        var settings = await db.SpotifySettings.AsNoTracking().FirstOrDefaultAsync(ct);
+        var ownerId = ownerLookup.OwnerUserId;
+        var settings = await db.SpotifySettings
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.OwnerUserId == ownerId, ct);
 
         if (settings?.SpotifyLikedMatchTotal is int t &&
             settings.SpotifyLikedMatchInLibrary is int il &&
@@ -320,7 +338,7 @@ public partial class SpotifyLibraryComparisonService(
             mt?.EnrichmentStatus);
     }
 
-    private static SpotifyTrackLibraryMatch ToPersistedRow(
+    private SpotifyTrackLibraryMatch ToPersistedRow(
         SpotifyTrackItem song,
         ComparisonMatchStatus status,
         ComparisonMatchedTrack? matched,
@@ -330,6 +348,7 @@ public partial class SpotifyLibraryComparisonService(
     {
         return new SpotifyTrackLibraryMatch
         {
+            OwnerUserId = ownerLookup.OwnerUserId,
             SpotifyTrackId = song.SpotifyId,
             MatchStatus = (int)status,
             MatchedSongId = matched?.Id,

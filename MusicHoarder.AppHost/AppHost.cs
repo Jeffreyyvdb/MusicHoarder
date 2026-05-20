@@ -14,6 +14,15 @@ var spotifyClientId = builder.AddParameter("spotify-client-id", secret: true)
 var spotifyClientSecret = builder.AddParameter("spotify-client-secret", secret: true)
     .WithDescription("Spotify app Client Secret.");
 
+var ownerEmail = builder.AddParameter("owner-email")
+    .WithDescription("Email of the owner (admin) account. Used by magic-link sign-in.");
+var demoUserEmail = builder.AddParameter("demo-user-email")
+    .WithDescription("Email of the demo (read-only) account. Defaults to demo@musichoarder.local.");
+var resendApiKey = builder.AddParameter("resend-api-key", secret: true)
+    .WithDescription("Resend API key for magic-link emails. Optional — falls back to logging links to the console when blank.");
+var resendFromAddress = builder.AddParameter("resend-from-address")
+    .WithDescription("'From' address for magic-link emails (must be on a domain verified in Resend).");
+
 var postgres = builder.AddPostgres("postgres")
     .WithLifetime(ContainerLifetime.Persistent)
     .WithDataVolume("musichoarder-volume");
@@ -27,6 +36,11 @@ var api = builder.AddProject<Projects.MusicHoarder_Api>("musichoarder-api")
     .WithEnvironment("MusicEnricher__AcoustIdApiKey", acoustIdApiKey)
     .WithEnvironment("Spotify__ClientId", spotifyClientId)
     .WithEnvironment("Spotify__ClientSecret", spotifyClientSecret)
+    .WithEnvironment("Auth__OwnerEmail", ownerEmail)
+    .WithEnvironment("Auth__DemoUserEmail", demoUserEmail)
+    .WithEnvironment("Auth__DataProtectionKeysPath", "/data/dpkeys")
+    .WithEnvironment("Resend__ApiKey", resendApiKey)
+    .WithEnvironment("Resend__FromAddress", resendFromAddress)
     .WithExternalHttpEndpoints()
     .WithUrl("/scalar", "Scalar");
 

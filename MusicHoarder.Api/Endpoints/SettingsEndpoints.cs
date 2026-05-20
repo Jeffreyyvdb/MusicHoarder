@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Settings;
 
@@ -90,7 +91,8 @@ public static class SettingsEndpoints
                 });
             })
             .WithName("UpdateSettings")
-            .WithSummary("Updates the persisted runtime settings overlay. Provider toggles take effect on the next enrichment cycle; worker-concurrency changes are persisted but applied on next API restart.");
+            .WithSummary("Updates the persisted runtime settings overlay. Provider toggles take effect on the next enrichment cycle; worker-concurrency changes are persisted but applied on next API restart.")
+            .RequireOwner();
 
         return app;
     }

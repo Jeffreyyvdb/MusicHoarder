@@ -7,9 +7,11 @@ namespace MusicHoarder.Api.Persistence;
 /// </summary>
 public class SpotifyTrackLibraryMatch
 {
-    [Key]
     [MaxLength(64)]
     public string SpotifyTrackId { get; set; } = string.Empty;
+
+    /// <summary>Owner of this cache row — Spotify accounts are per-user.</summary>
+    public Guid OwnerUserId { get; set; }
 
     /// <summary>
     /// <see cref="Spotify.ComparisonMatchStatus"/> as int for EF storage.
