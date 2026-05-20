@@ -31,7 +31,7 @@ export const GET: RequestHandler = async ({ url, fetch }) => {
   }
 
   // Forward the API's Set-Cookie header(s) so the cookie lands on the user's browser.
-  const headers = new Headers({ Location: '/overview' });
+  const headers = new Headers({ Location: '/runs' });
   for (const value of response.headers.getSetCookie?.() ?? []) {
     headers.append('set-cookie', value);
   }

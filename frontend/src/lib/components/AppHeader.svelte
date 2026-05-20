@@ -28,7 +28,7 @@
   const onAlbumsRoot = $derived(pathname === '/app');
   const albumKey = $derived(page.url.searchParams.get('album'));
   const section = $derived(page.url.searchParams.get('section'));
-  const onOverview = $derived(pathname.startsWith('/overview'));
+  const onRuns = $derived(pathname.startsWith('/runs'));
 
   const SECTION_LABEL: Record<string, string> = {
     lib: 'Library',
@@ -75,12 +75,12 @@
         { label: 'All albums', href: null }
       ];
     }
-    if (onOverview) return [{ label: 'MusicHoarder', href: '/overview' }, { label: 'Overview', href: null }];
-    if (pathname.startsWith('/artists')) return [{ label: 'MusicHoarder', href: '/overview' }, { label: 'Artists', href: null }];
-    if (pathname.startsWith('/spotify')) return [{ label: 'MusicHoarder', href: '/overview' }, { label: 'Spotify', href: null }];
-    if (pathname.startsWith('/review')) return [{ label: 'MusicHoarder', href: '/overview' }, { label: 'Review', href: null }];
-    if (pathname.startsWith('/settings')) return [{ label: 'MusicHoarder', href: '/overview' }, { label: 'Settings', href: null }];
-    return [{ label: 'MusicHoarder', href: '/overview' }];
+    if (onRuns) return [{ label: 'MusicHoarder', href: '/runs' }, { label: 'Runs', href: null }];
+    if (pathname.startsWith('/artists')) return [{ label: 'MusicHoarder', href: '/runs' }, { label: 'Artists', href: null }];
+    if (pathname.startsWith('/spotify')) return [{ label: 'MusicHoarder', href: '/runs' }, { label: 'Spotify', href: null }];
+    if (pathname.startsWith('/review')) return [{ label: 'MusicHoarder', href: '/runs' }, { label: 'Review', href: null }];
+    if (pathname.startsWith('/settings')) return [{ label: 'MusicHoarder', href: '/runs' }, { label: 'Settings', href: null }];
+    return [{ label: 'MusicHoarder', href: '/runs' }];
   });
 
   let searchValue = $state(page.url.searchParams.get('q') ?? '');

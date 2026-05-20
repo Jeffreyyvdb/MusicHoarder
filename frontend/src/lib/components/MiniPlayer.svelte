@@ -11,6 +11,12 @@
     return `${m}:${s.toString().padStart(2, '0')}`;
   }
 
+  type Props = {
+    /** On the mobile shell, float above the bottom tab bar instead of at bottom: 0. */
+    mobileInset?: boolean;
+  };
+  const { mobileInset = false }: Props = $props();
+
   let audioEl: HTMLAudioElement | null = $state(null);
 
   $effect(() => {
@@ -30,7 +36,8 @@
 {#if playerStore.currentSong && !playerStore.isPanelMounted}
   {@const song = playerStore.currentSong}
   <div
-    class="border-border bg-sidebar fixed right-0 bottom-0 left-0 z-50 border-t shadow-[0_-4px_24px_oklch(0%_0_0/0.08)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.35)]"
+    class="border-border bg-sidebar fixed right-0 left-0 z-50 border-t shadow-[0_-4px_24px_oklch(0%_0_0/0.08)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.35)]"
+    style={mobileInset ? 'bottom: var(--tab-h, 76px);' : 'bottom: 0;'}
   >
     <div class="bg-muted block h-0.5 w-full sm:hidden" aria-hidden="true">
       <div

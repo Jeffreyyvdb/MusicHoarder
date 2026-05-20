@@ -6,6 +6,8 @@
   import Gallery from '$lib/components/file-browser/Gallery.svelte';
   import AlbumPage from '$lib/components/file-browser/AlbumPage.svelte';
   import TrackPanel from '$lib/components/file-browser/TrackPanel.svelte';
+  import MobileLibrary from '$lib/components/mobile/MobileLibrary.svelte';
+  import MobileAlbum from '$lib/components/mobile/MobileAlbum.svelte';
   import { buildAlbumsFromSongs, fetchSongs, type ApiSong } from '$lib/api-client';
   import { applySectionFilter, isSectionId } from '$lib/album-sections';
   import { breadcrumbStore } from '$lib/stores/breadcrumbs.svelte';
@@ -142,7 +144,13 @@
     </div>
   {/if}
 
-  {#if isMobile.current || !trackPanelOpen}
+  {#if isMobile.current}
+    {#if openAlbum && albumKey}
+      <MobileAlbum {songs} {albumKey} />
+    {:else}
+      <MobileLibrary {songs} {section} {searchQuery} {isLoading} />
+    {/if}
+  {:else if !trackPanelOpen}
     {#if openAlbum && albumKey}
       <AlbumPage {songs} {albumKey} {isLoading} />
     {:else}
@@ -180,7 +188,7 @@
 
   {#if isMobile.current}
     <Sheet.Root open={trackPanelOpen} onOpenChange={(open) => !open && closeTrack()}>
-      <Sheet.Content side="bottom" class="h-[88vh] p-0 [&>button]:hidden">
+      <Sheet.Content side="bottom" class="h-[88vh] gap-0 p-0 data-[side=bottom]:h-[88vh] [&>button]:hidden">
         <Sheet.Title class="sr-only">Track details</Sheet.Title>
         <Sheet.Description class="sr-only">
           View track metadata, lyrics, fingerprint, and enrichment sources
