@@ -7,6 +7,12 @@ public class SpotifySettings
     [Key]
     public int Id { get; set; }
 
+    /// <summary>
+    /// Owner of this row. The pre-migration code treated <c>SpotifySettings</c> as a single row;
+    /// now there is one row per user.
+    /// </summary>
+    public Guid OwnerUserId { get; set; }
+
     public string? ClientId { get; set; }
 
     public string? ClientSecret { get; set; }

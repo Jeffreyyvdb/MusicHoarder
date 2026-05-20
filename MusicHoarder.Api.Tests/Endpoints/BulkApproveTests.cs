@@ -102,6 +102,7 @@ public class BulkApproveTests
     {
         return new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/x.mp3",
             FileName = "x.mp3",
             Extension = ".mp3",
