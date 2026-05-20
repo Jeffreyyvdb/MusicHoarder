@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Play } from '@lucide/svelte';
+  import { isDemoMode } from '$lib/app-mode';
 
   const pipelineLog: [string, string][] = [
     ['scan', 'discovered 47 new audio files'],
@@ -36,7 +37,7 @@
         class="text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[10px]"
         style="background: var(--surface-sunken);">v0.4.2</span>
     </div>
-    <a class="mob-btn ghost w-auto px-2.5 py-1.5" href="/app">Sign in</a>
+    <a class="mob-btn ghost w-auto px-2.5 py-1.5" href="/app">{isDemoMode ? 'Try demo' : 'Sign in'}</a>
   </div>
 
   <div class="mob-landing-hero">
@@ -47,8 +48,17 @@
       and writes a tidy, deduplicated library to disk.
     </p>
     <div class="mob-landing-cta">
-      <a class="mob-btn primary" href="/app"><Play size={13} />Start hoarding</a>
-      <a class="mob-btn" href="/app">I already have an account</a>
+      {#if isDemoMode}
+        <a class="mob-btn primary" href="/app"><Play size={13} />Try the demo</a>
+      {:else}
+        <a class="mob-btn primary" href="/app">Sign in</a>
+      {/if}
+      <a
+        class="mob-btn"
+        href="https://github.com/Jeffreyyvdb/MusicHoarder"
+        target="_blank"
+        rel="noopener noreferrer">Self-host on GitHub</a
+      >
     </div>
   </div>
 
