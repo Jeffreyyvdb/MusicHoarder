@@ -1,6 +1,7 @@
 using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -27,6 +28,7 @@ public class IndexService(
     IFileScanner fileScanner,
     MusicHoarderDbContext dbContext,
     ScanProgressTracker progressTracker,
+    IOwnerLookupService ownerLookup,
     IOptions<MusicEnricherOptions> options,
     ILogger<IndexService> logger) : IIndexService
 {
@@ -45,9 +47,16 @@ public class IndexService(
 
         logger.LogInformation("Starting index {ScanId} of {Directory}", scanId, directoryPath);
 
+        var ownerId = ownerLookup.OwnerUserId;
+
         // ── Phase 1: Load DB state for change detection ──────────────────────
+        //
+        // Background-service queries bypass the per-user query filter via
+        // IgnoreQueryFilters() and explicitly scope to the owner. Demo rows (IsSynthetic)
+        // are excluded — they don't exist on disk, so they can't be reconciled.
         var existingSongs = await dbContext.Songs
-            .Where(s => !s.DeletedAtUtc.HasValue)
+            .IgnoreQueryFilters()
+            .Where(s => s.OwnerUserId == ownerId && !s.IsSynthetic && !s.DeletedAtUtc.HasValue)
             .Select(s => new { s.SourcePath, s.LastModifiedUtc, s.FileSizeBytes })
             .ToDictionaryAsync(s => s.SourcePath, cancellationToken);
 
@@ -146,6 +155,7 @@ public class IndexService(
 
                             if (metadata is not null)
                             {
+                                metadata.OwnerUserId = ownerId;
                                 await processedChannel.Writer.WriteAsync(metadata, ct);
 
                                 if (newFilePaths.Contains(filePath))
@@ -204,8 +214,10 @@ public class IndexService(
         var deletedPaths = existingPaths.Where(p => !discoveredPaths.Contains(p)).ToList();
         if (deletedPaths.Count == 0) return 0;
 
+        var ownerId = ownerLookup.OwnerUserId;
         var deletedSongs = await dbContext.Songs
-            .Where(s => deletedPaths.Contains(s.SourcePath))
+            .IgnoreQueryFilters()
+            .Where(s => s.OwnerUserId == ownerId && !s.IsSynthetic && deletedPaths.Contains(s.SourcePath))
             .ToListAsync(ct);
 
         foreach (var song in deletedSongs)
@@ -239,10 +251,12 @@ public class IndexService(
 
     private async Task FlushBatchAsync(List<SongMetadata> batch, CancellationToken ct)
     {
+        var ownerId = ownerLookup.OwnerUserId;
         var paths = new HashSet<string>(batch.Select(m => m.SourcePath), StringComparer.Ordinal);
 
         var existingByPath = await dbContext.Songs
-            .Where(s => paths.Contains(s.SourcePath))
+            .IgnoreQueryFilters()
+            .Where(s => s.OwnerUserId == ownerId && !s.IsSynthetic && paths.Contains(s.SourcePath))
             .ToDictionaryAsync(s => s.SourcePath, ct);
 
         foreach (var metadata in batch)
