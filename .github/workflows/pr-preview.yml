@@ -48,8 +48,28 @@ jobs:
       (github.event.action != 'closed' &&
        github.event.pull_request.head.repo.full_name == github.repository)
     steps:
+      # Are the Dokploy preview secrets configured? Until the one-time setup is done (DNS +
+      # previews environment + secrets, see README), skip the whole job with a notice instead of
+      # red-X-ing every PR. Secrets can't be used in `if:` directly, so gate via this output.
+      - name: Preflight — preview configured?
+        id: pre
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          DOKPLOY_PREVIEW_ENVIRONMENT_ID: ${{ secrets.DOKPLOY_PREVIEW_ENVIRONMENT_ID }}
+          PREVIEW_BASE_DOMAIN: ${{ secrets.PREVIEW_BASE_DOMAIN }}
+        run: |
+          if [ -n "$DOKPLOY_URL" ] && [ -n "$DOKPLOY_API_KEY" ] \
+             && [ -n "$DOKPLOY_PREVIEW_ENVIRONMENT_ID" ] && [ -n "$PREVIEW_BASE_DOMAIN" ]; then
+            echo "configured=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::Dokploy preview secrets not set — skipping preview build/deploy. See README 'PR preview environments'."
+          fi
+
       - name: Resolve PR number + lowercase image base
         id: vars
+        if: steps.pre.outputs.configured == 'true'
         run: |
           set -euo pipefail
           pr="${{ github.event.pull_request.number || github.event.inputs.pr_number }}"
@@ -60,10 +80,12 @@ jobs:
 
       # For pull_request this checks out the merge ref; for workflow_dispatch grab the PR head.
       - uses: actions/checkout@v4
+        if: steps.pre.outputs.configured == 'true'
         with:
           ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', steps.vars.outputs.pr) }}
 
       - name: Log in to GHCR
+        if: steps.pre.outputs.configured == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -73,17 +95,20 @@ jobs:
       # Plain docker build of the same Dockerfiles production uses — context `.` for the API (it
       # bundles fpcalc + curl) and ./frontend for the SvelteKit/Bun server.
       - name: Build & push API image
+        if: steps.pre.outputs.configured == 'true'
         run: |
           docker build -f Dockerfile -t "${{ steps.vars.outputs.api_image }}" .
           docker push "${{ steps.vars.outputs.api_image }}"
 
       - name: Build & push frontend image
+        if: steps.pre.outputs.configured == 'true'
         run: |
           docker build -f frontend/Dockerfile -t "${{ steps.vars.outputs.frontend_image }}" ./frontend
           docker push "${{ steps.vars.outputs.frontend_image }}"
 
       - name: Provision Dokploy preview stack
         id: provision
+        if: steps.pre.outputs.configured == 'true'
         env:
           DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
           DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
@@ -131,9 +156,25 @@ jobs:
       github.event.action == 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
     steps:
+      - name: Preflight — preview configured?
+        id: pre
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          DOKPLOY_PREVIEW_ENVIRONMENT_ID: ${{ secrets.DOKPLOY_PREVIEW_ENVIRONMENT_ID }}
+        run: |
+          if [ -n "$DOKPLOY_URL" ] && [ -n "$DOKPLOY_API_KEY" ] && [ -n "$DOKPLOY_PREVIEW_ENVIRONMENT_ID" ]; then
+            echo "configured=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::Dokploy preview secrets not set — nothing to tear down."
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.pre.outputs.configured == 'true'
 
       - name: Destroy Dokploy preview stack
+        if: steps.pre.outputs.configured == 'true'
         env:
           DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
           DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
@@ -145,6 +186,7 @@ jobs:
       # with delete:packages; the default GITHUB_TOKEN can delete versions of packages owned by this
       # repo's owner. Never fails the job.
       - name: Prune pr-<n> GHCR image versions
+        if: steps.pre.outputs.configured == 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GHCR_CLEANUP_TOKEN || secrets.GITHUB_TOKEN }}
@@ -165,6 +207,7 @@ jobs:
           done
 
       - name: Comment teardown on PR
+        if: steps.pre.outputs.configured == 'true'
         uses: actions/github-script@v7
         with:
           script: |

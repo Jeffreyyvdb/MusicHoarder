@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   reap:
@@ -29,6 +30,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          if [ -z "${DOKPLOY_URL}" ] || [ -z "${DOKPLOY_API_KEY}" ] || [ -z "${DOKPLOY_PREVIEW_ENVIRONMENT_ID}" ]; then
+            echo "::notice::Dokploy preview secrets not set — nothing to reap."
+            exit 0
+          fi
           base="${DOKPLOY_URL%/}"
           names=$(curl -fsS --max-time 60 \
             -H "x-api-key: ${DOKPLOY_API_KEY}" \
