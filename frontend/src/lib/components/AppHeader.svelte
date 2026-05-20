@@ -75,12 +75,12 @@
         { label: 'All albums', href: null }
       ];
     }
-    if (onRuns) return [{ label: 'MusicHoarder', href: '/runs' }, { label: 'Runs', href: null }];
-    if (pathname.startsWith('/artists')) return [{ label: 'MusicHoarder', href: '/runs' }, { label: 'Artists', href: null }];
-    if (pathname.startsWith('/spotify')) return [{ label: 'MusicHoarder', href: '/runs' }, { label: 'Spotify', href: null }];
-    if (pathname.startsWith('/review')) return [{ label: 'MusicHoarder', href: '/runs' }, { label: 'Review', href: null }];
-    if (pathname.startsWith('/settings')) return [{ label: 'MusicHoarder', href: '/runs' }, { label: 'Settings', href: null }];
-    return [{ label: 'MusicHoarder', href: '/runs' }];
+    if (onRuns) return [{ label: 'MusicHoarder', href: '/app' }, { label: 'Runs', href: null }];
+    if (pathname.startsWith('/artists')) return [{ label: 'MusicHoarder', href: '/app' }, { label: 'Artists', href: null }];
+    if (pathname.startsWith('/spotify')) return [{ label: 'MusicHoarder', href: '/app' }, { label: 'Spotify', href: null }];
+    if (pathname.startsWith('/review')) return [{ label: 'MusicHoarder', href: '/app' }, { label: 'Review', href: null }];
+    if (pathname.startsWith('/settings')) return [{ label: 'MusicHoarder', href: '/app' }, { label: 'Settings', href: null }];
+    return [{ label: 'MusicHoarder', href: '/app' }];
   });
 
   let searchValue = $state(page.url.searchParams.get('q') ?? '');

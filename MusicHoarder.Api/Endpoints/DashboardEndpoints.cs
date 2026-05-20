@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -142,20 +143,7 @@ public static class DashboardEndpoints
         var opts = options.Value;
         var active = db.Songs.Where(s => s.DeletedAtUtc == null);
 
-        var totalCount = await active.CountAsync();
-        var fingerprintedCount = await active.CountAsync(s =>
-            s.Fingerprint != null && s.Fingerprint != string.Empty && s.DurationSeconds != null);
-        var enrichedCount = await active.CountAsync(s =>
-            s.EnrichmentStatus == EnrichmentStatus.Matched || s.EnrichmentStatus == EnrichmentStatus.NeedsReview);
-        var buildEligibleCount = await active.CountAsync(s => s.EnrichmentStatus == EnrichmentStatus.Matched);
-        var copiedCount = await active.CountAsync(s =>
-            s.LibraryBuildStatus == LibraryBuildStatus.Copied ||
-            s.LibraryBuildStatus == LibraryBuildStatus.Tagged ||
-            s.LibraryBuildStatus == LibraryBuildStatus.Done);
-        var reviewCount = await active.CountAsync(s => s.EnrichmentStatus == EnrichmentStatus.NeedsReview);
-        var failedCount = await active.CountAsync(s =>
-            s.EnrichmentStatus == EnrichmentStatus.Failed ||
-            s.LibraryBuildStatus == LibraryBuildStatus.Failed);
+        var counts = await PipelineSnapshot.ComputeCountsAsync(active);
 
         var indexWindow = await active
             .GroupBy(_ => 1)
@@ -172,72 +160,8 @@ public static class DashboardEndpoints
         var enrichmentState = enrichmentTracker.GetCurrent();
         var enrichmentRunning = enrichmentState is { IsComplete: false };
 
-        var recentSongs = await active
-            .OrderByDescending(s => s.LibraryBuiltAtUtc ?? s.EnrichedAtUtc ?? s.EnrichmentLastAttemptedAtUtc ?? s.IndexedAtUtc)
-            .Take(50)
-            .Select(s => new
-            {
-                s.Id,
-                s.FileName,
-                s.Artist,
-                s.IndexedAtUtc,
-                s.EnrichedAtUtc,
-                s.EnrichmentLastAttemptedAtUtc,
-                s.LibraryBuiltAtUtc,
-                s.LibraryBuildLastAttemptedAtUtc,
-                s.EnrichmentStatus,
-                s.LibraryBuildStatus,
-            })
-            .ToListAsync();
-
         var now = DateTime.UtcNow;
-        var activities = recentSongs.Select(s =>
-        {
-            string type;
-            DateTime activityAt;
-            if (s.LibraryBuildStatus is LibraryBuildStatus.Copied or LibraryBuildStatus.Tagged or LibraryBuildStatus.Done
-                && s.LibraryBuiltAtUtc.HasValue)
-            {
-                type = "copied";
-                activityAt = s.LibraryBuiltAtUtc.Value;
-            }
-            else if (s.EnrichmentStatus == EnrichmentStatus.Failed || s.LibraryBuildStatus == LibraryBuildStatus.Failed)
-            {
-                type = "failed";
-                activityAt = s.EnrichedAtUtc ?? s.LibraryBuildLastAttemptedAtUtc ?? s.IndexedAtUtc;
-            }
-            else if (s.EnrichmentStatus == EnrichmentStatus.NeedsReview)
-            {
-                type = "review";
-                activityAt = s.EnrichedAtUtc ?? s.EnrichmentLastAttemptedAtUtc ?? s.IndexedAtUtc;
-            }
-            else if (s.EnrichmentStatus == EnrichmentStatus.Matched && s.EnrichedAtUtc.HasValue)
-            {
-                type = "enriched";
-                activityAt = s.EnrichedAtUtc.Value;
-            }
-            else
-            {
-                type = "discovered";
-                activityAt = s.IndexedAtUtc;
-            }
-
-            var diff = now - activityAt;
-            var timeAgo = diff.TotalMinutes < 1 ? "just now"
-                : diff.TotalMinutes < 60 ? $"{(int)diff.TotalMinutes} min ago"
-                : diff.TotalHours < 24 ? $"{(int)diff.TotalHours} hr ago"
-                : $"{(int)diff.TotalDays} day{(diff.TotalDays >= 2 ? "s" : "")} ago";
-
-            return new
-            {
-                Id = $"act-{s.Id}",
-                Type = type,
-                Track = s.FileName ?? "Unknown",
-                Artist = s.Artist ?? "Unknown",
-                Time = timeAgo,
-                ActivityAt = activityAt,
-            };
-        }).OrderByDescending(a => a.ActivityAt).ToList();
+        var activities = await PipelineSnapshot.ComputeRecentActivityAsync(active, 50, now);
 
         var startedAt = scanState?.StartedAt ?? indexWindow?.NewestIndexed ?? now;
 
@@ -262,14 +186,14 @@ public static class DashboardEndpoints
             {
                 Status = scanRunning || fingerprintRunning || enrichmentRunning ? "running" : "completed",
                 StartedAt = startedAt,
-                TracksDiscovered = totalCount,
-                TracksProcessed = totalCount,
-                TracksFingerprinted = fingerprintedCount,
-                TracksEnriched = enrichedCount,
-                TracksBuildEligible = buildEligibleCount,
-                TracksCopied = copiedCount,
-                TracksReview = reviewCount,
-                TracksFailed = failedCount,
+                TracksDiscovered = counts.Discovered,
+                TracksProcessed = counts.Processed,
+                TracksFingerprinted = counts.Fingerprinted,
+                TracksEnriched = counts.Enriched,
+                TracksBuildEligible = counts.BuildEligible,
+                TracksCopied = counts.Copied,
+                TracksReview = counts.Review,
+                TracksFailed = counts.Failed,
             },
             Fingerprint = fingerprintState is { IsComplete: false } ? new
             {

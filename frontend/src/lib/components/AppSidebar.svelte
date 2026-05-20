@@ -14,8 +14,7 @@
     LogOut,
     Music,
     Music2,
-    Settings,
-    Users
+    Settings
   } from '@lucide/svelte';
   import { signOut } from '$lib/api-client';
   import * as Sidebar from '$lib/components/ui/sidebar';
@@ -31,13 +30,15 @@
   import { playerStore } from '$lib/stores/player.svelte';
   import { cn } from '$lib/utils';
 
-  const navItems = [
-    { href: '/runs', label: 'Runs', icon: Clock },
-    { href: '/app', label: 'Library', icon: Library },
-    { href: '/artists', label: 'Artists', icon: Users },
-    { href: '/spotify', label: 'Spotify', icon: Music2 },
-    { href: '/review', label: 'Review', icon: FileWarning },
-    { href: '/settings', label: 'Settings', icon: Settings }
+  // Sources = where music comes from. System = pipeline/ops surfaces, de-emphasized below.
+  const sourcesNav = [
+    { href: '/app', label: 'Local library', icon: Library },
+    { href: '/spotify', label: 'Spotify', icon: Music2 }
+  ] as const;
+
+  const systemNav = [
+    { href: '/review', label: 'Manual review', icon: FileWarning, badge: true },
+    { href: '/runs', label: 'Runs · history', icon: Clock, badge: false }
   ] as const;
 
   type SectionId = 'lib' | 'recent' | 'dupes' | 'missing' | 'queue';
@@ -209,7 +210,7 @@
       <Sidebar.MenuItem>
         <Sidebar.MenuButton size="lg" tooltipContent="MusicHoarder">
           {#snippet child({ props })}
-            <a {...props} href="/runs">
+            <a {...props} href="/app">
               <div
                 class="bg-primary text-primary-foreground flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg shadow-sm"
               >
@@ -249,10 +250,10 @@
     {/if}
 
     <Sidebar.Group>
-      <Sidebar.GroupLabel>Navigation</Sidebar.GroupLabel>
+      <Sidebar.GroupLabel>Sources</Sidebar.GroupLabel>
       <Sidebar.GroupContent>
         <Sidebar.Menu>
-          {#each navItems as item (item.href)}
+          {#each sourcesNav as item (item.href)}
             {@const isActive = item.href === '/app' ? onLibrary : pathname.startsWith(item.href)}
             <Sidebar.MenuItem>
               <Sidebar.MenuButton {isActive} tooltipContent={item.label}>
@@ -260,11 +261,6 @@
                   <a {...props} href={item.href}>
                     <item.icon class="size-4" />
                     <span class="flex-1">{item.label}</span>
-                    {#if item.href === '/review' && reviewCount != null && reviewCount > 0}
-                      <span
-                        class="rounded-full bg-amber-500 px-1.5 py-px font-mono text-[9.5px] font-semibold text-white group-data-[collapsible=icon]:hidden"
-                      >{reviewCount}</span>
-                    {/if}
                   </a>
                 {/snippet}
               </Sidebar.MenuButton>
@@ -314,18 +310,53 @@
         <Sidebar.GroupContent class="px-2">
           {#each ORGANIZE as item (item.id)}
             {@const count = organizeCounts[item.id]}
-            <div
-              class="text-sidebar-foreground/70 hover:bg-sidebar-accent mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors"
-              title="Coming soon"
-            >
-              <ListMusic class="size-3.5 shrink-0" />
-              <span class="flex-1 truncate text-left">{item.label}</span>
-              <span class="text-muted-foreground font-mono text-[10.5px]">{fmtCount(count)}</span>
-            </div>
+            {#if item.id === 'artist'}
+              {@const isActive = pathname.startsWith('/artists')}
+              <a
+                href="/artists"
+                data-active={isActive || undefined}
+                class="text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:font-medium mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors"
+              >
+                <ListMusic class={cn('size-3.5 shrink-0', isActive && 'text-primary')} />
+                <span class="flex-1 truncate text-left">{item.label}</span>
+                <span class="text-muted-foreground font-mono text-[10.5px]">{fmtCount(count)}</span>
+              </a>
+            {:else}
+              <div
+                class="text-sidebar-foreground/70 hover:bg-sidebar-accent mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors"
+                title="Coming soon"
+              >
+                <ListMusic class="size-3.5 shrink-0" />
+                <span class="flex-1 truncate text-left">{item.label}</span>
+                <span class="text-muted-foreground font-mono text-[10.5px]">{fmtCount(count)}</span>
+              </div>
+            {/if}
           {/each}
         </Sidebar.GroupContent>
       </Sidebar.Group>
     {/if}
+
+    <Sidebar.Group>
+      <Sidebar.GroupLabel>System</Sidebar.GroupLabel>
+      <Sidebar.GroupContent class="px-2">
+        {#each systemNav as item (item.href)}
+          {@const isActive = pathname.startsWith(item.href)}
+          <a
+            href={item.href}
+            data-active={isActive || undefined}
+            class="text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:font-medium mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors group-data-[collapsible=icon]:justify-center"
+          >
+            <item.icon class={cn('size-3.5 shrink-0', isActive && 'text-primary')} />
+            <span class="flex-1 truncate text-left group-data-[collapsible=icon]:hidden">{item.label}</span>
+            {#if item.badge && reviewCount != null && reviewCount > 0}
+              <span
+                class="rounded-full bg-amber-500 px-1.5 py-px font-mono text-[9.5px] font-semibold text-white group-data-[collapsible=icon]:hidden"
+              >{reviewCount}</span>
+            {/if}
+          </a>
+        {/each}
+      </Sidebar.GroupContent>
+    </Sidebar.Group>
 
     <Sidebar.Group class="group-data-[collapsible=icon]:hidden">
       <Sidebar.GroupLabel>Enrichment sources</Sidebar.GroupLabel>

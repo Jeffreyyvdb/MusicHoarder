@@ -1330,6 +1330,121 @@ export async function fetchOverview(): Promise<ApiOverview> {
   return requestJson<ApiOverview>("/overview")
 }
 
+// ── Ingest runs (history) ─────────────────────────────────────────────────────
+
+export type ApiRunStatus = "running" | "completed" | "cancelled" | "failed"
+
+export interface ApiRun {
+  id: string
+  status: ApiRunStatus
+  startedAtUtc: string
+  endedAtUtc?: string | null
+  sourcePath: string
+  destinationPath: string
+  tracksDiscovered: number
+  tracksProcessed: number
+  tracksFingerprinted: number
+  tracksEnriched: number
+  tracksCopied: number
+  tracksReview: number
+  tracksFailed: number
+  throughputPerSec: number
+  durationSeconds?: number | null
+}
+
+export interface ApiRunLogLine {
+  id: string
+  type: ApiOverviewActivity["type"]
+  track: string
+  artist: string
+  time: string
+}
+
+export interface ApiRunDetail extends ApiRun {
+  logTail: ApiRunLogLine[] | null
+}
+
+function buildDemoRuns(): ApiRunDetail[] {
+  const now = Date.now()
+  const min = 60_000
+  const hour = 60 * min
+  const day = 24 * hour
+  const mk = (
+    id: string,
+    status: ApiRunStatus,
+    startOffsetMs: number,
+    durationSeconds: number | null,
+    src: string,
+    discovered: number,
+    processed: number,
+    copied: number,
+    errors: number,
+    review: number
+  ): ApiRunDetail => {
+    const startedAtUtc = new Date(now - startOffsetMs).toISOString()
+    const endedAtUtc =
+      durationSeconds != null ? new Date(now - startOffsetMs + durationSeconds * 1000).toISOString() : null
+    return {
+      id,
+      status,
+      startedAtUtc,
+      endedAtUtc,
+      sourcePath: src,
+      destinationPath: "~/Music/Library",
+      tracksDiscovered: discovered,
+      tracksProcessed: processed,
+      tracksFingerprinted: Math.round(processed * 0.96),
+      tracksEnriched: Math.round(processed * 0.85),
+      tracksCopied: copied,
+      tracksReview: review,
+      tracksFailed: errors,
+      throughputPerSec: durationSeconds && durationSeconds > 0 ? Math.round((processed / durationSeconds) * 100) / 100 : 0,
+      durationSeconds,
+      logTail: null,
+    }
+  }
+
+  return [
+    mk("run_today", "running", 24 * min, null, "~/Downloads/music_dump_2024", 12847, 8955, 8214, 12, 6),
+    mk("run_yesterday", "completed", day + 2 * hour, 2802, "~/Music/incoming/usb_dump", 1247, 1247, 1238, 2, 7),
+    mk("run_sat", "completed", 4 * day, 491, "~/Downloads/bandcamp_2025", 312, 312, 308, 0, 4),
+    mk("run_thu", "cancelled", 6 * day, 434, "~/Music/incoming/torrents", 580, 184, 0, 1, 0),
+    mk("run_may11", "completed", 9 * day, 5114, "~/Downloads/music_dump_2024", 4291, 4291, 4276, 8, 15),
+  ]
+}
+
+export async function fetchRuns(): Promise<ApiRun[]> {
+  if (isDemoMode) {
+    return buildDemoRuns().map(({ logTail: _logTail, ...run }) => run)
+  }
+
+  return requestJson<ApiRun[]>("/runs")
+}
+
+export async function fetchRun(id: string): Promise<ApiRunDetail | null> {
+  if (isDemoMode) {
+    const run = buildDemoRuns().find((r) => r.id === id)
+    if (!run) return null
+    const mockRecentActivity = (await import("$lib/mock-data")).mockRecentActivity
+    return {
+      ...run,
+      logTail: mockRecentActivity.slice(0, 10).map((a) => ({
+        id: a.id,
+        type: a.type,
+        track: a.track,
+        artist: a.artist,
+        time: a.time,
+      })),
+    }
+  }
+
+  try {
+    return await requestJson<ApiRunDetail>(`/runs/${id}`)
+  } catch {
+    return null
+  }
+}
+
 export async function fetchSongs(includeDeleted = false): Promise<ApiSong[]> {
   if (isDemoMode) {
     const demoSongs = buildDemoSongs()
