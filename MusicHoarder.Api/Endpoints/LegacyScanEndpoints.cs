@@ -1,3 +1,4 @@
+using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Scanner;
 
@@ -15,7 +16,9 @@ public static class LegacyScanEndpoints
                 return Results.Accepted($"/scan/{scanId}/progress", new { scanId });
             })
             .WithName("TriggerScan")
-            .WithSummary("Trigger a library scan (legacy endpoint, prefer /api/enrichment/scan).");
+            .WithSummary("Trigger a library scan (legacy endpoint, prefer /api/enrichment/scan).")
+            // Triggers a real filesystem scan on the host; owner-only, matching /api/enrichment/scan.
+            .RequireOwner();
 
         app.MapGet("/scan/{scanId}/progress", (Guid scanId, ScanProgressTracker tracker) =>
             {

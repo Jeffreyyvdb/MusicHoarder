@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Settings;
@@ -15,15 +16,22 @@ public static class SettingsEndpoints
                 IRuntimeSettingsService runtimeSettings,
                 IOptions<MusicEnricherOptions> options,
                 IOptions<SpotifyOptions> spotifyOptions,
+                ICurrentUserAccessor currentUser,
                 CancellationToken ct) =>
             {
                 var effective = await runtimeSettings.GetAsync(ct);
                 var opts = options.Value;
+                // Configured paths are host-level (not tenant-scoped). On a public instance a demo
+                // user must not learn the owner's filesystem layout, so blank them for non-owners.
+                // Provider toggles and pipeline tuning are harmless to surface.
+                var isOwner = currentUser.User?.IsOwner == true;
                 return Results.Ok(new SettingsResponse(
-                    Paths: new PathsView(
-                        SourceDirectory: opts.SourceDirectory,
-                        DestinationDirectory: opts.DestinationDirectory,
-                        FpcalcPath: opts.FpcalcPath),
+                    Paths: isOwner
+                        ? new PathsView(
+                            SourceDirectory: opts.SourceDirectory,
+                            DestinationDirectory: opts.DestinationDirectory,
+                            FpcalcPath: opts.FpcalcPath)
+                        : new PathsView(string.Empty, string.Empty, string.Empty),
                     Providers: new ProvidersView(
                         AcoustId: effective.EnableAcoustIdProvider,
                         MusicBrainzWeb: effective.EnableMusicBrainzWebProvider,
