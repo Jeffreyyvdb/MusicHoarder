@@ -1,0 +1,26 @@
+[
+  { "artist": "Atlas Reed", "album": "Halcyon Drift", "title": "Slow Ignition",            "year": 2022, "track": 1, "durationMs": 218000, "lyrics": "Pale lights, cold engines warming up..." },
+  { "artist": "Atlas Reed", "album": "Halcyon Drift", "title": "Vellichor",                "year": 2022, "track": 2, "durationMs": 247000, "lyrics": "Old paper smell of half-remembered days..." },
+  { "artist": "Atlas Reed", "album": "Halcyon Drift", "title": "Stratocirrus",             "year": 2022, "track": 3, "durationMs": 305000, "lyrics": "Above the line where weather stops..." },
+  { "artist": "Atlas Reed", "album": "Halcyon Drift", "title": "Cassia",                   "year": 2022, "track": 4, "durationMs": 192000, "lyrics": "Cinnamon and rain on warm stone..." },
+  { "artist": "Atlas Reed", "album": "Halcyon Drift", "title": "Long Way Down",            "year": 2022, "track": 5, "durationMs": 269000, "lyrics": "Take the stairs, count the floors..." },
+
+  { "artist": "Marin Vesper", "album": "Cobalt Lullaby", "title": "Tides In Reverse",      "year": 2021, "track": 1, "durationMs": 234000, "lyrics": "Salt on glass, tide pulling out..." },
+  { "artist": "Marin Vesper", "album": "Cobalt Lullaby", "title": "Crepuscular",           "year": 2021, "track": 2, "durationMs": 287000, "lyrics": null },
+  { "artist": "Marin Vesper", "album": "Cobalt Lullaby", "title": "Northbound",            "year": 2021, "track": 3, "durationMs": 198000, "lyrics": "Compass north, light too thin..." },
+  { "artist": "Marin Vesper", "album": "Cobalt Lullaby", "title": "Soft Static",           "year": 2021, "track": 4, "durationMs": 256000, "lyrics": "Carrier hum, dust on a screen..." },
+
+  { "artist": "Hollow Pines", "album": "Forest Mass",    "title": "Antlerwood",            "year": 2023, "track": 1, "durationMs": 312000, "lyrics": "Bark like a thumbprint on the dark..." },
+  { "artist": "Hollow Pines", "album": "Forest Mass",    "title": "Veil",                  "year": 2023, "track": 2, "durationMs": 245000, "lyrics": null },
+  { "artist": "Hollow Pines", "album": "Forest Mass",    "title": "Sun on the Tongue",     "year": 2023, "track": 3, "durationMs": 198000, "lyrics": "Heat through pine needles, slow as honey..." },
+  { "artist": "Hollow Pines", "album": "Forest Mass",    "title": "Witness Tree",          "year": 2023, "track": 4, "durationMs": 358000, "lyrics": "I've stood here longer than the road..." },
+
+  { "artist": "Reia Okafor",  "album": "Sodium",         "title": "Streetlamp Hymn",       "year": 2024, "track": 1, "durationMs": 224000, "lyrics": "Yellow halo on wet asphalt..." },
+  { "artist": "Reia Okafor",  "album": "Sodium",         "title": "Late Bus",              "year": 2024, "track": 2, "durationMs": 184000, "lyrics": "Last seat, foggy window..." },
+  { "artist": "Reia Okafor",  "album": "Sodium",         "title": "Argonaut",              "year": 2024, "track": 3, "durationMs": 312000, "lyrics": null },
+  { "artist": "Reia Okafor",  "album": "Sodium",         "title": "Salt Lake",             "year": 2024, "track": 4, "durationMs": 268000, "lyrics": "Pale crust, mirror underfoot..." },
+
+  { "artist": "Jonah Quarles","album": "Field Recordings","title": "Wires Over Birds",     "year": 2020, "track": 1, "durationMs": 167000, "lyrics": null },
+  { "artist": "Jonah Quarles","album": "Field Recordings","title": "An Argument Through a Wall","year": 2020, "track": 2, "durationMs": 203000, "lyrics": "Muffled vowels, shape of anger..." },
+  { "artist": "Jonah Quarles","album": "Field Recordings","title": "Snow on the Coast",    "year": 2020, "track": 3, "durationMs": 245000, "lyrics": "Where the gulls don't expect it..." }
+]

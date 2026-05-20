@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Spotify;
@@ -12,6 +13,7 @@ public class SpotifyApiService(
     ISpotifyOAuthService oauthService,
     HttpClient httpClient,
     IMemoryCache cache,
+    IOwnerLookupService ownerLookup,
     ILogger<SpotifyApiService> logger) : ISpotifyApiService
 {
     private const string BaseUrl = "https://api.spotify.com/v1";
@@ -134,7 +136,11 @@ public class SpotifyApiService(
 
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-        var settings = await db.SpotifySettings.AsNoTracking().FirstOrDefaultAsync(ct);
+        var ownerId = ownerLookup.OwnerUserId;
+        var settings = await db.SpotifySettings
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.OwnerUserId == ownerId, ct);
 
         if (settings is null || !settings.IsConnected || string.IsNullOrWhiteSpace(settings.AccessToken))
             throw new SpotifyNotConnectedException();

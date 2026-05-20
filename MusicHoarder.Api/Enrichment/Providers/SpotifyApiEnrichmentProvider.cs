@@ -1,6 +1,7 @@
 using FuzzySharp;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -11,6 +12,7 @@ namespace MusicHoarder.Api.Enrichment.Providers;
 public class SpotifyApiEnrichmentProvider(
     IServiceScopeFactory scopeFactory,
     ISpotifyCatalogSearchService catalogSearch,
+    IOwnerLookupService ownerLookup,
     IOptions<MusicEnricherOptions> options,
     IOptions<SpotifyOptions> spotifyOptions,
     ILogger<SpotifyApiEnrichmentProvider> logger) : IEnrichmentProvider
@@ -27,7 +29,11 @@ public class SpotifyApiEnrichmentProvider(
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-        var settings = await db.SpotifySettings.AsNoTracking().FirstOrDefaultAsync(ct);
+        var ownerId = ownerLookup.OwnerUserId;
+        var settings = await db.SpotifySettings
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.OwnerUserId == ownerId, ct);
         var (clientId, clientSecret) = SpotifyAppCredentialsResolver.Resolve(settings, spotifyOptions.Value);
 
         if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))

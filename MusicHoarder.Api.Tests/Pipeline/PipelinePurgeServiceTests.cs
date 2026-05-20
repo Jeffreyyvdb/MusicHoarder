@@ -33,6 +33,7 @@ public class PipelinePurgeServiceTests
         db.Songs.Add(song);
         db.SpotifyTrackLibraryMatches.Add(new SpotifyTrackLibraryMatch
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SpotifyTrackId = "spotify-track-1",
             UpdatedAtUtc = DateTime.UtcNow,
         });
@@ -121,6 +122,7 @@ public class PipelinePurgeServiceTests
 
         db.SpotifyTrackLibraryMatches.Add(new SpotifyTrackLibraryMatch
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SpotifyTrackId = "spotify-track-1",
             UpdatedAtUtc = DateTime.UtcNow,
         });
@@ -322,6 +324,7 @@ public class PipelinePurgeServiceTests
     {
         var song = new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = sourcePath,
             FileName = Path.GetFileName(sourcePath),
             Extension = ".mp3",

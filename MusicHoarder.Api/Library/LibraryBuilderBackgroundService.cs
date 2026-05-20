@@ -129,8 +129,9 @@ public class LibraryBuilderBackgroundService(
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
         return await db.Songs
+            .IgnoreQueryFilters()
             .AsNoTracking()
-            .Where(s => s.DeletedAtUtc == null)
+            .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
             .Where(s => !s.IsDuplicate)
             .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched)
             .Where(s => s.LibraryBuildStatus != LibraryBuildStatus.Done
