@@ -1,0 +1,36 @@
+name: Dependabot auto-merge
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Auto-merge is limited to the bun ecosystem (frontend deps).
+      # `dependabot/fetch-metadata` reports the highest semver bump in a
+      # grouped PR, so a group containing any major correctly reports
+      # `semver-major` and the merge step is skipped.
+      #
+      # Nuget bumps and github-actions bumps render this workflow run
+      # but skip the merge step — humans drive those merges.
+      - name: Enable auto-merge for bun patch + minor
+        if: |
+          steps.meta.outputs.package-ecosystem == 'bun' && (
+            steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+            steps.meta.outputs.update-type == 'version-update:semver-minor'
+          )
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
