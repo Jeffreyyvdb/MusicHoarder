@@ -1,9 +1,15 @@
 {
   "branches": ["main"],
-  "tagFormat": "frontend-v${version}",
+  "tagFormat": "v${version}",
   "plugins": [
     ["@semantic-release/commit-analyzer", { "preset": "conventionalcommits" }],
     ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits" }],
+    [
+      "@semantic-release/exec",
+      {
+        "successCmd": "echo \"new_release_version=${nextRelease.version}\" >> \"${GITHUB_OUTPUT:-/dev/null}\""
+      }
+    ],
     [
       "@semantic-release/github",
       {
