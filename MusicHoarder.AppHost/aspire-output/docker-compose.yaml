@@ -56,6 +56,17 @@ services:
       OTEL_SERVICE_NAME: "api"
     ports:
       - "${API_PORT}"
+    volumes:
+      - type: "volume"
+        target: "/data/dpkeys"
+        source: "musichoarder-dpkeys"
+      - type: "bind"
+        target: "${SOURCE_DIRECTORY}"
+        source: "${SOURCE_DIRECTORY}"
+        read_only: true
+      - type: "bind"
+        target: "${DESTINATION_DIRECTORY}"
+        source: "${DESTINATION_DIRECTORY}"
     depends_on:
       postgres:
         condition: "service_started"
@@ -89,4 +100,6 @@ networks:
     driver: "bridge"
 volumes:
   musichoarder-volume:
+    driver: "local"
+  musichoarder-dpkeys:
     driver: "local"
