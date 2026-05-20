@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Spotify;
+using MusicHoarder.Api.Tests.Auth;
 
 namespace MusicHoarder.Api.Tests.Spotify;
 
@@ -18,6 +19,7 @@ public class SpotifyOAuthServiceTests
         await using var db = CreateDb();
         db.SpotifySettings.Add(new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             ClientId = "test-client-id",
             ClientSecret = "test-client-secret",
         });
@@ -84,6 +86,7 @@ public class SpotifyOAuthServiceTests
         var connectedAt = DateTime.UtcNow.AddHours(-1);
         db.SpotifySettings.Add(new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             ClientId = "client-id",
             ClientSecret = "client-secret",
             AccessToken = "access-token",
@@ -108,6 +111,7 @@ public class SpotifyOAuthServiceTests
         await using var db = CreateDb();
         db.SpotifySettings.Add(new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             ClientId = "client-id",
             ClientSecret = "client-secret",
             AccessToken = "access-token",
@@ -130,6 +134,7 @@ public class SpotifyOAuthServiceTests
         await using var db = CreateDb();
         db.SpotifySettings.Add(new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             ClientId = "client-id",
             ClientSecret = "client-secret",
             AccessToken = "access-token",
@@ -170,6 +175,7 @@ public class SpotifyOAuthServiceTests
         await using var db = CreateDb();
         db.SpotifySettings.Add(new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             ClientId = "old-id",
             ClientSecret = "old-secret",
         });
@@ -189,6 +195,7 @@ public class SpotifyOAuthServiceTests
         await using var db = CreateDb();
         db.SpotifySettings.Add(new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             ClientId = "my-client-id",
             ClientSecret = "my-secret",
         });
@@ -231,6 +238,7 @@ public class SpotifyOAuthServiceTests
         await using var db = CreateDb();
         db.SpotifySettings.Add(new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             ClientId = "client-id",
             ClientSecret = "client-secret",
         });
@@ -265,6 +273,7 @@ public class SpotifyOAuthServiceTests
         await using var db = CreateDb();
         db.SpotifySettings.Add(new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             ClientId = "client-id",
             ClientSecret = "client-secret",
         });
@@ -285,6 +294,7 @@ public class SpotifyOAuthServiceTests
         await using var db = CreateDb();
         db.SpotifySettings.Add(new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             ClientId = "client-id",
             ClientSecret = "client-secret",
         });
@@ -304,6 +314,7 @@ public class SpotifyOAuthServiceTests
         await using var db = CreateDb();
         db.SpotifySettings.Add(new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             ClientId = "client-id",
             ClientSecret = "client-secret",
             AccessToken = "old-access",
@@ -340,6 +351,7 @@ public class SpotifyOAuthServiceTests
         await using var db = CreateDb();
         db.SpotifySettings.Add(new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             ClientId = "client-id",
             ClientSecret = "client-secret",
             AccessToken = "old-access",
@@ -389,6 +401,7 @@ public class SpotifyOAuthServiceTests
         await using var db = CreateDb();
         db.SpotifySettings.Add(new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             ClientId = "client-id",
             ClientSecret = "client-secret",
             AccessToken = "access",
@@ -424,7 +437,7 @@ public class SpotifyOAuthServiceTests
         var httpClient = new HttpClient(handler ?? new FakeHttpHandler(HttpStatusCode.OK, "{}"));
         var logger = NullLogger<SpotifyOAuthService>.Instance;
         spotifyOptions ??= Microsoft.Extensions.Options.Options.Create(new SpotifyOptions());
-        return new SpotifyOAuthService(scopeFactory, httpClient, spotifyOptions, logger);
+        return new SpotifyOAuthService(scopeFactory, httpClient, new TestOwnerLookupService(), spotifyOptions, logger);
     }
 
     private sealed class FakeHttpHandler(

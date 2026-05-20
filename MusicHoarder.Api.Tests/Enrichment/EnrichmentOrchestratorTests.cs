@@ -258,6 +258,7 @@ public class EnrichmentOrchestratorTests
         await using var db = CreateDb();
         db.Songs.Add(new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/source/no-fp.mp3",
             FileName = "no-fp.mp3",
             Extension = ".mp3",
@@ -796,6 +797,7 @@ public class EnrichmentOrchestratorTests
     {
         var song = new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/x.mp3",
             FileName = "x.mp3",
             Extension = ".mp3",
@@ -824,6 +826,7 @@ public class EnrichmentOrchestratorTests
     {
         var song = new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = $"/source/{Guid.NewGuid():N}.mp3",
             FileName = $"{title}.mp3",
             Extension = ".mp3",

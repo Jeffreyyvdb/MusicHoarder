@@ -16,7 +16,7 @@ Source NAS → ScannerService → FpcalcService → EnrichmentService
 | `MusicHoarder.Api` | ASP.NET Core minimal API — endpoints, EF Core persistence, background services |
 | `MusicHoarder.AppHost` | Aspire AppHost — composes the API, frontend, and PostgreSQL |
 | `MusicHoarder.ServiceDefaults` | Shared cross-cutting defaults (health checks, OpenTelemetry, resilient HTTP) |
-| `frontend` | Next.js frontend — library browser, scan/enrich progress, manual review UI |
+| `frontend` | SvelteKit frontend — library browser, scan/enrich progress, manual review UI |
 
 ---
 
@@ -26,7 +26,7 @@ Source NAS → ScannerService → FpcalcService → EnrichmentService
 
 - .NET 10 SDK
 - Docker (for PostgreSQL via Aspire)
-- Node.js 22 + pnpm
+- Bun (frontend toolchain); Node.js 22 only for the semantic-release step
 - `fpcalc` (`libchromaprint-tools`) for fingerprinting
 
 ### Run with Aspire (recommended)
@@ -44,10 +44,10 @@ This starts the Aspire dashboard at `https://localhost:17072`, provisions Postgr
 
 ### Frontend (standalone)
 
-The AppHost uses `.WithNpm()` but the frontend only has `pnpm-lock.yaml`. Start it separately for reliability:
+The AppHost runs the frontend via `.WithBun()`. To start it separately:
 
 ```bash
-cd frontend && MUSICHOARDER_API_URL=http://localhost:<api-port> PORT=3000 pnpm dev
+cd frontend && MUSICHOARDER_API_URL=http://localhost:<api-port> PORT=3000 bun run dev
 ```
 
 Find the API port in the Aspire dashboard or via `netstat -tlnp | grep dotnet`.
@@ -98,11 +98,11 @@ Create two applications in Dokploy, both pointing at this repo and the `main` br
 | App | Build type | Build context | Dockerfile | Notes |
 |-----|------------|---------------|------------|-------|
 | API | Docker | `/` (repo root) | `Dockerfile` | Exposes port `8080` |
-| Frontend | Docker | `frontend/` | `frontend/Dockerfile` | Exposes port `3000`. Set build arg `NEXT_PUBLIC_DEMO_MODE=true` for the demo deployment |
+| Frontend | Docker | `frontend/` | `frontend/Dockerfile` | Exposes port `3000`. Set build arg `PUBLIC_DEMO_MODE=true` for the demo deployment |
 
 Enable Dokploy's GitHub webhook on each app so a push to `main` triggers a rebuild automatically. Runtime env vars (`ConnectionStrings__musichoarderdb`, `MusicEnricher__*`, `MUSICHOARDER_API_URL`, etc.) are configured per-app in Dokploy.
 
-Because the frontend bakes `NEXT_PUBLIC_*` values at build time, `NEXT_PUBLIC_DEMO_MODE` must be set as a **build arg** in Dokploy, not a runtime env var.
+Because the frontend bakes `PUBLIC_*` values at build time, `PUBLIC_DEMO_MODE` must be set as a **build arg** in Dokploy, not a runtime env var.
 
 ### Self-hosted / homelab deployment (docker-compose)
 

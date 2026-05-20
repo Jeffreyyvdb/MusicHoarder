@@ -9,7 +9,7 @@ public class SpotifyAppCredentialsResolverTests
     [Fact]
     public void Resolve_DbHasBoth_UsesDb()
     {
-        var db = new SpotifySettings { ClientId = "db-id", ClientSecret = "db-secret" };
+        var db = new SpotifySettings {     OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId, ClientId = "db-id", ClientSecret = "db-secret" };
         var opts = new SpotifyOptions { ClientId = "cfg-id", ClientSecret = "cfg-secret" };
 
         var (id, secret) = SpotifyAppCredentialsResolver.Resolve(db, opts);
@@ -21,7 +21,7 @@ public class SpotifyAppCredentialsResolverTests
     [Fact]
     public void Resolve_DbIncomplete_UsesConfig()
     {
-        var db = new SpotifySettings { ClientId = "db-id", ClientSecret = null };
+        var db = new SpotifySettings {     OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId, ClientId = "db-id", ClientSecret = null };
         var opts = new SpotifyOptions { ClientId = "cfg-id", ClientSecret = "cfg-secret" };
 
         var (id, secret) = SpotifyAppCredentialsResolver.Resolve(db, opts);

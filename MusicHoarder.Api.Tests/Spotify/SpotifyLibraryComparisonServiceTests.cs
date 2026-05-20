@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Spotify;
+using MusicHoarder.Api.Tests.Auth;
 
 namespace MusicHoarder.Api.Tests.Spotify;
 
@@ -237,6 +238,7 @@ public class SpotifyLibraryComparisonServiceTests
         db.SpotifyTrackLibraryMatches.AddRange(
             new SpotifyTrackLibraryMatch
             {
+                OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
                 SpotifyTrackId = "spotify:1",
                 MatchStatus = (int)ComparisonMatchStatus.InLibrary,
                 MatchedSongId = 1,
@@ -254,6 +256,7 @@ public class SpotifyLibraryComparisonServiceTests
             },
             new SpotifyTrackLibraryMatch
             {
+                OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
                 SpotifyTrackId = "no-id",
                 MatchStatus = (int)ComparisonMatchStatus.InLibrary,
                 MatchedSongId = 2,
@@ -271,6 +274,7 @@ public class SpotifyLibraryComparisonServiceTests
             },
             new SpotifyTrackLibraryMatch
             {
+                OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
                 SpotifyTrackId = "no-id-2",
                 MatchStatus = (int)ComparisonMatchStatus.NotInLibrary,
                 UpdatedAtUtc = t0.AddMinutes(-2),
@@ -314,6 +318,7 @@ public class SpotifyLibraryComparisonServiceTests
         await using var db = CreateDb();
         db.SpotifySettings.Add(new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SpotifyLikedMatchTotal = 3,
             SpotifyLikedMatchInLibrary = 2,
             SpotifyLikedMatchPossible = 0,
@@ -369,6 +374,7 @@ public class SpotifyLibraryComparisonServiceTests
         await using var db = CreateDb();
         db.Songs.Add(new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/test/deleted.mp3",
             FileSizeBytes = 1000,
             FileName = "deleted.mp3",
@@ -420,6 +426,7 @@ public class SpotifyLibraryComparisonServiceTests
             var (spotifyId, artist, title) = tracks[i];
             db.Songs.Add(new SongMetadata
             {
+                OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
                 SourcePath = $"/test/track{i}.mp3",
                 FileSizeBytes = 1000 + i,
                 FileName = $"track{i}.mp3",
@@ -438,7 +445,7 @@ public class SpotifyLibraryComparisonServiceTests
     {
         var scopeFactory = new TestScopeFactory(db);
         var logger = NullLogger<SpotifyLibraryComparisonService>.Instance;
-        return new SpotifyLibraryComparisonService(spotifyApi, scopeFactory, logger);
+        return new SpotifyLibraryComparisonService(spotifyApi, scopeFactory, new TestOwnerLookupService(), logger);
     }
 
     private sealed class StubSpotifyApiService(SpotifyLikedSongsResponse likedSongs) : ISpotifyApiService

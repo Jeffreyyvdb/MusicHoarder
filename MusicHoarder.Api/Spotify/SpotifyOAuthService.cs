@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -12,6 +13,7 @@ namespace MusicHoarder.Api.Spotify;
 public class SpotifyOAuthService(
     IServiceScopeFactory scopeFactory,
     HttpClient httpClient,
+    IOwnerLookupService ownerLookup,
     IOptions<SpotifyOptions> spotifyOptions,
     ILogger<SpotifyOAuthService> logger) : ISpotifyOAuthService
 {
@@ -178,7 +180,11 @@ public class SpotifyOAuthService(
 
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-        var rows = await db.SpotifyTrackLibraryMatches.ToListAsync(ct);
+        var ownerId = ownerLookup.OwnerUserId;
+        var rows = await db.SpotifyTrackLibraryMatches
+            .IgnoreQueryFilters()
+            .Where(r => r.OwnerUserId == ownerId)
+            .ToListAsync(ct);
         if (rows.Count > 0)
         {
             db.SpotifyTrackLibraryMatches.RemoveRange(rows);
@@ -224,11 +230,18 @@ public class SpotifyOAuthService(
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+        var ownerId = ownerLookup.OwnerUserId;
 
-        var settings = await db.SpotifySettings.AsNoTracking().FirstOrDefaultAsync(ct);
+        // Spotify is owner-only in this deployment (RequireOwner on the endpoints + background
+        // services pin to the owner row). Bypass the per-user query filter so this works from
+        // hosted services that have no HTTP context.
+        var settings = await db.SpotifySettings
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.OwnerUserId == ownerId, ct);
         if (settings is not null) return settings;
 
-        settings = new SpotifySettings();
+        settings = new SpotifySettings { OwnerUserId = ownerId };
         db.SpotifySettings.Add(settings);
         await db.SaveChangesAsync(ct);
 
@@ -257,11 +270,14 @@ public class SpotifyOAuthService(
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+        var ownerId = ownerLookup.OwnerUserId;
 
-        var settings = await db.SpotifySettings.FirstOrDefaultAsync(ct);
+        var settings = await db.SpotifySettings
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(s => s.OwnerUserId == ownerId, ct);
         if (settings is null)
         {
-            settings = new SpotifySettings();
+            settings = new SpotifySettings { OwnerUserId = ownerId };
             db.SpotifySettings.Add(settings);
         }
 

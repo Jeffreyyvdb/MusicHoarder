@@ -25,6 +25,20 @@ public class SongMetadata
 
     [Key]
     public int Id { get; set; }
+
+    /// <summary>
+    /// Owner of this row. Scoped by the EF global query filter so users only ever see their own.
+    /// Background services bypass the filter via <c>IgnoreQueryFilters()</c> and explicitly pass
+    /// the owner id from <see cref="MusicHoarder.Api.Auth.IOwnerLookupService"/>.
+    /// </summary>
+    public Guid OwnerUserId { get; set; }
+
+    /// <summary>
+    /// True for rows inserted by the demo seeder. Scanner reconciliation and LibraryBuilder skip
+    /// these so we don't try to read a file off disk that doesn't exist.
+    /// </summary>
+    public bool IsSynthetic { get; set; }
+
     public required string SourcePath { get; set; }
     public required long FileSizeBytes { get; set; }
     public required string FileName { get; set; }

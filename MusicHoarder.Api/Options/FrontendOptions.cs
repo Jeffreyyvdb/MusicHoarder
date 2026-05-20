@@ -1,7 +1,7 @@
 namespace MusicHoarder.Api.Options;
 
 /// <summary>
-/// Public URL of the browser-facing app (e.g. Next.js). Used after Spotify OAuth to redirect users back from the API callback.
+/// Public URL of the browser-facing app (e.g. SvelteKit). Used after Spotify OAuth to redirect users back from the API callback.
 /// </summary>
 public class FrontendOptions
 {
