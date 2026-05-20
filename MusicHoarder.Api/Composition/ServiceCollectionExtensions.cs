@@ -8,6 +8,7 @@ using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Pipeline;
 using MusicHoarder.Api.Scanner;
+using MusicHoarder.Api.Settings;
 using MusicHoarder.Api.Spotify;
 
 namespace MusicHoarder.Api.Composition;
@@ -43,6 +44,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IEnrichmentProvider, SpotifyApiEnrichmentProvider>();
         services.AddSingleton<IEnrichmentProvider, TrackerEnrichmentProvider>();
         services.AddSingleton<EnrichmentPipelineChannel>();
+        services.AddSingleton<IRuntimeSettingsService, RuntimeSettingsService>();
         services.AddSingleton<IEnrichmentOrchestrator, EnrichmentOrchestrator>();
         services.AddSingleton<IDestinationPathResolver, DestinationPathResolver>();
         services.AddSingleton<IDuplicateDetectionService, DuplicateDetectionService>();
