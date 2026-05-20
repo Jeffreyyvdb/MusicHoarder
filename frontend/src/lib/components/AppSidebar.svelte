@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import {
     AlertTriangle,
@@ -11,11 +12,13 @@
     LayoutDashboard,
     Library,
     ListMusic,
+    LogOut,
     Music,
     Music2,
     Settings,
     Users
   } from '@lucide/svelte';
+  import { signOut } from '$lib/api-client';
   import * as Sidebar from '$lib/components/ui/sidebar';
   import {
     fetchOverview,
@@ -356,6 +359,31 @@
         <span class="bg-primary mh-pulse-dot size-1.5 rounded-full"></span>
         <span class="text-muted-foreground flex-1">Indexing</span>
         <span class="text-foreground/80 font-mono">{queueRemaining.toLocaleString()} left</span>
+      </div>
+    {/if}
+    {#if page.data.user}
+      {@const u = page.data.user as { email: string; role: 'Owner' | 'Demo'; displayName: string | null }}
+      <div class="bg-sidebar-accent/40 flex items-center gap-2 rounded-lg px-2 py-2">
+        <div
+          class="flex size-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500/80 to-indigo-500/80 text-[11px] font-semibold text-white"
+        >
+          {(u.displayName ?? u.email).slice(0, 2).toUpperCase()}
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="truncate text-xs font-medium">{u.displayName ?? u.email}</div>
+          <div class="text-muted-foreground truncate font-mono text-[10px]">{u.role}</div>
+        </div>
+        <button
+          type="button"
+          aria-label="Sign out"
+          class="hover:text-foreground text-muted-foreground rounded p-1"
+          onclick={async () => {
+            await signOut();
+            await goto('/login', { invalidateAll: true });
+          }}
+        >
+          <LogOut class="size-3.5" />
+        </button>
       </div>
     {/if}
     {#if totalBytes !== null}

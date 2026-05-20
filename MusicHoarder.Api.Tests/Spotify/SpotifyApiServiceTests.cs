@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Spotify;
+using MusicHoarder.Api.Tests.Auth;
 
 namespace MusicHoarder.Api.Tests.Spotify;
 
@@ -382,6 +383,7 @@ public class SpotifyApiServiceTests
     {
         db.SpotifySettings.Add(new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             ClientId = "test-client-id",
             ClientSecret = "test-client-secret",
             AccessToken = "test-access-token",
@@ -401,12 +403,13 @@ public class SpotifyApiServiceTests
         var oauthHttpClient = new HttpClient(oauthHandler ?? new FakeHttpHandler(HttpStatusCode.OK, "{}"));
         var oauthLogger = NullLogger<SpotifyOAuthService>.Instance;
         var oauthOpts = Microsoft.Extensions.Options.Options.Create(new SpotifyOptions());
-        var oauthService = new SpotifyOAuthService(scopeFactory, oauthHttpClient, oauthOpts, oauthLogger);
+        var ownerLookup = new TestOwnerLookupService();
+        var oauthService = new SpotifyOAuthService(scopeFactory, oauthHttpClient, ownerLookup, oauthOpts, oauthLogger);
 
         var apiHttpClient = new HttpClient(apiHandler ?? new FakeHttpHandler(HttpStatusCode.OK, "{}"));
         var cache = new MemoryCache(new MemoryCacheOptions());
         var logger = NullLogger<SpotifyApiService>.Instance;
-        return new SpotifyApiService(scopeFactory, oauthService, apiHttpClient, cache, logger);
+        return new SpotifyApiService(scopeFactory, oauthService, apiHttpClient, cache, ownerLookup, logger);
     }
 
     private sealed class FakeHttpHandler(

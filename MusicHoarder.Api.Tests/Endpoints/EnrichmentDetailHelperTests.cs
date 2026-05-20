@@ -13,6 +13,7 @@ public class EnrichmentDetailHelperTests
     {
         var song = new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/a.mp3",
             FileName = "a.mp3",
             Extension = ".mp3",
@@ -38,6 +39,7 @@ public class EnrichmentDetailHelperTests
     {
         var song = new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/a.mp3", FileName = "a.mp3", Extension = ".mp3",
             FileSizeBytes = 1, LastModifiedUtc = DateTime.UtcNow, IndexedAtUtc = DateTime.UtcNow,
             Title = "Foo", OriginalTitle = "Foo (Remastered 2009)",
@@ -56,6 +58,7 @@ public class EnrichmentDetailHelperTests
     {
         var song = new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/a.mp3", FileName = "a.mp3", Extension = ".mp3",
             FileSizeBytes = 1, LastModifiedUtc = DateTime.UtcNow, IndexedAtUtc = DateTime.UtcNow,
             Album = "", OriginalAlbum = null,
@@ -73,6 +76,7 @@ public class EnrichmentDetailHelperTests
     {
         var song = new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/a.mp3", FileName = "a.mp3", Extension = ".mp3",
             FileSizeBytes = 1, LastModifiedUtc = DateTime.UtcNow, IndexedAtUtc = DateTime.UtcNow,
             Year = 2020, OriginalYear = 2018,
@@ -90,6 +94,7 @@ public class EnrichmentDetailHelperTests
     {
         var song = new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = "/a.mp3", FileName = "a.mp3", Extension = ".mp3",
             FileSizeBytes = 1, LastModifiedUtc = DateTime.UtcNow, IndexedAtUtc = DateTime.UtcNow,
             Album = null, OriginalAlbum = "Greatest Hits",

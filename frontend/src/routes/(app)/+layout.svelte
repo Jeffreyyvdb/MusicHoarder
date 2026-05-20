@@ -4,6 +4,7 @@
   import AppSidebar from '$lib/components/AppSidebar.svelte';
   import AppHeader from '$lib/components/AppHeader.svelte';
   import MiniPlayer from '$lib/components/MiniPlayer.svelte';
+  import LibraryOfflineBanner from '$lib/components/LibraryOfflineBanner.svelte';
   import ImportPipelineDrawer from '$lib/components/pipeline/ImportPipelineDrawer.svelte';
   import { playerStore } from '$lib/stores/player.svelte';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
@@ -30,6 +31,7 @@
     )}
   >
     <AppHeader />
+    <LibraryOfflineBanner />
     {@render children()}
   </Sidebar.Inset>
 </Sidebar.Provider>

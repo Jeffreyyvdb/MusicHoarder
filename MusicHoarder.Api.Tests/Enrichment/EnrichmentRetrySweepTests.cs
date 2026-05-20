@@ -137,6 +137,7 @@ public class EnrichmentRetrySweepTests
     {
         var song = new SongMetadata
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = $"/source/{Guid.NewGuid():N}.mp3",
             FileName = "song.mp3",
             Extension = ".mp3",

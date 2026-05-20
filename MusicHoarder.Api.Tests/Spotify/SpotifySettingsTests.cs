@@ -9,6 +9,7 @@ public class SpotifySettingsTests
     {
         var settings = new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             AccessToken = "access-token",
             RefreshToken = "refresh-token",
         };
@@ -21,6 +22,7 @@ public class SpotifySettingsTests
     {
         var settings = new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             RefreshToken = "refresh-token",
         };
 
@@ -32,6 +34,7 @@ public class SpotifySettingsTests
     {
         var settings = new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             AccessToken = "access-token",
         };
 
@@ -43,6 +46,7 @@ public class SpotifySettingsTests
     {
         var settings = new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             ClientId = "client-id",
             ClientSecret = "client-secret",
         };
@@ -55,6 +59,7 @@ public class SpotifySettingsTests
     {
         var settings = new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             ClientSecret = "client-secret",
         };
 
@@ -66,6 +71,7 @@ public class SpotifySettingsTests
     {
         var settings = new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             ClientId = "client-id",
         };
 
@@ -77,6 +83,7 @@ public class SpotifySettingsTests
     {
         var settings = new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             TokenExpiresAtUtc = DateTime.UtcNow.AddMinutes(3),
         };
 
@@ -88,6 +95,7 @@ public class SpotifySettingsTests
     {
         var settings = new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             TokenExpiresAtUtc = DateTime.UtcNow.AddMinutes(10),
         };
 
@@ -120,7 +128,7 @@ public class SpotifySettingsTests
     public void StoreTokens_DoesNotOverwriteExistingConnectedAt()
     {
         var originalConnectedAt = DateTime.UtcNow.AddHours(-1);
-        var settings = new SpotifySettings { ConnectedAtUtc = originalConnectedAt };
+        var settings = new SpotifySettings {     OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId, ConnectedAtUtc = originalConnectedAt };
 
         settings.StoreTokens("access", "refresh", 3600);
 
@@ -132,6 +140,7 @@ public class SpotifySettingsTests
     {
         var settings = new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             AccessToken = "old",
             RefreshToken = "old-refresh",
             TokenExpiresAtUtc = DateTime.UtcNow.AddMinutes(-5),
@@ -149,6 +158,7 @@ public class SpotifySettingsTests
     {
         var settings = new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             AccessToken = "old",
             RefreshToken = "old-refresh",
         };
@@ -164,6 +174,7 @@ public class SpotifySettingsTests
     {
         var settings = new SpotifySettings
         {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             AccessToken = "access",
             RefreshToken = "refresh",
             TokenExpiresAtUtc = DateTime.UtcNow.AddHours(1),

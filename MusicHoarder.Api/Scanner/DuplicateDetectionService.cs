@@ -49,7 +49,8 @@ public class DuplicateDetectionService(
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
         var songsWithFingerprint = await db.Songs
-            .Where(s => s.DeletedAtUtc == null)
+            .IgnoreQueryFilters()
+            .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
             .Where(s => s.Fingerprint != null && s.Fingerprint != "")
             .OrderBy(s => s.Id)
             .ToListAsync(ct);
