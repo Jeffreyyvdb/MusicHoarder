@@ -32,7 +32,7 @@ jobs:
             context: ./frontend
             dockerfile: ./frontend/Dockerfile
             build_args: |
-              NEXT_PUBLIC_DEMO_MODE=false
+              PUBLIC_DEMO_MODE=false
     steps:
       - uses: actions/checkout@v4
 
