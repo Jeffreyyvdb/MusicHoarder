@@ -1,6 +1,7 @@
 using System.IO.Abstractions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Pipeline;
@@ -26,7 +27,10 @@ public static class DebugEndpoints
 
     public static IEndpointRouteBuilder MapDebugEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/debug").WithTags("Debug");
+        // Debug endpoints expose host-level state (the configured source/destination directory
+        // trees are read off disk and are NOT tenant-scoped). On a public instance where untrusted
+        // users can log in as the demo account, gate the whole group to the owner.
+        var group = app.MapGroup("/api/debug").WithTags("Debug").RequireOwner();
 
         group.MapGet("/source-tree", GetSourceTree)
             .WithName("DebugSourceTree")
