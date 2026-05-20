@@ -24,7 +24,7 @@ MusicHoarder ingests a messy folder of audio files (wrong titles, missing albums
 ## Tech stack
 
 - Backend: ASP.NET Core (.NET) minimal API with EF Core + PostgreSQL.
-- Frontend: Next.js 16 + React 19.
+- Frontend: SvelteKit 2 + Svelte 5 (runes) + Bun.
 - Fingerprinting: Chromaprint / fpcalc.
 - Orchestration: .NET Aspire.
 - License: MIT.
