@@ -32,16 +32,18 @@ jobs:
         with:
           bun-version: latest
 
-      # semantic-release v25 requires Node >= 22.14. The ubuntu-latest default
-      # is Node 20 — pin Node 24 here or semantic-release's engines guard fails.
+      # semantic-release v25+ requires Node ^22.14.0 || >=24.10.0. Bun's
+      # runtime reports process.versions.node = 20.x, so the release step
+      # runs under Node via `npx semantic-release` below — `bunx` would fail
+      # the engines check. All other steps stay on Bun.
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: '24'
 
       - run: bun install --frozen-lockfile
       - run: bun run check
       - run: bun run lint
       - run: bun run build
-      - run: bunx semantic-release
+      - run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
