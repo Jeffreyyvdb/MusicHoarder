@@ -2,7 +2,7 @@
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
-  import { Library, Music2, FileWarning, Clock, Settings } from '@lucide/svelte';
+  import { Library, Play, TriangleAlert, Clock, Settings } from '@lucide/svelte';
   import { fetchOverview } from '$lib/api-client';
 
   type Tab = {
@@ -16,8 +16,8 @@
 
   const tabs: Tab[] = [
     { id: 'library', label: 'Library', href: '/app', icon: Library, match: (p) => p.startsWith('/app') },
-    { id: 'spotify', label: 'Spotify', href: '/spotify', icon: Music2, match: (p) => p.startsWith('/spotify') },
-    { id: 'review', label: 'Review', href: '/review', icon: FileWarning, match: (p) => p.startsWith('/review') },
+    { id: 'spotify', label: 'Spotify', href: '/spotify', icon: Play, match: (p) => p.startsWith('/spotify') },
+    { id: 'review', label: 'Review', href: '/review', icon: TriangleAlert, match: (p) => p.startsWith('/review') },
     { id: 'runs', label: 'Runs', href: '/runs', icon: Clock, match: (p) => p.startsWith('/runs') },
     { id: 'profile', label: 'Profile', href: '/settings', icon: Settings, match: (p) => p.startsWith('/settings') }
   ];

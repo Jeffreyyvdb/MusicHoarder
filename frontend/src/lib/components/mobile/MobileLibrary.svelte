@@ -2,11 +2,12 @@
   import { untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { Search, ScanLine, Disc3 } from '@lucide/svelte';
+  import { toast } from 'svelte-sonner';
+  import { Search, ScanLine, Disc3, Loader2 } from '@lucide/svelte';
   import MobileHeader from '$lib/components/mobile/MobileHeader.svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import ProcessingStrip from '$lib/components/file-browser/ProcessingStrip.svelte';
-  import { buildAlbumsFromSongs, type ApiSong } from '$lib/api-client';
+  import { buildAlbumsFromSongs, triggerEnrichmentScan, type ApiSong } from '$lib/api-client';
   import { applySectionFilter, type SectionId } from '$lib/album-sections';
 
   type Props = {
@@ -44,6 +45,21 @@
     void goto(`/app?album=${encodeURIComponent(key)}`);
   }
 
+  let scanning = $state(false);
+  async function scanSource() {
+    if (scanning) return;
+    scanning = true;
+    try {
+      const result = await triggerEnrichmentScan();
+      if (result.ok) toast.success('Scan started', { description: 'Scanning the source directory for new files.' });
+      else toast.error('Could not start scan', { description: result.message });
+    } catch {
+      toast.error('Could not start scan', { description: 'The API may be unavailable.' });
+    } finally {
+      scanning = false;
+    }
+  }
+
   const albumsInSection = $derived(buildAlbumsFromSongs(applySectionFilter(songs, section)));
   const filtered = $derived.by(() => {
     const q = query.trim().toLowerCase();
@@ -76,7 +92,9 @@
 <div class="mob">
   <MobileHeader title="Library" sub="{trackCount.toLocaleString()} tracks · {artistCount.toLocaleString()} artists">
     {#snippet right()}
-      <button class="mob-h-btn" aria-label="Scan source"><ScanLine size={16} /></button>
+      <button class="mob-h-btn" aria-label="Scan source" disabled={scanning} onclick={scanSource}>
+        {#if scanning}<Loader2 size={16} class="animate-spin" />{:else}<ScanLine size={16} />{/if}
+      </button>
     {/snippet}
   </MobileHeader>
 

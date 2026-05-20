@@ -188,7 +188,7 @@
 
   {#if isMobile.current}
     <Sheet.Root open={trackPanelOpen} onOpenChange={(open) => !open && closeTrack()}>
-      <Sheet.Content side="bottom" class="h-[88vh] p-0 [&>button]:hidden">
+      <Sheet.Content side="bottom" class="h-[88vh] gap-0 p-0 data-[side=bottom]:h-[88vh] [&>button]:hidden">
         <Sheet.Title class="sr-only">Track details</Sheet.Title>
         <Sheet.Description class="sr-only">
           View track metadata, lyrics, fingerprint, and enrichment sources

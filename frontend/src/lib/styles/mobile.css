@@ -143,6 +143,16 @@
   background: var(--accent-soft);
 }
 
+/* Header rendered over a tinted album hero — white controls for contrast. */
+.mob-header.on-hero .mob-h-back,
+.mob-header.on-hero .mob-h-btn {
+  color: #fff;
+}
+.mob-header.on-hero .mob-h-back:hover,
+.mob-header.on-hero .mob-h-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
 /* Large title block on first scroll position */
 .mob-jumbo {
   padding: 18px 18px 12px;

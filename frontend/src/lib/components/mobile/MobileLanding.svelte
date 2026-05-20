@@ -32,6 +32,9 @@
         </svg>
       </div>
       <div class="text-sm font-semibold">MusicHoarder</div>
+      <span
+        class="text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[10px]"
+        style="background: var(--surface-sunken);">v0.4.2</span>
     </div>
     <a class="mob-btn ghost w-auto px-2.5 py-1.5" href="/app">Sign in</a>
   </div>

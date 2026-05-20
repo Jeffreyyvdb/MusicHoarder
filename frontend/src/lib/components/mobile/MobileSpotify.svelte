@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { ChevronRight, Heart, ScanLine, ListPlus, KeyRound } from '@lucide/svelte';
+  import { ChevronRight, Heart, ScanLine, ListPlus, KeyRound, Loader2 } from '@lucide/svelte';
   import MobileHeader from '$lib/components/mobile/MobileHeader.svelte';
   import {
     fetchSpotifyStatus,
@@ -166,7 +166,9 @@
       sub={status?.connected ? 'Connected' : 'Not connected'}
     >
       {#snippet right()}
-        <button class="mob-h-btn" aria-label="Sync"><ScanLine size={16} /></button>
+        <button class="mob-h-btn" aria-label="Sync" disabled={isLoading} onclick={load}>
+          {#if isLoading}<Loader2 size={16} class="animate-spin" />{:else}<ScanLine size={16} />{/if}
+        </button>
       {/snippet}
     </MobileHeader>
     <div class="mob-scroll">

@@ -65,7 +65,7 @@
     <div class="pointer-events-none absolute inset-0 z-0" style="background: {heroGradient};"></div>
   {/if}
 
-  <MobileHeader back="Library" onback={back} transparent class="relative z-[2] text-white">
+  <MobileHeader back="Library" onback={back} transparent class="on-hero relative z-[2] text-white">
     {#snippet right()}
       <div class="text-[13px] text-white/85">{album?.artist ?? ''}</div>
     {/snippet}

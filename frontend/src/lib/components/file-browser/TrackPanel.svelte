@@ -232,7 +232,7 @@
       {/each}
     </Tabs.List>
 
-    <Tabs.Content value="metadata" class="min-h-0 flex-1">
+    <Tabs.Content value="metadata" class="flex min-h-0 flex-1 flex-col">
       <ScrollArea class="min-h-0 flex-1">
         <div class="px-6 py-4">
           <div class="grid grid-cols-[140px_minmax(0,1fr)] gap-x-3 gap-y-0.5">
@@ -261,7 +261,7 @@
       </ScrollArea>
     </Tabs.Content>
 
-    <Tabs.Content value="lyrics" class="min-h-0 flex-1">
+    <Tabs.Content value="lyrics" class="flex min-h-0 flex-1 flex-col">
       <ScrollArea class="min-h-0 flex-1">
         <div class="px-5 py-3">
           <LyricsPanel
@@ -280,7 +280,7 @@
       </ScrollArea>
     </Tabs.Content>
 
-    <Tabs.Content value="fingerprint" class="min-h-0 flex-1">
+    <Tabs.Content value="fingerprint" class="flex min-h-0 flex-1 flex-col">
       <ScrollArea class="min-h-0 flex-1">
         <div class="px-6 py-4">
           <div class="border-border flex items-end justify-between border-b pb-3">
@@ -345,7 +345,7 @@
       </ScrollArea>
     </Tabs.Content>
 
-    <Tabs.Content value="enrichment" class="min-h-0 flex-1">
+    <Tabs.Content value="enrichment" class="flex min-h-0 flex-1 flex-col">
       <ScrollArea class="min-h-0 flex-1">
         <div class="space-y-3 px-5 py-4 text-xs">
           {#if song.matchedBy}
