@@ -1,7 +1,14 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
 builder.AddDockerComposeEnvironment("compose")
-    .WithProperties(env => env.DashboardEnabled = true);
+    .WithProperties(env => env.DashboardEnabled = true)
+    .ConfigureComposeFile(file =>
+    {
+        // Force a fresh pull of the :latest images on every deploy. Without this, Dokploy's
+        // `docker compose up` reuses the cached :latest tag and never picks up new builds.
+        file.Services["api"].PullPolicy = "always";
+        file.Services["frontend"].PullPolicy = "always";
+    });
 
 // GHCR registry so `aspire publish` emits ghcr.io image references and `aspire do push`
 // builds + pushes there. Dokploy's Compose service pulls these prebuilt images.

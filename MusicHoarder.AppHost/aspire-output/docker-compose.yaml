@@ -27,6 +27,7 @@ services:
       - "aspire"
   api:
     image: "${API_IMAGE}"
+    pull_policy: "always"
     environment:
       OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY: "in_memory"
       ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
@@ -62,6 +63,7 @@ services:
       - "aspire"
   frontend:
     image: "${FRONTEND_IMAGE}"
+    pull_policy: "always"
     environment:
       NODE_ENV: "production"
       PORT: "8001"
