@@ -1,33 +1,49 @@
 <script lang="ts">
-  import { Database, Cpu, Globe } from '@lucide/svelte';
+  import { Folder, Play, Tag, AudioWaveform } from '@lucide/svelte';
 
-  const techItems = [
-    { icon: Cpu, label: '.NET 10 API' },
-    { icon: Globe, label: 'SvelteKit Frontend' },
-    { icon: Database, label: 'PostgreSQL' }
+  const sources = [
+    {
+      icon: Folder,
+      title: 'Local folders',
+      body: '~/Music · ~/Downloads · external drives · NAS shares (SMB/AFP)'
+    },
+    {
+      icon: Play,
+      title: 'Spotify',
+      body: 'Liked songs + playlists, queued for purchase or fingerprint-matched against your library'
+    },
+    {
+      icon: Tag,
+      title: 'MusicBrainz / Discogs',
+      body: 'Open metadata catalogues — the gold standard.'
+    },
+    {
+      icon: AudioWaveform,
+      title: 'AcoustID / Chromaprint',
+      body: 'Acoustic fingerprints. Identifies the recording, not the filename.'
+    }
   ];
 </script>
 
-<section class="bg-card/30 border-border border-t px-6 py-16">
-  <div class="mx-auto max-w-4xl">
-    <div class="flex flex-col items-center justify-between gap-8 md:flex-row">
-      <div>
-        <h3 class="mb-2 text-xl font-semibold">Built for homelabs</h3>
-        <p class="text-muted-foreground text-sm">
-          Modern stack designed for self-hosting enthusiasts.
-        </p>
-      </div>
+<section id="sources" class="mx-auto max-w-[1280px] px-6 pt-6 pb-2 md:px-14">
+  <div
+    class="text-muted-foreground font-mono text-[11px] font-semibold tracking-[0.12em] uppercase"
+  >
+    SOURCES
+  </div>
+  <h2 class="mt-2 mb-7 text-[32px] font-bold tracking-[-0.025em]">
+    Imports what you actually have.
+  </h2>
 
-      <div class="flex flex-wrap items-center justify-center gap-6">
-        {#each techItems as item (item.label)}
-          <div
-            class="bg-card border-border flex items-center gap-2 rounded-lg border px-4 py-2"
-          >
-            <item.icon class="text-primary h-4 w-4" />
-            <span class="text-sm font-medium">{item.label}</span>
-          </div>
-        {/each}
+  <div class="grid grid-cols-1 gap-3.5 md:grid-cols-2">
+    {#each sources as src (src.title)}
+      <div class="bg-card border-border rounded-lg border p-4.5">
+        <src.icon class="text-primary h-4.5 w-4.5" />
+        <div class="mt-2.5 mb-1 text-[14px] font-semibold tracking-[-0.01em]">{src.title}</div>
+        <div class="text-muted-foreground text-[12.5px] leading-[1.5] text-pretty">
+          {src.body}
+        </div>
       </div>
-    </div>
+    {/each}
   </div>
 </section>
