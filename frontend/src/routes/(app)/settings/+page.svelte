@@ -3,17 +3,24 @@
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
   import { Badge } from '$lib/components/ui/badge';
+  import { Slider } from '$lib/components/ui/slider';
+  import * as Tabs from '$lib/components/ui/tabs';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import PurgeStatusBanner from '$lib/components/settings/PurgeStatusBanner.svelte';
   import {
     fetchSpotifyCredentials,
     saveSpotifyCredentials,
     fetchSpotifyStatus,
+    fetchSettings,
+    updateSettings,
     purgeAll,
     purgePostFingerprint,
     fetchPurgeStatus,
     type PurgeMode,
     type PurgeSnapshot,
+    type SettingsResponse,
+    type SettingsProvidersView,
+    type SettingsPipelineView,
     type SpotifyCredentialsResponse,
     type SpotifyStatusResponse
   } from '$lib/api-client';
@@ -27,27 +34,51 @@
     AlertTriangle,
     Music,
     ExternalLink,
-    Trash2
+    Trash2,
+    Folder,
+    Database,
+    Tag,
+    SlidersHorizontal,
+    Copy
   } from '@lucide/svelte';
 
+  // Spotify credential form state
   let clientId = $state('');
   let clientSecret = $state('');
   let isSaving = $state(false);
-  let isLoading = $state(true);
+  let showSecret = $state(false);
   let savedCredentials = $state<SpotifyCredentialsResponse | null>(null);
   let spotifyStatus = $state<SpotifyStatusResponse | null>(null);
   let saveResult = $state<{ success: boolean; message: string } | null>(null);
+
+  // Settings form state
+  let isLoading = $state(true);
+  let settings = $state<SettingsResponse | null>(null);
+  let providers = $state<SettingsProvidersView | null>(null);
+  let pipeline = $state<SettingsPipelineView | null>(null);
+  let isSavingProviders = $state(false);
+  let isSavingPipeline = $state(false);
+  let providersResult = $state<{ success: boolean; message: string } | null>(null);
+  let pipelineResult = $state<{ success: boolean; message: string } | null>(null);
+
+  // Purge state
   let purgeSnapshot = $state<PurgeSnapshot | null>(null);
   let purgeStartError = $state<string | null>(null);
-
   const purgeRunning = $derived(purgeSnapshot?.status === 'running');
+
+  // Redirect URI shown on Spotify tab — falls back to a sensible local value.
+  const redirectUri = $derived(
+    settings?.spotify.oAuthRedirectBaseUrl
+      ? `${settings.spotify.oAuthRedirectBaseUrl.replace(/\/$/, '')}/api/spotify/callback`
+      : 'http://127.0.0.1:5142/api/spotify/callback'
+  );
 
   $effect(() => {
     let cancelled = false;
     void (async () => {
       isLoading = true;
       try {
-        const [creds, status, purge] = await Promise.all([
+        const [creds, status, purge, settingsResp] = await Promise.all([
           fetchSpotifyCredentials().catch(
             () => ({ clientId: null, hasClientSecret: false }) as SpotifyCredentialsResponse
           ),
@@ -59,15 +90,19 @@
                 tokenExpired: false
               }) as SpotifyStatusResponse
           ),
-          fetchPurgeStatus().catch(() => null)
+          fetchPurgeStatus().catch(() => null),
+          fetchSettings().catch(() => null)
         ]);
         if (cancelled) return;
         savedCredentials = creds;
         spotifyStatus = status;
         if (creds.clientId) clientId = creds.clientId;
         if (purge) purgeSnapshot = purge;
-      } catch {
-        // Settings page should load even if API is down
+        if (settingsResp) {
+          settings = settingsResp;
+          providers = { ...settingsResp.providers };
+          pipeline = { ...settingsResp.pipeline };
+        }
       } finally {
         if (!cancelled) isLoading = false;
       }
@@ -77,11 +112,9 @@
     };
   });
 
-  // Poll purge status every 1.5s while running; stops when complete/failed and
-  // restarts when the user kicks off a new purge.
+  // Poll purge status while running
   $effect(() => {
     if (purgeSnapshot?.status !== 'running') return;
-
     let cancelled = false;
     const tick = async () => {
       try {
@@ -106,7 +139,6 @@
       purgeStartError = response.message;
       return;
     }
-    // Optimistically reflect "running" — the poll loop takes over with real progress.
     purgeSnapshot = {
       status: 'running',
       mode,
@@ -123,7 +155,7 @@
     };
   }
 
-  async function handleSave() {
+  async function handleSaveCredentials() {
     if (!clientId.trim() || !clientSecret.trim()) {
       saveResult = { success: false, message: 'Both Client ID and Client Secret are required.' };
       return;
@@ -144,286 +176,639 @@
       isSaving = false;
     }
   }
+
+  async function handleSaveProviders() {
+    if (!providers) return;
+    isSavingProviders = true;
+    providersResult = null;
+    try {
+      await updateSettings({ providers });
+      providersResult = { success: true, message: 'Enrichment sources updated.' };
+    } catch (err) {
+      providersResult = {
+        success: false,
+        message: err instanceof Error ? err.message : 'Failed to save providers.'
+      };
+    } finally {
+      isSavingProviders = false;
+    }
+  }
+
+  async function handleSavePipeline() {
+    if (!pipeline) return;
+    isSavingPipeline = true;
+    pipelineResult = null;
+    try {
+      await updateSettings({ pipeline });
+      pipelineResult = {
+        success: true,
+        message:
+          'Pipeline settings saved. Worker-concurrency changes apply on the next API restart.'
+      };
+    } catch (err) {
+      pipelineResult = {
+        success: false,
+        message: err instanceof Error ? err.message : 'Failed to save pipeline settings.'
+      };
+    } finally {
+      isSavingPipeline = false;
+    }
+  }
+
+  async function copyRedirectUri() {
+    try {
+      await navigator.clipboard.writeText(redirectUri);
+    } catch {
+      // Clipboard may be unavailable in some embeddings; silently ignore.
+    }
+  }
+
+  // ---- Provider catalog (matches design "Enrichment sources" section) ----
+  type ProviderKey = keyof SettingsProvidersView;
+  const PROVIDER_CATALOG: { key: ProviderKey; name: string; subtitle: string; dot: string }[] = [
+    {
+      key: 'acoustId',
+      name: 'AcoustID',
+      subtitle: 'Fingerprint → MusicBrainz recording match',
+      dot: 'oklch(0.68 0.18 30)'
+    },
+    {
+      key: 'spotifyApi',
+      name: 'Spotify API',
+      subtitle: 'Artist + title catalog search with ISRC verification',
+      dot: '#1DB954'
+    },
+    {
+      key: 'musicBrainzWeb',
+      name: 'MusicBrainz web',
+      subtitle: 'Direct ISRC / artist+title lookups against MusicBrainz',
+      dot: 'oklch(0.62 0.16 280)'
+    },
+    {
+      key: 'tracker',
+      name: 'Community trackers',
+      subtitle: 'Unreleased / leak files (best-effort)',
+      dot: 'oklch(0.58 0.12 60)'
+    }
+  ];
 </script>
 
 <div class="flex-1 overflow-auto">
-  <div class="mx-auto max-w-2xl p-6 md:p-8">
+  <div class="mx-auto max-w-4xl p-6 md:p-8">
     <div class="mb-8 flex items-center gap-3">
       <div class="bg-secondary flex size-10 items-center justify-center rounded-lg">
         <Settings class="text-foreground size-5" />
       </div>
       <div>
         <h1 class="text-2xl font-bold">Settings</h1>
-        <p class="text-muted-foreground text-sm">Configure integrations and preferences</p>
+        <p class="text-muted-foreground text-sm">
+          Paths, enrichment sources, pipeline tuning, integrations, and data resets.
+        </p>
       </div>
     </div>
 
-    <section class="border-border bg-card rounded-xl border">
-      <div class="border-border flex items-center gap-3 border-b px-6 py-4">
-        <div class="flex size-8 items-center justify-center rounded-lg bg-[#1DB954]/10">
-          <Music class="size-4 text-[#1DB954]" />
-        </div>
-        <div class="min-w-0 flex-1">
-          <h2 class="font-semibold">Spotify Integration</h2>
-          <p class="text-muted-foreground text-xs">
-            Connect your Spotify account to browse playlists and liked songs
-          </p>
-        </div>
-        {#if spotifyStatus?.connected}
-          <Badge class="border-0 bg-[#1DB954]/20 text-[#1DB954]">Connected</Badge>
-        {:else if savedCredentials?.hasClientSecret}
-          <Badge variant="secondary">Credentials Set</Badge>
-        {:else}
-          <Badge variant="outline" class="text-muted-foreground">Not Configured</Badge>
-        {/if}
+    {#if isLoading}
+      <div class="flex items-center justify-center py-16">
+        <Loader2 class="text-muted-foreground size-6 animate-spin" />
       </div>
+    {:else}
+      <Tabs.Root value="paths" class="w-full">
+        <Tabs.List class="mb-6 flex w-full flex-wrap justify-start gap-1">
+          <Tabs.Trigger value="paths" class="gap-1.5"><Folder class="size-3.5" />Paths</Tabs.Trigger>
+          <Tabs.Trigger value="enrichment" class="gap-1.5"
+            ><Tag class="size-3.5" />Enrichment</Tabs.Trigger
+          >
+          <Tabs.Trigger value="pipeline" class="gap-1.5"
+            ><SlidersHorizontal class="size-3.5" />Pipeline</Tabs.Trigger
+          >
+          <Tabs.Trigger value="spotify" class="gap-1.5"
+            ><Music class="size-3.5" />Spotify</Tabs.Trigger
+          >
+          <Tabs.Trigger value="data" class="gap-1.5"
+            ><Database class="size-3.5" />Data &amp; resets</Tabs.Trigger
+          >
+        </Tabs.List>
 
-      <div class="space-y-5 p-6">
-        {#if isLoading}
-          <div class="flex items-center justify-center py-8">
-            <Loader2 class="text-muted-foreground size-6 animate-spin" />
-          </div>
-        {:else}
-          <div class="border-border bg-secondary/30 rounded-lg border p-4 text-sm">
-            <div class="flex items-start gap-2">
-              <KeyRound class="text-muted-foreground mt-0.5 size-4 shrink-0" />
-              <div>
-                <p class="mb-1 font-medium">How to get your Spotify API credentials</p>
-                <ol class="text-muted-foreground list-inside list-decimal space-y-1 text-xs">
-                  <li>
-                    Go to the
-                    <a
-                      href="https://developer.spotify.com/dashboard"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="text-primary inline-flex items-center gap-0.5 hover:underline"
-                    >
-                      Spotify Developer Dashboard
-                      <ExternalLink class="size-3" />
-                    </a>
-                  </li>
-                  <li>Create a new app (or use an existing one)</li>
-                  <li>
-                    Add a redirect URI for the API callback. Spotify does not allow
-                    <code class="bg-secondary rounded px-1 py-0.5 text-xs">localhost</code> — use loopback
-                    IP (e.g.
-                    <code class="bg-secondary rounded px-1 py-0.5 text-xs"
-                      >http://127.0.0.1:5142/api/spotify/callback</code
-                    >). Match
-                    <code class="bg-secondary rounded px-1 py-0.5 text-xs"
-                      >Spotify:OAuthRedirectBaseUrl</code
-                    > in the API config.
-                  </li>
-                  <li>
-                    After login, the API redirects you back to this app. With .NET Aspire
-                    (AppHost), that URL is set automatically. If you run the API without Aspire, set
-                    <code class="bg-secondary rounded px-1 py-0.5 text-xs"
-                      >Frontend:PublicBaseUrl</code
-                    > (or env
-                    <code class="bg-secondary rounded px-1 py-0.5 text-xs"
-                      >Frontend__PublicBaseUrl</code
-                    >) on the API to this app's origin (e.g.
-                    <code class="bg-secondary rounded px-1 py-0.5 text-xs"
-                      >http://localhost:3000</code
-                    >)
-                  </li>
-                  <li>Copy the Client ID and Client Secret from the app settings</li>
-                </ol>
+        <!-- =================== PATHS =================== -->
+        <Tabs.Content value="paths" class="mt-0">
+          <section class="border-border bg-card rounded-xl border">
+            <header class="border-border border-b px-6 py-4">
+              <h2 class="font-semibold">Paths &amp; storage</h2>
+              <p class="text-muted-foreground text-xs">
+                Where MusicHoarder reads from and writes to. Configured via Aspire AppHost
+                parameters (<code class="bg-secondary rounded px-1 py-0.5">source-directory</code> /
+                <code class="bg-secondary rounded px-1 py-0.5">destination-directory</code>) — edit
+                user-secrets and restart to change.
+              </p>
+            </header>
+            <div class="space-y-5 p-6">
+              <div class="space-y-2">
+                <Label>Source directory</Label>
+                <Input readonly value={settings?.paths.sourceDirectory ?? ''} class="font-mono text-sm" />
+                <p class="text-muted-foreground text-xs">
+                  Files under this folder are scanned, fingerprinted, and enriched.
+                </p>
+              </div>
+
+              <div class="space-y-2">
+                <Label>Destination directory</Label>
+                <Input
+                  readonly
+                  value={settings?.paths.destinationDirectory ?? ''}
+                  class="font-mono text-sm"
+                />
+                <p class="text-muted-foreground text-xs">
+                  Where the organised library is written after enrichment + tag-write.
+                </p>
+              </div>
+
+              <div class="space-y-2">
+                <Label>fpcalc binary</Label>
+                <Input readonly value={settings?.paths.fpcalcPath ?? ''} class="font-mono text-sm" />
+                <p class="text-muted-foreground text-xs">
+                  Chromaprint CLI used for fingerprinting. Must be on
+                  <code class="bg-secondary rounded px-1 py-0.5">$PATH</code> or an absolute path.
+                </p>
               </div>
             </div>
-          </div>
+          </section>
+        </Tabs.Content>
 
-          <div class="space-y-4">
-            <div class="space-y-2">
-              <Label for="client-id">Client ID</Label>
-              <Input
-                id="client-id"
-                type="text"
-                placeholder="Enter your Spotify Client ID"
-                bind:value={clientId}
-                oninput={() => (saveResult = null)}
-                class="font-mono text-sm"
-              />
+        <!-- =================== ENRICHMENT =================== -->
+        <Tabs.Content value="enrichment" class="mt-0">
+          <section class="border-border bg-card rounded-xl border">
+            <header class="border-border border-b px-6 py-4">
+              <h2 class="font-semibold">Enrichment sources</h2>
+              <p class="text-muted-foreground text-xs">
+                Toggle providers off to skip them entirely. New toggles take effect on the next
+                enrichment cycle; previously-attempted songs keep their per-provider history.
+              </p>
+            </header>
+            <div class="divide-border divide-y">
+              {#each PROVIDER_CATALOG as p (p.key)}
+                <div class="flex items-center gap-4 px-6 py-4">
+                  <span
+                    class="inline-block size-3 rounded-full ring-1 ring-white/60"
+                    style="background: {p.dot}"
+                  ></span>
+                  <div class="flex-1">
+                    <div class="text-sm font-medium">{p.name}</div>
+                    <div class="text-muted-foreground text-xs">{p.subtitle}</div>
+                  </div>
+                  <label class="inline-flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      class="peer sr-only"
+                      checked={providers?.[p.key] ?? false}
+                      onchange={(e) => {
+                        if (providers) providers = { ...providers, [p.key]: e.currentTarget.checked };
+                      }}
+                    />
+                    <span
+                      class="border-input bg-secondary peer-checked:bg-primary relative h-5 w-9 rounded-full border transition-colors after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-4"
+                    ></span>
+                  </label>
+                </div>
+              {/each}
             </div>
-            <div class="space-y-2">
-              <Label for="client-secret">
-                Client Secret
-                {#if savedCredentials?.hasClientSecret && !clientSecret}
-                  <span class="text-muted-foreground ml-2 text-xs font-normal">
-                    (already saved — enter a new value to update)
-                  </span>
+
+            {#if providersResult}
+              <div
+                class="mx-6 mb-4 flex items-center gap-2 rounded-lg border px-4 py-2 text-sm {providersResult.success
+                  ? 'border-[#1DB954]/50 bg-[#1DB954]/10 text-[#1DB954]'
+                  : 'border-destructive/50 bg-destructive/10 text-destructive'}"
+              >
+                {#if providersResult.success}
+                  <CheckCircle2 class="size-4 shrink-0" />
+                {:else}
+                  <AlertCircle class="size-4 shrink-0" />
                 {/if}
-              </Label>
-              <Input
-                id="client-secret"
-                type="password"
-                placeholder={savedCredentials?.hasClientSecret
-                  ? '••••••••••••••••'
-                  : 'Enter your Spotify Client Secret'}
-                bind:value={clientSecret}
-                oninput={() => (saveResult = null)}
-                class="font-mono text-sm"
-              />
-            </div>
-          </div>
-
-          {#if saveResult}
-            <div
-              class="flex items-center gap-2 rounded-lg border px-4 py-3 text-sm {saveResult.success
-                ? 'border-[#1DB954]/50 bg-[#1DB954]/10 text-[#1DB954]'
-                : 'border-destructive/50 bg-destructive/10 text-destructive'}"
-            >
-              {#if saveResult.success}
-                <CheckCircle2 class="size-4 shrink-0" />
-              {:else}
-                <AlertCircle class="size-4 shrink-0" />
-              {/if}
-              {saveResult.message}
-            </div>
-          {/if}
-
-          <Button
-            onclick={handleSave}
-            disabled={isSaving || !clientId.trim() || !clientSecret.trim()}
-            class="w-full sm:w-auto"
-          >
-            {#if isSaving}
-              <Loader2 class="mr-2 size-4 animate-spin" />
-            {:else}
-              <Save class="mr-2 size-4" />
+                {providersResult.message}
+              </div>
             {/if}
-            Save Credentials
-          </Button>
-        {/if}
-      </div>
-    </section>
 
-    <section class="border-destructive/40 bg-card mt-8 rounded-xl border">
-      <div class="border-destructive/40 flex items-center gap-3 border-b px-6 py-4">
-        <div class="bg-destructive/10 flex size-8 items-center justify-center rounded-lg">
-          <AlertTriangle class="text-destructive size-4" />
-        </div>
-        <div class="min-w-0 flex-1">
-          <h2 class="font-semibold">Danger zone</h2>
-          <p class="text-muted-foreground text-xs">
-            Irreversible actions that purge pipeline state. Make sure no job is running.
-          </p>
-        </div>
-      </div>
-
-      <div class="divide-border divide-y">
-        <div class="flex flex-col gap-3 p-6 sm:flex-row sm:items-start sm:justify-between">
-          <div class="flex-1 pr-4">
-            <h3 class="text-sm font-semibold">Reset enrichment data</h3>
-            <p class="text-muted-foreground mt-1 text-xs">
-              Keeps your scanned files and fingerprints. Clears enrichment results, provider
-              attempts, lyrics, duplicate detection, and library-build status for every active song,
-              and deletes any files that were copied to the destination folder.
-            </p>
-          </div>
-          <AlertDialog.Root>
-            <AlertDialog.Trigger>
-              {#snippet child({ props })}
-                <Button
-                  {...props}
-                  variant="outline"
-                  class="text-destructive hover:text-destructive shrink-0 gap-2"
-                  disabled={purgeRunning}
-                >
-                  {#if purgeRunning && purgeSnapshot?.mode === 'post-fingerprint'}
-                    <Loader2 class="size-4 animate-spin" />
-                  {:else}
-                    <Trash2 class="size-4" />
-                  {/if}
-                  Reset enrichment data
-                </Button>
-              {/snippet}
-            </AlertDialog.Trigger>
-            <AlertDialog.Content>
-              <AlertDialog.Header>
-                <AlertDialog.Title>Reset enrichment data?</AlertDialog.Title>
-                <AlertDialog.Description>
-                  This clears every song's enrichment, lyrics, duplicate flags, and library-build
-                  state, and deletes files copied to the destination folder. Fingerprints and scan
-                  data are preserved so the next run skips straight to enrichment. This runs in the
-                  background — you can navigate away and the progress will be here when you come
-                  back. This cannot be undone.
-                </AlertDialog.Description>
-              </AlertDialog.Header>
-              <AlertDialog.Footer>
-                <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
-                <AlertDialog.Action onclick={() => handlePurge('post-fingerprint')}>
-                  Reset enrichment data
-                </AlertDialog.Action>
-              </AlertDialog.Footer>
-            </AlertDialog.Content>
-          </AlertDialog.Root>
-        </div>
-
-        <div class="flex flex-col gap-3 p-6 sm:flex-row sm:items-start sm:justify-between">
-          <div class="flex-1 pr-4">
-            <h3 class="text-sm font-semibold">Purge all data</h3>
-            <p class="text-muted-foreground mt-1 text-xs">
-              Removes every song, provider attempt, and cached Spotify match from the database, and
-              deletes any files copied to the destination folder. Source files are not touched. The
-              next run re-scans and re-fingerprints from source.
-            </p>
-          </div>
-          <AlertDialog.Root>
-            <AlertDialog.Trigger>
-              {#snippet child({ props })}
-                <Button
-                  {...props}
-                  variant="destructive"
-                  class="shrink-0 gap-2"
-                  disabled={purgeRunning}
-                >
-                  {#if purgeRunning && purgeSnapshot?.mode === 'all'}
-                    <Loader2 class="size-4 animate-spin" />
-                  {:else}
-                    <Trash2 class="size-4" />
-                  {/if}
-                  Purge all data
-                </Button>
-              {/snippet}
-            </AlertDialog.Trigger>
-            <AlertDialog.Content>
-              <AlertDialog.Header>
-                <AlertDialog.Title>Purge all data?</AlertDialog.Title>
-                <AlertDialog.Description>
-                  This deletes every song record, provider attempt, and cached Spotify match, and
-                  removes files that were copied to the destination folder. Source files are not
-                  affected. This runs in the background — you can navigate away and the progress
-                  will be here when you come back. This cannot be undone.
-                </AlertDialog.Description>
-              </AlertDialog.Header>
-              <AlertDialog.Footer>
-                <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
-                <AlertDialog.Action onclick={() => handlePurge('all')}>
-                  Purge all data
-                </AlertDialog.Action>
-              </AlertDialog.Footer>
-            </AlertDialog.Content>
-          </AlertDialog.Root>
-        </div>
-
-        {#if purgeStartError}
-          <div class="px-6 pt-4 pb-6">
-            <div
-              class="border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
-            >
-              <AlertCircle class="mt-0.5 size-4 shrink-0" />
-              <p>{purgeStartError}</p>
+            <div class="border-border flex justify-end gap-2 border-t px-6 py-4">
+              <Button onclick={handleSaveProviders} disabled={isSavingProviders || !providers}>
+                {#if isSavingProviders}
+                  <Loader2 class="mr-2 size-4 animate-spin" />
+                {:else}
+                  <Save class="mr-2 size-4" />
+                {/if}
+                Save providers
+              </Button>
             </div>
-          </div>
-        {/if}
+          </section>
+        </Tabs.Content>
 
-        {#if purgeSnapshot && purgeSnapshot.status !== 'idle'}
-          <div class="px-6 pt-4 pb-6">
-            <PurgeStatusBanner snapshot={purgeSnapshot} />
-          </div>
-        {/if}
-      </div>
-    </section>
+        <!-- =================== PIPELINE =================== -->
+        <Tabs.Content value="pipeline" class="mt-0">
+          <section class="border-border bg-card rounded-xl border">
+            <header class="border-border border-b px-6 py-4">
+              <h2 class="font-semibold">Pipeline tuning</h2>
+              <p class="text-muted-foreground text-xs">
+                Confidence thresholds determine when a Spotify or AcoustID match is considered
+                "Matched" instead of "NeedsReview". Worker-concurrency changes are persisted but
+                apply only after the next API restart (SemaphoreSlim limits are set at startup).
+              </p>
+            </header>
+
+            <div class="space-y-6 p-6">
+              <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                  <Label>Spotify matched threshold</Label>
+                  <span class="text-muted-foreground font-mono text-sm"
+                    >{pipeline?.spotifyApiMatchedThreshold.toFixed(2) ?? '—'}</span
+                  >
+                </div>
+                <Slider
+                  type="single"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={pipeline?.spotifyApiMatchedThreshold ?? 0.85}
+                  onValueChange={(v) => {
+                    if (pipeline && typeof v === 'number')
+                      pipeline = { ...pipeline, spotifyApiMatchedThreshold: v };
+                  }}
+                />
+                <p class="text-muted-foreground text-xs">
+                  Songs below this score fall into the manual-review queue.
+                </p>
+              </div>
+
+              <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                  <Label>AcoustID score threshold</Label>
+                  <span class="text-muted-foreground font-mono text-sm"
+                    >{pipeline?.acoustIdScoreThreshold.toFixed(2) ?? '—'}</span
+                  >
+                </div>
+                <Slider
+                  type="single"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={pipeline?.acoustIdScoreThreshold ?? 0.85}
+                  onValueChange={(v) => {
+                    if (pipeline && typeof v === 'number')
+                      pipeline = { ...pipeline, acoustIdScoreThreshold: v };
+                  }}
+                />
+                <p class="text-muted-foreground text-xs">
+                  Minimum AcoustID match score (0..1) to accept the result.
+                </p>
+              </div>
+
+              <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                  <Label>Enrichment worker concurrency</Label>
+                  <span class="text-muted-foreground font-mono text-sm"
+                    >{pipeline?.enrichmentWorkerConcurrency ?? '—'} workers</span
+                  >
+                </div>
+                <Slider
+                  type="single"
+                  min={1}
+                  max={16}
+                  step={1}
+                  value={pipeline?.enrichmentWorkerConcurrency ?? 2}
+                  onValueChange={(v) => {
+                    if (pipeline && typeof v === 'number')
+                      pipeline = { ...pipeline, enrichmentWorkerConcurrency: v };
+                  }}
+                />
+              </div>
+
+              <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                  <Label>Library-builder worker concurrency</Label>
+                  <span class="text-muted-foreground font-mono text-sm"
+                    >{pipeline?.libraryBuilderWorkerConcurrency ?? '—'} workers</span
+                  >
+                </div>
+                <Slider
+                  type="single"
+                  min={1}
+                  max={16}
+                  step={1}
+                  value={pipeline?.libraryBuilderWorkerConcurrency ?? 2}
+                  onValueChange={(v) => {
+                    if (pipeline && typeof v === 'number')
+                      pipeline = { ...pipeline, libraryBuilderWorkerConcurrency: v };
+                  }}
+                />
+              </div>
+            </div>
+
+            {#if pipelineResult}
+              <div
+                class="mx-6 mb-4 flex items-center gap-2 rounded-lg border px-4 py-2 text-sm {pipelineResult.success
+                  ? 'border-[#1DB954]/50 bg-[#1DB954]/10 text-[#1DB954]'
+                  : 'border-destructive/50 bg-destructive/10 text-destructive'}"
+              >
+                {#if pipelineResult.success}
+                  <CheckCircle2 class="size-4 shrink-0" />
+                {:else}
+                  <AlertCircle class="size-4 shrink-0" />
+                {/if}
+                {pipelineResult.message}
+              </div>
+            {/if}
+
+            <div class="border-border flex justify-end gap-2 border-t px-6 py-4">
+              <Button onclick={handleSavePipeline} disabled={isSavingPipeline || !pipeline}>
+                {#if isSavingPipeline}
+                  <Loader2 class="mr-2 size-4 animate-spin" />
+                {:else}
+                  <Save class="mr-2 size-4" />
+                {/if}
+                Save pipeline
+              </Button>
+            </div>
+          </section>
+        </Tabs.Content>
+
+        <!-- =================== SPOTIFY =================== -->
+        <Tabs.Content value="spotify" class="mt-0">
+          <section class="border-border bg-card rounded-xl border">
+            <div class="border-border flex items-center gap-3 border-b px-6 py-4">
+              <div class="flex size-8 items-center justify-center rounded-lg bg-[#1DB954]/10">
+                <Music class="size-4 text-[#1DB954]" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <h2 class="font-semibold">Spotify Integration</h2>
+                <p class="text-muted-foreground text-xs">
+                  Connect your Spotify account to browse playlists and liked songs.
+                </p>
+              </div>
+              {#if spotifyStatus?.connected}
+                <Badge class="border-0 bg-[#1DB954]/20 text-[#1DB954]">Connected</Badge>
+              {:else if savedCredentials?.hasClientSecret}
+                <Badge variant="secondary">Credentials Set</Badge>
+              {:else}
+                <Badge variant="outline" class="text-muted-foreground">Not Configured</Badge>
+              {/if}
+            </div>
+
+            <div class="space-y-5 p-6">
+              <div class="border-border bg-secondary/30 rounded-lg border p-4 text-sm">
+                <div class="flex items-start gap-2">
+                  <KeyRound class="text-muted-foreground mt-0.5 size-4 shrink-0" />
+                  <div>
+                    <p class="mb-1 font-medium">How to get your Spotify API credentials</p>
+                    <ol class="text-muted-foreground list-inside list-decimal space-y-1 text-xs">
+                      <li>
+                        Go to the
+                        <a
+                          href="https://developer.spotify.com/dashboard"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="text-primary inline-flex items-center gap-0.5 hover:underline"
+                        >
+                          Spotify Developer Dashboard
+                          <ExternalLink class="size-3" />
+                        </a>
+                      </li>
+                      <li>Create a new app (or use an existing one).</li>
+                      <li>
+                        Add the redirect URI below in <em>Settings → Redirect URIs</em>. Spotify
+                        does not allow <code class="bg-secondary rounded px-1 py-0.5">localhost</code> —
+                        use a loopback IP like <code class="bg-secondary rounded px-1 py-0.5">127.0.0.1</code>.
+                      </li>
+                      <li>Copy the Client ID and Client Secret here.</li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+
+              <div class="space-y-2">
+                <Label for="client-id">Client ID</Label>
+                <Input
+                  id="client-id"
+                  type="text"
+                  placeholder="Enter your Spotify Client ID"
+                  bind:value={clientId}
+                  oninput={() => (saveResult = null)}
+                  class="font-mono text-sm"
+                />
+              </div>
+
+              <div class="space-y-2">
+                <Label for="client-secret">
+                  Client Secret
+                  {#if savedCredentials?.hasClientSecret && !clientSecret}
+                    <span class="text-muted-foreground ml-2 text-xs font-normal">
+                      (already saved — enter a new value to update)
+                    </span>
+                  {/if}
+                </Label>
+                <div class="flex gap-2">
+                  <Input
+                    id="client-secret"
+                    type={showSecret ? 'text' : 'password'}
+                    placeholder={savedCredentials?.hasClientSecret
+                      ? '••••••••••••••••'
+                      : 'Enter your Spotify Client Secret'}
+                    bind:value={clientSecret}
+                    oninput={() => (saveResult = null)}
+                    class="font-mono text-sm"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onclick={() => (showSecret = !showSecret)}
+                  >
+                    {showSecret ? 'Hide' : 'Show'}
+                  </Button>
+                </div>
+              </div>
+
+              <div class="space-y-2">
+                <Label>Redirect URI</Label>
+                <div class="flex gap-2">
+                  <Input readonly value={redirectUri} class="font-mono text-sm" />
+                  <Button type="button" variant="outline" onclick={copyRedirectUri}>
+                    <Copy class="mr-2 size-4" /> Copy
+                  </Button>
+                </div>
+                <p class="text-muted-foreground text-xs">
+                  Add this exact URI to your Spotify app's Redirect URIs list. Must match
+                  <code class="bg-secondary rounded px-1 py-0.5">Spotify:OAuthRedirectBaseUrl</code>
+                  on the API.
+                </p>
+              </div>
+
+              <div class="space-y-2">
+                <Label>Scopes requested</Label>
+                <div class="flex flex-wrap gap-2">
+                  {#each settings?.spotify.scopes ?? [] as scope (scope)}
+                    <Badge variant="secondary" class="font-mono text-xs">{scope}</Badge>
+                  {/each}
+                </div>
+              </div>
+
+              {#if saveResult}
+                <div
+                  class="flex items-center gap-2 rounded-lg border px-4 py-3 text-sm {saveResult.success
+                    ? 'border-[#1DB954]/50 bg-[#1DB954]/10 text-[#1DB954]'
+                    : 'border-destructive/50 bg-destructive/10 text-destructive'}"
+                >
+                  {#if saveResult.success}
+                    <CheckCircle2 class="size-4 shrink-0" />
+                  {:else}
+                    <AlertCircle class="size-4 shrink-0" />
+                  {/if}
+                  {saveResult.message}
+                </div>
+              {/if}
+
+              <Button
+                onclick={handleSaveCredentials}
+                disabled={isSaving || !clientId.trim() || !clientSecret.trim()}
+                class="w-full sm:w-auto"
+              >
+                {#if isSaving}
+                  <Loader2 class="mr-2 size-4 animate-spin" />
+                {:else}
+                  <Save class="mr-2 size-4" />
+                {/if}
+                Save credentials
+              </Button>
+            </div>
+          </section>
+        </Tabs.Content>
+
+        <!-- =================== DATA & RESETS =================== -->
+        <Tabs.Content value="data" class="mt-0">
+          <section class="border-destructive/40 bg-card rounded-xl border">
+            <div class="border-destructive/40 flex items-center gap-3 border-b px-6 py-4">
+              <div class="bg-destructive/10 flex size-8 items-center justify-center rounded-lg">
+                <AlertTriangle class="text-destructive size-4" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <h2 class="font-semibold">Danger zone</h2>
+                <p class="text-muted-foreground text-xs">
+                  Irreversible actions that purge pipeline state. Make sure no job is running.
+                </p>
+              </div>
+            </div>
+
+            <div class="divide-border divide-y">
+              <div class="flex flex-col gap-3 p-6 sm:flex-row sm:items-start sm:justify-between">
+                <div class="flex-1 pr-4">
+                  <h3 class="text-sm font-semibold">Reset enrichment data</h3>
+                  <p class="text-muted-foreground mt-1 text-xs">
+                    Keeps your scanned files and fingerprints. Clears enrichment results, provider
+                    attempts, lyrics, duplicate detection, and library-build status for every active
+                    song, and deletes any files that were copied to the destination folder.
+                  </p>
+                </div>
+                <AlertDialog.Root>
+                  <AlertDialog.Trigger>
+                    {#snippet child({ props })}
+                      <Button
+                        {...props}
+                        variant="outline"
+                        class="text-destructive hover:text-destructive shrink-0 gap-2"
+                        disabled={purgeRunning}
+                      >
+                        {#if purgeRunning && purgeSnapshot?.mode === 'post-fingerprint'}
+                          <Loader2 class="size-4 animate-spin" />
+                        {:else}
+                          <Trash2 class="size-4" />
+                        {/if}
+                        Reset enrichment data
+                      </Button>
+                    {/snippet}
+                  </AlertDialog.Trigger>
+                  <AlertDialog.Content>
+                    <AlertDialog.Header>
+                      <AlertDialog.Title>Reset enrichment data?</AlertDialog.Title>
+                      <AlertDialog.Description>
+                        This clears every song's enrichment, lyrics, duplicate flags, and
+                        library-build state, and deletes files copied to the destination folder.
+                        Fingerprints and scan data are preserved so the next run skips straight to
+                        enrichment. This runs in the background — you can navigate away and the
+                        progress will be here when you come back. This cannot be undone.
+                      </AlertDialog.Description>
+                    </AlertDialog.Header>
+                    <AlertDialog.Footer>
+                      <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+                      <AlertDialog.Action onclick={() => handlePurge('post-fingerprint')}>
+                        Reset enrichment data
+                      </AlertDialog.Action>
+                    </AlertDialog.Footer>
+                  </AlertDialog.Content>
+                </AlertDialog.Root>
+              </div>
+
+              <div class="flex flex-col gap-3 p-6 sm:flex-row sm:items-start sm:justify-between">
+                <div class="flex-1 pr-4">
+                  <h3 class="text-sm font-semibold">Purge all data</h3>
+                  <p class="text-muted-foreground mt-1 text-xs">
+                    Removes every song, provider attempt, and cached Spotify match from the
+                    database, and deletes any files copied to the destination folder. Source files
+                    are not touched. The next run re-scans and re-fingerprints from source.
+                  </p>
+                </div>
+                <AlertDialog.Root>
+                  <AlertDialog.Trigger>
+                    {#snippet child({ props })}
+                      <Button
+                        {...props}
+                        variant="destructive"
+                        class="shrink-0 gap-2"
+                        disabled={purgeRunning}
+                      >
+                        {#if purgeRunning && purgeSnapshot?.mode === 'all'}
+                          <Loader2 class="size-4 animate-spin" />
+                        {:else}
+                          <Trash2 class="size-4" />
+                        {/if}
+                        Purge all data
+                      </Button>
+                    {/snippet}
+                  </AlertDialog.Trigger>
+                  <AlertDialog.Content>
+                    <AlertDialog.Header>
+                      <AlertDialog.Title>Purge all data?</AlertDialog.Title>
+                      <AlertDialog.Description>
+                        This deletes every song record, provider attempt, and cached Spotify match,
+                        and removes files that were copied to the destination folder. Source files
+                        are not affected. This runs in the background — you can navigate away and
+                        the progress will be here when you come back. This cannot be undone.
+                      </AlertDialog.Description>
+                    </AlertDialog.Header>
+                    <AlertDialog.Footer>
+                      <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+                      <AlertDialog.Action onclick={() => handlePurge('all')}>
+                        Purge all data
+                      </AlertDialog.Action>
+                    </AlertDialog.Footer>
+                  </AlertDialog.Content>
+                </AlertDialog.Root>
+              </div>
+
+              {#if purgeStartError}
+                <div class="px-6 pt-4 pb-6">
+                  <div
+                    class="border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+                  >
+                    <AlertCircle class="mt-0.5 size-4 shrink-0" />
+                    <p>{purgeStartError}</p>
+                  </div>
+                </div>
+              {/if}
+
+              {#if purgeSnapshot && purgeSnapshot.status !== 'idle'}
+                <div class="px-6 pt-4 pb-6">
+                  <PurgeStatusBanner snapshot={purgeSnapshot} />
+                </div>
+              {/if}
+            </div>
+          </section>
+        </Tabs.Content>
+      </Tabs.Root>
+    {/if}
   </div>
 </div>

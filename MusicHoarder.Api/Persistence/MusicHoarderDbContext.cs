@@ -7,6 +7,7 @@ public class MusicHoarderDbContext(DbContextOptions options) : DbContext(options
     public DbSet<SongProviderAttempt> SongProviderAttempts { get; set; }
     public DbSet<SpotifySettings> SpotifySettings { get; set; }
     public DbSet<SpotifyTrackLibraryMatch> SpotifyTrackLibraryMatches { get; set; }
+    public DbSet<RuntimeSettings> RuntimeSettings { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -52,6 +53,11 @@ public class MusicHoarderDbContext(DbContextOptions options) : DbContext(options
             entity.HasKey(e => e.SpotifyTrackId);
             entity.HasIndex(e => e.UpdatedAtUtc);
             entity.HasIndex(e => e.MatchStatus);
+        });
+
+        modelBuilder.Entity<RuntimeSettings>(entity =>
+        {
+            entity.HasKey(e => e.Id);
         });
     }
 }

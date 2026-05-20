@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Settings;
 
 namespace MusicHoarder.Api.Enrichment;
 
@@ -19,7 +20,7 @@ public enum EnrichmentOutcome
 public interface IEnrichmentOrchestrator
 {
     Task<EnrichmentOutcome> ProcessSongAsync(int songId, CancellationToken ct = default);
-    IReadOnlySet<EnrichmentProvider> GetEnabledProviderEnums();
+    Task<IReadOnlySet<EnrichmentProvider>> GetEnabledProviderEnumsAsync(CancellationToken ct = default);
 }
 
 public class EnrichmentOrchestrator : IEnrichmentOrchestrator
@@ -28,6 +29,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
     private readonly IEnumerable<IEnrichmentProvider> _providers;
     private readonly ILrcLibService _lrcLibService;
     private readonly IOptions<MusicEnricherOptions> _options;
+    private readonly IRuntimeSettingsService _runtimeSettings;
     private readonly ILogger<EnrichmentOrchestrator> _logger;
 
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _providerSemaphores = new();
@@ -37,12 +39,14 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         IEnumerable<IEnrichmentProvider> providers,
         ILrcLibService lrcLibService,
         IOptions<MusicEnricherOptions> options,
+        IRuntimeSettingsService runtimeSettings,
         ILogger<EnrichmentOrchestrator> logger)
     {
         _scopeFactory = scopeFactory;
         _providers = providers;
         _lrcLibService = lrcLibService;
         _options = options;
+        _runtimeSettings = runtimeSettings;
         _logger = logger;
 
         InitializeSemaphores(options.Value);
@@ -63,8 +67,9 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             return EnrichmentOutcome.Skipped;
         }
 
-        var enabledProviders = GetEnabledProviders();
-        var enabledEnums = GetEnabledProviderEnums();
+        var effective = await _runtimeSettings.GetAsync(ct).ConfigureAwait(false);
+        var enabledProviders = GetEnabledProviders(effective);
+        var enabledEnums = BuildEnabledEnums(effective);
 
         if (enabledProviders.Count == 0)
         {
@@ -146,13 +151,18 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         };
     }
 
-    public IReadOnlySet<EnrichmentProvider> GetEnabledProviderEnums()
+    public async Task<IReadOnlySet<EnrichmentProvider>> GetEnabledProviderEnumsAsync(CancellationToken ct = default)
     {
-        var opts = _options.Value;
+        var effective = await _runtimeSettings.GetAsync(ct).ConfigureAwait(false);
+        return BuildEnabledEnums(effective);
+    }
+
+    private IReadOnlySet<EnrichmentProvider> BuildEnabledEnums(EffectiveSettings effective)
+    {
         var set = new HashSet<EnrichmentProvider>();
         foreach (var p in _providers)
         {
-            if (!IsProviderEnabled(p, opts)) continue;
+            if (!IsProviderEnabled(p, effective)) continue;
             var e = MapProviderName(p.Name);
             if (e is not null) set.Add(e.Value);
         }
@@ -290,23 +300,22 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         }
     }
 
-    private IReadOnlyList<IEnrichmentProvider> GetEnabledProviders()
+    private IReadOnlyList<IEnrichmentProvider> GetEnabledProviders(EffectiveSettings effective)
     {
-        var opts = _options.Value;
         return _providers
-            .Where(p => IsProviderEnabled(p, opts))
+            .Where(p => IsProviderEnabled(p, effective))
             .OrderBy(p => p.Priority)
             .ToList();
     }
 
-    private static bool IsProviderEnabled(IEnrichmentProvider provider, MusicEnricherOptions opts)
+    private static bool IsProviderEnabled(IEnrichmentProvider provider, EffectiveSettings effective)
     {
         return provider.Name switch
         {
-            "AcoustID" => opts.EnableAcoustIdProvider,
-            "MusicBrainzWeb" => opts.EnableMusicBrainzWebProvider,
-            "SpotifyAPI" => opts.EnableSpotifyApiProvider,
-            "Tracker" => opts.EnableTrackerProvider,
+            "AcoustID" => effective.EnableAcoustIdProvider,
+            "MusicBrainzWeb" => effective.EnableMusicBrainzWebProvider,
+            "SpotifyAPI" => effective.EnableSpotifyApiProvider,
+            "Tracker" => effective.EnableTrackerProvider,
             _ => true
         };
     }

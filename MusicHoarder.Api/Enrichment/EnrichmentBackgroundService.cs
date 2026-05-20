@@ -48,7 +48,7 @@ public class EnrichmentBackgroundService(
         {
             using var scope = scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-            var enabled = orchestrator.GetEnabledProviderEnums();
+            var enabled = await orchestrator.GetEnabledProviderEnumsAsync(ct).ConfigureAwait(false);
 
             if (enabled.Count == 0)
                 return;

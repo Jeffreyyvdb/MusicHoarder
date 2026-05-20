@@ -192,7 +192,7 @@ public class EnrichmentRetrySweepTests
         public Task<EnrichmentOutcome> ProcessSongAsync(int songId, CancellationToken ct = default)
             => Task.FromResult(EnrichmentOutcome.Skipped);
 
-        public IReadOnlySet<EnrichmentProvider> GetEnabledProviderEnums() => enabled;
+        public Task<IReadOnlySet<EnrichmentProvider>> GetEnabledProviderEnumsAsync(CancellationToken ct = default) => Task.FromResult(enabled);
     }
 
     private sealed class SimpleScopeFactory(MusicHoarderDbContext db) : IServiceScopeFactory
