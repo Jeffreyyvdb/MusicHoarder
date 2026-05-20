@@ -74,6 +74,9 @@ public static class ServiceCollectionExtensions
                 ?? "/data/dpkeys"));
 
         services.AddSingleton<JobManager>();
+        services.AddSingleton<DirectoryAvailabilityMonitor>();
+        services.AddSingleton<IDirectoryAvailability>(sp => sp.GetRequiredService<DirectoryAvailabilityMonitor>());
+        services.AddHostedService(sp => sp.GetRequiredService<DirectoryAvailabilityMonitor>());
         services.AddSingleton<ScanProgressTracker>();
         services.AddSingleton<FingerprintProgressTracker>();
         services.AddSingleton<EnrichmentProgressTracker>();
@@ -102,6 +105,9 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<FingerprintBackgroundService>();
         services.AddHostedService<EnrichmentBackgroundService>();
         services.AddHostedService<LibraryBuilderBackgroundService>();
+
+        services.AddHealthChecks()
+            .AddCheck<LibraryDirectoriesHealthCheck>("library-directories", tags: ["pipeline"]);
 
         services.AddScoped<IFileSystem, FileSystem>();
         services.AddScoped<IFileScanner, FileScanner>();
