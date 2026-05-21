@@ -51,6 +51,7 @@ services:
       Resend__ApiKey: "${RESEND_API_KEY}"
       Resend__FromAddress: "${RESEND_FROM_ADDRESS}"
       Frontend__PublicBaseUrl: "${FRONTEND_PUBLIC_BASE_URL}"
+      Spotify__OAuthRedirectBaseUrl: "${FRONTEND_PUBLIC_BASE_URL}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://compose-dashboard:18889"
       OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"
       OTEL_SERVICE_NAME: "api"

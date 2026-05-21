@@ -3,9 +3,13 @@
 #   ghcr.io/<owner>/musichoarder/api  and  ghcr.io/<owner>/musichoarder/frontend  as :latest),
 # then optionally trigger a Dokploy Compose redeploy that re-pulls them.
 #
-# Tagging: every build publishes :latest. Pushing a semver git tag (e.g. `v1.4.2`) additionally
-# tags the images :1.4.2, :1.4 and :1 (standard container semver), reusing the just-built :latest
-# manifest — no rebuild.
+# Tagging: every build publishes :latest. When invoked with a `version` input (the Release
+# workflow passes the semantic-release version), the images are additionally tagged :X.Y.Z, :X.Y
+# and :X (standard container semver), reusing the just-built :latest manifest — no rebuild.
+#
+# Trigger model: this runs only on `workflow_dispatch`. The Release workflow (release.yml)
+# dispatches it with the new `version` after semantic-release cuts a `vX.Y.Z` tag, so images
+# build + deploy on releases only. It can also be run manually (no version) to rebuild :latest.
 #
 # Why this exists: building these linux/amd64 images locally on an Apple Silicon Mac runs the
 # frontend's Vite build under x86 emulation and is painfully slow. GitHub's ubuntu runners are
@@ -13,10 +17,12 @@
 name: Build & push (Aspire) → Dokploy
 
 on:
-  push:
-    branches: [main]
-    tags: ["v[0-9]*.[0-9]*.[0-9]*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Semver to tag the images with (e.g. 1.9.2). Leave blank to only publish :latest."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -72,13 +78,15 @@ jobs:
           Parameters__resend-from-address: "noreply@example.com"
         run: aspire do push --non-interactive
 
-      # On a `v*` git tag, add semver tags pointing at the just-pushed :latest manifest (no rebuild).
-      - name: Tag semver (on v* tags)
-        if: startsWith(github.ref, 'refs/tags/v')
+      # When a version is supplied, add semver tags pointing at the just-pushed :latest manifest (no rebuild).
+      - name: Tag semver
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           owner="${GITHUB_REPOSITORY_OWNER,,}"
-          version="${GITHUB_REF_NAME#v}"   # v1.4.2 -> 1.4.2
+          version="${VERSION#v}"           # tolerate a leading v: v1.4.2 -> 1.4.2
           major="${version%%.*}"           # 1
           minor="${version%.*}"            # 1.4
           for name in api frontend; do

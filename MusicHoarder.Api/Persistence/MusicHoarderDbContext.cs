@@ -36,12 +36,15 @@ public class MusicHoarderDbContext : DbContext
 
     public DbSet<SongMetadata> Songs { get; set; } = null!;
     public DbSet<SongProviderAttempt> SongProviderAttempts { get; set; } = null!;
+    public DbSet<SongMetadataChange> SongMetadataChanges { get; set; } = null!;
     public DbSet<SpotifySettings> SpotifySettings { get; set; } = null!;
     public DbSet<SpotifyTrackLibraryMatch> SpotifyTrackLibraryMatches { get; set; } = null!;
     public DbSet<RuntimeSettings> RuntimeSettings { get; set; } = null!;
+    public DbSet<IngestRun> IngestRuns { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
     public DbSet<Session> Sessions { get; set; } = null!;
     public DbSet<MagicLinkToken> MagicLinkTokens { get; set; } = null!;
+    public DbSet<WebAuthnCredential> WebAuthnCredentials { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -66,6 +69,8 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => e.Fingerprint).HasMethod("hash");
             entity.HasIndex(e => new { e.DeletedAtUtc, e.IsDuplicate });
             entity.HasIndex(e => new { e.OwnerUserId, e.DeletedAtUtc });
+            // Supports identifier-based lookups / dedupe by ISRC.
+            entity.HasIndex(e => e.Isrc);
 
             entity.HasOne(e => e.DuplicateOf)
                 .WithMany()
@@ -93,6 +98,19 @@ public class MusicHoarderDbContext : DbContext
             // include a Song-based predicate when used outside background services.
         });
 
+        modelBuilder.Entity<SongMetadataChange>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.SongId, e.CreatedAtUtc });
+
+            entity.HasOne(e => e.Song)
+                .WithMany()
+                .HasForeignKey(e => e.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Inherits tenancy via its parent Song (joined queries apply Song's filter).
+        });
+
         modelBuilder.Entity<SpotifySettings>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -114,6 +132,14 @@ public class MusicHoarderDbContext : DbContext
         modelBuilder.Entity<RuntimeSettings>(entity =>
         {
             entity.HasKey(e => e.Id);
+        });
+
+        modelBuilder.Entity<IngestRun>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.OwnerUserId, e.StartedAtUtc });
+
+            entity.HasQueryFilter(r => !hasUser || r.OwnerUserId == userId);
         });
 
         modelBuilder.Entity<User>(entity =>
@@ -161,6 +187,19 @@ public class MusicHoarderDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.TokenHash).IsUnique();
             entity.HasIndex(e => new { e.UserId, e.ConsumedAtUtc, e.ExpiresAtUtc });
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<WebAuthnCredential>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // Looked up by the authenticator-issued id during assertion; unique across all users.
+            entity.HasIndex(e => e.CredentialId).IsUnique();
+            entity.HasIndex(e => e.UserId);
 
             entity.HasOne(e => e.User)
                 .WithMany()

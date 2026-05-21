@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Text.RegularExpressions;
 using Aspire.Hosting.Docker.Resources.ServiceNodes;
 
 var builder = DistributedApplication.CreateBuilder(args);
@@ -35,11 +37,13 @@ var sourceDirectory = builder.AddParameter("source-directory")
     .WithDescription("Source music directory the scanner crawls (absolute path).");
 var destinationDirectory = builder.AddParameter("destination-directory")
     .WithDescription("Destination library directory the LibraryBuilder writes into (absolute path).");
-var acoustIdApiKey = builder.AddParameter("acoustid-api-key", secret: true)
+// These secrets are optional: the app degrades gracefully when blank. Default a missing value to
+// empty so the AppHost boots without prompting (a configured user-secret / env value still wins).
+var acoustIdApiKey = builder.AddParameter("acoustid-api-key", builder.Configuration["Parameters:acoustid-api-key"] ?? "", secret: true)
     .WithDescription("AcoustID API key (acoustid.org/api-key). Optional — disables the AcoustID provider when blank.");
-var spotifyClientId = builder.AddParameter("spotify-client-id", secret: true)
+var spotifyClientId = builder.AddParameter("spotify-client-id", builder.Configuration["Parameters:spotify-client-id"] ?? "", secret: true)
     .WithDescription("Spotify app Client ID. Optional — disables Spotify enrichment + OAuth when blank.");
-var spotifyClientSecret = builder.AddParameter("spotify-client-secret", secret: true)
+var spotifyClientSecret = builder.AddParameter("spotify-client-secret", builder.Configuration["Parameters:spotify-client-secret"] ?? "", secret: true)
     .WithDescription("Spotify app Client Secret.");
 var frontendPublicBaseUrl = builder.AddParameter("frontend-public-base-url")
     .WithDescription("Public HTTPS base URL of the frontend, used for Spotify OAuth redirect-back. Only consumed when publishing (e.g. the Dokploy domain); local dev uses the dynamic dev endpoint.");
@@ -48,14 +52,27 @@ var ownerEmail = builder.AddParameter("owner-email")
     .WithDescription("Email of the owner (admin) account. Used by magic-link sign-in.");
 var demoUserEmail = builder.AddParameter("demo-user-email")
     .WithDescription("Email of the demo (read-only) account. Defaults to demo@musichoarder.local.");
-var resendApiKey = builder.AddParameter("resend-api-key", secret: true)
+var resendApiKey = builder.AddParameter("resend-api-key", builder.Configuration["Parameters:resend-api-key"] ?? "", secret: true)
     .WithDescription("Resend API key for magic-link emails. Optional — falls back to logging links to the console when blank.");
 var resendFromAddress = builder.AddParameter("resend-from-address")
     .WithDescription("'From' address for magic-link emails (must be on a domain verified in Resend).");
 
+// Locally, give each git branch/worktree its own data volume so their EF migration
+// histories never collide (switching branches otherwise corrupts the shared __EFMigrationsHistory).
+// Publish mode keeps the stable "musichoarder-volume" name baked into the compose output.
+var dataVolumeName = "musichoarder-volume";
+if (builder.ExecutionContext.IsRunMode)
+{
+    var dbKey = ResolveDbKey(builder.AppHostDirectory);
+    if (!string.IsNullOrEmpty(dbKey))
+    {
+        dataVolumeName = $"musichoarder-volume-{dbKey}";
+    }
+}
+
 var postgres = builder.AddPostgres("postgres")
     .WithLifetime(ContainerLifetime.Persistent)
-    .WithDataVolume("musichoarder-volume");
+    .WithDataVolume(dataVolumeName);
 var postgresdb = postgres.AddDatabase("musichoarderdb");
 
 var api = builder.AddProject<Projects.MusicHoarder_Api>("api")
@@ -108,6 +125,11 @@ api.WithEnvironment(context =>
     if (context.ExecutionContext.IsPublishMode)
     {
         context.EnvironmentVariables["Frontend__PublicBaseUrl"] = frontendPublicBaseUrl.Resource;
+        // Spotify redirects the browser back through the frontend origin (the /api/spotify/callback
+        // SvelteKit route forwards to the API), so the OAuth redirect URI must be the public
+        // frontend base — not the API's internal request host, which would resolve to a loopback
+        // address behind the proxy and break the flow.
+        context.EnvironmentVariables["Spotify__OAuthRedirectBaseUrl"] = frontendPublicBaseUrl.Resource;
     }
     else
     {
@@ -116,3 +138,45 @@ api.WithEnvironment(context =>
 });
 
 builder.Build().Run();
+
+// Resolves a per-branch key for the local Postgres data volume. Order: explicit env override,
+// current git branch, short SHA when detached, else null (caller falls back to the shared volume).
+static string? ResolveDbKey(string workingDir)
+{
+    var explicitKey = Environment.GetEnvironmentVariable("MUSICHOARDER_DB_KEY");
+    if (!string.IsNullOrWhiteSpace(explicitKey))
+        return Sanitize(explicitKey);
+
+    var branch = RunGit("rev-parse --abbrev-ref HEAD", workingDir);
+    if (string.IsNullOrEmpty(branch))
+        return null;                       // git unavailable -> shared volume
+    if (branch == "HEAD")                  // detached HEAD
+        branch = RunGit("rev-parse --short HEAD", workingDir);
+
+    return string.IsNullOrEmpty(branch) ? null : Sanitize(branch);
+
+    static string Sanitize(string s)
+    {
+        var slug = Regex.Replace(s.Trim().ToLowerInvariant(), "[^a-z0-9]+", "-").Trim('-');
+        return slug.Length > 40 ? slug[..40].Trim('-') : slug;
+    }
+
+    static string? RunGit(string args, string dir)
+    {
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo("git", args)
+            {
+                WorkingDirectory = dir,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            });
+            if (p is null) return null;
+            var output = p.StandardOutput.ReadToEnd().Trim();
+            p.WaitForExit(2000);
+            return p.ExitCode == 0 ? output : null;
+        }
+        catch { return null; }
+    }
+}
