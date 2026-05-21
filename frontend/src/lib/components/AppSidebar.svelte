@@ -52,10 +52,10 @@
   ];
 
   const ORGANIZE = [
-    { id: 'artist', label: 'By Artist' },
-    { id: 'genre', label: 'By Genre' },
-    { id: 'year', label: 'By Year' },
-    { id: 'label', label: 'By Label' }
+    { id: 'artist', label: 'By Artist', href: '/artists' },
+    { id: 'genre', label: 'By Genre', href: null },
+    { id: 'year', label: 'By Year', href: '/years' },
+    { id: 'label', label: 'By Label', href: null }
   ] as const;
 
   type SourceKind = 'connected' | 'unknown';
@@ -103,6 +103,11 @@
 
   const pathname = $derived(page.url.pathname);
   const onLibrary = $derived(pathname === '/app' || pathname.startsWith('/app/'));
+  const activeOrganize = $derived.by<'artist' | 'year' | null>(() => {
+    if (pathname.startsWith('/artists') || page.url.searchParams.get('artist')) return 'artist';
+    if (pathname.startsWith('/years') || page.url.searchParams.get('year')) return 'year';
+    return null;
+  });
   const activeSection = $derived<SectionId>(
     (page.url.searchParams.get('section') as SectionId | null) ?? 'lib'
   );
@@ -158,7 +163,7 @@
     for (const s of songs) {
       const a = (s.albumArtist ?? s.artist ?? '').trim();
       if (a) artistSet.add(a.toLowerCase());
-      if (s.year) yearSet.add(s.year);
+      if (typeof s.year === 'number' && Number.isFinite(s.year)) yearSet.add(s.year);
     }
     return {
       artist: artistSet.size,
@@ -270,71 +275,69 @@
       </Sidebar.GroupContent>
     </Sidebar.Group>
 
-    {#if onLibrary}
-      <Sidebar.Group class="group-data-[collapsible=icon]:hidden">
-        <Sidebar.GroupLabel>Library</Sidebar.GroupLabel>
-        <Sidebar.GroupContent class="px-2">
-          {#each SECTIONS as section (section.id)}
-            {@const isActive = activeSection === section.id}
-            {@const count = counts[section.id]}
-            <a
-              href={section.id === 'lib' ? '/app' : `/app?section=${section.id}`}
-              data-active={isActive || undefined}
-              class={cn(
-                'mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors',
-                'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-                'data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:font-medium',
-                section.warn && !isActive && '[&_svg]:text-amber-600 dark:[&_svg]:text-amber-500',
-                section.accent && !isActive && 'text-primary'
-              )}
-            >
-              <section.icon class={cn('size-3.5 shrink-0', isActive && 'text-primary')} />
-              <span class="flex-1 truncate text-left">{section.label}</span>
-              <span class="text-muted-foreground font-mono text-[10.5px]">
-                {fmtCount(count)}
-              </span>
-            </a>
-          {/each}
+    <Sidebar.Group class="group-data-[collapsible=icon]:hidden">
+      <Sidebar.GroupLabel>Library</Sidebar.GroupLabel>
+      <Sidebar.GroupContent class="px-2">
+        {#each SECTIONS as section (section.id)}
+          {@const isActive = onLibrary && activeSection === section.id}
+          {@const count = counts[section.id]}
           <a
-            href="/app/files"
-            class="text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors"
+            href={section.id === 'lib' ? '/app' : `/app?section=${section.id}`}
+            data-active={isActive || undefined}
+            class={cn(
+              'mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors',
+              'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+              'data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:font-medium',
+              section.warn && !isActive && '[&_svg]:text-amber-600 dark:[&_svg]:text-amber-500',
+              section.accent && !isActive && 'text-primary'
+            )}
           >
-            <FolderOpen class="size-3.5 shrink-0" />
-            <span class="flex-1 truncate text-left">Files (source / dest)</span>
+            <section.icon class={cn('size-3.5 shrink-0', isActive && 'text-primary')} />
+            <span class="flex-1 truncate text-left">{section.label}</span>
+            <span class="text-muted-foreground font-mono text-[10.5px]">
+              {fmtCount(count)}
+            </span>
           </a>
-        </Sidebar.GroupContent>
-      </Sidebar.Group>
+        {/each}
+        <a
+          href="/app/files"
+          class="text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors"
+        >
+          <FolderOpen class="size-3.5 shrink-0" />
+          <span class="flex-1 truncate text-left">Files (source / dest)</span>
+        </a>
+      </Sidebar.GroupContent>
+    </Sidebar.Group>
 
-      <Sidebar.Group class="group-data-[collapsible=icon]:hidden">
-        <Sidebar.GroupLabel>Organize by</Sidebar.GroupLabel>
-        <Sidebar.GroupContent class="px-2">
-          {#each ORGANIZE as item (item.id)}
-            {@const count = organizeCounts[item.id]}
-            {#if item.id === 'artist'}
-              {@const isActive = pathname.startsWith('/artists')}
-              <a
-                href="/artists"
-                data-active={isActive || undefined}
-                class="text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:font-medium mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors"
-              >
-                <ListMusic class={cn('size-3.5 shrink-0', isActive && 'text-primary')} />
-                <span class="flex-1 truncate text-left">{item.label}</span>
-                <span class="text-muted-foreground font-mono text-[10.5px]">{fmtCount(count)}</span>
-              </a>
-            {:else}
-              <div
-                class="text-sidebar-foreground/70 hover:bg-sidebar-accent mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors"
-                title="Coming soon"
-              >
-                <ListMusic class="size-3.5 shrink-0" />
-                <span class="flex-1 truncate text-left">{item.label}</span>
-                <span class="text-muted-foreground font-mono text-[10.5px]">{fmtCount(count)}</span>
-              </div>
-            {/if}
-          {/each}
-        </Sidebar.GroupContent>
-      </Sidebar.Group>
-    {/if}
+    <Sidebar.Group class="group-data-[collapsible=icon]:hidden">
+      <Sidebar.GroupLabel>Organize by</Sidebar.GroupLabel>
+      <Sidebar.GroupContent class="px-2">
+        {#each ORGANIZE as item (item.id)}
+          {@const count = organizeCounts[item.id]}
+          {#if item.href}
+            {@const isActive = activeOrganize === item.id}
+            <a
+              href={item.href}
+              data-active={isActive || undefined}
+              class="text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:font-medium mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors"
+            >
+              <ListMusic class={cn('size-3.5 shrink-0', isActive && 'text-primary')} />
+              <span class="flex-1 truncate text-left">{item.label}</span>
+              <span class="text-muted-foreground font-mono text-[10.5px]">{fmtCount(count)}</span>
+            </a>
+          {:else}
+            <div
+              class="text-sidebar-foreground/50 mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px]"
+              title="Coming soon"
+            >
+              <ListMusic class="size-3.5 shrink-0" />
+              <span class="flex-1 truncate text-left">{item.label}</span>
+              <span class="text-muted-foreground/70 text-[9.5px] tracking-wide uppercase">Soon</span>
+            </div>
+          {/if}
+        {/each}
+      </Sidebar.GroupContent>
+    </Sidebar.Group>
 
     <Sidebar.Group>
       <Sidebar.GroupLabel>System</Sidebar.GroupLabel>
