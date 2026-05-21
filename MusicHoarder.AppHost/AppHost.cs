@@ -48,6 +48,17 @@ var spotifyClientSecret = builder.AddParameter("spotify-client-secret", builder.
 var frontendPublicBaseUrl = builder.AddParameter("frontend-public-base-url")
     .WithDescription("Public HTTPS base URL of the frontend, used for Spotify OAuth redirect-back. Only consumed when publishing (e.g. the Dokploy domain); local dev uses the dynamic dev endpoint.");
 
+// Umami analytics is read by the frontend at runtime via $env/dynamic/public, so these are plain
+// (non-secret) runtime env vars on the frontend container. Default to empty so the AppHost boots and
+// `aspire do push` resolves them without prompting; the tracker script only renders when both
+// public-umami-src and public-umami-website-id are non-empty (filled in Dokploy).
+var publicUmamiSrc = builder.AddParameter("public-umami-src", builder.Configuration["Parameters:public-umami-src"] ?? "")
+    .WithDescription("Full Umami tracker URL ending in /script.js. Blank disables analytics.");
+var publicUmamiWebsiteId = builder.AddParameter("public-umami-website-id", builder.Configuration["Parameters:public-umami-website-id"] ?? "")
+    .WithDescription("Umami website id (GUID). Blank disables analytics.");
+var publicUmamiRecorderSrc = builder.AddParameter("public-umami-recorder-src", builder.Configuration["Parameters:public-umami-recorder-src"] ?? "")
+    .WithDescription("Optional Umami session-recorder URL ending in /recorder.js. Blank disables the recorder.");
+
 var ownerEmail = builder.AddParameter("owner-email")
     .WithDescription("Email of the owner (admin) account. Used by magic-link sign-in.");
 var demoUserEmail = builder.AddParameter("demo-user-email")
@@ -106,6 +117,9 @@ var frontend = builder.AddViteApp("frontend", "../frontend")
     .WithReference(api)
     // Internal Node→ASP.NET proxy hop stays HTTP to sidestep cross-runtime dev-cert trust.
     .WithEnvironment("MUSICHOARDER_API_URL", api.GetEndpoint("http"))
+    .WithEnvironment("PUBLIC_UMAMI_SRC", publicUmamiSrc)
+    .WithEnvironment("PUBLIC_UMAMI_WEBSITE_ID", publicUmamiWebsiteId)
+    .WithEnvironment("PUBLIC_UMAMI_RECORDER_SRC", publicUmamiRecorderSrc)
     .WaitForStart(api)
     .WithExternalHttpEndpoints()
     .PublishAsNodeServer(entryPoint: "build/index.js", outputPath: "build");
