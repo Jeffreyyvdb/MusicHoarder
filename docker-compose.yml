@@ -35,6 +35,11 @@ services:
       - MusicEnricher__AcoustIdApiKey=${ACOUSTID_API_KEY:-}
       - Spotify__ClientId=${SPOTIFY_CLIENT_ID:-}
       - Spotify__ClientSecret=${SPOTIFY_CLIENT_SECRET:-}
+      # Spotify redirects the browser back through the public frontend origin (the
+      # /api/spotify/callback SvelteKit route forwards to the API). Without this the redirect URI
+      # is derived from the proxied request host and resolves to a loopback address. Register
+      # <PUBLIC_BASE_URL>/api/spotify/callback in the Spotify dashboard.
+      - Spotify__OAuthRedirectBaseUrl=${PUBLIC_BASE_URL:?PUBLIC_BASE_URL is required}
       - Auth__OwnerEmail=${OWNER_EMAIL:?OWNER_EMAIL is required}
       - Auth__DemoUserEmail=${DEMO_USER_EMAIL:-demo@musichoarder.local}
       - Auth__DataProtectionKeysPath=/data/dpkeys
