@@ -247,7 +247,11 @@ function buildDemoSongs(): ApiSong[] {
   })
   const totalFromReal = realSongs.reduce((sum, s) => sum + s.fileSizeBytes, 0)
   const synthetic = buildSyntheticDemoSongs(realSongs.length + 1, totalFromReal)
-  return [...realSongs, ...synthetic]
+  // Messy, freshly-dumped files awaiting manual review. Including them in the
+  // library keeps the "Missing metadata" section, the sidebar review badge, and
+  // the /review queue consistent (single source of truth).
+  const reviewSongs = buildDemoReviewItems().map((item) => item.song)
+  return [...realSongs, ...synthetic, ...reviewSongs]
 }
 
 /** Target total demo library size in bytes (~110 GB) for a MusicHoarder-style library. */
@@ -1302,6 +1306,9 @@ export async function fetchOverview(): Promise<ApiOverview> {
     const enrichedCount =
       demoSongs.filter((s) => s.enrichmentStatus === "complete").length ||
       Math.floor(demoSongs.length * 0.76)
+    const reviewCount = demoSongs.filter(
+      (s) => mapEnrichmentStatus(s.enrichmentStatus) === "needsreview"
+    ).length
     return {
       sourcePath: mockImportJob.sourcePath,
       destinationPath: mockImportJob.destinationPath,
@@ -1315,7 +1322,7 @@ export async function fetchOverview(): Promise<ApiOverview> {
         tracksEnriched: enrichedCount,
         tracksBuildEligible: Math.min(enrichedCount, Math.max(copiedCount, Math.floor(demoSongs.length * 0.6))),
         tracksCopied: copiedCount,
-        tracksReview: mockImportJob.tracksReview,
+        tracksReview: reviewCount,
         tracksFailed: mockImportJob.tracksFailed,
       },
       recentActivity: (await import("$lib/mock-data")).mockRecentActivity.map((a) => ({
@@ -2340,7 +2347,9 @@ function buildDemoReviewItems(): { song: ApiSong; detail: EnrichmentDetail }[] {
 
 export async function fetchReviewTracks(): Promise<ApiSong[]> {
   if (isDemoMode) {
-    return buildDemoReviewItems().map((item) => item.song)
+    return buildDemoSongs().filter(
+      (s) => mapEnrichmentStatus(s.enrichmentStatus) === "needsreview"
+    )
   }
 
   const result = await requestJson<SongsResponse>(
