@@ -7,24 +7,18 @@
  * The store is mounted once at the `(app)` layout level. It only opens the SSE
  * connection / polling loop while the drawer is visible OR a job is running,
  * so a closed-drawer idle app stays fully quiet on the wire.
- *
- * In demo mode (`PUBLIC_DEMO_MODE`), a synthetic ticker fakes both feeds so
- * the drawer renders without a backend.
  */
 
 import {
   fetchOverview,
   openProgressStream,
   type ApiOverview,
-  type ApiOverviewActivity,
   type ProgressSnapshot
 } from '$lib/api-client';
-import { isDemoMode } from '$lib/app-mode';
 
 const STORAGE_KEY = 'mh:pipeline-open';
 const POLL_INTERVAL_MS = 5_000;
 const RATE_WINDOW_MS = 30_000;
-const DEMO_TICK_MS = 1_000;
 
 type StageKey = 'scan' | 'fingerprint' | 'enrich' | 'build';
 
@@ -59,7 +53,6 @@ let refCount = 0;
 let sseCleanup: (() => void) | null = null;
 let sseReconnect: ReturnType<typeof setTimeout> | null = null;
 let pollHandle: ReturnType<typeof setInterval> | null = null;
-let demoHandle: ReturnType<typeof setInterval> | null = null;
 let active = false;
 
 function pushSample(snap: ProgressSnapshot): void {
@@ -169,10 +162,6 @@ function stopSse(): void {
 function activate(): void {
   if (active) return;
   active = true;
-  if (isDemoMode) {
-    startDemo();
-    return;
-  }
   void loadOverview();
   startSse();
   pollHandle = setInterval(() => void loadOverview(), POLL_INTERVAL_MS);
@@ -186,7 +175,6 @@ function deactivate(): void {
     pollHandle = null;
   }
   stopSse();
-  stopDemo();
 }
 
 /**
@@ -202,124 +190,6 @@ function reconcileLifecycle(): void {
   const shouldRun = isOpen || isAnyRunningFor(snapshot);
   if (shouldRun) activate();
   else deactivate();
-}
-
-// ── Demo-mode synthetic ticker ──────────────────────────────────────────────
-
-function startDemo(): void {
-  if (demoHandle) return;
-  const startedAt = new Date().toISOString();
-  const total = 12_847;
-  let discovered = 8_955;
-  let scanned = 8_500;
-  let fingerprinted = 8_200;
-  let enriched = 7_400;
-  let built = 6_100;
-  let failed = 12;
-
-  overview = {
-    sourcePath: '~/Downloads/music_dump_2024',
-    destinationPath: '~/Music/Library',
-    scan: null,
-    enrichment: null,
-    job: {
-      status: 'running',
-      startedAt,
-      tracksDiscovered: discovered,
-      tracksProcessed: scanned,
-      tracksFingerprinted: fingerprinted,
-      tracksEnriched: enriched,
-      tracksBuildEligible: enriched,
-      tracksCopied: built,
-      tracksReview: 142,
-      tracksFailed: failed
-    },
-    recentActivity: synthLogSeed()
-  };
-
-  const tick = () => {
-    discovered = Math.min(total, discovered + Math.floor(40 + Math.random() * 100));
-    scanned = Math.min(discovered, scanned + Math.floor(30 + Math.random() * 80));
-    fingerprinted = Math.min(scanned, fingerprinted + Math.floor(12 + Math.random() * 40));
-    enriched = Math.min(fingerprinted, enriched + Math.floor(8 + Math.random() * 30));
-    built = Math.min(enriched, built + Math.floor(5 + Math.random() * 22));
-    if (Math.random() < 0.08) failed += 1;
-
-    const next: ProgressSnapshot = {
-      status: 'Scanning, Fingerprinting, Enriching, Building',
-      jobId: 'demo-job',
-      startedAt,
-      completedAt: null,
-      isComplete: false,
-      discovered,
-      scanned,
-      fingerprinted,
-      enriched,
-      built,
-      failed,
-      scan: { status: scanned < discovered ? 'Running' : 'Completed', isPaused: false },
-      fingerprint: { status: 'Running', isPaused: false },
-      enrich: { status: 'Running', isPaused: false },
-      build: { status: 'Running', isPaused: false }
-    };
-    snapshot = next;
-    pushSample(next);
-
-    overview = {
-      ...overview!,
-      job: {
-        ...overview!.job,
-        tracksDiscovered: discovered,
-        tracksProcessed: scanned,
-        tracksFingerprinted: fingerprinted,
-        tracksEnriched: enriched,
-        tracksBuildEligible: enriched,
-        tracksCopied: built,
-        tracksFailed: failed
-      },
-      recentActivity: rotateDemoLog(overview!.recentActivity)
-    };
-  };
-
-  tick();
-  demoHandle = setInterval(tick, DEMO_TICK_MS);
-}
-
-function stopDemo(): void {
-  if (demoHandle) {
-    clearInterval(demoHandle);
-    demoHandle = null;
-  }
-}
-
-const DEMO_LOG_POOL: Omit<ApiOverviewActivity, 'id' | 'time'>[] = [
-  { type: 'discovered', track: 'IMG_1847.m4a', artist: 'unknown' },
-  { type: 'enriched', track: 'Nude', artist: 'Radiohead' },
-  { type: 'copied', track: '03 Nude.flac', artist: 'Radiohead' },
-  { type: 'enriched', track: 'Pyramids', artist: 'Frank Ocean' },
-  { type: 'review', track: 'track_047.mp3', artist: 'Possibly: Boards of Canada' },
-  { type: 'discovered', track: '04 Reckoner.flac', artist: 'Radiohead' },
-  { type: 'enriched', track: 'Selected Ambient Works 85-92', artist: 'Aphex Twin' },
-  { type: 'copied', track: '09 1969.flac', artist: 'Boards of Canada' },
-  { type: 'failed', track: 'corrupted_file.mp3', artist: 'unknown' },
-  { type: 'enriched', track: 'Instant Crush', artist: 'Daft Punk' },
-  { type: 'copied', track: '02 King Kunta.flac', artist: 'Kendrick Lamar' },
-  { type: 'discovered', track: 'IMG_1848.m4a', artist: 'unknown' }
-];
-
-function synthLogSeed(): ApiOverviewActivity[] {
-  return DEMO_LOG_POOL.slice(0, 8).map((row, i) => ({
-    ...row,
-    id: `demo-${Date.now()}-${i}`,
-    time: 'just now'
-  }));
-}
-
-function rotateDemoLog(prev: ApiOverviewActivity[]): ApiOverviewActivity[] {
-  const next = [...prev];
-  const seed = DEMO_LOG_POOL[Math.floor(Math.random() * DEMO_LOG_POOL.length)];
-  next.unshift({ ...seed, id: `demo-${Date.now()}`, time: 'just now' });
-  return next.slice(0, 12);
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────

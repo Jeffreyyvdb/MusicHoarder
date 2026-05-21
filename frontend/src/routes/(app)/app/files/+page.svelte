@@ -14,7 +14,7 @@
     LibrarySortDirection,
     LibraryFilterBy
   } from '$lib/components/file-browser/Toolbar.svelte';
-  import { findAncestorFolderId, findFileById, getPathToFile } from '$lib/mock-data';
+  import { findAncestorFolderId, findFileById, getPathToFile } from '$lib/file-tree';
   import type { FileItem } from '$lib/types';
   import { Menu } from '@lucide/svelte';
   import { cn } from '$lib/utils';

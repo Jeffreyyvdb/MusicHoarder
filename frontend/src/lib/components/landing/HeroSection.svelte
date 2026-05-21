@@ -1,7 +1,5 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button';
-  import { Play } from '@lucide/svelte';
-  import { isDemoMode } from '$lib/app-mode';
 
   type LogRow = readonly [stage: string, msg: string, level: 'ok' | 'warn'];
 
@@ -47,14 +45,7 @@
     </p>
 
     <div class="mb-6 flex flex-wrap gap-2.5">
-      {#if isDemoMode}
-        <Button size="lg" class="gap-1.5" href="/app">
-          <Play class="h-3.5 w-3.5 fill-current" />
-          Try the live demo
-        </Button>
-      {:else}
-        <Button size="lg" href="/app">Sign in</Button>
-      {/if}
+      <Button size="lg" href="/app">Sign in</Button>
       <Button
         size="lg"
         variant="outline"
