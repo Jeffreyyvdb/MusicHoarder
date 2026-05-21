@@ -48,7 +48,9 @@ _curl() {
   local proc="$1"; shift
   local out status
   out="$(mktemp)"
-  status="$(curl -fsS --max-time 120 -o "$out" -w '%{http_code}' \
+  # --fail-with-body (curl >=7.76) keeps the response body on HTTP errors so Dokploy's validation
+  # message is visible, unlike plain -f which discards it.
+  status="$(curl --fail-with-body -sS --max-time 120 -o "$out" -w '%{http_code}' \
     -H "x-api-key: ${DOKPLOY_API_KEY}" "$@" \
     "${BASE}/api/${proc}" 2>"$out".err || true)"
   if [[ ! "$status" =~ ^2 ]]; then
