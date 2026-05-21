@@ -21,6 +21,14 @@ export const GET: RequestHandler = async ({ url }) => {
     return new Response('Spotify OAuth relay is not configured.', { status: 500 });
   }
 
+  // An empty allowlist would make every origin fail the check below, surfacing a misleading
+  // "Invalid OAuth state" 400. Fail fast with a 500 so a misconfigured relay is obvious.
+  if (!allowlist) {
+    return new Response('Spotify OAuth relay is not configured (missing allowlist).', {
+      status: 500
+    });
+  }
+
   const returnOrigin = verifyRelayState(url.searchParams.get('state'), signingKey);
   if (!returnOrigin || !isAllowedReturnOrigin(returnOrigin, allowlist)) {
     return new Response('Invalid OAuth state.', { status: 400 });

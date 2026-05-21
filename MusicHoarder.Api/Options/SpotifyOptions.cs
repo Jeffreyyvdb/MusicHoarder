@@ -64,7 +64,8 @@ public class SpotifyOptions
 
     /// <summary>
     /// Maximum age (minutes) of a signed OAuth <c>state</c> accepted on the callback. Guards against replay of a stale
-    /// authorization. Ignored when <see cref="OAuthStateSigningKey"/> is empty.
+    /// authorization. The default of 10 minutes is the effective TTL in every environment (prod, preview, local) once
+    /// the signing key is set. Ignored when <see cref="OAuthStateSigningKey"/> is empty.
     /// </summary>
     public int OAuthStateTtlMinutes { get; set; } = 10;
 

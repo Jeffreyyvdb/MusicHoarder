@@ -39,6 +39,11 @@ public class SpotifyOAuthService(
         // Signed state carries the originating env's origin so the prod relay can bounce the browser back to complete
         // the exchange here; falls back to an opaque random value for standalone dev (no relay, no signing key).
         var signingKey = spotifyOptions.Value.OAuthStateSigningKey;
+        if (!string.IsNullOrEmpty(signingKey) && string.IsNullOrWhiteSpace(returnOrigin))
+            logger.LogWarning(
+                "Spotify OAuthStateSigningKey is set but returnOrigin is empty (Frontend:PublicBaseUrl likely unset) — " +
+                "emitting an opaque unsigned state, which the relay/callback will reject. Check the frontend base URL config.");
+
         var state = !string.IsNullOrEmpty(signingKey) && !string.IsNullOrWhiteSpace(returnOrigin)
             ? SpotifyOAuthStateProtector.Create(returnOrigin.Trim().TrimEnd('/'), signingKey)
             : GenerateState();
