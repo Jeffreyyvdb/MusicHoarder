@@ -1,20 +1,12 @@
 import { redirect } from '@sveltejs/kit';
-import { env as publicEnv } from '$env/dynamic/public';
 import { getApiBaseUrl } from '$lib/server/api-target';
 import type { LayoutServerLoad } from './$types';
 
-const DEMO_MODE_TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
-
 /**
  * Auth gate for every (app) route. Despite `(app)/+layout.ts` setting `ssr = false`, server load
- * functions still run on Node — that's where we want auth. If `PUBLIC_DEMO_MODE` is on, bypass
- * the gate entirely (client mock-data takes over).
+ * functions still run on Node — that's where we want auth.
  */
 export const load: LayoutServerLoad = async ({ request, cookies }) => {
-  if (DEMO_MODE_TRUE_VALUES.has((publicEnv.PUBLIC_DEMO_MODE ?? '').trim().toLowerCase())) {
-    return { user: { id: 'demo', email: 'demo@musichoarder.local', role: 'Demo' as const, displayName: 'Demo' } };
-  }
-
   const apiBase = getApiBaseUrl().replace(/\/$/, '');
   const response = await fetch(`${apiBase}/api/auth/me`, {
     headers: {

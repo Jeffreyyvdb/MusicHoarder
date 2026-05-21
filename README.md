@@ -98,11 +98,11 @@ Create two applications in Dokploy, both pointing at this repo and the `main` br
 | App | Build type | Build context | Dockerfile | Notes |
 |-----|------------|---------------|------------|-------|
 | API | Docker | `/` (repo root) | `Dockerfile` | Exposes port `8080` |
-| Frontend | Docker | `frontend/` | `frontend/Dockerfile` | Exposes port `3000`. Set build arg `PUBLIC_DEMO_MODE=true` for the demo deployment |
+| Frontend | Docker | `frontend/` | `frontend/Dockerfile` | Exposes port `3000` |
 
 Enable Dokploy's GitHub webhook on each app so a push to `main` triggers a rebuild automatically. Runtime env vars (`ConnectionStrings__musichoarderdb`, `MusicEnricher__*`, `MUSICHOARDER_API_URL`, etc.) are configured per-app in Dokploy.
 
-Because the frontend bakes `PUBLIC_*` values at build time, `PUBLIC_DEMO_MODE` must be set as a **build arg** in Dokploy, not a runtime env var.
+Because the frontend bakes `PUBLIC_*` values at build time, any `PUBLIC_*` value (e.g. `PUBLIC_SITE_URL`) must be set as a **build arg** in Dokploy, not a runtime env var.
 
 ### PR preview environments
 
@@ -116,7 +116,10 @@ compose stack (own Postgres + API + frontend, namespaced by `appName=mh-pr-<n>`)
 `pr-preview-cleanup.yml` reaps any that slip through.
 
 Sign in to a preview with the magic link printed in the API logs (Dokploy log viewer) — previews
-run with Resend disabled so no email provider is needed.
+run with Resend disabled so no email provider is needed. The owner can also sign in with a
+**passkey**: previews pin the WebAuthn relying-party id to the shared `<PREVIEW_BASE_DOMAIN>` parent
+(not the per-PR host), so one passkey registered against it works on every `pr-<n>` subdomain, and
+the `PREVIEW_OWNER_SEED_CREDENTIAL` secret (below) seeds that passkey into each empty preview DB.
 
 **Security:** previews never build or run fork code on the server (this is a public repo). The
 workflow guards every job with `github.event.pull_request.head.repo.full_name == github.repository`.
@@ -124,7 +127,7 @@ workflow guards every job with `github.event.pull_request.head.repo.full_name ==
 **One-time setup:**
 
 1. **DNS** — add a wildcard `A` record `*.<PREVIEW_BASE_DOMAIN>` pointing at the Dokploy server IP
-   (e.g. `*.preview.musichoarder.example.com`). TLS is issued per-host by Dokploy/Traefik via
+   (e.g. `*.preview.musichoarder.app`). TLS is issued per-host by Dokploy/Traefik via
    Let's Encrypt.
 2. **Dokploy** — create a dedicated **environment** (or project) for previews and note its
    `environmentId` (never use the production environment). Seed a small read-only sample library on
@@ -135,10 +138,25 @@ workflow guards every job with `github.event.pull_request.head.repo.full_name ==
    |--------|---------|
    | `DOKPLOY_URL`, `DOKPLOY_API_KEY` | Dokploy REST API (shared with the prod deploy) |
    | `DOKPLOY_PREVIEW_ENVIRONMENT_ID` | environment previews are created in |
-   | `PREVIEW_BASE_DOMAIN` | e.g. `preview.musichoarder.example.com` |
+   | `PREVIEW_BASE_DOMAIN` | e.g. `preview.musichoarder.app` (also the WebAuthn relying-party id) |
    | `PREVIEW_POSTGRES_PASSWORD` | throwaway Postgres password for previews |
    | `PREVIEW_OWNER_EMAIL` | owner account for magic-link sign-in |
+   | `PREVIEW_OWNER_SEED_CREDENTIAL` *(optional)* | minified JSON of the owner's pre-registered passkey, seeded into each preview DB (see below) |
    | `GHCR_CLEANUP_TOKEN` *(optional)* | PAT with `delete:packages` to prune `:pr-<n>` images |
+
+   **Capturing `PREVIEW_OWNER_SEED_CREDENTIAL` (one-time):** spin up any preview (the relying-party
+   id is already pinned to `<PREVIEW_BASE_DOMAIN>`), sign in via magic link as the owner, and
+   register a passkey in **Settings**. Then read that one row from the preview's Postgres and store
+   it as the secret — a single minified JSON line (public-key material only; the private key never
+   leaves your authenticator), e.g.:
+
+   ```json
+   {"credentialId":"<base64>","publicKey":"<base64>","aaGuid":"00000000-0000-0000-0000-000000000000","signCount":0,"transports":"internal,hybrid","displayName":"My passkey"}
+   ```
+
+   `credentialId` and `publicKey` are the `WebAuthnCredentials` row's `bytea` columns base64-encoded.
+   Once the secret is set, every future preview seeds it on boot, so the owner gets passkey login on
+   a fresh DB with no re-registration.
 
 **Validating it:** once the secrets are set, push a commit to any same-repo PR — the `pull_request`
 trigger builds the images and provisions the stack, then comments the URL. (The `workflow_dispatch`

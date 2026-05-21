@@ -21,11 +21,17 @@
 #   DOKPLOY_PREVIEW_ENVIRONMENT_ID  environment the preview composes live in (a dedicated
 #                                   "previews" environment/project — never the prod environment)
 #   PR                              pull request number
-#   PREVIEW_BASE_DOMAIN             e.g. preview.musichoarder.example.com (PR host = pr-<n>.<this>)
+#   PREVIEW_BASE_DOMAIN             e.g. preview.musichoarder.app (PR host = pr-<n>.<this>; also the
+#                                   WebAuthn relying-party id, shared across all pr-<n> subdomains)
 #   API_IMAGE, FRONTEND_IMAGE       full ghcr image refs incl. :pr-<n> tag  (provision only)
 #   PREVIEW_POSTGRES_PASSWORD       throwaway db password                   (provision only)
 #   PREVIEW_OWNER_EMAIL             owner account for magic-link sign-in     (provision only)
 # Optional env (provision):
+#   PREVIEW_OWNER_SEED_CREDENTIAL   minified JSON of the owner's pre-registered passkey (public-key
+#                                   material only) seeded into the empty preview DB so the owner can
+#                                   log in via passkey without re-registering. Register once against
+#                                   RpId=${PREVIEW_BASE_DOMAIN}, then capture the WebAuthnCredentials
+#                                   row. Empty → passkey seed skipped (magic-link still works).
 #   PREVIEW_SOURCE_DIR   default /srv/mh-preview/sample-source  (shared, read-only sample library)
 #   PREVIEW_DEST_ROOT    default /srv/mh-preview                (per-PR dest = <root>/pr-<n>/dest)
 #   PREVIEW_MAX_STACKS   default 5  (skip provisioning if this many pr-* composes already exist)
@@ -116,6 +122,8 @@ POSTGRES_PASSWORD=${PREVIEW_POSTGRES_PASSWORD}
 OWNER_EMAIL=${PREVIEW_OWNER_EMAIL}
 DEMO_USER_EMAIL=demo@musichoarder.local
 FRONTEND_PUBLIC_BASE_URL=${public_url}
+WEBAUTHN_RP_ID=${PREVIEW_BASE_DOMAIN}
+OWNER_SEED_CREDENTIAL_JSON=${PREVIEW_OWNER_SEED_CREDENTIAL:-}
 SOURCE_DIRECTORY=${source_dir}
 DESTINATION_DIRECTORY=${dest_root}/${NAME}/dest
 ACOUSTID_API_KEY=

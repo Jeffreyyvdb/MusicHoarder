@@ -134,6 +134,14 @@ api.WithEnvironment(context =>
     else
     {
         context.EnvironmentVariables["Frontend__PublicBaseUrl"] = frontend.GetEndpoint("https");
+        // Auto-pin the Spotify OAuth redirect to the API's fixed dev port so it's always correct
+        // regardless of branch/worktree. Spotify rejects "localhost" redirect URIs and requires an
+        // explicit loopback IP, so force 127.0.0.1 (the host of GetEndpoint("http") may render as
+        // "localhost"); only the port is borrowed from the live endpoint to stay in sync with
+        // launchSettings. Register this once in the Spotify dashboard:
+        //   http://127.0.0.1:5142/api/spotify/callback
+        context.EnvironmentVariables["Spotify__OAuthRedirectBaseUrl"] =
+            ReferenceExpression.Create($"http://127.0.0.1:{api.GetEndpoint("http").Property(EndpointProperty.Port)}");
     }
 });
 
