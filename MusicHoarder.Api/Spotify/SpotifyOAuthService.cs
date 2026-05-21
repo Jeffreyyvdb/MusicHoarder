@@ -83,7 +83,7 @@ public class SpotifyOAuthService(
             if (!response.IsSuccessStatusCode)
             {
                 logger.LogError("Spotify token exchange failed: {StatusCode} {Body}", response.StatusCode, json);
-                return new SpotifyTokenResult(false, $"Token exchange failed: {response.StatusCode}");
+                return new SpotifyTokenResult(false, DescribeTokenError(response.StatusCode, json, "Token exchange failed"));
             }
 
             var tokenResponse = JsonSerializer.Deserialize<SpotifyTokenResponse>(json);
@@ -283,6 +283,33 @@ public class SpotifyOAuthService(
 
         mutate(settings);
         await db.SaveChangesAsync(ct);
+    }
+
+    private static string DescribeTokenError(System.Net.HttpStatusCode statusCode, string body, string fallback)
+    {
+        // Spotify's token endpoint returns {"error":"...","error_description":"..."} on failure.
+        // Surface that reason so the caller (and the frontend banner) shows what actually went wrong
+        // (e.g. invalid_client, invalid_grant) instead of a generic message.
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+            var error = root.TryGetProperty("error", out var e) ? e.GetString() : null;
+            var description = root.TryGetProperty("error_description", out var d) ? d.GetString() : null;
+
+            if (!string.IsNullOrWhiteSpace(error) && !string.IsNullOrWhiteSpace(description))
+                return $"{error}: {description}";
+            if (!string.IsNullOrWhiteSpace(error))
+                return error!;
+            if (!string.IsNullOrWhiteSpace(description))
+                return description!;
+        }
+        catch (JsonException)
+        {
+            // Non-JSON body — fall through to the generic message.
+        }
+
+        return $"{fallback}: {(int)statusCode} {statusCode}";
     }
 
     private static string GenerateState()
