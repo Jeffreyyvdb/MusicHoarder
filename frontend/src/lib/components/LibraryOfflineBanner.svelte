@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { fetchLibraryAvailability, type LibraryAvailability } from '$lib/api-client';
-  import { isDemoMode } from '$lib/app-mode';
 
   const POLL_INTERVAL_MS = 15_000;
 
@@ -30,7 +29,6 @@
   }
 
   onMount(() => {
-    if (isDemoMode) return;
     void refresh();
     const handle = setInterval(() => void refresh(), POLL_INTERVAL_MS);
     return () => clearInterval(handle);

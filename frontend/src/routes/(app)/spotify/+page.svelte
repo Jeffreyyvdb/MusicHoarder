@@ -18,7 +18,6 @@
     type SpotifyApiPlaylist,
     type SpotifyCredentialsResponse
   } from '$lib/api-client';
-  import { isDemoMode } from '$lib/app-mode';
   import {
     Music,
     Search,
@@ -345,22 +344,20 @@
             <h1 class="text-2xl font-bold">Spotify</h1>
             <Badge class="border-0 bg-[#1DB954]/20 text-[#1DB954]">Connected</Badge>
           </div>
-          {#if status.connectedAt && !isDemoMode}
+          {#if status.connectedAt}
             <p class="text-muted-foreground mt-1 text-sm">
               Connected since {new Date(status.connectedAt).toLocaleDateString()}
             </p>
           {/if}
         </div>
-        {#if !isDemoMode}
-          <Button variant="outline" onclick={handleDisconnect} disabled={isDisconnecting}>
-            {#if isDisconnecting}
-              <Loader2 class="mr-2 size-4 animate-spin" />
-            {:else}
-              <LogOut class="mr-2 size-4" />
-            {/if}
-            Disconnect
-          </Button>
-        {/if}
+        <Button variant="outline" onclick={handleDisconnect} disabled={isDisconnecting}>
+          {#if isDisconnecting}
+            <Loader2 class="mr-2 size-4 animate-spin" />
+          {:else}
+            <LogOut class="mr-2 size-4" />
+          {/if}
+          Disconnect
+        </Button>
       </div>
     </div>
 
