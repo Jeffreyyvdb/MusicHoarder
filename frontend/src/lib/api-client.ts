@@ -1,5 +1,6 @@
 import type { FileItem } from "$lib/types"
 import { isDemoMode } from "$lib/app-mode"
+import { createPasskey, getPasskeyAssertion } from "$lib/webauthn-client"
 import { mockFileSystem, mockImportJob } from "$lib/mock-data"
 import {
   getDemoSpotifyCredentials,
@@ -1973,6 +1974,78 @@ export async function signInAsDemo(): Promise<void> {
     cache: "no-store",
   })
   if (!response.ok) throw new Error(`demo-login failed: ${response.status}`)
+}
+
+// ---------------------------------------------------------------------------
+// Passkey (WebAuthn) API
+// ---------------------------------------------------------------------------
+
+export interface PasskeyView {
+  id: string
+  displayName: string
+  aaGuid: string
+  createdAtUtc: string
+  lastUsedAtUtc: string | null
+}
+
+const WEBAUTHN_PREFIX = `${API_PREFIX}/api/auth/webauthn`
+
+/** Enrolls a new passkey for the signed-in owner. Runs the full begin → ceremony → complete flow. */
+export async function registerPasskey(displayName: string): Promise<PasskeyView> {
+  if (isDemoMode) throw new Error("Passkeys are unavailable in demo mode.")
+
+  const beginRes = await fetch(`${WEBAUTHN_PREFIX}/register/begin`, { method: "POST", cache: "no-store" })
+  if (!beginRes.ok) throw new Error(`Could not start passkey registration (${beginRes.status}).`)
+  const options = (await beginRes.json()) as Record<string, unknown>
+
+  const attestation = await createPasskey(options)
+
+  const completeRes = await fetch(`${WEBAUTHN_PREFIX}/register/complete`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ attestation, displayName }),
+    cache: "no-store",
+  })
+  if (!completeRes.ok) {
+    const body = (await completeRes.json().catch(() => ({}))) as { error?: string }
+    throw new Error(body.error === "verification_failed" ? "Passkey could not be verified." : "Passkey registration failed.")
+  }
+  return (await completeRes.json()) as PasskeyView
+}
+
+/** Signs in with an existing passkey. On success the session cookie is set; caller should navigate. */
+export async function loginWithPasskey(): Promise<void> {
+  if (isDemoMode) throw new Error("Passkeys are unavailable in demo mode.")
+
+  const beginRes = await fetch(`${WEBAUTHN_PREFIX}/authenticate/begin`, { method: "POST", cache: "no-store" })
+  if (!beginRes.ok) throw new Error(`Could not start passkey sign-in (${beginRes.status}).`)
+  const options = (await beginRes.json()) as Record<string, unknown>
+
+  const assertion = await getPasskeyAssertion(options)
+
+  const completeRes = await fetch(`${WEBAUTHN_PREFIX}/authenticate/complete`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(assertion),
+    cache: "no-store",
+  })
+  if (!completeRes.ok) throw new Error("Passkey sign-in failed.")
+}
+
+export async function listPasskeys(): Promise<PasskeyView[]> {
+  if (isDemoMode) return []
+  const response = await fetch(`${WEBAUTHN_PREFIX}/credentials`, { cache: "no-store" })
+  if (!response.ok) throw new Error(`Could not load passkeys (${response.status}).`)
+  return (await response.json()) as PasskeyView[]
+}
+
+export async function deletePasskey(id: string): Promise<void> {
+  if (isDemoMode) return
+  const response = await fetch(`${WEBAUTHN_PREFIX}/credentials/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    cache: "no-store",
+  })
+  if (!response.ok) throw new Error(`Could not remove passkey (${response.status}).`)
 }
 
 // ---------------------------------------------------------------------------
