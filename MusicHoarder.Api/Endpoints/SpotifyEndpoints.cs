@@ -49,9 +49,20 @@ public static class SpotifyEndpoints
                 var baseUrl = NormalizePublicBaseUrl(frontendOptions.Value.PublicBaseUrl);
                 var useBrowserRedirect = baseUrl.Length > 0;
 
+                // The frontend's server-side /api/spotify/callback route forwards the request here
+                // (Node→API). A 302 back to that hop is unreadable to it (undici turns redirect:'manual'
+                // into an opaque response with no Location), so it would lose the outcome. When that
+                // route asks for JSON, return the outcome directly and let it own the browser redirect.
+                var jsonMode = string.Equals(
+                    context.Request.Headers["X-Spotify-Callback-Mode"],
+                    "json",
+                    StringComparison.OrdinalIgnoreCase);
+
                 if (!string.IsNullOrEmpty(error))
                 {
                     var msg = error_description ?? error;
+                    if (jsonMode)
+                        return Results.Ok(new { connected = false, error = msg });
                     if (useBrowserRedirect)
                         return Results.Redirect($"{baseUrl}/spotify?spotify_error={Uri.EscapeDataString(msg)}");
                     return Results.BadRequest(new { message = msg });
@@ -60,6 +71,8 @@ public static class SpotifyEndpoints
                 if (string.IsNullOrEmpty(code))
                 {
                     const string missing = "Authorization code missing.";
+                    if (jsonMode)
+                        return Results.Ok(new { connected = false, error = missing });
                     if (useBrowserRedirect)
                         return Results.Redirect($"{baseUrl}/spotify?spotify_error={Uri.EscapeDataString(missing)}");
                     return Results.BadRequest(new { message = missing });
@@ -68,11 +81,16 @@ public static class SpotifyEndpoints
                 var result = await spotifyOAuth.ExchangeCodeAsync(code, redirectUri, ct);
                 if (!result.Success)
                 {
-                    const string genericFail = "Could not complete Spotify connection.";
+                    var failMsg = result.Error ?? "Could not complete Spotify connection.";
+                    if (jsonMode)
+                        return Results.Ok(new { connected = false, error = failMsg });
                     if (useBrowserRedirect)
-                        return Results.Redirect($"{baseUrl}/spotify?spotify_error={Uri.EscapeDataString(genericFail)}");
-                    return Results.BadRequest(new { message = result.Error });
+                        return Results.Redirect($"{baseUrl}/spotify?spotify_error={Uri.EscapeDataString(failMsg)}");
+                    return Results.BadRequest(new { message = failMsg });
                 }
+
+                if (jsonMode)
+                    return Results.Ok(new { connected = true, error = (string?)null });
 
                 if (useBrowserRedirect)
                     return Results.Redirect($"{baseUrl}/spotify?spotify_connected=1");

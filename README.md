@@ -98,11 +98,11 @@ Create two applications in Dokploy, both pointing at this repo and the `main` br
 | App | Build type | Build context | Dockerfile | Notes |
 |-----|------------|---------------|------------|-------|
 | API | Docker | `/` (repo root) | `Dockerfile` | Exposes port `8080` |
-| Frontend | Docker | `frontend/` | `frontend/Dockerfile` | Exposes port `3000`. Set build arg `PUBLIC_DEMO_MODE=true` for the demo deployment |
+| Frontend | Docker | `frontend/` | `frontend/Dockerfile` | Exposes port `3000` |
 
 Enable Dokploy's GitHub webhook on each app so a push to `main` triggers a rebuild automatically. Runtime env vars (`ConnectionStrings__musichoarderdb`, `MusicEnricher__*`, `MUSICHOARDER_API_URL`, etc.) are configured per-app in Dokploy.
 
-Because the frontend bakes `PUBLIC_*` values at build time, `PUBLIC_DEMO_MODE` must be set as a **build arg** in Dokploy, not a runtime env var.
+Because the frontend bakes `PUBLIC_*` values at build time, any `PUBLIC_*` value (e.g. `PUBLIC_SITE_URL`) must be set as a **build arg** in Dokploy, not a runtime env var.
 
 ### PR preview environments
 
