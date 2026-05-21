@@ -10,6 +10,13 @@
   import MobileAlbum from '$lib/components/mobile/MobileAlbum.svelte';
   import { buildAlbumsFromSongs, fetchSongs, type ApiSong } from '$lib/api-client';
   import { applySectionFilter, isSectionId } from '$lib/album-sections';
+  import {
+    parseBrowseFilter,
+    applyBrowseFilter,
+    browseFilterLabel,
+    browseFilterClearHref,
+    browseFilterKind
+  } from '$lib/browse-filter';
   import { breadcrumbStore } from '$lib/stores/breadcrumbs.svelte';
   import { cn } from '$lib/utils';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
@@ -52,7 +59,19 @@
     };
   });
 
-  const sectionFilteredSongs = $derived(applySectionFilter(songs, section));
+  const browse = $derived(parseBrowseFilter(page.url.searchParams));
+  const browseFilteredSongs = $derived(applyBrowseFilter(songs, browse));
+  const galleryBrowseFilter = $derived(
+    browse
+      ? {
+          label: browseFilterLabel(browse),
+          clearHref: browseFilterClearHref(browse),
+          kind: browseFilterKind(browse)
+        }
+      : null
+  );
+
+  const sectionFilteredSongs = $derived(applySectionFilter(browseFilteredSongs, section));
   const allAlbumsForLookup = $derived(buildAlbumsFromSongs(songs));
   const filteredAlbums = $derived(buildAlbumsFromSongs(sectionFilteredSongs));
   const openAlbum = $derived(
@@ -148,13 +167,19 @@
     {#if openAlbum && albumKey}
       <MobileAlbum {songs} {albumKey} />
     {:else}
-      <MobileLibrary {songs} {section} {searchQuery} {isLoading} />
+      <MobileLibrary songs={browseFilteredSongs} {section} {searchQuery} {isLoading} />
     {/if}
   {:else if !trackPanelOpen}
     {#if openAlbum && albumKey}
       <AlbumPage {songs} {albumKey} {isLoading} />
     {:else}
-      <Gallery songs={sectionFilteredSongs} {section} {searchQuery} {isLoading} />
+      <Gallery
+        songs={sectionFilteredSongs}
+        {section}
+        {searchQuery}
+        {isLoading}
+        browseFilter={galleryBrowseFilter}
+      />
     {/if}
   {:else}
     <Resizable.PaneGroup id="library-albums-panels" direction="horizontal" class="min-h-0 flex-1">
@@ -162,7 +187,13 @@
         {#if openAlbum && albumKey}
           <AlbumPage {songs} {albumKey} {isLoading} />
         {:else}
-          <Gallery songs={sectionFilteredSongs} {section} {searchQuery} {isLoading} />
+          <Gallery
+        songs={sectionFilteredSongs}
+        {section}
+        {searchQuery}
+        {isLoading}
+        browseFilter={galleryBrowseFilter}
+      />
         {/if}
       </Resizable.Pane>
       <Resizable.Handle />
