@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { Disc3, Music, Play } from '@lucide/svelte';
+  import { ArrowLeft, Disc3, Music, Play } from '@lucide/svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import ProcessingStrip from '$lib/components/file-browser/ProcessingStrip.svelte';
@@ -10,13 +10,16 @@
   import { playerStore } from '$lib/stores/player.svelte';
   import { cn } from '$lib/utils';
 
+  type BrowseFilter = { label: string; clearHref: string; kind: 'artist' | 'year' };
   type Props = {
     songs: ApiSong[];
     section: SectionId;
     searchQuery: string;
     isLoading: boolean;
+    /** When set, the gallery shows an "Organize by" drill-down (artist/year) header + back link. */
+    browseFilter?: BrowseFilter | null;
   };
-  const { songs, section, searchQuery, isLoading }: Props = $props();
+  const { songs, section, searchQuery, isLoading, browseFilter = null }: Props = $props();
 
   type Layout = 'grid' | 'list' | 'col';
 
@@ -84,13 +87,30 @@
     <div class="p-4 pb-20 md:p-6">
       <div class="mb-4 flex items-end justify-between gap-4">
         <div class="min-w-0">
-          <h2 class="truncate text-2xl font-semibold tracking-[-0.02em]">{meta.title}</h2>
-          <p class="text-muted-foreground mt-1 text-xs">
-            {meta.subtitle(filtered.length)}
-            {#if searchQuery.trim()}
-              <span class="ml-1">· matching "{searchQuery.trim()}"</span>
-            {/if}
-          </p>
+          {#if browseFilter}
+            <a
+              href={browseFilter.clearHref}
+              class="text-muted-foreground hover:text-foreground mb-1 inline-flex items-center gap-1 text-xs"
+            >
+              <ArrowLeft class="size-3.5" />
+              All {browseFilter.kind === 'artist' ? 'artists' : 'years'}
+            </a>
+            <h2 class="truncate text-2xl font-semibold tracking-[-0.02em]">{browseFilter.label}</h2>
+            <p class="text-muted-foreground mt-1 text-xs">
+              {filtered.length.toLocaleString()} album{filtered.length === 1 ? '' : 's'}
+              {#if searchQuery.trim()}
+                <span class="ml-1">· matching "{searchQuery.trim()}"</span>
+              {/if}
+            </p>
+          {:else}
+            <h2 class="truncate text-2xl font-semibold tracking-[-0.02em]">{meta.title}</h2>
+            <p class="text-muted-foreground mt-1 text-xs">
+              {meta.subtitle(filtered.length)}
+              {#if searchQuery.trim()}
+                <span class="ml-1">· matching "{searchQuery.trim()}"</span>
+              {/if}
+            </p>
+          {/if}
         </div>
         <div class="text-muted-foreground hidden text-xs sm:block">
           Sort by <span class="text-foreground/80 ml-1 cursor-pointer">Recently added ▾</span>
