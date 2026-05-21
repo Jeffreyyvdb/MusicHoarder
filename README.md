@@ -142,7 +142,11 @@ workflow guards every job with `github.event.pull_request.head.repo.full_name ==
    | `PREVIEW_POSTGRES_PASSWORD` | throwaway Postgres password for previews |
    | `PREVIEW_OWNER_EMAIL` | owner account for magic-link sign-in |
    | `PREVIEW_OWNER_SEED_CREDENTIAL` *(optional)* | minified JSON of the owner's pre-registered passkey, seeded into each preview DB (see below) |
+   | `PREVIEW_SPOTIFY_CLIENT_ID`, `PREVIEW_SPOTIFY_CLIENT_SECRET` *(optional)* | Spotify app creds so a preview can complete the OAuth token exchange (see **Spotify OAuth** below). Omit → Spotify connect disabled in previews. |
+   | `PREVIEW_SPOTIFY_OAUTH_STATE_KEY` *(optional)* | shared HMAC key signing the OAuth `state`; **must equal** the prod relay's `spotify-oauth-state-key`. |
    | `GHCR_CLEANUP_TOKEN` *(optional)* | PAT with `delete:packages` to prune `:pr-<n>` images |
+
+   Repo variable: `PREVIEW_SPOTIFY_OAUTH_RELAY_URL` *(optional)* — the single registered relay URL, `https://<prod-frontend>/api/spotify/relay`.
 
    **Capturing `PREVIEW_OWNER_SEED_CREDENTIAL` (one-time):** spin up any preview (the relying-party
    id is already pinned to `<PREVIEW_BASE_DOMAIN>`), sign in via magic link as the owner, and
@@ -168,6 +172,45 @@ PR runs the teardown job.
 Tunables: `PREVIEW_MAX_STACKS` (default 5, env in the provision step); `PREVIEW_SOURCE_DIR` /
 `PREVIEW_DEST_ROOT` are **repo variables** (Settings → Variables) for the host paths bind-mounted
 into each preview (default to `/srv/mh-preview/...` if unset).
+
+### Spotify OAuth (relay)
+
+Spotify requires every `redirect_uri` to be pre-registered exactly — no wildcards, no `localhost`,
+HTTPS-only except `http://127.0.0.1` loopback. Since local dev (dynamic port) and each PR preview
+(dynamic subdomain) have different origins, none can be registered individually. Instead **one**
+relay URI is registered and shared by all environments:
+
+```
+https://<prod-frontend>/api/spotify/relay
+```
+
+How it works: `/api/spotify/connect` always asks Spotify to redirect to that relay, and encodes the
+originating environment's own origin into a **signed** OAuth `state`. The relay
+(`frontend/src/routes/api/spotify/relay/+server.ts`) verifies the HMAC signature, checks the origin
+against an allowlist, then 303-bounces the browser to `<origin>/api/spotify/callback`. The browser
+arrives there top-level on its own frontend origin, so the `mh_session` cookie rides along and the
+originating environment completes the token exchange itself (`redirect_uri` = the relay URL) and
+stores tokens in its own DB. The signature is what keeps the bounce from being an open redirect of
+the auth `code`.
+
+**One-time setup:**
+
+1. **Spotify dashboard** → register exactly `https://<prod-frontend>/api/spotify/relay` as the only
+   redirect URI (remove any old `…/api/spotify/callback` or `127.0.0.1` entries).
+2. **Generate one signing key** (e.g. `openssl rand -base64 32`) and set it identically in three
+   places — they must match or the relay rejects the state:
+   - local dev: `dotnet user-secrets set "Parameters:spotify-oauth-state-key" "<key>" --project MusicHoarder.AppHost`
+     (also set `Parameters:spotify-oauth-relay-url` to the relay URL, and `Spotify:ClientId`/`Spotify:ClientSecret`);
+   - prod (Dokploy runtime env): `Spotify__OAuthStateSigningKey`;
+   - previews (GitHub secret): `PREVIEW_SPOTIFY_OAUTH_STATE_KEY`.
+3. **Prod relay allowlist** (`spotify-return-origin-allowlist`, the prod frontend's
+   `SPOTIFY_RETURN_ORIGIN_ALLOWLIST` env in Dokploy) must list every origin the relay may bounce to:
+   the prod origin, `https://*.<PREVIEW_BASE_DOMAIN>`, and — for local dev — `https://localhost:*`
+   and `http://127.0.0.1:*`. A single `*` matches one host/port segment.
+
+Local Spotify testing therefore depends on the prod relay being deployed and its allowlist
+permitting loopback. For fully offline dev, leave `spotify-oauth-relay-url` empty and the redirect
+falls back to the request origin (`Spotify:OAuthRedirectBaseUrl` is also still honored).
 
 ### Self-hosted / homelab deployment (docker-compose)
 

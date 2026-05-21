@@ -47,6 +47,15 @@ var spotifyClientSecret = builder.AddParameter("spotify-client-secret", builder.
     .WithDescription("Spotify app Client Secret.");
 var frontendPublicBaseUrl = builder.AddParameter("frontend-public-base-url")
     .WithDescription("Public HTTPS base URL of the frontend, used for Spotify OAuth redirect-back. Only consumed when publishing (e.g. the Dokploy domain); local dev uses the dynamic dev endpoint.");
+// Spotify forbids per-env redirect URIs (no wildcards, no localhost), so every environment routes OAuth through one
+// registered relay on the prod frontend. Local dev points at that prod relay verbatim; publish mode derives it from
+// frontend-public-base-url. The signing key + return-origin allowlist guard the relay's browser bounce.
+var spotifyOAuthRelayUrl = builder.AddParameter("spotify-oauth-relay-url", builder.Configuration["Parameters:spotify-oauth-relay-url"] ?? "")
+    .WithDescription("Absolute URL of the single registered Spotify OAuth relay (e.g. https://<prod-frontend>/api/spotify/relay). Used verbatim as redirect_uri in local dev. Empty → falls back to request-derived redirect (offline dev).");
+var spotifyOAuthStateKey = builder.AddParameter("spotify-oauth-state-key", builder.Configuration["Parameters:spotify-oauth-state-key"] ?? "", secret: true)
+    .WithDescription("Shared HMAC key that signs the Spotify OAuth state. MUST be identical across local dev, the prod relay, and every PR preview. Empty → opaque unsigned state (offline dev only).");
+var spotifyReturnOriginAllowlist = builder.AddParameter("spotify-return-origin-allowlist", builder.Configuration["Parameters:spotify-return-origin-allowlist"] ?? "https://localhost:* http://127.0.0.1:*")
+    .WithDescription("Comma/space-separated origins the Spotify relay may bounce back to (prod origin, *.<preview-domain>, and loopback for local dev). Single '*' matches one host/port segment.");
 
 var ownerEmail = builder.AddParameter("owner-email")
     .WithDescription("Email of the owner (admin) account. Used by magic-link sign-in.");
@@ -83,6 +92,7 @@ var api = builder.AddProject<Projects.MusicHoarder_Api>("api")
     .WithEnvironment("MusicEnricher__AcoustIdApiKey", acoustIdApiKey)
     .WithEnvironment("Spotify__ClientId", spotifyClientId)
     .WithEnvironment("Spotify__ClientSecret", spotifyClientSecret)
+    .WithEnvironment("Spotify__OAuthStateSigningKey", spotifyOAuthStateKey)
     .WithEnvironment("Auth__OwnerEmail", ownerEmail)
     .WithEnvironment("Auth__DemoUserEmail", demoUserEmail)
     .WithEnvironment("Auth__DataProtectionKeysPath", "/data/dpkeys")
@@ -106,6 +116,10 @@ var frontend = builder.AddViteApp("frontend", "../frontend")
     .WithReference(api)
     // Internal Node→ASP.NET proxy hop stays HTTP to sidestep cross-runtime dev-cert trust.
     .WithEnvironment("MUSICHOARDER_API_URL", api.GetEndpoint("http"))
+    // The Spotify OAuth relay route ("/api/spotify/relay") lives on the (prod) frontend and verifies the signed
+    // state before bouncing the browser to the originating env's callback.
+    .WithEnvironment("SPOTIFY_OAUTH_STATE_SIGNING_KEY", spotifyOAuthStateKey)
+    .WithEnvironment("SPOTIFY_RETURN_ORIGIN_ALLOWLIST", spotifyReturnOriginAllowlist)
     .WaitForStart(api)
     .WithExternalHttpEndpoints()
     .PublishAsNodeServer(entryPoint: "build/index.js", outputPath: "build");
@@ -120,28 +134,21 @@ frontend.WithContainerRegistry(ghcr).WithRemoteImageTag("latest");
 
 api.WithEnvironment(context =>
 {
-    // In publish (Docker Compose) the frontend's internal hostname isn't the public origin
-    // Spotify must redirect back to, so emit a fillable parameter; dev keeps the live endpoint.
     if (context.ExecutionContext.IsPublishMode)
     {
         context.EnvironmentVariables["Frontend__PublicBaseUrl"] = frontendPublicBaseUrl.Resource;
-        // Spotify redirects the browser back through the frontend origin (the /api/spotify/callback
-        // SvelteKit route forwards to the API), so the OAuth redirect URI must be the public
-        // frontend base — not the API's internal request host, which would resolve to a loopback
-        // address behind the proxy and break the flow.
-        context.EnvironmentVariables["Spotify__OAuthRedirectBaseUrl"] = frontendPublicBaseUrl.Resource;
+        // Prod is itself the relay host, so derive the registered redirect URI from the public frontend base.
+        context.EnvironmentVariables["Spotify__OAuthRelayUrl"] =
+            ReferenceExpression.Create($"{frontendPublicBaseUrl.Resource}/api/spotify/relay");
     }
     else
     {
+        // PublicBaseUrl is this env's own (dynamic) frontend origin — the relay bounces the browser back here to
+        // complete the exchange with the session cookie present, fixing the loopback "unauthenticated" failure.
         context.EnvironmentVariables["Frontend__PublicBaseUrl"] = frontend.GetEndpoint("https");
-        // Auto-pin the Spotify OAuth redirect to the API's fixed dev port so it's always correct
-        // regardless of branch/worktree. Spotify rejects "localhost" redirect URIs and requires an
-        // explicit loopback IP, so force 127.0.0.1 (the host of GetEndpoint("http") may render as
-        // "localhost"); only the port is borrowed from the live endpoint to stay in sync with
-        // launchSettings. Register this once in the Spotify dashboard:
-        //   http://127.0.0.1:5142/api/spotify/callback
-        context.EnvironmentVariables["Spotify__OAuthRedirectBaseUrl"] =
-            ReferenceExpression.Create($"http://127.0.0.1:{api.GetEndpoint("http").Property(EndpointProperty.Port)}");
+        // redirect_uri = the single relay URI registered in Spotify (a prod URL). Configure it via the
+        // spotify-oauth-relay-url user-secret; when empty, OAuth falls back to request-derived (offline dev only).
+        context.EnvironmentVariables["Spotify__OAuthRelayUrl"] = spotifyOAuthRelayUrl.Resource;
     }
 });
 

@@ -48,6 +48,10 @@ services:
       - MusicEnricher__AcoustIdApiKey=${ACOUSTID_API_KEY:-}
       - Spotify__ClientId=${SPOTIFY_CLIENT_ID:-}
       - Spotify__ClientSecret=${SPOTIFY_CLIENT_SECRET:-}
+      # OAuth runs through the single registered relay on the prod frontend; the preview completes the token
+      # exchange itself (redirect_uri = the relay URL) and validates the signed state with the shared key.
+      - Spotify__OAuthRelayUrl=${SPOTIFY_OAUTH_RELAY_URL:-}
+      - Spotify__OAuthStateSigningKey=${SPOTIFY_OAUTH_STATE_KEY:-}
       - Auth__OwnerEmail=${OWNER_EMAIL}
       - Auth__DemoUserEmail=${DEMO_USER_EMAIL:-demo@musichoarder.local}
       - Auth__DataProtectionKeysPath=/data/dpkeys
