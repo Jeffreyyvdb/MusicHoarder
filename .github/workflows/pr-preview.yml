@@ -121,6 +121,13 @@ jobs:
           # Owner's pre-registered passkey, seeded into the empty preview DB so passkey login works
           # without re-registering. Public-key material only; empty → seed skipped.
           PREVIEW_OWNER_SEED_CREDENTIAL: ${{ secrets.PREVIEW_OWNER_SEED_CREDENTIAL }}
+          # Spotify OAuth: the preview completes the token exchange itself, so it needs the app creds and the
+          # shared state-signing key (must equal the prod relay's). The relay URL is the single registered URI.
+          # All empty → Spotify connect simply stays disabled in the preview.
+          PREVIEW_SPOTIFY_CLIENT_ID: ${{ secrets.PREVIEW_SPOTIFY_CLIENT_ID }}
+          PREVIEW_SPOTIFY_CLIENT_SECRET: ${{ secrets.PREVIEW_SPOTIFY_CLIENT_SECRET }}
+          PREVIEW_SPOTIFY_OAUTH_RELAY_URL: ${{ vars.PREVIEW_SPOTIFY_OAUTH_RELAY_URL }}
+          PREVIEW_SPOTIFY_OAUTH_STATE_KEY: ${{ secrets.PREVIEW_SPOTIFY_OAUTH_STATE_KEY }}
           # Host paths on the Dokploy server (repo variables). Empty → script defaults apply.
           PREVIEW_SOURCE_DIR: ${{ vars.PREVIEW_SOURCE_DIR }}
           PREVIEW_DEST_ROOT: ${{ vars.PREVIEW_DEST_ROOT }}

@@ -71,6 +71,11 @@ jobs:
           Parameters__acoustid-api-key: ""
           Parameters__spotify-client-id: ""
           Parameters__spotify-client-secret: ""
+          # Relay URL is derived from frontend-public-base-url in publish mode; the signing key + allowlist are
+          # runtime ${...} placeholders filled in Dokploy. Throwaway values here just keep --non-interactive quiet.
+          Parameters__spotify-oauth-relay-url: ""
+          Parameters__spotify-oauth-state-key: ""
+          Parameters__spotify-return-origin-allowlist: ""
           Parameters__frontend-public-base-url: "https://musichoarder-compose.jeffreyyvdb.com"
           Parameters__owner-email: "owner@example.com"
           Parameters__demo-user-email: "demo@example.com"

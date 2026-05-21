@@ -28,7 +28,7 @@ public class SpotifyOAuthService(
     private const string TokenUrl = "https://accounts.spotify.com/api/token";
     private static readonly TimeSpan RefreshBuffer = TimeSpan.FromMinutes(5);
 
-    public async Task<SpotifyConnectResult> GetAuthorizationUrlAsync(string redirectUri, CancellationToken ct = default)
+    public async Task<SpotifyConnectResult> GetAuthorizationUrlAsync(string redirectUri, string? returnOrigin = null, CancellationToken ct = default)
     {
         var settings = await ReadSettingsAsync(ct);
         var (clientId, clientSecret) = SpotifyAppCredentialsResolver.Resolve(settings, spotifyOptions.Value);
@@ -36,7 +36,17 @@ public class SpotifyOAuthService(
         if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
             throw new InvalidOperationException("Spotify ClientId and ClientSecret must be configured before connecting.");
 
-        var state = GenerateState();
+        // Signed state carries the originating env's origin so the prod relay can bounce the browser back to complete
+        // the exchange here; falls back to an opaque random value for standalone dev (no relay, no signing key).
+        var signingKey = spotifyOptions.Value.OAuthStateSigningKey;
+        if (!string.IsNullOrEmpty(signingKey) && string.IsNullOrWhiteSpace(returnOrigin))
+            logger.LogWarning(
+                "Spotify OAuthStateSigningKey is set but returnOrigin is empty (Frontend:PublicBaseUrl likely unset) — " +
+                "emitting an opaque unsigned state, which the relay/callback will reject. Check the frontend base URL config.");
+
+        var state = !string.IsNullOrEmpty(signingKey) && !string.IsNullOrWhiteSpace(returnOrigin)
+            ? SpotifyOAuthStateProtector.Create(returnOrigin.Trim().TrimEnd('/'), signingKey)
+            : GenerateState();
         var scopeString = string.Join(" ", Scopes);
 
         var url = $"{AuthorizeUrl}" +

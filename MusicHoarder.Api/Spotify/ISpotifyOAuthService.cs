@@ -2,7 +2,7 @@ namespace MusicHoarder.Api.Spotify;
 
 public interface ISpotifyOAuthService
 {
-    Task<SpotifyConnectResult> GetAuthorizationUrlAsync(string redirectUri, CancellationToken ct = default);
+    Task<SpotifyConnectResult> GetAuthorizationUrlAsync(string redirectUri, string? returnOrigin = null, CancellationToken ct = default);
     Task<SpotifyTokenResult> ExchangeCodeAsync(string code, string redirectUri, CancellationToken ct = default);
     Task<SpotifyTokenResult> RefreshAccessTokenAsync(CancellationToken ct = default);
     Task<SpotifyStatusResult> GetStatusAsync(CancellationToken ct = default);

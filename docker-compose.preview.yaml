@@ -48,6 +48,10 @@ services:
       - MusicEnricher__AcoustIdApiKey=${ACOUSTID_API_KEY:-}
       - Spotify__ClientId=${SPOTIFY_CLIENT_ID:-}
       - Spotify__ClientSecret=${SPOTIFY_CLIENT_SECRET:-}
+      # OAuth runs through the single registered relay on the prod frontend; the preview completes the token
+      # exchange itself (redirect_uri = the relay URL) and validates the signed state with the shared key.
+      - Spotify__OAuthRelayUrl=${SPOTIFY_OAUTH_RELAY_URL:-}
+      - Spotify__OAuthStateSigningKey=${SPOTIFY_OAUTH_STATE_KEY:-}
       - Auth__OwnerEmail=${OWNER_EMAIL}
       - Auth__DemoUserEmail=${DEMO_USER_EMAIL:-demo@musichoarder.local}
       - Auth__DataProtectionKeysPath=/data/dpkeys
@@ -85,6 +89,10 @@ services:
       - HOST=0.0.0.0
       - HOSTNAME=0.0.0.0
       - MUSICHOARDER_API_URL=http://api:8080
+      # Relay env vars (SPOTIFY_OAUTH_STATE_SIGNING_KEY + SPOTIFY_RETURN_ORIGIN_ALLOWLIST) are
+      # intentionally absent here: previews are not the relay. The relay lives only on the prod
+      # frontend; previews route OAuth through it and complete the exchange on their own callback.
+      # Hitting /api/spotify/relay on a preview therefore (correctly) returns a 500.
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8001/api/health"]
       interval: 30s
