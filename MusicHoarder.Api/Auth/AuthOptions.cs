@@ -18,6 +18,18 @@ public class AuthOptions
     [Required, EmailAddress]
     public string DemoUserEmail { get; set; } = "demo@musichoarder.local";
 
+    /// <summary>
+    /// Optional pre-registered owner passkey, seeded into a fresh database on boot so environments
+    /// that start empty (per-PR previews) accept the owner's existing passkey without a new
+    /// registration ceremony. JSON object with <c>credentialId</c> + <c>publicKey</c> base64, plus
+    /// <c>aaGuid</c>, <c>signCount</c>, <c>transports</c>, <c>displayName</c>. Public-key material
+    /// only (the private key never leaves the authenticator), so it is safe to inject. Empty →
+    /// skipped. Only valid when the relying-party id matches the one the passkey was registered
+    /// against — previews pin <see cref="WebAuthnOptions.RpId"/> to the shared parent domain so a
+    /// single registration is reusable across every <c>pr-N</c> subdomain.
+    /// </summary>
+    public string OwnerSeedCredentialJson { get; set; } = string.Empty;
+
     [Range(1, 1440)]
     public int MagicLinkTtlMinutes { get; set; } = 15;
 

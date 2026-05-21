@@ -51,6 +51,13 @@ services:
       - Auth__OwnerEmail=${OWNER_EMAIL}
       - Auth__DemoUserEmail=${DEMO_USER_EMAIL:-demo@musichoarder.local}
       - Auth__DataProtectionKeysPath=/data/dpkeys
+      # Pin the relying-party id to the shared parent domain (not the per-PR host) so one passkey
+      # registered against it works on every pr-<n> subdomain; the per-PR origin still flows in via
+      # Frontend__PublicBaseUrl. Paired with the seed below this gives owner passkey login on a
+      # fresh DB. Both blank in dev/prod, where RpId derives from the single public host.
+      - WebAuthn__RpId=${WEBAUTHN_RP_ID:-}
+      # Owner's pre-registered passkey (public-key material only) seeded into the empty preview DB.
+      - Auth__OwnerSeedCredentialJson=${OWNER_SEED_CREDENTIAL_JSON:-}
       # Resend left blank on previews — magic-link sign-in URLs are logged to the API logs
       # (viewable in the Dokploy log viewer) instead of emailed.
       - Resend__ApiKey=${RESEND_API_KEY:-}

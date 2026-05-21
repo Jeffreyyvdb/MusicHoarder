@@ -118,6 +118,9 @@ jobs:
           PREVIEW_BASE_DOMAIN: ${{ secrets.PREVIEW_BASE_DOMAIN }}
           PREVIEW_POSTGRES_PASSWORD: ${{ secrets.PREVIEW_POSTGRES_PASSWORD }}
           PREVIEW_OWNER_EMAIL: ${{ secrets.PREVIEW_OWNER_EMAIL }}
+          # Owner's pre-registered passkey, seeded into the empty preview DB so passkey login works
+          # without re-registering. Public-key material only; empty → seed skipped.
+          PREVIEW_OWNER_SEED_CREDENTIAL: ${{ secrets.PREVIEW_OWNER_SEED_CREDENTIAL }}
           # Host paths on the Dokploy server (repo variables). Empty → script defaults apply.
           PREVIEW_SOURCE_DIR: ${{ vars.PREVIEW_SOURCE_DIR }}
           PREVIEW_DEST_ROOT: ${{ vars.PREVIEW_DEST_ROOT }}
