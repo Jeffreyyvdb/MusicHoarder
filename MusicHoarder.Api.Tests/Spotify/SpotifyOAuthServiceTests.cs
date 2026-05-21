@@ -285,7 +285,51 @@ public class SpotifyOAuthServiceTests
         var result = await service.ExchangeCodeAsync("bad-code", "http://localhost/callback");
 
         Assert.False(result.Success);
-        Assert.Contains("BadRequest", result.Error);
+        Assert.Equal("invalid_grant", result.Error);
+    }
+
+    [Fact]
+    public async Task ExchangeCode_FailedResponse_SurfacesErrorDescription()
+    {
+        await using var db = CreateDb();
+        db.SpotifySettings.Add(new SpotifySettings
+        {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
+            ClientId = "client-id",
+            ClientSecret = "client-secret",
+        });
+        await db.SaveChangesAsync();
+
+        var handler = new FakeHttpHandler(
+            HttpStatusCode.BadRequest,
+            "{\"error\":\"invalid_client\",\"error_description\":\"Invalid client secret\"}");
+        var service = CreateService(db, handler);
+
+        var result = await service.ExchangeCodeAsync("auth-code", "http://localhost/callback");
+
+        Assert.False(result.Success);
+        Assert.Equal("invalid_client: Invalid client secret", result.Error);
+    }
+
+    [Fact]
+    public async Task ExchangeCode_FailedResponseNonJsonBody_ReturnsStatusFallback()
+    {
+        await using var db = CreateDb();
+        db.SpotifySettings.Add(new SpotifySettings
+        {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
+            ClientId = "client-id",
+            ClientSecret = "client-secret",
+        });
+        await db.SaveChangesAsync();
+
+        var handler = new FakeHttpHandler(HttpStatusCode.ServiceUnavailable, "upstream down");
+        var service = CreateService(db, handler);
+
+        var result = await service.ExchangeCodeAsync("auth-code", "http://localhost/callback");
+
+        Assert.False(result.Success);
+        Assert.Contains("ServiceUnavailable", result.Error);
     }
 
     [Fact]
