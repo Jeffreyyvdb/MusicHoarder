@@ -1767,6 +1767,19 @@ export async function submitManualReview(
   songId: number,
   request: ManualReviewRequest
 ): Promise<ManualReviewResponse> {
+  if (isDemoMode) {
+    return {
+      id: songId,
+      fileName: "",
+      decision: request.decision,
+      enrichmentStatus: request.decision === "approve" ? 1 : 2,
+      libraryBuildStatus: 0,
+      artist: request.artist ?? null,
+      album: request.album ?? null,
+      title: request.title ?? null,
+      year: request.year ?? null,
+    }
+  }
   return requestJson<ManualReviewResponse>(`/songs/${songId}/manual-review`, {
     method: "PATCH",
     body: JSON.stringify(request),
@@ -1782,6 +1795,12 @@ export interface BulkApproveResponse {
 export async function bulkApprove(
   minConfidence = 0.75
 ): Promise<BulkApproveResponse> {
+  if (isDemoMode) {
+    const approvedIds = buildDemoReviewItems()
+      .filter((x) => x.song.matchConfidence != null && x.song.matchConfidence >= minConfidence)
+      .map((x) => x.song.id)
+    return { minConfidence, approvedCount: approvedIds.length, approvedIds }
+  }
   return requestJson<BulkApproveResponse>("/songs/bulk-approve", {
     method: "POST",
     body: JSON.stringify({ minConfidence }),
@@ -1796,6 +1815,14 @@ export interface SoftDeleteResponse {
 }
 
 export async function softDeleteSong(songId: number): Promise<SoftDeleteResponse> {
+  if (isDemoMode) {
+    return {
+      id: songId,
+      fileName: "",
+      deletedAtUtc: new Date().toISOString(),
+      message: "Soft-deleted (demo).",
+    }
+  }
   return requestJson<SoftDeleteResponse>(`/songs/${songId}`, {
     method: "DELETE",
   })
@@ -2060,17 +2087,247 @@ export async function updateSettings(update: SettingsUpdateRequest): Promise<voi
   })
 }
 
+// Sample manual-review queue for demo mode — ported from the design prototype so
+// the redesigned screen has a populated, candidate-rich queue without a backend.
+interface DemoReviewSeed {
+  filename: string
+  folder: string
+  fileSize: string
+  bitrate: string
+  duration: string
+  flaggedAt: string
+  reason: "low_confidence" | "multiple_matches" | "no_fingerprint"
+  fp: string
+  embedded: { title: string; artist: string; album: string; year: string }
+  candidates: { src: string; score: number; title: string; artist: string; album: string; year: number }[]
+}
+
+const DEMO_REVIEW_SEED: DemoReviewSeed[] = [
+  {
+    filename: "track_047.mp3", folder: "_incoming/01_dump", fileSize: "8.4 MB", bitrate: "MP3 320kbps",
+    duration: "5:14", flaggedAt: "14:32:02", reason: "low_confidence", fp: "AQADtKqaZFEoS1E4hUeS",
+    embedded: { title: "Track 47", artist: "unknown", album: "", year: "" },
+    candidates: [
+      { src: "AcoustID", score: 0.62, title: "1969", artist: "Boards of Canada", album: "Geogaddi", year: 2002 },
+      { src: "Discogs", score: 0.58, title: "1969", artist: "Boards of Canada", album: "Geogaddi (Reissue)", year: 2013 },
+      { src: "MusicBrainz", score: 0.41, title: "1969 (live)", artist: "Boards of Canada", album: "Trans Canada Highway", year: 2006 },
+    ],
+  },
+  {
+    filename: "IMG_2014_audio.m4a", folder: "_incoming/02_usb", fileSize: "14.1 MB", bitrate: "AAC 256kbps",
+    duration: "3:41", flaggedAt: "14:34:18", reason: "multiple_matches", fp: "AQADtMqcZFEoTVE8hUeS",
+    embedded: { title: "", artist: "", album: "", year: "" },
+    candidates: [
+      { src: "AcoustID", score: 0.71, title: "Avril 14th", artist: "Aphex Twin", album: "Drukqs", year: 2001 },
+      { src: "AcoustID", score: 0.69, title: "Avril 14th (Piano)", artist: "Aphex Twin", album: "Piano Works", year: 2003 },
+      { src: "Discogs", score: 0.55, title: "Avril 14", artist: "Aphex Twin", album: "Drukqs (Japanese ed.)", year: 2002 },
+    ],
+  },
+  {
+    filename: "08_-_unnamed.flac", folder: "_incoming/01_dump/various", fileSize: "34.7 MB", bitrate: "FLAC 911kbps",
+    duration: "4:08", flaggedAt: "14:35:51", reason: "low_confidence", fp: "AQADtNqdZFEoTlE+hUeS",
+    embedded: { title: "08", artist: "", album: "Various", year: "" },
+    candidates: [
+      { src: "AcoustID", score: 0.54, title: "Strawberry Swing", artist: "Frank Ocean", album: "Nostalgia, Ultra.", year: 2011 },
+      { src: "MusicBrainz", score: 0.49, title: "Strawberry Swing", artist: "Coldplay", album: "Viva la Vida", year: 2008 },
+    ],
+  },
+  {
+    filename: "JLOLN0301.wav", folder: "_incoming/03_phone_dump", fileSize: "52.3 MB", bitrate: "WAV 1411kbps",
+    duration: "4:48", flaggedAt: "14:37:09", reason: "no_fingerprint", fp: "—",
+    embedded: { title: "", artist: "", album: "", year: "" },
+    candidates: [],
+  },
+  {
+    filename: "live_set_aug.flac", folder: "_incoming/02_usb/bootlegs", fileSize: "127.8 MB", bitrate: "FLAC 988kbps",
+    duration: "14:22", flaggedAt: "14:38:42", reason: "multiple_matches", fp: "AQADtOqsZFEoXVFchUeS",
+    embedded: { title: "Live in Brixton 08", artist: "", album: "", year: "" },
+    candidates: [
+      { src: "AcoustID", score: 0.68, title: "Live in Brixton — Side A", artist: "Massive Attack", album: "Bootleg 2008", year: 2008 },
+      { src: "AcoustID", score: 0.66, title: "Brixton Academy (full)", artist: "Massive Attack", album: "Unofficial live", year: 2008 },
+      { src: "Discogs", score: 0.52, title: "Live at Brixton", artist: "Massive Attack", album: "Heligoland Tour", year: 2010 },
+    ],
+  },
+  {
+    filename: "unknown_artist - 02 - .ogg", folder: "_incoming/01_dump", fileSize: "6.2 MB", bitrate: "OGG 192kbps",
+    duration: "3:12", flaggedAt: "14:41:11", reason: "low_confidence", fp: "AQADtPqtZFEoXlFehUeS",
+    embedded: { title: "", artist: "unknown_artist", album: "", year: "" },
+    candidates: [
+      { src: "AcoustID", score: 0.59, title: "Roygbiv", artist: "Boards of Canada", album: "Music Has the Right to Children", year: 1998 },
+    ],
+  },
+]
+
+const DEMO_REVIEW_ID_BASE = 900000
+
+function parseDemoMmSs(value: string): number {
+  const parts = value.split(":").map((p) => parseInt(p, 10))
+  if (parts.some((n) => !Number.isFinite(n))) return 0
+  return parts.reduce((acc, n) => acc * 60 + n, 0)
+}
+
+function parseDemoFileSize(value: string): number {
+  const [num, unit] = value.split(" ")
+  const n = parseFloat(num)
+  if (!Number.isFinite(n)) return 0
+  const mult = unit === "GB" ? 1024 ** 3 : unit === "MB" ? 1024 ** 2 : unit === "KB" ? 1024 : 1
+  return Math.round(n * mult)
+}
+
+function parseDemoBitrate(value: string): { format: string; bitRate: number | null } {
+  const [format, rate] = value.split(" ")
+  const bitRate = rate ? parseInt(rate.replace(/[^0-9]/g, ""), 10) : NaN
+  return { format, bitRate: Number.isFinite(bitRate) ? bitRate : null }
+}
+
+function demoFlaggedToIso(hms: string): string {
+  const [h, m, s] = hms.split(":").map((p) => parseInt(p, 10))
+  const d = new Date()
+  d.setHours(h ?? 0, m ?? 0, s ?? 0, 0)
+  return d.toISOString()
+}
+
+function buildDemoReviewItems(): { song: ApiSong; detail: EnrichmentDetail }[] {
+  return DEMO_REVIEW_SEED.map((seed, idx) => {
+    const id = DEMO_REVIEW_ID_BASE + idx
+    const { format, bitRate } = parseDemoBitrate(seed.bitrate)
+    const extension = `.${format.toLowerCase()}`
+    const top = seed.candidates[0]
+    const matchWarnings =
+      seed.reason === "multiple_matches"
+        ? ["Multiple candidate matches with similar confidence", "Competing releases found"]
+        : []
+    const year = seed.embedded.year ? parseInt(seed.embedded.year, 10) : null
+
+    const song: ApiSong = {
+      id,
+      sourcePath: `${seed.folder}/${seed.filename}`,
+      destinationPath: null,
+      fileName: seed.filename,
+      extension,
+      fileSizeBytes: parseDemoFileSize(seed.fileSize),
+      artist: seed.embedded.artist || null,
+      albumArtist: null,
+      album: seed.embedded.album || null,
+      title: seed.embedded.title || null,
+      year: Number.isFinite(year as number) ? year : null,
+      trackNumber: null,
+      durationSeconds: parseDemoMmSs(seed.duration),
+      fingerprint: seed.fp === "—" ? null : seed.fp,
+      musicBrainzId: null,
+      spotifyId: null,
+      enrichmentStatus: "needsreview",
+      matchedBy: top?.src ?? null,
+      matchConfidence: top?.score ?? null,
+      matchWarnings,
+      originalMetadataCaptured: false,
+      bitRate,
+      sampleRate: format === "FLAC" || format === "WAV" ? 44100 : 48000,
+    }
+
+    const attemptedAtUtc = demoFlaggedToIso(seed.flaggedAt)
+    const detail: EnrichmentDetail = {
+      id,
+      fileName: seed.filename,
+      sourcePath: song.sourcePath,
+      destinationPath: null,
+      enrichmentStatus: "NeedsReview",
+      isManuallyApproved: false,
+      matchedBy: song.matchedBy,
+      matchConfidence: song.matchConfidence,
+      matchWarnings,
+      enrichmentError: null,
+      originalMetadataCaptured: false,
+      source: null,
+      current: {
+        title: song.title,
+        artist: song.artist,
+        album: song.album,
+        year: song.year,
+        trackNumber: null,
+      },
+      providerAttempts: seed.candidates.map((c) => ({
+        provider: c.src,
+        status: "Matched",
+        attemptedAtUtc,
+        candidate: {
+          title: c.title,
+          artist: c.artist,
+          album: c.album,
+          year: c.year,
+          matchedBy: c.src,
+          matchConfidence: c.score,
+        },
+      })),
+    }
+
+    return { song, detail }
+  })
+}
+
 export async function fetchReviewTracks(): Promise<ApiSong[]> {
   if (isDemoMode) {
-    const demoSongs = buildDemoSongs()
-    return demoSongs.filter(
-      (s) =>
-        mapEnrichmentStatus(s.enrichmentStatus) === "needsreview"
-    )
+    return buildDemoReviewItems().map((item) => item.song)
   }
 
   const result = await requestJson<SongsResponse>(
     "/songs?enrichmentStatus=needsreview"
   )
   return result.songs ?? []
+}
+
+// ── Enrichment detail (candidate matches) ──────────────────────────────────────
+
+export interface EnrichmentCandidate {
+  title?: string | null
+  artist?: string | null
+  albumArtist?: string | null
+  album?: string | null
+  year?: number | null
+  trackNumber?: number | null
+  isrc?: string | null
+  musicBrainzId?: string | null
+  musicBrainzReleaseId?: string | null
+  spotifyId?: string | null
+  acoustIdTrackId?: string | null
+  matchedBy?: string | null
+  matchConfidence?: number | null
+  matchWarnings?: string[] | null
+  recommendedStatus?: string | null
+}
+
+export interface ProviderAttempt {
+  provider: string
+  status: string
+  attemptedAtUtc: string
+  retryAfterUtc?: string | null
+  nextRetryAfterUtc?: string | null
+  error?: string | null
+  candidate: EnrichmentCandidate | null
+}
+
+export interface EnrichmentDetail {
+  id: number
+  fileName: string
+  sourcePath: string
+  destinationPath?: string | null
+  enrichmentStatus: string
+  isManuallyApproved?: boolean
+  matchedBy?: string | null
+  matchConfidence?: number | null
+  matchWarnings?: string[] | null
+  enrichmentError?: string | null
+  originalMetadataCaptured: boolean
+  source: EnrichmentCandidate | null
+  current: EnrichmentCandidate
+  providerAttempts: ProviderAttempt[]
+}
+
+export async function fetchEnrichmentDetail(songId: number): Promise<EnrichmentDetail> {
+  if (isDemoMode) {
+    const item = buildDemoReviewItems().find((x) => x.song.id === songId)
+    if (item) return item.detail
+    throw new Error(`Demo review item ${songId} not found`)
+  }
+  return requestJson<EnrichmentDetail>(`/songs/${songId}/enrichment-detail`)
 }
