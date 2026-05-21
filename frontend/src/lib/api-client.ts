@@ -1272,6 +1272,113 @@ export function buildAlbumsFromSongs(songs: ApiSong[]): AlbumSummary[] {
   })
 }
 
+// ── Organize-by grouping (Artist / Year) ───────────────────────────────────────
+
+/** Sentinel key/label for songs missing the grouping dimension. */
+export const UNKNOWN_GROUP = "Unknown"
+
+/** Aggregated view of all songs sharing a single artist or year. */
+export interface GroupSummary {
+  /** URL param value: artist name, or year as a string ("Unknown" for the missing bucket). */
+  key: string
+  /** Display text. */
+  label: string
+  /** Distinct `(artist::album)` pairs in the group. */
+  albumCount: number
+  trackCount: number
+  /** Sum of fileSizeBytes across the group. */
+  byteSize: number
+  /** Sum of durationSeconds across the group. */
+  durationSeconds: number
+  /** Representative cover inputs for <Cover>. */
+  coverArtist: string
+  coverTitle: string
+  coverUrl: string | null
+}
+
+function albumKeyOf(song: ApiSong): string {
+  const title = nonEmpty(song.album) ?? UNKNOWN_ALBUM
+  const artist = nonEmpty(song.albumArtist) ?? nonEmpty(song.artist) ?? UNKNOWN_ARTIST
+  return `${artist.toLowerCase()}::${title.toLowerCase()}`
+}
+
+interface GroupAccumulator extends GroupSummary {
+  albumKeys: Set<string>
+}
+
+function finalizeGroups(map: Map<string, GroupAccumulator>): GroupSummary[] {
+  return Array.from(map.values()).map(({ albumKeys, ...rest }) => ({
+    ...rest,
+    albumCount: albumKeys.size,
+  }))
+}
+
+/** Group songs by `(albumArtist ?? artist ?? "Unknown Artist")`, sorted alphabetically. */
+export function buildArtistGroups(songs: ApiSong[]): GroupSummary[] {
+  const map = new Map<string, GroupAccumulator>()
+  for (const song of songs) {
+    const label = nonEmpty(song.albumArtist) ?? nonEmpty(song.artist) ?? UNKNOWN_ARTIST
+    const key = label.toLowerCase()
+    let entry = map.get(key)
+    if (!entry) {
+      entry = {
+        key: label,
+        label,
+        albumCount: 0,
+        trackCount: 0,
+        byteSize: 0,
+        durationSeconds: 0,
+        coverArtist: label,
+        coverTitle: nonEmpty(song.album) ?? label,
+        coverUrl: null,
+        albumKeys: new Set(),
+      }
+      map.set(key, entry)
+    }
+    entry.trackCount += 1
+    entry.byteSize += song.fileSizeBytes ?? 0
+    entry.durationSeconds += song.durationSeconds ?? 0
+    entry.albumKeys.add(albumKeyOf(song))
+    if (!entry.coverUrl && song.albumArt) entry.coverUrl = song.albumArt
+  }
+  return finalizeGroups(map).sort((a, b) => a.label.localeCompare(b.label))
+}
+
+/** Group songs by `year`, newest first; songs without a year fall into the "Unknown" bucket (sorted last). */
+export function buildYearGroups(songs: ApiSong[]): GroupSummary[] {
+  const map = new Map<string, GroupAccumulator>()
+  for (const song of songs) {
+    const hasYear = typeof song.year === "number" && Number.isFinite(song.year)
+    const key = hasYear ? String(song.year) : UNKNOWN_GROUP
+    let entry = map.get(key)
+    if (!entry) {
+      entry = {
+        key,
+        label: key,
+        albumCount: 0,
+        trackCount: 0,
+        byteSize: 0,
+        durationSeconds: 0,
+        coverArtist: nonEmpty(song.albumArtist) ?? nonEmpty(song.artist) ?? UNKNOWN_ARTIST,
+        coverTitle: key,
+        coverUrl: null,
+        albumKeys: new Set(),
+      }
+      map.set(key, entry)
+    }
+    entry.trackCount += 1
+    entry.byteSize += song.fileSizeBytes ?? 0
+    entry.durationSeconds += song.durationSeconds ?? 0
+    entry.albumKeys.add(albumKeyOf(song))
+    if (!entry.coverUrl && song.albumArt) entry.coverUrl = song.albumArt
+  }
+  return finalizeGroups(map).sort((a, b) => {
+    if (a.key === UNKNOWN_GROUP) return 1
+    if (b.key === UNKNOWN_GROUP) return -1
+    return Number(b.key) - Number(a.key)
+  })
+}
+
 export async function fetchStats(): Promise<ApiStats> {
   if (isDemoMode) {
     const demoSongs = buildDemoSongs()

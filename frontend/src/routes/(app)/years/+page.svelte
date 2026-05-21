@@ -1,6 +1,6 @@
 <script lang="ts">
   import GroupGrid from '$lib/components/organize/GroupGrid.svelte';
-  import { buildArtistGroups, fetchSongs, type ApiSong, type GroupSummary } from '$lib/api-client';
+  import { buildYearGroups, fetchSongs, type ApiSong, type GroupSummary } from '$lib/api-client';
 
   let songs = $state<ApiSong[]>([]);
   let isLoading = $state(true);
@@ -20,17 +20,17 @@
     };
   });
 
-  const groups = $derived(buildArtistGroups(songs));
+  const groups = $derived(buildYearGroups(songs));
 
   function hrefFor(group: GroupSummary): string {
-    return `/app?artist=${encodeURIComponent(group.key)}`;
+    return `/app?year=${encodeURIComponent(group.key.toLowerCase())}`;
   }
 </script>
 
 <GroupGrid
-  title="Artists"
-  noun="artist"
-  searchPlaceholder="Search artists..."
+  title="By Year"
+  noun="year"
+  searchPlaceholder="Search years..."
   {groups}
   {isLoading}
   {hrefFor}

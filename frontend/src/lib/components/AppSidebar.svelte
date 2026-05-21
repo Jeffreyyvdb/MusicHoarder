@@ -52,10 +52,10 @@
   ];
 
   const ORGANIZE = [
-    { id: 'artist', label: 'By Artist' },
-    { id: 'genre', label: 'By Genre' },
-    { id: 'year', label: 'By Year' },
-    { id: 'label', label: 'By Label' }
+    { id: 'artist', label: 'By Artist', href: '/artists' },
+    { id: 'genre', label: 'By Genre', href: null },
+    { id: 'year', label: 'By Year', href: '/years' },
+    { id: 'label', label: 'By Label', href: null }
   ] as const;
 
   type SourceKind = 'connected' | 'unknown';
@@ -103,6 +103,14 @@
 
   const pathname = $derived(page.url.pathname);
   const onLibrary = $derived(pathname === '/app' || pathname.startsWith('/app/'));
+  const onOrganize = $derived(
+    onLibrary || pathname.startsWith('/artists') || pathname.startsWith('/years')
+  );
+  const activeOrganize = $derived.by<'artist' | 'year' | null>(() => {
+    if (pathname.startsWith('/artists') || page.url.searchParams.get('artist')) return 'artist';
+    if (pathname.startsWith('/years') || page.url.searchParams.get('year')) return 'year';
+    return null;
+  });
   const activeSection = $derived<SectionId>(
     (page.url.searchParams.get('section') as SectionId | null) ?? 'lib'
   );
@@ -158,7 +166,7 @@
     for (const s of songs) {
       const a = (s.albumArtist ?? s.artist ?? '').trim();
       if (a) artistSet.add(a.toLowerCase());
-      if (s.year) yearSet.add(s.year);
+      if (typeof s.year === 'number' && Number.isFinite(s.year)) yearSet.add(s.year);
     }
     return {
       artist: artistSet.size,
@@ -304,16 +312,18 @@
           </a>
         </Sidebar.GroupContent>
       </Sidebar.Group>
+    {/if}
 
+    {#if onOrganize}
       <Sidebar.Group class="group-data-[collapsible=icon]:hidden">
         <Sidebar.GroupLabel>Organize by</Sidebar.GroupLabel>
         <Sidebar.GroupContent class="px-2">
           {#each ORGANIZE as item (item.id)}
             {@const count = organizeCounts[item.id]}
-            {#if item.id === 'artist'}
-              {@const isActive = pathname.startsWith('/artists')}
+            {#if item.href}
+              {@const isActive = activeOrganize === item.id}
               <a
-                href="/artists"
+                href={item.href}
                 data-active={isActive || undefined}
                 class="text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:font-medium mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors"
               >
@@ -323,12 +333,12 @@
               </a>
             {:else}
               <div
-                class="text-sidebar-foreground/70 hover:bg-sidebar-accent mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors"
+                class="text-sidebar-foreground/50 mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px]"
                 title="Coming soon"
               >
                 <ListMusic class="size-3.5 shrink-0" />
                 <span class="flex-1 truncate text-left">{item.label}</span>
-                <span class="text-muted-foreground font-mono text-[10.5px]">{fmtCount(count)}</span>
+                <span class="text-muted-foreground/70 text-[9.5px] tracking-wide uppercase">Soon</span>
               </div>
             {/if}
           {/each}
