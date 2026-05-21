@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Jobs;
@@ -140,14 +141,16 @@ public static class EnrichmentEndpoints
                 JobManager jobManager,
                 IServiceScopeFactory scopeFactory,
                 PurgeStatusTracker tracker,
+                ICurrentUserAccessor currentUser,
                 ILoggerFactory loggerFactory) =>
                 StartPurge(
                     mode: "post-fingerprint",
                     jobManager,
                     scopeFactory,
                     tracker,
+                    currentUser.UserId,
                     loggerFactory,
-                    (service, jobId, ct) => service.ResetPostFingerprintAsync(jobId, ct)))
+                    (service, jobId, ownerUserId, ct) => service.ResetPostFingerprintAsync(jobId, ownerUserId, ct)))
             .WithName("PurgePostFingerprint")
             .WithSummary("Start a background reset of enrichment, lyrics, duplicate, and library-build state. Returns 202 Accepted with a jobId; poll /purge-status for progress.")
             .RequireOwner();
@@ -156,14 +159,16 @@ public static class EnrichmentEndpoints
                 JobManager jobManager,
                 IServiceScopeFactory scopeFactory,
                 PurgeStatusTracker tracker,
+                ICurrentUserAccessor currentUser,
                 ILoggerFactory loggerFactory) =>
                 StartPurge(
                     mode: "all",
                     jobManager,
                     scopeFactory,
                     tracker,
+                    currentUser.UserId,
                     loggerFactory,
-                    (service, jobId, ct) => service.PurgeAllAsync(jobId, ct)))
+                    (service, jobId, ownerUserId, ct) => service.PurgeAllAsync(jobId, ownerUserId, ct)))
             .WithName("PurgeAll")
             .WithSummary("Start a background hard-delete of every song, provider attempt, cached Spotify match, and copied destination file. Returns 202 Accepted.")
             .RequireOwner();
@@ -180,8 +185,9 @@ public static class EnrichmentEndpoints
         JobManager jobManager,
         IServiceScopeFactory scopeFactory,
         PurgeStatusTracker tracker,
+        Guid ownerUserId,
         ILoggerFactory loggerFactory,
-        Func<IPipelinePurgeService, Guid, CancellationToken, Task<PurgeResult>> run)
+        Func<IPipelinePurgeService, Guid, Guid, CancellationToken, Task<PurgeResult>> run)
     {
         if (!jobManager.TryStartJob(JobType.Purge, out var jobId, out var cancellationToken))
             return Results.Conflict(new { message = "A purge is already running. Wait for it to finish." });
@@ -194,7 +200,7 @@ public static class EnrichmentEndpoints
             {
                 using var scope = scopeFactory.CreateScope();
                 var service = scope.ServiceProvider.GetRequiredService<IPipelinePurgeService>();
-                await run(service, jobId, cancellationToken);
+                await run(service, jobId, ownerUserId, cancellationToken);
                 jobManager.SignalComplete(JobType.Purge, jobId);
             }
             catch (OperationCanceledException)
