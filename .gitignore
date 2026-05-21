@@ -483,3 +483,9 @@ $RECYCLE.BIN/
 
 # Claude Code worktrees (local, ephemeral)
 .claude/worktrees/
+
+# Local Claude Code state and ad-hoc planning/decision docs — keep these out of the
+# public repo. Tracked skills under .claude/skills/ are intentionally kept.
+.claude/*.md
+.claude/settings.local.json
+.claude/plans/

@@ -1232,3 +1232,54 @@ export async function fetchReviewTracks(): Promise<ApiSong[]> {
   )
   return result.songs ?? []
 }
+
+// ── Enrichment detail (candidate matches) ──────────────────────────────────────
+
+export interface EnrichmentCandidate {
+  title?: string | null
+  artist?: string | null
+  albumArtist?: string | null
+  album?: string | null
+  year?: number | null
+  trackNumber?: number | null
+  isrc?: string | null
+  musicBrainzId?: string | null
+  musicBrainzReleaseId?: string | null
+  spotifyId?: string | null
+  acoustIdTrackId?: string | null
+  matchedBy?: string | null
+  matchConfidence?: number | null
+  matchWarnings?: string[] | null
+  recommendedStatus?: string | null
+}
+
+export interface ProviderAttempt {
+  provider: string
+  status: string
+  attemptedAtUtc: string
+  retryAfterUtc?: string | null
+  nextRetryAfterUtc?: string | null
+  error?: string | null
+  candidate: EnrichmentCandidate | null
+}
+
+export interface EnrichmentDetail {
+  id: number
+  fileName: string
+  sourcePath: string
+  destinationPath?: string | null
+  enrichmentStatus: string
+  isManuallyApproved?: boolean
+  matchedBy?: string | null
+  matchConfidence?: number | null
+  matchWarnings?: string[] | null
+  enrichmentError?: string | null
+  originalMetadataCaptured: boolean
+  source: EnrichmentCandidate | null
+  current: EnrichmentCandidate
+  providerAttempts: ProviderAttempt[]
+}
+
+export async function fetchEnrichmentDetail(songId: number): Promise<EnrichmentDetail> {
+  return requestJson<EnrichmentDetail>(`/songs/${songId}/enrichment-detail`)
+}
