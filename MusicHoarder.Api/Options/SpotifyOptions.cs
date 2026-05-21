@@ -12,10 +12,10 @@ namespace MusicHoarder.Api.Options;
 /// <see cref="OAuthRedirectBaseUrl"/> to <c>http://127.0.0.1:5142</c>.
 /// </para>
 /// <para>
-/// <b>Dynamic API port (e.g. Aspire):</b> Use one fixed dev URL in the dashboard and matching
-/// <see cref="OAuthRedirectBaseUrl"/>. After Spotify redirects, if nothing is listening on that port, edit the
-/// address bar to your real API origin (same path <c>/api/spotify/callback</c>, keep <c>code</c> and <c>state</c>).
-/// The callback still uses <see cref="OAuthRedirectBaseUrl"/> for the token request so it matches Spotify.
+/// <b>Local dev (Aspire):</b> the AppHost auto-sets this to <c>http://127.0.0.1:&lt;api-http-port&gt;</c> (the API
+/// dev port is pinned to <c>5142</c> in <c>launchSettings.json</c>), so you only register
+/// <c>http://127.0.0.1:5142/api/spotify/callback</c> once in the dashboard. In publish mode the AppHost sets it to
+/// the public frontend origin instead.
 /// </para>
 /// <para>
 /// When <see cref="OAuthRedirectBaseUrl"/> is empty, <c>redirect_uri</c> is built from the current HTTP request
