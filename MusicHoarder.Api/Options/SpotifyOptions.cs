@@ -7,19 +7,21 @@ namespace MusicHoarder.Api.Options;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Spotify rejects <c>localhost</c> in redirect URIs; use a loopback IP such as <c>127.0.0.1</c> (see Spotify&apos;s
-/// migration guide). For example register <c>http://127.0.0.1:5142/api/spotify/callback</c> and set
-/// <see cref="OAuthRedirectBaseUrl"/> to <c>http://127.0.0.1:5142</c>.
+/// Spotify rejects <c>localhost</c> in redirect URIs and forbids wildcards, so a per-environment URI (each local
+/// run and PR preview has a different origin) cannot be registered. Instead we register a single <b>relay</b> URI on
+/// the production frontend — see <see cref="OAuthRelayUrl"/>. The relay is a stateless browser bounce that reads the
+/// originating environment from the signed OAuth <c>state</c> and 303-redirects back to that environment's own
+/// <c>/api/spotify/callback</c>, where the token exchange completes (with the owner's session cookie present).
 /// </para>
 /// <para>
-/// <b>Local dev (Aspire):</b> the AppHost auto-sets this to <c>http://127.0.0.1:&lt;api-http-port&gt;</c> (the API
-/// dev port is pinned to <c>5142</c> in <c>launchSettings.json</c>), so you only register
-/// <c>http://127.0.0.1:5142/api/spotify/callback</c> once in the dashboard. In publish mode the AppHost sets it to
-/// the public frontend origin instead.
+/// <b>All environments</b> (local dev, PR previews, prod) set <see cref="OAuthRelayUrl"/> to the same value and use it
+/// verbatim as <c>redirect_uri</c> in both the authorize request and the token exchange. Register exactly that one URI
+/// — e.g. <c>https://your-prod-frontend/api/spotify/relay</c> — in the Spotify dashboard.
 /// </para>
 /// <para>
-/// When <see cref="OAuthRedirectBaseUrl"/> is empty, <c>redirect_uri</c> is built from the current HTTP request
-/// (<c>scheme://host/api/spotify/callback</c>). Use that when the listening port is stable and registered in Spotify.
+/// <see cref="OAuthRedirectBaseUrl"/> remains as a fallback for offline/standalone dev: when <see cref="OAuthRelayUrl"/>
+/// is empty, the redirect URI is <c>OAuthRedirectBaseUrl + /api/spotify/callback</c>; when both are empty it is derived
+/// from the current request (<c>scheme://host/api/spotify/callback</c>).
 /// </para>
 /// </remarks>
 public class SpotifyOptions
@@ -38,10 +40,34 @@ public class SpotifyOptions
     public string ClientSecret { get; set; } = string.Empty;
 
     /// <summary>
-    /// Fixed API base URL for OAuth <c>redirect_uri</c> (no trailing slash), e.g. <c>http://127.0.0.1:5142</c>.
-    /// Must match a redirect URI registered in Spotify. When empty, the redirect URI is derived from the request.
+    /// Absolute URL of the single registered OAuth relay (e.g. <c>https://your-prod-frontend/api/spotify/relay</c>),
+    /// used verbatim as <c>redirect_uri</c>. Takes precedence over <see cref="OAuthRedirectBaseUrl"/>. Set identically
+    /// in every environment so the value matches the one URI registered in the Spotify dashboard.
+    /// </summary>
+    public string OAuthRelayUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Fixed API base URL for OAuth <c>redirect_uri</c> (no trailing slash). Fallback used only when
+    /// <see cref="OAuthRelayUrl"/> is empty; <c>/api/spotify/callback</c> is appended. When both are empty the
+    /// redirect URI is derived from the request.
     /// </summary>
     public string OAuthRedirectBaseUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// HMAC-SHA256 key that signs the OAuth <c>state</c> so the relay can verify it is one we issued (the state
+    /// carries the originating environment's origin, which the relay bounces the browser back to — an unsigned value
+    /// would be an open redirect of the auth code). Must be identical in the relay (frontend) and every API that
+    /// completes an exchange. When empty, an opaque random state is used and no relay-origin validation occurs
+    /// (offline/standalone dev only).
+    /// </summary>
+    public string OAuthStateSigningKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Maximum age (minutes) of a signed OAuth <c>state</c> accepted on the callback. Guards against replay of a stale
+    /// authorization. The default of 10 minutes is the effective TTL in every environment (prod, preview, local) once
+    /// the signing key is set. Ignored when <see cref="OAuthStateSigningKey"/> is empty.
+    /// </summary>
+    public int OAuthStateTtlMinutes { get; set; } = 10;
 
     /// <summary>
     /// How often to refresh Spotify liked-song ↔ local library match cache in the background (0 = disabled).
