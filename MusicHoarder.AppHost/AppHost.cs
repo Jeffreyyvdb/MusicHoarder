@@ -35,11 +35,13 @@ var sourceDirectory = builder.AddParameter("source-directory")
     .WithDescription("Source music directory the scanner crawls (absolute path).");
 var destinationDirectory = builder.AddParameter("destination-directory")
     .WithDescription("Destination library directory the LibraryBuilder writes into (absolute path).");
-var acoustIdApiKey = builder.AddParameter("acoustid-api-key", secret: true)
+// These secrets are optional: the app degrades gracefully when blank. Default a missing value to
+// empty so the AppHost boots without prompting (a configured user-secret / env value still wins).
+var acoustIdApiKey = builder.AddParameter("acoustid-api-key", builder.Configuration["Parameters:acoustid-api-key"] ?? "", secret: true)
     .WithDescription("AcoustID API key (acoustid.org/api-key). Optional — disables the AcoustID provider when blank.");
-var spotifyClientId = builder.AddParameter("spotify-client-id", secret: true)
+var spotifyClientId = builder.AddParameter("spotify-client-id", builder.Configuration["Parameters:spotify-client-id"] ?? "", secret: true)
     .WithDescription("Spotify app Client ID. Optional — disables Spotify enrichment + OAuth when blank.");
-var spotifyClientSecret = builder.AddParameter("spotify-client-secret", secret: true)
+var spotifyClientSecret = builder.AddParameter("spotify-client-secret", builder.Configuration["Parameters:spotify-client-secret"] ?? "", secret: true)
     .WithDescription("Spotify app Client Secret.");
 var frontendPublicBaseUrl = builder.AddParameter("frontend-public-base-url")
     .WithDescription("Public HTTPS base URL of the frontend, used for Spotify OAuth redirect-back. Only consumed when publishing (e.g. the Dokploy domain); local dev uses the dynamic dev endpoint.");
@@ -48,7 +50,7 @@ var ownerEmail = builder.AddParameter("owner-email")
     .WithDescription("Email of the owner (admin) account. Used by magic-link sign-in.");
 var demoUserEmail = builder.AddParameter("demo-user-email")
     .WithDescription("Email of the demo (read-only) account. Defaults to demo@musichoarder.local.");
-var resendApiKey = builder.AddParameter("resend-api-key", secret: true)
+var resendApiKey = builder.AddParameter("resend-api-key", builder.Configuration["Parameters:resend-api-key"] ?? "", secret: true)
     .WithDescription("Resend API key for magic-link emails. Optional — falls back to logging links to the console when blank.");
 var resendFromAddress = builder.AddParameter("resend-from-address")
     .WithDescription("'From' address for magic-link emails (must be on a domain verified in Resend).");
