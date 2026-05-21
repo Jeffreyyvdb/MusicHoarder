@@ -1,13 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Check, X, Search } from '@lucide/svelte';
+  import { Check, X, Search, Loader2 } from '@lucide/svelte';
   import MobileHeader from '$lib/components/mobile/MobileHeader.svelte';
   import {
     fetchReviewTracks,
+    fetchEnrichmentDetail,
     submitManualReview,
     getSongStreamUrl,
-    type ApiSong
+    type ApiSong,
+    type EnrichmentDetail
   } from '$lib/api-client';
+  import { reasonFor, candidatesFromDetail, embeddedTags } from '$lib/review-helpers';
   import { formatDuration, formatFileSize } from '$lib/formatters';
   import { playerStore } from '$lib/stores/player.svelte';
 
@@ -15,13 +18,17 @@
   let loading = $state(true);
   let openId = $state<number | null>(null);
   let decisions = $state<Record<number, 'accept' | 'reject' | 'skip'>>({});
-  let pickedOriginal = $state(false);
+  let details = $state<Record<number, EnrichmentDetail>>({});
+  let detailLoading = $state<Record<number, boolean>>({});
+  let pickedKey = $state<Record<number, string>>({});
   let busy = $state(false);
 
   async function load() {
     loading = true;
     try {
       tracks = await fetchReviewTracks();
+      // Prefetch candidate detail so each list card can show its top guess.
+      for (const track of tracks) void loadDetail(track.id);
     } catch {
       tracks = [];
     } finally {
@@ -29,58 +36,36 @@
     }
   }
 
-  onMount(load);
-
-  function reasonFor(t: ApiSong): { label: string; cls: string } {
-    if (!t.fingerprint) return { label: 'No fingerprint', cls: 'err' };
-    if ((t.matchWarnings?.length ?? 0) > 1) return { label: 'Multiple matches', cls: 'info' };
-    if (t.matchConfidence != null && t.matchConfidence < 0.7) return { label: 'Low confidence', cls: 'warn' };
-    return { label: 'Needs review', cls: 'warn' };
+  function topGuess(id: number): { title: string; sub: string } | null {
+    const c = candidatesFromDetail(details[id])[0];
+    if (!c) return null;
+    const sub = [c.artist, c.album, c.year].filter(Boolean).join(' · ');
+    return { title: c.title, sub };
   }
 
+  onMount(load);
+
   const open = $derived(openId != null ? (tracks.find((t) => t.id === openId) ?? null) : null);
+  const openCandidates = $derived(open ? candidatesFromDetail(details[open.id]) : []);
 
-  type Candidate = {
-    src: string;
-    title: string;
-    artist: string;
-    album: string;
-    year: string;
-    score: number | null;
-    original: boolean;
-  };
-
-  const candidates = $derived.by<Candidate[]>(() => {
-    const t = open;
-    if (!t) return [];
-    const out: Candidate[] = [
-      {
-        src: t.matchedBy ?? 'enrichment',
-        title: t.title ?? t.fileName,
-        artist: t.artist ?? '—',
-        album: t.album ?? '—',
-        year: t.year ? String(t.year) : '—',
-        score: t.matchConfidence ?? null,
-        original: false
-      }
-    ];
-    if (t.originalMetadataCaptured) {
-      out.push({
-        src: 'embedded tags',
-        title: t.originalTitle ?? t.fileName,
-        artist: t.originalArtist ?? '—',
-        album: t.originalAlbum ?? '—',
-        year: t.originalYear ? String(t.originalYear) : '—',
-        score: null,
-        original: true
-      });
+  async function loadDetail(id: number) {
+    if (details[id] || detailLoading[id]) return;
+    detailLoading = { ...detailLoading, [id]: true };
+    try {
+      const detail = await fetchEnrichmentDetail(id);
+      details = { ...details, [id]: detail };
+      const cands = candidatesFromDetail(detail);
+      if (cands[0] && !pickedKey[id]) pickedKey = { ...pickedKey, [id]: cands[0].key };
+    } catch {
+      // candidates optional
+    } finally {
+      detailLoading = { ...detailLoading, [id]: false };
     }
-    return out;
-  });
+  }
 
   function openItem(id: number) {
     openId = id;
-    pickedOriginal = false;
+    void loadDetail(id);
   }
 
   function play(t: ApiSong) {
@@ -92,34 +77,37 @@
     });
   }
 
+  function folderName(sourcePath: string): string {
+    const parts = sourcePath.split('/');
+    parts.pop();
+    return parts.pop() ?? '';
+  }
+
   async function decide(action: 'accept' | 'reject' | 'skip') {
     const t = open;
     if (!t || busy) return;
-    decisions = { ...decisions, [t.id]: action };
     if (action === 'skip') {
+      decisions = { ...decisions, [t.id]: 'skip' };
       openId = null;
       return;
     }
     busy = true;
     try {
       if (action === 'accept') {
-        const overrides =
-          pickedOriginal && t.originalMetadataCaptured
-            ? {
-                artist: t.originalArtist ?? undefined,
-                albumArtist: t.originalAlbumArtist ?? undefined,
-                album: t.originalAlbum ?? undefined,
-                title: t.originalTitle ?? undefined,
-                year: t.originalYear ?? undefined,
-                trackNumber: t.originalTrackNumber ?? undefined
-              }
-            : {};
+        const picked = candidatesFromDetail(details[t.id]).find((c) => c.key === pickedKey[t.id]);
+        const overrides = picked
+          ? {
+              title: picked.fields.title,
+              artist: picked.fields.artist,
+              album: picked.fields.album,
+              year: picked.fields.year ? parseInt(picked.fields.year, 10) : undefined
+            }
+          : {};
         await submitManualReview(t.id, { decision: 'approve', ...overrides });
-        tracks = tracks.filter((x) => x.id !== t.id);
       } else {
         await submitManualReview(t.id, { decision: 'reject' });
-        tracks = tracks.filter((x) => x.id !== t.id);
       }
+      decisions = { ...decisions, [t.id]: action };
       openId = null;
     } catch {
       // leave open on failure
@@ -137,7 +125,7 @@
     <MobileHeader back="Queue" onback={() => (openId = null)} title="Review" />
     <div class="mob-scroll">
       <div class="mob-rv-card-h" style="background: var(--surface-sunken);">
-        <span class="mob-pill {r.cls}">{r.label}</span>
+        <span class="mob-pill {r.tint}">{r.label}</span>
         <span class="mob-rv-card-file">{open.fileName}</span>
       </div>
 
@@ -145,19 +133,29 @@
         <div><div class="mob-rv-kpi-k">DUR</div><div class="mob-rv-kpi-v">{formatDuration(open.durationSeconds)}</div></div>
         <div><div class="mob-rv-kpi-k">SIZE</div><div class="mob-rv-kpi-v">{formatFileSize(open.fileSizeBytes)}</div></div>
         <div><div class="mob-rv-kpi-k">FORMAT</div><div class="mob-rv-kpi-v">{(open.extension ?? '').replace(/^\./, '').toUpperCase() || '—'}</div></div>
-        <div><div class="mob-rv-kpi-k">CONF</div><div class="mob-rv-kpi-v">{open.matchConfidence != null ? open.matchConfidence.toFixed(2) : '—'}</div></div>
+        <div><div class="mob-rv-kpi-k">FOLDER</div><div class="mob-rv-kpi-v truncate">{folderName(open.sourcePath)}</div></div>
       </div>
 
       <div class="px-4 pt-4 pb-2">
         <div class="text-muted-foreground mb-2.5 text-[10.5px] font-semibold tracking-wider uppercase">
-          Candidate matches · {candidates.length}
+          Candidate matches · {openCandidates.length}
         </div>
-        {#each candidates as c (c.src)}
-          {@const picked = pickedOriginal === c.original}
+        {#if detailLoading[open.id] && openCandidates.length === 0}
+          <div class="text-muted-foreground flex items-center gap-2 py-2 text-sm">
+            <Loader2 class="size-4 animate-spin" /> Loading candidates…
+          </div>
+        {/if}
+        {#if !detailLoading[open.id] && openCandidates.length === 0}
+          <div class="bg-surface-sunken text-muted-foreground rounded-lg p-3.5 text-[13px]">
+            No fingerprint matches. Enter metadata manually or skip.
+          </div>
+        {/if}
+        {#each openCandidates as c (c.key)}
+          {@const picked = pickedKey[open.id] === c.key}
           <button
             class="mob-row mb-1.5 rounded-[10px] border"
             style="border-color: {picked ? 'var(--primary)' : 'var(--border)'}; background: {picked ? 'var(--accent-soft)' : 'var(--card)'};"
-            onclick={() => (pickedOriginal = c.original)}
+            onclick={() => (pickedKey = { ...pickedKey, [open.id]: c.key })}
           >
             <div class="w-10 shrink-0 text-center">
               <div class="font-mono text-[15px] font-semibold {picked ? 'text-primary' : ''}">
@@ -167,7 +165,7 @@
             <div class="mob-row-meta">
               <div class="mob-row-t">{c.title}</div>
               <div class="mob-row-s">{c.artist} · {c.album} · {c.year}</div>
-              <div class="text-muted-foreground mt-1 font-mono text-[10.5px]">{c.src}</div>
+              <div class="text-muted-foreground mt-1 font-mono text-[10.5px]">{c.source}</div>
             </div>
             {#if picked}<Check size={13} class="text-primary" strokeWidth={2.5} />{/if}
           </button>
@@ -175,17 +173,17 @@
       </div>
 
       <div class="px-4 pt-2 pb-3">
-        <button class="mob-btn" onclick={() => open && play(open)}><Search size={13} />Preview / search</button>
+        <button class="mob-btn" onclick={() => open && play(open)}><Search size={13} />Preview audio</button>
       </div>
 
       <div class="mob-grouped-h">Embedded tags</div>
       <div class="mob-grouped">
-        {#each [['title', open.title], ['artist', open.artist], ['album', open.album], ['year', open.year], ['track', open.trackNumber]] as [k, v] (k)}
+        {#each embeddedTags(open) as tag (tag.key)}
           <div class="mob-row">
-            <span class="text-muted-foreground w-[70px] shrink-0 font-mono text-[11px]">{k}</span>
+            <span class="text-muted-foreground w-[70px] shrink-0 font-mono text-[11px]">{tag.key}</span>
             <div class="mob-row-meta">
               <div class="text-[13.5px]">
-                {#if v != null && String(v).length}{v}{:else}<em class="text-muted-foreground/60 text-xs">(empty)</em>{/if}
+                {#if tag.value}{tag.value}{:else}<em class="text-muted-foreground/60 text-xs">(empty)</em>{/if}
               </div>
             </div>
           </div>
@@ -201,7 +199,7 @@
   </div>
 {:else}
   <div class="mob">
-    <MobileHeader title="Manual review" sub="{tracks.length} pending · {decidedCount} decided" />
+    <MobileHeader title="Manual review" sub="{tracks.length - decidedCount} pending · {decidedCount} decided" />
     <div class="mob-scroll pt-2.5">
       {#if loading}
         <div class="text-muted-foreground px-6 py-16 text-center text-sm">Loading…</div>
@@ -215,9 +213,10 @@
         {#each tracks as t (t.id)}
           {@const r = reasonFor(t)}
           {@const d = decisions[t.id]}
+          {@const guess = topGuess(t.id)}
           <button class="mob-rv-card" onclick={() => openItem(t.id)}>
             <div class="mob-rv-card-h">
-              <span class="mob-pill {r.cls}">{r.label}</span>
+              <span class="mob-pill {r.tint}">{r.label}</span>
               {#if t.matchConfidence != null}
                 <span class="text-muted-foreground font-mono text-[11px]">{t.matchConfidence.toFixed(2)}</span>
               {/if}
@@ -230,10 +229,14 @@
             </div>
             <div class="mob-rv-card-body">
               <div class="mob-rv-card-eyebrow">{t.fileName}</div>
-              <div class="mob-rv-card-guess">{t.title ?? t.fileName}</div>
-              <div class="mob-rv-card-guess-sub">
-                {t.artist ?? '—'}{#if t.album} · {t.album}{/if}{#if t.year} · {t.year}{/if}
-              </div>
+              {#if guess}
+                <div class="mob-rv-card-guess">{guess.title}</div>
+                <div class="mob-rv-card-guess-sub">{guess.sub}</div>
+              {:else}
+                <div class="mob-rv-card-guess text-muted-foreground font-medium">
+                  No candidates — manual entry needed
+                </div>
+              {/if}
             </div>
           </button>
         {/each}
