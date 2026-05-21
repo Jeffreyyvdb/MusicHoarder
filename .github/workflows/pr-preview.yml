@@ -1,0 +1,237 @@
+# Per-PR preview environments on Dokploy.
+#
+# Dokploy's built-in Preview Deployments don't support Docker Compose apps
+# (https://github.com/Dokploy/dokploy/issues/2028), and MusicHoarder is a 3-service compose stack,
+# so we provision our own: build pr-<n> images, then spin up an *isolated* full compose stack
+# (postgres + api + frontend) on Dokploy reachable at https://pr-<n>.<PREVIEW_BASE_DOMAIN>.
+# Torn down when the PR closes. See scripts/dokploy-preview.sh and the README.
+#
+# SECURITY: previews run only for PRs from branches in this repo. Fork PRs are skipped — this is a
+# public repo and we never build/run untrusted contributor code on the server (Dokploy gives the
+# same warning for its native feature). The internal-branch guard is on every job.
+#
+# Production is untouched: these images are plain `docker build` of the repo Dockerfiles tagged
+# :pr-<n>; the Aspire :latest flow in aspire-deploy.yml is independent.
+name: PR preview (Dokploy)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to provision a preview for (phase-1 manual validation)"
+        required: true
+        type: string
+
+# One run per PR; a new push cancels an in-flight build for the same PR.
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number || github.event.inputs.pr_number || 'manual' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+
+env:
+  IMAGE_BASE: ghcr.io/${{ github.repository_owner }}/musichoarder
+
+jobs:
+  build-and-deploy:
+    name: Build images + deploy preview
+    runs-on: ubuntu-latest
+    # Skip on PR close (that's the teardown job). Run for manual dispatch, or for non-close PR
+    # events whose head branch lives in THIS repo (not a fork). workflow_dispatch is an unguarded
+    # escape hatch by design — only users with write access can trigger it, so a maintainer
+    # manually previewing a fork PR is a trusted action.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.action != 'closed' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    steps:
+      # Are the Dokploy preview secrets configured? Until the one-time setup is done (DNS +
+      # previews environment + secrets, see README), skip the whole job with a notice instead of
+      # red-X-ing every PR. Secrets can't be used in `if:` directly, so gate via this output.
+      - name: Preflight — preview configured?
+        id: pre
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          DOKPLOY_PREVIEW_ENVIRONMENT_ID: ${{ secrets.DOKPLOY_PREVIEW_ENVIRONMENT_ID }}
+          PREVIEW_BASE_DOMAIN: ${{ secrets.PREVIEW_BASE_DOMAIN }}
+        run: |
+          if [ -n "$DOKPLOY_URL" ] && [ -n "$DOKPLOY_API_KEY" ] \
+             && [ -n "$DOKPLOY_PREVIEW_ENVIRONMENT_ID" ] && [ -n "$PREVIEW_BASE_DOMAIN" ]; then
+            echo "configured=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::Dokploy preview secrets not set — skipping preview build/deploy. See README 'PR preview environments'."
+          fi
+
+      - name: Resolve PR number + lowercase image base
+        id: vars
+        if: steps.pre.outputs.configured == 'true'
+        run: |
+          set -euo pipefail
+          pr="${{ github.event.pull_request.number || github.event.inputs.pr_number }}"
+          echo "pr=${pr}" >>"$GITHUB_OUTPUT"
+          base="${IMAGE_BASE,,}"   # GHCR requires a lowercase path
+          echo "api_image=${base}/api:pr-${pr}" >>"$GITHUB_OUTPUT"
+          echo "frontend_image=${base}/frontend:pr-${pr}" >>"$GITHUB_OUTPUT"
+
+      # For pull_request this checks out the merge ref; for workflow_dispatch grab the PR head.
+      - uses: actions/checkout@v4
+        if: steps.pre.outputs.configured == 'true'
+        with:
+          ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', steps.vars.outputs.pr) }}
+
+      - name: Log in to GHCR
+        if: steps.pre.outputs.configured == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Plain docker build of the same Dockerfiles production uses — context `.` for the API (it
+      # bundles fpcalc + curl) and ./frontend for the SvelteKit/Bun server.
+      - name: Build & push API image
+        if: steps.pre.outputs.configured == 'true'
+        run: |
+          docker build -f Dockerfile -t "${{ steps.vars.outputs.api_image }}" .
+          docker push "${{ steps.vars.outputs.api_image }}"
+
+      - name: Build & push frontend image
+        if: steps.pre.outputs.configured == 'true'
+        run: |
+          docker build -f frontend/Dockerfile -t "${{ steps.vars.outputs.frontend_image }}" ./frontend
+          docker push "${{ steps.vars.outputs.frontend_image }}"
+
+      - name: Provision Dokploy preview stack
+        id: provision
+        if: steps.pre.outputs.configured == 'true'
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          DOKPLOY_PREVIEW_ENVIRONMENT_ID: ${{ secrets.DOKPLOY_PREVIEW_ENVIRONMENT_ID }}
+          PREVIEW_BASE_DOMAIN: ${{ secrets.PREVIEW_BASE_DOMAIN }}
+          PREVIEW_POSTGRES_PASSWORD: ${{ secrets.PREVIEW_POSTGRES_PASSWORD }}
+          PREVIEW_OWNER_EMAIL: ${{ secrets.PREVIEW_OWNER_EMAIL }}
+          # Host paths on the Dokploy server (repo variables). Empty → script defaults apply.
+          PREVIEW_SOURCE_DIR: ${{ vars.PREVIEW_SOURCE_DIR }}
+          PREVIEW_DEST_ROOT: ${{ vars.PREVIEW_DEST_ROOT }}
+          PR: ${{ steps.vars.outputs.pr }}
+          API_IMAGE: ${{ steps.vars.outputs.api_image }}
+          FRONTEND_IMAGE: ${{ steps.vars.outputs.frontend_image }}
+        run: ./scripts/dokploy-preview.sh provision
+
+      - name: Comment preview URL on PR
+        if: github.event_name == 'pull_request' && steps.provision.outputs.preview_url != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // toJSON keeps this a valid JS string literal even if the URL ever contains a quote.
+            const url = ${{ toJSON(steps.provision.outputs.preview_url) }};
+            const marker = "<!-- mh-preview -->";
+            const body = `${marker}\n🎧 **Preview environment deployed**\n\n${url}\n\n` +
+              `⏳ The stack takes ~1 min to come up — give it a moment if the link 502s at first.\n\n` +
+              `Full isolated stack (Postgres + API + frontend). Sign in with the magic link from ` +
+              `the API logs in Dokploy. Torn down when this PR closes.`;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.issue.number, body,
+              });
+            }
+
+  teardown:
+    name: Tear down preview
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      # Teardown only deletes by composeId, so it needs the API creds + environment id but NOT
+      # PREVIEW_BASE_DOMAIN (which the deploy preflight checks) — hence the shorter list here.
+      - name: Preflight — preview configured?
+        id: pre
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          DOKPLOY_PREVIEW_ENVIRONMENT_ID: ${{ secrets.DOKPLOY_PREVIEW_ENVIRONMENT_ID }}
+        run: |
+          if [ -n "$DOKPLOY_URL" ] && [ -n "$DOKPLOY_API_KEY" ] && [ -n "$DOKPLOY_PREVIEW_ENVIRONMENT_ID" ]; then
+            echo "configured=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::Dokploy preview secrets not set — nothing to tear down."
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.pre.outputs.configured == 'true'
+
+      - name: Destroy Dokploy preview stack
+        if: steps.pre.outputs.configured == 'true'
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          DOKPLOY_PREVIEW_ENVIRONMENT_ID: ${{ secrets.DOKPLOY_PREVIEW_ENVIRONMENT_ID }}
+          PR: ${{ github.event.pull_request.number }}
+        run: ./scripts/dokploy-preview.sh destroy
+
+      # Best-effort: drop the pr-<n> image versions so they don't accumulate in GHCR. Needs a token
+      # with delete:packages; the default GITHUB_TOKEN can delete versions of packages owned by this
+      # repo's owner. Never fails the job.
+      - name: Prune pr-<n> GHCR image versions
+        if: steps.pre.outputs.configured == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GHCR_CLEANUP_TOKEN || secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          # No `-e`: every fallible call below is guarded with `|| ...`, and the whole step is
+          # continue-on-error, so pruning is strictly best-effort and never blocks teardown.
+          set -uo pipefail
+          for pkg in musichoarder/api musichoarder/frontend; do
+            enc=$(jq -rn --arg p "$pkg" '$p|@uri')
+            # user-owned packages live under /users/<owner>/...; orgs under /orgs/<owner>/...
+            base="/users/${OWNER}/packages/container/${enc}/versions"
+            ids=$(gh api --paginate "$base" 2>/dev/null \
+              | jq -r --arg t "pr-${PR}" '.[] | select(.metadata.container.tags | index($t)) | .id' || true)
+            for id in $ids; do
+              echo "Deleting ${pkg} version ${id} (tag pr-${PR})"
+              gh api -X DELETE "${base}/${id}" || echo "::notice::could not delete ${pkg} version ${id}"
+            done
+          done
+
+      - name: Comment teardown on PR
+        if: steps.pre.outputs.configured == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = "<!-- mh-preview -->";
+            const body = `${marker}\n🧹 Preview environment for this PR has been torn down.`;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: existing.id, body,
+              });
+            }

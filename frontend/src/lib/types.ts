@@ -81,39 +81,6 @@ export interface TrackImport {
   fingerprint?: string
 }
 
-// Artist Discography Types
-export interface Artist {
-  id: string
-  name: string
-  image?: string
-  genres: string[]
-  albumsInLibrary: number
-  totalAlbums: number
-  tracksInLibrary: number
-  totalTracks: number
-}
-
-export interface DiscographyAlbum {
-  id: string
-  name: string
-  year: number
-  albumArt?: string
-  type: "album" | "single" | "ep" | "compilation"
-  tracks: DiscographyTrack[]
-  inLibrary: boolean
-  tracksOwned: number
-  totalTracks: number
-}
-
-export interface DiscographyTrack {
-  id: string
-  name: string
-  trackNumber: number
-  duration: number
-  inLibrary: boolean
-  downloadStatus?: "available" | "downloading" | "downloaded" | "unavailable"
-}
-
 // Spotify Sync Types
 export interface SpotifyPlaylist {
   id: string
