@@ -27,25 +27,13 @@ The proxy (`src/routes/api/mh/[...path]/+server.ts`) resolves the backend base U
 2. Aspire-discovery variables like `services__musichoarder-api__http__0`
 3. Fallback: `http://localhost:5107`
 
-## Demo vs production data mode
+## Demo access
 
-Use `PUBLIC_DEMO_MODE` (SvelteKit exposes any `PUBLIC_*` env to the client) to control whether API-backed UI data comes from fake data or the backend API:
-
-- `PUBLIC_DEMO_MODE=true` → **Demo mode** (mock data)
-- `PUBLIC_DEMO_MODE=false` (or unset) → **Production mode** (real API only)
-
-In production mode, API failures are surfaced as UI errors and do not fall back to mock data.
-
-The **`/spotify`** page participates in demo mode: with `PUBLIC_DEMO_MODE=true` you do **not** need `MUSICHOARDER_API_URL` for that route. The UI shows a connected state with sample playlists and liked songs (no real Spotify OAuth). For a demo-only deployment that just showcases the product, set `PUBLIC_DEMO_MODE=true` and omit the API URL unless other pages require it.
-
-```bash
-# Demo deployment
-PUBLIC_DEMO_MODE=true
-
-# Production deployment
-PUBLIC_DEMO_MODE=false
-MUSICHOARDER_API_URL=https://your-api-host
-```
+There is no frontend-only demo. To showcase the product, use the **API-backed demo
+account**: the `/login` page's "Try the demo" button calls `POST /api/auth/demo-login`,
+which starts a real read-only session backed by a seeded `Demo` user in the database.
+All data comes from the backend API — `MUSICHOARDER_API_URL` (or Aspire discovery) is
+always required. API failures are surfaced as UI errors.
 
 ## Analytics (optional)
 
