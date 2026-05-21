@@ -92,8 +92,12 @@ public class MusicEnricherOptions
     /// <summary>Enable the AcoustID enrichment provider (fingerprint → MusicBrainz via AcoustID).</summary>
     public bool EnableAcoustIdProvider { get; set; } = true;
 
-    /// <summary>Enable the MusicBrainz web-service enrichment provider (ISRC / artist+title search).</summary>
-    public bool EnableMusicBrainzWebProvider { get; set; } = false;
+    /// <summary>
+    /// Enable the MusicBrainz web-service enrichment provider (MBID / ISRC / artist+title search).
+    /// On by default: it's a second name-based voter that enables genuine multi-provider consensus
+    /// and corroborates AcoustID fingerprint hits via the recording MBID.
+    /// </summary>
+    public bool EnableMusicBrainzWebProvider { get; set; } = true;
 
     /// <summary>Enable the Spotify API enrichment provider (artist+title, optional ISRC verification).</summary>
     public bool EnableSpotifyApiProvider { get; set; } = false;

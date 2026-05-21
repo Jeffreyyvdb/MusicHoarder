@@ -359,6 +359,84 @@ public class SpotifyApiEnrichmentProviderTests
         Assert.Equal("New Album", song.Album);
     }
 
+    [Fact]
+    public async Task TryEnrichAsync_SymbolOnlyArtist_WrongCandidate_NotCleanMatch()
+    {
+        // Regression: "¥$" normalizes to empty, which used to score the artist as a free 100%
+        // and let an unrelated same-title candidate sail through. Now the raw fallback catches it.
+        await using var db = CreateDb();
+        db.SpotifySettings.Add(new SpotifySettings { OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId, ClientId = "id", ClientSecret = "secret" });
+        await db.SaveChangesAsync();
+
+        var track = new SpotifyCatalogTrack(
+            "wrong-id", "FIELD TRIP", "RAREKID", "FIELD TRIP", 2024, 1, 318_000, "GXBDS2665817");
+        var catalog = new StubCatalogSearchService(_ => Task.FromResult<IReadOnlyList<SpotifyCatalogTrack>>([track]));
+        var provider = CreateProvider(db, catalog);
+
+        var song = new SongMetadata
+        {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
+            SourcePath = "/a.mp3",
+            FileName = "a.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 1,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            Artist = "¥$",
+            Title = "Field Trip",
+            DurationSeconds = 318,
+            EnrichmentStatus = EnrichmentStatus.Pending,
+        };
+
+        var result = await provider.TryEnrichAsync(song);
+        var candidate = result switch
+        {
+            ProviderMatched m => m.Result,
+            ProviderNoMatch nm => nm.BestCandidate,
+            _ => null,
+        };
+        Assert.NotNull(candidate);
+        Assert.NotEqual(EnrichmentStatus.Matched, candidate!.RecommendedStatus);
+        Assert.Contains("artist_mismatch", candidate.MatchWarnings);
+    }
+
+    [Fact]
+    public async Task TryEnrichAsync_UntaggedFile_DerivesQueryFromPath_Matches()
+    {
+        // Untagged loose download: no embedded artist/title, but the path carries both.
+        await using var db = CreateDb();
+        db.SpotifySettings.Add(new SpotifySettings { OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId, ClientId = "id", ClientSecret = "secret" });
+        await db.SaveChangesAsync();
+
+        var track = new SpotifyCatalogTrack(
+            "spotifyTrackId", "Lucid Dreams", "Juice WRLD", "Goodbye & Good Riddance", 2018, 5, 239_000, null);
+        string? seenQuery = null;
+        var catalog = new StubCatalogSearchService(q => { seenQuery = q; return Task.FromResult<IReadOnlyList<SpotifyCatalogTrack>>([track]); });
+        var provider = CreateProvider(db, catalog);
+
+        var song = new SongMetadata
+        {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
+            SourcePath = "/s/Juice WRLD/Goodbye & Good Riddance/05 Lucid Dreams.mp3",
+            FileName = "05 Lucid Dreams.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 1,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            Artist = null,
+            Title = null,
+            DurationSeconds = 239,
+            EnrichmentStatus = EnrichmentStatus.Pending,
+        };
+
+        var result = await provider.TryEnrichAsync(song);
+        var matched = Assert.IsType<ProviderMatched>(result);
+        Assert.Equal("spotifyTrackId", matched.Result.SpotifyId);
+        Assert.Equal(1, catalog.CallCount);
+        Assert.Contains("lucid dreams", seenQuery);
+        Assert.DoesNotContain("05", seenQuery);
+    }
+
     private static MusicHoarderDbContext CreateDb()
     {
         var options = new DbContextOptionsBuilder<MusicHoarderDbContext>()
