@@ -63,8 +63,14 @@ _curl() {
   rm -f "$out" "$out".err
 }
 
-# api <router>.<proc> [json-body]  -> POST mutation
-api() { _curl "$1" -X POST -H 'Content-Type: application/json' --data "${2:-{}}"; }
+# api <router>.<proc> [json-body]  -> POST mutation.
+# NB: don't write `${2:-{}}` — bash parses that as `${2:-{}` plus a literal `}`, appending a stray
+# brace to every body and producing "Invalid JSON". Default to an empty object explicitly.
+api() {
+  local body="${2:-}"
+  [ -n "$body" ] || body='{}'
+  _curl "$1" -X POST -H 'Content-Type: application/json' --data "$body"
+}
 
 # get <router>.<proc>  -> GET query
 get() { _curl "$1"; }
