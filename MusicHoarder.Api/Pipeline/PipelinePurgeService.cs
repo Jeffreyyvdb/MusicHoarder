@@ -15,8 +15,8 @@ public record PurgeResult(
 
 public interface IPipelinePurgeService
 {
-    Task<PurgeResult> ResetPostFingerprintAsync(Guid jobId, CancellationToken ct = default);
-    Task<PurgeResult> PurgeAllAsync(Guid jobId, CancellationToken ct = default);
+    Task<PurgeResult> ResetPostFingerprintAsync(Guid jobId, Guid ownerUserId, CancellationToken ct = default);
+    Task<PurgeResult> PurgeAllAsync(Guid jobId, Guid ownerUserId, CancellationToken ct = default);
 }
 
 public class PipelinePurgeService(
@@ -32,7 +32,7 @@ public class PipelinePurgeService(
     private static readonly JobType[] PipelineSteps =
         [JobType.Scan, JobType.Fingerprint, JobType.Enrich, JobType.Build];
 
-    public async Task<PurgeResult> ResetPostFingerprintAsync(Guid jobId, CancellationToken ct = default)
+    public async Task<PurgeResult> ResetPostFingerprintAsync(Guid jobId, Guid ownerUserId, CancellationToken ct = default)
     {
         tracker.Start("post-fingerprint", jobId);
         PausePipelineSteps();
@@ -40,9 +40,12 @@ public class PipelinePurgeService(
         {
             var destinationRoot = options.Value.DestinationDirectory;
 
+            // Runs in a background scope with no HttpContext, so the per-user query filter would
+            // resolve to Guid.Empty and match nothing. Scope explicitly to the requesting owner.
             var songs = await db.Songs
                 .Include(s => s.ProviderAttempts)
-                .Where(s => s.DeletedAtUtc == null)
+                .IgnoreQueryFilters()
+                .Where(s => s.OwnerUserId == ownerUserId && s.DeletedAtUtc == null)
                 .ToListAsync(ct);
 
             var songsWithFiles = songs.Where(s => !string.IsNullOrWhiteSpace(s.DestinationPath)).ToList();
@@ -53,7 +56,7 @@ public class PipelinePurgeService(
             foreach (var song in songs) song.ResetPostFingerprint();
             tracker.SetSongsProcessed(songs.Count);
 
-            var matchesCleared = await ClearSpotifyMatchesAsync(ct);
+            var matchesCleared = await ClearSpotifyMatchesAsync(ownerUserId, ct);
 
             await db.SaveChangesAsync(ct);
 
@@ -70,7 +73,7 @@ public class PipelinePurgeService(
         }
     }
 
-    public async Task<PurgeResult> PurgeAllAsync(Guid jobId, CancellationToken ct = default)
+    public async Task<PurgeResult> PurgeAllAsync(Guid jobId, Guid ownerUserId, CancellationToken ct = default)
     {
         tracker.Start("all", jobId);
         PausePipelineSteps();
@@ -78,13 +81,19 @@ public class PipelinePurgeService(
         {
             var destinationRoot = options.Value.DestinationDirectory;
 
-            var songs = await db.Songs.ToListAsync(ct);
+            // Runs in a background scope with no HttpContext, so the per-user query filter would
+            // resolve to Guid.Empty and match nothing. Scope explicitly to the requesting owner.
+            // Hard delete includes soft-deleted rows, so no DeletedAtUtc predicate here.
+            var songs = await db.Songs
+                .IgnoreQueryFilters()
+                .Where(s => s.OwnerUserId == ownerUserId)
+                .ToListAsync(ct);
             var songsWithFiles = songs.Where(s => !string.IsNullOrWhiteSpace(s.DestinationPath)).ToList();
             tracker.SetTotals(songs.Count, songsWithFiles.Count);
 
             var (filesDeleted, filesFailed) = await DeleteDestinationFilesAsync(songsWithFiles, destinationRoot, ct);
 
-            var matchesCleared = await ClearSpotifyMatchesAsync(ct);
+            var matchesCleared = await ClearSpotifyMatchesAsync(ownerUserId, ct);
 
             db.Songs.RemoveRange(songs);
             tracker.SetSongsProcessed(songs.Count);
@@ -146,9 +155,12 @@ public class PipelinePurgeService(
         return (counters.Deleted, counters.Failed);
     }
 
-    private async Task<int> ClearSpotifyMatchesAsync(CancellationToken ct)
+    private async Task<int> ClearSpotifyMatchesAsync(Guid ownerUserId, CancellationToken ct)
     {
-        var matches = await db.SpotifyTrackLibraryMatches.ToListAsync(ct);
+        var matches = await db.SpotifyTrackLibraryMatches
+            .IgnoreQueryFilters()
+            .Where(m => m.OwnerUserId == ownerUserId)
+            .ToListAsync(ct);
         db.SpotifyTrackLibraryMatches.RemoveRange(matches);
         return matches.Count;
     }

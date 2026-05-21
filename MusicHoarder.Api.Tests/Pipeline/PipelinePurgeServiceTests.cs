@@ -41,7 +41,7 @@ public class PipelinePurgeServiceTests
 
         var (service, tracker) = CreateService(db, fileSystem);
 
-        var result = await service.ResetPostFingerprintAsync(Guid.NewGuid());
+        var result = await service.ResetPostFingerprintAsync(Guid.NewGuid(), MusicHoarder.Api.Auth.WellKnownUsers.OwnerId);
 
         Assert.Equal(1, result.SongsAffected);
         Assert.Equal(1, result.FilesDeleted);
@@ -84,7 +84,7 @@ public class PipelinePurgeServiceTests
 
         var (service, _) = CreateService(db, fileSystem);
 
-        var result = await service.ResetPostFingerprintAsync(Guid.NewGuid());
+        var result = await service.ResetPostFingerprintAsync(Guid.NewGuid(), MusicHoarder.Api.Auth.WellKnownUsers.OwnerId);
 
         Assert.Equal(1, result.SongsAffected);
 
@@ -130,7 +130,7 @@ public class PipelinePurgeServiceTests
 
         var (service, tracker) = CreateService(db, fileSystem);
 
-        var result = await service.PurgeAllAsync(Guid.NewGuid());
+        var result = await service.PurgeAllAsync(Guid.NewGuid(), MusicHoarder.Api.Auth.WellKnownUsers.OwnerId);
 
         Assert.Equal(2, result.SongsAffected);
         Assert.Equal(1, result.FilesDeleted);
@@ -159,7 +159,7 @@ public class PipelinePurgeServiceTests
 
         var (service, _) = CreateService(db, fileSystem);
 
-        var result = await service.ResetPostFingerprintAsync(Guid.NewGuid());
+        var result = await service.ResetPostFingerprintAsync(Guid.NewGuid(), MusicHoarder.Api.Auth.WellKnownUsers.OwnerId);
 
         Assert.Equal(1, result.SongsAffected);
         Assert.Equal(1, result.FilesDeleted);
@@ -191,7 +191,7 @@ public class PipelinePurgeServiceTests
             tracker,
             NullLogger<PipelinePurgeService>.Instance);
 
-        var result = await service.ResetPostFingerprintAsync(Guid.NewGuid());
+        var result = await service.ResetPostFingerprintAsync(Guid.NewGuid(), MusicHoarder.Api.Auth.WellKnownUsers.OwnerId);
 
         Assert.Equal(1, result.SongsAffected);
         Assert.Equal(0, result.FilesDeleted);
@@ -227,7 +227,7 @@ public class PipelinePurgeServiceTests
             new PurgeStatusTracker(),
             NullLogger<PipelinePurgeService>.Instance);
 
-        await service.ResetPostFingerprintAsync(Guid.NewGuid());
+        await service.ResetPostFingerprintAsync(Guid.NewGuid(), MusicHoarder.Api.Auth.WellKnownUsers.OwnerId);
 
         foreach (var step in new[] { JobType.Scan, JobType.Fingerprint, JobType.Enrich, JobType.Build })
         {
@@ -277,7 +277,7 @@ public class PipelinePurgeServiceTests
                 new PurgeStatusTracker(),
                 NullLogger<PipelinePurgeService>.Instance);
 
-            var result = await service.ResetPostFingerprintAsync(Guid.NewGuid());
+            var result = await service.ResetPostFingerprintAsync(Guid.NewGuid(), MusicHoarder.Api.Auth.WellKnownUsers.OwnerId);
 
             Assert.Equal(filePaths.Count, result.SongsAffected);
             Assert.Equal(filePaths.Count, result.FilesDeleted);
@@ -291,6 +291,32 @@ public class PipelinePurgeServiceTests
         {
             if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task PurgeAll_StillDeletesOwnerSongs_WhenQueryFilterResolvesToAnonymous()
+    {
+        // Reproduces the production bug: purge runs in a background DI scope with no HttpContext,
+        // so ICurrentUserAccessor.UserId is Guid.Empty and the per-user query filter would match
+        // zero rows. The service must bypass the filter and scope by the passed owner id instead.
+        var fileSystem = new MockFileSystem();
+        await using var db = CreateDbContext(new AnonymousUserAccessor());
+        db.Songs.Add(CreateEnrichedSong("/src/track-1.mp3"));
+        db.Songs.Add(CreateEnrichedSong("/src/track-2.mp3"));
+        await db.SaveChangesAsync();
+
+        var (service, _) = CreateService(db, fileSystem);
+
+        var result = await service.PurgeAllAsync(Guid.NewGuid(), MusicHoarder.Api.Auth.WellKnownUsers.OwnerId);
+
+        Assert.Equal(2, result.SongsAffected);
+        Assert.Empty(await db.Songs.IgnoreQueryFilters().ToListAsync());
+    }
+
+    private sealed class AnonymousUserAccessor : MusicHoarder.Api.Auth.ICurrentUserAccessor
+    {
+        public MusicHoarder.Api.Auth.CurrentUser? User => null;
+        public Guid UserId => Guid.Empty;
     }
 
     private sealed class ThrowingCleaner : ILibraryDestinationCleaner
@@ -359,11 +385,14 @@ public class PipelinePurgeServiceTests
         return song;
     }
 
-    private static MusicHoarderDbContext CreateDbContext()
+    private static MusicHoarderDbContext CreateDbContext(
+        MusicHoarder.Api.Auth.ICurrentUserAccessor? currentUser = null)
     {
         var options = new DbContextOptionsBuilder<MusicHoarderDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
             .Options;
-        return new MusicHoarderDbContext(options);
+        return currentUser is null
+            ? new MusicHoarderDbContext(options)
+            : new MusicHoarderDbContext(options, currentUser);
     }
 }
