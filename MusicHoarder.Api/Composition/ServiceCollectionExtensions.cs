@@ -44,6 +44,10 @@ public static class ServiceCollectionExtensions
             .AddOptions<ResendOptions>()
             .BindConfiguration(ResendOptions.SectionName);
 
+        services
+            .AddOptions<WebAuthnOptions>()
+            .BindConfiguration(WebAuthnOptions.SectionName);
+
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserAccessor, HttpContextCurrentUserAccessor>();
         services.AddSingleton<IOwnerLookupService, OwnerLookupService>();
@@ -72,6 +76,23 @@ public static class ServiceCollectionExtensions
             .PersistKeysToFileSystem(ResolveDataProtectionKeysDirectory(
                 Environment.GetEnvironmentVariable("Auth__DataProtectionKeysPath")
                 ?? "/data/dpkeys"));
+
+        // FIDO2 relying-party config is derived from the frontend's public origin (which Aspire
+        // injects) unless explicitly overridden in the WebAuthn section. Built lazily so the
+        // frontend URL env var is populated by the time the first ceremony runs.
+        services.AddSingleton<Fido2NetLib.IFido2>(sp =>
+        {
+            var webAuthn = sp.GetRequiredService<IOptionsMonitor<WebAuthnOptions>>().CurrentValue;
+            var frontend = sp.GetRequiredService<IOptionsMonitor<FrontendOptions>>().CurrentValue;
+            var (rpId, origins) = ResolveRelyingParty(webAuthn, frontend);
+            return new Fido2NetLib.Fido2(new Fido2NetLib.Fido2Configuration
+            {
+                ServerDomain = rpId,
+                ServerName = webAuthn.RpName,
+                Origins = origins,
+            });
+        });
+        services.AddSingleton<IWebAuthnService, WebAuthnService>();
 
         services.AddSingleton<JobManager>();
         services.AddSingleton<DirectoryAvailabilityMonitor>();
@@ -219,5 +240,35 @@ public static class ServiceCollectionExtensions
             if (!fallback.Exists) fallback.Create();
             return fallback;
         }
+    }
+
+    /// <summary>
+    /// Resolves the FIDO2 relying-party id (registrable domain) and allowed origins. Explicit
+    /// <see cref="WebAuthnOptions"/> values win; otherwise both are derived from the frontend's
+    /// public base URL (the browser origin). Falls back to localhost for a bare API boot.
+    /// </summary>
+    internal static (string RpId, HashSet<string> Origins) ResolveRelyingParty(
+        WebAuthnOptions webAuthn, FrontendOptions frontend)
+    {
+        var origins = new HashSet<string>(webAuthn.Origins
+            .Where(o => !string.IsNullOrWhiteSpace(o))
+            .Select(o => o.TrimEnd('/')), StringComparer.OrdinalIgnoreCase);
+
+        Uri? frontendUri = null;
+        if (!string.IsNullOrWhiteSpace(frontend.PublicBaseUrl)
+            && Uri.TryCreate(frontend.PublicBaseUrl, UriKind.Absolute, out var parsed))
+        {
+            frontendUri = parsed;
+            origins.Add($"{parsed.Scheme}://{parsed.Authority}");
+        }
+
+        var rpId = !string.IsNullOrWhiteSpace(webAuthn.RpId)
+            ? webAuthn.RpId
+            : frontendUri?.Host ?? "localhost";
+
+        if (origins.Count == 0)
+            origins.Add("https://localhost");
+
+        return (rpId, origins);
     }
 }

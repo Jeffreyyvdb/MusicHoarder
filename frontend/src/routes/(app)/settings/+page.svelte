@@ -19,6 +19,10 @@
     purgePostFingerprint,
     fetchPurgeStatus,
     signOut,
+    registerPasskey,
+    listPasskeys,
+    deletePasskey,
+    type PasskeyView,
     type PurgeMode,
     type PurgeSnapshot,
     type SettingsResponse,
@@ -27,6 +31,7 @@
     type SpotifyCredentialsResponse,
     type SpotifyStatusResponse
   } from '$lib/api-client';
+  import { isPasskeySupported } from '$lib/webauthn-client';
   import {
     Settings,
     KeyRound,
@@ -57,6 +62,61 @@
   async function handleSignOut(allSessions = false) {
     await signOut(allSessions);
     await goto('/login', { invalidateAll: true });
+  }
+
+  // Passkeys (owner-only)
+  let passkeySupported = $state(false);
+  let passkeys = $state<PasskeyView[]>([]);
+  let passkeysLoading = $state(false);
+  let newPasskeyName = $state('');
+  let isAddingPasskey = $state(false);
+  let passkeyError = $state<string | null>(null);
+
+  $effect(() => {
+    passkeySupported = isPasskeySupported();
+  });
+
+  $effect(() => {
+    if (user?.role !== 'Owner') return;
+    let cancelled = false;
+    void (async () => {
+      passkeysLoading = true;
+      try {
+        const list = await listPasskeys();
+        if (!cancelled) passkeys = list;
+      } catch {
+        // non-fatal; section just shows empty
+      } finally {
+        if (!cancelled) passkeysLoading = false;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  async function handleAddPasskey() {
+    isAddingPasskey = true;
+    passkeyError = null;
+    try {
+      const created = await registerPasskey(newPasskeyName.trim() || 'Passkey');
+      passkeys = [created, ...passkeys];
+      newPasskeyName = '';
+    } catch (err) {
+      passkeyError = err instanceof Error ? err.message : 'Could not add passkey.';
+    } finally {
+      isAddingPasskey = false;
+    }
+  }
+
+  async function handleRemovePasskey(id: string) {
+    passkeyError = null;
+    try {
+      await deletePasskey(id);
+      passkeys = passkeys.filter((p) => p.id !== id);
+    } catch (err) {
+      passkeyError = err instanceof Error ? err.message : 'Could not remove passkey.';
+    }
   }
 
   // Spotify credential form state
@@ -319,8 +379,8 @@
             <header class="border-border border-b px-6 py-4">
               <h2 class="font-semibold">Account</h2>
               <p class="text-muted-foreground text-xs">
-                Signed-in user. Magic-link sign-in only — no passwords. Roles control who can
-                mutate pipeline state.
+                Signed-in user. Sign in by magic link or passkey — no passwords. Roles control who
+                can mutate pipeline state.
               </p>
             </header>
 
@@ -365,6 +425,93 @@
               </div>
             </div>
           </section>
+
+          {#if user?.role === 'Owner'}
+            <section class="border-border bg-card mt-6 rounded-xl border">
+              <header class="border-border border-b px-6 py-4">
+                <h2 class="flex items-center gap-2 font-semibold">
+                  <KeyRound class="size-4" /> Passkeys
+                </h2>
+                <p class="text-muted-foreground text-xs">
+                  Sign in with Touch ID, Windows Hello, or a security key — no email needed. Enroll
+                  one on each device you use. Keep at least one magic-link-capable email so you can
+                  recover access.
+                </p>
+              </header>
+
+              <div class="space-y-5 p-6">
+                {#if !passkeySupported}
+                  <div
+                    class="border-border bg-secondary/40 text-foreground/80 rounded-lg border px-4 py-3 text-xs"
+                  >
+                    This browser doesn't support passkeys.
+                  </div>
+                {:else}
+                  <div class="flex flex-wrap items-end gap-2">
+                    <div class="min-w-0 flex-1 space-y-2">
+                      <Label for="passkey-name">Passkey name</Label>
+                      <Input
+                        id="passkey-name"
+                        placeholder="e.g. MacBook Touch ID"
+                        bind:value={newPasskeyName}
+                        oninput={() => (passkeyError = null)}
+                      />
+                    </div>
+                    <Button onclick={handleAddPasskey} disabled={isAddingPasskey}>
+                      {#if isAddingPasskey}
+                        <Loader2 class="mr-2 size-4 animate-spin" />
+                      {:else}
+                        <KeyRound class="mr-2 size-4" />
+                      {/if}
+                      Add a passkey
+                    </Button>
+                  </div>
+
+                  {#if passkeyError}
+                    <div
+                      class="border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+                    >
+                      <AlertCircle class="mt-0.5 size-4 shrink-0" />
+                      <span>{passkeyError}</span>
+                    </div>
+                  {/if}
+
+                  <div class="border-border divide-border divide-y rounded-lg border">
+                    {#if passkeysLoading}
+                      <div class="text-muted-foreground px-4 py-3 text-sm">Loading…</div>
+                    {:else if passkeys.length === 0}
+                      <div class="text-muted-foreground px-4 py-3 text-sm">
+                        No passkeys enrolled yet.
+                      </div>
+                    {:else}
+                      {#each passkeys as passkey (passkey.id)}
+                        <div class="flex items-center gap-3 px-4 py-3">
+                          <KeyRound class="text-muted-foreground size-4 shrink-0" />
+                          <div class="min-w-0 flex-1">
+                            <div class="truncate text-sm font-medium">{passkey.displayName}</div>
+                            <div class="text-muted-foreground text-xs">
+                              Added {new Date(passkey.createdAtUtc).toLocaleDateString()}
+                              {#if passkey.lastUsedAtUtc}
+                                · last used {new Date(passkey.lastUsedAtUtc).toLocaleDateString()}
+                              {/if}
+                            </div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onclick={() => handleRemovePasskey(passkey.id)}
+                            aria-label="Remove passkey"
+                          >
+                            <Trash2 class="size-4" />
+                          </Button>
+                        </div>
+                      {/each}
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+            </section>
+          {/if}
         </Tabs.Content>
 
         <!-- =================== PATHS =================== -->
