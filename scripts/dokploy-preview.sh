@@ -41,15 +41,16 @@ BASE="${DOKPLOY_URL%/}"
 NAME="pr-${PR}"                 # compose display name within the previews environment
 APP_NAME="mh-pr-${PR}"          # docker stack / isolated-network name (must be globally unique)
 
-# api <router>.<proc> [json-body]  ->  prints response body, fails on non-2xx
-api() {
-  local proc="$1" body="${2:-{}}" out status
+# _curl <proc> <curl-args...>  ->  prints response body, fails on non-2xx.
+# Dokploy's trpc-to-openapi layer maps queries to GET and mutations to POST, so the verb matters:
+# `api` (POST) is for mutations, `get` is for read queries like project.all.
+_curl() {
+  local proc="$1"; shift
+  local out status
   out="$(mktemp)"
   status="$(curl -fsS --max-time 120 -o "$out" -w '%{http_code}' \
-    -X POST "${BASE}/api/${proc}" \
-    -H "x-api-key: ${DOKPLOY_API_KEY}" \
-    -H 'Content-Type: application/json' \
-    --data "$body" 2>"$out".err || true)"
+    -H "x-api-key: ${DOKPLOY_API_KEY}" "$@" \
+    "${BASE}/api/${proc}" 2>"$out".err || true)"
   if [[ ! "$status" =~ ^2 ]]; then
     echo "::error::Dokploy ${proc} failed (HTTP ${status:-???})" >&2
     cat "$out" "$out".err >&2 || true
@@ -59,6 +60,12 @@ api() {
   cat "$out"
   rm -f "$out" "$out".err
 }
+
+# api <router>.<proc> [json-body]  -> POST mutation
+api() { _curl "$1" -X POST -H 'Content-Type: application/json' --data "${2:-{}}"; }
+
+# get <router>.<proc>  -> GET query
+get() { _curl "$1"; }
 
 # Both helpers take a pre-fetched project.all payload on stdin so a fresh provision needs only one
 # API round-trip. project.all over raw REST returns a bare array; the MCP wrapper nests it under
@@ -111,7 +118,7 @@ EOF
 
   # One project.all fetch serves both the existing-stack lookup and the cap count.
   local projects compose_id
-  projects="$(api project.all)"
+  projects="$(get project.all)"
   compose_id="$(printf '%s' "$projects" | find_compose_id)"
 
   if [[ -z "$compose_id" ]]; then
@@ -164,7 +171,7 @@ EOF
 
 destroy() {
   local compose_id
-  compose_id="$(api project.all | find_compose_id)"
+  compose_id="$(get project.all | find_compose_id)"
   if [[ -z "$compose_id" ]]; then
     echo "No preview compose named '${NAME}' found — nothing to destroy."
     return 0
