@@ -28,7 +28,7 @@
 {#if isMobile.current}
   <!-- Mobile shell: dedicated bottom tab navigation, no desktop sidebar/header. -->
   <div class="bg-background flex h-svh flex-col overflow-hidden">
-    <div class="min-h-0 flex-1 overflow-hidden">
+    <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
       {@render children()}
     </div>
     <MobileTabBar />
