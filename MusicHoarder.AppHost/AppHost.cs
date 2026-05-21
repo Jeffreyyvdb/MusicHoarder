@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Text.RegularExpressions;
 using Aspire.Hosting.Docker.Resources.ServiceNodes;
 
 var builder = DistributedApplication.CreateBuilder(args);
@@ -55,9 +57,22 @@ var resendApiKey = builder.AddParameter("resend-api-key", builder.Configuration[
 var resendFromAddress = builder.AddParameter("resend-from-address")
     .WithDescription("'From' address for magic-link emails (must be on a domain verified in Resend).");
 
+// Locally, give each git branch/worktree its own data volume so their EF migration
+// histories never collide (switching branches otherwise corrupts the shared __EFMigrationsHistory).
+// Publish mode keeps the stable "musichoarder-volume" name baked into the compose output.
+var dataVolumeName = "musichoarder-volume";
+if (builder.ExecutionContext.IsRunMode)
+{
+    var dbKey = ResolveDbKey(builder.AppHostDirectory);
+    if (!string.IsNullOrEmpty(dbKey))
+    {
+        dataVolumeName = $"musichoarder-volume-{dbKey}";
+    }
+}
+
 var postgres = builder.AddPostgres("postgres")
     .WithLifetime(ContainerLifetime.Persistent)
-    .WithDataVolume("musichoarder-volume");
+    .WithDataVolume(dataVolumeName);
 var postgresdb = postgres.AddDatabase("musichoarderdb");
 
 var api = builder.AddProject<Projects.MusicHoarder_Api>("api")
@@ -123,3 +138,45 @@ api.WithEnvironment(context =>
 });
 
 builder.Build().Run();
+
+// Resolves a per-branch key for the local Postgres data volume. Order: explicit env override,
+// current git branch, short SHA when detached, else null (caller falls back to the shared volume).
+static string? ResolveDbKey(string workingDir)
+{
+    var explicitKey = Environment.GetEnvironmentVariable("MUSICHOARDER_DB_KEY");
+    if (!string.IsNullOrWhiteSpace(explicitKey))
+        return Sanitize(explicitKey);
+
+    var branch = RunGit("rev-parse --abbrev-ref HEAD", workingDir);
+    if (string.IsNullOrEmpty(branch))
+        return null;                       // git unavailable -> shared volume
+    if (branch == "HEAD")                  // detached HEAD
+        branch = RunGit("rev-parse --short HEAD", workingDir);
+
+    return string.IsNullOrEmpty(branch) ? null : Sanitize(branch);
+
+    static string Sanitize(string s)
+    {
+        var slug = Regex.Replace(s.Trim().ToLowerInvariant(), "[^a-z0-9]+", "-").Trim('-');
+        return slug.Length > 40 ? slug[..40].Trim('-') : slug;
+    }
+
+    static string? RunGit(string args, string dir)
+    {
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo("git", args)
+            {
+                WorkingDirectory = dir,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            });
+            if (p is null) return null;
+            var output = p.StandardOutput.ReadToEnd().Trim();
+            p.WaitForExit(2000);
+            return p.ExitCode == 0 ? output : null;
+        }
+        catch { return null; }
+    }
+}
