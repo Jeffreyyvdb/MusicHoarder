@@ -12,6 +12,9 @@ namespace MusicHoarder.Api.Auth;
 /// <list type="bullet">
 ///   <item>Update the Owner + Demo user rows' email fields from <see cref="AuthOptions.OwnerEmail"/>
 ///   / <see cref="AuthOptions.DemoUserEmail"/>. Lets you change your email by re-deploying.</item>
+///   <item>Seed the owner's pre-registered passkey from <see cref="AuthOptions.OwnerSeedCredentialJson"/>
+///   when configured (idempotent — skipped once the owner has any credential), so empty-DB
+///   environments like per-PR previews accept the owner's existing passkey without re-registering.</item>
 ///   <item>Seed ~20 synthetic songs for the demo user on first boot (idempotent — skipped on
 ///   subsequent boots if any demo song already exists).</item>
 /// </list>
@@ -41,6 +44,7 @@ public sealed class DemoSeederHostedService : IHostedService
             var opts = _authOptions.CurrentValue;
 
             await UpdateUserEmailsAsync(db, opts, ct);
+            await SeedOwnerCredentialIfConfiguredAsync(db, opts, ct);
             await SeedDemoSongsIfEmptyAsync(db, ct);
         }
         catch (Exception ex)
@@ -81,6 +85,63 @@ public sealed class DemoSeederHostedService : IHostedService
             await db.SaveChangesAsync(ct);
             _logger.LogInformation("Updated user emails from Auth options.");
         }
+    }
+
+    private async Task SeedOwnerCredentialIfConfiguredAsync(MusicHoarderDbContext db, AuthOptions opts, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(opts.OwnerSeedCredentialJson)) return;
+
+        // Idempotent: once the owner has any passkey (the seeded one, or one registered live) leave
+        // it alone. Per-PR previews start with an empty DB, so this seeds exactly once per env.
+        var ownerHasCredential = await db.WebAuthnCredentials
+            .AnyAsync(c => c.UserId == WellKnownUsers.OwnerId, ct);
+        if (ownerHasCredential) return;
+
+        OwnerCredentialSeed? seed;
+        try
+        {
+            seed = JsonSerializer.Deserialize<OwnerCredentialSeed>(
+                opts.OwnerSeedCredentialJson,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Auth:OwnerSeedCredentialJson is not valid JSON; skipping passkey seed.");
+            return;
+        }
+
+        if (seed is null || string.IsNullOrWhiteSpace(seed.CredentialId) || string.IsNullOrWhiteSpace(seed.PublicKey))
+        {
+            _logger.LogError("Auth:OwnerSeedCredentialJson is missing credentialId/publicKey; skipping passkey seed.");
+            return;
+        }
+
+        byte[] credentialId, publicKey;
+        try
+        {
+            credentialId = Convert.FromBase64String(seed.CredentialId);
+            publicKey = Convert.FromBase64String(seed.PublicKey);
+        }
+        catch (FormatException ex)
+        {
+            _logger.LogError(ex, "Auth:OwnerSeedCredentialJson credentialId/publicKey are not valid base64; skipping passkey seed.");
+            return;
+        }
+
+        db.WebAuthnCredentials.Add(new WebAuthnCredential
+        {
+            Id = Guid.NewGuid(),
+            UserId = WellKnownUsers.OwnerId,
+            CredentialId = credentialId,
+            PublicKey = publicKey,
+            SignCount = seed.SignCount,
+            AaGuid = seed.AaGuid,
+            Transports = string.IsNullOrWhiteSpace(seed.Transports) ? null : seed.Transports,
+            DisplayName = string.IsNullOrWhiteSpace(seed.DisplayName) ? "Seeded owner passkey" : seed.DisplayName!,
+            CreatedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync(ct);
+        _logger.LogInformation("Seeded owner passkey from Auth:OwnerSeedCredentialJson.");
     }
 
     private async Task SeedDemoSongsIfEmptyAsync(MusicHoarderDbContext db, CancellationToken ct)
@@ -154,6 +215,15 @@ public sealed class DemoSeederHostedService : IHostedService
 
     private static string Sanitize(string s) =>
         new string(s.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c).ToArray());
+
+    /// <summary>Shape of <see cref="AuthOptions.OwnerSeedCredentialJson"/>. Byte fields are base64.</summary>
+    private sealed record OwnerCredentialSeed(
+        string CredentialId,
+        string PublicKey,
+        Guid AaGuid,
+        long SignCount,
+        string? Transports,
+        string? DisplayName);
 
     private sealed record DemoSeed(
         string Artist,
