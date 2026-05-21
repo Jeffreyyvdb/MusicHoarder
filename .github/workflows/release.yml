@@ -1,0 +1,74 @@
+name: Release
+
+# Unified semantic-release for the whole repo. Every push to main is analyzed for
+# Conventional Commits across BOTH the .NET API and the SvelteKit frontend; a single
+# `vX.Y.Z` git tag + GitHub Release is cut covering both. When a release happens this
+# workflow dispatches aspire-deploy.yml with the new version, which builds and semver-tags
+# the api + frontend images and redeploys Dokploy. `workflow_dispatch` triggered by the
+# default GITHUB_TOKEN is permitted to start the downstream run (the one exception to the
+# "GITHUB_TOKEN-created events don't trigger workflows" rule), so no PAT is needed.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # semantic-release v25+ requires Node ^22.14.0 || >=24.10.0. Bun's runtime reports
+      # process.versions.node = 20.x, so the release step runs under Node via `npx`.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # Gate the release on a green build of both deployables.
+      - name: Frontend check / lint / build
+        working-directory: frontend
+        run: |
+          bun install --frozen-lockfile
+          bun run check
+          bun run lint
+          bun run build
+
+      - name: API tests
+        run: dotnet test MusicHoarder.Api.Tests/MusicHoarder.Api.Tests.csproj
+
+      - name: semantic-release
+        id: semrel
+        working-directory: frontend
+        run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # If a new version was published, kick off the image build + Dokploy redeploy.
+      - name: Trigger build & deploy
+        if: steps.semrel.outputs.new_release_version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.semrel.outputs.new_release_version }}
+        run: gh workflow run aspire-deploy.yml --ref main -f version="$VERSION"

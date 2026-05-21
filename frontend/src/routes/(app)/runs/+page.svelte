@@ -1,449 +1,275 @@
 <script lang="ts">
-  import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card';
-  import { Button } from '$lib/components/ui/button';
+  import { Search, Disc3, Sparkles, PackageCheck, Check, X, Radio } from '@lucide/svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import {
-    Music,
-    FolderInput,
-    FolderOutput,
-    Clock,
-    XCircle,
-    Disc3,
-    Sparkles,
-    Copy,
-    FileWarning,
-    ArrowRight,
-    PackageCheck,
-    Search,
-    RefreshCw
-  } from '@lucide/svelte';
-  import StatusBadge from '$lib/components/overview/StatusBadge.svelte';
-  import PipelineStage from '$lib/components/overview/PipelineStage.svelte';
-  import StatCard from '$lib/components/overview/StatCard.svelte';
-  import ActivityItem from '$lib/components/overview/ActivityItem.svelte';
-  import {
-    fetchOverview,
-    triggerEnrichmentScan,
-    triggerFingerprint,
-    triggerEnrich,
-    triggerBuild,
-    pauseStep,
-    resumeStep,
-    openProgressStream,
-    type ApiOverview,
-    type ProgressSnapshot
-  } from '$lib/api-client';
-  import { isDemoMode } from '$lib/app-mode';
-  import type { StepAction } from '$lib/components/overview/StepControl.svelte';
+  import { Button } from '$lib/components/ui/button';
+  import { fetchRuns, fetchRun, type ApiRun, type ApiRunDetail } from '$lib/api-client';
+  import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import MobileRuns from '$lib/components/mobile/MobileRuns.svelte';
+  import { cn } from '$lib/utils';
 
   const isMobile = new IsMobile();
 
-  type StatusBannerType = 'success' | 'error' | 'info';
+  let runs = $state<ApiRun[]>([]);
+  let activeId = $state<string | null>(null);
+  let detail = $state<ApiRunDetail | null>(null);
 
-  let overview = $state<ApiOverview | null>(null);
-  let liveProgress = $state<ProgressSnapshot | null>(null);
-  let banner = $state<{ type: StatusBannerType; text: string } | null>(null);
-  let triggering = $state<string | null>(null);
-  let sseCleanup: (() => void) | null = null;
-  let bannerTimeout: ReturnType<typeof setTimeout> | null = null;
-  let elapsedMin = $state<number | null>(null);
-
-  async function loadOverview() {
+  async function loadRuns() {
     try {
-      overview = await fetchOverview();
+      runs = await fetchRuns();
+      if (activeId === null && runs.length > 0) activeId = runs[0].id;
     } catch {
-      // silently ignore
+      // keep last good
     }
   }
 
-  function connectSse() {
-    if (isDemoMode) return;
-    sseCleanup?.();
-    sseCleanup = openProgressStream(
-      (snapshot) => {
-        liveProgress = snapshot;
-      },
-      () => {
-        sseCleanup = null;
-        void loadOverview();
-        setTimeout(connectSse, 2000);
-      }
-    );
+  async function loadDetail(id: string) {
+    try {
+      detail = await fetchRun(id);
+    } catch {
+      detail = null;
+    }
   }
 
   $effect(() => {
-    void loadOverview();
-    connectSse();
-    const interval = setInterval(loadOverview, 15_000);
-    return () => {
-      clearInterval(interval);
-      sseCleanup?.();
-      if (bannerTimeout) clearTimeout(bannerTimeout);
-    };
+    void loadRuns();
+    const poll = setInterval(loadRuns, 5_000);
+    return () => clearInterval(poll);
   });
 
-  // Elapsed time clock — re-runs whenever the job's startedAt changes.
+  // Reload detail whenever the selection changes, and refresh it on the same poll
+  // cadence as the list so a running run's counters stay live.
   $effect(() => {
-    const startedAt = overview?.job?.startedAt;
-    if (!startedAt) {
-      elapsedMin = null;
+    if (activeId === null) {
+      detail = null;
       return;
     }
-    const update = () => {
-      elapsedMin = Math.floor((Date.now() - new Date(startedAt).getTime()) / 60_000);
-    };
-    update();
-    const t = setInterval(update, 60_000);
-    return () => clearInterval(t);
+    const id = activeId;
+    void loadDetail(id);
+    const poll = setInterval(() => void loadDetail(id), 5_000);
+    return () => clearInterval(poll);
   });
 
-  function showBanner(type: StatusBannerType, text: string) {
-    banner = { type, text };
-    if (bannerTimeout) clearTimeout(bannerTimeout);
-    bannerTimeout = setTimeout(() => {
-      banner = null;
-    }, 6_000);
+  const completedCount = $derived(runs.filter((r) => r.status === 'completed').length);
+  const runningCount = $derived(runs.filter((r) => r.status === 'running').length);
+
+  function fmtDuration(seconds: number | null | undefined): string {
+    if (seconds == null) return '—';
+    const s = Math.max(0, Math.round(seconds));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    return [h, m, sec].map((n) => n.toString().padStart(2, '0')).join(':');
   }
 
-  async function handleStepAction(step: string, action: StepAction) {
-    triggering = step;
-    try {
-      if (action === 'start') {
-        const fn =
-          step === 'scan'
-            ? triggerEnrichmentScan
-            : step === 'fingerprint'
-              ? triggerFingerprint
-              : step === 'enrich'
-                ? triggerEnrich
-                : triggerBuild;
-        const result = await fn();
-        if (!result.ok) showBanner('error', result.message);
-        else showBanner('success', `${step} started`);
-      } else if (action === 'pause') {
-        await pauseStep(step);
-        showBanner('info', `${step} paused`);
-      } else {
-        await resumeStep(step);
-        showBanner('info', `${step} resumed`);
-      }
-    } catch {
-      showBanner('error', `Failed to ${action} ${step}. API may be unavailable.`);
-    } finally {
-      triggering = null;
+  function fmtWhen(iso: string): string {
+    const d = new Date(iso);
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    const yesterday = new Date(now.getTime() - 86_400_000).toDateString() === d.toDateString();
+    const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (sameDay) return `Today · ${time}`;
+    if (yesterday) return `Yesterday · ${time}`;
+    return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} · ${time}`;
+  }
+
+  function liveDuration(run: ApiRunDetail): number | null {
+    if (run.durationSeconds != null) return run.durationSeconds;
+    if (run.status === 'running') return (Date.now() - new Date(run.startedAtUtc).getTime()) / 1000;
+    return null;
+  }
+
+  const stageDefs = [
+    { key: 'scan', label: 'Scan', icon: Search },
+    { key: 'fingerprint', label: 'Fingerprint', icon: Disc3 },
+    { key: 'enrich', label: 'Enrich', icon: Sparkles },
+    { key: 'build', label: 'Build · write', icon: PackageCheck }
+  ] as const;
+
+  function stageValue(run: ApiRunDetail, key: string): number {
+    switch (key) {
+      case 'scan': return run.tracksProcessed;
+      case 'fingerprint': return run.tracksFingerprinted;
+      case 'enrich': return run.tracksEnriched;
+      case 'build': return run.tracksCopied;
+      default: return 0;
     }
   }
 
-  const job = $derived(
-    overview?.job ?? {
-      status: 'completed' as const,
-      startedAt: new Date().toISOString(),
-      tracksDiscovered: 0,
-      tracksProcessed: 0,
-      tracksFingerprinted: 0,
-      tracksEnriched: 0,
-      tracksBuildEligible: 0,
-      tracksCopied: 0,
-      tracksReview: 0,
-      tracksFailed: 0
-    }
+  const processedPct = $derived(
+    detail && detail.tracksDiscovered > 0
+      ? Math.min(100, Math.round((detail.tracksProcessed / detail.tracksDiscovered) * 100))
+      : 0
   );
-
-  const scanSnap = $derived(liveProgress?.scan);
-  const fpSnap = $derived(liveProgress?.fingerprint);
-  const enrichSnap = $derived(liveProgress?.enrich);
-  const buildSnap = $derived(liveProgress?.build);
-
-  const scanRunning = $derived(scanSnap?.status === 'Running');
-  const fpRunning = $derived(fpSnap?.status === 'Running');
-  const enrichRunning = $derived(enrichSnap?.status === 'Running');
-  const buildRunning = $derived(buildSnap?.status === 'Running');
-
-  const discovered = $derived(Math.max(liveProgress?.discovered ?? 0, job.tracksDiscovered));
-  const scanned = $derived(
-    scanRunning ? Math.max(liveProgress?.scanned ?? 0, job.tracksProcessed) : job.tracksProcessed
-  );
-  const fingerprinted = $derived(
-    fpRunning
-      ? Math.max(liveProgress?.fingerprinted ?? 0, job.tracksFingerprinted ?? 0)
-      : (job.tracksFingerprinted ?? 0)
-  );
-  const enriched = $derived(
-    enrichRunning
-      ? Math.max(liveProgress?.enriched ?? 0, job.tracksEnriched ?? 0)
-      : (job.tracksEnriched ?? 0)
-  );
-  const buildEligible = $derived(job.tracksBuildEligible ?? 0);
-  const built = $derived(
-    buildRunning ? Math.max(liveProgress?.built ?? 0, job.tracksCopied) : job.tracksCopied
-  );
-
-  const scanPct = $derived(discovered > 0 ? Math.min(100, (scanned / discovered) * 100) : 0);
-  const fpPct = $derived(discovered > 0 ? Math.min(100, (fingerprinted / discovered) * 100) : 0);
-  const enrichPct = $derived(discovered > 0 ? Math.min(100, (enriched / discovered) * 100) : 0);
-  const buildPct = $derived(buildEligible > 0 ? Math.min(100, (built / buildEligible) * 100) : 0);
-
-  const overallStatus = $derived.by(() => {
-    const labels: string[] = [];
-    if (scanRunning) labels.push('Scanning');
-    if (fpRunning) labels.push('Fingerprinting');
-    if (enrichRunning) labels.push('Enriching');
-    if (buildRunning) labels.push('Building');
-    return labels.length > 0 ? labels.join(', ') : 'Idle';
-  });
-
-  const enrichPaused = $derived(enrichSnap?.isPaused ?? false);
 </script>
 
 {#if isMobile.current}
   <MobileRuns />
 {:else}
-<main class="flex-1 p-4 md:p-6 lg:p-8">
-  <div class="mx-auto max-w-7xl space-y-6">
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+  <main class="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div class="border-border flex items-end justify-between border-b px-7 py-5">
       <div>
-        <h1 class="text-2xl font-bold md:text-3xl">Runs · history</h1>
-        <p class="text-muted-foreground">
-          Live pipeline status and recent ingest activity. Runs start automatically on launch.
-        </p>
+        <div class="text-muted-foreground font-mono text-[10px] tracking-[0.12em]">PIPELINE · RUNS</div>
+        <h1 class="mt-1 text-2xl font-semibold tracking-tight">Ingest history</h1>
+        <div class="text-muted-foreground mt-1 text-xs">
+          {runs.length} runs · {completedCount} completed · {runningCount} running
+        </div>
       </div>
     </div>
 
-    {#if banner}
-      <div
-        class="rounded-md border px-3 py-2 text-sm {banner.type === 'error'
-          ? 'border-red-500/30 bg-red-500/10 text-red-400'
-          : banner.type === 'success'
-            ? 'border-green-500/30 bg-green-500/10 text-green-400'
-            : 'border-border bg-card text-muted-foreground'}"
-      >
-        <p>{banner.text}</p>
-      </div>
-    {/if}
-
-    <Card>
-      <CardContent class="p-4 md:p-6">
-        <div class="flex flex-col gap-4 md:flex-row md:items-center md:gap-6">
-          <div class="flex min-w-0 flex-1 items-center gap-3">
-            <div class="bg-secondary flex size-10 shrink-0 items-center justify-center rounded-lg">
-              <FolderInput class="text-muted-foreground size-5" />
-            </div>
-            <div class="min-w-0">
-              <p class="text-muted-foreground text-xs">Source</p>
-              <p class="truncate font-medium">{overview?.sourcePath ?? '—'}</p>
-            </div>
+    <div class="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[1fr_380px]">
+      <!-- Runs table -->
+      <ScrollArea class="min-h-0">
+        <div class="px-3.5 pt-3.5 pb-8">
+          <div
+            class="text-muted-foreground border-border grid grid-cols-[24px_1.4fr_1.4fr_70px_80px_60px_60px_80px] items-center gap-3 border-b px-3 py-2 text-[10px] font-semibold tracking-wide uppercase"
+          >
+            <span></span>
+            <span>Run</span>
+            <span>Source</span>
+            <span>Files</span>
+            <span>Written</span>
+            <span>Errors</span>
+            <span>Review</span>
+            <span>Duration</span>
           </div>
-          <ArrowRight class="text-muted-foreground hidden size-5 md:block" />
-          <div class="flex min-w-0 flex-1 items-center gap-3">
-            <div class="bg-primary/10 flex size-10 shrink-0 items-center justify-center rounded-lg">
-              <FolderOutput class="text-primary size-5" />
-            </div>
-            <div class="min-w-0">
-              <p class="text-muted-foreground text-xs">Destination</p>
-              <p class="truncate font-medium">{overview?.destinationPath ?? '—'}</p>
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-
-    <Card>
-      <CardHeader class="pb-3">
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <CardTitle class="mr-auto text-lg">Pipeline</CardTitle>
-          <div class="flex shrink-0 items-center gap-2">
-            <div class="text-muted-foreground flex items-center gap-1.5 text-sm">
-              <Clock class="size-4 shrink-0" />
-              <span class="whitespace-nowrap">
-                {elapsedMin !== null ? `${elapsedMin} min` : '—'}
+          {#if runs.length === 0}
+            <p class="text-muted-foreground py-12 text-center text-sm">No ingest runs yet.</p>
+          {/if}
+          {#each runs as r (r.id)}
+            <button
+              class={cn(
+                'grid w-full grid-cols-[24px_1.4fr_1.4fr_70px_80px_60px_60px_80px] items-center gap-3 rounded-md px-3 py-3 text-left text-xs transition-colors',
+                'hover:bg-muted/60',
+                activeId === r.id && 'bg-primary/10'
+              )}
+              onclick={() => (activeId = r.id)}
+            >
+              <span class="flex items-center justify-center">
+                {#if r.status === 'running'}
+                  <span class="relative grid size-3.5 place-items-center rounded-full bg-amber-500">
+                    <span class="size-1.5 animate-pulse rounded-full bg-white"></span>
+                  </span>
+                {:else if r.status === 'completed'}
+                  <span class="bg-primary grid size-3.5 place-items-center rounded-full">
+                    <Check class="size-2.5 text-white" strokeWidth={3} />
+                  </span>
+                {:else}
+                  <span class="grid size-3.5 place-items-center rounded-full bg-red-500">
+                    <X class="size-2.5 text-white" strokeWidth={3} />
+                  </span>
+                {/if}
               </span>
-            </div>
-            <StatusBadge status={overallStatus} />
-          </div>
+              <span class="min-w-0">
+                <div class="truncate text-[12.5px] font-medium">{fmtWhen(r.startedAtUtc)}</div>
+                <div class="text-muted-foreground truncate font-mono text-[10.5px]">{r.id}</div>
+              </span>
+              <span class="text-muted-foreground truncate font-mono text-[11px]">{r.sourcePath}</span>
+              <span class="font-mono">{r.tracksDiscovered.toLocaleString()}</span>
+              <span class="font-mono">{r.tracksCopied.toLocaleString()}</span>
+              <span class={cn('font-mono', r.tracksFailed > 0 && 'text-red-500')}>{r.tracksFailed}</span>
+              <span class={cn('font-mono', r.tracksReview > 0 && 'text-amber-600 dark:text-amber-500')}>{r.tracksReview}</span>
+              <span class="font-mono">{fmtDuration(r.durationSeconds)}</span>
+            </button>
+          {/each}
         </div>
-      </CardHeader>
-      <CardContent class="space-y-5">
-        <PipelineStage
-          icon={Search}
-          label="Scan"
-          count={scanned}
-          total={discovered}
-          unit="files"
-          progress={scanPct}
-          step={scanSnap}
-          {triggering}
-          stepKey="scan"
-          onAction={handleStepAction}
-          mode="trigger"
-        />
-        <PipelineStage
-          icon={Disc3}
-          label="Fingerprint"
-          count={fingerprinted}
-          total={discovered}
-          unit="tracks"
-          progress={fpPct}
-          step={fpSnap}
-          {triggering}
-          stepKey="fingerprint"
-          onAction={handleStepAction}
-          mode="auto"
-          subtitle="Runs automatically after scan"
-        />
-        <PipelineStage
-          icon={Sparkles}
-          label="Enrich"
-          count={enriched}
-          total={discovered}
-          unit="tracks"
-          progress={enrichPct}
-          step={enrichSnap}
-          {triggering}
-          stepKey="enrich"
-          onAction={handleStepAction}
-          mode="continuous"
-          subtitle={enrichPaused
-            ? 'Paused — tracks will queue until resumed'
-            : 'Processes tracks as they arrive from fingerprinting'}
-        />
-        <PipelineStage
-          icon={PackageCheck}
-          label="Build Library"
-          count={built}
-          total={buildEligible}
-          unit="copied"
-          progress={buildPct}
-          step={buildSnap}
-          {triggering}
-          stepKey="build"
-          onAction={handleStepAction}
-          mode="trigger"
-          subtitle={buildEligible < discovered && buildEligible > 0
-            ? `${(discovered - buildEligible).toLocaleString()} tracks need review first`
-            : undefined}
-        />
-      </CardContent>
-    </Card>
+      </ScrollArea>
 
-    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-      <StatCard
-        icon={Disc3}
-        label="Discovered"
-        value={discovered}
-        color="text-foreground"
-        bgColor="bg-secondary"
-      />
-      <StatCard
-        icon={Sparkles}
-        label="Enriched"
-        value={job.tracksEnriched ?? 0}
-        color="text-blue-400"
-        bgColor="bg-blue-400/10"
-      />
-      <StatCard
-        icon={Copy}
-        label="Copied"
-        value={job.tracksCopied}
-        color="text-primary"
-        bgColor="bg-primary/10"
-      />
-      <StatCard
-        icon={FileWarning}
-        label="Need Review"
-        value={job.tracksReview}
-        color="text-amber-400"
-        bgColor="bg-amber-400/10"
-        href="/review"
-      />
-      <StatCard
-        icon={XCircle}
-        label="Failed"
-        value={job.tracksFailed}
-        color="text-red-400"
-        bgColor="bg-red-400/10"
-      />
-    </div>
+      <!-- Detail aside -->
+      <aside class="border-border bg-muted/30 flex min-h-0 flex-col border-t lg:border-t-0 lg:border-l">
+        {#if detail}
+          {@const run = detail}
+          <ScrollArea class="min-h-0">
+            <div class="flex flex-col gap-3.5 p-6">
+              <div class="flex items-center gap-2.5">
+                {#if run.status === 'running'}
+                  <span class="size-2.5 shrink-0 animate-pulse rounded-full bg-amber-500"></span>
+                {:else if run.status === 'completed'}
+                  <span class="bg-primary size-2.5 shrink-0 rounded-full"></span>
+                {:else}
+                  <span class="size-2.5 shrink-0 rounded-full bg-red-500"></span>
+                {/if}
+                <div class="flex-1 truncate font-mono text-sm font-semibold">{run.id}</div>
+                <span
+                  class={cn(
+                    'rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase',
+                    run.status === 'running' && 'bg-amber-500/15 text-amber-600 dark:text-amber-500',
+                    run.status === 'completed' && 'bg-primary/15 text-primary',
+                    (run.status === 'cancelled' || run.status === 'failed') && 'bg-red-500/15 text-red-500'
+                  )}
+                >{run.status}</span>
+              </div>
+              <div class="text-muted-foreground -mt-2 truncate font-mono text-[11px]">{run.sourcePath}</div>
 
-    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-      <Card class="lg:col-span-2">
-        <CardHeader class="pb-2">
-          <CardTitle class="text-lg">Recent Activity</CardTitle>
-        </CardHeader>
-        <CardContent class="p-0">
-          <ScrollArea class="h-[320px]">
-            <div class="space-y-1 p-4 pt-0">
-              {#if (overview?.recentActivity ?? []).length > 0}
-                {#each overview?.recentActivity ?? [] as activity (activity.id)}
-                  <ActivityItem {activity} />
+              <div class="grid grid-cols-2 gap-2">
+                {#each [['STARTED', fmtWhen(run.startedAtUtc)], ['ENDED', run.endedAtUtc ? fmtWhen(run.endedAtUtc) : '—'], ['DURATION', fmtDuration(liveDuration(run))], ['THROUGHPUT', `${run.throughputPerSec} files/s`]] as [k, v] (k)}
+                  <div class="bg-card border-border rounded-md border px-3 py-2.5">
+                    <div class="text-muted-foreground text-[9.5px] font-semibold tracking-wide">{k}</div>
+                    <div class="mt-0.5 truncate font-mono text-[13px] font-medium">{v}</div>
+                  </div>
                 {/each}
-              {:else}
-                <p class="text-muted-foreground py-4 text-center text-sm">
-                  No recent activity yet
-                </p>
+              </div>
+
+              <div class="bg-border h-1.5 overflow-hidden rounded-full">
+                <div class="bg-primary h-full transition-[width] duration-300" style="width: {processedPct}%;"></div>
+              </div>
+              <div class="text-muted-foreground -mt-2 flex justify-between font-mono text-[11px]">
+                <span>{run.tracksProcessed.toLocaleString()} / {run.tracksDiscovered.toLocaleString()} processed</span>
+                <span>{processedPct}%</span>
+              </div>
+
+              <div class="text-muted-foreground mt-1 text-[10px] font-semibold tracking-wide uppercase">Stage breakdown</div>
+              <div class="bg-card border-border flex flex-col gap-1.5 rounded-md border px-3 py-2.5">
+                {#each stageDefs as s (s.key)}
+                  {@const Icon = s.icon}
+                  {@const val = stageValue(run, s.key)}
+                  {@const pct = run.tracksDiscovered > 0 ? Math.min(100, (val / run.tracksDiscovered) * 100) : 0}
+                  <div class="grid grid-cols-[14px_1fr_80px_56px] items-center gap-2 text-[11.5px]">
+                    <Icon class="text-primary size-3.5" />
+                    <span class="text-muted-foreground">{s.label}</span>
+                    <div class="bg-border h-[3px] overflow-hidden rounded-full">
+                      <div class="bg-primary h-full" style="width: {pct}%;"></div>
+                    </div>
+                    <span class="text-muted-foreground text-right font-mono text-[11px]">{val.toLocaleString()}</span>
+                  </div>
+                {/each}
+              </div>
+
+              <div class="text-muted-foreground mt-1 text-[10px] font-semibold tracking-wide uppercase">Tail of log</div>
+              <div class="bg-card border-border rounded-md border px-2.5 py-1.5">
+                {#if run.logTail && run.logTail.length > 0}
+                  {#each run.logTail.slice(0, 10) as l (l.id)}
+                    <div class="grid grid-cols-[1fr_auto] gap-2 py-[3px] text-[10.5px]">
+                      <span class="truncate font-mono">
+                        <span class={cn(
+                          l.type === 'failed' ? 'text-red-500' : l.type === 'review' ? 'text-amber-600 dark:text-amber-500' : 'text-primary'
+                        )}>[{l.type}]</span>
+                        <span class="text-muted-foreground">{l.track} — {l.artist}</span>
+                      </span>
+                      <span class="text-muted-foreground/70 font-mono">{l.time}</span>
+                    </div>
+                  {/each}
+                {:else}
+                  <div class="text-muted-foreground px-1 py-2 text-[11px]">No log captured for this run.</div>
+                {/if}
+              </div>
+
+              {#if run.status === 'running'}
+                <div class="mt-1 flex gap-2">
+                  <Button size="sm" class="gap-1.5" onclick={() => pipelineOverlay.setOpen(true)}>
+                    <Radio class="size-3.5" />
+                    View live pipeline
+                  </Button>
+                </div>
               {/if}
             </div>
           </ScrollArea>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader class="pb-2">
-          <CardTitle class="text-lg">Quick Actions</CardTitle>
-        </CardHeader>
-        <CardContent class="space-y-3">
-          <Button
-            variant="outline"
-            class="hover:bg-muted hover:text-foreground dark:hover:bg-muted/50 h-auto w-full justify-start gap-3 py-3"
-            disabled={triggering === 'scan' || scanRunning}
-            onclick={() => handleStepAction('scan', 'start')}
-          >
-            <div class="bg-secondary flex size-8 shrink-0 items-center justify-center rounded-lg">
-              <RefreshCw
-                class="text-muted-foreground size-4 {scanRunning ? 'animate-spin' : ''}"
-              />
-            </div>
-            <div class="min-w-0 text-left whitespace-normal">
-              <p class="font-medium">Re-scan Source</p>
-              <p class="text-muted-foreground text-xs">
-                {scanRunning ? 'Scanning...' : 'Check for new or changed files'}
-              </p>
-            </div>
-          </Button>
-          <Button
-            variant="outline"
-            class="hover:bg-muted hover:text-foreground dark:hover:bg-muted/50 h-auto w-full justify-start gap-3 py-3"
-            href="/review"
-          >
-            <div
-              class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-400/10"
-            >
-              <FileWarning class="size-4 text-amber-400" />
-            </div>
-            <div class="min-w-0 text-left whitespace-normal">
-              <p class="font-medium">Review Tracks</p>
-              <p class="text-muted-foreground text-xs">
-                {job.tracksReview} tracks need attention
-              </p>
-            </div>
-          </Button>
-          <Button
-            variant="outline"
-            class="hover:bg-muted hover:text-foreground dark:hover:bg-muted/50 h-auto w-full justify-start gap-3 py-3"
-            href="/app"
-          >
-            <div class="bg-primary/10 flex size-8 shrink-0 items-center justify-center rounded-lg">
-              <Music class="text-primary size-4" />
-            </div>
-            <div class="min-w-0 text-left whitespace-normal">
-              <p class="font-medium">Browse Library</p>
-              <p class="text-muted-foreground text-xs">View imported tracks</p>
-            </div>
-          </Button>
-        </CardContent>
-      </Card>
+        {:else}
+          <div class="text-muted-foreground grid flex-1 place-items-center p-6 text-sm">
+            Select a run to see details.
+          </div>
+        {/if}
+      </aside>
     </div>
-  </div>
-</main>
+  </main>
 {/if}

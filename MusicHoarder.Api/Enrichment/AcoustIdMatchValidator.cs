@@ -1,4 +1,5 @@
 using System.Text.Json;
+using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Enrichment;
@@ -121,7 +122,7 @@ public class AcoustIdMatchValidator : IAcoustIdMatchValidator
 
     internal static string Normalize(string value)
     {
-        return value
+        return TitleNormalizer.FoldDiacritics(value
             .ToLowerInvariant()
             .Replace("'", "")
             .Replace("\u2019", "")
@@ -129,7 +130,7 @@ public class AcoustIdMatchValidator : IAcoustIdMatchValidator
             .Replace("\"", "")
             .Replace("\u201c", "")
             .Replace("\u201d", "")
-            .Replace("-", " ")
+            .Replace("-", " "))
             .Trim();
     }
 }

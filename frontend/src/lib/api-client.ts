@@ -1,5 +1,6 @@
 import type { FileItem } from "$lib/types"
 import { isDemoMode } from "$lib/app-mode"
+import { createPasskey, getPasskeyAssertion } from "$lib/webauthn-client"
 import { mockFileSystem, mockImportJob } from "$lib/mock-data"
 import {
   getDemoSpotifyCredentials,
@@ -1330,6 +1331,121 @@ export async function fetchOverview(): Promise<ApiOverview> {
   return requestJson<ApiOverview>("/overview")
 }
 
+// ── Ingest runs (history) ─────────────────────────────────────────────────────
+
+export type ApiRunStatus = "running" | "completed" | "cancelled" | "failed"
+
+export interface ApiRun {
+  id: string
+  status: ApiRunStatus
+  startedAtUtc: string
+  endedAtUtc?: string | null
+  sourcePath: string
+  destinationPath: string
+  tracksDiscovered: number
+  tracksProcessed: number
+  tracksFingerprinted: number
+  tracksEnriched: number
+  tracksCopied: number
+  tracksReview: number
+  tracksFailed: number
+  throughputPerSec: number
+  durationSeconds?: number | null
+}
+
+export interface ApiRunLogLine {
+  id: string
+  type: ApiOverviewActivity["type"]
+  track: string
+  artist: string
+  time: string
+}
+
+export interface ApiRunDetail extends ApiRun {
+  logTail: ApiRunLogLine[] | null
+}
+
+function buildDemoRuns(): ApiRunDetail[] {
+  const now = Date.now()
+  const min = 60_000
+  const hour = 60 * min
+  const day = 24 * hour
+  const mk = (
+    id: string,
+    status: ApiRunStatus,
+    startOffsetMs: number,
+    durationSeconds: number | null,
+    src: string,
+    discovered: number,
+    processed: number,
+    copied: number,
+    errors: number,
+    review: number
+  ): ApiRunDetail => {
+    const startedAtUtc = new Date(now - startOffsetMs).toISOString()
+    const endedAtUtc =
+      durationSeconds != null ? new Date(now - startOffsetMs + durationSeconds * 1000).toISOString() : null
+    return {
+      id,
+      status,
+      startedAtUtc,
+      endedAtUtc,
+      sourcePath: src,
+      destinationPath: "~/Music/Library",
+      tracksDiscovered: discovered,
+      tracksProcessed: processed,
+      tracksFingerprinted: Math.round(processed * 0.96),
+      tracksEnriched: Math.round(processed * 0.85),
+      tracksCopied: copied,
+      tracksReview: review,
+      tracksFailed: errors,
+      throughputPerSec: durationSeconds && durationSeconds > 0 ? Math.round((processed / durationSeconds) * 100) / 100 : 0,
+      durationSeconds,
+      logTail: null,
+    }
+  }
+
+  return [
+    mk("run_today", "running", 24 * min, null, "~/Downloads/music_dump_2024", 12847, 8955, 8214, 12, 6),
+    mk("run_yesterday", "completed", day + 2 * hour, 2802, "~/Music/incoming/usb_dump", 1247, 1247, 1238, 2, 7),
+    mk("run_sat", "completed", 4 * day, 491, "~/Downloads/bandcamp_2025", 312, 312, 308, 0, 4),
+    mk("run_thu", "cancelled", 6 * day, 434, "~/Music/incoming/torrents", 580, 184, 0, 1, 0),
+    mk("run_may11", "completed", 9 * day, 5114, "~/Downloads/music_dump_2024", 4291, 4291, 4276, 8, 15),
+  ]
+}
+
+export async function fetchRuns(): Promise<ApiRun[]> {
+  if (isDemoMode) {
+    return buildDemoRuns().map(({ logTail: _logTail, ...run }) => run)
+  }
+
+  return requestJson<ApiRun[]>("/runs")
+}
+
+export async function fetchRun(id: string): Promise<ApiRunDetail | null> {
+  if (isDemoMode) {
+    const run = buildDemoRuns().find((r) => r.id === id)
+    if (!run) return null
+    const mockRecentActivity = (await import("$lib/mock-data")).mockRecentActivity
+    return {
+      ...run,
+      logTail: mockRecentActivity.slice(0, 10).map((a) => ({
+        id: a.id,
+        type: a.type,
+        track: a.track,
+        artist: a.artist,
+        time: a.time,
+      })),
+    }
+  }
+
+  try {
+    return await requestJson<ApiRunDetail>(`/runs/${id}`)
+  } catch {
+    return null
+  }
+}
+
 export async function fetchSongs(includeDeleted = false): Promise<ApiSong[]> {
   if (isDemoMode) {
     const demoSongs = buildDemoSongs()
@@ -1858,6 +1974,78 @@ export async function signInAsDemo(): Promise<void> {
     cache: "no-store",
   })
   if (!response.ok) throw new Error(`demo-login failed: ${response.status}`)
+}
+
+// ---------------------------------------------------------------------------
+// Passkey (WebAuthn) API
+// ---------------------------------------------------------------------------
+
+export interface PasskeyView {
+  id: string
+  displayName: string
+  aaGuid: string
+  createdAtUtc: string
+  lastUsedAtUtc: string | null
+}
+
+const WEBAUTHN_PREFIX = `${API_PREFIX}/api/auth/webauthn`
+
+/** Enrolls a new passkey for the signed-in owner. Runs the full begin → ceremony → complete flow. */
+export async function registerPasskey(displayName: string): Promise<PasskeyView> {
+  if (isDemoMode) throw new Error("Passkeys are unavailable in demo mode.")
+
+  const beginRes = await fetch(`${WEBAUTHN_PREFIX}/register/begin`, { method: "POST", cache: "no-store" })
+  if (!beginRes.ok) throw new Error(`Could not start passkey registration (${beginRes.status}).`)
+  const options = (await beginRes.json()) as Record<string, unknown>
+
+  const attestation = await createPasskey(options)
+
+  const completeRes = await fetch(`${WEBAUTHN_PREFIX}/register/complete`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ attestation, displayName }),
+    cache: "no-store",
+  })
+  if (!completeRes.ok) {
+    const body = (await completeRes.json().catch(() => ({}))) as { error?: string }
+    throw new Error(body.error === "verification_failed" ? "Passkey could not be verified." : "Passkey registration failed.")
+  }
+  return (await completeRes.json()) as PasskeyView
+}
+
+/** Signs in with an existing passkey. On success the session cookie is set; caller should navigate. */
+export async function loginWithPasskey(): Promise<void> {
+  if (isDemoMode) throw new Error("Passkeys are unavailable in demo mode.")
+
+  const beginRes = await fetch(`${WEBAUTHN_PREFIX}/authenticate/begin`, { method: "POST", cache: "no-store" })
+  if (!beginRes.ok) throw new Error(`Could not start passkey sign-in (${beginRes.status}).`)
+  const options = (await beginRes.json()) as Record<string, unknown>
+
+  const assertion = await getPasskeyAssertion(options)
+
+  const completeRes = await fetch(`${WEBAUTHN_PREFIX}/authenticate/complete`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(assertion),
+    cache: "no-store",
+  })
+  if (!completeRes.ok) throw new Error("Passkey sign-in failed.")
+}
+
+export async function listPasskeys(): Promise<PasskeyView[]> {
+  if (isDemoMode) return []
+  const response = await fetch(`${WEBAUTHN_PREFIX}/credentials`, { cache: "no-store" })
+  if (!response.ok) throw new Error(`Could not load passkeys (${response.status}).`)
+  return (await response.json()) as PasskeyView[]
+}
+
+export async function deletePasskey(id: string): Promise<void> {
+  if (isDemoMode) return
+  const response = await fetch(`${WEBAUTHN_PREFIX}/credentials/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    cache: "no-store",
+  })
+  if (!response.ok) throw new Error(`Could not remove passkey (${response.status}).`)
 }
 
 // ---------------------------------------------------------------------------

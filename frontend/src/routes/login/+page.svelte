@@ -3,8 +3,9 @@
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
-  import { requestMagicLink, signInAsDemo } from '$lib/api-client';
-  import { LogIn, Mail, Loader2, CheckCircle2, AlertCircle, ExternalLink, Sparkles } from '@lucide/svelte';
+  import { requestMagicLink, signInAsDemo, loginWithPasskey } from '$lib/api-client';
+  import { isPasskeySupported } from '$lib/webauthn-client';
+  import { LogIn, Mail, Loader2, CheckCircle2, AlertCircle, ExternalLink, Sparkles, KeyRound } from '@lucide/svelte';
 
   let email = $state('');
   let isSending = $state(false);
@@ -14,6 +15,28 @@
     | { ok: false; message: string }
   >(null);
   let isStartingDemo = $state(false);
+  let isPasskeyLogin = $state(false);
+  let passkeySupported = $state(false);
+
+  $effect(() => {
+    passkeySupported = isPasskeySupported();
+  });
+
+  async function handlePasskeyLogin() {
+    isPasskeyLogin = true;
+    result = null;
+    try {
+      await loginWithPasskey();
+      await goto('/app', { invalidateAll: true });
+    } catch (err) {
+      result = {
+        ok: false,
+        message: err instanceof Error ? err.message : 'Passkey sign-in failed.'
+      };
+    } finally {
+      isPasskeyLogin = false;
+    }
+  }
 
   async function handleSubmit(event: Event) {
     event.preventDefault();
@@ -41,7 +64,7 @@
     isStartingDemo = true;
     try {
       await signInAsDemo();
-      await goto('/runs', { invalidateAll: true });
+      await goto('/app', { invalidateAll: true });
     } catch (err) {
       result = {
         ok: false,
@@ -96,6 +119,12 @@
     {/if}
 
     <div class="mob-login-or"><span>or</span></div>
+
+    {#if passkeySupported}
+      <button type="button" class="mob-btn" onclick={handlePasskeyLogin} disabled={isPasskeyLogin}>
+        {isPasskeyLogin ? 'Waiting for passkey…' : 'Sign in with a passkey'}
+      </button>
+    {/if}
 
     <button type="button" class="mob-btn" onclick={handleTryDemo} disabled={isStartingDemo}>
       {isStartingDemo ? 'Starting…' : 'Try the demo'}
@@ -182,6 +211,23 @@
     {/if}
 
     <div class="border-border my-6 border-t"></div>
+
+    {#if passkeySupported}
+      <Button
+        type="button"
+        variant="outline"
+        class="mb-3 w-full"
+        onclick={handlePasskeyLogin}
+        disabled={isPasskeyLogin}
+      >
+        {#if isPasskeyLogin}
+          <Loader2 class="mr-2 size-4 animate-spin" />
+        {:else}
+          <KeyRound class="mr-2 size-4" />
+        {/if}
+        Sign in with a passkey
+      </Button>
+    {/if}
 
     <Button
       type="button"
