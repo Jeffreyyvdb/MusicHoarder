@@ -117,7 +117,35 @@ public static class ConsensusEvaluator
                 [soloNameBased.Provider]);
         }
 
-        // 3) Otherwise it needs review (once every provider has had its turn). Surface the
+        // 3) A clean, *unambiguous* fingerprint match (AcoustID) is acoustically authoritative and
+        //    may stand alone — but only once every enabled provider has had its turn, so a
+        //    name-based corroborator/contradictor gets the chance to weigh in first. The validator
+        //    already recommended Matched (score >= threshold, no blocking warning), and we further
+        //    require a single candidate so an ambiguous fingerprint that resolved to several
+        //    recordings still goes to review.
+        if (allAttempted)
+        {
+            var soloFingerprint = strong
+                .Where(c => !c.IsNameBased
+                    && c.Result.RecommendedStatus == EnrichmentStatus.Matched
+                    && !c.Result.MatchWarnings.Contains("multiple_candidates"))
+                .OrderByDescending(c => c.Confidence)
+                .FirstOrDefault();
+
+            // Don't stand alone if a strong name-based provider landed on a *different* identity
+            // (e.g. a different version/recording) — that genuine conflict belongs in review.
+            var contradictedByNameBased = soloFingerprint is not null && strong.Any(c =>
+                c.IsNameBased && !c.Identity.AgreesWith(soloFingerprint.Identity, identityOptions));
+
+            if (soloFingerprint is not null && !contradictedByNameBased)
+            {
+                return new ConsensusResult(
+                    EnrichmentStatus.Matched, soloFingerprint.Result, soloFingerprint.Confidence,
+                    [soloFingerprint.Provider]);
+            }
+        }
+
+        // 4) Otherwise it needs review (once every provider has had its turn). Surface the
         //    highest-confidence candidate so the review UI / bulk-approve can find it.
         var reviewWinner = candidates.OrderByDescending(c => c.Confidence).First();
         if (!allAttempted)
