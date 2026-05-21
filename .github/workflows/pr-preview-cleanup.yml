@@ -1,0 +1,63 @@
+# Safety-net reaper for orphaned PR preview stacks.
+#
+# The pr-preview.yml `teardown` job normally deletes a preview when its PR closes. If that event is
+# ever missed (workflow disabled, transient Dokploy error, manual compose created), this daily job
+# enumerates pr-<n> composes in the previews environment and destroys any whose PR is no longer
+# open. Also runnable on demand.
+name: PR preview cleanup (Dokploy)
+
+on:
+  schedule:
+    - cron: "17 4 * * *" # daily, 04:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  reap:
+    name: Reap closed-PR previews
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Destroy previews for closed PRs
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          DOKPLOY_PREVIEW_ENVIRONMENT_ID: ${{ secrets.DOKPLOY_PREVIEW_ENVIRONMENT_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DOKPLOY_URL}" ] || [ -z "${DOKPLOY_API_KEY}" ] || [ -z "${DOKPLOY_PREVIEW_ENVIRONMENT_ID}" ]; then
+            echo "::notice::Dokploy preview secrets not set — nothing to reap."
+            exit 0
+          fi
+          base="${DOKPLOY_URL%/}"
+          names=$(curl -fsS --max-time 60 \
+            -H "x-api-key: ${DOKPLOY_API_KEY}" \
+            "${base}/api/project.all" \
+            | jq -r --arg env "$DOKPLOY_PREVIEW_ENVIRONMENT_ID" '
+                (.data? // .)[].environments[] | select(.environmentId == $env)
+                | .compose[]? | select(.name | startswith("pr-")) | .name')
+
+          if [ -z "${names}" ]; then
+            echo "No pr-* preview composes found — nothing to reap."
+            exit 0
+          fi
+
+          while IFS= read -r name; do
+            [ -n "$name" ] || continue
+            pr="${name#pr-}"
+            state=$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json state -q .state 2>/dev/null || echo "MISSING")
+            if [ "$state" = "OPEN" ]; then
+              echo "PR #${pr} still open — keeping ${name}."
+            else
+              echo "PR #${pr} state=${state} — destroying ${name}."
+              # Don't let one transient destroy failure abort the whole sweep — log and move on;
+              # the still-orphaned stack gets retried on the next daily run.
+              PR="$pr" ./scripts/dokploy-preview.sh destroy \
+                || echo "::warning::failed to destroy ${name}; will retry on the next run."
+            fi
+          done <<< "$names"
