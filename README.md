@@ -142,8 +142,9 @@ workflow guards every job with `github.event.pull_request.head.repo.full_name ==
 
 Validate end-to-end before relying on it: run the **PR preview (Dokploy)** workflow via
 `workflow_dispatch` with a real PR number, confirm the `pr-<n>` compose appears and deploys, then
-re-run / close to confirm teardown. Tunables: `PREVIEW_MAX_STACKS` (default 5),
-`PREVIEW_SOURCE_DIR`, `PREVIEW_DEST_ROOT` (env in the provision step).
+re-run / close to confirm teardown. Tunables: `PREVIEW_MAX_STACKS` (default 5, env in the provision
+step); `PREVIEW_SOURCE_DIR` / `PREVIEW_DEST_ROOT` are **repo variables** (Settings → Variables) for
+the host paths bind-mounted into each preview (default to `/srv/mh-preview/...` if unset).
 
 ### Self-hosted / homelab deployment (docker-compose)
 

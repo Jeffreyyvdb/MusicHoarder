@@ -118,6 +118,9 @@ jobs:
           PREVIEW_BASE_DOMAIN: ${{ secrets.PREVIEW_BASE_DOMAIN }}
           PREVIEW_POSTGRES_PASSWORD: ${{ secrets.PREVIEW_POSTGRES_PASSWORD }}
           PREVIEW_OWNER_EMAIL: ${{ secrets.PREVIEW_OWNER_EMAIL }}
+          # Host paths on the Dokploy server (repo variables). Empty → script defaults apply.
+          PREVIEW_SOURCE_DIR: ${{ vars.PREVIEW_SOURCE_DIR }}
+          PREVIEW_DEST_ROOT: ${{ vars.PREVIEW_DEST_ROOT }}
           PR: ${{ steps.vars.outputs.pr }}
           API_IMAGE: ${{ steps.vars.outputs.api_image }}
           FRONTEND_IMAGE: ${{ steps.vars.outputs.frontend_image }}
