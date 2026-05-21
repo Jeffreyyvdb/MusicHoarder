@@ -1,8 +1,15 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) and other AI coding agents when working with code in this repository. It is the single source of truth for project conventions; `AGENTS.md` is a symlink to this file so all tools read the same guidance.
 
-See `AGENTS.md` for the long-form design notes, agent personas, and Linear-issue workflow conventions that still apply here. This file is the quick orientation.
+## This is a public, open-source repository
+
+This repo is public on GitHub under the MIT license. Treat everything you commit as world-readable, permanent, and indexed.
+
+- **Never commit secrets or credentials.** API keys, OAuth client secrets, Postgres passwords, Resend keys, etc. always come from environment variables, AppHost parameters, or user-secrets — never from tracked files. The committed `appsettings*.json` keep these fields empty; keep them that way.
+- **No private/personal data.** No personal emails, internal hostnames, IP addresses, private URLs, server names, or deployment endpoints in tracked files. Deployment targets (Dokploy URL/key, etc.) live only in GitHub Actions secrets.
+- **No local planning artifacts.** Don't commit scratch design docs, plan files, transcripts, or `.claude/` decision notes — those belong in your local environment, not the public history.
+- If you're unsure whether something is safe to publish, leave it out and ask.
 
 ## Commands
 
@@ -78,10 +85,24 @@ Env var form uses the double-underscore convention (`MusicEnricher__AcoustIdApiK
 
 `MusicHoarderDbContext` is the only EF context. Schema changes always go through an EF migration under `MusicHoarder.Api/Persistence/Migrations/`; `ApplyPendingMigrationsAsync()` runs on startup, so don't ship manual SQL. `SongMetadata` is the hub entity and has `ProviderAttempts` as a collection — a `ResetEnrichment` must clear it.
 
+## Coding conventions
+
+- **Minimal API composition**: keep `Program.cs` focused on composition (service registration, middleware, endpoint mapping) via the `AddMusicHoarderServices()` / `MapMusicHoarderEndpoints()` extensions. Prefer extension methods for cross-cutting concerns.
+- **DI everywhere**: constructor injection for services, options, and `DbContext`. Decouple behind interfaces (`IEnrichmentProvider`, `IFileScanner`, etc.). Register long-running workers via `AddHostedService<T>()`.
+- **Records for DTOs**: use records for small immutable carriers (`ScanRequest`, progress/result types) with names that map to domain concepts. Prefer explicit enums + status fields over magic strings.
+- **Background processing**: derive workers from `BackgroundService`; decouple HTTP requests from heavy work via channels/queues; every long-running op takes and respects a `CancellationToken`. Use bounded concurrency (`SemaphoreSlim`) for IO-heavy work (SMB, dataset streaming, external APIs) with limits from configuration, and batch DB writes.
+- **Logging**: structured logging with context properties (job/scan id, file path, counts) flowing through `ServiceDefaults` observability. Never log secrets or full URLs containing key query parameters.
+
+## Safety and data handling
+
+- **Non-destructive by default**: the library builder only reads from source and writes new copies to the destination — it must never modify source files. Use soft-delete (`SoftDelete()` / derived `IsDeleted`) for removed/missing files; never physically delete rows.
+- **Safe paths in dev**: point scanners/builders at local test directories, not real NAS shares, unless explicitly configured.
+- **External services**: respect rate limits and set appropriate user agents when scraping trackers or calling APIs; use retries with backoff for transient failures and stop at error thresholds.
+
 ## Branches and commits
 
-- The Linear project ID prefix is `BRINK-`. Branch names and commit messages should reference the issue (`BRINK-36: ...`). Branch naming mirrors Linear's `gitBranchName` (e.g. `jeffreyvdbrink/brink-36-implement-enrichmentservice-orchestrator-background-service`).
-- Prioritize earlier milestones (M1–M2) over later ones (M3–M5) unless the user directs otherwise.
+- Commit messages must follow [Conventional Commits](https://www.conventionalcommits.org/) — they drive the shared semantic-release version (see **Releases**). Use a descriptive, lowercase scope where it helps (`feat(spotify): ...`, `fix(apphost): ...`).
+- Use short, descriptive branch names (e.g. `feat/spotify-isrc-matching`, `fix/oauth-redirect`). Reference a GitHub issue number in the PR when one exists.
 
 ## Frontend flex / scrolling gotcha
 

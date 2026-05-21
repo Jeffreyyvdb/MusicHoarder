@@ -83,11 +83,11 @@
 
 /* ============ Page header ============ */
 .mob-header {
-  height: var(--header-h);
+  height: calc(var(--header-h) + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) 16px 0;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 16px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -95,7 +95,7 @@
   z-index: 5;
 }
 .mob-header.lg {
-  height: 72px;
+  height: calc(72px + env(safe-area-inset-top));
 }
 .mob-h-title {
   font-size: 17px;
@@ -186,7 +186,9 @@
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
-  padding-bottom: 14px;
+  height: calc(var(--tab-h) + env(safe-area-inset-bottom));
+  padding-top: 12px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
 }
 .mob-tab {
   display: flex;

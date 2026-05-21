@@ -24,3 +24,6 @@ vite.config.ts.timestamp-*
 # Misc
 *.pem
 *.tsbuildinfo
+
+# Playwright CLI artifacts
+.playwright-cli

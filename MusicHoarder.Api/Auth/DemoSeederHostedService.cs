@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Auth;
@@ -46,6 +47,7 @@ public sealed class DemoSeederHostedService : IHostedService
             await UpdateUserEmailsAsync(db, opts, ct);
             await SeedOwnerCredentialIfConfiguredAsync(db, opts, ct);
             await SeedDemoSongsIfEmptyAsync(db, ct);
+            await SeedDemoReviewSongsIfEmptyAsync(db, ct);
         }
         catch (Exception ex)
         {
@@ -201,6 +203,101 @@ public sealed class DemoSeederHostedService : IHostedService
         _logger.LogInformation("Seeded {Count} demo songs for the demo user.", seeds.Count);
     }
 
+    /// <summary>
+    /// Seed a handful of <see cref="EnrichmentStatus.NeedsReview"/> songs (each with competing
+    /// provider-attempt candidates) for the demo user so the manual-review screen has realistic
+    /// data. Guarded independently from the matched-songs seed so it also backfills demo databases
+    /// that were already seeded before this seed existed.
+    /// </summary>
+    private async Task SeedDemoReviewSongsIfEmptyAsync(MusicHoarderDbContext db, CancellationToken ct)
+    {
+        var hasReviewSongs = await db.Songs
+            .IgnoreQueryFilters()
+            .AnyAsync(
+                s => s.OwnerUserId == WellKnownUsers.DemoId && s.EnrichmentStatus == EnrichmentStatus.NeedsReview,
+                ct);
+        if (hasReviewSongs) return;
+
+        var now = DateTime.UtcNow;
+        // Distinct providers per candidate — there is a unique index on (SongId, Provider).
+        var providers = new[]
+        {
+            EnrichmentProvider.AcoustID,
+            EnrichmentProvider.SpotifyAPI,
+            EnrichmentProvider.MusicBrainzWeb,
+            EnrichmentProvider.Tracker,
+        };
+
+        foreach (var seed in ReviewSeeds)
+        {
+            var top = seed.Candidates.Length > 0 ? seed.Candidates[0] : null;
+            var multipleMatches = seed.Reason == "multiple_matches";
+            var warnings = multipleMatches
+                ? new List<string> { "Multiple candidate matches with similar confidence", "Competing releases found" }
+                : new List<string>();
+
+            var song = new SongMetadata
+            {
+                OwnerUserId = WellKnownUsers.DemoId,
+                IsSynthetic = true,
+                SourcePath = $"/demo/source/{seed.Folder}/{seed.FileName}",
+                FileName = seed.FileName,
+                Extension = "." + seed.Format.ToLowerInvariant(),
+                FileSizeBytes = seed.FileSizeBytes,
+                LastModifiedUtc = now,
+                IndexedAtUtc = now,
+                Artist = string.IsNullOrEmpty(seed.EmbArtist) ? null : seed.EmbArtist,
+                Album = string.IsNullOrEmpty(seed.EmbAlbum) ? null : seed.EmbAlbum,
+                Title = string.IsNullOrEmpty(seed.EmbTitle) ? null : seed.EmbTitle,
+                Year = seed.EmbYear,
+                DurationSeconds = seed.DurationSeconds,
+                DurationMs = seed.DurationSeconds * 1000,
+                Bitrate = seed.Bitrate,
+                Fingerprint = seed.Fingerprint,
+                EnrichmentStatus = EnrichmentStatus.NeedsReview,
+                MatchedBy = top is null ? null : top.Source,
+                MatchConfidence = top?.Score,
+                MatchWarnings = warnings.Count > 0 ? JsonSerializer.Serialize(warnings) : null,
+                EnrichedAtUtc = now,
+                LibraryBuildStatus = LibraryBuildStatus.Pending,
+            };
+
+            for (var i = 0; i < seed.Candidates.Length; i++)
+            {
+                var c = seed.Candidates[i];
+                var result = new EnrichmentProviderResult(
+                    Artist: c.Artist,
+                    AlbumArtist: null,
+                    Title: c.Title,
+                    Year: c.Year,
+                    TrackNumber: null,
+                    MusicBrainzId: null,
+                    MusicBrainzReleaseId: null,
+                    SpotifyId: null,
+                    AcoustIdTrackId: null,
+                    Isrc: null,
+                    MatchedBy: c.Source,
+                    MatchConfidence: c.Score,
+                    MatchWarnings: new List<string>(),
+                    RecommendedStatus: EnrichmentStatus.NeedsReview,
+                    Album: c.Album);
+
+                song.ProviderAttempts.Add(new SongProviderAttempt
+                {
+                    Provider = providers[i % providers.Length],
+                    Status = ProviderAttemptStatus.Matched,
+                    AttemptedAtUtc = now,
+                    MatchedDataJson = JsonSerializer.Serialize(result),
+                });
+            }
+
+            db.Songs.Add(song);
+        }
+
+        await db.SaveChangesAsync(ct);
+        _logger.LogInformation("Seeded {Count} demo review songs for the demo user.", ReviewSeeds.Length);
+    }
+
     private static List<DemoSeed> LoadEmbeddedSeed()
     {
         var asm = Assembly.GetExecutingAssembly();
@@ -233,4 +330,72 @@ public sealed class DemoSeederHostedService : IHostedService
         int Track,
         [property: JsonPropertyName("durationMs")] int? DurationMs,
         string? Lyrics);
+
+    private sealed record ReviewSeed(
+        string Folder,
+        string FileName,
+        string Format,
+        int FileSizeBytes,
+        int DurationSeconds,
+        int Bitrate,
+        string? Fingerprint,
+        string Reason,
+        string? EmbTitle,
+        string? EmbArtist,
+        string? EmbAlbum,
+        int? EmbYear,
+        ReviewCandidateSeed[] Candidates);
+
+    private sealed record ReviewCandidateSeed(
+        string Source,
+        double Score,
+        string Title,
+        string Artist,
+        string Album,
+        int Year);
+
+    // Messy, freshly-dumped files awaiting a human decision — mirrors the design's review queue.
+    private static readonly ReviewSeed[] ReviewSeeds =
+    {
+        new("_incoming/01_dump", "track_047.mp3", "MP3", 8_400_000, 314, 320,
+            "AQADtKqaZFEoS1E4hUeS", "low_confidence", "Track 47", "unknown", null, null,
+            new[]
+            {
+                new ReviewCandidateSeed("AcoustID", 0.62, "1969", "Boards of Canada", "Geogaddi", 2002),
+                new ReviewCandidateSeed("Discogs", 0.58, "1969", "Boards of Canada", "Geogaddi (Reissue)", 2013),
+                new ReviewCandidateSeed("MusicBrainz", 0.41, "1969 (live)", "Boards of Canada", "Trans Canada Highway", 2006),
+            }),
+        new("_incoming/02_usb", "IMG_2014_audio.m4a", "M4A", 14_100_000, 221, 256,
+            "AQADtMqcZFEoTVE8hUeS", "multiple_matches", null, null, null, null,
+            new[]
+            {
+                new ReviewCandidateSeed("AcoustID", 0.71, "Avril 14th", "Aphex Twin", "Drukqs", 2001),
+                new ReviewCandidateSeed("Spotify", 0.69, "Avril 14th (Piano)", "Aphex Twin", "Piano Works", 2003),
+                new ReviewCandidateSeed("Discogs", 0.55, "Avril 14", "Aphex Twin", "Drukqs (Japanese ed.)", 2002),
+            }),
+        new("_incoming/01_dump/various", "08_-_unnamed.flac", "FLAC", 34_700_000, 248, 911,
+            "AQADtNqdZFEoTlE+hUeS", "low_confidence", "08", null, "Various", null,
+            new[]
+            {
+                new ReviewCandidateSeed("AcoustID", 0.54, "Strawberry Swing", "Frank Ocean", "Nostalgia, Ultra.", 2011),
+                new ReviewCandidateSeed("MusicBrainz", 0.49, "Strawberry Swing", "Coldplay", "Viva la Vida", 2008),
+            }),
+        new("_incoming/03_phone_dump", "JLOLN0301.wav", "WAV", 52_300_000, 288, 1411,
+            null, "no_fingerprint", null, null, null, null,
+            Array.Empty<ReviewCandidateSeed>()),
+        new("_incoming/02_usb/bootlegs", "live_set_aug.flac", "FLAC", 127_800_000, 862, 988,
+            "AQADtOqsZFEoXVFchUeS", "multiple_matches", "Live in Brixton 08", null, null, null,
+            new[]
+            {
+                new ReviewCandidateSeed("AcoustID", 0.68, "Live in Brixton — Side A", "Massive Attack", "Bootleg 2008", 2008),
+                new ReviewCandidateSeed("Spotify", 0.66, "Brixton Academy (full)", "Massive Attack", "Unofficial live", 2008),
+                new ReviewCandidateSeed("Discogs", 0.52, "Live at Brixton", "Massive Attack", "Heligoland Tour", 2010),
+            }),
+        new("_incoming/01_dump", "unknown_artist - 02 - .ogg", "OGG", 6_200_000, 192, 192,
+            "AQADtPqtZFEoXlFehUeS", "low_confidence", null, "unknown_artist", null, null,
+            new[]
+            {
+                new ReviewCandidateSeed("AcoustID", 0.59, "Roygbiv", "Boards of Canada", "Music Has the Right to Children", 1998),
+            }),
+    };
 }
