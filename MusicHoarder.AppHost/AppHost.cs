@@ -57,6 +57,17 @@ var spotifyOAuthStateKey = builder.AddParameter("spotify-oauth-state-key", build
 var spotifyReturnOriginAllowlist = builder.AddParameter("spotify-return-origin-allowlist", builder.Configuration["Parameters:spotify-return-origin-allowlist"] ?? "https://localhost:* http://127.0.0.1:*")
     .WithDescription("Comma/space-separated origins the Spotify relay may bounce back to (prod origin, *.<preview-domain>, and loopback for local dev). Single '*' matches one host/port segment.");
 
+// Umami analytics is read by the frontend at runtime via $env/dynamic/public, so these are plain
+// (non-secret) runtime env vars on the frontend container. Default to empty so the AppHost boots and
+// `aspire do push` resolves them without prompting; the tracker script only renders when both
+// public-umami-src and public-umami-website-id are non-empty (filled in Dokploy).
+var publicUmamiSrc = builder.AddParameter("public-umami-src", builder.Configuration["Parameters:public-umami-src"] ?? "")
+    .WithDescription("Full Umami tracker URL ending in /script.js. Blank disables analytics.");
+var publicUmamiWebsiteId = builder.AddParameter("public-umami-website-id", builder.Configuration["Parameters:public-umami-website-id"] ?? "")
+    .WithDescription("Umami website id (GUID). Blank disables analytics.");
+var publicUmamiRecorderSrc = builder.AddParameter("public-umami-recorder-src", builder.Configuration["Parameters:public-umami-recorder-src"] ?? "")
+    .WithDescription("Optional Umami session-recorder URL ending in /recorder.js. Blank disables the recorder.");
+
 var ownerEmail = builder.AddParameter("owner-email")
     .WithDescription("Email of the owner (admin) account. Used by magic-link sign-in.");
 var demoUserEmail = builder.AddParameter("demo-user-email")
@@ -120,6 +131,9 @@ var frontend = builder.AddViteApp("frontend", "../frontend")
     // state before bouncing the browser to the originating env's callback.
     .WithEnvironment("SPOTIFY_OAUTH_STATE_SIGNING_KEY", spotifyOAuthStateKey)
     .WithEnvironment("SPOTIFY_RETURN_ORIGIN_ALLOWLIST", spotifyReturnOriginAllowlist)
+    .WithEnvironment("PUBLIC_UMAMI_SRC", publicUmamiSrc)
+    .WithEnvironment("PUBLIC_UMAMI_WEBSITE_ID", publicUmamiWebsiteId)
+    .WithEnvironment("PUBLIC_UMAMI_RECORDER_SRC", publicUmamiRecorderSrc)
     .WaitForStart(api)
     .WithExternalHttpEndpoints()
     .PublishAsNodeServer(entryPoint: "build/index.js", outputPath: "build");
