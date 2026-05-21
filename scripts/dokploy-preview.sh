@@ -10,9 +10,10 @@
 #   PR=123 ... ./scripts/dokploy-preview.sh provision
 #   PR=123 ... ./scripts/dokploy-preview.sh destroy
 #
-# The Dokploy REST API mirrors its tRPC routes: POST https://<host>/api/<router>.<proc> with an
-# x-api-key header and a JSON body. Idempotent: provision finds an existing pr-<n> compose by name
-# (so a new commit on the PR redeploys the same stack instead of creating a duplicate).
+# The Dokploy REST API mirrors its tRPC routes at https://<host>/api/<router>.<proc> with an
+# x-api-key header — mutations are POST with a JSON body, read queries (e.g. project.all) are GET.
+# Idempotent: provision finds an existing pr-<n> compose by name (so a new commit on the PR
+# redeploys the same stack instead of creating a duplicate).
 #
 # Required env:
 #   DOKPLOY_URL                     base URL of the Dokploy instance (no trailing slash needed)
@@ -38,8 +39,8 @@ CMD="${1:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"  # robust regardless of caller CWD
 BASE="${DOKPLOY_URL%/}"
-NAME="pr-${PR}"                 # compose display name within the previews environment
-APP_NAME="mh-pr-${PR}"          # docker stack / isolated-network name (must be globally unique)
+NAME="pr-${PR}"                 # compose display name within the previews environment (lookup key)
+APP_NAME="mh-pr-${PR}"          # appName prefix; Dokploy appends a random suffix (e.g. mh-pr-40-ab12)
 
 # _curl <proc> <curl-args...>  ->  prints response body, fails on non-2xx.
 # Dokploy's trpc-to-openapi layer maps queries to GET and mutations to POST, so the verb matters:
@@ -76,8 +77,9 @@ api() {
 get() { _curl "$1"; }
 
 # Both helpers take a pre-fetched project.all payload on stdin so a fresh provision needs only one
-# API round-trip. project.all over raw REST returns a bare array; the MCP wrapper nests it under
-# .data — `(.data? // .)` tolerates both so lookups never silently miss (→ duplicate stacks).
+# API round-trip. The payload may be a bare array or nested under .data depending on the response
+# shape — `(.data? // .)` tolerates both so lookups never silently miss (which would create
+# duplicate stacks).
 find_compose_id() {
   jq -r --arg env "$DOKPLOY_PREVIEW_ENVIRONMENT_ID" --arg name "$NAME" '
     [ (.data? // .)[].environments[] | select(.environmentId == $env) | .compose[]?

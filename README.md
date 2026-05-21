@@ -127,8 +127,8 @@ workflow guards every job with `github.event.pull_request.head.repo.full_name ==
    (e.g. `*.preview.musichoarder.example.com`). TLS is issued per-host by Dokploy/Traefik via
    Let's Encrypt.
 2. **Dokploy** — create a dedicated **environment** (or project) for previews and note its
-   `environmentId` (never use the production environment). Seed a small read-only sample library at
-   `/srv/mh-preview/sample-source` on the server so previews have files to scan.
+   `environmentId` (never use the production environment). Seed a small read-only sample library on
+   the server at the path you set as `PREVIEW_SOURCE_DIR` (below) so previews have files to scan.
 3. **GitHub Actions secrets:**
 
    | Secret | Purpose |
@@ -140,11 +140,16 @@ workflow guards every job with `github.event.pull_request.head.repo.full_name ==
    | `PREVIEW_OWNER_EMAIL` | owner account for magic-link sign-in |
    | `GHCR_CLEANUP_TOKEN` *(optional)* | PAT with `delete:packages` to prune `:pr-<n>` images |
 
-Validate end-to-end before relying on it: run the **PR preview (Dokploy)** workflow via
-`workflow_dispatch` with a real PR number, confirm the `pr-<n>` compose appears and deploys, then
-re-run / close to confirm teardown. Tunables: `PREVIEW_MAX_STACKS` (default 5, env in the provision
-step); `PREVIEW_SOURCE_DIR` / `PREVIEW_DEST_ROOT` are **repo variables** (Settings → Variables) for
-the host paths bind-mounted into each preview (default to `/srv/mh-preview/...` if unset).
+**Validating it:** once the secrets are set, push a commit to any same-repo PR — the `pull_request`
+trigger builds the images and provisions the stack, then comments the URL. (The `workflow_dispatch`
+"Run workflow" button only appears **after** this workflow is on the default branch — GitHub doesn't
+expose manual dispatch for a workflow that only exists on a feature branch — so for pre-merge testing
+use the `pull_request` trigger; `workflow_dispatch` is for manual re-previews afterwards.) Closing the
+PR runs the teardown job.
+
+Tunables: `PREVIEW_MAX_STACKS` (default 5, env in the provision step); `PREVIEW_SOURCE_DIR` /
+`PREVIEW_DEST_ROOT` are **repo variables** (Settings → Variables) for the host paths bind-mounted
+into each preview (default to `/srv/mh-preview/...` if unset).
 
 ### Self-hosted / homelab deployment (docker-compose)
 
