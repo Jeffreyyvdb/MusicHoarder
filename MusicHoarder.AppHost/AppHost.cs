@@ -110,6 +110,11 @@ api.WithEnvironment(context =>
     if (context.ExecutionContext.IsPublishMode)
     {
         context.EnvironmentVariables["Frontend__PublicBaseUrl"] = frontendPublicBaseUrl.Resource;
+        // Spotify redirects the browser back through the frontend origin (the /api/spotify/callback
+        // SvelteKit route forwards to the API), so the OAuth redirect URI must be the public
+        // frontend base — not the API's internal request host, which would resolve to a loopback
+        // address behind the proxy and break the flow.
+        context.EnvironmentVariables["Spotify__OAuthRedirectBaseUrl"] = frontendPublicBaseUrl.Resource;
     }
     else
     {
