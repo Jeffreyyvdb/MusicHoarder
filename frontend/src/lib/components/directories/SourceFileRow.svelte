@@ -12,28 +12,43 @@
     aac: '#8a5a3a'
   };
 
-  const STATE_META: Record<SourceFileState, { label: string; icon: string; pill: string }> = {
+  // `pendingHint` is the placeholder shown in the destination column while a file has no
+  // destination yet — it must reflect *why* there's no destination for that state, not assume
+  // the file is still awaiting fingerprinting (a matched file has already been fingerprinted).
+  const STATE_META: Record<
+    SourceFileState,
+    { label: string; icon: string; pill: string; pendingHint: string }
+  > = {
     written: {
       label: 'in library',
       icon: '✓',
-      pill: 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+      pill: 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300',
+      pendingHint: 'in library'
     },
     matched: {
       label: 'matched',
       icon: '✓',
-      pill: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+      pill: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
+      pendingHint: 'awaiting library build'
     },
     review: {
       label: 'review',
       icon: '⚠',
-      pill: 'bg-amber-500/20 text-amber-700 dark:text-amber-400'
+      pill: 'bg-amber-500/20 text-amber-700 dark:text-amber-400',
+      pendingHint: 'needs review'
     },
     failed: {
       label: 'no match',
       icon: '✕',
-      pill: 'bg-red-500/15 text-red-600 dark:text-red-400'
+      pill: 'bg-red-500/15 text-red-600 dark:text-red-400',
+      pendingHint: 'no match'
     },
-    queued: { label: 'queued', icon: '·', pill: 'bg-muted text-muted-foreground' }
+    queued: {
+      label: 'queued',
+      icon: '·',
+      pill: 'bg-muted text-muted-foreground',
+      pendingHint: 'awaiting fingerprint'
+    }
   };
 
   function fileExt(name: string, fallback?: string | null): string {
@@ -91,7 +106,7 @@
         {file.destinationPath}
       </span>
     {:else}
-      <span class="text-muted-foreground/50 italic">— awaiting fingerprint —</span>
+      <span class="text-muted-foreground/50 italic">— {meta.pendingHint} —</span>
     {/if}
   </span>
 </div>
