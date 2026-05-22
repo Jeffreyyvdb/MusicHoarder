@@ -8,6 +8,8 @@ public enum EnrichmentProvider
     SpotifyAPI = 1,
     MusicBrainzWeb = 2,
     Tracker = 3,
+    Deezer = 4,
+    AppleMusic = 5,
 }
 
 public enum ProviderAttemptStatus

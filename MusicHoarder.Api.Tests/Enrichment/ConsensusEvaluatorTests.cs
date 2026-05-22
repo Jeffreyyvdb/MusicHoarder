@@ -83,6 +83,24 @@ public class ConsensusEvaluatorTests
     }
 
     [Fact]
+    public void DeezerPlusSpotifyAgree_Matched()
+    {
+        // Two name-based providers landing on the same identity (shared ISRC) corroborate each
+        // other → Matched, even though neither would stand solo here.
+        var song = Song();
+        Add(song, EnrichmentProvider.Deezer, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "Lucid Dreams", isrc: "USUM71807840", conf: 0.8, recommend: EnrichmentStatus.NeedsReview));
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "Lucid Dreams", spotifyId: "spot-1", isrc: "USUM71807840", conf: 0.82, recommend: EnrichmentStatus.NeedsReview));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.Deezer, EnrichmentProvider.SpotifyAPI), Opts);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+        Assert.Equal(2, r.AgreeingProviders.Count);
+    }
+
+    [Fact]
     public void AcoustIdAndSpotifyDisagree_NoFalseConsensus_NeedsReview()
     {
         var song = Song();
@@ -137,6 +155,49 @@ public class ConsensusEvaluatorTests
         var r = ConsensusEvaluator.Evaluate(song, Enabled(EnrichmentProvider.SpotifyAPI), Opts);
 
         Assert.Equal(EnrichmentStatus.Matched, r.Status);
+    }
+
+    [Fact]
+    public void TrackerSolo_RecommendedMatched_Matched()
+    {
+        // A confident community-tracker match stands alone: mainstream catalogs can't corroborate
+        // an unreleased leak, so we trust the tracker's own tuned threshold.
+        var song = Song();
+        Add(song, EnrichmentProvider.Tracker, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "2MININHELL", conf: 0.95, recommend: EnrichmentStatus.Matched));
+
+        var r = ConsensusEvaluator.Evaluate(song, Enabled(EnrichmentProvider.Tracker), Opts);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+        Assert.Equal(EnrichmentProvider.Tracker, Assert.Single(r.AgreeingProviders));
+    }
+
+    [Fact]
+    public void TrackerSolo_RecommendedNeedsReview_NeedsReview()
+    {
+        var song = Song();
+        Add(song, EnrichmentProvider.Tracker, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "2MININHELL", conf: 0.72, recommend: EnrichmentStatus.NeedsReview));
+
+        var r = ConsensusEvaluator.Evaluate(song, Enabled(EnrichmentProvider.Tracker), Opts);
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
+    }
+
+    [Fact]
+    public void TrackerAndSpotifyAgree_StillCorroboratesAsCluster()
+    {
+        var song = Song();
+        Add(song, EnrichmentProvider.Tracker, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "Lucid Dreams", conf: 0.8, recommend: EnrichmentStatus.NeedsReview));
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "Lucid Dreams", spotifyId: "s", conf: 0.8, recommend: EnrichmentStatus.NeedsReview));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.Tracker, EnrichmentProvider.SpotifyAPI), Opts);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+        Assert.Equal(2, r.AgreeingProviders.Count);
     }
 
     [Fact]

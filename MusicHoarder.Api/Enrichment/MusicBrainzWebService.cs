@@ -24,7 +24,7 @@ public interface IMusicBrainzWebService
 {
     Task<MusicBrainzRecording?> LookupByRecordingIdAsync(string mbid, CancellationToken ct = default);
     Task<MusicBrainzRecording?> LookupByIsrcAsync(string isrc, CancellationToken ct = default);
-    Task<IReadOnlyList<MusicBrainzRecording>> SearchAsync(string artist, string title, int limit, CancellationToken ct = default);
+    Task<IReadOnlyList<MusicBrainzRecording>> SearchAsync(string artist, string title, int limit, string? album = null, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -61,9 +61,11 @@ public sealed class MusicBrainzWebService(
     }
 
     public async Task<IReadOnlyList<MusicBrainzRecording>> SearchAsync(
-        string artist, string title, int limit, CancellationToken ct = default)
+        string artist, string title, int limit, string? album = null, CancellationToken ct = default)
     {
         var query = $"artist:\"{EscapeLucene(artist)}\" AND recording:\"{EscapeLucene(title)}\"";
+        if (!string.IsNullOrWhiteSpace(album))
+            query += $" AND release:\"{EscapeLucene(album)}\"";
         var dto = await GetAsync<SearchDto>(
             $"recording?query={Uri.EscapeDataString(query)}&fmt=json&limit={limit}", ct);
         if (dto?.Recordings is null or { Count: 0 })

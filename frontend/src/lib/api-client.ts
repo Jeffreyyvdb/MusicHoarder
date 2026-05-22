@@ -1242,6 +1242,8 @@ export interface SettingsProvidersView {
   musicBrainzWeb: boolean
   spotifyApi: boolean
   tracker: boolean
+  deezer: boolean
+  appleMusic: boolean
 }
 
 export interface SettingsPipelineView {
