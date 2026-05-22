@@ -20,6 +20,34 @@ public class VersionQualifierTests
             Assert.Equal(VersionQualifiers.None, VersionQualifier.Detect(title) & VersionQualifier.StrongMask);
     }
 
+    [Theory]
+    // The bare everyday word is NOT a version marker — these are studio titles.
+    [InlineData("Live and Let Die")]
+    [InlineData("Live Forever")]
+    [InlineData("Long Live")]
+    [InlineData("Live Your Life")]
+    [InlineData("Cover Me")]
+    [InlineData("Book Cover")]
+    [InlineData("Live in Color")]
+    public void Detect_AmbiguousWordWithoutDecoration_NotAStrongQualifier(string title)
+    {
+        Assert.Equal(VersionQualifiers.None, VersionQualifier.Detect(title) & VersionQualifier.StrongMask);
+    }
+
+    [Theory]
+    // The same words ARE markers when decorated or in an explicit phrase.
+    [InlineData("Live Forever (Live)", VersionQualifiers.Live)]
+    [InlineData("Wonderwall - Live at Wembley", VersionQualifiers.Live)]
+    [InlineData("Hotel California [Live]", VersionQualifiers.Live)]
+    [InlineData("Smells Like Teen Spirit (Live Version)", VersionQualifiers.Live)]
+    [InlineData("Hurt (Johnny Cash Cover)", VersionQualifiers.Cover)]
+    [InlineData("Yesterday - Demo", VersionQualifiers.Demo)]
+    [InlineData("Yesterday (Demo)", VersionQualifiers.Demo)]
+    public void Detect_DecoratedAmbiguousWord_IsQualifier(string title, VersionQualifiers expected)
+    {
+        Assert.True(VersionQualifier.Detect(title).HasFlag(expected));
+    }
+
     [Fact]
     public void Detect_RemasterFromTitle()
     {

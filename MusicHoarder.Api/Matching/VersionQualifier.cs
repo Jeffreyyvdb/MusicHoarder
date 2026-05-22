@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace MusicHoarder.Api.Matching;
@@ -58,20 +59,56 @@ public static partial class VersionQualifier
         var v = value.ToLowerInvariant();
         var result = VersionQualifiers.None;
 
-        if (LivePattern().IsMatch(v)) result |= VersionQualifiers.Live;
+        // Unambiguous markers: the word essentially never appears in a normal studio
+        // title meaning anything else, so detecting it anywhere in the string is safe.
         if (RemixPattern().IsMatch(v)) result |= VersionQualifiers.Remix;
         if (RemasterPattern().IsMatch(v)) result |= VersionQualifiers.Remaster;
         if (DeluxePattern().IsMatch(v)) result |= VersionQualifiers.Deluxe;
         if (AcousticPattern().IsMatch(v)) result |= VersionQualifiers.Acoustic;
         if (InstrumentalPattern().IsMatch(v)) result |= VersionQualifiers.Instrumental;
-        if (DemoPattern().IsMatch(v)) result |= VersionQualifiers.Demo;
-        if (CoverPattern().IsMatch(v)) result |= VersionQualifiers.Cover;
         if (EditPattern().IsMatch(v)) result |= VersionQualifiers.Edit;
         if (ExtendedPattern().IsMatch(v)) result |= VersionQualifiers.Extended;
         if (RadioPattern().IsMatch(v)) result |= VersionQualifiers.Radio;
         if (KaraokePattern().IsMatch(v)) result |= VersionQualifiers.Karaoke;
 
+        // Ambiguous everyday words ("live", "cover", "demo") are only a version marker when
+        // they appear as a decoration — inside parentheses/brackets or after a " - " separator
+        // — or in an explicit phrase ("Live at …", "Live version"). Otherwise studio titles
+        // like "Live and Let Die", "Live Forever", "Cover Me" or "Demolition" would be
+        // misread as live/cover/demo recordings and wrongly fail to match the studio catalog.
+        var decorations = ExtractDecorations(v);
+        if (LivePattern().IsMatch(decorations) || LivePhrasePattern().IsMatch(v))
+            result |= VersionQualifiers.Live;
+        if (CoverPattern().IsMatch(decorations)) result |= VersionQualifiers.Cover;
+        if (DemoPattern().IsMatch(decorations)) result |= VersionQualifiers.Demo;
+
         return result;
+    }
+
+    /// <summary>
+    /// Returns the "decoration" portion of a (already-lowercased) title: the text inside any
+    /// parentheses/brackets, plus any trailing segment after a " - " / " – " separator. These
+    /// are where edition/version markers conventionally live.
+    /// </summary>
+    private static string ExtractDecorations(string lowered)
+    {
+        var sb = new StringBuilder();
+        foreach (Match m in DecorationGroupPattern().Matches(lowered))
+        {
+            sb.Append(' ');
+            sb.Append(m.Value);
+        }
+
+        var dashIdx = lowered.LastIndexOf(" - ", StringComparison.Ordinal);
+        if (dashIdx < 0)
+            dashIdx = lowered.LastIndexOf(" – ", StringComparison.Ordinal);
+        if (dashIdx >= 0)
+        {
+            sb.Append(' ');
+            sb.Append(lowered.AsSpan(dashIdx + 3));
+        }
+
+        return sb.ToString();
     }
 
     /// <summary>
@@ -83,6 +120,16 @@ public static partial class VersionQualifier
 
     [GeneratedRegex(@"\blive\b", RegexOptions.Compiled)]
     private static partial Regex LivePattern();
+
+    // Explicit live phrasing that's unambiguous even outside a decoration: "Live at <venue>",
+    // "Live in concert", "Live version/recording/session". "in"/"from" alone are excluded so
+    // studio titles like "Live in Color" aren't misread.
+    [GeneratedRegex(@"\blive\s+(?:at|version|recording|session|in\s+concert)\b", RegexOptions.Compiled)]
+    private static partial Regex LivePhrasePattern();
+
+    // A parenthetical or bracketed group, e.g. "(Live)" / "[Acoustic Cover]".
+    [GeneratedRegex(@"\((.*?)\)|\[(.*?)\]", RegexOptions.Compiled)]
+    private static partial Regex DecorationGroupPattern();
 
     [GeneratedRegex(@"\bre-?mix(ed|es)?\b", RegexOptions.Compiled)]
     private static partial Regex RemixPattern();
