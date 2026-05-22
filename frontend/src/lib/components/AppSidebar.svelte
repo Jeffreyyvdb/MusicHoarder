@@ -7,7 +7,6 @@
     Clock,
     Copy,
     FileWarning,
-    FolderOpen,
     FolderTree,
     Inbox,
     Library,
@@ -303,13 +302,6 @@
             </span>
           </a>
         {/each}
-        <a
-          href="/app/files"
-          class="text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors"
-        >
-          <FolderOpen class="size-3.5 shrink-0" />
-          <span class="flex-1 truncate text-left">Files (source / dest)</span>
-        </a>
       </Sidebar.GroupContent>
     </Sidebar.Group>
 
