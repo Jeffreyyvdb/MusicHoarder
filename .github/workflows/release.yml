@@ -53,6 +53,7 @@ jobs:
           bun install --frozen-lockfile
           bun run check
           bun run lint
+          bun run test
           bun run build
 
       - name: API tests
