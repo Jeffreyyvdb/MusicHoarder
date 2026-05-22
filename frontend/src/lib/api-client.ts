@@ -884,6 +884,40 @@ export async function resetSongEnrichment(
   )
 }
 
+export interface EnrichSongResponse {
+  songId: number
+  reset: boolean
+  outcome: string
+}
+
+/** Enrich a single song now and return the outcome. Pass reset to clear prior attempts first. */
+export async function enrichSong(
+  songId: number,
+  reset = false
+): Promise<EnrichSongResponse> {
+  return requestJson<EnrichSongResponse>(
+    `/api/enrichment/enrich/song/${songId}?reset=${reset}`,
+    { method: "POST" }
+  )
+}
+
+export interface EnrichFolderResponse {
+  folder: string
+  enqueued: number
+  reset: boolean
+}
+
+/** Enqueue every song under a source folder (recursively) for enrichment. */
+export async function enrichFolder(
+  path: string,
+  reset = false
+): Promise<EnrichFolderResponse> {
+  return requestJson<EnrichFolderResponse>(
+    `/api/enrichment/enrich/folder?path=${encodeURIComponent(path)}&reset=${reset}`,
+    { method: "POST" }
+  )
+}
+
 export interface TrackLyricsResponse {
   id: number
   lyricsStatus: string
