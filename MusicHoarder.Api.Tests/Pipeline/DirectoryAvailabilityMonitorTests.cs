@@ -23,6 +23,31 @@ public class DirectoryAvailabilityMonitorTests
     }
 
     [Fact]
+    public async Task ProbeNowAsync_DiscoveryRunsEvenWhenAutoStartDisabled()
+    {
+        // Discovery (the scan) is the prerequisite for any manual testing, so it must still fire
+        // when the automatic processing cascade is disabled.
+        var source = Directory.CreateTempSubdirectory("mh-src-").FullName;
+        var dest = Directory.CreateTempSubdirectory("mh-dst-").FullName;
+        try
+        {
+            var jobManager = new JobManager();
+            var monitor = CreateMonitor(jobManager, source, dest, autoStartPipeline: false);
+
+            var snapshot = await monitor.ProbeNowAsync();
+
+            Assert.True(snapshot.SourceAvailable);
+            Assert.Equal("Running", jobManager.GetStepSnapshot(JobType.Scan).Status);
+            Assert.True(jobManager.ScanTriggers.TryRead(out _));
+        }
+        finally
+        {
+            if (Directory.Exists(source)) Directory.Delete(source, recursive: true);
+            if (Directory.Exists(dest)) Directory.Delete(dest, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ProbeNowAsync_ReflectsDirectoryExistence()
     {
         var source = Directory.CreateTempSubdirectory("mh-src-").FullName;
@@ -102,27 +127,4 @@ public class DirectoryAvailabilityMonitorTests
         }
     }
 
-    [Fact]
-    public async Task ProbeNowAsync_WhenAutoStartDisabled_DoesNotTriggerScan()
-    {
-        var source = Directory.CreateTempSubdirectory("mh-src-").FullName;
-        var dest = Directory.CreateTempSubdirectory("mh-dst-").FullName;
-        try
-        {
-            var jobManager = new JobManager();
-            var monitor = CreateMonitor(jobManager, source, dest, autoStartPipeline: false);
-
-            var snapshot = await monitor.ProbeNowAsync();
-
-            // Availability is still probed (UI banner, manual-trigger gating), but no scan starts.
-            Assert.True(snapshot.SourceAvailable);
-            Assert.Equal("Idle", jobManager.GetStepSnapshot(JobType.Scan).Status);
-            Assert.False(jobManager.ScanTriggers.TryRead(out _));
-        }
-        finally
-        {
-            if (Directory.Exists(source)) Directory.Delete(source, recursive: true);
-            if (Directory.Exists(dest)) Directory.Delete(dest, recursive: true);
-        }
-    }
 }

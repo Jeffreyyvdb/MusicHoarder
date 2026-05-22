@@ -13,13 +13,15 @@ public class MusicEnricherOptions
     public string DestinationDirectory { get; set; } = string.Empty;
 
     /// <summary>
-    /// Master switch for the automatic pipeline cascade: the startup/reconnect scan, the
-    /// scan→fingerprint→enrich→build auto-triggering, the fingerprint/build auto-poll loops, and the
-    /// enrichment startup backfill + periodic retry sweep. When false, no stage starts on its own —
-    /// the user drives each step via the manual trigger endpoints (and the always-running enrichment
-    /// workers still process anything explicitly enqueued, e.g. a manual fingerprint or per-song /
-    /// per-folder enrich). Defaults to true; set to false in resource-constrained preview
-    /// environments via <c>MusicEnricher__AutoStartPipeline=false</c>.
+    /// Master switch for the automatic <em>processing</em> cascade: the scan→fingerprint→enrich→build
+    /// auto-triggering, the fingerprint/build auto-poll loops, and the enrichment startup backfill +
+    /// periodic retry sweep. The discovery scan (file indexing) is intentionally <em>not</em> gated —
+    /// it runs on startup/reconnect regardless, so the library always populates and there's something
+    /// to test against. When false, no processing stage starts on its own; the user drives each step
+    /// via the manual trigger endpoints (and the always-running enrichment workers still process
+    /// anything explicitly enqueued, e.g. a manual fingerprint or per-song / per-folder enrich).
+    /// Defaults to true; set to false in resource-constrained preview environments via
+    /// <c>MusicEnricher__AutoStartPipeline=false</c>.
     /// </summary>
     public bool AutoStartPipeline { get; set; } = true;
 

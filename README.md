@@ -70,7 +70,7 @@ All options live under the `MusicEnricher` section in `appsettings.json` or as e
 |-----|-------------|----------|
 | `MusicEnricher__SourceDirectory` | Path to the source music library | Yes |
 | `MusicEnricher__DestinationDirectory` | Path for the cleaned destination library | Yes |
-| `MusicEnricher__AutoStartPipeline` | Auto-run the pipeline (startup scan, scan→fingerprint→enrich→build cascade, enrichment backfill/retry sweep). Set `false` to require manual triggering — useful in resource-constrained preview environments. | No (default: `true`) |
+| `MusicEnricher__AutoStartPipeline` | Auto-run the *processing* cascade (scan→fingerprint→enrich→build, enrichment backfill/retry sweep). Discovery (file indexing) always runs so the library still populates. Set `false` to require manual triggering of the heavy steps — useful in resource-constrained preview environments. | No (default: `true`) |
 | `MusicEnricher__TempDirectory` | Scratch space for in-progress work | No (default: `/tmp/musicenricher`) |
 | `MusicEnricher__AcoustIdApiKey` | AcoustID API key for fingerprint-to-MusicBrainz lookup | No (enrichment falls back to `NeedsReview` without it) |
 | `MusicEnricher__AcoustIdScoreThreshold` | Minimum confidence score to accept a match (0–1) | No (default: `0.85`) |
@@ -116,9 +116,10 @@ compose stack (own Postgres + API + frontend, namespaced by `appName=mh-pr-<n>`)
 `docker-compose.preview.yaml`. The stack is torn down when the PR closes; a daily
 `pr-preview-cleanup.yml` reaps any that slip through.
 
-Previews set `MusicEnricher__AutoStartPipeline=false` so the resource-intensive pipeline never
-auto-runs; drive it manually from the UI (Scan → Fingerprint → Build, or the per-song / per-folder
-"Enrich" actions) to test exactly what a PR touches.
+Previews set `MusicEnricher__AutoStartPipeline=false` so the resource-intensive processing never
+auto-runs. Discovery still runs, so the library populates on boot; drive the rest manually from the
+UI (Fingerprint → Build, or the per-song / per-folder "Enrich" actions) to test exactly what a PR
+touches.
 
 Sign in to a preview with the magic link printed in the API logs (Dokploy log viewer) — previews
 run with Resend disabled so no email provider is needed. The owner can also sign in with a
