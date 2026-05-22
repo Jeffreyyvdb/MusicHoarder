@@ -70,14 +70,6 @@
           { label: titleL ?? '', href: null }
         ];
       }
-      if (pathname.startsWith('/app/files')) {
-        const view = page.url.searchParams.get('view');
-        return [
-          { label: 'Library', href: '/app' },
-          { label: 'Files', href: '/app/files' },
-          { label: view === 'destination' ? 'Destination' : 'Source', href: null }
-        ];
-      }
       if (section && SECTION_LABEL[section]) {
         return [
           { label: 'Library', href: '/app' },
