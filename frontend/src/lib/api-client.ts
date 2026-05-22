@@ -83,6 +83,7 @@ export interface ApiSong {
   trackNumber?: number | null
   durationSeconds?: number | null
   fingerprint?: string | null
+  isrc?: string | null
   musicBrainzId?: string | null
   musicBrainzReleaseId?: string | null
   spotifyId?: string | null
