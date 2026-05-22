@@ -8,15 +8,18 @@
     FolderOpen,
     Grid3x3,
     List,
+    Loader2,
+    ScanLine,
     Search,
     Settings as SettingsIcon
   } from '@lucide/svelte';
+  import { toast } from 'svelte-sonner';
   import * as Sidebar from '$lib/components/ui/sidebar';
   import * as Tooltip from '$lib/components/ui/tooltip';
   import { Input } from '$lib/components/ui/input';
   import { Separator } from '$lib/components/ui/separator';
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
-  import { fetchOverview, type ApiOverview } from '$lib/api-client';
+  import { fetchOverview, triggerEnrichmentScan, type ApiOverview } from '$lib/api-client';
   import { breadcrumbStore } from '$lib/stores/breadcrumbs.svelte';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { cn } from '$lib/utils';
@@ -162,6 +165,28 @@
   const pipelineDrawerOpen = $derived(pipelineOverlay.isOpen);
 
   const showViewToggle = $derived(onAlbumsRoot && !albumKey);
+
+  let scanning = $state(false);
+  async function scanSource() {
+    if (scanning) return;
+    scanning = true;
+    try {
+      const result = await triggerEnrichmentScan();
+      if (result.ok) {
+        toast.success('Scan started', {
+          description: 'Scanning the source directory for new files.'
+        });
+        // Surface live progress as the pipeline picks up the new rows.
+        pipelineOverlay.setOpen(true);
+      } else {
+        toast.error('Could not start scan', { description: result.message });
+      }
+    } catch {
+      toast.error('Could not start scan', { description: 'The API may be unavailable.' });
+    } finally {
+      scanning = false;
+    }
+  }
 </script>
 
 <header
@@ -266,6 +291,25 @@
         {/each}
       </div>
     {/if}
+
+    <button
+      type="button"
+      onclick={scanSource}
+      disabled={scanning}
+      title="Scan the source directory for new files"
+      class={cn(
+        'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors',
+        'bg-surface-sunken border-border text-muted-foreground hover:text-foreground',
+        scanning && 'cursor-not-allowed opacity-60'
+      )}
+    >
+      {#if scanning}
+        <Loader2 class="size-3.5 animate-spin" />
+      {:else}
+        <ScanLine class="size-3.5" />
+      {/if}
+      <span class="hidden sm:inline">Scan</span>
+    </button>
 
     <button
       type="button"
