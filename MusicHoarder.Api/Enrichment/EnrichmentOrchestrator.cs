@@ -432,6 +432,8 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             "MusicBrainzWeb" => effective.EnableMusicBrainzWebProvider,
             "SpotifyAPI" => effective.EnableSpotifyApiProvider,
             "Tracker" => effective.EnableTrackerProvider,
+            "Deezer" => effective.EnableDeezerProvider,
+            "AppleMusic" => effective.EnableAppleMusicProvider,
             _ => true
         };
     }
@@ -442,6 +444,8 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         "SpotifyAPI" => EnrichmentProvider.SpotifyAPI,
         "MusicBrainzWeb" => EnrichmentProvider.MusicBrainzWeb,
         "Tracker" => EnrichmentProvider.Tracker,
+        "Deezer" => EnrichmentProvider.Deezer,
+        "AppleMusic" => EnrichmentProvider.AppleMusic,
         _ => null
     };
 
@@ -451,6 +455,8 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         _providerSemaphores["SpotifyAPI"] = new SemaphoreSlim(opts.SpotifyApiConcurrency, opts.SpotifyApiConcurrency);
         _providerSemaphores["MusicBrainzWeb"] = new SemaphoreSlim(1, 1);
         _providerSemaphores["Tracker"] = new SemaphoreSlim(1, 1);
+        _providerSemaphores["Deezer"] = new SemaphoreSlim(opts.DeezerConcurrency, opts.DeezerConcurrency);
+        _providerSemaphores["AppleMusic"] = new SemaphoreSlim(opts.AppleMusicConcurrency, opts.AppleMusicConcurrency);
     }
 
     private SemaphoreSlim GetProviderSemaphore(string providerName) =>

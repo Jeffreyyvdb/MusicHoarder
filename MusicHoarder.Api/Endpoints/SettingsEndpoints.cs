@@ -36,7 +36,9 @@ public static class SettingsEndpoints
                         AcoustId: effective.EnableAcoustIdProvider,
                         MusicBrainzWeb: effective.EnableMusicBrainzWebProvider,
                         SpotifyApi: effective.EnableSpotifyApiProvider,
-                        Tracker: effective.EnableTrackerProvider),
+                        Tracker: effective.EnableTrackerProvider,
+                        Deezer: effective.EnableDeezerProvider,
+                        AppleMusic: effective.EnableAppleMusicProvider),
                     Pipeline: new PipelineView(
                         SpotifyApiMatchedThreshold: effective.SpotifyApiMatchedThreshold,
                         AcoustIdScoreThreshold: effective.AcoustIdScoreThreshold,
@@ -76,6 +78,8 @@ public static class SettingsEndpoints
                     EnableMusicBrainzWebProvider = request.Providers?.MusicBrainzWeb,
                     EnableSpotifyApiProvider = request.Providers?.SpotifyApi,
                     EnableTrackerProvider = request.Providers?.Tracker,
+                    EnableDeezerProvider = request.Providers?.Deezer,
+                    EnableAppleMusicProvider = request.Providers?.AppleMusic,
                     SpotifyApiMatchedThreshold = request.Pipeline?.SpotifyApiMatchedThreshold,
                     AcoustIdScoreThreshold = request.Pipeline?.AcoustIdScoreThreshold,
                     EnrichmentWorkerConcurrency = request.Pipeline?.EnrichmentWorkerConcurrency,
@@ -89,7 +93,9 @@ public static class SettingsEndpoints
                         effective.EnableAcoustIdProvider,
                         effective.EnableMusicBrainzWebProvider,
                         effective.EnableSpotifyApiProvider,
-                        effective.EnableTrackerProvider),
+                        effective.EnableTrackerProvider,
+                        effective.EnableDeezerProvider,
+                        effective.EnableAppleMusicProvider),
                     pipeline = new PipelineView(
                         effective.SpotifyApiMatchedThreshold,
                         effective.AcoustIdScoreThreshold,
@@ -122,7 +128,7 @@ public sealed record SettingsResponse(
     DateTime? UpdatedAtUtc);
 
 public sealed record PathsView(string SourceDirectory, string DestinationDirectory, string FpcalcPath);
-public sealed record ProvidersView(bool AcoustId, bool MusicBrainzWeb, bool SpotifyApi, bool Tracker);
+public sealed record ProvidersView(bool AcoustId, bool MusicBrainzWeb, bool SpotifyApi, bool Tracker, bool Deezer, bool AppleMusic);
 public sealed record PipelineView(
     double SpotifyApiMatchedThreshold,
     double AcoustIdScoreThreshold,
@@ -131,7 +137,7 @@ public sealed record PipelineView(
 public sealed record SpotifyView(string OAuthRedirectBaseUrl, IReadOnlyList<string> Scopes);
 
 public sealed record SettingsUpdateRequest(ProvidersUpdate? Providers, PipelineUpdate? Pipeline);
-public sealed record ProvidersUpdate(bool? AcoustId, bool? MusicBrainzWeb, bool? SpotifyApi, bool? Tracker);
+public sealed record ProvidersUpdate(bool? AcoustId, bool? MusicBrainzWeb, bool? SpotifyApi, bool? Tracker, bool? Deezer, bool? AppleMusic);
 public sealed record PipelineUpdate(
     double? SpotifyApiMatchedThreshold,
     double? AcoustIdScoreThreshold,

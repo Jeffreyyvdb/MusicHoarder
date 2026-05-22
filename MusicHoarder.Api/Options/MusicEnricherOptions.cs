@@ -140,6 +140,75 @@ public class MusicEnricherOptions
     /// <summary>Optional ISO 3166-1 alpha-2 market for Spotify search (empty = omit).</summary>
     public string SpotifyApiMarket { get; set; } = "";
 
+    // --- Deezer (free, no-auth) ---
+
+    /// <summary>Enable the Deezer enrichment provider (ISRC-first, then artist+title search).</summary>
+    public bool EnableDeezerProvider { get; set; } = true;
+
+    /// <summary>Max concurrent songs calling the Deezer provider simultaneously.</summary>
+    [Range(1, 20)]
+    public int DeezerConcurrency { get; set; } = 1;
+
+    /// <summary>Max Deezer API requests per second (Deezer allows ~50 req / 5s).</summary>
+    [Range(1, 20)]
+    public int DeezerApiRequestsPerSecond { get; set; } = 4;
+
+    /// <summary>Track candidates to request from Deezer search (1–50).</summary>
+    [Range(1, 50)]
+    public int DeezerApiSearchLimit { get; set; } = 10;
+
+    /// <summary>How long to cache Deezer search / track responses in memory.</summary>
+    [Range(1, 1440)]
+    public int DeezerApiSearchCacheMinutes { get; set; } = 30;
+
+    /// <summary>Minimum adjusted confidence to return any result from Deezer (&lt; this → no match).</summary>
+    [Range(0.0, 1.0)]
+    public double DeezerApiMinConfidence { get; set; } = 0.7;
+
+    /// <summary>Minimum adjusted confidence for Deezer to recommend <see cref="EnrichmentStatus.Matched"/>.</summary>
+    [Range(0.0, 1.0)]
+    public double DeezerApiMatchedThreshold { get; set; } = 0.85;
+
+    /// <summary>Duration delta (seconds) above which the Deezer duration-mismatch penalty applies.</summary>
+    [Range(1, 120)]
+    public int DeezerApiDurationDeltaThresholdSeconds { get; set; } = 20;
+
+    // --- Apple / iTunes (free, no-auth) ---
+
+    /// <summary>Enable the Apple/iTunes enrichment provider (artist+title search; no ISRC).</summary>
+    public bool EnableAppleMusicProvider { get; set; } = true;
+
+    /// <summary>Max concurrent songs calling the Apple Music provider simultaneously.</summary>
+    [Range(1, 20)]
+    public int AppleMusicConcurrency { get; set; } = 1;
+
+    /// <summary>Max iTunes Search API requests per second. iTunes is throttled to ~20 req/min, so keep this at 1.</summary>
+    [Range(1, 20)]
+    public int AppleMusicApiRequestsPerSecond { get; set; } = 1;
+
+    /// <summary>Track candidates to request from iTunes search (1–50).</summary>
+    [Range(1, 50)]
+    public int AppleMusicApiSearchLimit { get; set; } = 10;
+
+    /// <summary>How long to cache iTunes search responses in memory.</summary>
+    [Range(1, 1440)]
+    public int AppleMusicApiSearchCacheMinutes { get; set; } = 30;
+
+    /// <summary>Minimum adjusted confidence to return any result from Apple Music (&lt; this → no match).</summary>
+    [Range(0.0, 1.0)]
+    public double AppleMusicApiMinConfidence { get; set; } = 0.7;
+
+    /// <summary>Minimum adjusted confidence for Apple Music to recommend <see cref="EnrichmentStatus.Matched"/>.</summary>
+    [Range(0.0, 1.0)]
+    public double AppleMusicApiMatchedThreshold { get; set; } = 0.85;
+
+    /// <summary>Duration delta (seconds) above which the Apple Music duration-mismatch penalty applies.</summary>
+    [Range(1, 120)]
+    public int AppleMusicApiDurationDeltaThresholdSeconds { get; set; } = 20;
+
+    /// <summary>ISO 3166-1 alpha-2 storefront country for the iTunes Search API.</summary>
+    public string AppleMusicCountry { get; set; } = "US";
+
     // --- MusicBrainz web service ---
 
     /// <summary>User-Agent sent to MusicBrainz (required by their policy). Include contact info.</summary>

@@ -83,6 +83,24 @@ public class ConsensusEvaluatorTests
     }
 
     [Fact]
+    public void DeezerPlusSpotifyAgree_Matched()
+    {
+        // Two name-based providers landing on the same identity (shared ISRC) corroborate each
+        // other → Matched, even though neither would stand solo here.
+        var song = Song();
+        Add(song, EnrichmentProvider.Deezer, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "Lucid Dreams", isrc: "USUM71807840", conf: 0.8, recommend: EnrichmentStatus.NeedsReview));
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "Lucid Dreams", spotifyId: "spot-1", isrc: "USUM71807840", conf: 0.82, recommend: EnrichmentStatus.NeedsReview));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.Deezer, EnrichmentProvider.SpotifyAPI), Opts);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+        Assert.Equal(2, r.AgreeingProviders.Count);
+    }
+
+    [Fact]
     public void AcoustIdAndSpotifyDisagree_NoFalseConsensus_NeedsReview()
     {
         var song = Song();

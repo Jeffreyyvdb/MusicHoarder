@@ -16,6 +16,8 @@ public class RuntimeSettings
     public bool? EnableMusicBrainzWebProvider { get; set; }
     public bool? EnableSpotifyApiProvider { get; set; }
     public bool? EnableTrackerProvider { get; set; }
+    public bool? EnableDeezerProvider { get; set; }
+    public bool? EnableAppleMusicProvider { get; set; }
 
     public double? SpotifyApiMatchedThreshold { get; set; }
     public double? AcoustIdScoreThreshold { get; set; }
