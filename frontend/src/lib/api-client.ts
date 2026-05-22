@@ -90,6 +90,10 @@ export interface ApiSong {
   acoustIdTrackId?: string | null
   lrclibId?: string | null
   enrichmentStatus?: string | number | null
+  /** When the scanner first indexed the file (always set). */
+  indexedAtUtc?: string | null
+  /** When the track was copied/tagged into the destination library; null until built. */
+  libraryBuiltAtUtc?: string | null
   matchedBy?: string | null
   matchConfidence?: number | null
   matchWarnings?: string[] | null
@@ -419,6 +423,8 @@ export interface AlbumSummary {
   musicBrainzReleaseId: string | null
   /** First non-null albumArt URL encountered. */
   coverUrl: string | null
+  /** Most recent "added" time across the album's tracks (ISO string); null if none known. */
+  addedAtUtc: string | null
   /** Songs ordered by track number then title. */
   songs: ApiSong[]
 }
@@ -426,6 +432,20 @@ export interface AlbumSummary {
 function nonEmpty(value: string | null | undefined): string | null {
   const trimmed = (value ?? "").trim()
   return trimmed.length > 0 ? trimmed : null
+}
+
+/** Effective "added to library" time for a song: build time, falling back to index time. */
+export function songAddedTime(s: ApiSong): number {
+  const t = s.libraryBuiltAtUtc ?? s.indexedAtUtc
+  return t ? new Date(t).getTime() : 0
+}
+
+/** Sort albums newest-first by their `addedAtUtc`. Returns a new array. */
+export function sortAlbumsByRecency(albums: AlbumSummary[]): AlbumSummary[] {
+  return [...albums].sort(
+    (a, b) =>
+      new Date(b.addedAtUtc ?? 0).getTime() - new Date(a.addedAtUtc ?? 0).getTime(),
+  )
 }
 
 /**
@@ -452,11 +472,14 @@ export function buildAlbumsFromSongs(songs: ApiSong[]): AlbumSummary[] {
         genre: null,
         musicBrainzReleaseId: null,
         coverUrl: null,
+        addedAtUtc: null,
         songs: [],
       }
       map.set(key, entry)
     }
     entry.trackCount += 1
+    const added = song.libraryBuiltAtUtc ?? song.indexedAtUtc
+    if (added && (!entry.addedAtUtc || added > entry.addedAtUtc)) entry.addedAtUtc = added
     entry.durationSeconds += song.durationSeconds ?? 0
     entry.byteSize += song.fileSizeBytes ?? 0
     if (song.year && (!entry.year || song.year < entry.year)) entry.year = song.year

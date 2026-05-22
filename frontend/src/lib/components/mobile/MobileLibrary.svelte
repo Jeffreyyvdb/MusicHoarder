@@ -7,7 +7,7 @@
   import MobileHeader from '$lib/components/mobile/MobileHeader.svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import ProcessingStrip from '$lib/components/file-browser/ProcessingStrip.svelte';
-  import { buildAlbumsFromSongs, triggerEnrichmentScan, type ApiSong } from '$lib/api-client';
+  import { buildAlbumsFromSongs, sortAlbumsByRecency, triggerEnrichmentScan, type ApiSong } from '$lib/api-client';
   import { applySectionFilter, type SectionId } from '$lib/album-sections';
 
   type Props = {
@@ -60,7 +60,11 @@
     }
   }
 
-  const albumsInSection = $derived(buildAlbumsFromSongs(applySectionFilter(songs, section)));
+  const albumsInSection = $derived(
+    section === 'recent'
+      ? sortAlbumsByRecency(buildAlbumsFromSongs(applySectionFilter(songs, section)))
+      : buildAlbumsFromSongs(applySectionFilter(songs, section))
+  );
   const filtered = $derived.by(() => {
     const q = query.trim().toLowerCase();
     if (!q) return albumsInSection;
