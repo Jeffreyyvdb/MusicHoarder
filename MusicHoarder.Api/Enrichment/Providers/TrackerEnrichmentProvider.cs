@@ -10,8 +10,9 @@ namespace MusicHoarder.Api.Enrichment.Providers;
 /// Community-tracker provider for unreleased / leaked files. Backed by a single-artist database
 /// (juicewrldapi.com) that mainstream catalogs (Spotify / MusicBrainz / AcoustID) don't cover, so
 /// it's gated to a configured artist allowlist (<see cref="MusicEnricherOptions.TrackerArtistAllowlist"/>)
-/// to avoid wasted calls and false matches on unrelated music. Disabled by default
-/// (<see cref="MusicEnricherOptions.EnableTrackerProvider"/>).
+/// to avoid wasted calls and false matches on unrelated music. Enabled by default
+/// (<see cref="MusicEnricherOptions.EnableTrackerProvider"/>); the allowlist gate means it's a
+/// no-op for songs outside the artists it covers.
 /// </summary>
 public class TrackerEnrichmentProvider(
     ITrackerCatalogService catalog,

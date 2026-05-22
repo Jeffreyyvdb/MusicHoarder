@@ -115,8 +115,13 @@ public class MusicEnricherOptions
     /// <summary>Enable the Spotify API enrichment provider (artist+title, optional ISRC verification).</summary>
     public bool EnableSpotifyApiProvider { get; set; } = false;
 
-    /// <summary>Enable the community tracker enrichment provider (unreleased/leak files).</summary>
-    public bool EnableTrackerProvider { get; set; } = false;
+    /// <summary>
+    /// Enable the community tracker enrichment provider (unreleased/leak files). On by default:
+    /// it's gated to <see cref="TrackerArtistAllowlist"/> so it only fires for the artists it
+    /// covers (Juice WRLD), and for those songs its catalog of leaks / alternate versions is
+    /// richer than the mainstream services.
+    /// </summary>
+    public bool EnableTrackerProvider { get; set; } = true;
 
     /// <summary>Max Spotify Web API search requests per second (catalog enrichment, client-credentials).</summary>
     [Range(1, 20)]
