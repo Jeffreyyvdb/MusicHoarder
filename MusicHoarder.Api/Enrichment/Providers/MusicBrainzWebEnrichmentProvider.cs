@@ -28,7 +28,8 @@ public class MusicBrainzWebEnrichmentProvider(
     public async Task<ProviderOutcome> TryEnrichAsync(SongMetadata song, CancellationToken ct = default)
     {
         var opts = options.Value;
-        var (effectiveArtist, effectiveTitle) = SongSearchText.Resolve(song, opts.SourceDirectory);
+        var resolved = SongSearchText.ResolveDetailed(song, opts.SourceDirectory);
+        var (effectiveArtist, effectiveAlbum, effectiveTitle) = (resolved.Artist, resolved.Album, resolved.Title);
 
         try
         {
@@ -37,7 +38,7 @@ public class MusicBrainzWebEnrichmentProvider(
             {
                 var byId = await service.LookupByRecordingIdAsync(song.MusicBrainzId!, ct);
                 if (byId is not null)
-                    return BuildOutcome(song, effectiveArtist, effectiveTitle, byId, opts, exactIdentifier: true);
+                    return BuildOutcome(song, effectiveArtist, effectiveTitle, effectiveAlbum, byId, opts, exactIdentifier: true);
             }
 
             // 2) Exact lookup by the file's ISRC tag.
@@ -45,13 +46,13 @@ public class MusicBrainzWebEnrichmentProvider(
             {
                 var byIsrc = await service.LookupByIsrcAsync(song.Isrc!, ct);
                 if (byIsrc is not null)
-                    return BuildOutcome(song, effectiveArtist, effectiveTitle, byIsrc, opts, exactIdentifier: true);
+                    return BuildOutcome(song, effectiveArtist, effectiveTitle, effectiveAlbum, byIsrc, opts, exactIdentifier: true);
             }
 
             // 3) Fall back to a name search (tags, or path-derived for untagged files).
             if (!string.IsNullOrWhiteSpace(effectiveArtist) && !string.IsNullOrWhiteSpace(effectiveTitle))
             {
-                var results = await service.SearchAsync(effectiveArtist!, effectiveTitle!, 5, ct);
+                var results = await service.SearchAsync(effectiveArtist!, effectiveTitle!, 5, effectiveAlbum, ct);
                 if (results.Count == 0)
                     return new ProviderNoMatch();
 
@@ -60,7 +61,7 @@ public class MusicBrainzWebEnrichmentProvider(
                 List<string> bestWarnings = [];
                 foreach (var candidate in results)
                 {
-                    var (score, warnings) = Score(song, effectiveArtist, effectiveTitle, candidate, opts);
+                    var (score, warnings) = Score(song, effectiveArtist, effectiveTitle, effectiveAlbum, candidate, opts);
                     if (score > bestScore)
                     {
                         bestScore = score;
@@ -86,12 +87,12 @@ public class MusicBrainzWebEnrichmentProvider(
     }
 
     private static ProviderOutcome BuildOutcome(
-        SongMetadata song, string? sourceArtist, string? sourceTitle,
+        SongMetadata song, string? sourceArtist, string? sourceTitle, string? sourceAlbum,
         MusicBrainzRecording rec, MusicEnricherOptions opts, bool exactIdentifier)
     {
         // An exact-identifier hit is high-confidence, but still verify the returned recording
         // is consistent with the file's existing tags so a stale/wrong tag can't sail through.
-        var (score, warnings) = Score(song, sourceArtist, sourceTitle, rec, opts);
+        var (score, warnings) = Score(song, sourceArtist, sourceTitle, sourceAlbum, rec, opts);
         var confidence = exactIdentifier ? Math.Max(score, 0.9) : score;
 
         if (rec.CandidateCount > 1)
@@ -143,7 +144,8 @@ public class MusicBrainzWebEnrichmentProvider(
     }
 
     private static (double Score, List<string> Warnings) Score(
-        SongMetadata song, string? sourceArtist, string? sourceTitle, MusicBrainzRecording rec, MusicEnricherOptions opts)
+        SongMetadata song, string? sourceArtist, string? sourceTitle, string? sourceAlbum,
+        MusicBrainzRecording rec, MusicEnricherOptions opts)
     {
         var warnings = new List<string>();
 
@@ -172,6 +174,16 @@ public class MusicBrainzWebEnrichmentProvider(
 
         // Blend MusicBrainz's own Lucene relevance (40%) with local fuzzy agreement (60%).
         var score = 0.6 * local + 0.4 * (Math.Clamp(rec.Score, 0, 100) / 100.0);
+
+        // Album is a confirmation signal only (a track can appear on many releases, so absence is
+        // never penalized): nudge up when the release title agrees, flag a soft mismatch otherwise.
+        if (FuzzyTextMatch.Ratio(sourceAlbum, rec.ReleaseTitle) is double albumRatio)
+        {
+            if (albumRatio >= 85)
+                score = Math.Min(1.0, score + 0.05);
+            else
+                warnings.Add("album_mismatch");
+        }
 
         var sourceQual = VersionQualifier.Detect(song.Title, song.Album);
         var candQual = VersionQualifier.Detect(rec.Title, rec.ReleaseTitle);

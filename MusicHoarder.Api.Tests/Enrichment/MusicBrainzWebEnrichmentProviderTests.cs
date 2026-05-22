@@ -92,6 +92,26 @@ public class MusicBrainzWebEnrichmentProviderTests
     }
 
     [Fact]
+    public async Task NameSearch_PassesPathDerivedAlbumHintToSearch()
+    {
+        var svc = new StubMb
+        {
+            Search = (a, t) =>
+            [
+                new MusicBrainzRecording("mb-3", "Lucid Dreams", "Juice WRLD", "Juice WRLD", "rel-3", "Goodbye & Good Riddance", 2018, null, 239_000, Score: 100),
+            ],
+        };
+        var provider = Create(svc);
+        var song = Song(durationSec: 239); // untagged: artist/album/title come from the path
+        song.SourcePath = "/s/Juice WRLD/Goodbye & Good Riddance/05 Lucid Dreams.mp3";
+
+        var outcome = await provider.TryEnrichAsync(song);
+
+        Assert.IsType<ProviderMatched>(outcome);
+        Assert.Equal("Goodbye & Good Riddance", svc.LastSearchAlbum);
+    }
+
+    [Fact]
     public async Task NameSearch_NoResults_ReturnsNoMatch()
     {
         var svc = new StubMb { Search = (_, _) => [] };
@@ -150,9 +170,12 @@ public class MusicBrainzWebEnrichmentProviderTests
             return Task.FromResult(ByIsrc?.Invoke(isrc));
         }
 
-        public Task<IReadOnlyList<MusicBrainzRecording>> SearchAsync(string artist, string title, int limit, CancellationToken ct = default)
+        public string? LastSearchAlbum { get; private set; }
+
+        public Task<IReadOnlyList<MusicBrainzRecording>> SearchAsync(string artist, string title, int limit, string? album = null, CancellationToken ct = default)
         {
             SearchCalls++;
+            LastSearchAlbum = album;
             return Task.FromResult(Search?.Invoke(artist, title) ?? []);
         }
     }
