@@ -220,7 +220,11 @@ public static class ConsensusEvaluator
             r.Artist,
             r.Title,
             r.Album,
-            DurationSeconds: null,
+            // Lets two providers that agree on name+version be split apart when they actually
+            // landed on different-length recordings (e.g. a radio edit vs an extended mix), so a
+            // spurious cluster can't promote to Matched. A missing duration on either side skips
+            // the check (see ProviderIdentity.AgreesWith), so duration-less providers still vote.
+            DurationSeconds: r.DurationMs is int ms && ms > 0 ? (int)Math.Round(ms / 1000.0) : null,
             r.Isrc,
             r.MusicBrainzId,
             r.SpotifyId,

@@ -55,6 +55,7 @@ public class AcoustIdEnrichmentProvider(
             MatchedBy: Name,
             MatchConfidence: validation.AdjustedScore,
             MatchWarnings: validation.Warnings,
-            RecommendedStatus: validation.RecommendedStatus));
+            RecommendedStatus: validation.RecommendedStatus,
+            DurationMs: match.RecordingDurationMs));
     }
 }

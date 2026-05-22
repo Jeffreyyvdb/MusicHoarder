@@ -17,7 +17,8 @@ public record EnrichmentProviderResult(
     double MatchConfidence,
     List<string> MatchWarnings,
     EnrichmentStatus RecommendedStatus,
-    string? Album = null);
+    string? Album = null,
+    int? DurationMs = null);
 
 public abstract record ProviderOutcome;
 public sealed record ProviderMatched(EnrichmentProviderResult Result) : ProviderOutcome;

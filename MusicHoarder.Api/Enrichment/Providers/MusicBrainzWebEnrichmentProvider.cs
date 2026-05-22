@@ -140,7 +140,8 @@ public class MusicBrainzWebEnrichmentProvider(
             MatchConfidence: Math.Clamp(score, 0, 1),
             MatchWarnings: warnings,
             RecommendedStatus: status,
-            Album: rec.ReleaseTitle);
+            Album: rec.ReleaseTitle,
+            DurationMs: rec.LengthMs is int len && len > 0 ? len : null);
     }
 
     private static (double Score, List<string> Warnings) Score(
