@@ -9,6 +9,7 @@
     Play,
     Rewind,
     RotateCcw,
+    Sparkles,
     X
   } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button';
@@ -18,6 +19,7 @@
   import SourceRow from '$lib/components/file-browser/SourceRow.svelte';
   import Waveform from '$lib/components/file-browser/Waveform.svelte';
   import {
+    enrichSong,
     getSongStreamUrl,
     mapEnrichmentStatus,
     resetSongEnrichment,
@@ -53,6 +55,9 @@
   let activeTab = $state<TabId>('metadata');
   let resetState = $state<'idle' | 'loading' | 'success' | 'error'>('idle');
   let resetError = $state<string | null>(null);
+  let enrichState = $state<'idle' | 'loading' | 'success' | 'error'>('idle');
+  let enrichOutcome = $state<string | null>(null);
+  let enrichError = $state<string | null>(null);
 
   const trackN = $derived(song.trackNumber ?? trackIndex + 1);
   const totalTracks = $derived(album.trackCount);
@@ -107,6 +112,31 @@
       setTimeout(() => {
         resetState = 'idle';
         resetError = null;
+      }, 5000);
+    }
+  }
+
+  async function handleEnrichNow() {
+    enrichState = 'loading';
+    enrichError = null;
+    enrichOutcome = null;
+    try {
+      // reset=true gives a clean re-run from scratch and returns the exact outcome —
+      // works even when the automatic pipeline is disabled.
+      const result = await enrichSong(song.id, true);
+      enrichState = 'success';
+      enrichOutcome = result.outcome;
+      onResetEnrichment?.();
+      setTimeout(() => {
+        enrichState = 'idle';
+        enrichOutcome = null;
+      }, 4000);
+    } catch (err) {
+      enrichState = 'error';
+      enrichError = err instanceof Error ? err.message : 'Failed to enrich song';
+      setTimeout(() => {
+        enrichState = 'idle';
+        enrichError = null;
       }, 5000);
     }
   }
@@ -424,17 +454,46 @@
               Resetting…
             {:else if resetState === 'success'}
               <CheckCircle2 class="mr-1.5 size-3.5" />
-              Queued for Re-enrichment
+              Metadata reset
             {:else if resetState === 'error'}
               <AlertCircle class="mr-1.5 size-3.5" />
               Reset failed
             {:else}
               <RotateCcw class="mr-1.5 size-3.5" />
-              Re-enrich metadata
+              Reset metadata
             {/if}
           </Button>
           {#if resetError}
             <p class="text-destructive text-[11px]">{resetError}</p>
+          {/if}
+
+          <Button
+            variant="secondary"
+            class={cn(
+              'mt-2 w-full',
+              enrichState === 'success' && 'text-primary',
+              enrichState === 'error' && 'text-destructive'
+            )}
+            size="sm"
+            disabled={enrichState === 'loading'}
+            onclick={handleEnrichNow}
+          >
+            {#if enrichState === 'loading'}
+              <Loader2 class="mr-1.5 size-3.5 animate-spin" />
+              Enriching…
+            {:else if enrichState === 'success'}
+              <CheckCircle2 class="mr-1.5 size-3.5" />
+              {enrichOutcome ?? 'Done'}
+            {:else if enrichState === 'error'}
+              <AlertCircle class="mr-1.5 size-3.5" />
+              Enrich failed
+            {:else}
+              <Sparkles class="mr-1.5 size-3.5" />
+              Enrich now
+            {/if}
+          </Button>
+          {#if enrichError}
+            <p class="text-destructive text-[11px]">{enrichError}</p>
           {/if}
         </div>
       </ScrollArea>

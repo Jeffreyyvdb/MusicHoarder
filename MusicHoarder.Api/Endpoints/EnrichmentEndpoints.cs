@@ -1,10 +1,14 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Library;
+using MusicHoarder.Api.Options;
+using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Pipeline;
 using MusicHoarder.Api.Scanner;
 
@@ -35,15 +39,90 @@ public static class EnrichmentEndpoints
             .WithSummary("Trigger the ScannerService to index the source library.")
             .RequireOwner();
 
-        group.MapPost("/enrich", (JobManager jobManager) =>
+        group.MapPost("/enrich", async (
+                EnrichmentPipelineChannel channel,
+                MusicHoarderDbContext db,
+                CancellationToken ct) =>
             {
-                if (!jobManager.TryStartJob(JobType.Enrich, out var jobId, out _))
-                    return Results.Conflict(new { message = "A job is already running. Use POST /api/enrichment/cancel to stop it first." });
-
-                return Results.Accepted("/api/enrichment/status", new { jobId });
+                // Enrichment is channel-fed by always-running workers (no discrete "enrich job"), so
+                // this trigger enqueues every song that's ready for enrichment plus any whose
+                // provider-attempt cooldown has elapsed. Works whether or not AutoStartPipeline is on.
+                var enqueued = await EnqueueReadyAndRetryableAsync(db, channel, ct);
+                return Results.Accepted("/api/enrichment/status", new { enqueued });
             })
             .WithName("TriggerEnrich")
-            .WithSummary("Trigger the EnrichmentService to enrich pending tracks via AcoustID/MusicBrainz.")
+            .WithSummary("Enqueue all pending/retryable tracks for enrichment via the always-running enrichment workers.")
+            .RequireOwner();
+
+        group.MapPost("/enrich/song/{id:int}", async (
+                int id,
+                bool? reset,
+                MusicHoarderDbContext db,
+                IEnrichmentOrchestrator orchestrator,
+                CancellationToken ct) =>
+            {
+                var song = await db.Songs
+                    .Include(s => s.ProviderAttempts)
+                    .FirstOrDefaultAsync(s => s.Id == id, ct);
+                if (song is null || song.IsDeleted)
+                    return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+                var doReset = reset == true;
+                if (doReset)
+                {
+                    song.ResetEnrichment(restoreOriginal: true);
+                    song.ResetLibraryBuild();
+                    await db.SaveChangesAsync(ct);
+                }
+
+                // Run synchronously so the caller gets the exact outcome for this one song —
+                // ideal for targeted testing.
+                var outcome = await orchestrator.ProcessSongAsync(id, ct);
+                return Results.Ok(new { songId = id, reset = doReset, outcome = outcome.ToString() });
+            })
+            .WithName("EnrichSong")
+            .WithSummary("Enrich a single song by id and return the outcome. Pass reset=true to clear prior attempts first.")
+            .RequireOwner();
+
+        group.MapPost("/enrich/folder", async (
+                string path,
+                bool? reset,
+                EnrichmentPipelineChannel channel,
+                MusicHoarderDbContext db,
+                IOptions<MusicEnricherOptions> options,
+                CancellationToken ct) =>
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                    return Results.BadRequest(new { message = "A folder path is required." });
+
+                var doReset = reset == true;
+                var prefix = ResolveFolderPrefix(options.Value.SourceDirectory, path);
+                var query = db.Songs
+                    .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic && !s.IsManuallyApproved)
+                    .Where(s => s.SourcePath.StartsWith(prefix + "/"));
+
+                List<int> ids;
+                if (doReset)
+                {
+                    var songs = await query.Include(s => s.ProviderAttempts).ToListAsync(ct);
+                    foreach (var song in songs)
+                    {
+                        song.ResetEnrichment(restoreOriginal: true);
+                        song.ResetLibraryBuild();
+                    }
+                    await db.SaveChangesAsync(ct);
+                    ids = songs.Select(s => s.Id).ToList();
+                }
+                else
+                {
+                    ids = await query.Select(s => s.Id).ToListAsync(ct);
+                }
+
+                channel.EnqueueRange(ids);
+                return Results.Accepted("/api/enrichment/status", new { folder = path, enqueued = ids.Count, reset = doReset });
+            })
+            .WithName("EnrichFolder")
+            .WithSummary("Enqueue every song under a source folder (recursively) for enrichment. Pass reset=true to clear prior attempts first.")
             .RequireOwner();
 
         group.MapPost("/fingerprint", (JobManager jobManager, IDirectoryAvailability availability) =>
@@ -178,6 +257,44 @@ public static class EnrichmentEndpoints
             .WithSummary("Get the current purge status snapshot. Includes the last completed result until a new purge starts.");
 
         return app;
+    }
+
+    private static async Task<int> EnqueueReadyAndRetryableAsync(
+        MusicHoarderDbContext db, EnrichmentPipelineChannel channel, CancellationToken ct)
+    {
+        var pendingIds = await db.Songs
+            .AsNoTracking()
+            .Where(s => !s.IsSynthetic)
+            .WhereReadyForEnrichment()
+            .Select(s => s.Id)
+            .ToListAsync(ct);
+
+        var retryIds = await db.SongProviderAttempts
+            .AsNoTracking()
+            .WhereRetryableProviderAttempts(DateTime.UtcNow)
+            .ToListAsync(ct);
+
+        var ids = pendingIds.Concat(retryIds).Distinct().ToList();
+        channel.EnqueueRange(ids);
+        return ids.Count;
+    }
+
+    /// <summary>
+    /// Resolves a folder path (relative to the source root, as emitted by the directory tree, or an
+    /// absolute source path) to the absolute, forward-slash-normalized prefix used to match
+    /// <see cref="SongMetadata.SourcePath"/> values beneath it.
+    /// </summary>
+    internal static string ResolveFolderPrefix(string? sourceDirectory, string path)
+    {
+        static string Normalize(string? p) => (p ?? string.Empty).Replace('\\', '/').TrimEnd('/');
+
+        var root = Normalize(sourceDirectory);
+        var rel = Normalize(path);
+        if (rel.Length == 0)
+            return root;
+        if (root.Length > 0 && rel.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+            return rel;
+        return root.Length == 0 ? rel : $"{root}/{rel}";
     }
 
     private static IResult StartPurge(
