@@ -81,6 +81,60 @@ export function candidatesFromDetail(detail: EnrichmentDetail | null | undefined
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 }
 
+export interface ProviderAttemptRow {
+  /** Stable key for keyed-each blocks. */
+  key: string;
+  /** Friendly provider label. */
+  source: string;
+  /** Raw attempt status: Matched | NoMatch | RateLimited | Failed. */
+  status: string;
+  /** Whether this attempt produced a candidate. */
+  matched: boolean;
+  score: number | null;
+  title: string;
+  artist: string;
+  album: string;
+  year: string;
+  error: string | null;
+  /** The consensus winner that was applied to the song. */
+  chosen: boolean;
+}
+
+/**
+ * Every provider attempt (matched, no-match, and failed) as read-only display rows
+ * for the Fingerprint tab — matched rows first by score, then the rest. The winner
+ * is derived from the song's `matchedBy` since the backend stores no explicit flag.
+ */
+export function providerAttemptRows(detail: EnrichmentDetail | null | undefined): ProviderAttemptRow[] {
+  if (!detail) return [];
+  const matchedBy = detail.matchedBy ?? null;
+  return detail.providerAttempts
+    .map((a) => {
+      const c = a.candidate;
+      const title = c?.title ?? '';
+      const artist = c?.artist ?? '';
+      const album = c?.album ?? '';
+      const year = c?.year != null ? String(c.year) : '';
+      return {
+        key: `${a.provider}:${title}:${album}`,
+        source: providerLabel(c?.matchedBy ?? a.provider),
+        status: a.status,
+        matched: c != null,
+        score: c?.matchConfidence ?? null,
+        title,
+        artist,
+        album,
+        year,
+        error: a.error ?? null,
+        chosen: matchedBy != null && (c?.matchedBy === matchedBy || a.provider === matchedBy)
+      } satisfies ProviderAttemptRow;
+    })
+    .sort((a, b) => {
+      if (a.matched !== b.matched) return a.matched ? -1 : 1;
+      return (b.score ?? 0) - (a.score ?? 0);
+    });
+}
+
 export interface EmbeddedTag {
   key: string;
   value: string;

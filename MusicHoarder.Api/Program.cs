@@ -37,10 +37,9 @@ if (app.Environment.IsDevelopment())
         .AddPreferredSecuritySchemes(CookieSecuritySchemeTransformer.SchemeId));
 }
 
-if (!app.Environment.IsDevelopment())
-{
-    app.UseHttpsRedirection();
-}
+// No app-level HTTPS redirection: in deployment TLS terminates at the reverse proxy
+// (Traefik/Dokploy) and the API only listens on HTTP, so UseHttpsRedirection can't
+// resolve an HTTPS port and just logs "Failed to determine the https port for redirect".
 
 app.UseMiddleware<AuthenticationMiddleware>();
 app.UseMiddleware<RequireAuthMiddleware>();

@@ -11,6 +11,8 @@ namespace MusicHoarder.Api.Enrichment;
 /// <item>≥2 independent providers landing on the same identity → <c>Matched</c>.</item>
 /// <item>A single <i>name-based</i> provider (Spotify / MusicBrainz) that recommended
 /// <c>Matched</c> on its own (tuned) thresholds → <c>Matched</c>.</item>
+/// <item>A confident community-tracker match (unreleased / leaks the mainstream catalogs lack,
+/// so they can never corroborate) that recommended <c>Matched</c> → <c>Matched</c>.</item>
 /// <item>AcoustID (fingerprint) alone is treated as a candidate only → <c>NeedsReview</c>;
 /// it must be corroborated to promote.</item>
 /// </list>
@@ -117,7 +119,52 @@ public static class ConsensusEvaluator
                 [soloNameBased.Provider]);
         }
 
-        // 3) Otherwise it needs review (once every provider has had its turn). Surface the
+        // 2b) A confident community-tracker match is authoritative for its niche — unreleased /
+        //     leaked songs that mainstream catalogs simply don't carry, so corroboration from
+        //     Spotify/MusicBrainz will never come. It stands alone on its own tuned thresholds
+        //     (the provider already required title agreement with no blocking warning to recommend
+        //     Matched).
+        var soloTracker = strong
+            .Where(c => c.Provider == EnrichmentProvider.Tracker
+                && c.Result.RecommendedStatus == EnrichmentStatus.Matched)
+            .OrderByDescending(c => c.Confidence)
+            .FirstOrDefault();
+        if (soloTracker is not null)
+        {
+            return new ConsensusResult(
+                EnrichmentStatus.Matched, soloTracker.Result, soloTracker.Confidence,
+                [soloTracker.Provider]);
+        }
+
+        // 3) A clean, *unambiguous* fingerprint match (AcoustID) is acoustically authoritative and
+        //    may stand alone — but only once every enabled provider has had its turn, so a
+        //    name-based corroborator/contradictor gets the chance to weigh in first. The validator
+        //    already recommended Matched (score >= threshold, no blocking warning), and we further
+        //    require a single candidate so an ambiguous fingerprint that resolved to several
+        //    recordings still goes to review.
+        if (allAttempted)
+        {
+            var soloFingerprint = strong
+                .Where(c => !c.IsNameBased
+                    && c.Result.RecommendedStatus == EnrichmentStatus.Matched
+                    && !c.Result.MatchWarnings.Contains("multiple_candidates"))
+                .OrderByDescending(c => c.Confidence)
+                .FirstOrDefault();
+
+            // Don't stand alone if a strong name-based provider landed on a *different* identity
+            // (e.g. a different version/recording) — that genuine conflict belongs in review.
+            var contradictedByNameBased = soloFingerprint is not null && strong.Any(c =>
+                c.IsNameBased && !c.Identity.AgreesWith(soloFingerprint.Identity, identityOptions));
+
+            if (soloFingerprint is not null && !contradictedByNameBased)
+            {
+                return new ConsensusResult(
+                    EnrichmentStatus.Matched, soloFingerprint.Result, soloFingerprint.Confidence,
+                    [soloFingerprint.Provider]);
+            }
+        }
+
+        // 4) Otherwise it needs review (once every provider has had its turn). Surface the
         //    highest-confidence candidate so the review UI / bulk-approve can find it.
         var reviewWinner = candidates.OrderByDescending(c => c.Confidence).First();
         if (!allAttempted)
@@ -166,7 +213,10 @@ public static class ConsensusEvaluator
     }
 
     public static bool IsNameBased(EnrichmentProvider provider)
-        => provider is EnrichmentProvider.SpotifyAPI or EnrichmentProvider.MusicBrainzWeb;
+        => provider is EnrichmentProvider.SpotifyAPI
+            or EnrichmentProvider.MusicBrainzWeb
+            or EnrichmentProvider.Deezer
+            or EnrichmentProvider.AppleMusic;
 
     private static ProviderIdentity ToIdentity(EnrichmentProviderResult r)
         => new(

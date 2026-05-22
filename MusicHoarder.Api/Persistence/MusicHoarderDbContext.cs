@@ -93,9 +93,10 @@ public class MusicHoarderDbContext : DbContext
                 .HasForeignKey(e => e.SongId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // SongProviderAttempt inherits tenancy through its parent Song. No own query filter is
-            // needed — joins via Song apply Song's filter. Direct queries against this DbSet must
-            // include a Song-based predicate when used outside background services.
+            // Mirror Song's tenancy filter so this required dependent is filtered out exactly when
+            // its principal would be (otherwise EF warns about the required relationship). Background
+            // services that read this DbSet directly bypass via .IgnoreQueryFilters().
+            entity.HasQueryFilter(e => !hasUser || e.Song.OwnerUserId == userId);
         });
 
         modelBuilder.Entity<SongMetadataChange>(entity =>
@@ -108,7 +109,9 @@ public class MusicHoarderDbContext : DbContext
                 .HasForeignKey(e => e.SongId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // Inherits tenancy via its parent Song (joined queries apply Song's filter).
+            // Mirror Song's tenancy filter so this required dependent is filtered out exactly when
+            // its principal would be (otherwise EF warns about the required relationship).
+            entity.HasQueryFilter(e => !hasUser || e.Song.OwnerUserId == userId);
         });
 
         modelBuilder.Entity<SpotifySettings>(entity =>

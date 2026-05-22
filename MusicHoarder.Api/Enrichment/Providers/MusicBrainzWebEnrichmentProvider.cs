@@ -1,4 +1,3 @@
-using FuzzySharp;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Metadata;
@@ -24,20 +23,22 @@ public class MusicBrainzWebEnrichmentProvider(
     public bool CanHandle(SongMetadata song) =>
         !string.IsNullOrWhiteSpace(song.MusicBrainzId)
         || !string.IsNullOrWhiteSpace(song.Isrc)
-        || (!string.IsNullOrWhiteSpace(song.Artist) && !string.IsNullOrWhiteSpace(song.Title));
+        || SongSearchText.HasSearchableText(song, options.Value.SourceDirectory);
 
     public async Task<ProviderOutcome> TryEnrichAsync(SongMetadata song, CancellationToken ct = default)
     {
         var opts = options.Value;
+        var resolved = SongSearchText.ResolveDetailed(song, opts.SourceDirectory);
+        var (effectiveArtist, effectiveAlbum, effectiveTitle) = (resolved.Artist, resolved.Album, resolved.Title);
 
         try
         {
-            // 1) Exact lookup by an MBID the file already carries.
+            // 1) Exact lookup by an MBID the file already carries (or one a prior provider gossiped).
             if (!string.IsNullOrWhiteSpace(song.MusicBrainzId))
             {
                 var byId = await service.LookupByRecordingIdAsync(song.MusicBrainzId!, ct);
                 if (byId is not null)
-                    return BuildOutcome(song, byId, opts, exactIdentifier: true);
+                    return BuildOutcome(song, effectiveArtist, effectiveTitle, effectiveAlbum, byId, opts, exactIdentifier: true);
             }
 
             // 2) Exact lookup by the file's ISRC tag.
@@ -45,13 +46,13 @@ public class MusicBrainzWebEnrichmentProvider(
             {
                 var byIsrc = await service.LookupByIsrcAsync(song.Isrc!, ct);
                 if (byIsrc is not null)
-                    return BuildOutcome(song, byIsrc, opts, exactIdentifier: true);
+                    return BuildOutcome(song, effectiveArtist, effectiveTitle, effectiveAlbum, byIsrc, opts, exactIdentifier: true);
             }
 
-            // 3) Fall back to a name search.
-            if (!string.IsNullOrWhiteSpace(song.Artist) && !string.IsNullOrWhiteSpace(song.Title))
+            // 3) Fall back to a name search (tags, or path-derived for untagged files).
+            if (!string.IsNullOrWhiteSpace(effectiveArtist) && !string.IsNullOrWhiteSpace(effectiveTitle))
             {
-                var results = await service.SearchAsync(song.Artist!, song.Title!, 5, ct);
+                var results = await service.SearchAsync(effectiveArtist!, effectiveTitle!, 5, effectiveAlbum, ct);
                 if (results.Count == 0)
                     return new ProviderNoMatch();
 
@@ -60,7 +61,7 @@ public class MusicBrainzWebEnrichmentProvider(
                 List<string> bestWarnings = [];
                 foreach (var candidate in results)
                 {
-                    var (score, warnings) = Score(song, candidate, opts);
+                    var (score, warnings) = Score(song, effectiveArtist, effectiveTitle, effectiveAlbum, candidate, opts);
                     if (score > bestScore)
                     {
                         bestScore = score;
@@ -86,11 +87,12 @@ public class MusicBrainzWebEnrichmentProvider(
     }
 
     private static ProviderOutcome BuildOutcome(
-        SongMetadata song, MusicBrainzRecording rec, MusicEnricherOptions opts, bool exactIdentifier)
+        SongMetadata song, string? sourceArtist, string? sourceTitle, string? sourceAlbum,
+        MusicBrainzRecording rec, MusicEnricherOptions opts, bool exactIdentifier)
     {
         // An exact-identifier hit is high-confidence, but still verify the returned recording
         // is consistent with the file's existing tags so a stale/wrong tag can't sail through.
-        var (score, warnings) = Score(song, rec, opts);
+        var (score, warnings) = Score(song, sourceArtist, sourceTitle, sourceAlbum, rec, opts);
         var confidence = exactIdentifier ? Math.Max(score, 0.9) : score;
 
         if (rec.CandidateCount > 1)
@@ -142,24 +144,46 @@ public class MusicBrainzWebEnrichmentProvider(
     }
 
     private static (double Score, List<string> Warnings) Score(
-        SongMetadata song, MusicBrainzRecording rec, MusicEnricherOptions opts)
+        SongMetadata song, string? sourceArtist, string? sourceTitle, string? sourceAlbum,
+        MusicBrainzRecording rec, MusicEnricherOptions opts)
     {
         var warnings = new List<string>();
 
-        var songArtist = TitleNormalizer.NormalizeForSearch(song.Artist);
-        var songTitle = TitleNormalizer.NormalizeForSearch(song.Title);
-        var candArtist = TitleNormalizer.NormalizeForSearch(rec.Artist);
-        var candTitle = TitleNormalizer.NormalizeForSearch(rec.Title);
+        // Raw-fallback aware: a symbol-only artist no longer scores as a free 100%.
+        var artistRatio = FuzzyTextMatch.Ratio(sourceArtist, rec.Artist);
+        var titleRatio = FuzzyTextMatch.Ratio(sourceTitle, rec.Title);
 
-        var artistRatio = songArtist.Length == 0 || candArtist.Length == 0 ? 100.0 : Fuzz.WeightedRatio(songArtist, candArtist);
-        var titleRatio = songTitle.Length == 0 || candTitle.Length == 0 ? 100.0 : Fuzz.WeightedRatio(songTitle, candTitle);
+        if (artistRatio is double ar && ar < 85) warnings.Add("artist_mismatch");
+        if (titleRatio is double tr && tr < 85) warnings.Add("title_mismatch");
 
-        if (artistRatio < 85) warnings.Add("artist_mismatch");
-        if (titleRatio < 85) warnings.Add("title_mismatch");
+        double local;
+        if (artistRatio is double a && titleRatio is double t)
+        {
+            local = (a / 100.0 + t / 100.0) / 2.0;
+        }
+        else if (titleRatio is double tOnly)
+        {
+            // No usable artist signal — keep the candidate as a review-only suggestion.
+            local = tOnly / 100.0;
+            warnings.Add("artist_unknown");
+        }
+        else
+        {
+            local = 0;
+        }
 
-        var local = (artistRatio / 100.0 + titleRatio / 100.0) / 2.0;
         // Blend MusicBrainz's own Lucene relevance (40%) with local fuzzy agreement (60%).
         var score = 0.6 * local + 0.4 * (Math.Clamp(rec.Score, 0, 100) / 100.0);
+
+        // Album is a confirmation signal only (a track can appear on many releases, so absence is
+        // never penalized): nudge up when the release title agrees, flag a soft mismatch otherwise.
+        if (FuzzyTextMatch.Ratio(sourceAlbum, rec.ReleaseTitle) is double albumRatio)
+        {
+            if (albumRatio >= 85)
+                score = Math.Min(1.0, score + 0.05);
+            else
+                warnings.Add("album_mismatch");
+        }
 
         var sourceQual = VersionQualifier.Detect(song.Title, song.Album);
         var candQual = VersionQualifier.Detect(rec.Title, rec.ReleaseTitle);
@@ -183,5 +207,5 @@ public class MusicBrainzWebEnrichmentProvider(
     }
 
     private static bool HasBlockingWarning(List<string> warnings) =>
-        warnings.Exists(static w => w is "artist_mismatch" or "title_mismatch" or "version_mismatch" or "duration_mismatch");
+        warnings.Exists(static w => w is "artist_mismatch" or "title_mismatch" or "version_mismatch" or "duration_mismatch" or "artist_unknown");
 }

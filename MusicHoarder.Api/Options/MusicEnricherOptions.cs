@@ -13,6 +13,19 @@ public class MusicEnricherOptions
     public string DestinationDirectory { get; set; } = string.Empty;
 
     /// <summary>
+    /// Master switch for the automatic <em>processing</em> cascade: the scan→fingerprint→enrich→build
+    /// auto-triggering, the fingerprint/build auto-poll loops, and the enrichment startup backfill +
+    /// periodic retry sweep. The discovery scan (file indexing) is intentionally <em>not</em> gated —
+    /// it runs on startup/reconnect regardless, so the library always populates and there's something
+    /// to test against. When false, no processing stage starts on its own; the user drives each step
+    /// via the manual trigger endpoints (and the always-running enrichment workers still process
+    /// anything explicitly enqueued, e.g. a manual fingerprint or per-song / per-folder enrich).
+    /// Defaults to true; set to false in resource-constrained preview environments via
+    /// <c>MusicEnricher__AutoStartPipeline=false</c>.
+    /// </summary>
+    public bool AutoStartPipeline { get; set; } = true;
+
+    /// <summary>
     /// How often (seconds) to probe whether the source/destination directories are
     /// reachable. Pipeline stages that touch the filesystem gate on the cached result,
     /// so an unreachable network share (e.g. laptop away from home) degrades gracefully
@@ -92,8 +105,12 @@ public class MusicEnricherOptions
     /// <summary>Enable the AcoustID enrichment provider (fingerprint → MusicBrainz via AcoustID).</summary>
     public bool EnableAcoustIdProvider { get; set; } = true;
 
-    /// <summary>Enable the MusicBrainz web-service enrichment provider (ISRC / artist+title search).</summary>
-    public bool EnableMusicBrainzWebProvider { get; set; } = false;
+    /// <summary>
+    /// Enable the MusicBrainz web-service enrichment provider (MBID / ISRC / artist+title search).
+    /// On by default: it's a second name-based voter that enables genuine multi-provider consensus
+    /// and corroborates AcoustID fingerprint hits via the recording MBID.
+    /// </summary>
+    public bool EnableMusicBrainzWebProvider { get; set; } = true;
 
     /// <summary>Enable the Spotify API enrichment provider (artist+title, optional ISRC verification).</summary>
     public bool EnableSpotifyApiProvider { get; set; } = false;
@@ -136,6 +153,75 @@ public class MusicEnricherOptions
     /// <summary>Optional ISO 3166-1 alpha-2 market for Spotify search (empty = omit).</summary>
     public string SpotifyApiMarket { get; set; } = "";
 
+    // --- Deezer (free, no-auth) ---
+
+    /// <summary>Enable the Deezer enrichment provider (ISRC-first, then artist+title search).</summary>
+    public bool EnableDeezerProvider { get; set; } = true;
+
+    /// <summary>Max concurrent songs calling the Deezer provider simultaneously.</summary>
+    [Range(1, 20)]
+    public int DeezerConcurrency { get; set; } = 1;
+
+    /// <summary>Max Deezer API requests per second (Deezer allows ~50 req / 5s).</summary>
+    [Range(1, 20)]
+    public int DeezerApiRequestsPerSecond { get; set; } = 4;
+
+    /// <summary>Track candidates to request from Deezer search (1–50).</summary>
+    [Range(1, 50)]
+    public int DeezerApiSearchLimit { get; set; } = 10;
+
+    /// <summary>How long to cache Deezer search / track responses in memory.</summary>
+    [Range(1, 1440)]
+    public int DeezerApiSearchCacheMinutes { get; set; } = 30;
+
+    /// <summary>Minimum adjusted confidence to return any result from Deezer (&lt; this → no match).</summary>
+    [Range(0.0, 1.0)]
+    public double DeezerApiMinConfidence { get; set; } = 0.7;
+
+    /// <summary>Minimum adjusted confidence for Deezer to recommend <see cref="EnrichmentStatus.Matched"/>.</summary>
+    [Range(0.0, 1.0)]
+    public double DeezerApiMatchedThreshold { get; set; } = 0.85;
+
+    /// <summary>Duration delta (seconds) above which the Deezer duration-mismatch penalty applies.</summary>
+    [Range(1, 120)]
+    public int DeezerApiDurationDeltaThresholdSeconds { get; set; } = 20;
+
+    // --- Apple / iTunes (free, no-auth) ---
+
+    /// <summary>Enable the Apple/iTunes enrichment provider (artist+title search; no ISRC).</summary>
+    public bool EnableAppleMusicProvider { get; set; } = true;
+
+    /// <summary>Max concurrent songs calling the Apple Music provider simultaneously.</summary>
+    [Range(1, 20)]
+    public int AppleMusicConcurrency { get; set; } = 1;
+
+    /// <summary>Max iTunes Search API requests per second. iTunes is throttled to ~20 req/min, so keep this at 1.</summary>
+    [Range(1, 20)]
+    public int AppleMusicApiRequestsPerSecond { get; set; } = 1;
+
+    /// <summary>Track candidates to request from iTunes search (1–50).</summary>
+    [Range(1, 50)]
+    public int AppleMusicApiSearchLimit { get; set; } = 10;
+
+    /// <summary>How long to cache iTunes search responses in memory.</summary>
+    [Range(1, 1440)]
+    public int AppleMusicApiSearchCacheMinutes { get; set; } = 30;
+
+    /// <summary>Minimum adjusted confidence to return any result from Apple Music (&lt; this → no match).</summary>
+    [Range(0.0, 1.0)]
+    public double AppleMusicApiMinConfidence { get; set; } = 0.7;
+
+    /// <summary>Minimum adjusted confidence for Apple Music to recommend <see cref="EnrichmentStatus.Matched"/>.</summary>
+    [Range(0.0, 1.0)]
+    public double AppleMusicApiMatchedThreshold { get; set; } = 0.85;
+
+    /// <summary>Duration delta (seconds) above which the Apple Music duration-mismatch penalty applies.</summary>
+    [Range(1, 120)]
+    public int AppleMusicApiDurationDeltaThresholdSeconds { get; set; } = 20;
+
+    /// <summary>ISO 3166-1 alpha-2 storefront country for the iTunes Search API.</summary>
+    public string AppleMusicCountry { get; set; } = "US";
+
     // --- MusicBrainz web service ---
 
     /// <summary>User-Agent sent to MusicBrainz (required by their policy). Include contact info.</summary>
@@ -160,6 +246,30 @@ public class MusicEnricherOptions
     /// <summary>Minimum confidence for the MusicBrainz provider to recommend Matched.</summary>
     [Range(0.0, 1.0)]
     public double MusicBrainzMatchedThreshold { get; set; } = 0.85;
+
+    // --- Community tracker (unreleased / leak files) ---
+
+    /// <summary>Base URL of the community tracker REST API (Django REST; must end with a slash).</summary>
+    public string TrackerApiBaseUrl { get; set; } = "https://juicewrldapi.com/juicewrld/";
+
+    /// <summary>
+    /// Artist names/aliases this tracker covers. The provider only attempts a lookup when the
+    /// song's resolved artist fuzzy-matches one of these — the DB is single-artist, so this keeps
+    /// it from wasting calls or mis-tagging unrelated music.
+    /// </summary>
+    public string[] TrackerArtistAllowlist { get; set; } = ["Juice WRLD", "Juice Wrld", "JuiceWRLD", "JuiceTheKidd"];
+
+    /// <summary>Max tracker search candidates to request per song.</summary>
+    [Range(1, 100)]
+    public int TrackerSearchLimit { get; set; } = 20;
+
+    /// <summary>Minimum adjusted confidence to return any result from the tracker provider (&lt; this → no match).</summary>
+    [Range(0.0, 1.0)]
+    public double TrackerMinConfidence { get; set; } = 0.7;
+
+    /// <summary>Minimum adjusted confidence for the tracker provider to recommend Matched (otherwise NeedsReview).</summary>
+    [Range(0.0, 1.0)]
+    public double TrackerMatchedThreshold { get; set; } = 0.85;
 
     // --- Consensus / identity matching ---
 

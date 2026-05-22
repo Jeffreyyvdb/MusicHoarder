@@ -8,17 +8,43 @@ namespace MusicHoarder.Api.Tests.Pipeline;
 public class DirectoryAvailabilityMonitorTests
 {
     private static DirectoryAvailabilityMonitor CreateMonitor(
-        JobManager jobManager, string sourceDir, string destDir)
+        JobManager jobManager, string sourceDir, string destDir, bool autoStartPipeline = true)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
             SourceDirectory = sourceDir,
             DestinationDirectory = destDir,
             DirectoryProbeTimeoutSeconds = 2,
+            AutoStartPipeline = autoStartPipeline,
         });
 
         return new DirectoryAvailabilityMonitor(
             jobManager, options, NullLogger<DirectoryAvailabilityMonitor>.Instance);
+    }
+
+    [Fact]
+    public async Task ProbeNowAsync_DiscoveryRunsEvenWhenAutoStartDisabled()
+    {
+        // Discovery (the scan) is the prerequisite for any manual testing, so it must still fire
+        // when the automatic processing cascade is disabled.
+        var source = Directory.CreateTempSubdirectory("mh-src-").FullName;
+        var dest = Directory.CreateTempSubdirectory("mh-dst-").FullName;
+        try
+        {
+            var jobManager = new JobManager();
+            var monitor = CreateMonitor(jobManager, source, dest, autoStartPipeline: false);
+
+            var snapshot = await monitor.ProbeNowAsync();
+
+            Assert.True(snapshot.SourceAvailable);
+            Assert.Equal("Running", jobManager.GetStepSnapshot(JobType.Scan).Status);
+            Assert.True(jobManager.ScanTriggers.TryRead(out _));
+        }
+        finally
+        {
+            if (Directory.Exists(source)) Directory.Delete(source, recursive: true);
+            if (Directory.Exists(dest)) Directory.Delete(dest, recursive: true);
+        }
     }
 
     [Fact]
@@ -100,4 +126,5 @@ public class DirectoryAvailabilityMonitorTests
             if (Directory.Exists(dest)) Directory.Delete(dest, recursive: true);
         }
     }
+
 }

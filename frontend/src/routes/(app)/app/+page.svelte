@@ -103,28 +103,21 @@
     const owningAlbum = allAlbumsForLookup.find((a) => a.songs.some((s) => s.id === songId));
     if (!owningAlbum) return;
     appliedSongDeepLink = songId;
-    const trackNumber = owningAlbum.songs.findIndex((s) => s.id === songId) + 1;
     const url = new URL(page.url);
     url.searchParams.delete('song');
     url.searchParams.set('album', owningAlbum.key);
-    url.searchParams.set('track', String(song.trackNumber ?? trackNumber));
+    url.searchParams.set('track', String(song.id));
     void goto(url.pathname + url.search, { replaceState: true, noScroll: true });
   });
 
-  // Selected track within the open album (matches by trackNumber, falls back to index+1).
+  // Selected track within the open album, matched by unique song id.
   const selectedTrack = $derived.by(() => {
     if (!openAlbum || !trackParam) return null;
-    const n = Number.parseInt(trackParam, 10);
-    if (!Number.isFinite(n)) return null;
-    const byNumber = openAlbum.songs.find((s) => (s.trackNumber ?? null) === n);
-    if (byNumber) {
-      const idx = openAlbum.songs.indexOf(byNumber);
-      return { song: byNumber, index: idx };
-    }
-    if (n >= 1 && n <= openAlbum.songs.length) {
-      return { song: openAlbum.songs[n - 1], index: n - 1 };
-    }
-    return null;
+    const id = Number.parseInt(trackParam, 10);
+    if (!Number.isFinite(id)) return null;
+    const idx = openAlbum.songs.findIndex((s) => s.id === id);
+    if (idx < 0) return null;
+    return { song: openAlbum.songs[idx], index: idx };
   });
 
   function closeTrack() {

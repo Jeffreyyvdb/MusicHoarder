@@ -16,13 +16,16 @@ public static class SpotifyEndpoints
                 HttpContext context,
                 ISpotifyOAuthService spotifyOAuth,
                 IOptions<SpotifyOptions> spotifyOptions,
+                IOptions<FrontendOptions> frontendOptions,
                 CancellationToken ct) =>
             {
                 var redirectUri = ResolveOAuthRedirectUri(context.Request, spotifyOptions.Value);
+                // The relay bounces the browser back here; encode this env's own public origin so it knows where.
+                var returnOrigin = NormalizePublicBaseUrl(frontendOptions.Value.PublicBaseUrl);
 
                 try
                 {
-                    var result = await spotifyOAuth.GetAuthorizationUrlAsync(redirectUri, ct);
+                    var result = await spotifyOAuth.GetAuthorizationUrlAsync(redirectUri, returnOrigin, ct);
                     return Results.Ok(new { authorizationUrl = result.AuthorizationUrl, state = result.State });
                 }
                 catch (InvalidOperationException ex)
@@ -76,6 +79,26 @@ public static class SpotifyEndpoints
                     if (useBrowserRedirect)
                         return Results.Redirect($"{baseUrl}/spotify?spotify_error={Uri.EscapeDataString(missing)}");
                     return Results.BadRequest(new { message = missing });
+                }
+
+                // When the relay flow is active, the state is signed and carries this env's own origin. Reject any
+                // state we didn't issue (forged/tampered/replayed, or minted for a different environment) before we
+                // exchange the code — this is the CSRF/open-redirect guard for the relay bounce.
+                var signingKey = spotifyOptions.Value.OAuthStateSigningKey;
+                if (!string.IsNullOrEmpty(signingKey))
+                {
+                    var ttl = TimeSpan.FromMinutes(Math.Max(1, spotifyOptions.Value.OAuthStateTtlMinutes));
+                    var stateOk = SpotifyOAuthStateProtector.TryValidate(state, signingKey, ttl, out var stateOrigin)
+                        && (baseUrl.Length == 0 || string.Equals(stateOrigin, baseUrl, StringComparison.OrdinalIgnoreCase));
+                    if (!stateOk)
+                    {
+                        const string badState = "Invalid or expired OAuth state.";
+                        if (jsonMode)
+                            return Results.Ok(new { connected = false, error = badState });
+                        if (useBrowserRedirect)
+                            return Results.Redirect($"{baseUrl}/spotify?spotify_error={Uri.EscapeDataString(badState)}");
+                        return Results.BadRequest(new { message = badState });
+                    }
                 }
 
                 var result = await spotifyOAuth.ExchangeCodeAsync(code, redirectUri, ct);
@@ -275,12 +298,7 @@ public static class SpotifyEndpoints
     }
 
     private static string ResolveOAuthRedirectUri(HttpRequest request, SpotifyOptions spotifyOptions)
-    {
-        var baseUrl = spotifyOptions.OAuthRedirectBaseUrl?.Trim().TrimEnd('/');
-        if (!string.IsNullOrEmpty(baseUrl))
-            return $"{baseUrl}/api/spotify/callback";
-        return $"{request.Scheme}://{request.Host}/api/spotify/callback";
-    }
+        => SpotifyRedirectUriResolver.Resolve(spotifyOptions, request.Scheme, request.Host.ToString());
 }
 
 public record SpotifyCredentialsRequest(string ClientId, string ClientSecret);

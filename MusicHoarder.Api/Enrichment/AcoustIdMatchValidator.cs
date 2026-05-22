@@ -57,8 +57,15 @@ public class AcoustIdMatchValidator : IAcoustIdMatchValidator
         var existingNorm = Normalize(track.Artist);
         var matchedNorm = Normalize(match.Artist);
 
+        // When normalization strips everything (e.g. a symbol-only artist like "¥$"), fall back
+        // to raw casefold so a wrong artist still trips the penalty instead of sailing through.
         if (string.IsNullOrEmpty(existingNorm) || string.IsNullOrEmpty(matchedNorm))
-            return score;
+        {
+            existingNorm = track.Artist.Trim().ToLowerInvariant();
+            matchedNorm = match.Artist?.Trim().ToLowerInvariant() ?? string.Empty;
+            if (string.IsNullOrEmpty(existingNorm) || string.IsNullOrEmpty(matchedNorm))
+                return score;
+        }
 
         if (!existingNorm.Contains(matchedNorm, StringComparison.Ordinal) &&
             !matchedNorm.Contains(existingNorm, StringComparison.Ordinal))

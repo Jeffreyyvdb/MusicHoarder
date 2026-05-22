@@ -40,6 +40,44 @@ public class SpotifyOAuthServiceTests
     }
 
     [Fact]
+    public async Task GetAuthorizationUrl_WithSigningKeyAndReturnOrigin_EmitsSignedState()
+    {
+        await using var db = CreateDb();
+        var spotifyOpts = Microsoft.Extensions.Options.Options.Create(new SpotifyOptions
+        {
+            ClientId = "id",
+            ClientSecret = "secret",
+            OAuthRelayUrl = "https://prod.example/api/spotify/relay",
+            OAuthStateSigningKey = "unit-test-signing-key",
+        });
+        var service = CreateService(db, spotifyOptions: spotifyOpts);
+
+        var result = await service.GetAuthorizationUrlAsync(
+            "https://prod.example/api/spotify/relay", "https://localhost:65284");
+
+        Assert.True(SpotifyOAuthStateProtector.TryValidate(
+            result.State, "unit-test-signing-key", TimeSpan.FromMinutes(10), out var origin));
+        Assert.Equal("https://localhost:65284", origin);
+    }
+
+    [Fact]
+    public async Task GetAuthorizationUrl_WithoutSigningKey_EmitsOpaqueState()
+    {
+        await using var db = CreateDb();
+        var spotifyOpts = Microsoft.Extensions.Options.Options.Create(new SpotifyOptions
+        {
+            ClientId = "id",
+            ClientSecret = "secret",
+        });
+        var service = CreateService(db, spotifyOptions: spotifyOpts);
+
+        var result = await service.GetAuthorizationUrlAsync("http://localhost/callback", "https://localhost:65284");
+
+        Assert.NotEmpty(result.State);
+        Assert.DoesNotContain('.', result.State);
+    }
+
+    [Fact]
     public async Task GetAuthorizationUrl_WithoutCredentials_ThrowsInvalidOperationException()
     {
         await using var db = CreateDb();

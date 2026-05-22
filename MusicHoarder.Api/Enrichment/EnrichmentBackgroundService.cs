@@ -22,11 +22,17 @@ public class EnrichmentBackgroundService(
             "Enrichment background service started (channel-fed). WorkerConcurrency={Concurrency}",
             opts.EnrichmentWorkerConcurrency);
 
-        await RefreshStaleStatusesAsync(stoppingToken);
-        await RetryStaleStatusesAsync(stoppingToken);
-        await BackfillPendingSongsAsync(stoppingToken);
-
-        var sweepTask = RunRetrySweepLoopAsync(stoppingToken);
+        // Workers always run so explicitly-enqueued songs (manual fingerprint, per-song/per-folder
+        // enrich) get processed. The startup sweeps and periodic retry sweep are auto-discovery, so
+        // they're gated behind AutoStartPipeline.
+        Task sweepTask = Task.CompletedTask;
+        if (opts.AutoStartPipeline)
+        {
+            await RefreshStaleStatusesAsync(stoppingToken);
+            await RetryStaleStatusesAsync(stoppingToken);
+            await BackfillPendingSongsAsync(stoppingToken);
+            sweepTask = RunRetrySweepLoopAsync(stoppingToken);
+        }
 
         var workerTasks = Enumerable.Range(0, opts.EnrichmentWorkerConcurrency)
             .Select(i => RunWorkerAsync(i, stoppingToken))
@@ -155,6 +161,7 @@ public class EnrichmentBackgroundService(
             }
 
             var retryIds = await db.SongProviderAttempts
+                .IgnoreQueryFilters()
                 .AsNoTracking()
                 .WhereRetryableProviderAttempts(DateTime.UtcNow)
                 .ToListAsync(ct);
@@ -185,6 +192,7 @@ public class EnrichmentBackgroundService(
                 var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
                 var retryIds = await db.SongProviderAttempts
+                    .IgnoreQueryFilters()
                     .AsNoTracking()
                     .WhereRetryableProviderAttempts(DateTime.UtcNow)
                     .ToListAsync(ct);

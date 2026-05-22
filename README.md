@@ -70,6 +70,7 @@ All options live under the `MusicEnricher` section in `appsettings.json` or as e
 |-----|-------------|----------|
 | `MusicEnricher__SourceDirectory` | Path to the source music library | Yes |
 | `MusicEnricher__DestinationDirectory` | Path for the cleaned destination library | Yes |
+| `MusicEnricher__AutoStartPipeline` | Auto-run the *processing* cascade (scan→fingerprint→enrich→build, enrichment backfill/retry sweep). Discovery (file indexing) always runs so the library still populates. Set `false` to require manual triggering of the heavy steps — useful in resource-constrained preview environments. | No (default: `true`) |
 | `MusicEnricher__TempDirectory` | Scratch space for in-progress work | No (default: `/tmp/musicenricher`) |
 | `MusicEnricher__AcoustIdApiKey` | AcoustID API key for fingerprint-to-MusicBrainz lookup | No (enrichment falls back to `NeedsReview` without it) |
 | `MusicEnricher__AcoustIdScoreThreshold` | Minimum confidence score to accept a match (0–1) | No (default: `0.85`) |
@@ -115,6 +116,17 @@ compose stack (own Postgres + API + frontend, namespaced by `appName=mh-pr-<n>`)
 `docker-compose.preview.yaml`. The stack is torn down when the PR closes; a daily
 `pr-preview-cleanup.yml` reaps any that slip through.
 
+When a preview is live the workflow attaches a green **`preview`** label to the PR (so the PR list
+shows at a glance which PRs have a running environment) and posts a sticky comment with the URL, the
+**deployed commit SHA**, and the update time. Every push re-deploys and refreshes that comment — the
+short SHA tells you whether the live env matches the latest commit. The label is removed and the
+comment updated on teardown (close-event teardown, or the daily reaper as a fallback).
+
+Previews set `MusicEnricher__AutoStartPipeline=false` so the resource-intensive processing never
+auto-runs. Discovery still runs, so the library populates on boot; drive the rest manually from the
+UI (Fingerprint → Build, or the per-song / per-folder "Enrich" actions) to test exactly what a PR
+touches.
+
 Sign in to a preview with the magic link printed in the API logs (Dokploy log viewer) — previews
 run with Resend disabled so no email provider is needed. The owner can also sign in with a
 **passkey**: previews pin the WebAuthn relying-party id to the shared `<PREVIEW_BASE_DOMAIN>` parent
@@ -142,7 +154,11 @@ workflow guards every job with `github.event.pull_request.head.repo.full_name ==
    | `PREVIEW_POSTGRES_PASSWORD` | throwaway Postgres password for previews |
    | `PREVIEW_OWNER_EMAIL` | owner account for magic-link sign-in |
    | `PREVIEW_OWNER_SEED_CREDENTIAL` *(optional)* | minified JSON of the owner's pre-registered passkey, seeded into each preview DB (see below) |
+   | `PREVIEW_SPOTIFY_CLIENT_ID`, `PREVIEW_SPOTIFY_CLIENT_SECRET` *(optional)* | Spotify app creds so a preview can complete the OAuth token exchange (see **Spotify OAuth** below). Omit → Spotify connect disabled in previews. |
+   | `PREVIEW_SPOTIFY_OAUTH_STATE_KEY` *(optional)* | shared HMAC key signing the OAuth `state`; **must equal** the prod relay's `spotify-oauth-state-key`. |
    | `GHCR_CLEANUP_TOKEN` *(optional)* | PAT with `delete:packages` to prune `:pr-<n>` images |
+
+   Repo variable: `PREVIEW_SPOTIFY_OAUTH_RELAY_URL` *(optional)* — the single registered relay URL, `https://<prod-frontend>/api/spotify/relay`.
 
    **Capturing `PREVIEW_OWNER_SEED_CREDENTIAL` (one-time):** spin up any preview (the relying-party
    id is already pinned to `<PREVIEW_BASE_DOMAIN>`), sign in via magic link as the owner, and
@@ -165,9 +181,51 @@ expose manual dispatch for a workflow that only exists on a feature branch — s
 use the `pull_request` trigger; `workflow_dispatch` is for manual re-previews afterwards.) Closing the
 PR runs the teardown job.
 
-Tunables: `PREVIEW_MAX_STACKS` (default 5, env in the provision step); `PREVIEW_SOURCE_DIR` /
-`PREVIEW_DEST_ROOT` are **repo variables** (Settings → Variables) for the host paths bind-mounted
-into each preview (default to `/srv/mh-preview/...` if unset).
+Tunables: `PREVIEW_MAX_STACKS` (default 5, env in the provision step); `PREVIEW_SOURCE_DIR` is a
+**repo variable** (Settings → Variables) for the host path of the shared read-only sample library
+bind-mounted into each preview (defaults to `/srv/mh-preview/sample-source` if unset). The per-PR
+built library lives in a managed `musichoarder-dest` named volume (isolated per stack), so it is
+reaped automatically by the teardown's `compose.delete … deleteVolumes:true` — nothing accumulates
+on the host disk.
+
+### Spotify OAuth (relay)
+
+Spotify requires every `redirect_uri` to be pre-registered exactly — no wildcards, no `localhost`,
+HTTPS-only except `http://127.0.0.1` loopback. Since local dev (dynamic port) and each PR preview
+(dynamic subdomain) have different origins, none can be registered individually. Instead **one**
+relay URI is registered and shared by all environments:
+
+```
+https://<prod-frontend>/api/spotify/relay
+```
+
+How it works: `/api/spotify/connect` always asks Spotify to redirect to that relay, and encodes the
+originating environment's own origin into a **signed** OAuth `state`. The relay
+(`frontend/src/routes/api/spotify/relay/+server.ts`) verifies the HMAC signature, checks the origin
+against an allowlist, then 303-bounces the browser to `<origin>/api/spotify/callback`. The browser
+arrives there top-level on its own frontend origin, so the `mh_session` cookie rides along and the
+originating environment completes the token exchange itself (`redirect_uri` = the relay URL) and
+stores tokens in its own DB. The signature is what keeps the bounce from being an open redirect of
+the auth `code`.
+
+**One-time setup:**
+
+1. **Spotify dashboard** → register exactly `https://<prod-frontend>/api/spotify/relay` as the only
+   redirect URI (remove any old `…/api/spotify/callback` or `127.0.0.1` entries).
+2. **Generate one signing key** (e.g. `openssl rand -base64 32`) and set it identically in three
+   places — they must match or the relay rejects the state:
+   - local dev: `dotnet user-secrets set "Parameters:spotify-oauth-state-key" "<key>" --project MusicHoarder.AppHost`
+     (also set `Parameters:spotify-oauth-relay-url` to the relay URL, and `Spotify:ClientId`/`Spotify:ClientSecret`);
+   - prod (Dokploy runtime env): `Spotify__OAuthStateSigningKey`;
+   - previews (GitHub secret): `PREVIEW_SPOTIFY_OAUTH_STATE_KEY`.
+3. **Prod relay allowlist** (`spotify-return-origin-allowlist`, the prod frontend's
+   `SPOTIFY_RETURN_ORIGIN_ALLOWLIST` env in Dokploy) must list every origin the relay may bounce to:
+   the prod origin, `https://*.<PREVIEW_BASE_DOMAIN>`, and — for local dev — `https://localhost:*`
+   and `http://127.0.0.1:*`. A single `*` matches one host/port segment.
+
+Local Spotify testing therefore depends on the prod relay being deployed and its allowlist
+permitting loopback. For fully offline dev, leave `spotify-oauth-relay-url` empty and the redirect
+falls back to the request origin (`Spotify:OAuthRedirectBaseUrl` is also still honored).
 
 ### Self-hosted / homelab deployment (docker-compose)
 

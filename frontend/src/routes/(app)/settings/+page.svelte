@@ -317,6 +317,18 @@
       dot: '#1DB954'
     },
     {
+      key: 'deezer',
+      name: 'Deezer',
+      subtitle: 'Free ISRC-first + artist/title catalog search (no auth)',
+      dot: '#a238ff'
+    },
+    {
+      key: 'appleMusic',
+      name: 'Apple Music',
+      subtitle: 'Free iTunes artist + title catalog search (no auth)',
+      dot: '#fa2d48'
+    },
+    {
       key: 'musicBrainzWeb',
       name: 'MusicBrainz web',
       subtitle: 'Direct ISRC / artist+title lookups against MusicBrainz',

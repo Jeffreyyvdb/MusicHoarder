@@ -94,19 +94,38 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Plain docker build of the same Dockerfiles production uses — context `.` for the API (it
-      # bundles fpcalc + curl) and ./frontend for the SvelteKit/Bun server.
+      - name: Set up Docker Buildx
+        if: steps.pre.outputs.configured == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      # Same Dockerfiles production uses — context `.` for the API (it bundles fpcalc + curl) and
+      # ./frontend for the SvelteKit/Bun server. Built via buildx with a GitHub Actions layer cache
+      # (separate scope per image so they don't evict each other) so repeated PR pushes reuse the
+      # expensive `dotnet restore` / `bun install` stages. provenance:false keeps a plain single-image
+      # manifest (matching the old `docker build`) so the :pr-<n> tag shape teardown prunes is intact.
       - name: Build & push API image
         if: steps.pre.outputs.configured == 'true'
-        run: |
-          docker build -f Dockerfile -t "${{ steps.vars.outputs.api_image }}" .
-          docker push "${{ steps.vars.outputs.api_image }}"
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.vars.outputs.api_image }}
+          cache-from: type=gha,scope=pr-api
+          cache-to: type=gha,mode=max,scope=pr-api
+          provenance: false
 
       - name: Build & push frontend image
         if: steps.pre.outputs.configured == 'true'
-        run: |
-          docker build -f frontend/Dockerfile -t "${{ steps.vars.outputs.frontend_image }}" ./frontend
-          docker push "${{ steps.vars.outputs.frontend_image }}"
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: frontend/Dockerfile
+          push: true
+          tags: ${{ steps.vars.outputs.frontend_image }}
+          cache-from: type=gha,scope=pr-frontend
+          cache-to: type=gha,mode=max,scope=pr-frontend
+          provenance: false
 
       - name: Provision Dokploy preview stack
         id: provision
@@ -121,26 +140,42 @@ jobs:
           # Owner's pre-registered passkey, seeded into the empty preview DB so passkey login works
           # without re-registering. Public-key material only; empty → seed skipped.
           PREVIEW_OWNER_SEED_CREDENTIAL: ${{ secrets.PREVIEW_OWNER_SEED_CREDENTIAL }}
-          # Host paths on the Dokploy server (repo variables). Empty → script defaults apply.
+          # Spotify OAuth: the preview completes the token exchange itself, so it needs the app creds and the
+          # shared state-signing key (must equal the prod relay's). The relay URL is the single registered URI.
+          # All empty → Spotify connect simply stays disabled in the preview.
+          PREVIEW_SPOTIFY_CLIENT_ID: ${{ secrets.PREVIEW_SPOTIFY_CLIENT_ID }}
+          PREVIEW_SPOTIFY_CLIENT_SECRET: ${{ secrets.PREVIEW_SPOTIFY_CLIENT_SECRET }}
+          PREVIEW_SPOTIFY_OAUTH_RELAY_URL: ${{ vars.PREVIEW_SPOTIFY_OAUTH_RELAY_URL }}
+          PREVIEW_SPOTIFY_OAUTH_STATE_KEY: ${{ secrets.PREVIEW_SPOTIFY_OAUTH_STATE_KEY }}
+          # Host path of the shared read-only sample library (repo variable). Empty → script default
+          # applies. The per-PR destination is a managed named volume, not a host path.
           PREVIEW_SOURCE_DIR: ${{ vars.PREVIEW_SOURCE_DIR }}
-          PREVIEW_DEST_ROOT: ${{ vars.PREVIEW_DEST_ROOT }}
           PR: ${{ steps.vars.outputs.pr }}
           API_IMAGE: ${{ steps.vars.outputs.api_image }}
           FRONTEND_IMAGE: ${{ steps.vars.outputs.frontend_image }}
         run: ./scripts/dokploy-preview.sh provision
 
-      - name: Comment preview URL on PR
+      - name: Comment preview URL + label PR
         if: github.event_name == 'pull_request' && steps.provision.outputs.preview_url != ''
         uses: actions/github-script@v7
+        env:
+          # Full head SHA of what was just built+deployed. The comment shows the short form so a
+          # glance tells you whether the live preview matches the latest push.
+          DEPLOYED_SHA: ${{ github.event.pull_request.head.sha }}
         with:
           script: |
             // toJSON keeps this a valid JS string literal even if the URL ever contains a quote.
             const url = ${{ toJSON(steps.provision.outputs.preview_url) }};
+            const sha = (process.env.DEPLOYED_SHA || "").slice(0, 7);
+            const commitUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/commit/${process.env.DEPLOYED_SHA}`;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const updated = new Date().toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC");
             const marker = "<!-- mh-preview -->";
-            const body = `${marker}\n🎧 **Preview environment deployed**\n\n${url}\n\n` +
+            const body = `${marker}\n🟢 **Preview environment live**\n\n${url}\n\n` +
+              `**Deployed commit:** [\`${sha}\`](${commitUrl}) · updated ${updated} · [deploy log](${runUrl})\n\n` +
               `⏳ The stack takes ~1 min to come up — give it a moment if the link 502s at first.\n\n` +
               `Full isolated stack (Postgres + API + frontend). Sign in with the magic link from ` +
-              `the API logs in Dokploy. Torn down when this PR closes.`;
+              `the API logs in Dokploy. Auto-redeploys on every push; torn down when this PR closes.`;
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner, repo: context.repo.repo,
               issue_number: context.issue.number,
@@ -157,6 +192,23 @@ jobs:
                 issue_number: context.issue.number, body,
               });
             }
+
+            // PR-list-visible signal: a green "preview" label means a live env exists for this PR.
+            // Ensure the label exists (idempotent — 422 if already created), then attach it.
+            const label = "preview";
+            try {
+              await github.rest.issues.createLabel({
+                owner: context.repo.owner, repo: context.repo.repo,
+                name: label, color: "0e8a16",
+                description: "Has a live Dokploy preview environment",
+              });
+            } catch (e) {
+              if (e.status !== 422) throw e; // 422 = label already exists
+            }
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number, labels: [label],
+            });
 
   teardown:
     name: Tear down preview
@@ -220,7 +272,7 @@ jobs:
             done
           done
 
-      - name: Comment teardown on PR
+      - name: Comment teardown + unlabel PR
         if: steps.pre.outputs.configured == 'true'
         uses: actions/github-script@v7
         with:
@@ -237,4 +289,15 @@ jobs:
                 owner: context.repo.owner, repo: context.repo.repo,
                 comment_id: existing.id, body,
               });
+            }
+
+            // Drop the "preview" label so the PR list no longer shows it as live. Ignore 404
+            // (label was never attached, or already removed).
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.issue.number, name: "preview",
+              });
+            } catch (e) {
+              if (e.status !== 404) throw e;
             }
