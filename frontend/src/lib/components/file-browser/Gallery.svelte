@@ -4,7 +4,7 @@
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import ProcessingStrip from '$lib/components/file-browser/ProcessingStrip.svelte';
-  import { buildAlbumsFromSongs, getSongStreamUrl, type ApiSong } from '$lib/api-client';
+  import { buildAlbumsFromSongs, getSongStreamUrl, sortAlbumsByRecency, type ApiSong } from '$lib/api-client';
   import { SECTION_LABELS, type SectionId } from '$lib/album-sections';
   import { formatFileSize, formatDuration } from '$lib/formatters';
   import { playerStore } from '$lib/stores/player.svelte';
@@ -43,7 +43,11 @@
   });
   onDestroy(() => {});
 
-  const albums = $derived(buildAlbumsFromSongs(songs));
+  const albums = $derived(
+    section === 'recent'
+      ? sortAlbumsByRecency(buildAlbumsFromSongs(songs))
+      : buildAlbumsFromSongs(songs)
+  );
   const filtered = $derived.by(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return albums;
