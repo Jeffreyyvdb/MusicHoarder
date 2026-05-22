@@ -29,37 +29,39 @@
   const playerPad = $derived(playerStore.currentSong && !playerStore.isPanelMounted);
 </script>
 
-{#if isMobile.current}
-  <!-- Mobile shell: dedicated bottom tab navigation, no desktop sidebar/header. -->
-  <div class="bg-background flex h-svh flex-col overflow-hidden">
+<!-- Render children() exactly once so resizing across the mobile breakpoint only
+     swaps the surrounding chrome (sidebar/header vs bottom tab bar) — the page itself
+     is never destroyed and recreated, avoiding a refetch/loading flash on resize. -->
+<Sidebar.Provider>
+  {#if !isMobile.current}
+    <AppSidebar />
+  {/if}
+  <Sidebar.Inset
+    class={cn(
+      'bg-background h-svh min-w-0',
+      isMobile.current
+        ? 'overflow-hidden'
+        : cn(playerPad && !drawerOpen && 'pb-[60px] sm:pb-[68px]', drawerOpen && 'pb-[340px]')
+    )}
+  >
+    {#if !isMobile.current}
+      <AppHeader />
+      <LibraryOfflineBanner />
+    {/if}
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
       {@render children()}
     </div>
-    <MobileTabBar />
-  </div>
-  <MiniPlayer mobileInset />
-{:else}
-  <Sidebar.Provider>
-    <AppSidebar />
-    <Sidebar.Inset
-      class={cn(
-        'bg-background h-svh',
-        playerPad && !drawerOpen && 'pb-[60px] sm:pb-[68px]',
-        drawerOpen && 'pb-[340px]'
-      )}
-    >
-      <AppHeader />
-      <LibraryOfflineBanner />
-      {@render children()}
-    </Sidebar.Inset>
-  </Sidebar.Provider>
+    {#if isMobile.current}
+      <MobileTabBar />
+    {/if}
+  </Sidebar.Inset>
+</Sidebar.Provider>
 
-  <!-- MiniPlayer is the global playback UI; it hides itself when the in-page
-       TrackPanel is mounted. The audio element itself is owned by the store
-       (not the DOM), so playback no longer depends on this staying mounted. -->
-  <MiniPlayer />
+<!-- MiniPlayer is the global playback UI; it hides itself when the in-page
+     TrackPanel is mounted. Its audio element is owned by the store (not the
+     DOM), so playback survives re-renders, navigation, and resize. -->
+<MiniPlayer mobileInset={isMobile.current} />
 
-  {#if drawerOpen}
-    <ImportPipelineDrawer />
-  {/if}
+{#if drawerOpen && !isMobile.current}
+  <ImportPipelineDrawer />
 {/if}

@@ -20,6 +20,7 @@
   import { signOut } from '$lib/api-client';
   import * as Sidebar from '$lib/components/ui/sidebar';
   import {
+    buildAlbumsFromSongs,
     fetchOverview,
     fetchSongs,
     fetchStats,
@@ -28,6 +29,7 @@
     type ApiSong,
     type ApiStats
   } from '$lib/api-client';
+  import { applySectionFilter } from '$lib/album-sections';
   import { playerStore } from '$lib/stores/player.svelte';
   import { cn } from '$lib/utils';
 
@@ -147,8 +149,8 @@
     let dupes = 0;
     for (const v of fpSeen.values()) if (v > 1) dupes += v;
     for (const v of titleSeen.values()) if (v > 1) dupes += v;
-    // Recently added = last 50 by id-desc (id monotonic in this app).
-    const recent = Math.min(50, songs.length);
+    // Recently added = count of albums shown in the recent section (capped).
+    const recent = buildAlbumsFromSongs(applySectionFilter(songs, 'recent')).length;
     return {
       lib: totalTracks ?? songs.length,
       recent,

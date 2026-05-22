@@ -5,15 +5,20 @@
  * /missing-metadata /queue endpoints, so these are derived client-side
  * from the same `fetchSongs()` result the rest of /app reads.
  */
-import { mapEnrichmentStatus, type ApiSong } from '$lib/api-client';
+import { buildAlbumsFromSongs, mapEnrichmentStatus, sortAlbumsByRecency, type ApiSong } from '$lib/api-client';
 
 export type SectionId = 'lib' | 'recent' | 'dupes' | 'missing' | 'queue';
 
-const RECENT_CAP = 50;
+export const RECENT_ALBUM_CAP = 50;
 
-/** Latest songs by id-descending. id is monotonically increasing in this app. */
-export function filterRecent(songs: ApiSong[], cap = RECENT_CAP): ApiSong[] {
-  return [...songs].sort((a, b) => b.id - a.id).slice(0, cap);
+/**
+ * Songs belonging to the N most-recently-added albums (newest first by build/index time).
+ * Capped by album count — callers re-group these songs into exactly those N albums.
+ */
+export function filterRecent(songs: ApiSong[], cap = RECENT_ALBUM_CAP): ApiSong[] {
+  return sortAlbumsByRecency(buildAlbumsFromSongs(songs))
+    .slice(0, cap)
+    .flatMap((a) => a.songs);
 }
 
 /**
