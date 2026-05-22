@@ -45,6 +45,8 @@ services:
       - ConnectionStrings__musichoarderdb=Host=postgres;Database=musichoarderdb;Username=musichoarder;Password=${POSTGRES_PASSWORD}
       - MusicEnricher__SourceDirectory=/music/source
       - MusicEnricher__DestinationDirectory=/music/destination
+      # Previews are resource-constrained: never auto-run the pipeline. Drive it manually from the UI.
+      - MusicEnricher__AutoStartPipeline=false
       - MusicEnricher__AcoustIdApiKey=${ACOUSTID_API_KEY:-}
       - Spotify__ClientId=${SPOTIFY_CLIENT_ID:-}
       - Spotify__ClientSecret=${SPOTIFY_CLIENT_SECRET:-}

@@ -97,8 +97,9 @@ public class DirectoryAvailabilityMonitor(
                 opts.DestinationDirectory, destinationAvailable ? "reachable" : "unreachable");
 
         // Source came back (or was reachable on the very first probe): kick a scan so the
-        // pipeline resumes without the user having to click anything.
-        if (sourceAvailable && (!previous.SourceAvailable || firstProbe))
+        // pipeline resumes without the user having to click anything. Skipped when the automatic
+        // pipeline is disabled — the user triggers scans manually instead.
+        if (opts.AutoStartPipeline && sourceAvailable && (!previous.SourceAvailable || firstProbe))
         {
             if (jobManager.TryStartJob(JobType.Scan, out _, out _))
                 logger.LogInformation(

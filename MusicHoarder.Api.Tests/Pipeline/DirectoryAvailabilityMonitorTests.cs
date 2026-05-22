@@ -8,13 +8,14 @@ namespace MusicHoarder.Api.Tests.Pipeline;
 public class DirectoryAvailabilityMonitorTests
 {
     private static DirectoryAvailabilityMonitor CreateMonitor(
-        JobManager jobManager, string sourceDir, string destDir)
+        JobManager jobManager, string sourceDir, string destDir, bool autoStartPipeline = true)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
             SourceDirectory = sourceDir,
             DestinationDirectory = destDir,
             DirectoryProbeTimeoutSeconds = 2,
+            AutoStartPipeline = autoStartPipeline,
         });
 
         return new DirectoryAvailabilityMonitor(
@@ -93,6 +94,30 @@ public class DirectoryAvailabilityMonitorTests
 
             Assert.True(snapshot.SourceAvailable);
             Assert.Equal("Running", jobManager.GetStepSnapshot(JobType.Scan).Status);
+        }
+        finally
+        {
+            if (Directory.Exists(source)) Directory.Delete(source, recursive: true);
+            if (Directory.Exists(dest)) Directory.Delete(dest, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProbeNowAsync_WhenAutoStartDisabled_DoesNotTriggerScan()
+    {
+        var source = Directory.CreateTempSubdirectory("mh-src-").FullName;
+        var dest = Directory.CreateTempSubdirectory("mh-dst-").FullName;
+        try
+        {
+            var jobManager = new JobManager();
+            var monitor = CreateMonitor(jobManager, source, dest, autoStartPipeline: false);
+
+            var snapshot = await monitor.ProbeNowAsync();
+
+            // Availability is still probed (UI banner, manual-trigger gating), but no scan starts.
+            Assert.True(snapshot.SourceAvailable);
+            Assert.Equal("Idle", jobManager.GetStepSnapshot(JobType.Scan).Status);
+            Assert.False(jobManager.ScanTriggers.TryRead(out _));
         }
         finally
         {
