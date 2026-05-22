@@ -1,3 +1,4 @@
+import { browser } from '$app/environment';
 import { toast } from 'svelte-sonner';
 
 export interface PlayerSong {
@@ -53,8 +54,50 @@ function stopRaf() {
   }
 }
 
+/**
+ * Own the audio element imperatively rather than rendering it in a component.
+ * A DOM-rendered `<audio>` is subject to Svelte's reconciliation: re-renders
+ * that touch its subtree (e.g. closing the in-page TrackPanel) recreate/
+ * re-initialize it, which makes the player reload the stream from byte 0 —
+ * audible as a re-buffer/stutter mid-playback. An element from `new Audio()`
+ * never enters the rendered tree, so no re-render can disturb playback.
+ */
+function ensureAudioEl(): HTMLAudioElement | null {
+  if (!browser) return null;
+  if (audioEl) return audioEl;
+
+  const el = new Audio();
+  el.preload = 'metadata';
+  el.volume = volumeState;
+
+  el.addEventListener('loadedmetadata', () => (duration = el.duration));
+  el.addEventListener('ended', () => {
+    stopRaf();
+    isPlaying = false;
+  });
+  el.addEventListener('error', () => {
+    stopRaf();
+    isPlaying = false;
+    const song = currentSong;
+    if (song) {
+      toast.error('Playback failed', { description: `Could not play "${song.title}".` });
+    }
+  });
+  el.addEventListener('play', () => {
+    isPlaying = true;
+    startRaf();
+  });
+  el.addEventListener('pause', () => {
+    stopRaf();
+    isPlaying = false;
+  });
+
+  audioEl = el;
+  return el;
+}
+
 async function playSong(song: PlayerSong) {
-  if (!audioEl) return;
+  if (!ensureAudioEl() || !audioEl) return;
 
   if (currentSong?.id === song.id) {
     if (audioEl.paused) {
@@ -110,6 +153,7 @@ function pause() {
 }
 
 function resume() {
+  ensureAudioEl();
   void audioEl
     ?.play()
     .then(() => (isPlaying = true))
@@ -155,46 +199,13 @@ function registerPanel(): () => void {
   };
 }
 
-export function attachAudioElement(el: HTMLAudioElement): () => void {
-  audioEl = el;
-
-  const onLoadedMetadata = () => (duration = el.duration);
-  const onEnded = () => {
-    stopRaf();
-    isPlaying = false;
-  };
-  const onError = () => {
-    stopRaf();
-    isPlaying = false;
-    const song = currentSong;
-    if (song) {
-      toast.error('Playback failed', { description: `Could not play "${song.title}".` });
-    }
-  };
-  const onPlay = () => {
-    isPlaying = true;
-    startRaf();
-  };
-  const onPause = () => {
-    stopRaf();
-    isPlaying = false;
-  };
-
-  el.addEventListener('loadedmetadata', onLoadedMetadata);
-  el.addEventListener('ended', onEnded);
-  el.addEventListener('error', onError);
-  el.addEventListener('play', onPlay);
-  el.addEventListener('pause', onPause);
-
-  return () => {
-    stopRaf();
-    el.removeEventListener('loadedmetadata', onLoadedMetadata);
-    el.removeEventListener('ended', onEnded);
-    el.removeEventListener('error', onError);
-    el.removeEventListener('play', onPlay);
-    el.removeEventListener('pause', onPause);
-    if (audioEl === el) audioEl = null;
-  };
+/**
+ * Warm up the store-owned audio element for the session. Safe to call multiple
+ * times and on the server (no-op until `browser`). Call once from the app
+ * layout so `ended`/`error` are wired even before the first play.
+ */
+export function initPlayer(): void {
+  ensureAudioEl();
 }
 
 export const playerStore = {

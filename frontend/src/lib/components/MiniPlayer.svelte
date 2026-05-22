@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Music, Pause, Play, Volume2, VolumeX, X } from '@lucide/svelte';
-  import { playerStore, attachAudioElement } from '$lib/stores/player.svelte';
+  import { playerStore } from '$lib/stores/player.svelte';
   import { Button } from '$lib/components/ui/button';
   import { Slider } from '$lib/components/ui/slider';
 
@@ -17,21 +17,49 @@
   };
   const { mobileInset = false }: Props = $props();
 
-  let audioEl: HTMLAudioElement | null = $state(null);
-
-  $effect(() => {
-    if (!audioEl) return;
-    return attachAudioElement(audioEl);
-  });
-
-  const progressPercent = $derived(
-    playerStore.duration > 0 ? (playerStore.currentTime / playerStore.duration) * 100 : 0
+  // Progress as a 0..1 fraction. Driven into the seek bar via `transform: scaleX`
+  // (composite-only) rather than a bits-ui Slider, whose per-value reflow on the
+  // ~10 Hz time tick saturates the main thread and starves audio playback.
+  const progress = $derived(
+    playerStore.duration > 0
+      ? Math.max(0, Math.min(1, playerStore.currentTime / playerStore.duration))
+      : 0
   );
-  const maxDuration = $derived(playerStore.duration > 0 ? playerStore.duration : 1);
-</script>
 
-<!-- Hidden audio element — always mounted so it persists across page navigation -->
-<audio bind:this={audioEl} preload="metadata" style="display: none"></audio>
+  let seekEl: HTMLDivElement | null = $state(null);
+
+  function seekToClientX(clientX: number) {
+    if (!seekEl || playerStore.duration <= 0) return;
+    const rect = seekEl.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    playerStore.seek(ratio * playerStore.duration);
+  }
+
+  function onSeekPointerDown(e: PointerEvent) {
+    if (playerStore.duration <= 0) return;
+    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+    seekToClientX(e.clientX);
+  }
+
+  function onSeekPointerMove(e: PointerEvent) {
+    if (playerStore.duration <= 0) return;
+    const el = e.currentTarget as HTMLDivElement;
+    if (!el.hasPointerCapture(e.pointerId)) return;
+    seekToClientX(e.clientX);
+  }
+
+  function onSeekKeyDown(e: KeyboardEvent) {
+    if (playerStore.duration <= 0) return;
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      playerStore.seek(Math.max(0, playerStore.currentTime - 5));
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      playerStore.seek(Math.min(playerStore.duration, playerStore.currentTime + 5));
+    }
+  }
+</script>
 
 {#if playerStore.currentSong && !playerStore.isPanelMounted}
   {@const song = playerStore.currentSong}
@@ -41,10 +69,10 @@
       ? 'bottom: calc(var(--tab-h, 76px) + env(safe-area-inset-bottom));'
       : 'bottom: 0;'}
   >
-    <div class="bg-muted block h-0.5 w-full sm:hidden" aria-hidden="true">
+    <div class="bg-muted block h-0.5 w-full overflow-hidden sm:hidden" aria-hidden="true">
       <div
-        class="bg-primary h-full transition-[width] duration-200 ease-linear"
-        style="width: {progressPercent}%"
+        class="bg-primary h-full w-full origin-left"
+        style="transform: scaleX({progress})"
       ></div>
     </div>
 
@@ -83,18 +111,30 @@
         {formatTime(playerStore.currentTime)}
       </span>
 
-      <Slider
-        type="single"
-        value={playerStore.duration > 0 ? playerStore.currentTime : 0}
-        max={maxDuration}
-        min={0}
-        step={0.01}
-        class="hidden min-w-0 flex-1 cursor-pointer sm:flex [&_[data-slot=slider-track]]:h-2 [&_[data-slot=slider-thumb]]:size-4"
-        onValueChange={(val) => {
-          if (typeof val === 'number') playerStore.seek(val);
-        }}
+      <div
+        bind:this={seekEl}
+        role="slider"
+        tabindex="0"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(progress * 100)}
         aria-label="Seek"
-      />
+        class="group relative hidden h-4 min-w-0 flex-1 cursor-pointer touch-none items-center select-none sm:flex"
+        onpointerdown={onSeekPointerDown}
+        onpointermove={onSeekPointerMove}
+        onkeydown={onSeekKeyDown}
+      >
+        <div class="bg-muted relative h-2 w-full overflow-hidden rounded-full">
+          <div
+            class="bg-primary absolute inset-0 origin-left rounded-full"
+            style="transform: scaleX({progress})"
+          ></div>
+        </div>
+        <div
+          class="border-ring pointer-events-none absolute size-4 -translate-x-1/2 rounded-full border bg-white"
+          style="left: {progress * 100}%"
+        ></div>
+      </div>
 
       <span
         class="text-muted-foreground hidden w-9 shrink-0 text-xs tabular-nums sm:block"
