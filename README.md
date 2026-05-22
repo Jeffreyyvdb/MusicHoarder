@@ -181,9 +181,12 @@ expose manual dispatch for a workflow that only exists on a feature branch — s
 use the `pull_request` trigger; `workflow_dispatch` is for manual re-previews afterwards.) Closing the
 PR runs the teardown job.
 
-Tunables: `PREVIEW_MAX_STACKS` (default 5, env in the provision step); `PREVIEW_SOURCE_DIR` /
-`PREVIEW_DEST_ROOT` are **repo variables** (Settings → Variables) for the host paths bind-mounted
-into each preview (default to `/srv/mh-preview/...` if unset).
+Tunables: `PREVIEW_MAX_STACKS` (default 5, env in the provision step); `PREVIEW_SOURCE_DIR` is a
+**repo variable** (Settings → Variables) for the host path of the shared read-only sample library
+bind-mounted into each preview (defaults to `/srv/mh-preview/sample-source` if unset). The per-PR
+built library lives in a managed `musichoarder-dest` named volume (isolated per stack), so it is
+reaped automatically by the teardown's `compose.delete … deleteVolumes:true` — nothing accumulates
+on the host disk.
 
 ### Spotify OAuth (relay)
 

@@ -147,9 +147,9 @@ jobs:
           PREVIEW_SPOTIFY_CLIENT_SECRET: ${{ secrets.PREVIEW_SPOTIFY_CLIENT_SECRET }}
           PREVIEW_SPOTIFY_OAUTH_RELAY_URL: ${{ vars.PREVIEW_SPOTIFY_OAUTH_RELAY_URL }}
           PREVIEW_SPOTIFY_OAUTH_STATE_KEY: ${{ secrets.PREVIEW_SPOTIFY_OAUTH_STATE_KEY }}
-          # Host paths on the Dokploy server (repo variables). Empty → script defaults apply.
+          # Host path of the shared read-only sample library (repo variable). Empty → script default
+          # applies. The per-PR destination is a managed named volume, not a host path.
           PREVIEW_SOURCE_DIR: ${{ vars.PREVIEW_SOURCE_DIR }}
-          PREVIEW_DEST_ROOT: ${{ vars.PREVIEW_DEST_ROOT }}
           PR: ${{ steps.vars.outputs.pr }}
           API_IMAGE: ${{ steps.vars.outputs.api_image }}
           FRONTEND_IMAGE: ${{ steps.vars.outputs.frontend_image }}
