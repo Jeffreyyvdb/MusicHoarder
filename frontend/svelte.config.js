@@ -9,6 +9,11 @@ const config = {
     alias: {
       $lib: 'src/lib'
     },
+    // Poll _app/version.json so the app notices a new deploy and can do a full
+    // page navigation instead of client-routing into deleted chunks.
+    version: {
+      pollInterval: 60_000
+    },
     experimental: {
       tracing: {
         server: true
