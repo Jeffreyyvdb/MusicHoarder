@@ -5,10 +5,12 @@
     ChevronLeft,
     ChevronRight,
     Columns,
+    Disc3,
     FolderOpen,
     Grid3x3,
     List,
     Loader2,
+    PackageCheck,
     ScanLine,
     Search,
     Settings as SettingsIcon
@@ -19,7 +21,14 @@
   import { Input } from '$lib/components/ui/input';
   import { Separator } from '$lib/components/ui/separator';
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
-  import { fetchOverview, triggerEnrichmentScan, type ApiOverview } from '$lib/api-client';
+  import {
+    fetchOverview,
+    triggerBuild,
+    triggerEnrichmentScan,
+    triggerFingerprint,
+    type ApiOverview,
+    type EnrichmentTriggerResult
+  } from '$lib/api-client';
   import { breadcrumbStore } from '$lib/stores/breadcrumbs.svelte';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { cn } from '$lib/utils';
@@ -166,25 +175,36 @@
 
   const showViewToggle = $derived(onAlbumsRoot && !albumKey);
 
-  let scanning = $state(false);
-  async function scanSource() {
-    if (scanning) return;
-    scanning = true;
+  // Manual pipeline controls. With MusicEnricher__AutoStartPipeline=false
+  // (e.g. preview environments) stages no longer cascade, so the manual flow
+  // is Scan → Fingerprint → Build (enrichment rides off the fingerprint feed).
+  // One job runs at a time, so a single in-flight marker is enough.
+  type PipelineStage = 'scan' | 'fingerprint' | 'build';
+  const STAGES: { id: PipelineStage; label: string; icon: typeof ScanLine; trigger: () => Promise<EnrichmentTriggerResult> }[] = [
+    { id: 'scan', label: 'Scan', icon: ScanLine, trigger: triggerEnrichmentScan },
+    { id: 'fingerprint', label: 'Fingerprint', icon: Disc3, trigger: triggerFingerprint },
+    { id: 'build', label: 'Build', icon: PackageCheck, trigger: triggerBuild }
+  ];
+
+  let runningStage = $state<PipelineStage | null>(null);
+  async function runStage(stage: (typeof STAGES)[number]) {
+    if (runningStage) return;
+    runningStage = stage.id;
     try {
-      const result = await triggerEnrichmentScan();
+      const result = await stage.trigger();
       if (result.ok) {
-        toast.success('Scan started', {
-          description: 'Scanning the source directory for new files.'
-        });
+        toast.success(`${stage.label} started`);
         // Surface live progress as the pipeline picks up the new rows.
         pipelineOverlay.setOpen(true);
       } else {
-        toast.error('Could not start scan', { description: result.message });
+        toast.error(`Could not start ${stage.label.toLowerCase()}`, { description: result.message });
       }
     } catch {
-      toast.error('Could not start scan', { description: 'The API may be unavailable.' });
+      toast.error(`Could not start ${stage.label.toLowerCase()}`, {
+        description: 'The API may be unavailable.'
+      });
     } finally {
-      scanning = false;
+      runningStage = null;
     }
   }
 </script>
@@ -292,24 +312,38 @@
       </div>
     {/if}
 
-    <button
-      type="button"
-      onclick={scanSource}
-      disabled={scanning}
-      title="Scan the source directory for new files"
-      class={cn(
-        'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors',
-        'bg-surface-sunken border-border text-muted-foreground hover:text-foreground',
-        scanning && 'cursor-not-allowed opacity-60'
-      )}
-    >
-      {#if scanning}
-        <Loader2 class="size-3.5 animate-spin" />
-      {:else}
-        <ScanLine class="size-3.5" />
-      {/if}
-      <span class="hidden sm:inline">Scan</span>
-    </button>
+    <div class="bg-surface-sunken border-border flex items-center rounded-md border p-0.5">
+      {#each STAGES as stage (stage.id)}
+        {@const busy = runningStage === stage.id}
+        <Tooltip.Provider delayDuration={300}>
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  onclick={() => runStage(stage)}
+                  disabled={runningStage !== null}
+                  class={cn(
+                    'text-muted-foreground hover:text-foreground flex items-center gap-1.5 rounded px-2 py-1 text-[11px] transition-colors',
+                    runningStage !== null && !busy && 'cursor-not-allowed opacity-50'
+                  )}
+                  aria-label={stage.label}
+                >
+                  {#if busy}
+                    <Loader2 class="size-3.5 animate-spin" />
+                  {:else}
+                    <stage.icon class="size-3.5" />
+                  {/if}
+                  <span class="hidden lg:inline">{stage.label}</span>
+                </button>
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content>{stage.label}</Tooltip.Content>
+          </Tooltip.Root>
+        </Tooltip.Provider>
+      {/each}
+    </div>
 
     <button
       type="button"
