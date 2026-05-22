@@ -96,7 +96,11 @@ public sealed class AcoustIdService(
             var best = viable[0];
             var candidateCount = viable.Count(r => Math.Abs(r.Score - best.Score) <= 0.1f);
 
-            var recording = best.Recordings![0];
+            // A single fingerprint result usually links many MusicBrainz recordings (the same audio
+            // across releases/variants). They're all acoustically correct, so prefer the recording
+            // whose length best matches this file — that picks the right pressing and yields a
+            // RecordingDurationMs the validator can trust, instead of an arbitrary Recordings[0].
+            var recording = SelectRecording(best.Recordings!, durationSeconds);
             var displayArtist = recording.Artists is { Count: > 0 }
                 ? string.Join("; ", recording.Artists.Select(a => a.Name))
                 : string.Empty;
@@ -128,6 +132,20 @@ public sealed class AcoustIdService(
             logger.LogWarning(ex, "AcoustID lookup failed unexpectedly");
             return null;
         }
+    }
+
+    /// <summary>
+    /// Chooses the most representative recording from a single AcoustID fingerprint result.
+    /// Prefers a titled recording whose duration is closest to the file's, then one that carries
+    /// artist credits. Falls back to the first recording when none carry usable signal.
+    /// </summary>
+    internal static AcoustIdRecording SelectRecording(List<AcoustIdRecording> recordings, int durationSeconds)
+    {
+        return recordings
+            .OrderByDescending(r => !string.IsNullOrWhiteSpace(r.Title))
+            .ThenBy(r => r.Duration > 0 ? Math.Abs(r.Duration - durationSeconds) : double.MaxValue)
+            .ThenByDescending(r => r.Artists is { Count: > 0 })
+            .First();
     }
 
     private static TokenBucketRateLimiter GetRateLimiter(int requestsPerSecond)
@@ -177,7 +195,7 @@ public sealed class AcoustIdService(
         public List<AcoustIdRecording>? Recordings { get; set; }
     }
 
-    private sealed class AcoustIdRecording
+    internal sealed class AcoustIdRecording
     {
         [JsonPropertyName("id")]
         public string Id { get; set; } = string.Empty;
@@ -192,7 +210,7 @@ public sealed class AcoustIdService(
         public List<AcoustIdArtist>? Artists { get; set; }
     }
 
-    private sealed class AcoustIdArtist
+    internal sealed class AcoustIdArtist
     {
         [JsonPropertyName("id")]
         public string Id { get; set; } = string.Empty;
