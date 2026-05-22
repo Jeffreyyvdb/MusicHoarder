@@ -116,6 +116,12 @@ compose stack (own Postgres + API + frontend, namespaced by `appName=mh-pr-<n>`)
 `docker-compose.preview.yaml`. The stack is torn down when the PR closes; a daily
 `pr-preview-cleanup.yml` reaps any that slip through.
 
+When a preview is live the workflow attaches a green **`preview`** label to the PR (so the PR list
+shows at a glance which PRs have a running environment) and posts a sticky comment with the URL, the
+**deployed commit SHA**, and the update time. Every push re-deploys and refreshes that comment — the
+short SHA tells you whether the live env matches the latest commit. The label is removed and the
+comment updated on teardown (close-event teardown, or the daily reaper as a fallback).
+
 Previews set `MusicEnricher__AutoStartPipeline=false` so the resource-intensive processing never
 auto-runs. Discovery still runs, so the library populates on boot; drive the rest manually from the
 UI (Fingerprint → Build, or the per-song / per-folder "Enrich" actions) to test exactly what a PR
