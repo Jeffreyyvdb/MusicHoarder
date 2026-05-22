@@ -150,7 +150,7 @@
         All albums
       </a>
 
-      <div class="relative z-10 flex flex-col items-start gap-6 sm:flex-row sm:items-end sm:gap-8">
+      <div class="relative z-10 flex flex-col items-start gap-6 sm:flex-row sm:gap-8">
         <div class="w-[clamp(124px,26vw,232px)] shrink-0">
           <Cover
             artist={album.artist}
