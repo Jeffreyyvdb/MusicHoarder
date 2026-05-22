@@ -61,6 +61,15 @@ public class FingerprintBackgroundService(
                     continue;
                 }
 
+                // Manual mode: don't auto-discover pending work — wait for an explicit trigger.
+                if (!opts.AutoStartPipeline)
+                {
+                    var manualTrigger = jobManager.FingerprintTriggers.WaitToReadAsync(stoppingToken).AsTask();
+                    var manualDelay = Task.Delay(TimeSpan.FromSeconds(opts.FingerprintIdleDelaySeconds), stoppingToken);
+                    await Task.WhenAny(manualTrigger, manualDelay);
+                    continue;
+                }
+
                 pendingCount = await CountPendingAsync(stoppingToken);
 
                 if (pendingCount == 0)

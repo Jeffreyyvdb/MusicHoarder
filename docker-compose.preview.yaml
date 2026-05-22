@@ -39,12 +39,17 @@ services:
       # tester's session cookie.
       - musichoarder-dpkeys:/data/dpkeys
       - ${SOURCE_DIRECTORY}:/music/source:ro
-      - ${DESTINATION_DIRECTORY}:/music/destination
+      # Per-PR built library lives in a managed named volume (not a host bind mount) so that
+      # compose.delete with deleteVolumes:true reaps it on teardown — see scripts/dokploy-preview.sh.
+      - musichoarder-dest:/music/destination
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ConnectionStrings__musichoarderdb=Host=postgres;Database=musichoarderdb;Username=musichoarder;Password=${POSTGRES_PASSWORD}
       - MusicEnricher__SourceDirectory=/music/source
       - MusicEnricher__DestinationDirectory=/music/destination
+      # Previews are resource-constrained: discovery still runs (library populates), but the heavy
+      # processing (fingerprint/enrich/build) is driven manually from the UI.
+      - MusicEnricher__AutoStartPipeline=false
       - MusicEnricher__AcoustIdApiKey=${ACOUSTID_API_KEY:-}
       - Spotify__ClientId=${SPOTIFY_CLIENT_ID:-}
       - Spotify__ClientSecret=${SPOTIFY_CLIENT_SECRET:-}
@@ -106,3 +111,4 @@ services:
 volumes:
   postgres-data:
   musichoarder-dpkeys:
+  musichoarder-dest:

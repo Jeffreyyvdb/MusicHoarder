@@ -281,6 +281,12 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<bool?>("EnableAcoustIdProvider")
                         .HasColumnType("boolean");
 
+                    b.Property<bool?>("EnableAppleMusicProvider")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool?>("EnableDeezerProvider")
+                        .HasColumnType("boolean");
+
                     b.Property<bool?>("EnableMusicBrainzWebProvider")
                         .HasColumnType("boolean");
 

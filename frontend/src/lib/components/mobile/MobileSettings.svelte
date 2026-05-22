@@ -93,6 +93,8 @@
   const PROVIDERS: { key: keyof SettingsProvidersView; name: string; dot: string }[] = [
     { key: 'acoustId', name: 'AcoustID', dot: 'oklch(0.68 0.18 30)' },
     { key: 'spotifyApi', name: 'Spotify API', dot: '#1DB954' },
+    { key: 'deezer', name: 'Deezer', dot: '#a238ff' },
+    { key: 'appleMusic', name: 'Apple Music', dot: '#fa2d48' },
     { key: 'musicBrainzWeb', name: 'MusicBrainz web', dot: 'oklch(0.62 0.16 280)' },
     { key: 'tracker', name: 'Community trackers', dot: 'oklch(0.58 0.12 60)' }
   ];

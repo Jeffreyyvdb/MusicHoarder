@@ -14,10 +14,10 @@ namespace MusicHoarder.Api.Tests.Enrichment;
 public class EnrichmentOrchestratorTests
 {
     [Fact]
-    public async Task ProcessSong_AcoustIdSolo_NeedsCorroboration_SetsNeedsReview()
+    public async Task ProcessSong_AcoustIdSolo_CleanUnambiguousMatch_SetsMatched()
     {
-        // AcoustID (fingerprint) is unreliable on its own: even a clean, high-confidence hit
-        // must be corroborated by a name-based provider before the song is marked Matched.
+        // A clean, unambiguous fingerprint match is acoustically authoritative: once it's the only
+        // enabled provider (and has had its turn) it may stand alone rather than rotting in review.
         await using var db = CreateDb();
         var song = AddPendingSong(db, artist: "Juice WRLD", title: "Lucid Dreams");
         await db.SaveChangesAsync();
@@ -29,17 +29,37 @@ public class EnrichmentOrchestratorTests
         var outcome = await orchestrator.ProcessSongAsync(song.Id);
         var updated = await db.Songs.Include(s => s.ProviderAttempts).SingleAsync();
 
-        Assert.Equal(EnrichmentOutcome.NeedsReview, outcome);
-        Assert.Equal(EnrichmentStatus.NeedsReview, updated.EnrichmentStatus);
-        // The AcoustID candidate is recorded (for review) but the row is NOT overwritten.
+        Assert.Equal(EnrichmentOutcome.Matched, outcome);
+        Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
         Assert.Equal("AcoustID", updated.MatchedBy);
-        Assert.NotNull(updated.MatchConfidence);
-        Assert.Null(updated.MusicBrainzId);
-        Assert.Equal("Juice WRLD", updated.Artist);
-        Assert.Equal("Lucid Dreams", updated.Title);
+        Assert.Equal("mb-123", updated.MusicBrainzId);
         var attempt = Assert.Single(updated.ProviderAttempts);
         Assert.Equal(ProviderAttemptStatus.Matched, attempt.Status);
         Assert.NotNull(attempt.MatchedDataJson);
+    }
+
+    [Fact]
+    public async Task ProcessSong_AcoustIdSolo_AmbiguousFingerprint_StaysNeedsReview()
+    {
+        // multiple_candidates means the fingerprint resolved to several recordings — never stand alone.
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Juice WRLD", title: "Lucid Dreams");
+        await db.SaveChangesAsync();
+
+        var acoustId = new StubEnrichmentProvider("AcoustID", 100,
+            canHandle: _ => true,
+            enrich: _ => Task.FromResult<ProviderOutcome>(new ProviderMatched(new EnrichmentProviderResult(
+                "Juice WRLD", "Juice WRLD", "Lucid Dreams", null, null,
+                "mb-123", null, null, "acoust-123", null, "AcoustID", 0.95,
+                ["multiple_candidates"], EnrichmentStatus.Matched))));
+        var orchestrator = CreateOrchestratorWithProviders(db, [acoustId]);
+
+        var outcome = await orchestrator.ProcessSongAsync(song.Id);
+        var updated = await db.Songs.SingleAsync();
+
+        Assert.Equal(EnrichmentOutcome.NeedsReview, outcome);
+        Assert.Equal(EnrichmentStatus.NeedsReview, updated.EnrichmentStatus);
+        Assert.Null(updated.MusicBrainzId);
     }
 
     [Fact]
@@ -326,9 +346,9 @@ public class EnrichmentOrchestratorTests
     [Fact]
     public async Task ProcessSong_ProviderChain_RunsAllProviders_NoEarlyStop()
     {
-        // Consensus model: AcoustID no longer short-circuits the chain. All providers run so
-        // their candidates can be corroborated. An AcoustID-only hit (Spotify finds nothing)
-        // lands in NeedsReview rather than Matched.
+        // AcoustID no longer short-circuits the chain — every provider runs so candidates can be
+        // corroborated. Once they've all had a turn, a clean fingerprint hit that nothing
+        // contradicts may stand alone (Matched).
         await using var db = CreateDb();
         var song = AddPendingSong(db, artist: "Artist", title: "Title");
         await db.SaveChangesAsync();
@@ -361,7 +381,7 @@ public class EnrichmentOrchestratorTests
         Assert.Contains("SpotifyAPI", called);
 
         var updated = await db.Songs.SingleAsync();
-        Assert.Equal(EnrichmentStatus.NeedsReview, updated.EnrichmentStatus);
+        Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
     }
 
     [Fact]
@@ -514,6 +534,78 @@ public class EnrichmentOrchestratorTests
         await orchestrator.ProcessSongAsync(song.Id);
 
         Assert.False(acoustIdCalled);
+    }
+
+    [Fact]
+    public async Task ProcessSong_DeezerDisabled_IsSkipped()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Artist", title: "Title");
+        await db.SaveChangesAsync();
+
+        var called = false;
+        var provider = new StubEnrichmentProvider("Deezer", 250,
+            canHandle: _ => true,
+            enrich: _ =>
+            {
+                called = true;
+                return Task.FromResult<ProviderOutcome>(new ProviderNoMatch());
+            });
+
+        var opts = CreateOptions();
+        opts.Value.EnableDeezerProvider = false;
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider], opts);
+        await orchestrator.ProcessSongAsync(song.Id);
+
+        Assert.False(called);
+    }
+
+    [Fact]
+    public async Task ProcessSong_DeezerEnabled_IsCalled()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Artist", title: "Title");
+        await db.SaveChangesAsync();
+
+        var called = false;
+        var provider = new StubEnrichmentProvider("Deezer", 250,
+            canHandle: _ => true,
+            enrich: _ =>
+            {
+                called = true;
+                return Task.FromResult<ProviderOutcome>(new ProviderNoMatch());
+            });
+
+        var opts = CreateOptions();
+        opts.Value.EnableDeezerProvider = true;
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider], opts);
+        await orchestrator.ProcessSongAsync(song.Id);
+
+        Assert.True(called);
+    }
+
+    [Fact]
+    public async Task ProcessSong_AppleMusicDisabled_IsSkipped()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Artist", title: "Title");
+        await db.SaveChangesAsync();
+
+        var called = false;
+        var provider = new StubEnrichmentProvider("AppleMusic", 350,
+            canHandle: _ => true,
+            enrich: _ =>
+            {
+                called = true;
+                return Task.FromResult<ProviderOutcome>(new ProviderNoMatch());
+            });
+
+        var opts = CreateOptions();
+        opts.Value.EnableAppleMusicProvider = false;
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider], opts);
+        await orchestrator.ProcessSongAsync(song.Id);
+
+        Assert.False(called);
     }
 
     [Fact]
@@ -733,10 +825,10 @@ public class EnrichmentOrchestratorTests
         var orchestrator = CreateOrchestratorWithProviders(db, [provider]);
         var outcome = await orchestrator.ProcessSongAsync(song.Id);
 
-        // The rate-limited AcoustID attempt is retried (the point of this test). AcoustID alone
-        // can't promote to Matched, so the corroboration-less result is NeedsReview.
+        // The rate-limited AcoustID attempt is retried (the point of this test). The retried hit is
+        // clean and unambiguous, and AcoustID is the only enabled provider, so it stands alone.
         Assert.True(wasCalled);
-        Assert.Equal(EnrichmentOutcome.NeedsReview, outcome);
+        Assert.Equal(EnrichmentOutcome.Matched, outcome);
     }
 
     [Fact]
@@ -935,14 +1027,30 @@ public class EnrichmentOrchestratorTests
     }
 
     [Fact]
-    public async Task ComputeSummaryStatus_SingleAcoustIdCandidate_NotMatched()
+    public async Task ComputeSummaryStatus_SingleCleanAcoustIdCandidate_Matched()
     {
-        // A lone AcoustID candidate is no longer enough to be Matched (consensus model).
+        // A lone *clean, unambiguous* AcoustID candidate (validator recommended Matched, no
+        // multiple_candidates) is acoustically authoritative and may stand alone.
         var enabledProviders = new HashSet<EnrichmentProvider> { EnrichmentProvider.AcoustID };
         var song = CreateSongWithCandidate(
             EnrichmentProvider.AcoustID,
             new EnrichmentProviderResult("Artist", "Artist", "Title", null, null,
                 "mb-1", null, null, "ac-1", null, "AcoustID", 0.95, [], EnrichmentStatus.Matched));
+
+        var status = song.ComputeSummaryStatus(enabledProviders);
+
+        Assert.Equal(EnrichmentStatus.Matched, status);
+    }
+
+    [Fact]
+    public async Task ComputeSummaryStatus_AmbiguousAcoustIdCandidate_NeedsReview()
+    {
+        // multiple_candidates → the fingerprint matched several recordings → cannot stand alone.
+        var enabledProviders = new HashSet<EnrichmentProvider> { EnrichmentProvider.AcoustID };
+        var song = CreateSongWithCandidate(
+            EnrichmentProvider.AcoustID,
+            new EnrichmentProviderResult("Artist", "Artist", "Title", null, null,
+                "mb-1", null, null, "ac-1", null, "AcoustID", 0.95, ["multiple_candidates"], EnrichmentStatus.Matched));
 
         var status = song.ComputeSummaryStatus(enabledProviders);
 
@@ -965,6 +1073,116 @@ public class EnrichmentOrchestratorTests
         var status = song.ComputeSummaryStatus(enabledProviders);
 
         Assert.Equal(EnrichmentStatus.Matched, status);
+    }
+
+    [Fact]
+    public async Task ProcessSong_AcoustIdMbid_IsGossipedToMusicBrainz_WithinSamePass()
+    {
+        // AcoustID resolves a recording MBID; within the same pass that MBID is handed to the
+        // MusicBrainz provider so it can do an exact lookup (genuine corroboration), instead of
+        // only learning it on a later pass.
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Juice WRLD", title: "Lucid Dreams");
+        await db.SaveChangesAsync();
+
+        string? musicBrainzSawMbid = "<<unset>>";
+        var acoustId = new StubEnrichmentProvider("AcoustID", 100,
+            canHandle: _ => true,
+            enrich: _ => Task.FromResult<ProviderOutcome>(new ProviderMatched(new EnrichmentProviderResult(
+                "Juice WRLD", "Juice WRLD", "Lucid Dreams", null, null,
+                "mb-777", null, null, "acoust-1", null, "AcoustID", 0.70, [], EnrichmentStatus.NeedsReview))));
+        var musicBrainz = new StubEnrichmentProvider("MusicBrainzWeb", 200,
+            canHandle: s => !string.IsNullOrWhiteSpace(s.MusicBrainzId)
+                || (!string.IsNullOrWhiteSpace(s.Artist) && !string.IsNullOrWhiteSpace(s.Title)),
+            enrich: s =>
+            {
+                musicBrainzSawMbid = s.MusicBrainzId;
+                return Task.FromResult<ProviderOutcome>(new ProviderMatched(new EnrichmentProviderResult(
+                    "Juice WRLD", "Juice WRLD", "Lucid Dreams", 2018, null,
+                    "mb-777", null, null, null, null, "MusicBrainzWeb", 0.90, [], EnrichmentStatus.Matched)));
+            });
+
+        var opts = CreateOptions();
+        opts.Value.EnableMusicBrainzWebProvider = true;
+        var orchestrator = CreateOrchestratorWithProviders(db, [acoustId, musicBrainz], opts);
+        var outcome = await orchestrator.ProcessSongAsync(song.Id);
+
+        Assert.Equal("mb-777", musicBrainzSawMbid);
+        Assert.Equal(EnrichmentOutcome.Matched, outcome);
+
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
+        Assert.Equal("mb-777", updated.MusicBrainzId);
+    }
+
+    [Fact]
+    public async Task ProcessSong_GossipedIdentifier_NotPersisted_WhenNotConsensusWinner()
+    {
+        // AcoustID gossips an MBID that helps a later provider's lookup, but if the song ends in
+        // NeedsReview (no winner) the gossiped identifier must be reverted, not written to the row.
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Artist", title: "Title");
+        await db.SaveChangesAsync();
+
+        var acoustId = new StubEnrichmentProvider("AcoustID", 100,
+            canHandle: _ => true,
+            enrich: _ => Task.FromResult<ProviderOutcome>(new ProviderMatched(new EnrichmentProviderResult(
+                "Artist", "Artist", "Title", null, null,
+                "mb-gossip", null, null, "ac-1", null, "AcoustID", 0.70, [], EnrichmentStatus.NeedsReview))));
+        var musicBrainz = new StubEnrichmentProvider("MusicBrainzWeb", 200,
+            canHandle: _ => true,
+            enrich: _ => Task.FromResult<ProviderOutcome>(new ProviderNoMatch()));
+
+        var opts = CreateOptions();
+        opts.Value.EnableMusicBrainzWebProvider = true;
+        var orchestrator = CreateOrchestratorWithProviders(db, [acoustId, musicBrainz], opts);
+        var outcome = await orchestrator.ProcessSongAsync(song.Id);
+
+        Assert.Equal(EnrichmentOutcome.NeedsReview, outcome);
+        var updated = await db.Songs.SingleAsync();
+        Assert.Null(updated.MusicBrainzId);
+    }
+
+    [Fact]
+    public async Task ProcessSong_NoEnabledProviderCanFullyHandle_SurfacesNeedsReview_NotSilentPending()
+    {
+        // A fingerprint-less leak that AcoustID can't handle and a name-based provider can't match
+        // must surface for review (visible in the "missing" section) rather than dead-ending
+        // silently in Pending. We never force a terminal Failed.
+        await using var db = CreateDb();
+        db.Songs.Add(new SongMetadata
+        {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
+            SourcePath = "/root/music/Some Artist/Leak/unreleased.mp3",
+            FileName = "unreleased.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 5000,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            Artist = "Some Artist",
+            Title = "Unreleased Leak",
+            Fingerprint = null,
+            DurationSeconds = null,
+            EnrichmentStatus = EnrichmentStatus.Pending,
+        });
+        await db.SaveChangesAsync();
+        var songId = (await db.Songs.SingleAsync()).Id;
+
+        var acoustId = new StubEnrichmentProvider("AcoustID", 100,
+            canHandle: s => !string.IsNullOrWhiteSpace(s.Fingerprint),
+            enrich: _ => Task.FromResult<ProviderOutcome>(new ProviderNoMatch()));
+        var spotify = new StubEnrichmentProvider("SpotifyAPI", 200,
+            canHandle: _ => true,
+            enrich: _ => Task.FromResult<ProviderOutcome>(new ProviderNoMatch()));
+
+        var opts = CreateOptions();
+        opts.Value.EnableSpotifyApiProvider = true;
+        var orchestrator = CreateOrchestratorWithProviders(db, [acoustId, spotify], opts);
+        var outcome = await orchestrator.ProcessSongAsync(songId);
+
+        Assert.Equal(EnrichmentOutcome.NeedsReview, outcome);
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal(EnrichmentStatus.NeedsReview, updated.EnrichmentStatus);
     }
 
     // --- Helpers ---
@@ -1178,6 +1396,8 @@ public class EnrichmentOrchestratorTests
                 opts.EnableMusicBrainzWebProvider,
                 opts.EnableSpotifyApiProvider,
                 opts.EnableTrackerProvider,
+                opts.EnableDeezerProvider,
+                opts.EnableAppleMusicProvider,
                 opts.SpotifyApiMatchedThreshold,
                 opts.AcoustIdScoreThreshold,
                 opts.EnrichmentWorkerConcurrency,

@@ -34,7 +34,7 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
 
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-            var row = await db.RuntimeSettings.AsNoTracking().FirstOrDefaultAsync(ct).ConfigureAwait(false);
+            var row = await db.RuntimeSettings.AsNoTracking().OrderBy(r => r.Id).FirstOrDefaultAsync(ct).ConfigureAwait(false);
             _cache = Build(row);
             return _cache;
         }
@@ -51,7 +51,7 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
         {
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-            var row = await db.RuntimeSettings.FirstOrDefaultAsync(ct).ConfigureAwait(false);
+            var row = await db.RuntimeSettings.OrderBy(r => r.Id).FirstOrDefaultAsync(ct).ConfigureAwait(false);
             if (row == null)
             {
                 row = new RuntimeSettings();
@@ -62,6 +62,8 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
             if (update.EnableMusicBrainzWebProvider.HasValue) row.EnableMusicBrainzWebProvider = update.EnableMusicBrainzWebProvider;
             if (update.EnableSpotifyApiProvider.HasValue) row.EnableSpotifyApiProvider = update.EnableSpotifyApiProvider;
             if (update.EnableTrackerProvider.HasValue) row.EnableTrackerProvider = update.EnableTrackerProvider;
+            if (update.EnableDeezerProvider.HasValue) row.EnableDeezerProvider = update.EnableDeezerProvider;
+            if (update.EnableAppleMusicProvider.HasValue) row.EnableAppleMusicProvider = update.EnableAppleMusicProvider;
             if (update.SpotifyApiMatchedThreshold.HasValue) row.SpotifyApiMatchedThreshold = update.SpotifyApiMatchedThreshold;
             if (update.AcoustIdScoreThreshold.HasValue) row.AcoustIdScoreThreshold = update.AcoustIdScoreThreshold;
             if (update.EnrichmentWorkerConcurrency.HasValue) row.EnrichmentWorkerConcurrency = update.EnrichmentWorkerConcurrency;
@@ -87,6 +89,8 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
             EnableMusicBrainzWebProvider: row?.EnableMusicBrainzWebProvider ?? defaults.EnableMusicBrainzWebProvider,
             EnableSpotifyApiProvider: row?.EnableSpotifyApiProvider ?? defaults.EnableSpotifyApiProvider,
             EnableTrackerProvider: row?.EnableTrackerProvider ?? defaults.EnableTrackerProvider,
+            EnableDeezerProvider: row?.EnableDeezerProvider ?? defaults.EnableDeezerProvider,
+            EnableAppleMusicProvider: row?.EnableAppleMusicProvider ?? defaults.EnableAppleMusicProvider,
             SpotifyApiMatchedThreshold: row?.SpotifyApiMatchedThreshold ?? defaults.SpotifyApiMatchedThreshold,
             AcoustIdScoreThreshold: row?.AcoustIdScoreThreshold ?? defaults.AcoustIdScoreThreshold,
             EnrichmentWorkerConcurrency: row?.EnrichmentWorkerConcurrency ?? defaults.EnrichmentWorkerConcurrency,

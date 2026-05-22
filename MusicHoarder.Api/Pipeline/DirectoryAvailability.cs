@@ -96,8 +96,10 @@ public class DirectoryAvailabilityMonitor(
                 "Destination directory {Directory} is now {State}",
                 opts.DestinationDirectory, destinationAvailable ? "reachable" : "unreachable");
 
-        // Source came back (or was reachable on the very first probe): kick a scan so the
-        // pipeline resumes without the user having to click anything.
+        // Source came back (or was reachable on the very first probe): kick a discovery scan so the
+        // library populates without the user having to click anything. Discovery is cheap and is the
+        // prerequisite for any manual testing, so it runs even when AutoStartPipeline is off — only
+        // the downstream processing (fingerprint → enrich → build) is gated by that flag.
         if (sourceAvailable && (!previous.SourceAvailable || firstProbe))
         {
             if (jobManager.TryStartJob(JobType.Scan, out _, out _))

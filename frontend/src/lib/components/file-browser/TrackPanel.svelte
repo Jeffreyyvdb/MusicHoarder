@@ -9,6 +9,7 @@
     Play,
     Rewind,
     RotateCcw,
+    Sparkles,
     X
   } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button';
@@ -18,12 +19,16 @@
   import SourceRow from '$lib/components/file-browser/SourceRow.svelte';
   import Waveform from '$lib/components/file-browser/Waveform.svelte';
   import {
+    enrichSong,
+    fetchEnrichmentDetail,
     getSongStreamUrl,
     mapEnrichmentStatus,
     resetSongEnrichment,
     type ApiSong,
-    type AlbumSummary
+    type AlbumSummary,
+    type EnrichmentDetail
   } from '$lib/api-client';
+  import { fingerprintBars, fingerprintHash, providerAttemptRows } from '$lib/review-helpers';
   import { formatDuration, formatFileSize } from '$lib/formatters';
   import { lrclibWebUrl, lrclibWebSearchUrl } from '$lib/lrclib-url';
   import { acoustIdSourceConnected, lrclibSourceConnected } from '$lib/source-connection';
@@ -53,6 +58,34 @@
   let activeTab = $state<TabId>('metadata');
   let resetState = $state<'idle' | 'loading' | 'success' | 'error'>('idle');
   let resetError = $state<string | null>(null);
+  let enrichState = $state<'idle' | 'loading' | 'success' | 'error'>('idle');
+  let enrichOutcome = $state<string | null>(null);
+  let enrichError = $state<string | null>(null);
+
+  // Provider attempts (real candidate matches) are loaded lazily when the
+  // Fingerprint tab is first viewed, and refetched when the song changes.
+  let enrichmentDetail = $state<EnrichmentDetail | null>(null);
+  let detailLoading = $state(false);
+  let detailError = $state<string | null>(null);
+  let loadedSongId = $state<number | null>(null);
+
+  async function loadEnrichmentDetail(id: number) {
+    detailLoading = true;
+    detailError = null;
+    try {
+      enrichmentDetail = await fetchEnrichmentDetail(id);
+      loadedSongId = id;
+    } catch (err) {
+      detailError = err instanceof Error ? err.message : 'Failed to load provider attempts';
+    } finally {
+      detailLoading = false;
+    }
+  }
+
+  $effect(() => {
+    if (activeTab !== 'fingerprint' || detailLoading || loadedSongId === song.id) return;
+    void loadEnrichmentDetail(song.id);
+  });
 
   const trackN = $derived(song.trackNumber ?? trackIndex + 1);
   const totalTracks = $derived(album.trackCount);
@@ -111,31 +144,43 @@
     }
   }
 
-  function fingerprintVisualizerHeights(fp: string | null | undefined, n: number): number[] {
-    if (!fp) {
-      return Array.from({ length: n }, (_, i) => 0.4 + ((i * 13) % 60) / 100);
+  async function handleEnrichNow() {
+    enrichState = 'loading';
+    enrichError = null;
+    enrichOutcome = null;
+    try {
+      // reset=true gives a clean re-run from scratch and returns the exact outcome —
+      // works even when the automatic pipeline is disabled.
+      const result = await enrichSong(song.id, true);
+      enrichState = 'success';
+      enrichOutcome = result.outcome;
+      onResetEnrichment?.();
+      setTimeout(() => {
+        enrichState = 'idle';
+        enrichOutcome = null;
+      }, 4000);
+    } catch (err) {
+      enrichState = 'error';
+      enrichError = err instanceof Error ? err.message : 'Failed to enrich song';
+      setTimeout(() => {
+        enrichState = 'idle';
+        enrichError = null;
+      }, 5000);
     }
-    const out: number[] = [];
-    for (let i = 0; i < n; i++) {
-      const ch = fp.charCodeAt(i % fp.length);
-      out.push(0.2 + ((ch * (i + 1)) % 80) / 100);
-    }
-    return out;
   }
 
   const matchValue = $derived.by(() => {
-    if (typeof song.matchConfidence === 'number') {
-      return Math.max(0, Math.min(1, song.matchConfidence));
-    }
-    return 0.78 + ((song.id * 7) % 20) / 100;
+    const v = song.matchConfidence ?? enrichmentDetail?.matchConfidence;
+    return typeof v === 'number' ? Math.max(0, Math.min(1, v)) : null;
   });
 
-  // Synth metadata values (deterministic) until backend exposes them.
-  const synthBpm = $derived(80 + ((song.id * 11) % 60));
-  const KEYS = ['A minor', 'C# major', 'F minor', 'D major', 'G minor'] as const;
-  const synthKey = $derived(KEYS[song.id % KEYS.length]);
-  const synthIsrc = $derived(`${(song.fingerprint ?? '').slice(0, 2).toUpperCase().padEnd(2, 'A')}AYE${(7000 + song.id * 17).toString().padStart(7, '0')}`);
   const enrichmentNormalized = $derived(mapEnrichmentStatus(song.enrichmentStatus));
+
+  // Real provider attempts → candidate rows, guarded so stale data from a
+  // previously-viewed song isn't shown while the new one loads.
+  const attemptRows = $derived(
+    loadedSongId === song.id ? providerAttemptRows(enrichmentDetail) : []
+  );
 
   const metadataRows = $derived([
     ['Title', trackTitle],
@@ -148,34 +193,11 @@
     ['MusicBrainz release', song.musicBrainzReleaseId ?? album.musicBrainzReleaseId ?? '—'],
     ['AcoustID', song.acoustIdTrackId ?? '—'],
     ['Fingerprint', song.fingerprint ? `${song.fingerprint.slice(0, 22)}…` : '—'],
-    ['ISRC', synthIsrc],
-    ['BPM', String(synthBpm)],
-    ['Key', synthKey],
+    ['ISRC', song.isrc ?? '—'],
     ['Format', bitrateLabel()],
     ['Sample rate', song.sampleRate ? `${(song.sampleRate / 1000).toFixed(1)} kHz` : '—'],
     ['File size', formatFileSize(song.fileSizeBytes)],
     ['Status', enrichmentNormalized]
-  ]);
-
-  const candidates = $derived([
-    {
-      score: matchValue,
-      title: `${trackTitle} — ${album.artist} (${album.title}${album.year ? `, ${album.year}` : ''})`,
-      src: 'AcoustID → MusicBrainz',
-      picked: true
-    },
-    {
-      score: Math.max(0, matchValue - 0.13),
-      title: `${trackTitle} — ${album.artist} (${album.title} [Deluxe]${album.year ? `, ${album.year + 2}` : ''})`,
-      src: 'Discogs',
-      picked: false
-    },
-    {
-      score: Math.max(0, matchValue - 0.15),
-      title: `${trackTitle} (Live) — ${album.artist}`,
-      src: 'Spotify',
-      picked: false
-    }
   ]);
 
   function formatTime(seconds: number): string {
@@ -295,50 +317,80 @@
                 Match Confidence
               </div>
               <div class="text-primary mt-0.5 font-mono text-[22px] font-semibold tracking-[-0.02em]">
-                {matchValue.toFixed(2)}
+                {matchValue !== null ? matchValue.toFixed(2) : '—'}
               </div>
             </div>
           </div>
 
           <div class="bg-surface-sunken mt-4 flex h-16 items-end gap-[2px] rounded p-1.5">
-            {#each fingerprintVisualizerHeights(song.fingerprint, 96) as h, i (i)}
+            {#each fingerprintBars(song.fingerprint) as h, i (i)}
               <div
-                class="from-primary flex-1 rounded-[1px] bg-gradient-to-b to-cyan-300/70"
-                style="height: {20 + h * 80}%; min-height: 2px;"
+                class="from-primary flex-1 rounded-[1px] bg-gradient-to-t to-cyan-300/70"
+                style="height: {h}%; min-height: 2px;"
               ></div>
             {/each}
           </div>
 
           <div class="bg-surface-sunken text-muted-foreground mt-2.5 rounded px-2.5 py-2 font-mono text-[10px] leading-relaxed break-all">
-            {(song.fingerprint ?? '').repeat(5).slice(0, 140) || '— no fingerprint —'}…
+            {song.fingerprint ? fingerprintHash(song.fingerprint) : '— no fingerprint —'}
           </div>
 
           <div class="mt-5">
             <div class="text-muted-foreground text-[10px] font-semibold tracking-[0.08em] uppercase">
-              3 candidate matches
+              {#if attemptRows.length}
+                {attemptRows.length} provider {attemptRows.length === 1 ? 'attempt' : 'attempts'}
+              {:else}
+                Provider attempts
+              {/if}
             </div>
             <div class="mt-2 flex flex-col gap-1.5">
-              {#each candidates as match (match.title)}
-                <div
-                  class={cn(
-                    'border-border flex items-center gap-3 rounded-md border p-2.5',
-                    match.picked && 'border-primary bg-primary/8'
-                  )}
-                >
-                  <span class={cn('w-10 font-mono text-sm font-semibold', match.picked ? 'text-primary' : 'text-muted-foreground')}>
-                    {match.score.toFixed(2)}
-                  </span>
-                  <div class="min-w-0 flex-1">
-                    <div class="truncate text-[12px] font-medium">{match.title}</div>
-                    <div class="text-muted-foreground mt-0.5 text-[11px]">{match.src}</div>
-                  </div>
-                  {#if match.picked}
-                    <span class="bg-primary/15 text-primary rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wider">
-                      CHOSEN
-                    </span>
-                  {/if}
+              {#if detailLoading}
+                <div class="text-muted-foreground flex items-center gap-2 px-1 py-3 text-[12px]">
+                  <Loader2 class="size-3.5 animate-spin" /> Loading provider attempts…
                 </div>
-              {/each}
+              {:else if detailError}
+                <div class="text-destructive flex items-center gap-2 px-1 py-3 text-[12px]">
+                  <AlertCircle class="size-3.5" /> {detailError}
+                </div>
+              {:else if !attemptRows.length}
+                <div class="text-muted-foreground px-1 py-3 text-[12px]">No provider attempts yet.</div>
+              {:else}
+                {#each attemptRows as row (row.key)}
+                  <div
+                    class={cn(
+                      'border-border flex items-center gap-3 rounded-md border p-2.5',
+                      row.chosen && 'border-primary bg-primary/8',
+                      !row.matched && 'opacity-60'
+                    )}
+                  >
+                    <span class={cn('w-10 font-mono text-sm font-semibold', row.chosen ? 'text-primary' : 'text-muted-foreground')}>
+                      {row.score !== null ? row.score.toFixed(2) : '—'}
+                    </span>
+                    <div class="min-w-0 flex-1">
+                      <div class="truncate text-[12px] font-medium">
+                        {#if row.matched}
+                          {row.title || '(untitled)'}{row.artist ? ` — ${row.artist}` : ''}{row.album ? ` (${row.album}${row.year ? `, ${row.year}` : ''})` : ''}
+                        {:else}
+                          {row.error ?? (row.status === 'NoMatch' ? 'No match' : row.status)}
+                        {/if}
+                      </div>
+                      <div class="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-[11px]">
+                        <span>{row.source}</span>
+                        {#if !row.matched}
+                          <span class="bg-muted text-muted-foreground rounded px-1 py-px font-mono text-[9px] tracking-wide uppercase">
+                            {row.status}
+                          </span>
+                        {/if}
+                      </div>
+                    </div>
+                    {#if row.chosen}
+                      <span class="bg-primary/15 text-primary rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wider">
+                        CHOSEN
+                      </span>
+                    {/if}
+                  </div>
+                {/each}
+              {/if}
             </div>
           </div>
         </div>
@@ -424,17 +476,46 @@
               Resetting…
             {:else if resetState === 'success'}
               <CheckCircle2 class="mr-1.5 size-3.5" />
-              Queued for Re-enrichment
+              Metadata reset
             {:else if resetState === 'error'}
               <AlertCircle class="mr-1.5 size-3.5" />
               Reset failed
             {:else}
               <RotateCcw class="mr-1.5 size-3.5" />
-              Re-enrich metadata
+              Reset metadata
             {/if}
           </Button>
           {#if resetError}
             <p class="text-destructive text-[11px]">{resetError}</p>
+          {/if}
+
+          <Button
+            variant="secondary"
+            class={cn(
+              'mt-2 w-full',
+              enrichState === 'success' && 'text-primary',
+              enrichState === 'error' && 'text-destructive'
+            )}
+            size="sm"
+            disabled={enrichState === 'loading'}
+            onclick={handleEnrichNow}
+          >
+            {#if enrichState === 'loading'}
+              <Loader2 class="mr-1.5 size-3.5 animate-spin" />
+              Enriching…
+            {:else if enrichState === 'success'}
+              <CheckCircle2 class="mr-1.5 size-3.5" />
+              {enrichOutcome ?? 'Done'}
+            {:else if enrichState === 'error'}
+              <AlertCircle class="mr-1.5 size-3.5" />
+              Enrich failed
+            {:else}
+              <Sparkles class="mr-1.5 size-3.5" />
+              Enrich now
+            {/if}
+          </Button>
+          {#if enrichError}
+            <p class="text-destructive text-[11px]">{enrichError}</p>
           {/if}
         </div>
       </ScrollArea>

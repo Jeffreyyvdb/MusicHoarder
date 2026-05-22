@@ -88,10 +88,18 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         var existingAttempts = song.ProviderAttempts.ToDictionary(a => a.Provider);
         var anyProviderActed = false;
 
+        // Identifiers a provider already wrote on the row stay authoritative; we only ever fill
+        // empty identifier fields with what an earlier provider discovered this pass, then restore
+        // the originals before the row is finalized. Snapshot so the gossip never persists.
+        var originalMbId = song.MusicBrainzId;
+        var originalIsrc = song.Isrc;
+
         // Run every eligible provider (no stop-at-first-match): a single provider can no
-        // longer finalize a song. The final decision is made by ConsensusEvaluator below,
-        // and providers always read the *original* song fields (we never mutate the row
-        // mid-pass), so a wrong-but-plausible hit can't poison a later provider's query.
+        // longer finalize a song. The final decision is made by ConsensusEvaluator below.
+        // Providers read the original *name* fields (never mutated mid-pass, so a wrong-but-
+        // plausible hit can't poison a later query), but high-precision identifiers (MBID/ISRC)
+        // discovered by an earlier provider ARE handed to later ones so they can do an exact
+        // lookup instead of a fuzzy name search — genuine corroboration, not poisoning.
         foreach (var provider in enabledProviders)
         {
             if (!provider.CanHandle(song))
@@ -124,18 +132,33 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
 
             var semaphore = GetProviderSemaphore(provider.Name);
             await semaphore.WaitAsync(ct);
+            EnrichmentProviderResult? matchedResult;
             try
             {
-                await PersistProviderOutcomeAsync(provider, providerEnum.Value, song, existingAttempts, ct);
+                matchedResult = await PersistProviderOutcomeAsync(provider, providerEnum.Value, song, existingAttempts, ct);
             }
             finally
             {
                 semaphore.Release();
             }
+
+            ApplyIdentifierHints(song, matchedResult);
         }
+
+        // Restore the row's original identifiers; only the consensus winner gets to write them.
+        song.MusicBrainzId = originalMbId;
+        song.Isrc = originalIsrc;
 
         var consensus = ConsensusEvaluator.Evaluate(
             song, enabledEnums, BuildIdentityOptions(), _options.Value.ConsensusCorroborationFloor);
+
+        // Visibility safety net: a Pending verdict that isn't waiting on a rate-limited provider
+        // means no enabled provider can act on this song at all (e.g. no fingerprint and nothing
+        // searchable). Surface it for review so it stays visible in the library rather than
+        // dead-ending silently in Pending — we never force a terminal Failed for unmatched/leaked
+        // tracks (the user keeps them).
+        if (consensus.Status == EnrichmentStatus.Pending && !HasActiveRateLimit(song, enabledEnums))
+            consensus = consensus with { Status = EnrichmentStatus.NeedsReview };
 
         // Nothing acted and the verdict is unchanged → no-op.
         if (!anyProviderActed && consensus.Status == song.EnrichmentStatus)
@@ -149,6 +172,12 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
 
         return ToOutcome(song.EnrichmentStatus);
     }
+
+    private static bool HasActiveRateLimit(SongMetadata song, IReadOnlySet<EnrichmentProvider> enabled)
+        => song.ProviderAttempts.Any(a =>
+            enabled.Contains(a.Provider)
+            && a.Status == ProviderAttemptStatus.RateLimited
+            && a.RetryAfterUtc > DateTime.UtcNow);
 
     private static EnrichmentOutcome ToOutcome(EnrichmentStatus status) => status switch
     {
@@ -260,7 +289,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
     /// candidate JSON (the candidate's own RecommendedStatus is preserved in the JSON for the
     /// evaluator to weigh).
     /// </summary>
-    private async Task PersistProviderOutcomeAsync(
+    private async Task<EnrichmentProviderResult?> PersistProviderOutcomeAsync(
         IEnrichmentProvider provider,
         EnrichmentProvider providerEnum,
         SongMetadata song,
@@ -284,7 +313,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             UpsertAttempt(song, providerEnum, ProviderAttemptStatus.Failed,
                 error: ex.Message, existingAttempts: existingAttempts,
                 nextRetryAfterUtc: CooldownFor(ProviderAttemptStatus.Failed));
-            return;
+            return null;
         }
 
         switch (outcome)
@@ -294,7 +323,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                     provider.Name, song.TrackLabel, song.Id, rl.RetryAfter.TotalSeconds);
                 UpsertAttempt(song, providerEnum, ProviderAttemptStatus.RateLimited,
                     retryAfterUtc: DateTime.UtcNow + rl.RetryAfter, existingAttempts: existingAttempts);
-                break;
+                return null;
 
             case ProviderNoMatch noMatch:
                 _logger.LogDebug("Provider {Provider} returned no match for {Track} (SongId={SongId})",
@@ -305,7 +334,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                 UpsertAttempt(song, providerEnum, ProviderAttemptStatus.NoMatch,
                     matchedDataJson: noMatchJson, existingAttempts: existingAttempts,
                     nextRetryAfterUtc: CooldownFor(ProviderAttemptStatus.NoMatch));
-                break;
+                return null;
 
             case ProviderMatched matched:
                 _logger.LogDebug(
@@ -313,8 +342,28 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                     provider.Name, song.TrackLabel, song.Id, matched.Result.MatchConfidence, matched.Result.RecommendedStatus);
                 UpsertAttempt(song, providerEnum, ProviderAttemptStatus.Matched,
                     matchedDataJson: SerializeResult(matched.Result), existingAttempts: existingAttempts);
-                break;
+                return matched.Result;
+
+            default:
+                return null;
         }
+    }
+
+    /// <summary>
+    /// Fills the row's empty MBID/ISRC with a high-precision identifier an earlier provider just
+    /// discovered, so a later provider can do an exact lookup this pass. Names are never gossiped,
+    /// and these writes are reverted before the row is finalized (see ProcessSongAsync).
+    /// </summary>
+    private static void ApplyIdentifierHints(SongMetadata song, EnrichmentProviderResult? result)
+    {
+        if (result is null)
+            return;
+
+        if (string.IsNullOrWhiteSpace(song.MusicBrainzId) && !string.IsNullOrWhiteSpace(result.MusicBrainzId))
+            song.MusicBrainzId = result.MusicBrainzId;
+
+        if (string.IsNullOrWhiteSpace(song.Isrc) && !string.IsNullOrWhiteSpace(result.Isrc))
+            song.Isrc = result.Isrc;
     }
 
     private static void UpsertAttempt(
@@ -383,6 +432,8 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             "MusicBrainzWeb" => effective.EnableMusicBrainzWebProvider,
             "SpotifyAPI" => effective.EnableSpotifyApiProvider,
             "Tracker" => effective.EnableTrackerProvider,
+            "Deezer" => effective.EnableDeezerProvider,
+            "AppleMusic" => effective.EnableAppleMusicProvider,
             _ => true
         };
     }
@@ -393,6 +444,8 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         "SpotifyAPI" => EnrichmentProvider.SpotifyAPI,
         "MusicBrainzWeb" => EnrichmentProvider.MusicBrainzWeb,
         "Tracker" => EnrichmentProvider.Tracker,
+        "Deezer" => EnrichmentProvider.Deezer,
+        "AppleMusic" => EnrichmentProvider.AppleMusic,
         _ => null
     };
 
@@ -402,6 +455,8 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         _providerSemaphores["SpotifyAPI"] = new SemaphoreSlim(opts.SpotifyApiConcurrency, opts.SpotifyApiConcurrency);
         _providerSemaphores["MusicBrainzWeb"] = new SemaphoreSlim(1, 1);
         _providerSemaphores["Tracker"] = new SemaphoreSlim(1, 1);
+        _providerSemaphores["Deezer"] = new SemaphoreSlim(opts.DeezerConcurrency, opts.DeezerConcurrency);
+        _providerSemaphores["AppleMusic"] = new SemaphoreSlim(opts.AppleMusicConcurrency, opts.AppleMusicConcurrency);
     }
 
     private SemaphoreSlim GetProviderSemaphore(string providerName) =>

@@ -83,6 +83,7 @@ export interface ApiSong {
   trackNumber?: number | null
   durationSeconds?: number | null
   fingerprint?: string | null
+  isrc?: string | null
   musicBrainzId?: string | null
   musicBrainzReleaseId?: string | null
   spotifyId?: string | null
@@ -597,6 +598,26 @@ export async function fetchOverview(): Promise<ApiOverview> {
   return requestJson<ApiOverview>("/overview")
 }
 
+export interface DirectoryMatchNode {
+  /** Folder name (the source library root for the top node). */
+  name: string
+  /** Path relative to the source library root ("" for the root). */
+  path: string
+  total: number
+  matched: number
+  needsReview: number
+  pending: number
+  failed: number
+  done: number
+  notMatched: number
+  matchedPct: number
+  children: DirectoryMatchNode[]
+}
+
+export async function fetchDirectoryMatchTree(): Promise<DirectoryMatchNode> {
+  return requestJson<DirectoryMatchNode>("/library/directory-tree")
+}
+
 // ── Ingest runs (history) ─────────────────────────────────────────────────────
 
 export type ApiRunStatus = "running" | "completed" | "cancelled" | "failed"
@@ -860,6 +881,40 @@ export async function resetSongEnrichment(
 ): Promise<ResetEnrichmentResponse> {
   return requestJson<ResetEnrichmentResponse>(
     `/songs/${songId}/reset-enrichment?restoreOriginalMetadata=${restoreOriginalMetadata}`,
+    { method: "POST" }
+  )
+}
+
+export interface EnrichSongResponse {
+  songId: number
+  reset: boolean
+  outcome: string
+}
+
+/** Enrich a single song now and return the outcome. Pass reset to clear prior attempts first. */
+export async function enrichSong(
+  songId: number,
+  reset = false
+): Promise<EnrichSongResponse> {
+  return requestJson<EnrichSongResponse>(
+    `/api/enrichment/enrich/song/${songId}?reset=${reset}`,
+    { method: "POST" }
+  )
+}
+
+export interface EnrichFolderResponse {
+  folder: string
+  enqueued: number
+  reset: boolean
+}
+
+/** Enqueue every song under a source folder (recursively) for enrichment. */
+export async function enrichFolder(
+  path: string,
+  reset = false
+): Promise<EnrichFolderResponse> {
+  return requestJson<EnrichFolderResponse>(
+    `/api/enrichment/enrich/folder?path=${encodeURIComponent(path)}&reset=${reset}`,
     { method: "POST" }
   )
 }
@@ -1188,6 +1243,8 @@ export interface SettingsProvidersView {
   musicBrainzWeb: boolean
   spotifyApi: boolean
   tracker: boolean
+  deezer: boolean
+  appleMusic: boolean
 }
 
 export interface SettingsPipelineView {

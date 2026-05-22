@@ -1,4 +1,3 @@
-using FuzzySharp;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
@@ -24,7 +23,7 @@ public class SpotifyApiEnrichmentProvider(
     public int Priority => 300;
 
     public bool CanHandle(SongMetadata song) =>
-        !string.IsNullOrWhiteSpace(song.Artist) && !string.IsNullOrWhiteSpace(song.Title);
+        SongSearchText.HasSearchableText(song, options.Value.SourceDirectory);
 
     public async Task<ProviderOutcome> TryEnrichAsync(SongMetadata song, CancellationToken ct = default)
     {
@@ -43,7 +42,15 @@ public class SpotifyApiEnrichmentProvider(
             return new ProviderNoMatch();
         }
 
-        var query = BuildSearchQuery(song.Artist!, song.Title!);
+        var resolved = SongSearchText.ResolveDetailed(song, options.Value.SourceDirectory);
+        var (effectiveArtist, effectiveAlbum, effectiveTitle) = (resolved.Artist, resolved.Album, resolved.Title);
+        if (string.IsNullOrWhiteSpace(effectiveArtist) || string.IsNullOrWhiteSpace(effectiveTitle))
+        {
+            logger.LogDebug("Spotify API enrichment: no searchable artist/title (SongId={SongId})", song.Id);
+            return new ProviderNoMatch();
+        }
+
+        var query = BuildSearchQuery(effectiveArtist!, effectiveTitle!, effectiveAlbum);
         if (string.IsNullOrWhiteSpace(query))
         {
             logger.LogDebug("Spotify API enrichment: empty query after normalize (SongId={SongId})", song.Id);
@@ -87,7 +94,7 @@ public class SpotifyApiEnrichmentProvider(
 
         foreach (var track in tracks)
         {
-            var (score, warnings) = ScoreCandidate(song, track, opts);
+            var (score, warnings) = ScoreCandidate(song, resolved, track, opts);
             if (score > bestScore)
             {
                 bestScore = score;
@@ -138,37 +145,49 @@ public class SpotifyApiEnrichmentProvider(
             Album: string.IsNullOrWhiteSpace(track.AlbumName) ? null : track.AlbumName);
     }
 
-    private static string BuildSearchQuery(string artist, string title)
+    private static string BuildSearchQuery(string artist, string title, string? album)
     {
-        var combined = $"{artist} {title}";
+        // Album, when known (from tags or the file path), sharpens the free-text search so common
+        // titles resolve to the right release; it stays plain text the normalizer can fold.
+        var combined = string.IsNullOrWhiteSpace(album) ? $"{artist} {title}" : $"{artist} {title} {album}";
         return SpotifyLibraryComparisonService.Normalize(combined);
     }
 
     private static (double Score, List<string> Warnings) ScoreCandidate(
         SongMetadata song,
+        SongSearchText.Resolved source,
         SpotifyCatalogTrack track,
         MusicEnricherOptions opts)
     {
         var warnings = new List<string>();
+        var sourceArtist = source.Artist;
+        var sourceTitle = source.Title;
 
-        var songArtistNorm = SpotifyLibraryComparisonService.Normalize(song.Artist);
-        var songTitleNorm = SpotifyLibraryComparisonService.Normalize(song.Title);
-        var candArtistNorm = SpotifyLibraryComparisonService.Normalize(track.Artist);
-        var candTitleNorm = SpotifyLibraryComparisonService.Normalize(track.Title);
+        // Raw-fallback aware: a symbol-only artist like "¥$" no longer scores as a free 100%.
+        var artistRatio = FuzzyTextMatch.Ratio(sourceArtist, track.Artist);
+        var titleRatio = FuzzyTextMatch.Ratio(sourceTitle, track.Title);
 
-        var artistRatio = string.IsNullOrEmpty(songArtistNorm) || string.IsNullOrEmpty(candArtistNorm)
-            ? 100.0
-            : Fuzz.WeightedRatio(songArtistNorm, candArtistNorm);
-        var titleRatio = string.IsNullOrEmpty(songTitleNorm) || string.IsNullOrEmpty(candTitleNorm)
-            ? 100.0
-            : Fuzz.WeightedRatio(songTitleNorm, candTitleNorm);
-
-        if (artistRatio < FuzzyThreshold)
+        if (artistRatio is double ar && ar < FuzzyThreshold)
             warnings.Add("artist_mismatch");
-        if (titleRatio < FuzzyThreshold)
+        if (titleRatio is double tr && tr < FuzzyThreshold)
             warnings.Add("title_mismatch");
 
-        var score = (artistRatio / 100.0 + titleRatio / 100.0) / 2.0;
+        double score;
+        if (artistRatio is double a && titleRatio is double t)
+        {
+            score = (a / 100.0 + t / 100.0) / 2.0;
+        }
+        else if (titleRatio is double tOnly)
+        {
+            // No usable artist signal — a title-only agreement isn't enough to auto-match,
+            // so surface it for review (blocking warning) instead of trusting it blindly.
+            score = tOnly / 100.0;
+            warnings.Add("artist_unknown");
+        }
+        else
+        {
+            score = 0;
+        }
 
         var fileIsrc = NormalizeIsrc(song.Isrc);
         var trackIsrc = NormalizeIsrc(track.Isrc);
@@ -211,11 +230,24 @@ public class SpotifyApiEnrichmentProvider(
             score *= 0.6;
         }
 
+        // Album/track-number are confirmation signals only — a track legitimately appears on many
+        // releases, so we reward agreement but never penalize a difference (no blocking warning).
+        if (FuzzyTextMatch.Ratio(source.Album, track.AlbumName) is double albumRatio)
+        {
+            if (albumRatio >= FuzzyThreshold)
+                score = Math.Min(1.0, score + 0.05);
+            else
+                warnings.Add("album_mismatch");
+        }
+
+        if (source.TrackNumber is int sourceTrack && track.TrackNumber == sourceTrack)
+            score = Math.Min(1.0, score + 0.02);
+
         return (Math.Clamp(score, 0, 1), warnings);
     }
 
     private static bool HasBlockingWarning(List<string> warnings) =>
-        warnings.Exists(static w => w is "duration_mismatch" or "artist_mismatch" or "title_mismatch" or "isrc_mismatch" or "version_mismatch");
+        warnings.Exists(static w => w is "duration_mismatch" or "artist_mismatch" or "title_mismatch" or "isrc_mismatch" or "version_mismatch" or "artist_unknown");
 
     private static string NormalizeIsrc(string? isrc)
     {
