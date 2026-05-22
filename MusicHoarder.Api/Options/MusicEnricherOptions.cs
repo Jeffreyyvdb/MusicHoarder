@@ -165,6 +165,30 @@ public class MusicEnricherOptions
     [Range(0.0, 1.0)]
     public double MusicBrainzMatchedThreshold { get; set; } = 0.85;
 
+    // --- Community tracker (unreleased / leak files) ---
+
+    /// <summary>Base URL of the community tracker REST API (Django REST; must end with a slash).</summary>
+    public string TrackerApiBaseUrl { get; set; } = "https://juicewrldapi.com/juicewrld/";
+
+    /// <summary>
+    /// Artist names/aliases this tracker covers. The provider only attempts a lookup when the
+    /// song's resolved artist fuzzy-matches one of these — the DB is single-artist, so this keeps
+    /// it from wasting calls or mis-tagging unrelated music.
+    /// </summary>
+    public string[] TrackerArtistAllowlist { get; set; } = ["Juice WRLD", "Juice Wrld", "JuiceWRLD", "JuiceTheKidd"];
+
+    /// <summary>Max tracker search candidates to request per song.</summary>
+    [Range(1, 100)]
+    public int TrackerSearchLimit { get; set; } = 20;
+
+    /// <summary>Minimum adjusted confidence to return any result from the tracker provider (&lt; this → no match).</summary>
+    [Range(0.0, 1.0)]
+    public double TrackerMinConfidence { get; set; } = 0.7;
+
+    /// <summary>Minimum adjusted confidence for the tracker provider to recommend Matched (otherwise NeedsReview).</summary>
+    [Range(0.0, 1.0)]
+    public double TrackerMatchedThreshold { get; set; } = 0.85;
+
     // --- Consensus / identity matching ---
 
     /// <summary>Minimum own-confidence for a provider candidate to act as a corroborating vote.</summary>
