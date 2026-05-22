@@ -336,13 +336,13 @@
                 Resetting…
               {:else if resetState === 'success'}
                 <CheckCircle2 class="mr-1.5 size-3.5" />
-                Queued for Re-enrichment
+                Metadata reset
               {:else if resetState === 'error'}
                 <AlertCircle class="mr-1.5 size-3.5" />
                 Reset Failed
               {:else}
                 <RotateCcw class="mr-1.5 size-3.5" />
-                Re-enrich Metadata
+                Reset Metadata
               {/if}
             </Button>
             {#if resetError}
