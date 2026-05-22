@@ -116,6 +116,12 @@ compose stack (own Postgres + API + frontend, namespaced by `appName=mh-pr-<n>`)
 `docker-compose.preview.yaml`. The stack is torn down when the PR closes; a daily
 `pr-preview-cleanup.yml` reaps any that slip through.
 
+When a preview is live the workflow attaches a green **`preview`** label to the PR (so the PR list
+shows at a glance which PRs have a running environment) and posts a sticky comment with the URL, the
+**deployed commit SHA**, and the update time. Every push re-deploys and refreshes that comment — the
+short SHA tells you whether the live env matches the latest commit. The label is removed and the
+comment updated on teardown (close-event teardown, or the daily reaper as a fallback).
+
 Previews set `MusicEnricher__AutoStartPipeline=false` so the resource-intensive processing never
 auto-runs. Discovery still runs, so the library populates on boot; drive the rest manually from the
 UI (Fingerprint → Build, or the per-song / per-folder "Enrich" actions) to test exactly what a PR
@@ -175,9 +181,12 @@ expose manual dispatch for a workflow that only exists on a feature branch — s
 use the `pull_request` trigger; `workflow_dispatch` is for manual re-previews afterwards.) Closing the
 PR runs the teardown job.
 
-Tunables: `PREVIEW_MAX_STACKS` (default 5, env in the provision step); `PREVIEW_SOURCE_DIR` /
-`PREVIEW_DEST_ROOT` are **repo variables** (Settings → Variables) for the host paths bind-mounted
-into each preview (default to `/srv/mh-preview/...` if unset).
+Tunables: `PREVIEW_MAX_STACKS` (default 5, env in the provision step); `PREVIEW_SOURCE_DIR` is a
+**repo variable** (Settings → Variables) for the host path of the shared read-only sample library
+bind-mounted into each preview (defaults to `/srv/mh-preview/sample-source` if unset). The per-PR
+built library lives in a managed `musichoarder-dest` named volume (isolated per stack), so it is
+reaped automatically by the teardown's `compose.delete … deleteVolumes:true` — nothing accumulates
+on the host disk.
 
 ### Spotify OAuth (relay)
 

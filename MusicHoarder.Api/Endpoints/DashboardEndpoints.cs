@@ -173,7 +173,7 @@ public static class DashboardEndpoints
                 TotalBytes = g.Sum(s => s.FileSizeBytes),
                 AvgBytes = (long)g.Average(s => s.FileSizeBytes),
             })
-            .FirstOrDefaultAsync();
+            .SingleOrDefaultAsync();
 
         var duration = await active
             .Where(s => s.DurationSeconds != null)
@@ -183,7 +183,7 @@ public static class DashboardEndpoints
                 TotalSeconds = g.Sum(s => s.DurationSeconds ?? 0),
                 TrackCountWithDuration = g.Count(),
             })
-            .FirstOrDefaultAsync();
+            .SingleOrDefaultAsync();
 
         var byExtensionRaw = await active
             .GroupBy(s => s.Extension)
@@ -207,7 +207,7 @@ public static class DashboardEndpoints
                 WithAlbum = g.Count(s => s.Album != null && s.Album != ""),
                 WithTitle = g.Count(s => s.Title != null && s.Title != ""),
             })
-            .FirstOrDefaultAsync();
+            .SingleOrDefaultAsync();
 
         var indexWindow = await active
             .GroupBy(_ => 1)
@@ -218,7 +218,7 @@ public static class DashboardEndpoints
                 OldestModified = g.Min(s => s.LastModifiedUtc),
                 NewestModified = g.Max(s => s.LastModifiedUtc),
             })
-            .FirstOrDefaultAsync();
+            .SingleOrDefaultAsync();
 
         var stats = new
         {
@@ -293,7 +293,7 @@ public static class DashboardEndpoints
             {
                 NewestIndexed = g.Max(s => s.IndexedAtUtc),
             })
-            .FirstOrDefaultAsync();
+            .SingleOrDefaultAsync();
 
         var scanState = scanTracker.GetCurrent();
         var scanRunning = scanState is { IsComplete: false };

@@ -34,7 +34,7 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
 
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-            var row = await db.RuntimeSettings.AsNoTracking().FirstOrDefaultAsync(ct).ConfigureAwait(false);
+            var row = await db.RuntimeSettings.AsNoTracking().OrderBy(r => r.Id).FirstOrDefaultAsync(ct).ConfigureAwait(false);
             _cache = Build(row);
             return _cache;
         }
@@ -51,7 +51,7 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
         {
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-            var row = await db.RuntimeSettings.FirstOrDefaultAsync(ct).ConfigureAwait(false);
+            var row = await db.RuntimeSettings.OrderBy(r => r.Id).FirstOrDefaultAsync(ct).ConfigureAwait(false);
             if (row == null)
             {
                 row = new RuntimeSettings();

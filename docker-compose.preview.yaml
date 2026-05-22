@@ -39,7 +39,9 @@ services:
       # tester's session cookie.
       - musichoarder-dpkeys:/data/dpkeys
       - ${SOURCE_DIRECTORY}:/music/source:ro
-      - ${DESTINATION_DIRECTORY}:/music/destination
+      # Per-PR built library lives in a managed named volume (not a host bind mount) so that
+      # compose.delete with deleteVolumes:true reaps it on teardown — see scripts/dokploy-preview.sh.
+      - musichoarder-dest:/music/destination
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ConnectionStrings__musichoarderdb=Host=postgres;Database=musichoarderdb;Username=musichoarder;Password=${POSTGRES_PASSWORD}
@@ -109,3 +111,4 @@ services:
 volumes:
   postgres-data:
   musichoarder-dpkeys:
+  musichoarder-dest:
