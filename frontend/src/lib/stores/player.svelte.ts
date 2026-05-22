@@ -1,3 +1,4 @@
+import { browser } from '$app/environment';
 import { toast } from 'svelte-sonner';
 
 export interface PlayerSong {
@@ -22,11 +23,25 @@ let panelMountedCount = $state(0);
 
 let audioEl: HTMLAudioElement | null = null;
 let rafHandle: number | null = null;
+let lastTimeWrite = 0;
+
+/**
+ * Minimum gap between `currentTime` state writes while playing. The RAF loop
+ * still runs every frame, but committing the reactive value at ~10 Hz instead
+ * of ~60 Hz keeps the progress UI smooth while avoiding a per-frame re-render
+ * storm (the MiniPlayer slider forces a full-document reflow on each write, so
+ * at 60 Hz it saturates the main thread and starves audio playback).
+ */
+const TIME_WRITE_INTERVAL_MS = 100;
 
 function startRaf() {
   if (rafHandle !== null) return;
-  const tick = () => {
-    if (audioEl) currentTime = audioEl.currentTime;
+  lastTimeWrite = 0;
+  const tick = (now: number) => {
+    if (audioEl && now - lastTimeWrite >= TIME_WRITE_INTERVAL_MS) {
+      lastTimeWrite = now;
+      currentTime = audioEl.currentTime;
+    }
     rafHandle = requestAnimationFrame(tick);
   };
   rafHandle = requestAnimationFrame(tick);
@@ -39,15 +54,78 @@ function stopRaf() {
   }
 }
 
+/**
+ * Own the audio element imperatively rather than rendering it in a component.
+ * A DOM-rendered `<audio>` is subject to Svelte's reconciliation: re-renders
+ * that touch its subtree (e.g. closing the in-page TrackPanel) recreate/
+ * re-initialize it, which makes the player reload the stream from byte 0 —
+ * audible as a re-buffer/stutter mid-playback. An element from `new Audio()`
+ * never enters the rendered tree, so no re-render can disturb playback.
+ */
+function ensureAudioEl(): HTMLAudioElement | null {
+  if (!browser) return null;
+  if (audioEl) return audioEl;
+
+  const el = new Audio();
+  el.preload = 'metadata';
+  el.volume = volumeState;
+
+  el.addEventListener('loadedmetadata', () => (duration = el.duration));
+  el.addEventListener('ended', () => {
+    stopRaf();
+    isPlaying = false;
+    if (Number.isFinite(el.duration)) currentTime = el.duration; // land the bar at 100%
+  });
+  el.addEventListener('error', () => {
+    stopRaf();
+    isPlaying = false;
+    const song = currentSong;
+    if (song) {
+      toast.error('Playback failed', { description: `Could not play "${song.title}".` });
+    }
+  });
+  el.addEventListener('play', () => {
+    isPlaying = true;
+    startRaf();
+  });
+  el.addEventListener('pause', () => {
+    stopRaf();
+    isPlaying = false;
+    // The rAF stops here, so commit the exact paused position (the throttled
+    // loop may have last written it up to TIME_WRITE_INTERVAL_MS ago).
+    currentTime = el.currentTime;
+  });
+
+  audioEl = el;
+  return el;
+}
+
+/**
+ * Start/resume playback on the store-owned element. Surfaces an autoplay block
+ * (the one failure the media `error` event does NOT cover); genuine media/
+ * network failures still flow through the `error` listener, and `AbortError`
+ * (a newer load/pause superseding this play) is intentionally ignored.
+ */
+function attemptPlay() {
+  void audioEl
+    ?.play()
+    .then(() => (isPlaying = true))
+    .catch((err: unknown) => {
+      isPlaying = false;
+      if (err instanceof DOMException && err.name === 'NotAllowedError') {
+        toast.error('Playback blocked', {
+          description: 'Your browser blocked autoplay — press play to start.'
+        });
+      }
+    });
+}
+
 async function playSong(song: PlayerSong) {
-  if (!audioEl) return;
+  if (!ensureAudioEl() || !audioEl) return;
 
   if (currentSong?.id === song.id) {
     if (audioEl.paused) {
-      void audioEl
-        .play()
-        .then(() => (isPlaying = true))
-        .catch(() => (isPlaying = false));
+      attemptPlay();
     } else {
       audioEl.pause();
       isPlaying = false;
@@ -84,10 +162,7 @@ async function playSong(song: PlayerSong) {
   duration = 0;
   audioEl.src = song.streamUrl;
   audioEl.load();
-  void audioEl
-    .play()
-    .then(() => (isPlaying = true))
-    .catch(() => (isPlaying = false));
+  attemptPlay();
 }
 
 function pause() {
@@ -96,10 +171,8 @@ function pause() {
 }
 
 function resume() {
-  void audioEl
-    ?.play()
-    .then(() => (isPlaying = true))
-    .catch(() => (isPlaying = false));
+  ensureAudioEl();
+  attemptPlay();
 }
 
 function togglePlay() {
@@ -122,7 +195,10 @@ function setVolume(vol: number) {
 function stop() {
   if (audioEl) {
     audioEl.pause();
-    audioEl.src = '';
+    // Detach the source without assigning '' (an empty string resolves to the
+    // page URL and fires a spurious `error` event / "Playback failed" toast).
+    audioEl.removeAttribute('src');
+    audioEl.load();
   }
   currentSong = null;
   isPlaying = false;
@@ -141,46 +217,13 @@ function registerPanel(): () => void {
   };
 }
 
-export function attachAudioElement(el: HTMLAudioElement): () => void {
-  audioEl = el;
-
-  const onLoadedMetadata = () => (duration = el.duration);
-  const onEnded = () => {
-    stopRaf();
-    isPlaying = false;
-  };
-  const onError = () => {
-    stopRaf();
-    isPlaying = false;
-    const song = currentSong;
-    if (song) {
-      toast.error('Playback failed', { description: `Could not play "${song.title}".` });
-    }
-  };
-  const onPlay = () => {
-    isPlaying = true;
-    startRaf();
-  };
-  const onPause = () => {
-    stopRaf();
-    isPlaying = false;
-  };
-
-  el.addEventListener('loadedmetadata', onLoadedMetadata);
-  el.addEventListener('ended', onEnded);
-  el.addEventListener('error', onError);
-  el.addEventListener('play', onPlay);
-  el.addEventListener('pause', onPause);
-
-  return () => {
-    stopRaf();
-    el.removeEventListener('loadedmetadata', onLoadedMetadata);
-    el.removeEventListener('ended', onEnded);
-    el.removeEventListener('error', onError);
-    el.removeEventListener('play', onPlay);
-    el.removeEventListener('pause', onPause);
-    if (audioEl === el) audioEl = null;
-  };
+/**
+ * Warm up the store-owned audio element for the session. Safe to call multiple
+ * times and on the server (no-op until `browser`). Call once from the app
+ * layout so `ended`/`error` are wired even before the first play.
+ */
+export function initPlayer(): void {
+  ensureAudioEl();
 }
 
 export const playerStore = {
