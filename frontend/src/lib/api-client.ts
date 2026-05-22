@@ -634,11 +634,44 @@ export interface DirectoryMatchNode {
   done: number
   notMatched: number
   matchedPct: number
+  /** Files that live directly in this folder (not nested in sub-folders). */
+  directFileCount: number
+  /** Sum of file sizes rolled up from every song beneath this node. */
+  sizeBytes: number
   children: DirectoryMatchNode[]
 }
 
 export async function fetchDirectoryMatchTree(): Promise<DirectoryMatchNode> {
   return requestJson<DirectoryMatchNode>("/library/directory-tree")
+}
+
+/** Per-file state surfaced in the folder drill-down (mirrors the backend DeriveFileState). */
+export type SourceFileState = "written" | "matched" | "review" | "failed" | "queued"
+
+export interface SourceFile {
+  id: number
+  fileName: string
+  extension?: string | null
+  fileSizeBytes: number
+  enrichmentStatus: string
+  libraryBuildStatus: string
+  matchConfidence?: number | null
+  destinationPath?: string | null
+  state: SourceFileState
+}
+
+interface DirectoryFilesResponse {
+  path: string
+  count: number
+  files: SourceFile[]
+}
+
+/** Lists the songs that live directly inside a single source folder (lazy drill-down). */
+export async function fetchFolderFiles(path: string): Promise<SourceFile[]> {
+  const result = await requestJson<DirectoryFilesResponse>(
+    `/library/directory-tree/files?path=${encodeURIComponent(path)}`
+  )
+  return result.files ?? []
 }
 
 // ── Ingest runs (history) ─────────────────────────────────────────────────────

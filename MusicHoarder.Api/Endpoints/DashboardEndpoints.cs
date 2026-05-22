@@ -16,6 +16,7 @@ public static class DashboardEndpoints
         app.MapGet("/stats", GetStats).WithName("GetStats");
         app.MapGet("/overview", GetOverview).WithName("GetOverview");
         app.MapGet("/library/directory-tree", GetDirectoryTree).WithName("GetDirectoryTree");
+        app.MapGet("/library/directory-tree/files", GetDirectoryFiles).WithName("GetDirectoryFiles");
         return app;
     }
 
@@ -25,20 +26,95 @@ public static class DashboardEndpoints
     {
         var rows = await db.Songs
             .Where(s => s.DeletedAtUtc == null)
-            .Select(s => new { s.SourcePath, s.EnrichmentStatus, s.LibraryBuildStatus })
+            .Select(s => new { s.SourcePath, s.EnrichmentStatus, s.LibraryBuildStatus, s.FileSizeBytes })
             .ToListAsync();
 
         var root = BuildMatchTree(
-            rows.Select(r => new MatchTreeRow(r.SourcePath, r.EnrichmentStatus, r.LibraryBuildStatus)),
+            rows.Select(r => new MatchTreeRow(r.SourcePath, r.EnrichmentStatus, r.LibraryBuildStatus, r.FileSizeBytes)),
             options.Value.SourceDirectory);
 
         return Results.Ok(root.ToDto());
     }
 
+    /// <summary>
+    /// Lists the songs that live <em>directly</em> inside a single source folder (not in nested
+    /// sub-folders), so the directory-tree UI can lazily drill into a folder's actual files.
+    /// </summary>
+    private static async Task<IResult> GetDirectoryFiles(
+        string? path,
+        MusicHoarderDbContext db,
+        IOptions<MusicEnricherOptions> options)
+    {
+        var prefix = EnrichmentEndpoints.ResolveFolderPrefix(options.Value.SourceDirectory, path ?? string.Empty);
+        var prefixSlash = prefix.Length == 0 ? string.Empty : prefix + "/";
+
+        // Narrow to the folder's subtree in SQL (translatable + InMemory-test friendly, same as the
+        // enrich/folder endpoint), then keep only direct children — paths whose remainder has no '/'.
+        var candidates = await db.Songs
+            .AsNoTracking()
+            .Where(s => s.DeletedAtUtc == null)
+            .Where(s => prefixSlash == "" || s.SourcePath.StartsWith(prefixSlash))
+            .Select(s => new
+            {
+                s.Id,
+                s.SourcePath,
+                s.FileName,
+                s.Extension,
+                s.FileSizeBytes,
+                s.EnrichmentStatus,
+                s.LibraryBuildStatus,
+                s.MatchConfidence,
+                s.DestinationPath,
+            })
+            .ToListAsync();
+
+        var files = candidates
+            .Where(s => IsDirectChild(NormalizePath(s.SourcePath), prefix))
+            .OrderBy(s => s.FileName, StringComparer.OrdinalIgnoreCase)
+            .Select(s => new
+            {
+                s.Id,
+                s.FileName,
+                s.Extension,
+                s.FileSizeBytes,
+                EnrichmentStatus = s.EnrichmentStatus.ToString(),
+                LibraryBuildStatus = s.LibraryBuildStatus.ToString(),
+                s.MatchConfidence,
+                s.DestinationPath,
+                State = DeriveFileState(s.EnrichmentStatus, s.LibraryBuildStatus),
+            })
+            .ToList();
+
+        return Results.Ok(new { Path = path ?? string.Empty, Count = files.Count, Files = files });
+    }
+
+    internal static bool IsDirectChild(string normalizedSourcePath, string prefix)
+    {
+        if (prefix.Length == 0)
+            return !normalizedSourcePath.Contains('/');
+        if (!normalizedSourcePath.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase))
+            return false;
+        var remainder = normalizedSourcePath[(prefix.Length + 1)..];
+        return remainder.Length > 0 && !remainder.Contains('/');
+    }
+
+    // Collapses the two persisted status enums into the single per-file state the UI renders.
+    internal static string DeriveFileState(EnrichmentStatus enrichment, LibraryBuildStatus build)
+        => build == LibraryBuildStatus.Done
+            ? "written"
+            : enrichment switch
+            {
+                EnrichmentStatus.Matched => "matched",
+                EnrichmentStatus.NeedsReview => "review",
+                EnrichmentStatus.Failed => "failed",
+                _ => "queued",
+            };
+
     internal readonly record struct MatchTreeRow(
         string SourcePath,
         EnrichmentStatus EnrichmentStatus,
-        LibraryBuildStatus LibraryBuildStatus);
+        LibraryBuildStatus LibraryBuildStatus,
+        long FileSizeBytes = 0);
 
     /// <summary>
     /// Folds per-song enrichment/build status into a directory tree rooted at the source library,
@@ -54,15 +130,19 @@ public static class DashboardEndpoints
         foreach (var row in rows)
         {
             var node = root;
-            node.Accumulate(row.EnrichmentStatus, row.LibraryBuildStatus);
+            node.Accumulate(row.EnrichmentStatus, row.LibraryBuildStatus, row.FileSizeBytes);
 
             var cumulative = "";
             foreach (var segment in RelativeDirectorySegments(NormalizePath(row.SourcePath), sourceRoot))
             {
                 cumulative = cumulative.Length == 0 ? segment : $"{cumulative}/{segment}";
                 node = node.GetOrAddChild(segment, cumulative);
-                node.Accumulate(row.EnrichmentStatus, row.LibraryBuildStatus);
+                node.Accumulate(row.EnrichmentStatus, row.LibraryBuildStatus, row.FileSizeBytes);
             }
+
+            // `node` is now the directory this file physically lives in — count it as a
+            // direct file there only (not in its ancestors, which roll up cumulatively).
+            node.AddDirectFile();
         }
 
         return root;
@@ -101,6 +181,8 @@ public static class DashboardEndpoints
         public int Pending { get; private set; }
         public int Failed { get; private set; }
         public int Done { get; private set; }
+        public int DirectFiles { get; private set; }
+        public long SizeBytes { get; private set; }
         public IReadOnlyCollection<DirectoryMatchNode> Children => _children.Values;
 
         public DirectoryMatchNode GetOrAddChild(string name, string path)
@@ -114,9 +196,12 @@ public static class DashboardEndpoints
             return child;
         }
 
-        public void Accumulate(EnrichmentStatus enrichment, LibraryBuildStatus build)
+        public void AddDirectFile() => DirectFiles++;
+
+        public void Accumulate(EnrichmentStatus enrichment, LibraryBuildStatus build, long fileSizeBytes = 0)
         {
             Total++;
+            SizeBytes += fileSizeBytes;
             switch (enrichment)
             {
                 case EnrichmentStatus.Matched:
@@ -149,6 +234,8 @@ public static class DashboardEndpoints
             Pending,
             Failed,
             Done,
+            DirectFileCount = DirectFiles,
+            SizeBytes,
             NotMatched = Total - Matched,
             MatchedPct = Total > 0 ? Math.Round(100.0 * Matched / Total, 1) : 0,
             // Worst-offending folders first so the largest review backlogs surface at the top.
