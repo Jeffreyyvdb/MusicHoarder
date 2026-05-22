@@ -22,12 +22,14 @@
   import { Separator } from '$lib/components/ui/separator';
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
   import {
+    fetchLibraryAvailability,
     fetchOverview,
     triggerBuild,
     triggerEnrichmentScan,
     triggerFingerprint,
     type ApiOverview,
-    type EnrichmentTriggerResult
+    type EnrichmentTriggerResult,
+    type LibraryAvailability
   } from '$lib/api-client';
   import { breadcrumbStore } from '$lib/stores/breadcrumbs.svelte';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
@@ -180,11 +182,50 @@
   // is Scan → Fingerprint → Build (enrichment rides off the fingerprint feed).
   // One job runs at a time, so a single in-flight marker is enough.
   type PipelineStage = 'scan' | 'fingerprint' | 'build';
-  const STAGES: { id: PipelineStage; label: string; icon: typeof ScanLine; trigger: () => Promise<EnrichmentTriggerResult> }[] = [
-    { id: 'scan', label: 'Scan', icon: ScanLine, trigger: triggerEnrichmentScan },
-    { id: 'fingerprint', label: 'Fingerprint', icon: Disc3, trigger: triggerFingerprint },
-    { id: 'build', label: 'Build', icon: PackageCheck, trigger: triggerBuild }
+  type StageDef = {
+    id: PipelineStage;
+    label: string;
+    icon: typeof ScanLine;
+    trigger: () => Promise<EnrichmentTriggerResult>;
+    // Which directories must be online for the backend to accept this stage.
+    needsSource: boolean;
+    needsDestination: boolean;
+  };
+  const STAGES: StageDef[] = [
+    { id: 'scan', label: 'Scan', icon: ScanLine, trigger: triggerEnrichmentScan, needsSource: true, needsDestination: false },
+    { id: 'fingerprint', label: 'Fingerprint', icon: Disc3, trigger: triggerFingerprint, needsSource: true, needsDestination: false },
+    { id: 'build', label: 'Build', icon: PackageCheck, trigger: triggerBuild, needsSource: true, needsDestination: true }
   ];
+
+  // Polled directory availability (mirrors LibraryOfflineBanner). null = unknown
+  // (e.g. API unreachable) — treated as available so we never block on a failed probe.
+  let availability = $state<LibraryAvailability | null>(null);
+  $effect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const a = await fetchLibraryAvailability();
+        if (!cancelled) availability = a;
+      } catch {
+        if (!cancelled) availability = null;
+      }
+    };
+    void refresh();
+    const handle = setInterval(() => void refresh(), 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  });
+
+  function unavailableReason(stage: StageDef): string | null {
+    if (!availability) return null;
+    const missing: string[] = [];
+    if (stage.needsSource && !availability.sourceAvailable) missing.push('source');
+    if (stage.needsDestination && !availability.destinationAvailable) missing.push('destination');
+    if (missing.length === 0) return null;
+    return `${missing.join(' and ')} directory offline`;
+  }
 
   let runningStage = $state<PipelineStage | null>(null);
   async function runStage(stage: (typeof STAGES)[number]) {
@@ -315,6 +356,8 @@
     <div class="bg-surface-sunken border-border flex items-center rounded-md border p-0.5">
       {#each STAGES as stage (stage.id)}
         {@const busy = runningStage === stage.id}
+        {@const reason = unavailableReason(stage)}
+        {@const disabled = runningStage !== null || reason !== null}
         <Tooltip.Provider delayDuration={300}>
           <Tooltip.Root>
             <Tooltip.Trigger>
@@ -323,10 +366,10 @@
                   {...props}
                   type="button"
                   onclick={() => runStage(stage)}
-                  disabled={runningStage !== null}
+                  {disabled}
                   class={cn(
                     'text-muted-foreground hover:text-foreground flex items-center gap-1.5 rounded px-2 py-1 text-[11px] transition-colors',
-                    runningStage !== null && !busy && 'cursor-not-allowed opacity-50'
+                    disabled && !busy && 'cursor-not-allowed opacity-50'
                   )}
                   aria-label={stage.label}
                 >
@@ -339,7 +382,7 @@
                 </button>
               {/snippet}
             </Tooltip.Trigger>
-            <Tooltip.Content>{stage.label}</Tooltip.Content>
+            <Tooltip.Content>{reason ? `${stage.label} — ${reason}` : stage.label}</Tooltip.Content>
           </Tooltip.Root>
         </Tooltip.Provider>
       {/each}
