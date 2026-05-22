@@ -22,7 +22,7 @@
   const totalMin = $derived(Math.floor((album?.durationSeconds ?? 0) / 60));
 
   const playingId = $derived(playerStore.currentSong?.id ?? null);
-  const selectedN = $derived.by(() => {
+  const selectedId = $derived.by(() => {
     const t = page.url.searchParams.get('track');
     return t ? Number.parseInt(t, 10) : null;
   });
@@ -41,11 +41,10 @@
     });
   }
 
-  function selectTrack(s: ApiSong, i: number) {
-    const n = trackN(s, i);
+  function selectTrack(s: ApiSong) {
     const url = new URL(page.url);
-    if (selectedN === n) url.searchParams.delete('track');
-    else url.searchParams.set('track', String(n));
+    if (selectedId === s.id) url.searchParams.delete('track');
+    else url.searchParams.set('track', String(s.id));
     void goto(url.pathname + url.search, { replaceState: true, noScroll: true });
   }
 
@@ -115,8 +114,8 @@
         {#each tracks as t, i (t.id)}
           {@const isPlaying = t.id === playingId}
           <button
-            class="mob-track {isPlaying ? 'playing' : ''} {selectedN === trackN(t, i) ? 'bg-accent/40' : ''}"
-            onclick={() => selectTrack(t, i)}
+            class="mob-track {isPlaying ? 'playing' : ''} {selectedId === t.id ? 'bg-accent/40' : ''}"
+            onclick={() => selectTrack(t)}
           >
             <span class="mob-track-n">
               {#if isPlaying}
