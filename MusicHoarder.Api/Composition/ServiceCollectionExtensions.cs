@@ -159,6 +159,23 @@ public static class ServiceCollectionExtensions
             return new MusicBrainzWebService(httpClient, options, logger);
         });
 
+        services.AddSingleton<ITrackerCatalogService>(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<MusicEnricherOptions>>();
+            var baseUrl = options.Value.TrackerApiBaseUrl;
+            if (!baseUrl.EndsWith('/'))
+                baseUrl += "/";
+            var httpClient = new HttpClient
+            {
+                BaseAddress = new Uri(baseUrl),
+                Timeout = TimeSpan.FromSeconds(30),
+            };
+            httpClient.DefaultRequestHeaders.Add(
+                "User-Agent", "MusicHoarder/1.0 (+https://github.com/Jeffreyyvdb/MusicHoarder)");
+            var logger = sp.GetRequiredService<ILogger<JuiceWrldTrackerService>>();
+            return new JuiceWrldTrackerService(httpClient, options, logger);
+        });
+
         services.AddSingleton<ILrcLibService>(sp =>
         {
             var httpClient = new HttpClient

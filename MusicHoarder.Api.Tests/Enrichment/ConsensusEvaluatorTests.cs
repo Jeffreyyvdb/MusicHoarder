@@ -140,6 +140,49 @@ public class ConsensusEvaluatorTests
     }
 
     [Fact]
+    public void TrackerSolo_RecommendedMatched_Matched()
+    {
+        // A confident community-tracker match stands alone: mainstream catalogs can't corroborate
+        // an unreleased leak, so we trust the tracker's own tuned threshold.
+        var song = Song();
+        Add(song, EnrichmentProvider.Tracker, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "2MININHELL", conf: 0.95, recommend: EnrichmentStatus.Matched));
+
+        var r = ConsensusEvaluator.Evaluate(song, Enabled(EnrichmentProvider.Tracker), Opts);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+        Assert.Equal(EnrichmentProvider.Tracker, Assert.Single(r.AgreeingProviders));
+    }
+
+    [Fact]
+    public void TrackerSolo_RecommendedNeedsReview_NeedsReview()
+    {
+        var song = Song();
+        Add(song, EnrichmentProvider.Tracker, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "2MININHELL", conf: 0.72, recommend: EnrichmentStatus.NeedsReview));
+
+        var r = ConsensusEvaluator.Evaluate(song, Enabled(EnrichmentProvider.Tracker), Opts);
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
+    }
+
+    [Fact]
+    public void TrackerAndSpotifyAgree_StillCorroboratesAsCluster()
+    {
+        var song = Song();
+        Add(song, EnrichmentProvider.Tracker, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "Lucid Dreams", conf: 0.8, recommend: EnrichmentStatus.NeedsReview));
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "Lucid Dreams", spotifyId: "s", conf: 0.8, recommend: EnrichmentStatus.NeedsReview));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.Tracker, EnrichmentProvider.SpotifyAPI), Opts);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+        Assert.Equal(2, r.AgreeingProviders.Count);
+    }
+
+    [Fact]
     public void SubFloorCandidate_DoesNotCorroborate()
     {
         var song = Song();
