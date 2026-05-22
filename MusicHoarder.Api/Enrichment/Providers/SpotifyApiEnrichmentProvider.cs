@@ -42,14 +42,15 @@ public class SpotifyApiEnrichmentProvider(
             return new ProviderNoMatch();
         }
 
-        var (effectiveArtist, effectiveTitle) = SongSearchText.Resolve(song, options.Value.SourceDirectory);
+        var resolved = SongSearchText.ResolveDetailed(song, options.Value.SourceDirectory);
+        var (effectiveArtist, effectiveAlbum, effectiveTitle) = (resolved.Artist, resolved.Album, resolved.Title);
         if (string.IsNullOrWhiteSpace(effectiveArtist) || string.IsNullOrWhiteSpace(effectiveTitle))
         {
             logger.LogDebug("Spotify API enrichment: no searchable artist/title (SongId={SongId})", song.Id);
             return new ProviderNoMatch();
         }
 
-        var query = BuildSearchQuery(effectiveArtist!, effectiveTitle!);
+        var query = BuildSearchQuery(effectiveArtist!, effectiveTitle!, effectiveAlbum);
         if (string.IsNullOrWhiteSpace(query))
         {
             logger.LogDebug("Spotify API enrichment: empty query after normalize (SongId={SongId})", song.Id);
@@ -93,7 +94,7 @@ public class SpotifyApiEnrichmentProvider(
 
         foreach (var track in tracks)
         {
-            var (score, warnings) = ScoreCandidate(song, effectiveArtist, effectiveTitle, track, opts);
+            var (score, warnings) = ScoreCandidate(song, resolved, track, opts);
             if (score > bestScore)
             {
                 bestScore = score;
@@ -144,20 +145,23 @@ public class SpotifyApiEnrichmentProvider(
             Album: string.IsNullOrWhiteSpace(track.AlbumName) ? null : track.AlbumName);
     }
 
-    private static string BuildSearchQuery(string artist, string title)
+    private static string BuildSearchQuery(string artist, string title, string? album)
     {
-        var combined = $"{artist} {title}";
+        // Album, when known (from tags or the file path), sharpens the free-text search so common
+        // titles resolve to the right release; it stays plain text the normalizer can fold.
+        var combined = string.IsNullOrWhiteSpace(album) ? $"{artist} {title}" : $"{artist} {title} {album}";
         return SpotifyLibraryComparisonService.Normalize(combined);
     }
 
     private static (double Score, List<string> Warnings) ScoreCandidate(
         SongMetadata song,
-        string? sourceArtist,
-        string? sourceTitle,
+        SongSearchText.Resolved source,
         SpotifyCatalogTrack track,
         MusicEnricherOptions opts)
     {
         var warnings = new List<string>();
+        var sourceArtist = source.Artist;
+        var sourceTitle = source.Title;
 
         // Raw-fallback aware: a symbol-only artist like "¥$" no longer scores as a free 100%.
         var artistRatio = FuzzyTextMatch.Ratio(sourceArtist, track.Artist);
@@ -225,6 +229,19 @@ public class SpotifyApiEnrichmentProvider(
             warnings.Add("version_mismatch");
             score *= 0.6;
         }
+
+        // Album/track-number are confirmation signals only — a track legitimately appears on many
+        // releases, so we reward agreement but never penalize a difference (no blocking warning).
+        if (FuzzyTextMatch.Ratio(source.Album, track.AlbumName) is double albumRatio)
+        {
+            if (albumRatio >= FuzzyThreshold)
+                score = Math.Min(1.0, score + 0.05);
+            else
+                warnings.Add("album_mismatch");
+        }
+
+        if (source.TrackNumber is int sourceTrack && track.TrackNumber == sourceTrack)
+            score = Math.Min(1.0, score + 0.02);
 
         return (Math.Clamp(score, 0, 1), warnings);
     }
