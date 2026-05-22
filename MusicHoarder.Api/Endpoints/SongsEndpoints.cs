@@ -51,7 +51,7 @@ public static class SongsEndpoints
         return app;
     }
 
-    private static async Task<IResult> ListSongs(MusicHoarderDbContext db, bool includeDeleted = false, string? enrichmentStatus = null)
+    internal static async Task<IResult> ListSongs(MusicHoarderDbContext db, bool includeDeleted = false, string? enrichmentStatus = null)
     {
         var query = db.Songs.AsNoTracking();
         if (!includeDeleted)
@@ -88,6 +88,7 @@ public static class SongsEndpoints
                 s.DurationSeconds,
                 s.DurationMs,
                 s.Bitrate,
+                s.Fingerprint,
                 s.Isrc,
                 s.MusicBrainzId,
                 s.MusicBrainzReleaseId,
@@ -133,6 +134,7 @@ public static class SongsEndpoints
             s.Artist, s.AlbumArtist, s.Album, s.Title, s.Year, s.TrackNumber,
             s.DurationSeconds, s.DurationMs,
             s.Bitrate,
+            s.Fingerprint,
                 s.Isrc, s.MusicBrainzId, s.MusicBrainzReleaseId, s.SpotifyId, s.AcoustIdTrackId, s.LrclibId,
             s.EnrichmentStatus, s.MatchedBy, s.MatchConfidence,
             MatchWarnings = DeserializeWarnings(s.MatchWarnings),
