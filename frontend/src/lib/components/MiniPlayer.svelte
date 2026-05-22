@@ -26,10 +26,12 @@
       : 0
   );
 
+  const canSeek = $derived(Number.isFinite(playerStore.duration) && playerStore.duration > 0);
+
   let seekEl: HTMLDivElement | null = $state(null);
 
   function seekToClientX(clientX: number) {
-    if (!seekEl || playerStore.duration <= 0) return;
+    if (!seekEl || !canSeek) return;
     const rect = seekEl.getBoundingClientRect();
     if (rect.width <= 0) return;
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
@@ -37,27 +39,46 @@
   }
 
   function onSeekPointerDown(e: PointerEvent) {
-    if (playerStore.duration <= 0) return;
+    // Capture unconditionally so a drag begun while metadata is still loading
+    // keeps tracking and starts seeking the moment duration becomes known.
     (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
     seekToClientX(e.clientX);
   }
 
   function onSeekPointerMove(e: PointerEvent) {
-    if (playerStore.duration <= 0) return;
     const el = e.currentTarget as HTMLDivElement;
     if (!el.hasPointerCapture(e.pointerId)) return;
     seekToClientX(e.clientX);
   }
 
   function onSeekKeyDown(e: KeyboardEvent) {
-    if (playerStore.duration <= 0) return;
-    if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      playerStore.seek(Math.max(0, playerStore.currentTime - 5));
-    } else if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      playerStore.seek(Math.min(playerStore.duration, playerStore.currentTime + 5));
+    if (!canSeek) return;
+    const d = playerStore.duration;
+    const t = playerStore.currentTime;
+    let next: number | null = null;
+    switch (e.key) {
+      case 'ArrowLeft':
+        next = t - 5;
+        break;
+      case 'ArrowRight':
+        next = t + 5;
+        break;
+      case 'PageDown':
+        next = t - 30;
+        break;
+      case 'PageUp':
+        next = t + 30;
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = d;
+        break;
     }
+    if (next === null) return;
+    e.preventDefault();
+    playerStore.seek(Math.max(0, Math.min(d, next)));
   }
 </script>
 

@@ -74,6 +74,7 @@ function ensureAudioEl(): HTMLAudioElement | null {
   el.addEventListener('ended', () => {
     stopRaf();
     isPlaying = false;
+    if (Number.isFinite(el.duration)) currentTime = el.duration; // land the bar at 100%
   });
   el.addEventListener('error', () => {
     stopRaf();
@@ -90,10 +91,33 @@ function ensureAudioEl(): HTMLAudioElement | null {
   el.addEventListener('pause', () => {
     stopRaf();
     isPlaying = false;
+    // The rAF stops here, so commit the exact paused position (the throttled
+    // loop may have last written it up to TIME_WRITE_INTERVAL_MS ago).
+    currentTime = el.currentTime;
   });
 
   audioEl = el;
   return el;
+}
+
+/**
+ * Start/resume playback on the store-owned element. Surfaces an autoplay block
+ * (the one failure the media `error` event does NOT cover); genuine media/
+ * network failures still flow through the `error` listener, and `AbortError`
+ * (a newer load/pause superseding this play) is intentionally ignored.
+ */
+function attemptPlay() {
+  void audioEl
+    ?.play()
+    .then(() => (isPlaying = true))
+    .catch((err: unknown) => {
+      isPlaying = false;
+      if (err instanceof DOMException && err.name === 'NotAllowedError') {
+        toast.error('Playback blocked', {
+          description: 'Your browser blocked autoplay — press play to start.'
+        });
+      }
+    });
 }
 
 async function playSong(song: PlayerSong) {
@@ -101,10 +125,7 @@ async function playSong(song: PlayerSong) {
 
   if (currentSong?.id === song.id) {
     if (audioEl.paused) {
-      void audioEl
-        .play()
-        .then(() => (isPlaying = true))
-        .catch(() => (isPlaying = false));
+      attemptPlay();
     } else {
       audioEl.pause();
       isPlaying = false;
@@ -141,10 +162,7 @@ async function playSong(song: PlayerSong) {
   duration = 0;
   audioEl.src = song.streamUrl;
   audioEl.load();
-  void audioEl
-    .play()
-    .then(() => (isPlaying = true))
-    .catch(() => (isPlaying = false));
+  attemptPlay();
 }
 
 function pause() {
@@ -154,10 +172,7 @@ function pause() {
 
 function resume() {
   ensureAudioEl();
-  void audioEl
-    ?.play()
-    .then(() => (isPlaying = true))
-    .catch(() => (isPlaying = false));
+  attemptPlay();
 }
 
 function togglePlay() {
@@ -180,7 +195,10 @@ function setVolume(vol: number) {
 function stop() {
   if (audioEl) {
     audioEl.pause();
-    audioEl.src = '';
+    // Detach the source without assigning '' (an empty string resolves to the
+    // page URL and fires a spurious `error` event / "Playback failed" toast).
+    audioEl.removeAttribute('src');
+    audioEl.load();
   }
   currentSong = null;
   isPlaying = false;

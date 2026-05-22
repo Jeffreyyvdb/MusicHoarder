@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
   import { ArrowLeft, Disc3, Music, Play } from '@lucide/svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import Cover from '$lib/components/file-browser/Cover.svelte';
@@ -26,7 +26,9 @@
   function getStoredLayout(): Layout {
     if (typeof window === 'undefined') return 'grid';
     const v = localStorage.getItem('musichoarder-library-view');
-    if (v === 'list' || v === 'col' || v === 'grid') return v;
+    // 'col' is a "coming soon" option the header never activates; treat a stale
+    // stored 'col' as grid so the rendered view and the header stay in sync.
+    if (v === 'list' || v === 'grid') return v;
     return 'grid';
   }
 
@@ -36,12 +38,18 @@
     layout = getStoredLayout();
     const handler = (e: Event) => {
       const next = (e as CustomEvent).detail as Layout | undefined;
-      if (next === 'list' || next === 'grid') layout = next;
+      if (next === 'list' || next === 'grid') {
+        layout = next;
+        // The previous layout's row height must not leak into the new stride;
+        // reset synchronously so the first paint uses the correct estimate.
+        measuredRow = 0;
+        if (viewport) viewport.scrollTop = 0;
+        scrollTop = 0;
+      }
     };
     window.addEventListener('mh:layout-change', handler);
     return () => window.removeEventListener('mh:layout-change', handler);
   });
-  onDestroy(() => {});
 
   const albums = $derived(
     section === 'recent'
@@ -79,6 +87,8 @@
   let containerW = $state(0);
   let listTop = $state(0); // offset of the list from the scroll-content top
   let measuredRow = $state(0);
+  let measured = $state(false); // true once the viewport has been measured at least once
+  let contentEl = $state<HTMLDivElement | null>(null);
 
   const columns = $derived.by(() => {
     if (layout !== 'grid') return 1;
@@ -99,7 +109,8 @@
   // Estimate used until a real row has been measured; self-corrects after paint.
   const estRowHeight = $derived.by(() => {
     if (layout !== 'grid') return 49;
-    const colW = (Math.max(0, (containerW || 1200) - 48) - (columns - 1) * GAP_X) / columns;
+    const pad = (containerW || 1200) >= 768 ? 48 : 32; // md:p-6 (24*2) vs p-4 (16*2)
+    const colW = (Math.max(0, (containerW || 1200) - pad) - (columns - 1) * GAP_X) / columns;
     return colW + 56; // square cover + two text lines
   });
   const rowStride = $derived(
@@ -107,45 +118,90 @@
   );
 
   const effectiveScroll = $derived(Math.max(0, scrollTop - listTop));
-  const startRow = $derived(Math.max(0, Math.floor(effectiveScroll / rowStride) - OVERSCAN));
+  // Clamp to the last row so a stale-large scrollTop (e.g. results shrank while
+  // scrolled deep) can never slice past the end and blank the list; the shorter
+  // topPad then lets the browser clamp scrollTop and the window self-corrects.
+  const startRow = $derived(
+    Math.min(
+      Math.max(0, Math.floor(effectiveScroll / rowStride) - OVERSCAN),
+      Math.max(0, rows.length - 1)
+    )
+  );
   const endRow = $derived(
-    Math.min(rows.length, Math.ceil((effectiveScroll + (viewportH || 800)) / rowStride) + OVERSCAN)
+    Math.min(
+      rows.length,
+      Math.ceil((effectiveScroll + (measured ? viewportH : 800)) / rowStride) + OVERSCAN
+    )
   );
   const visibleRows = $derived(rows.slice(startRow, endRow));
   const topPad = $derived(startRow * rowStride);
   const bottomPad = $derived(Math.max(0, (rows.length - endRow) * rowStride));
 
-  // Wire up scroll + resize on the ScrollArea viewport.
+  // Offset of the list within the scroll content. Scroll-independent: as you
+  // scroll, listEl.top falls while vp.scrollTop rises by the same amount.
+  function measureListTop() {
+    const vp = viewport;
+    const el = listEl;
+    if (!vp || !el) return;
+    listTop = el.getBoundingClientRect().top - vp.getBoundingClientRect().top + vp.scrollTop;
+  }
+
+  // Wire up scroll + resize on the ScrollArea viewport and its content.
   $effect(() => {
     const vp = viewport;
+    const content = contentEl;
     if (!vp) return;
-    const onScroll = () => (scrollTop = vp.scrollTop);
-    vp.addEventListener('scroll', onScroll, { passive: true });
-    const ro = new ResizeObserver(() => {
+    const sync = () => {
       containerW = vp.clientWidth;
       viewportH = vp.clientHeight;
-    });
+      measured = true;
+      measureListTop();
+    };
+    const onScroll = () => {
+      scrollTop = vp.scrollTop;
+      measureListTop();
+    };
+    vp.addEventListener('scroll', onScroll, { passive: true });
+    // Observe the viewport (its size) AND the content (height changes above the
+    // list — e.g. the ProcessingStrip growing/shrinking during a job) so listTop
+    // never goes stale and mis-windows the rows.
+    const ro = new ResizeObserver(sync);
     ro.observe(vp);
+    if (content) ro.observe(content);
     scrollTop = vp.scrollTop;
-    containerW = vp.clientWidth;
-    viewportH = vp.clientHeight;
+    sync();
+    // Sync to scroll restoration applied after this effect runs (back-nav, ssr=false).
+    const raf = requestAnimationFrame(() => {
+      if (!viewport) return;
+      scrollTop = viewport.scrollTop;
+      measureListTop();
+    });
     return () => {
       vp.removeEventListener('scroll', onScroll);
       ro.disconnect();
+      cancelAnimationFrame(raf);
     };
   });
 
-  // Measure where the list starts within the scroll content (header/processing
-  // strip live above it and scroll with it). Recompute when layout above changes.
+  // Re-measure listTop when content above the list changes for non-size reasons.
   $effect(() => {
     void filtered.length;
     void layout;
     void showProcessing;
     void containerW;
-    const vp = viewport;
-    const el = listEl;
-    if (!vp || !el) return;
-    listTop = el.getBoundingClientRect().top - vp.getBoundingClientRect().top + vp.scrollTop;
+    measureListTop();
+  });
+
+  // Reset to the top when the user changes what's shown (search / section /
+  // drill-down) so a stale deep scrollTop can't window past the new, shorter set.
+  // Keyed on user inputs only — a background `songs` refresh won't yank scroll.
+  let prevViewKey = '';
+  $effect(() => {
+    const key = `${section} ${searchQuery.trim()} ${browseFilter?.label ?? ''}`;
+    if (key === prevViewKey) return;
+    prevViewKey = key;
+    if (viewport) viewport.scrollTop = 0;
+    scrollTop = 0;
   });
 
   // Measure an actual rendered row height; corrects the estimate. Intentionally
@@ -190,7 +246,7 @@
   </div>
 {:else}
   <ScrollArea bind:viewportRef={viewport} class="min-h-0 flex-1">
-    <div class="p-4 pb-20 md:p-6">
+    <div bind:this={contentEl} class="p-4 pb-20 md:p-6">
       <div class="mb-4 flex items-end justify-between gap-4">
         <div class="min-w-0">
           {#if browseFilter}
@@ -252,7 +308,7 @@
 
         {#if layout === 'grid'}
           <div bind:this={listEl}>
-            <div style="height: {topPad}px;" aria-hidden="true"></div>
+            {#if topPad > 0}<div style="height: {topPad}px;" aria-hidden="true"></div>{/if}
             {#each visibleRows as row, ri (startRow + ri)}
               <div
                 data-vrow
@@ -293,7 +349,7 @@
                 {/each}
               </div>
             {/each}
-            <div style="height: {bottomPad}px;" aria-hidden="true"></div>
+            {#if bottomPad > 0}<div style="height: {bottomPad}px;" aria-hidden="true"></div>{/if}
           </div>
         {:else}
           <!-- list view -->
@@ -313,7 +369,7 @@
               <span class="text-right">Size</span>
             </div>
             <div bind:this={listEl}>
-              <div style="height: {topPad}px;" aria-hidden="true"></div>
+              {#if topPad > 0}<div style="height: {topPad}px;" aria-hidden="true"></div>{/if}
               {#each visibleRows as row, ri (startRow + ri)}
                 {#each row as album (album.key)}
                   <a
@@ -345,7 +401,7 @@
                   </a>
                 {/each}
               {/each}
-              <div style="height: {bottomPad}px;" aria-hidden="true"></div>
+              {#if bottomPad > 0}<div style="height: {bottomPad}px;" aria-hidden="true"></div>{/if}
             </div>
           </div>
         {/if}
