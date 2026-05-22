@@ -33,7 +33,6 @@
 #                                   RpId=${PREVIEW_BASE_DOMAIN}, then capture the WebAuthnCredentials
 #                                   row. Empty → passkey seed skipped (magic-link still works).
 #   PREVIEW_SOURCE_DIR   default /srv/mh-preview/sample-source  (shared, read-only sample library)
-#   PREVIEW_DEST_ROOT    default /srv/mh-preview                (per-PR dest = <root>/pr-<n>/dest)
 #   PREVIEW_MAX_STACKS   default 5  (skip provisioning if this many pr-* composes already exist)
 #   PREVIEW_SPOTIFY_CLIENT_ID / PREVIEW_SPOTIFY_CLIENT_SECRET   Spotify app creds so the preview can complete the
 #                                   OAuth token exchange. Empty → Spotify connect disabled in the preview.
@@ -111,7 +110,6 @@ provision() {
   : "${PREVIEW_POSTGRES_PASSWORD:?PREVIEW_POSTGRES_PASSWORD is required}"
   : "${PREVIEW_OWNER_EMAIL:?PREVIEW_OWNER_EMAIL is required}"
   local source_dir="${PREVIEW_SOURCE_DIR:-/srv/mh-preview/sample-source}"
-  local dest_root="${PREVIEW_DEST_ROOT:-/srv/mh-preview}"
   local max="${PREVIEW_MAX_STACKS:-5}"
   local host="${NAME}.${PREVIEW_BASE_DOMAIN}"
   local public_url="https://${host}"
@@ -131,7 +129,6 @@ FRONTEND_PUBLIC_BASE_URL=${public_url}
 WEBAUTHN_RP_ID=${PREVIEW_BASE_DOMAIN}
 OWNER_SEED_CREDENTIAL_JSON=${PREVIEW_OWNER_SEED_CREDENTIAL:-}
 SOURCE_DIRECTORY=${source_dir}
-DESTINATION_DIRECTORY=${dest_root}/${NAME}/dest
 ACOUSTID_API_KEY=
 SPOTIFY_CLIENT_ID=${PREVIEW_SPOTIFY_CLIENT_ID:-}
 SPOTIFY_CLIENT_SECRET=${PREVIEW_SPOTIFY_CLIENT_SECRET:-}
