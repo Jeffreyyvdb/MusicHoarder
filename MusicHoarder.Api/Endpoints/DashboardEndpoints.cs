@@ -15,7 +15,149 @@ public static class DashboardEndpoints
     {
         app.MapGet("/stats", GetStats).WithName("GetStats");
         app.MapGet("/overview", GetOverview).WithName("GetOverview");
+        app.MapGet("/library/directory-tree", GetDirectoryTree).WithName("GetDirectoryTree");
         return app;
+    }
+
+    private static async Task<IResult> GetDirectoryTree(
+        MusicHoarderDbContext db,
+        IOptions<MusicEnricherOptions> options)
+    {
+        var rows = await db.Songs
+            .Where(s => s.DeletedAtUtc == null)
+            .Select(s => new { s.SourcePath, s.EnrichmentStatus, s.LibraryBuildStatus })
+            .ToListAsync();
+
+        var root = BuildMatchTree(
+            rows.Select(r => new MatchTreeRow(r.SourcePath, r.EnrichmentStatus, r.LibraryBuildStatus)),
+            options.Value.SourceDirectory);
+
+        return Results.Ok(root.ToDto());
+    }
+
+    internal readonly record struct MatchTreeRow(
+        string SourcePath,
+        EnrichmentStatus EnrichmentStatus,
+        LibraryBuildStatus LibraryBuildStatus);
+
+    /// <summary>
+    /// Folds per-song enrichment/build status into a directory tree rooted at the source library,
+    /// where every node's counts are rolled up from all songs anywhere beneath it.
+    /// </summary>
+    internal static DirectoryMatchNode BuildMatchTree(IEnumerable<MatchTreeRow> rows, string? sourceDirectory)
+    {
+        var sourceRoot = NormalizePath(sourceDirectory);
+        var root = new DirectoryMatchNode(
+            string.IsNullOrEmpty(sourceDirectory) ? "/" : sourceDirectory,
+            string.Empty);
+
+        foreach (var row in rows)
+        {
+            var node = root;
+            node.Accumulate(row.EnrichmentStatus, row.LibraryBuildStatus);
+
+            var cumulative = "";
+            foreach (var segment in RelativeDirectorySegments(NormalizePath(row.SourcePath), sourceRoot))
+            {
+                cumulative = cumulative.Length == 0 ? segment : $"{cumulative}/{segment}";
+                node = node.GetOrAddChild(segment, cumulative);
+                node.Accumulate(row.EnrichmentStatus, row.LibraryBuildStatus);
+            }
+        }
+
+        return root;
+    }
+
+    private static string NormalizePath(string? path)
+        => (path ?? string.Empty).Replace('\\', '/').TrimEnd('/');
+
+    private static string[] RelativeDirectorySegments(string fullPath, string sourceRoot)
+    {
+        var lastSlash = fullPath.LastIndexOf('/');
+        var directory = lastSlash >= 0 ? fullPath[..lastSlash] : string.Empty;
+        if (sourceRoot.Length > 0 && directory.StartsWith(sourceRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            directory = directory[sourceRoot.Length..];
+        }
+
+        return directory.Split('/', StringSplitOptions.RemoveEmptyEntries);
+    }
+
+    internal sealed class DirectoryMatchNode
+    {
+        private readonly Dictionary<string, DirectoryMatchNode> _children = new(StringComparer.Ordinal);
+
+        public DirectoryMatchNode(string name, string path)
+        {
+            Name = name;
+            Path = path;
+        }
+
+        public string Name { get; }
+        public string Path { get; }
+        public int Total { get; private set; }
+        public int Matched { get; private set; }
+        public int NeedsReview { get; private set; }
+        public int Pending { get; private set; }
+        public int Failed { get; private set; }
+        public int Done { get; private set; }
+        public IReadOnlyCollection<DirectoryMatchNode> Children => _children.Values;
+
+        public DirectoryMatchNode GetOrAddChild(string name, string path)
+        {
+            if (!_children.TryGetValue(name, out var child))
+            {
+                child = new DirectoryMatchNode(name, path);
+                _children[name] = child;
+            }
+
+            return child;
+        }
+
+        public void Accumulate(EnrichmentStatus enrichment, LibraryBuildStatus build)
+        {
+            Total++;
+            switch (enrichment)
+            {
+                case EnrichmentStatus.Matched:
+                    Matched++;
+                    break;
+                case EnrichmentStatus.NeedsReview:
+                    NeedsReview++;
+                    break;
+                case EnrichmentStatus.Failed:
+                    Failed++;
+                    break;
+                default:
+                    Pending++;
+                    break;
+            }
+
+            if (build == LibraryBuildStatus.Done)
+            {
+                Done++;
+            }
+        }
+
+        public object ToDto() => new
+        {
+            Name,
+            Path,
+            Total,
+            Matched,
+            NeedsReview,
+            Pending,
+            Failed,
+            Done,
+            NotMatched = Total - Matched,
+            MatchedPct = Total > 0 ? Math.Round(100.0 * Matched / Total, 1) : 0,
+            // Worst-offending folders first so the largest review backlogs surface at the top.
+            Children = _children.Values
+                .OrderByDescending(c => c.Total - c.Matched)
+                .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(c => c.ToDto())
+                .ToList(),
+        };
     }
 
     private static async Task<IResult> GetStats(MusicHoarderDbContext db)

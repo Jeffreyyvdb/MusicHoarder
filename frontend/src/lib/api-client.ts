@@ -597,6 +597,26 @@ export async function fetchOverview(): Promise<ApiOverview> {
   return requestJson<ApiOverview>("/overview")
 }
 
+export interface DirectoryMatchNode {
+  /** Folder name (the source library root for the top node). */
+  name: string
+  /** Path relative to the source library root ("" for the root). */
+  path: string
+  total: number
+  matched: number
+  needsReview: number
+  pending: number
+  failed: number
+  done: number
+  notMatched: number
+  matchedPct: number
+  children: DirectoryMatchNode[]
+}
+
+export async function fetchDirectoryMatchTree(): Promise<DirectoryMatchNode> {
+  return requestJson<DirectoryMatchNode>("/library/directory-tree")
+}
+
 // ── Ingest runs (history) ─────────────────────────────────────────────────────
 
 export type ApiRunStatus = "running" | "completed" | "cancelled" | "failed"
