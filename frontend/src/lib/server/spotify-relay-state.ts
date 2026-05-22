@@ -16,8 +16,24 @@ function base64UrlDecode(value: string): Buffer {
   return Buffer.from(padded, 'base64');
 }
 
-/** Returns the verified return origin (normalized, no path) or null when the state is forged/tampered/malformed. */
-export function verifyRelayState(state: string | null, signingKey: string): string | null {
+/** Default state TTL in seconds, mirroring the C# `SpotifyOptions.OAuthStateTtlMinutes` default (10 min). */
+const DEFAULT_MAX_AGE_SECONDS = 600;
+
+/** Clock-skew tolerance for future-dated states, mirroring the C# protector's `age < -1min` guard. */
+const CLOCK_SKEW_TOLERANCE_SECONDS = 60;
+
+/**
+ * Returns the verified return origin (normalized, no path) or null when the state is
+ * forged/tampered/malformed/expired.
+ *
+ * TTL is enforced here (not just in the C# callback) so the relay fails closed on a stale or replayed
+ * `state` before it bounces the OAuth `code` — defense in depth that mirrors the C# protector's TTL check.
+ */
+export function verifyRelayState(
+  state: string | null,
+  signingKey: string,
+  maxAgeSeconds: number = DEFAULT_MAX_AGE_SECONDS
+): string | null {
   if (!state || !signingKey) return null;
 
   const dot = state.indexOf('.');
@@ -36,7 +52,7 @@ export function verifyRelayState(state: string | null, signingKey: string): stri
   const expected = createHmac('sha256', signingKey).update(payloadSegment, 'ascii').digest();
   if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) return null;
 
-  let parsed: { ro?: unknown };
+  let parsed: { ro?: unknown; iat?: unknown };
   try {
     parsed = JSON.parse(base64UrlDecode(payloadSegment).toString('utf8'));
   } catch {
@@ -44,6 +60,10 @@ export function verifyRelayState(state: string | null, signingKey: string): stri
   }
 
   if (typeof parsed.ro !== 'string' || parsed.ro.length === 0) return null;
+
+  if (typeof parsed.iat !== 'number' || !Number.isFinite(parsed.iat)) return null;
+  const ageSeconds = Math.floor(Date.now() / 1000) - parsed.iat;
+  if (ageSeconds > maxAgeSeconds || ageSeconds < -CLOCK_SKEW_TOLERANCE_SECONDS) return null;
 
   try {
     // Normalize to an origin (scheme://host[:port]) so any path/query smuggled into `ro` is dropped before we
@@ -66,10 +86,7 @@ export function isAllowedReturnOrigin(origin: string, allowlist: string): boolea
     .filter(Boolean);
 
   return patterns.some((pattern) => {
-    const regex = new RegExp(
-      '^' + escapeRegex(pattern).replace(/\\\*/g, '[^./]+') + '$',
-      'i'
-    );
+    const regex = new RegExp('^' + escapeRegex(pattern).replace(/\\\*/g, '[^./]+') + '$', 'i');
     return regex.test(origin);
   });
 }
