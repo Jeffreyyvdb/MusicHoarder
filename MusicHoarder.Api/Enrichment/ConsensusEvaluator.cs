@@ -53,6 +53,15 @@ public static class ConsensusEvaluator
         if (attempts.Count == 0)
             return new ConsensusResult(EnrichmentStatus.Pending, null, 0, []);
 
+        // Strong preference: a confident community-tracker match is authoritative for the artists
+        // it covers (the tracker only fires for its allowlist, e.g. Juice WRLD). Those catalogs
+        // carry leaks / alternate versions / leaked albums the mainstream services lack, so when
+        // the tracker confidently matched we prefer it outright — ahead of a mainstream
+        // multi-provider consensus, and without waiting on a rate-limited mainstream provider.
+        var trackerWinner = TryTrackerPreference(attempts, enabledProviders, corroborationFloor);
+        if (trackerWinner is not null)
+            return trackerWinner;
+
         // A rate-limited provider means the picture is incomplete — stay Pending.
         if (attempts.Any(a => a.Status == ProviderAttemptStatus.RateLimited))
             return new ConsensusResult(EnrichmentStatus.Pending, null, 0, []);
@@ -119,22 +128,7 @@ public static class ConsensusEvaluator
                 [soloNameBased.Provider]);
         }
 
-        // 2b) A confident community-tracker match is authoritative for its niche — unreleased /
-        //     leaked songs that mainstream catalogs simply don't carry, so corroboration from
-        //     Spotify/MusicBrainz will never come. It stands alone on its own tuned thresholds
-        //     (the provider already required title agreement with no blocking warning to recommend
-        //     Matched).
-        var soloTracker = strong
-            .Where(c => c.Provider == EnrichmentProvider.Tracker
-                && c.Result.RecommendedStatus == EnrichmentStatus.Matched)
-            .OrderByDescending(c => c.Confidence)
-            .FirstOrDefault();
-        if (soloTracker is not null)
-        {
-            return new ConsensusResult(
-                EnrichmentStatus.Matched, soloTracker.Result, soloTracker.Confidence,
-                [soloTracker.Provider]);
-        }
+        // (A confident community-tracker match is handled with top precedence above.)
 
         // 3) A clean, *unambiguous* fingerprint match (AcoustID) is acoustically authoritative and
         //    may stand alone — but only once every enabled provider has had its turn, so a
@@ -173,6 +167,37 @@ public static class ConsensusEvaluator
         return new ConsensusResult(
             EnrichmentStatus.NeedsReview, reviewWinner.Result, reviewWinner.Confidence,
             [reviewWinner.Provider]);
+    }
+
+    /// <summary>
+    /// Returns a winning <see cref="ConsensusResult"/> when the community tracker confidently
+    /// matched (recommended <see cref="EnrichmentStatus.Matched"/> at or above the corroboration
+    /// floor), or null when it didn't. The tracker only produces a candidate for the artists it
+    /// covers, so this is the "prefer the tracker for those songs" rule.
+    /// </summary>
+    private static ConsensusResult? TryTrackerPreference(
+        List<SongProviderAttempt> attempts,
+        IReadOnlySet<EnrichmentProvider> enabledProviders,
+        double corroborationFloor)
+    {
+        if (!enabledProviders.Contains(EnrichmentProvider.Tracker))
+            return null;
+
+        var attempt = attempts.FirstOrDefault(a =>
+            a.Provider == EnrichmentProvider.Tracker
+            && a.Status == ProviderAttemptStatus.Matched
+            && a.MatchedDataJson is not null);
+        if (attempt is null)
+            return null;
+
+        var result = TryDeserialize(attempt.MatchedDataJson!);
+        if (result is null
+            || result.RecommendedStatus != EnrichmentStatus.Matched
+            || result.MatchConfidence < corroborationFloor)
+            return null;
+
+        return new ConsensusResult(
+            EnrichmentStatus.Matched, result, result.MatchConfidence, [EnrichmentProvider.Tracker]);
     }
 
     private static List<Candidate>? BuildBestCluster(List<Candidate> strong, IdentityMatchOptions opts)

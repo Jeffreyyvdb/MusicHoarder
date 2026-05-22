@@ -11,20 +11,28 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
     private static readonly char[] ForbiddenPathChars = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
 
     private readonly string _destinationRoot = options.Value.DestinationDirectory;
+    private readonly string _compilationFolder = string.IsNullOrWhiteSpace(options.Value.CompilationFolderName)
+        ? "Various Artists"
+        : options.Value.CompilationFolderName;
 
     public string ResolvePath(SongMetadata song)
     {
         ArgumentNullException.ThrowIfNull(song);
 
-        var albumArtist = ResolveAlbumArtist(song);
         var title = NormalizeSegment(song.Title, "Unknown Title");
         var extension = NormalizeExtension(song.Extension);
+
+        // Compilations route under a single "Various Artists" tree (keyed by album, not the
+        // per-track artist) so the album stays together — same convention every server uses.
+        var topFolder = song.IsCompilation
+            ? NormalizeSegment(_compilationFolder, "Various Artists")
+            : ResolveAlbumArtist(song);
 
         if (song.IsUnreleased)
         {
             return Path.Combine(
                 _destinationRoot,
-                albumArtist,
+                topFolder,
                 "Unreleased",
                 $"{title}{extension}");
         }
@@ -34,13 +42,23 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
             ? $"{song.Year.Value} - {album}"
             : album;
 
-        var trackPrefix = song.TrackNumber is > 0
-            ? $"{song.TrackNumber.Value:00} - "
-            : string.Empty;
+        var fileName = $"{BuildTrackPrefix(song)}{title}{extension}";
 
-        var fileName = $"{trackPrefix}{title}{extension}";
+        return Path.Combine(_destinationRoot, topFolder, albumFolder, fileName);
+    }
 
-        return Path.Combine(_destinationRoot, albumArtist, albumFolder, fileName);
+    // Multi-disc albums prefix the disc number so disc 2's "01" doesn't collide with disc 1's "01"
+    // within a single album folder; single-disc albums keep the plain "NN - " prefix.
+    private static string BuildTrackPrefix(SongMetadata song)
+    {
+        if (song.TrackNumber is not > 0)
+        {
+            return string.Empty;
+        }
+
+        return song.TotalDiscs is > 1 && song.DiscNumber is > 0
+            ? $"{song.DiscNumber.Value}-{song.TrackNumber.Value:00} - "
+            : $"{song.TrackNumber.Value:00} - ";
     }
 
     public static string Sanitize(string value)

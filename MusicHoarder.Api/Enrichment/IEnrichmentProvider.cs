@@ -17,7 +17,17 @@ public record EnrichmentProviderResult(
     double MatchConfidence,
     List<string> MatchWarnings,
     EnrichmentStatus RecommendedStatus,
-    string? Album = null);
+    string? Album = null,
+    string? Artists = null,
+    string? ArtistMusicBrainzIds = null,
+    string? AlbumArtistMusicBrainzId = null,
+    string? MusicBrainzReleaseGroupId = null,
+    int? DiscNumber = null,
+    int? TotalDiscs = null,
+    int? TotalTracks = null,
+    bool? IsCompilation = null,
+    string? ReleaseTypePrimary = null,
+    string? ReleaseTypes = null);
 
 public abstract record ProviderOutcome;
 public sealed record ProviderMatched(EnrichmentProviderResult Result) : ProviderOutcome;

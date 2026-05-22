@@ -11,4 +11,8 @@ public record SpotifyCatalogTrack(
     int? ReleaseYear,
     int? TrackNumber,
     int DurationMs,
-    string? Isrc);
+    string? Isrc,
+    string? Artists = null,
+    int? DiscNumber = null,
+    string? AlbumType = null,
+    int? TotalTracks = null);
