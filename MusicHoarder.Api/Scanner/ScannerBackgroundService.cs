@@ -52,7 +52,8 @@ public class ScannerBackgroundService(
 
                 jobManager.SignalComplete(jobId);
 
-                if (result.NewFiles + result.ChangedFiles > 0
+                if (options.Value.AutoStartPipeline
+                    && result.NewFiles + result.ChangedFiles > 0
                     && jobManager.TryStartJob(JobType.Fingerprint, out var fpJobId, out _))
                 {
                     logger.LogInformation(
