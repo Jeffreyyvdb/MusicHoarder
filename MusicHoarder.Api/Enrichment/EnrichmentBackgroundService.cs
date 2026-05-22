@@ -155,6 +155,7 @@ public class EnrichmentBackgroundService(
             }
 
             var retryIds = await db.SongProviderAttempts
+                .IgnoreQueryFilters()
                 .AsNoTracking()
                 .WhereRetryableProviderAttempts(DateTime.UtcNow)
                 .ToListAsync(ct);
@@ -185,6 +186,7 @@ public class EnrichmentBackgroundService(
                 var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
                 var retryIds = await db.SongProviderAttempts
+                    .IgnoreQueryFilters()
                     .AsNoTracking()
                     .WhereRetryableProviderAttempts(DateTime.UtcNow)
                     .ToListAsync(ct);
