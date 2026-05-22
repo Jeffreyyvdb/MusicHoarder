@@ -7,7 +7,7 @@
   import MobileTabBar from '$lib/components/mobile/MobileTabBar.svelte';
   import LibraryOfflineBanner from '$lib/components/LibraryOfflineBanner.svelte';
   import ImportPipelineDrawer from '$lib/components/pipeline/ImportPipelineDrawer.svelte';
-  import { playerStore } from '$lib/stores/player.svelte';
+  import { playerStore, initPlayer } from '$lib/stores/player.svelte';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import { cn } from '$lib/utils';
@@ -20,6 +20,10 @@
   // Subscribe to the pipeline progress stream while the layout is mounted so
   // the AppHeader pill can pulse during running jobs even with the drawer closed.
   $effect(() => pipelineOverlay.mount());
+
+  // The player owns its audio element in JS (not the DOM), so warm it up once
+  // for the session — it then survives every re-render and navigation.
+  $effect(() => initPlayer());
 
   const drawerOpen = $derived(pipelineOverlay.isOpen);
   const playerPad = $derived(playerStore.currentSong && !playerStore.isPanelMounted);
@@ -53,8 +57,9 @@
   </Sidebar.Inset>
 </Sidebar.Provider>
 
-<!-- Always mount MiniPlayer so its hidden audio element persists across nav and
-     resize. MiniPlayer hides its UI internally when the in-page TrackPanel is mounted. -->
+<!-- MiniPlayer is the global playback UI; it hides itself when the in-page
+     TrackPanel is mounted. Its audio element is owned by the store (not the
+     DOM), so playback survives re-renders, navigation, and resize. -->
 <MiniPlayer mobileInset={isMobile.current} />
 
 {#if drawerOpen && !isMobile.current}
