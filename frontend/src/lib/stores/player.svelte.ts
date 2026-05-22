@@ -22,11 +22,25 @@ let panelMountedCount = $state(0);
 
 let audioEl: HTMLAudioElement | null = null;
 let rafHandle: number | null = null;
+let lastTimeWrite = 0;
+
+/**
+ * Minimum gap between `currentTime` state writes while playing. The RAF loop
+ * still runs every frame, but committing the reactive value at ~10 Hz instead
+ * of ~60 Hz keeps the progress UI smooth while avoiding a per-frame re-render
+ * storm (the MiniPlayer slider forces a full-document reflow on each write, so
+ * at 60 Hz it saturates the main thread and starves audio playback).
+ */
+const TIME_WRITE_INTERVAL_MS = 100;
 
 function startRaf() {
   if (rafHandle !== null) return;
-  const tick = () => {
-    if (audioEl) currentTime = audioEl.currentTime;
+  lastTimeWrite = 0;
+  const tick = (now: number) => {
+    if (audioEl && now - lastTimeWrite >= TIME_WRITE_INTERVAL_MS) {
+      lastTimeWrite = now;
+      currentTime = audioEl.currentTime;
+    }
     rafHandle = requestAnimationFrame(tick);
   };
   rafHandle = requestAnimationFrame(tick);
