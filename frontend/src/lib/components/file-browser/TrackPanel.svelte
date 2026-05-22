@@ -26,7 +26,8 @@
     resetSongEnrichment,
     type ApiSong,
     type AlbumSummary,
-    type EnrichmentDetail
+    type EnrichmentDetail,
+    type ProviderAttempt
   } from '$lib/api-client';
   import { fingerprintBars, fingerprintHash, providerAttemptRows } from '$lib/review-helpers';
   import { formatDuration, formatFileSize } from '$lib/formatters';
@@ -83,7 +84,8 @@
   }
 
   $effect(() => {
-    if (activeTab !== 'fingerprint' || detailLoading || loadedSongId === song.id) return;
+    if ((activeTab !== 'fingerprint' && activeTab !== 'enrichment') || detailLoading || loadedSongId === song.id)
+      return;
     void loadEnrichmentDetail(song.id);
   });
 
@@ -181,6 +183,104 @@
   const attemptRows = $derived(
     loadedSongId === song.id ? providerAttemptRows(enrichmentDetail) : []
   );
+
+  // Provider attempts keyed by backend provider name, for the Enrichment tab's
+  // connected dots. Empty until the detail loads for the current song.
+  const attemptByProvider = $derived.by(() => {
+    const map = new Map<string, ProviderAttempt>();
+    if (loadedSongId !== song.id || !enrichmentDetail) return map;
+    for (const a of enrichmentDetail.providerAttempts) map.set(a.provider, a);
+    return map;
+  });
+
+  type EnrichmentSource = { key: string; name: string; connected: boolean; url?: string; label?: string };
+
+  // The full catalogue of enrichment sources wired into the pipeline. AcoustID /
+  // MusicBrainz / Spotify resolve their connected state from stored song ids;
+  // Deezer / Apple Music / Tracker have no stored id, so they reflect whether the
+  // provider produced a candidate on its last attempt. Tracker is opt-in and niche,
+  // so it only appears once it has actually run for this song.
+  const enrichmentSources = $derived.by<EnrichmentSource[]>(() => {
+    const query = encodeURIComponent(`${trackArtist} ${trackTitle}`.trim());
+    const matched = (provider: string) => attemptByProvider.get(provider)?.candidate != null;
+
+    const sources: EnrichmentSource[] = [
+      {
+        key: 'acoustid',
+        name: 'AcoustID',
+        connected: acoustIdSourceConnected(song.acoustIdTrackId ?? undefined, song.matchedBy ?? undefined),
+        url: song.acoustIdTrackId ? `https://acoustid.org/track/${song.acoustIdTrackId}` : 'https://acoustid.org',
+        label: song.acoustIdTrackId ? `acoustid.org/track/${song.acoustIdTrackId.slice(0, 8)}…` : undefined
+      },
+      {
+        key: 'musicbrainz-recording',
+        name: 'MusicBrainz Recording',
+        connected: Boolean(song.musicBrainzId),
+        url: song.musicBrainzId
+          ? `https://musicbrainz.org/recording/${song.musicBrainzId}`
+          : 'https://musicbrainz.org',
+        label: song.musicBrainzId ? `musicbrainz.org/recording/${song.musicBrainzId.slice(0, 8)}…` : undefined
+      }
+    ];
+
+    if (song.musicBrainzReleaseId) {
+      sources.push({
+        key: 'musicbrainz-release',
+        name: 'MusicBrainz Release',
+        connected: true,
+        url: `https://musicbrainz.org/release/${song.musicBrainzReleaseId}`,
+        label: `musicbrainz.org/release/${song.musicBrainzReleaseId.slice(0, 8)}…`
+      });
+    }
+
+    sources.push({
+      key: 'spotify',
+      name: 'Spotify',
+      connected: Boolean(song.spotifyId),
+      url: song.spotifyId ? `https://open.spotify.com/track/${song.spotifyId}` : 'https://spotify.com',
+      label: song.spotifyId ? `open.spotify.com/track/${song.spotifyId.slice(0, 8)}…` : undefined
+    });
+
+    sources.push({
+      key: 'deezer',
+      name: 'Deezer',
+      connected: matched('Deezer'),
+      url: query ? `https://www.deezer.com/search/${query}` : 'https://www.deezer.com',
+      label: query ? 'deezer.com/search/…' : undefined
+    });
+
+    sources.push({
+      key: 'apple-music',
+      name: 'Apple Music',
+      connected: matched('AppleMusic'),
+      url: query ? `https://music.apple.com/search?term=${query}` : 'https://music.apple.com',
+      label: query ? 'music.apple.com/search/…' : undefined
+    });
+
+    sources.push({
+      key: 'lrclib',
+      name: 'LRCLIB (Lyrics)',
+      connected: lrclibSourceConnected({
+        lrclibId: song.lrclibId ?? undefined,
+        lyricsStatus,
+        artist: trackArtist,
+        title: trackTitle,
+        enrichmentStatus: enrichmentNormalized
+      }),
+      url: lrclibWebUrl(trackArtist, trackTitle),
+      label: lrclibWebSearchUrl(trackArtist, trackTitle) ? 'lrclib.net/search/…' : undefined
+    });
+
+    if (attemptByProvider.has('Tracker')) {
+      sources.push({
+        key: 'tracker',
+        name: 'Community Tracker',
+        connected: matched('Tracker')
+      });
+    }
+
+    return sources;
+  });
 
   const metadataRows = $derived([
     ['Title', trackTitle],
@@ -408,56 +508,9 @@
           {/if}
 
           <div class="space-y-2">
-            <SourceRow
-              name="AcoustID"
-              connected={acoustIdSourceConnected(song.acoustIdTrackId ?? undefined, song.matchedBy ?? undefined)}
-              url={song.acoustIdTrackId
-                ? `https://acoustid.org/track/${song.acoustIdTrackId}`
-                : 'https://acoustid.org'}
-              label={song.acoustIdTrackId
-                ? `acoustid.org/track/${song.acoustIdTrackId.slice(0, 8)}…`
-                : undefined}
-            />
-            <SourceRow
-              name="MusicBrainz Recording"
-              connected={Boolean(song.musicBrainzId)}
-              url={song.musicBrainzId
-                ? `https://musicbrainz.org/recording/${song.musicBrainzId}`
-                : 'https://musicbrainz.org'}
-              label={song.musicBrainzId
-                ? `musicbrainz.org/recording/${song.musicBrainzId.slice(0, 8)}…`
-                : undefined}
-            />
-            {#if song.musicBrainzReleaseId}
-              <SourceRow
-                name="MusicBrainz Release"
-                connected
-                url={`https://musicbrainz.org/release/${song.musicBrainzReleaseId}`}
-                label={`musicbrainz.org/release/${song.musicBrainzReleaseId.slice(0, 8)}…`}
-              />
-            {/if}
-            <SourceRow
-              name="Spotify"
-              connected={Boolean(song.spotifyId)}
-              url={song.spotifyId
-                ? `https://open.spotify.com/track/${song.spotifyId}`
-                : 'https://spotify.com'}
-              label={song.spotifyId
-                ? `open.spotify.com/track/${song.spotifyId.slice(0, 8)}…`
-                : undefined}
-            />
-            <SourceRow
-              name="LRCLIB (Lyrics)"
-              connected={lrclibSourceConnected({
-                lrclibId: song.lrclibId ?? undefined,
-                lyricsStatus,
-                artist: trackArtist,
-                title: trackTitle,
-                enrichmentStatus: enrichmentNormalized
-              })}
-              url={lrclibWebUrl(trackArtist, trackTitle)}
-              label={lrclibWebSearchUrl(trackArtist, trackTitle) ? 'lrclib.net/search/…' : undefined}
-            />
+            {#each enrichmentSources as src (src.key)}
+              <SourceRow name={src.name} connected={src.connected} url={src.url} label={src.label} />
+            {/each}
           </div>
 
           <Button

@@ -5,7 +5,7 @@
   type Props = {
     name: string;
     connected?: boolean;
-    url: string;
+    url?: string;
     label?: string;
   };
   const { name, connected, url, label }: Props = $props();
@@ -20,17 +20,19 @@
     {/if}
     <span class="shrink-0 text-sm">{name}</span>
   </div>
-  <a
-    href={url}
-    target="_blank"
-    rel="noopener noreferrer"
-    class={cn(
-      'flex min-w-0 items-center gap-1.5 text-xs transition-colors',
-      connected ? 'text-primary hover:text-primary/80' : 'text-muted-foreground hover:text-foreground'
-    )}
-    title={url}
-  >
-    {#if label}<span class="truncate">{label}</span>{/if}
-    <ExternalLink class="size-3 shrink-0" />
-  </a>
+  {#if url}
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      class={cn(
+        'flex min-w-0 items-center gap-1.5 text-xs transition-colors',
+        connected ? 'text-primary hover:text-primary/80' : 'text-muted-foreground hover:text-foreground'
+      )}
+      title={url}
+    >
+      {#if label}<span class="truncate">{label}</span>{/if}
+      <ExternalLink class="size-3 shrink-0" />
+    </a>
+  {/if}
 </div>
