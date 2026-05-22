@@ -59,6 +59,108 @@
   const showProcessing = $derived(section === 'lib' || section === 'queue');
   const isQueue = $derived(section === 'queue');
 
+  // ── Row windowing ─────────────────────────────────────────────────────────
+  // Rendering every album at once produced a ~31k-node DOM and a multi-hundred-MB
+  // heap (one mounted Cover per album), which hitched the main thread / audio
+  // during playback. We render only the on-screen rows (+ overscan) instead.
+  const GAP_X = 20; // gap-x-5
+  const GAP_Y = 24; // gap-y-6
+  const OVERSCAN = 3;
+  const LIST_ROW_BORDER = 1;
+
+  let viewport = $state<HTMLElement | null>(null);
+  let listEl = $state<HTMLDivElement | null>(null);
+  let scrollTop = $state(0);
+  let viewportH = $state(0);
+  let containerW = $state(0);
+  let listTop = $state(0); // offset of the list from the scroll-content top
+  let measuredRow = $state(0);
+
+  const columns = $derived.by(() => {
+    if (layout !== 'grid') return 1;
+    const w = containerW || 1200;
+    if (w < 480) return 2;
+    if (w < 720) return 3;
+    if (w < 960) return 4;
+    if (w < 1200) return 5;
+    return 6;
+  });
+
+  const rows = $derived.by(() => {
+    const out: (typeof filtered)[] = [];
+    for (let i = 0; i < filtered.length; i += columns) out.push(filtered.slice(i, i + columns));
+    return out;
+  });
+
+  // Estimate used until a real row has been measured; self-corrects after paint.
+  const estRowHeight = $derived.by(() => {
+    if (layout !== 'grid') return 49;
+    const colW = (Math.max(0, (containerW || 1200) - 48) - (columns - 1) * GAP_X) / columns;
+    return colW + 56; // square cover + two text lines
+  });
+  const rowStride = $derived(
+    Math.max(1, (measuredRow || estRowHeight) + (layout === 'grid' ? GAP_Y : LIST_ROW_BORDER))
+  );
+
+  const effectiveScroll = $derived(Math.max(0, scrollTop - listTop));
+  const startRow = $derived(Math.max(0, Math.floor(effectiveScroll / rowStride) - OVERSCAN));
+  const endRow = $derived(
+    Math.min(rows.length, Math.ceil((effectiveScroll + (viewportH || 800)) / rowStride) + OVERSCAN)
+  );
+  const visibleRows = $derived(rows.slice(startRow, endRow));
+  const topPad = $derived(startRow * rowStride);
+  const bottomPad = $derived(Math.max(0, (rows.length - endRow) * rowStride));
+
+  // Wire up scroll + resize on the ScrollArea viewport.
+  $effect(() => {
+    const vp = viewport;
+    if (!vp) return;
+    const onScroll = () => (scrollTop = vp.scrollTop);
+    vp.addEventListener('scroll', onScroll, { passive: true });
+    const ro = new ResizeObserver(() => {
+      containerW = vp.clientWidth;
+      viewportH = vp.clientHeight;
+    });
+    ro.observe(vp);
+    scrollTop = vp.scrollTop;
+    containerW = vp.clientWidth;
+    viewportH = vp.clientHeight;
+    return () => {
+      vp.removeEventListener('scroll', onScroll);
+      ro.disconnect();
+    };
+  });
+
+  // Measure where the list starts within the scroll content (header/processing
+  // strip live above it and scroll with it). Recompute when layout above changes.
+  $effect(() => {
+    void filtered.length;
+    void layout;
+    void showProcessing;
+    void containerW;
+    const vp = viewport;
+    const el = listEl;
+    if (!vp || !el) return;
+    listTop = el.getBoundingClientRect().top - vp.getBoundingClientRect().top + vp.scrollTop;
+  });
+
+  // Measure an actual rendered row height; corrects the estimate. Intentionally
+  // does NOT depend on scroll position — measuring per scroll-tick would force a
+  // layout flush on every frame, the very cost this windowing removes.
+  $effect(() => {
+    void columns;
+    void layout;
+    void containerW;
+    void filtered.length;
+    const el = listEl;
+    if (!el) return;
+    const row = el.querySelector<HTMLElement>('[data-vrow]');
+    if (row) {
+      const h = row.clientHeight;
+      if (h > 0 && Math.abs(h - measuredRow) > 1) measuredRow = h;
+    }
+  });
+
   function playFirst(albumKey: string, e: MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
@@ -83,7 +185,7 @@
     Loading albums…
   </div>
 {:else}
-  <ScrollArea class="min-h-0 flex-1">
+  <ScrollArea bind:viewportRef={viewport} class="min-h-0 flex-1">
     <div class="p-4 pb-20 md:p-6">
       <div class="mb-4 flex items-end justify-between gap-4">
         <div class="min-w-0">
@@ -145,41 +247,49 @@
         </div>
 
         {#if layout === 'grid'}
-          <div
-            class="grid grid-cols-2 gap-x-5 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
-          >
-            {#each filtered as album (album.key)}
-              <a
-                href={albumHref(album.key)}
-                class="group focus-visible:ring-ring outline-hidden flex flex-col gap-2 rounded-lg p-1 transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-offset-2"
-                aria-label={`Open album ${album.title} by ${album.artist}`}
+          <div bind:this={listEl}>
+            <div style="height: {topPad}px;" aria-hidden="true"></div>
+            {#each visibleRows as row, ri (startRow + ri)}
+              <div
+                data-vrow
+                class="grid gap-x-5"
+                style="grid-template-columns: repeat({columns}, minmax(0, 1fr)); margin-bottom: {GAP_Y}px;"
               >
-                <div class="relative">
-                  <Cover
-                    artist={album.artist}
-                    title={album.title}
-                    coverUrl={album.coverUrl}
-                    size={176}
-                    interactive
-                    class="!w-full !h-auto aspect-square"
-                  />
-                  <button
-                    type="button"
-                    aria-label={`Play ${album.title}`}
-                    onclick={(e) => playFirst(album.key, e)}
-                    class="bg-primary text-primary-foreground absolute right-2 bottom-2 grid size-9 translate-y-1 place-items-center rounded-full opacity-0 shadow-md transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100"
+                {#each row as album (album.key)}
+                  <a
+                    href={albumHref(album.key)}
+                    class="group focus-visible:ring-ring outline-hidden flex flex-col gap-2 rounded-lg p-1 transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-offset-2"
+                    aria-label={`Open album ${album.title} by ${album.artist}`}
                   >
-                    <Play class="size-4" />
-                  </button>
-                </div>
-                <div class="min-w-0 px-0.5">
-                  <p class="truncate text-[12.5px] font-medium">{album.title}</p>
-                  <p class="text-muted-foreground truncate text-[11.5px]">
-                    {album.artist}{album.year ? ` · ${album.year}` : ''}
-                  </p>
-                </div>
-              </a>
+                    <div class="relative">
+                      <Cover
+                        artist={album.artist}
+                        title={album.title}
+                        coverUrl={album.coverUrl}
+                        size={176}
+                        interactive
+                        class="!w-full !h-auto aspect-square"
+                      />
+                      <button
+                        type="button"
+                        aria-label={`Play ${album.title}`}
+                        onclick={(e) => playFirst(album.key, e)}
+                        class="bg-primary text-primary-foreground absolute right-2 bottom-2 grid size-9 translate-y-1 place-items-center rounded-full opacity-0 shadow-md transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100"
+                      >
+                        <Play class="size-4" />
+                      </button>
+                    </div>
+                    <div class="min-w-0 px-0.5">
+                      <p class="truncate text-[12.5px] font-medium">{album.title}</p>
+                      <p class="text-muted-foreground truncate text-[11.5px]">
+                        {album.artist}{album.year ? ` · ${album.year}` : ''}
+                      </p>
+                    </div>
+                  </a>
+                {/each}
+              </div>
             {/each}
+            <div style="height: {bottomPad}px;" aria-hidden="true"></div>
           </div>
         {:else}
           <!-- list view -->
@@ -198,34 +308,41 @@
               <span>Tracks</span>
               <span class="text-right">Size</span>
             </div>
-            {#each filtered as album (album.key)}
-              <a
-                href={albumHref(album.key)}
-                class={cn(
-                  'border-border hover:bg-accent/50 grid items-center gap-4 border-b px-3.5 py-2 text-xs last:border-b-0',
-                  'grid-cols-[44px_2.2fr_1.4fr_1fr_0.8fr_0.8fr_0.9fr]'
-                )}
-              >
-                <Cover
-                  artist={album.artist}
-                  title={album.title}
-                  coverUrl={album.coverUrl}
-                  size={32}
-                  corner={3}
-                  caption={false}
-                />
-                <span class="truncate text-[12.5px] font-medium">{album.title}</span>
-                <span class="text-muted-foreground truncate">{album.artist}</span>
-                <span class="text-muted-foreground hidden truncate md:inline">{album.genre ?? '—'}</span>
-                <span class="text-muted-foreground hidden font-mono md:inline">{album.year ?? '—'}</span>
-                <span class="text-muted-foreground font-mono">
-                  <Music class="-mt-0.5 mr-1 inline size-3" />{album.trackCount}
-                </span>
-                <span class="text-muted-foreground text-right font-mono">
-                  {formatFileSize(album.byteSize)}
-                </span>
-              </a>
-            {/each}
+            <div bind:this={listEl}>
+              <div style="height: {topPad}px;" aria-hidden="true"></div>
+              {#each visibleRows as row, ri (startRow + ri)}
+                {#each row as album (album.key)}
+                  <a
+                    data-vrow
+                    href={albumHref(album.key)}
+                    class={cn(
+                      'border-border hover:bg-accent/50 grid items-center gap-4 border-b px-3.5 py-2 text-xs last:border-b-0',
+                      'grid-cols-[44px_2.2fr_1.4fr_1fr_0.8fr_0.8fr_0.9fr]'
+                    )}
+                  >
+                    <Cover
+                      artist={album.artist}
+                      title={album.title}
+                      coverUrl={album.coverUrl}
+                      size={32}
+                      corner={3}
+                      caption={false}
+                    />
+                    <span class="truncate text-[12.5px] font-medium">{album.title}</span>
+                    <span class="text-muted-foreground truncate">{album.artist}</span>
+                    <span class="text-muted-foreground hidden truncate md:inline">{album.genre ?? '—'}</span>
+                    <span class="text-muted-foreground hidden font-mono md:inline">{album.year ?? '—'}</span>
+                    <span class="text-muted-foreground font-mono">
+                      <Music class="-mt-0.5 mr-1 inline size-3" />{album.trackCount}
+                    </span>
+                    <span class="text-muted-foreground text-right font-mono">
+                      {formatFileSize(album.byteSize)}
+                    </span>
+                  </a>
+                {/each}
+              {/each}
+              <div style="height: {bottomPad}px;" aria-hidden="true"></div>
+            </div>
           </div>
         {/if}
 
