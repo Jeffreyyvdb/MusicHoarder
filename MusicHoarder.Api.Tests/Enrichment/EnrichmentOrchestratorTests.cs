@@ -537,6 +537,78 @@ public class EnrichmentOrchestratorTests
     }
 
     [Fact]
+    public async Task ProcessSong_DeezerDisabled_IsSkipped()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Artist", title: "Title");
+        await db.SaveChangesAsync();
+
+        var called = false;
+        var provider = new StubEnrichmentProvider("Deezer", 250,
+            canHandle: _ => true,
+            enrich: _ =>
+            {
+                called = true;
+                return Task.FromResult<ProviderOutcome>(new ProviderNoMatch());
+            });
+
+        var opts = CreateOptions();
+        opts.Value.EnableDeezerProvider = false;
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider], opts);
+        await orchestrator.ProcessSongAsync(song.Id);
+
+        Assert.False(called);
+    }
+
+    [Fact]
+    public async Task ProcessSong_DeezerEnabled_IsCalled()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Artist", title: "Title");
+        await db.SaveChangesAsync();
+
+        var called = false;
+        var provider = new StubEnrichmentProvider("Deezer", 250,
+            canHandle: _ => true,
+            enrich: _ =>
+            {
+                called = true;
+                return Task.FromResult<ProviderOutcome>(new ProviderNoMatch());
+            });
+
+        var opts = CreateOptions();
+        opts.Value.EnableDeezerProvider = true;
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider], opts);
+        await orchestrator.ProcessSongAsync(song.Id);
+
+        Assert.True(called);
+    }
+
+    [Fact]
+    public async Task ProcessSong_AppleMusicDisabled_IsSkipped()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Artist", title: "Title");
+        await db.SaveChangesAsync();
+
+        var called = false;
+        var provider = new StubEnrichmentProvider("AppleMusic", 350,
+            canHandle: _ => true,
+            enrich: _ =>
+            {
+                called = true;
+                return Task.FromResult<ProviderOutcome>(new ProviderNoMatch());
+            });
+
+        var opts = CreateOptions();
+        opts.Value.EnableAppleMusicProvider = false;
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider], opts);
+        await orchestrator.ProcessSongAsync(song.Id);
+
+        Assert.False(called);
+    }
+
+    [Fact]
     public async Task ProcessSong_MatchedSong_LyricsFound_SetsFetchedLyricsState()
     {
         await using var db = CreateDb();
@@ -1324,6 +1396,8 @@ public class EnrichmentOrchestratorTests
                 opts.EnableMusicBrainzWebProvider,
                 opts.EnableSpotifyApiProvider,
                 opts.EnableTrackerProvider,
+                opts.EnableDeezerProvider,
+                opts.EnableAppleMusicProvider,
                 opts.SpotifyApiMatchedThreshold,
                 opts.AcoustIdScoreThreshold,
                 opts.EnrichmentWorkerConcurrency,

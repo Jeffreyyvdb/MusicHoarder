@@ -194,7 +194,10 @@ public static class ConsensusEvaluator
     }
 
     public static bool IsNameBased(EnrichmentProvider provider)
-        => provider is EnrichmentProvider.SpotifyAPI or EnrichmentProvider.MusicBrainzWeb;
+        => provider is EnrichmentProvider.SpotifyAPI
+            or EnrichmentProvider.MusicBrainzWeb
+            or EnrichmentProvider.Deezer
+            or EnrichmentProvider.AppleMusic;
 
     private static ProviderIdentity ToIdentity(EnrichmentProviderResult r)
         => new(

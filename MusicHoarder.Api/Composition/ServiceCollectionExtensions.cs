@@ -1,8 +1,10 @@
 using System.IO.Abstractions;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.AppleMusic;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
+using MusicHoarder.Api.Deezer;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Enrichment.Providers;
 using MusicHoarder.Api.Jobs;
@@ -108,6 +110,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IEnrichmentProvider, AcoustIdEnrichmentProvider>();
         services.AddSingleton<IEnrichmentProvider, MusicBrainzWebEnrichmentProvider>();
         services.AddSingleton<IEnrichmentProvider, SpotifyApiEnrichmentProvider>();
+        services.AddSingleton<IEnrichmentProvider, DeezerEnrichmentProvider>();
+        services.AddSingleton<IEnrichmentProvider, AppleMusicEnrichmentProvider>();
         services.AddSingleton<IEnrichmentProvider, TrackerEnrichmentProvider>();
         services.AddSingleton<EnrichmentPipelineChannel>();
         services.AddSingleton<IRuntimeSettingsService, RuntimeSettingsService>();
@@ -180,6 +184,24 @@ public static class ServiceCollectionExtensions
             var options = sp.GetRequiredService<IOptions<MusicEnricherOptions>>();
             var logger = sp.GetRequiredService<ILogger<SpotifyCatalogSearchService>>();
             return new SpotifyCatalogSearchService(httpClient, cache, options, logger);
+        });
+
+        services.AddSingleton<IDeezerCatalogService>(sp =>
+        {
+            var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            var cache = sp.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>();
+            var options = sp.GetRequiredService<IOptions<MusicEnricherOptions>>();
+            var logger = sp.GetRequiredService<ILogger<DeezerCatalogService>>();
+            return new DeezerCatalogService(httpClient, cache, options, logger);
+        });
+
+        services.AddSingleton<IAppleMusicCatalogService>(sp =>
+        {
+            var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            var cache = sp.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>();
+            var options = sp.GetRequiredService<IOptions<MusicEnricherOptions>>();
+            var logger = sp.GetRequiredService<ILogger<AppleMusicCatalogService>>();
+            return new AppleMusicCatalogService(httpClient, cache, options, logger);
         });
 
         services.AddSingleton<ISpotifyOAuthService>(sp =>
