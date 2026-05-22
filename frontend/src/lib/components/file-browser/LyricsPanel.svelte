@@ -151,7 +151,7 @@
 </script>
 
 {#if isInstrumental}
-  <div class="flex flex-col items-center justify-center gap-2 py-8 text-center">
+  <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 py-8 text-center">
     <Music class="text-muted-foreground size-10 opacity-40" />
     <p class="text-muted-foreground text-sm">
       This track is instrumental — no lyrics expected.
@@ -159,18 +159,18 @@
     <LyricsStatusBadge status="Instrumental" />
   </div>
 {:else if loadState === 'loading'}
-  <div class="flex flex-col items-center justify-center gap-2 py-8 text-center">
+  <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 py-8 text-center">
     <Loader2 class="text-muted-foreground size-8 animate-spin" />
     <p class="text-muted-foreground text-sm">Loading lyrics…</p>
   </div>
 {:else if loadState === 'error'}
-  <div class="flex flex-col items-center justify-center gap-2 py-8 text-center">
+  <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 py-8 text-center">
     <AlertCircle class="text-destructive size-8 opacity-70" />
     <p class="text-muted-foreground text-sm">Failed to load lyrics.</p>
     <Button variant="outline" size="sm" onclick={() => (loadState = 'idle')}>Retry</Button>
   </div>
 {:else if !hasAny}
-  <div class="flex flex-col items-center justify-center gap-2 py-8 text-center">
+  <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 py-8 text-center">
     <FileText class="text-muted-foreground size-10 opacity-50" />
     <p class="text-muted-foreground text-sm">
       {#if lyricsStatus === 'NotFound'}
@@ -185,7 +185,7 @@
     <LyricsStatusBadge status={lyricsStatus} />
   </div>
 {:else}
-  <div class="space-y-3">
+  <div class="flex min-h-0 flex-1 flex-col gap-3">
     <div class="flex flex-wrap items-center justify-between gap-2">
       <div class="flex min-w-0 items-center gap-2">
         <LyricsStatusBadge status={lyricsStatus} />
@@ -245,7 +245,7 @@
 
     <div
       bind:this={containerEl}
-      class="bg-secondary/50 max-h-72 overflow-y-auto rounded-lg p-4 scroll-smooth"
+      class="bg-secondary/50 min-h-0 flex-1 overflow-y-auto rounded-lg p-4 scroll-smooth"
     >
       {#if parsedLines}
         <div class="font-sans text-sm leading-relaxed">

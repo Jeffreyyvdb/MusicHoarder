@@ -1,15 +1,3 @@
-export type FileType = "folder" | "audio"
-
-export interface FileItem {
-  id: string
-  name: string
-  type: FileType
-  path: string
-  parentId: string | null
-  children?: FileItem[]
-  metadata?: TrackMetadata
-}
-
 export type LyricsStatus = "NotFetched" | "Fetched" | "Instrumental" | "NotFound" | "Failed"
 
 export interface TrackMetadata {
@@ -47,12 +35,6 @@ export interface TrackMetadata {
     acoustIdTrackId?: string
     lrclibId?: string
   }
-}
-
-export interface BreadcrumbItem {
-  id: string
-  name: string
-  path: string
 }
 
 export type ImportStatus = "discovered" | "fingerprinting" | "enriching" | "copying" | "review" | "complete" | "failed"
