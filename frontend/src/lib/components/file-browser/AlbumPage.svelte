@@ -136,28 +136,30 @@
   </div>
 {:else}
   <ScrollArea class="min-h-0 flex-1">
-    <a
-      href="/app"
-      class="text-muted-foreground hover:text-foreground absolute top-3 left-3 z-10 inline-flex items-center gap-1 rounded-full bg-black/30 px-2.5 py-1 text-xs text-white/85 backdrop-blur transition-colors hover:bg-black/40 hover:text-white sm:left-6"
-    >
-      <ArrowLeft class="size-3.5" />
-      All albums
-    </a>
-
     <!-- Hero -->
     <div
       class="mh-album-hero relative px-6 pt-12 pb-7 text-white sm:px-9"
       style="background: {heroBackground};"
     >
-      <div class="relative z-10 flex flex-col items-end gap-6 sm:flex-row sm:gap-8">
-        <Cover
-          artist={album.artist}
-          title={album.title}
-          coverUrl={album.coverUrl}
-          size={232}
-          corner={6}
-          class="!shadow-[0_24px_48px_rgba(0,0,0,0.35)]"
-        />
+      <a
+        href="/app"
+        class="text-muted-foreground hover:text-foreground absolute top-3 left-6 z-10 inline-flex items-center gap-1 rounded-full bg-black/30 px-2.5 py-1 text-xs text-white/85 backdrop-blur transition-colors hover:bg-black/40 hover:text-white sm:left-9"
+      >
+        <ArrowLeft class="size-3.5" />
+        All albums
+      </a>
+
+      <div class="relative z-10 flex flex-col items-start gap-6 sm:flex-row sm:gap-8">
+        <div class="w-[clamp(124px,26vw,232px)] shrink-0">
+          <Cover
+            artist={album.artist}
+            title={album.title}
+            coverUrl={album.coverUrl}
+            size={232}
+            corner={6}
+            class="aspect-square !h-auto !w-full !shadow-[0_24px_48px_rgba(0,0,0,0.35)]"
+          />
+        </div>
         <div class="min-w-0 flex-1 pb-2">
           <div class="text-[11px] font-semibold tracking-wider opacity-85 uppercase">Album</div>
           <h1 class="mt-3 text-[clamp(40px,6vw,88px)] leading-[0.95] font-extrabold tracking-[-0.03em] [text-wrap:balance]">
