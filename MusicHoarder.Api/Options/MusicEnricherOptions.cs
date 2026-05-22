@@ -313,4 +313,11 @@ public class MusicEnricherOptions
     /// <summary>Delay in seconds before retrying when no tracks are pending library build.</summary>
     [Range(1, 300)]
     public int LibraryBuilderIdleDelaySeconds { get; set; } = 20;
+
+    /// <summary>
+    /// Top-level folder name compilations (Various-Artists releases) are filed under, keyed by
+    /// album rather than per-track artist so the album stays together. Empty falls back to
+    /// "Various Artists" — the literal album-artist string every music server recognizes.
+    /// </summary>
+    public string CompilationFolderName { get; set; } = "Various Artists";
 }

@@ -8,8 +8,9 @@ public class DirectoryMatchTreeTests
     private static DashboardEndpoints.MatchTreeRow Row(
         string path,
         EnrichmentStatus enrichment,
-        LibraryBuildStatus build = LibraryBuildStatus.Pending)
-        => new(path, enrichment, build);
+        LibraryBuildStatus build = LibraryBuildStatus.Pending,
+        long sizeBytes = 0)
+        => new(path, enrichment, build, sizeBytes);
 
     [Fact]
     public void BuildMatchTree_RollsUpCountsThroughEveryAncestor()
@@ -88,5 +89,57 @@ public class DirectoryMatchTreeTests
         Assert.Equal(1, root.Total);
         Assert.Equal(1, root.NeedsReview);
         Assert.Empty(root.Children);
+    }
+
+    [Fact]
+    public void BuildMatchTree_CountsDirectFilesOnlyAtTheFoldersOwningThem()
+    {
+        var rows = new[]
+        {
+            Row("/music/a/b/x.flac", EnrichmentStatus.Matched, sizeBytes: 100),
+            Row("/music/a/b/c/y.flac", EnrichmentStatus.Matched, sizeBytes: 200),
+            Row("/music/a/loose.mp3", EnrichmentStatus.Pending, sizeBytes: 50),
+        };
+
+        var root = DashboardEndpoints.BuildMatchTree(rows, "/music");
+        var a = root.Children.Single(c => c.Name == "a");
+        var b = a.Children.Single(c => c.Name == "b");
+        var c = b.Children.Single(ch => ch.Name == "c");
+
+        // Direct files attach to the owning folder only, never to ancestors.
+        Assert.Equal(1, a.DirectFiles);   // loose.mp3
+        Assert.Equal(1, b.DirectFiles);   // x.flac
+        Assert.Equal(1, c.DirectFiles);   // y.flac
+        Assert.Equal(0, root.DirectFiles);
+
+        // Size rolls up cumulatively through every ancestor.
+        Assert.Equal(350, a.SizeBytes);
+        Assert.Equal(300, b.SizeBytes);
+        Assert.Equal(200, c.SizeBytes);
+        Assert.Equal(350, root.SizeBytes);
+    }
+
+    [Theory]
+    [InlineData(EnrichmentStatus.Matched, LibraryBuildStatus.Done, "written")]
+    [InlineData(EnrichmentStatus.Matched, LibraryBuildStatus.Pending, "matched")]
+    [InlineData(EnrichmentStatus.NeedsReview, LibraryBuildStatus.Pending, "review")]
+    [InlineData(EnrichmentStatus.Failed, LibraryBuildStatus.Pending, "failed")]
+    [InlineData(EnrichmentStatus.Pending, LibraryBuildStatus.Pending, "queued")]
+    public void DeriveFileState_MapsStatusPairsToTheUiState(
+        EnrichmentStatus enrichment, LibraryBuildStatus build, string expected)
+    {
+        Assert.Equal(expected, DashboardEndpoints.DeriveFileState(enrichment, build));
+    }
+
+    [Theory]
+    [InlineData("a/b/x.flac", "a/b", true)]
+    [InlineData("a/b/c/y.flac", "a/b", false)]
+    [InlineData("a/b", "a/b", false)]
+    [InlineData("loose.mp3", "", true)]
+    [InlineData("a/loose.mp3", "", false)]
+    public void IsDirectChild_OnlyMatchesFilesImmediatelyInsideTheFolder(
+        string sourcePath, string prefix, bool expected)
+    {
+        Assert.Equal(expected, DashboardEndpoints.IsDirectChild(sourcePath, prefix));
     }
 }

@@ -18,7 +18,16 @@ public record MusicBrainzRecording(
     string? Isrc,
     int? LengthMs,
     int Score = 100,
-    int CandidateCount = 1);
+    int CandidateCount = 1,
+    string? Artists = null,
+    string? ArtistMusicBrainzIds = null,
+    string? AlbumArtistMusicBrainzId = null,
+    string? ReleaseGroupId = null,
+    string? ReleaseTypePrimary = null,
+    string? ReleaseTypes = null,
+    bool IsCompilation = false,
+    int? TotalDiscs = null,
+    int? TotalTracks = null);
 
 public interface IMusicBrainzWebService
 {
@@ -44,7 +53,7 @@ public sealed class MusicBrainzWebService(
     public async Task<MusicBrainzRecording?> LookupByRecordingIdAsync(string mbid, CancellationToken ct = default)
     {
         var dto = await GetAsync<RecordingDto>(
-            $"recording/{Uri.EscapeDataString(mbid)}?inc=artist-credits+releases+isrcs&fmt=json", ct);
+            $"recording/{Uri.EscapeDataString(mbid)}?inc=artist-credits+releases+release-groups+media+isrcs&fmt=json", ct);
         return dto is null ? null : MapRecording(dto);
     }
 
@@ -52,7 +61,7 @@ public sealed class MusicBrainzWebService(
     {
         var normalized = isrc.Trim().ToUpperInvariant().Replace("-", "", StringComparison.Ordinal);
         var dto = await GetAsync<IsrcDto>(
-            $"isrc/{Uri.EscapeDataString(normalized)}?inc=artist-credits+releases&fmt=json", ct);
+            $"isrc/{Uri.EscapeDataString(normalized)}?inc=artist-credits+releases+release-groups+media&fmt=json", ct);
         if (dto?.Recordings is null or { Count: 0 })
             return null;
 
@@ -118,6 +127,24 @@ public sealed class MusicBrainzWebService(
     {
         var artist = BuildArtistCredit(r.ArtistCredit);
         var release = r.Releases is { Count: > 0 } ? r.Releases[0] : null;
+        var releaseGroup = release?.ReleaseGroup;
+
+        var primaryType = string.IsNullOrWhiteSpace(releaseGroup?.PrimaryType)
+            ? null
+            : releaseGroup!.PrimaryType!.ToLowerInvariant();
+        var secondaryTypes = releaseGroup?.SecondaryTypes?
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Select(t => t!.ToLowerInvariant())
+            .ToList() ?? [];
+        var releaseTypes = primaryType is null
+            ? MultiValue.Join(secondaryTypes)
+            : MultiValue.Join(new[] { primaryType }.Concat(secondaryTypes));
+
+        var totalDiscs = release?.Media is { Count: > 0 } media ? media.Count : (int?)null;
+        var totalTracks = release?.Media is { Count: > 0 } m
+            ? m.Sum(x => x.TrackCount ?? 0) is var sum && sum > 0 ? sum : (int?)null
+            : null;
+
         return new MusicBrainzRecording(
             Id: r.Id,
             Title: r.Title ?? string.Empty,
@@ -129,7 +156,16 @@ public sealed class MusicBrainzWebService(
             Isrc: r.Isrcs is { Count: > 0 } ? r.Isrcs[0] : null,
             LengthMs: r.Length,
             Score: r.Score ?? 100,
-            CandidateCount: 1);
+            CandidateCount: 1,
+            Artists: BuildDiscreteArtists(r.ArtistCredit),
+            ArtistMusicBrainzIds: BuildArtistIds(r.ArtistCredit),
+            AlbumArtistMusicBrainzId: r.ArtistCredit is { Count: > 0 } ? r.ArtistCredit[0].Artist?.Id : null,
+            ReleaseGroupId: releaseGroup?.Id,
+            ReleaseTypePrimary: primaryType,
+            ReleaseTypes: releaseTypes,
+            IsCompilation: secondaryTypes.Contains("compilation"),
+            TotalDiscs: totalDiscs,
+            TotalTracks: totalTracks);
     }
 
     private static string BuildArtistCredit(List<ArtistCreditDto>? credits)
@@ -139,6 +175,18 @@ public sealed class MusicBrainzWebService(
 
         return string.Concat(credits.Select(c => (c.Name ?? c.Artist?.Name ?? string.Empty) + (c.JoinPhrase ?? string.Empty))).Trim();
     }
+
+    // Discrete artist names (one per credited artist, no join phrases) for the multi-value ARTISTS tag.
+    private static string? BuildDiscreteArtists(List<ArtistCreditDto>? credits)
+        => credits is null or { Count: 0 }
+            ? null
+            : MultiValue.Join(credits.Select(c => c.Artist?.Name ?? c.Name));
+
+    // Per-artist MBIDs, positionally aligned with BuildDiscreteArtists (one entry per credited artist).
+    private static string? BuildArtistIds(List<ArtistCreditDto>? credits)
+        => credits is null or { Count: 0 }
+            ? null
+            : MultiValue.Join(credits.Select(c => c.Artist?.Id));
 
     private static int? ParseYear(string? date)
     {
@@ -224,6 +272,9 @@ public sealed class MusicBrainzWebService(
 
     private sealed class ArtistDto
     {
+        [JsonPropertyName("id")]
+        public string? Id { get; set; }
+
         [JsonPropertyName("name")]
         public string? Name { get; set; }
     }
@@ -238,5 +289,32 @@ public sealed class MusicBrainzWebService(
 
         [JsonPropertyName("date")]
         public string? Date { get; set; }
+
+        [JsonPropertyName("release-group")]
+        public ReleaseGroupDto? ReleaseGroup { get; set; }
+
+        [JsonPropertyName("media")]
+        public List<MediaDto>? Media { get; set; }
+    }
+
+    private sealed class ReleaseGroupDto
+    {
+        [JsonPropertyName("id")]
+        public string? Id { get; set; }
+
+        [JsonPropertyName("primary-type")]
+        public string? PrimaryType { get; set; }
+
+        [JsonPropertyName("secondary-types")]
+        public List<string?>? SecondaryTypes { get; set; }
+    }
+
+    private sealed class MediaDto
+    {
+        [JsonPropertyName("position")]
+        public int? Position { get; set; }
+
+        [JsonPropertyName("track-count")]
+        public int? TrackCount { get; set; }
     }
 }
