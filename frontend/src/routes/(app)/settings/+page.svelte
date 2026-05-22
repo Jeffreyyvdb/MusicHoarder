@@ -337,7 +337,7 @@
     {
       key: 'tracker',
       name: 'Community trackers',
-      subtitle: 'Unreleased / leak files (best-effort)',
+      subtitle: 'Juice WRLD unreleased / leak files (best-effort)',
       dot: 'oklch(0.58 0.12 60)'
     }
   ];
