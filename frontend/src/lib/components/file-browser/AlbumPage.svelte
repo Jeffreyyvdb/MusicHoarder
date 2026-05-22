@@ -47,7 +47,7 @@
   const tracks = $derived(album?.songs ?? []);
 
   const selectedTrack = $derived(page.url.searchParams.get('track'));
-  const selectedTrackN = $derived(selectedTrack ? Number.parseInt(selectedTrack, 10) : null);
+  const selectedTrackId = $derived(selectedTrack ? Number.parseInt(selectedTrack, 10) : null);
 
   const currentlyPlaying = $derived.by(() => {
     const playing = playerStore.currentSong;
@@ -59,13 +59,12 @@
     return s.trackNumber ?? fallbackIndex + 1;
   }
 
-  function selectTrack(s: ApiSong, fallbackIndex: number) {
-    const n = trackKey(s, fallbackIndex);
+  function selectTrack(s: ApiSong) {
     const url = new URL(page.url);
-    if (selectedTrackN === n) {
+    if (selectedTrackId === s.id) {
       url.searchParams.delete('track');
     } else {
-      url.searchParams.set('track', String(n));
+      url.searchParams.set('track', String(s.id));
     }
     void goto(url.pathname + url.search, { replaceState: true, noScroll: true });
   }
@@ -254,15 +253,15 @@
 
       {#each tracks as song, idx (song.id)}
         {@const n = trackKey(song, idx)}
-        {@const isSelected = selectedTrackN === n}
+        {@const isSelected = selectedTrackId === song.id}
         {@const isCurrentlyLoaded = playerStore.currentSong?.id === song.id}
         {@const isCurrentlyPlaying = isCurrentlyLoaded && playerStore.isPlaying}
         {@const matchValue = trackMatchValue(song)}
         <div
           role="button"
           tabindex="0"
-          onclick={() => selectTrack(song, idx)}
-          onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectTrack(song, idx)}
+          onclick={() => selectTrack(song)}
+          onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectTrack(song)}
           class={cn(
             'group grid cursor-pointer items-center gap-4 rounded-md px-3.5 py-2 transition-colors',
             'grid-cols-[44px_minmax(0,1fr)_60px] sm:grid-cols-[44px_minmax(0,1fr)_110px_80px_140px_60px]',
