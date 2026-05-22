@@ -5,18 +5,32 @@
     ChevronLeft,
     ChevronRight,
     Columns,
+    Disc3,
     FolderOpen,
     Grid3x3,
     List,
+    Loader2,
+    PackageCheck,
+    ScanLine,
     Search,
     Settings as SettingsIcon
   } from '@lucide/svelte';
+  import { toast } from 'svelte-sonner';
   import * as Sidebar from '$lib/components/ui/sidebar';
   import * as Tooltip from '$lib/components/ui/tooltip';
   import { Input } from '$lib/components/ui/input';
   import { Separator } from '$lib/components/ui/separator';
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
-  import { fetchOverview, type ApiOverview } from '$lib/api-client';
+  import {
+    fetchLibraryAvailability,
+    fetchOverview,
+    triggerBuild,
+    triggerEnrichmentScan,
+    triggerFingerprint,
+    type ApiOverview,
+    type EnrichmentTriggerResult,
+    type LibraryAvailability
+  } from '$lib/api-client';
   import { breadcrumbStore } from '$lib/stores/breadcrumbs.svelte';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { cn } from '$lib/utils';
@@ -162,6 +176,78 @@
   const pipelineDrawerOpen = $derived(pipelineOverlay.isOpen);
 
   const showViewToggle = $derived(onAlbumsRoot && !albumKey);
+
+  // Manual pipeline controls. With MusicEnricher__AutoStartPipeline=false
+  // (e.g. preview environments) stages no longer cascade, so the manual flow
+  // is Scan → Fingerprint → Build (enrichment rides off the fingerprint feed).
+  // One job runs at a time, so a single in-flight marker is enough.
+  type PipelineStage = 'scan' | 'fingerprint' | 'build';
+  type StageDef = {
+    id: PipelineStage;
+    label: string;
+    icon: typeof ScanLine;
+    trigger: () => Promise<EnrichmentTriggerResult>;
+    // Which directories must be online for the backend to accept this stage.
+    needsSource: boolean;
+    needsDestination: boolean;
+  };
+  const STAGES: StageDef[] = [
+    { id: 'scan', label: 'Scan', icon: ScanLine, trigger: triggerEnrichmentScan, needsSource: true, needsDestination: false },
+    { id: 'fingerprint', label: 'Fingerprint', icon: Disc3, trigger: triggerFingerprint, needsSource: true, needsDestination: false },
+    { id: 'build', label: 'Build', icon: PackageCheck, trigger: triggerBuild, needsSource: true, needsDestination: true }
+  ];
+
+  // Polled directory availability (mirrors LibraryOfflineBanner). null = unknown
+  // (e.g. API unreachable) — treated as available so we never block on a failed probe.
+  let availability = $state<LibraryAvailability | null>(null);
+  $effect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const a = await fetchLibraryAvailability();
+        if (!cancelled) availability = a;
+      } catch {
+        if (!cancelled) availability = null;
+      }
+    };
+    void refresh();
+    const handle = setInterval(() => void refresh(), 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  });
+
+  function unavailableReason(stage: StageDef): string | null {
+    if (!availability) return null;
+    const missing: string[] = [];
+    if (stage.needsSource && !availability.sourceAvailable) missing.push('source');
+    if (stage.needsDestination && !availability.destinationAvailable) missing.push('destination');
+    if (missing.length === 0) return null;
+    return `${missing.join(' and ')} directory offline`;
+  }
+
+  let runningStage = $state<PipelineStage | null>(null);
+  async function runStage(stage: (typeof STAGES)[number]) {
+    if (runningStage) return;
+    runningStage = stage.id;
+    try {
+      const result = await stage.trigger();
+      if (result.ok) {
+        toast.success(`${stage.label} started`);
+        // Surface live progress as the pipeline picks up the new rows.
+        pipelineOverlay.setOpen(true);
+      } else {
+        toast.error(`Could not start ${stage.label.toLowerCase()}`, { description: result.message });
+      }
+    } catch {
+      toast.error(`Could not start ${stage.label.toLowerCase()}`, {
+        description: 'The API may be unavailable.'
+      });
+    } finally {
+      runningStage = null;
+    }
+  }
 </script>
 
 <header
@@ -266,6 +352,41 @@
         {/each}
       </div>
     {/if}
+
+    <div class="bg-surface-sunken border-border flex items-center rounded-md border p-0.5">
+      {#each STAGES as stage (stage.id)}
+        {@const busy = runningStage === stage.id}
+        {@const reason = unavailableReason(stage)}
+        {@const disabled = runningStage !== null || reason !== null}
+        <Tooltip.Provider delayDuration={300}>
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  onclick={() => runStage(stage)}
+                  {disabled}
+                  class={cn(
+                    'text-muted-foreground hover:text-foreground flex items-center gap-1.5 rounded px-2 py-1 text-[11px] transition-colors',
+                    disabled && !busy && 'cursor-not-allowed opacity-50'
+                  )}
+                  aria-label={stage.label}
+                >
+                  {#if busy}
+                    <Loader2 class="size-3.5 animate-spin" />
+                  {:else}
+                    <stage.icon class="size-3.5" />
+                  {/if}
+                  <span class="hidden lg:inline">{stage.label}</span>
+                </button>
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content>{reason ? `${stage.label} — ${reason}` : stage.label}</Tooltip.Content>
+          </Tooltip.Root>
+        </Tooltip.Provider>
+      {/each}
+    </div>
 
     <button
       type="button"
