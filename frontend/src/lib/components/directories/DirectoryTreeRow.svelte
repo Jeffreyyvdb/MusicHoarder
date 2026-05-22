@@ -1,7 +1,8 @@
 <script lang="ts">
-  import type { DirectoryMatchNode } from '$lib/api-client';
-  import { ChevronRight } from '@lucide/svelte';
+  import { enrichFolder, type DirectoryMatchNode } from '$lib/api-client';
+  import { AlertCircle, CheckCircle2, ChevronRight, Loader2, Sparkles } from '@lucide/svelte';
   import { cn } from '$lib/utils';
+  import { Button } from '$lib/components/ui/button';
   import Self from './DirectoryTreeRow.svelte';
 
   let {
@@ -15,20 +16,37 @@
   let expanded = $state(false);
   const hasChildren = $derived(node.children.length > 0);
 
+  let enrichState = $state<'idle' | 'loading' | 'success' | 'error'>('idle');
+  let enrichCount = $state(0);
+
   // Segment widths for the stacked status bar, as a share of this folder's total.
   function pct(n: number): number {
     return node.total > 0 ? (n / node.total) * 100 : 0;
   }
 
   const matchedPctLabel = $derived(node.total > 0 ? Math.round(node.matchedPct) : 0);
+
+  async function handleEnrichFolder() {
+    enrichState = 'loading';
+    try {
+      const result = await enrichFolder(node.path);
+      enrichState = 'success';
+      enrichCount = result.enqueued;
+      setTimeout(() => (enrichState = 'idle'), 4000);
+    } catch {
+      enrichState = 'error';
+      setTimeout(() => (enrichState = 'idle'), 5000);
+    }
+  }
 </script>
 
 <div class="select-none">
+  <div class="group relative flex items-center">
   <button
     type="button"
     onclick={() => hasChildren && (expanded = !expanded)}
     class={cn(
-      'group flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left text-[13px] transition-colors',
+      'flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left text-[13px] transition-colors',
       hasChildren ? 'hover:bg-muted/60 cursor-pointer' : 'cursor-default'
     )}
     style="padding-left: {depth * 18 + 6}px"
@@ -78,6 +96,35 @@
       {/if}
     </span>
   </button>
+
+    <Button
+      variant="ghost"
+      size="sm"
+      class={cn(
+        'mr-1 h-6 shrink-0 px-2 text-[11px] opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100',
+        enrichState !== 'idle' && 'opacity-100',
+        enrichState === 'success' && 'text-primary',
+        enrichState === 'error' && 'text-destructive'
+      )}
+      disabled={enrichState === 'loading'}
+      title="Enqueue every song under this folder for enrichment"
+      onclick={handleEnrichFolder}
+    >
+      {#if enrichState === 'loading'}
+        <Loader2 class="mr-1 size-3 animate-spin" />
+        Enriching…
+      {:else if enrichState === 'success'}
+        <CheckCircle2 class="mr-1 size-3" />
+        Queued {enrichCount}
+      {:else if enrichState === 'error'}
+        <AlertCircle class="mr-1 size-3" />
+        Failed
+      {:else}
+        <Sparkles class="mr-1 size-3" />
+        Enrich
+      {/if}
+    </Button>
+  </div>
 
   {#if hasChildren && expanded}
     <div>

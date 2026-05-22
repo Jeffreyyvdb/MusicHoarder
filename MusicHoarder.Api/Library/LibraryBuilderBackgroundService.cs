@@ -54,6 +54,16 @@ public class LibraryBuilderBackgroundService(
                     continue;
                 }
 
+                // Manual mode: don't auto-discover pending work — wait for an explicit trigger.
+                if (!opts.AutoStartPipeline)
+                {
+                    var manualTrigger = jobManager.BuildTriggers.WaitToReadAsync(stoppingToken).AsTask();
+                    var manualDelay = Task.Delay(TimeSpan.FromSeconds(opts.LibraryBuilderIdleDelaySeconds), stoppingToken);
+                    try { await Task.WhenAny(manualTrigger, manualDelay); }
+                    catch (OperationCanceledException) { break; }
+                    continue;
+                }
+
                 // 2. Auto-poll: check if there is pending work.
                 var pendingCount = await CountPendingAsync(stoppingToken);
 
