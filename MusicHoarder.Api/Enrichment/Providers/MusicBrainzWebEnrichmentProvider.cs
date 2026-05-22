@@ -140,7 +140,16 @@ public class MusicBrainzWebEnrichmentProvider(
             MatchConfidence: Math.Clamp(score, 0, 1),
             MatchWarnings: warnings,
             RecommendedStatus: status,
-            Album: rec.ReleaseTitle);
+            Album: rec.ReleaseTitle,
+            Artists: rec.Artists,
+            ArtistMusicBrainzIds: rec.ArtistMusicBrainzIds,
+            AlbumArtistMusicBrainzId: rec.AlbumArtistMusicBrainzId,
+            MusicBrainzReleaseGroupId: rec.ReleaseGroupId,
+            TotalDiscs: rec.TotalDiscs,
+            TotalTracks: rec.TotalTracks,
+            IsCompilation: rec.IsCompilation ? true : null,
+            ReleaseTypePrimary: rec.ReleaseTypePrimary,
+            ReleaseTypes: rec.ReleaseTypes);
     }
 
     private static (double Score, List<string> Warnings) Score(

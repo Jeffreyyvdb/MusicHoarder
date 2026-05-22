@@ -284,22 +284,20 @@
     </Tabs.Content>
 
     <Tabs.Content value="lyrics" class="flex min-h-0 flex-1 flex-col">
-      <ScrollArea class="min-h-0 flex-1">
-        <div class="px-5 py-3">
-          <LyricsPanel
-            songId={song.id}
-            syncedLyrics={song.syncedLyrics ?? undefined}
-            plainLyrics={song.plainLyrics ?? undefined}
-            {lyricsStatus}
-            hasSyncedLyrics={song.hasSyncedLyrics ?? false}
-            hasPlainLyrics={song.hasPlainLyrics ?? false}
-            isInstrumental={song.isInstrumental ?? undefined}
-            currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
-            onSeek={isCurrentlyLoaded ? (timeMs: number) => playerStore.seek(timeMs / 1000) : undefined}
-            lrclibUrl={lrclibWebUrl(trackArtist, trackTitle)}
-          />
-        </div>
-      </ScrollArea>
+      <div class="flex min-h-0 flex-1 flex-col px-5 py-3">
+        <LyricsPanel
+          songId={song.id}
+          syncedLyrics={song.syncedLyrics ?? undefined}
+          plainLyrics={song.plainLyrics ?? undefined}
+          {lyricsStatus}
+          hasSyncedLyrics={song.hasSyncedLyrics ?? false}
+          hasPlainLyrics={song.hasPlainLyrics ?? false}
+          isInstrumental={song.isInstrumental ?? undefined}
+          currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
+          onSeek={isCurrentlyLoaded ? (timeMs: number) => playerStore.seek(timeMs / 1000) : undefined}
+          lrclibUrl={lrclibWebUrl(trackArtist, trackTitle)}
+        />
+      </div>
     </Tabs.Content>
 
     <Tabs.Content value="fingerprint" class="flex min-h-0 flex-1 flex-col">

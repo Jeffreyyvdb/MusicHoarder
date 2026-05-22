@@ -25,6 +25,16 @@ public interface ILibraryTagWriter
 
 public class TagLibLibraryTagWriter : ILibraryTagWriter
 {
+    private const string VariousArtists = "Various Artists";
+    private const string VariousArtistsMbid = "89ad4ac3-39f7-470e-963a-56509c546377";
+
+    static TagLibLibraryTagWriter()
+    {
+        // ID3v2.4 is required for real multi-value frames (v2.3 concatenates and loses them).
+        TagLib.Id3v2.Tag.DefaultVersion = 4;
+        TagLib.Id3v2.Tag.ForceDefaultVersion = true;
+    }
+
     public Task WriteTagsAsync(string path, SongMetadata song, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
@@ -32,19 +42,119 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
         using var tagFile = TagLib.File.Create(path);
         var tag = tagFile.Tag;
 
+        var compilation = song.IsCompilation;
+        var albumArtists = compilation ? [VariousArtists] : BuildAlbumArtistArray(song.AlbumArtist, song.Artist);
+
         tag.Title = NullIfEmpty(song.Title);
         tag.Album = NullIfEmpty(song.Album);
         tag.Performers = BuildPerformerArray(song.Artist);
-        tag.AlbumArtists = BuildAlbumArtistArray(song.AlbumArtist, song.Artist);
+        // ALBUMARTIST stays the main artist only (or "Various Artists" for compilations) so albums
+        // never fragment by per-track featured artist.
+        tag.AlbumArtists = albumArtists;
         tag.Year = song.Year is > 0 ? (uint)song.Year.Value : 0;
         tag.Track = song.TrackNumber is > 0 ? (uint)song.TrackNumber.Value : 0;
+        tag.TrackCount = song.TotalTracks is > 0 ? (uint)song.TotalTracks.Value : 0;
+        tag.Disc = song.DiscNumber is > 0 ? (uint)song.DiscNumber.Value : 0;
+        tag.DiscCount = song.TotalDiscs is > 0 ? (uint)song.TotalDiscs.Value : 0;
         tag.ISRC = NullIfEmpty(song.Isrc) ?? string.Empty;
+
+        // MusicBrainz IDs — the generic Tag writes the Picard-compatible frame per format.
+        // Gotcha: MusicBrainzTrackId is the field that holds the RECORDING id.
+        // Only assign when present: the Xiph (FLAC) setters throw on null.
+        SetIfPresent(NullIfEmpty(song.MusicBrainzId), v => tag.MusicBrainzTrackId = v);
+        SetIfPresent(NullIfEmpty(song.MusicBrainzReleaseId), v => tag.MusicBrainzReleaseId = v);
+        SetIfPresent(NullIfEmpty(song.MusicBrainzReleaseGroupId), v => tag.MusicBrainzReleaseGroupId = v);
+        SetIfPresent(
+            compilation ? VariousArtistsMbid : NullIfEmpty(song.AlbumArtistMusicBrainzId),
+            v => tag.MusicBrainzReleaseArtistId = v);
+        var artistIds = MusicHoarder.Api.Metadata.MultiValue.Split(song.ArtistMusicBrainzIds);
+        SetIfPresent(artistIds.Length > 0 ? artistIds[0] : null, v => tag.MusicBrainzArtistId = v);
 
         // Embed lyrics: prefer synced LRC, fall back to plain
         tag.Lyrics = NullIfEmpty(song.SyncedLyrics) ?? NullIfEmpty(song.PlainLyrics) ?? string.Empty;
 
+        // Multi-value / freeform fields the generic Tag doesn't expose. create:false so we only
+        // touch the file's native tag (the generic sets above already created it) — never an
+        // ID3 tag on a FLAC, which is non-spec and breaks some players.
+        WriteExtendedTags(tagFile, song, albumArtists, compilation);
+
         tagFile.Save();
         return Task.CompletedTask;
+    }
+
+    private static void SetIfPresent(string? value, Action<string> set)
+    {
+        if (!string.IsNullOrWhiteSpace(value)) set(value);
+    }
+
+    private static void WriteExtendedTags(TagLib.File file, SongMetadata song, string[] albumArtists, bool compilation)
+    {
+        var artists = MusicHoarder.Api.Metadata.MultiValue.Split(song.Artists);
+        if (artists.Length == 0)
+        {
+            artists = BuildPerformerArray(song.Artist);
+        }
+
+        var releaseTypes = MusicHoarder.Api.Metadata.MultiValue.Split(song.ReleaseTypes);
+
+        if (file.GetTag(TagLib.TagTypes.Id3v2, false) is TagLib.Id3v2.Tag id3)
+        {
+            SetId3UserText(id3, "ARTISTS", artists);
+            SetId3UserText(id3, "ALBUMARTISTS", albumArtists);
+            SetId3UserText(id3, "MusicBrainz Album Type", releaseTypes);
+            SetId3Text(id3, "TCMP", compilation ? ["1"] : []);
+        }
+
+        if (file.GetTag(TagLib.TagTypes.Xiph, false) is TagLib.Ogg.XiphComment xiph)
+        {
+            SetXiph(xiph, "ARTISTS", artists);
+            SetXiph(xiph, "ALBUMARTISTS", albumArtists);
+            SetXiph(xiph, "RELEASETYPE", releaseTypes);
+            SetXiph(xiph, "COMPILATION", compilation ? ["1"] : []);
+        }
+
+        if (file.GetTag(TagLib.TagTypes.Apple, false) is TagLib.Mpeg4.AppleTag apple)
+        {
+            apple.SetDashBoxes("com.apple.iTunes", "ARTISTS", artists);
+            apple.SetDashBoxes("com.apple.iTunes", "ALBUMARTISTS", albumArtists);
+            apple.SetDashBoxes("com.apple.iTunes", "MusicBrainz Album Type", releaseTypes);
+            apple.IsCompilation = compilation;
+        }
+    }
+
+    private static void SetId3UserText(TagLib.Id3v2.Tag id3, string description, string[] values)
+    {
+        if (values.Length == 0)
+        {
+            var existing = TagLib.Id3v2.UserTextInformationFrame.Get(id3, description, false);
+            if (existing is not null) id3.RemoveFrame(existing);
+            return;
+        }
+
+        TagLib.Id3v2.UserTextInformationFrame.Get(id3, description, true).Text = values;
+    }
+
+    private static void SetId3Text(TagLib.Id3v2.Tag id3, TagLib.ByteVector frameId, string[] values)
+    {
+        if (values.Length == 0)
+        {
+            var existing = TagLib.Id3v2.TextInformationFrame.Get(id3, frameId, false);
+            if (existing is not null) id3.RemoveFrame(existing);
+            return;
+        }
+
+        TagLib.Id3v2.TextInformationFrame.Get(id3, frameId, true).Text = values;
+    }
+
+    private static void SetXiph(TagLib.Ogg.XiphComment xiph, string key, string[] values)
+    {
+        if (values.Length == 0)
+        {
+            xiph.RemoveField(key);
+            return;
+        }
+
+        xiph.SetField(key, values);
     }
 
     private static string[] BuildPerformerArray(string? artist)

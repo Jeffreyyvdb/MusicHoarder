@@ -1,9 +1,15 @@
 <script lang="ts">
-  import { enrichFolder, type DirectoryMatchNode } from '$lib/api-client';
+  import {
+    enrichFolder,
+    fetchFolderFiles,
+    type DirectoryMatchNode,
+    type SourceFile
+  } from '$lib/api-client';
   import { AlertCircle, CheckCircle2, ChevronRight, Loader2, Sparkles } from '@lucide/svelte';
   import { cn } from '$lib/utils';
   import { Button } from '$lib/components/ui/button';
   import Self from './DirectoryTreeRow.svelte';
+  import SourceFileRow from './SourceFileRow.svelte';
 
   let {
     node,
@@ -15,6 +21,12 @@
 
   let expanded = $state(false);
   const hasChildren = $derived(node.children.length > 0);
+  const hasFiles = $derived(node.directFileCount > 0);
+  const expandable = $derived(hasChildren || hasFiles);
+
+  // Lazily-loaded files that live directly in this folder.
+  let files = $state<SourceFile[] | null>(null);
+  let filesState = $state<'idle' | 'loading' | 'error'>('idle');
 
   let enrichState = $state<'idle' | 'loading' | 'success' | 'error'>('idle');
   let enrichCount = $state(0);
@@ -24,7 +36,30 @@
     return node.total > 0 ? (n / node.total) * 100 : 0;
   }
 
+  // `matched` from the API includes rows already written to the library (`done`); split them so the
+  // bar shows "in library" distinctly from "matched, not yet written" — matching the design.
+  const written = $derived(node.done);
+  const matchedNotWritten = $derived(Math.max(0, node.matched - node.done));
+
   const matchedPctLabel = $derived(node.total > 0 ? Math.round(node.matchedPct) : 0);
+
+  function toggle() {
+    if (!expandable) return;
+    expanded = !expanded;
+    if (expanded && hasFiles && files === null && filesState !== 'loading') {
+      void loadFiles();
+    }
+  }
+
+  async function loadFiles() {
+    filesState = 'loading';
+    try {
+      files = await fetchFolderFiles(node.path);
+      filesState = 'idle';
+    } catch {
+      filesState = 'error';
+    }
+  }
 
   async function handleEnrichFolder() {
     enrichState = 'loading';
@@ -44,18 +79,18 @@
   <div class="group relative flex items-center">
   <button
     type="button"
-    onclick={() => hasChildren && (expanded = !expanded)}
+    onclick={toggle}
     class={cn(
       'flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left text-[13px] transition-colors',
-      hasChildren ? 'hover:bg-muted/60 cursor-pointer' : 'cursor-default'
+      expandable ? 'hover:bg-muted/60 cursor-pointer' : 'cursor-default'
     )}
     style="padding-left: {depth * 18 + 6}px"
-    aria-expanded={hasChildren ? expanded : undefined}
+    aria-expanded={expandable ? expanded : undefined}
   >
     <ChevronRight
       class={cn(
         'size-3.5 shrink-0 transition-transform',
-        hasChildren ? 'text-muted-foreground' : 'opacity-0',
+        expandable ? 'text-muted-foreground' : 'opacity-0',
         expanded && 'rotate-90'
       )}
     />
@@ -64,12 +99,13 @@
       {node.name}
     </span>
 
-    <!-- Stacked status bar: matched / review / failed / pending -->
+    <!-- Stacked status bar: written / matched / review / failed / queued -->
     <div
       class="bg-muted hidden h-[6px] w-28 shrink-0 overflow-hidden rounded-full sm:flex"
-      title={`matched ${node.matched} · review ${node.needsReview} · failed ${node.failed} · pending ${node.pending}`}
+      title={`in library ${written} · matched ${matchedNotWritten} · review ${node.needsReview} · failed ${node.failed} · queued ${node.pending}`}
     >
-      <span class="h-full bg-emerald-500" style="width: {pct(node.matched)}%"></span>
+      <span class="h-full bg-emerald-600" style="width: {pct(written)}%"></span>
+      <span class="h-full bg-emerald-500" style="width: {pct(matchedNotWritten)}%"></span>
       <span class="h-full bg-amber-500" style="width: {pct(node.needsReview)}%"></span>
       <span class="h-full bg-red-500" style="width: {pct(node.failed)}%"></span>
       <span class="h-full bg-slate-400/60" style="width: {pct(node.pending)}%"></span>
@@ -80,7 +116,7 @@
         'w-10 shrink-0 text-right font-mono text-[11px] tabular-nums',
         matchedPctLabel >= 90
           ? 'text-emerald-600 dark:text-emerald-400'
-          : matchedPctLabel >= 50
+          : matchedPctLabel >= 60
             ? 'text-amber-600 dark:text-amber-400'
             : 'text-red-600 dark:text-red-400'
       )}
@@ -126,11 +162,37 @@
     </Button>
   </div>
 
-  {#if hasChildren && expanded}
+  {#if expanded}
     <div>
       {#each node.children as child (child.path)}
         <Self node={child} depth={depth + 1} />
       {/each}
+
+      {#if hasFiles}
+        {#if filesState === 'loading'}
+          <div
+            class="text-muted-foreground flex items-center gap-2 py-1.5 text-[11px]"
+            style="padding-left: {depth * 18 + 30}px"
+          >
+            <Loader2 class="size-3 animate-spin" />
+            Loading files…
+          </div>
+        {:else if filesState === 'error'}
+          <button
+            type="button"
+            onclick={loadFiles}
+            class="text-muted-foreground hover:text-foreground flex items-center gap-2 py-1.5 text-[11px]"
+            style="padding-left: {depth * 18 + 30}px"
+          >
+            <AlertCircle class="size-3 text-amber-500" />
+            Couldn't load files — retry
+          </button>
+        {:else if files}
+          {#each files as file (file.id)}
+            <SourceFileRow {file} depth={depth + 1} />
+          {/each}
+        {/if}
+      {/if}
     </div>
   {/if}
 </div>
