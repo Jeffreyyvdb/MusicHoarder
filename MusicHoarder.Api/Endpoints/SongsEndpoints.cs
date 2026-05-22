@@ -578,7 +578,17 @@ public static class SongsEndpoints
             candidate.MatchConfidence,
             warningsJson,
             EnrichmentStatus.Matched,
-            candidate.Album));
+            candidate.Album,
+            candidate.Artists,
+            candidate.ArtistMusicBrainzIds,
+            candidate.AlbumArtistMusicBrainzId,
+            candidate.MusicBrainzReleaseGroupId,
+            candidate.DiscNumber,
+            candidate.TotalDiscs,
+            candidate.TotalTracks,
+            candidate.IsCompilation,
+            candidate.ReleaseTypePrimary,
+            candidate.ReleaseTypes));
         return true;
     }
 

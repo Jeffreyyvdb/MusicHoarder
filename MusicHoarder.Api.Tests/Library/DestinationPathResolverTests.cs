@@ -198,12 +198,95 @@ public class DestinationPathResolverTests
             path);
     }
 
-    private static DestinationPathResolver CreateResolver()
+    [Fact]
+    public void ResolvePath_WithCompilation_RoutesToVariousArtistsTree()
+    {
+        var resolver = CreateResolver();
+        var song = CreateSong(
+            artist: "Various Performers",
+            albumArtist: "Some Label",
+            album: "Now That's What I Call Music",
+            title: "A Hit",
+            year: 2001,
+            trackNumber: 7,
+            isCompilation: true);
+
+        var path = resolver.ResolvePath(song);
+
+        Assert.Equal(
+            Path.Combine(DestinationRoot, "Various Artists", "2001 - Now That's What I Call Music", "07 - A Hit.mp3"),
+            path);
+    }
+
+    [Fact]
+    public void ResolvePath_WithCustomCompilationFolder_UsesConfiguredName()
+    {
+        var resolver = CreateResolver(compilationFolderName: "Compilations");
+        var song = CreateSong(
+            artist: "Artist",
+            albumArtist: null,
+            album: "Mixtape",
+            title: "Track",
+            year: 2010,
+            trackNumber: 3,
+            isCompilation: true);
+
+        var path = resolver.ResolvePath(song);
+
+        Assert.Equal(
+            Path.Combine(DestinationRoot, "Compilations", "2010 - Mixtape", "03 - Track.mp3"),
+            path);
+    }
+
+    [Fact]
+    public void ResolvePath_WithMultiDisc_PrefixesDiscNumber()
+    {
+        var resolver = CreateResolver();
+        var song = CreateSong(
+            artist: "Outkast",
+            albumArtist: "Outkast",
+            album: "Speakerboxxx / The Love Below",
+            title: "Roses",
+            year: 2003,
+            trackNumber: 5,
+            discNumber: 2,
+            totalDiscs: 2);
+
+        var path = resolver.ResolvePath(song);
+
+        Assert.Equal(
+            Path.Combine(DestinationRoot, "Outkast", "2003 - Speakerboxxx  The Love Below", "2-05 - Roses.mp3"),
+            path);
+    }
+
+    [Fact]
+    public void ResolvePath_WithSingleDisc_OmitsDiscPrefix()
+    {
+        var resolver = CreateResolver();
+        var song = CreateSong(
+            artist: "Artist",
+            albumArtist: "Artist",
+            album: "Album",
+            title: "Track",
+            year: 2020,
+            trackNumber: 5,
+            discNumber: 1,
+            totalDiscs: 1);
+
+        var path = resolver.ResolvePath(song);
+
+        Assert.Equal(
+            Path.Combine(DestinationRoot, "Artist", "2020 - Album", "05 - Track.mp3"),
+            path);
+    }
+
+    private static DestinationPathResolver CreateResolver(string compilationFolderName = "Various Artists")
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
             SourceDirectory = "/source",
             DestinationDirectory = DestinationRoot,
+            CompilationFolderName = compilationFolderName,
         });
 
         return new DestinationPathResolver(options);
@@ -216,7 +299,10 @@ public class DestinationPathResolverTests
         string? title,
         int? year,
         int? trackNumber,
-        bool isUnreleased = false)
+        bool isUnreleased = false,
+        bool isCompilation = false,
+        int? discNumber = null,
+        int? totalDiscs = null)
     {
         return new SongMetadata
         {
@@ -233,7 +319,10 @@ public class DestinationPathResolverTests
             Year = year,
             TrackNumber = trackNumber,
             IndexedAtUtc = DateTime.UtcNow,
-            IsUnreleased = isUnreleased
+            IsUnreleased = isUnreleased,
+            IsCompilation = isCompilation,
+            DiscNumber = discNumber,
+            TotalDiscs = totalDiscs
         };
     }
 }

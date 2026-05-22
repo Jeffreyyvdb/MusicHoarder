@@ -37,12 +37,22 @@ public static class MetadataMerger
         MergeText(song, "AlbumArtist", song.AlbumArtist, winner.AlbumArtist, v => song.AlbumArtist = v, highConsensus, changes);
         MergeText(song, "Title", song.Title, winner.Title, v => song.Title = v, highConsensus, changes);
         MergeText(song, "Album", song.Album, winner.Album, v => song.Album = v, highConsensus, changes);
+        MergeText(song, "Artists", song.Artists, winner.Artists, v => song.Artists = v, highConsensus, changes);
+        MergeText(song, "ReleaseTypePrimary", song.ReleaseTypePrimary, winner.ReleaseTypePrimary, v => song.ReleaseTypePrimary = v, highConsensus, changes);
+        MergeText(song, "ReleaseTypes", song.ReleaseTypes, winner.ReleaseTypes, v => song.ReleaseTypes = v, highConsensus, changes);
         MergeNumber(song, "Year", song.Year, winner.Year, v => song.Year = v, highConsensus, changes);
         MergeNumber(song, "TrackNumber", song.TrackNumber, winner.TrackNumber, v => song.TrackNumber = v, highConsensus, changes);
+        MergeNumber(song, "DiscNumber", song.DiscNumber, winner.DiscNumber, v => song.DiscNumber = v, highConsensus, changes);
+        MergeNumber(song, "TotalDiscs", song.TotalDiscs, winner.TotalDiscs, v => song.TotalDiscs = v, highConsensus, changes);
+        MergeNumber(song, "TotalTracks", song.TotalTracks, winner.TotalTracks, v => song.TotalTracks = v, highConsensus, changes);
 
-        // Identifiers are additive — attach the matched identity's IDs.
+        // Identifiers and the compilation flag are additive facts — attach the matched identity's data.
         if (!string.IsNullOrWhiteSpace(winner.MusicBrainzId)) song.MusicBrainzId = winner.MusicBrainzId;
         if (!string.IsNullOrWhiteSpace(winner.MusicBrainzReleaseId)) song.MusicBrainzReleaseId = winner.MusicBrainzReleaseId;
+        if (!string.IsNullOrWhiteSpace(winner.MusicBrainzReleaseGroupId)) song.MusicBrainzReleaseGroupId = winner.MusicBrainzReleaseGroupId;
+        if (!string.IsNullOrWhiteSpace(winner.AlbumArtistMusicBrainzId)) song.AlbumArtistMusicBrainzId = winner.AlbumArtistMusicBrainzId;
+        if (!string.IsNullOrWhiteSpace(winner.ArtistMusicBrainzIds)) song.ArtistMusicBrainzIds = winner.ArtistMusicBrainzIds;
+        if (winner.IsCompilation is true) song.IsCompilation = true;
         if (!string.IsNullOrWhiteSpace(winner.SpotifyId)) song.SpotifyId = winner.SpotifyId;
         if (!string.IsNullOrWhiteSpace(winner.AcoustIdTrackId)) song.AcoustIdTrackId = winner.AcoustIdTrackId;
         if (!string.IsNullOrWhiteSpace(winner.Isrc)) song.Isrc = winner.Isrc;
