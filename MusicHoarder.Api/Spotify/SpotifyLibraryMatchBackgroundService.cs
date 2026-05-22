@@ -79,6 +79,8 @@ public class SpotifyLibraryMatchBackgroundService(
     private static async Task<bool> IsSpotifyConnectedAsync(IServiceScope scope, CancellationToken ct)
     {
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-        return await db.SpotifySettings.AsNoTracking().AnyAsync(s => s.IsConnected, ct);
+        return await db.SpotifySettings
+            .AsNoTracking()
+            .AnyAsync(s => !string.IsNullOrEmpty(s.AccessToken) && !string.IsNullOrEmpty(s.RefreshToken), ct);
     }
 }
