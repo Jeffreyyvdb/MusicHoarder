@@ -142,7 +142,13 @@ public class SpotifyApiEnrichmentProvider(
             MatchConfidence: Math.Clamp(score, 0, 1),
             MatchWarnings: warnings,
             RecommendedStatus: status,
-            Album: string.IsNullOrWhiteSpace(track.AlbumName) ? null : track.AlbumName);
+            Album: string.IsNullOrWhiteSpace(track.AlbumName) ? null : track.AlbumName,
+            Artists: track.Artists,
+            DiscNumber: track.DiscNumber,
+            TotalTracks: track.TotalTracks,
+            IsCompilation: string.Equals(track.AlbumType, "compilation", StringComparison.OrdinalIgnoreCase) ? true : null,
+            ReleaseTypePrimary: string.IsNullOrWhiteSpace(track.AlbumType) ? null : track.AlbumType,
+            ReleaseTypes: string.IsNullOrWhiteSpace(track.AlbumType) ? null : track.AlbumType);
     }
 
     private static string BuildSearchQuery(string artist, string title, string? album)

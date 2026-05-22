@@ -17,7 +17,17 @@ public record EnrichmentMatchData(
     double AdjustedScore,
     string? WarningsJson,
     EnrichmentStatus RecommendedStatus,
-    string? Album = null);
+    string? Album = null,
+    string? Artists = null,
+    string? ArtistMusicBrainzIds = null,
+    string? AlbumArtistMusicBrainzId = null,
+    string? MusicBrainzReleaseGroupId = null,
+    int? DiscNumber = null,
+    int? TotalDiscs = null,
+    int? TotalTracks = null,
+    bool? IsCompilation = null,
+    string? ReleaseTypePrimary = null,
+    string? ReleaseTypes = null);
 
 public class SongMetadata
 {
@@ -50,6 +60,30 @@ public class SongMetadata
     public string? Title { get; set; }
     public int? Year { get; set; }
     public int? TrackNumber { get; set; }
+
+    /// <summary>Discrete track-artist names, ';'-joined (incl. featured), display order. See <see cref="Metadata.MultiValue"/>.</summary>
+    public string? Artists { get; set; }
+
+    /// <summary>Per-artist MusicBrainz IDs, ';'-joined, positionally aligned with <see cref="Artists"/>.</summary>
+    public string? ArtistMusicBrainzIds { get; set; }
+
+    public int? DiscNumber { get; set; }
+    public int? TotalDiscs { get; set; }
+    public int? TotalTracks { get; set; }
+
+    /// <summary>
+    /// Various-Artists / iTunes compilation flag. Drives the "Various Artists" album-artist
+    /// substitution + COMPILATION tag at write time and the Various-Artists folder routing —
+    /// the per-track <see cref="AlbumArtist"/> on the row stays the truthful primary.
+    /// </summary>
+    public bool IsCompilation { get; set; }
+
+    /// <summary>MusicBrainz release-group primary type, lowercased (album|single|ep|broadcast|other).</summary>
+    public string? ReleaseTypePrimary { get; set; }
+
+    /// <summary>Full release type, ';'-joined lowercase primary + secondaries (e.g. "album; compilation").</summary>
+    public string? ReleaseTypes { get; set; }
+
     public int? DurationSeconds { get; set; }
     public int? DurationMs { get; set; }
     public required DateTime IndexedAtUtc { get; set; }
@@ -65,6 +99,8 @@ public class SongMetadata
     public string? Isrc { get; set; }
     public string? MusicBrainzId { get; set; }
     public string? MusicBrainzReleaseId { get; set; }
+    public string? MusicBrainzReleaseGroupId { get; set; }
+    public string? AlbumArtistMusicBrainzId { get; set; }
     public string? SpotifyId { get; set; }
     public string? AcoustIdTrackId { get; set; }
     public string? LrclibId { get; set; }
@@ -94,6 +130,13 @@ public class SongMetadata
     public string? OriginalIsrc { get; set; }
     public string? OriginalMusicBrainzId { get; set; }
     public string? OriginalSpotifyId { get; set; }
+    public string? OriginalArtists { get; set; }
+    public int? OriginalDiscNumber { get; set; }
+    public int? OriginalTotalDiscs { get; set; }
+    public int? OriginalTotalTracks { get; set; }
+    public bool OriginalIsCompilation { get; set; }
+    public string? OriginalReleaseTypePrimary { get; set; }
+    public string? OriginalReleaseTypes { get; set; }
     public DateTime? OriginalMetadataCapturedAtUtc { get; set; }
     public bool IsUnreleased { get; set; }
     public LibraryBuildStatus LibraryBuildStatus { get; set; } = LibraryBuildStatus.Pending;
@@ -165,6 +208,13 @@ public class SongMetadata
         OriginalIsrc = Isrc;
         OriginalMusicBrainzId = MusicBrainzId;
         OriginalSpotifyId = SpotifyId;
+        OriginalArtists = Artists;
+        OriginalDiscNumber = DiscNumber;
+        OriginalTotalDiscs = TotalDiscs;
+        OriginalTotalTracks = TotalTracks;
+        OriginalIsCompilation = IsCompilation;
+        OriginalReleaseTypePrimary = ReleaseTypePrimary;
+        OriginalReleaseTypes = ReleaseTypes;
         OriginalMetadataCapturedAtUtc = DateTime.UtcNow;
     }
 
@@ -181,6 +231,13 @@ public class SongMetadata
         Isrc = OriginalIsrc;
         MusicBrainzId = OriginalMusicBrainzId;
         SpotifyId = OriginalSpotifyId;
+        Artists = OriginalArtists;
+        DiscNumber = OriginalDiscNumber;
+        TotalDiscs = OriginalTotalDiscs;
+        TotalTracks = OriginalTotalTracks;
+        IsCompilation = OriginalIsCompilation;
+        ReleaseTypePrimary = OriginalReleaseTypePrimary;
+        ReleaseTypes = OriginalReleaseTypes;
     }
 
     public void ApplyEnrichmentMatch(EnrichmentMatchData match)
@@ -193,8 +250,18 @@ public class SongMetadata
         Album = string.IsNullOrWhiteSpace(match.Album) ? Album : match.Album;
         if (match.Year is not null) Year = match.Year;
         if (match.TrackNumber is not null) TrackNumber = match.TrackNumber;
+        Artists = string.IsNullOrWhiteSpace(match.Artists) ? Artists : match.Artists;
+        if (match.DiscNumber is not null) DiscNumber = match.DiscNumber;
+        if (match.TotalDiscs is not null) TotalDiscs = match.TotalDiscs;
+        if (match.TotalTracks is not null) TotalTracks = match.TotalTracks;
+        if (match.IsCompilation is not null) IsCompilation = match.IsCompilation.Value;
+        if (!string.IsNullOrWhiteSpace(match.ReleaseTypePrimary)) ReleaseTypePrimary = match.ReleaseTypePrimary;
+        if (!string.IsNullOrWhiteSpace(match.ReleaseTypes)) ReleaseTypes = match.ReleaseTypes;
         MusicBrainzId = match.MusicBrainzId ?? MusicBrainzId;
         MusicBrainzReleaseId = match.MusicBrainzReleaseId ?? MusicBrainzReleaseId;
+        MusicBrainzReleaseGroupId = match.MusicBrainzReleaseGroupId ?? MusicBrainzReleaseGroupId;
+        AlbumArtistMusicBrainzId = match.AlbumArtistMusicBrainzId ?? AlbumArtistMusicBrainzId;
+        ArtistMusicBrainzIds = string.IsNullOrWhiteSpace(match.ArtistMusicBrainzIds) ? ArtistMusicBrainzIds : match.ArtistMusicBrainzIds;
         SpotifyId = match.SpotifyId ?? SpotifyId;
         AcoustIdTrackId = match.AcoustIdTrackId ?? AcoustIdTrackId;
         if (!string.IsNullOrWhiteSpace(match.Isrc)) Isrc = match.Isrc;
@@ -280,6 +347,9 @@ public class SongMetadata
         EnrichmentError = null;
         AcoustIdTrackId = null;
         MusicBrainzReleaseId = null;
+        MusicBrainzReleaseGroupId = null;
+        AlbumArtistMusicBrainzId = null;
+        ArtistMusicBrainzIds = null;
 
         ProviderAttempts.Clear();
 

@@ -93,6 +93,51 @@ public class MetadataMergerTests
         Assert.Equal("Track 01", song.OriginalArtist);
     }
 
+    [Fact]
+    public void NewFields_AreApplied_OnEmptyExisting()
+    {
+        var song = Song(artist: null, title: "T");
+        Merge(
+            song,
+            Winner(artist: "Alice feat. Bob", title: "T", artists: "Alice; Bob",
+                releaseGroupId: "rg-1", albumArtistMbid: "aa-1", releaseTypePrimary: "single",
+                releaseTypes: "single", discNumber: 1, totalDiscs: 2, totalTracks: 9),
+            confidence: 0.92, providers: 1);
+
+        Assert.Equal("Alice; Bob", song.Artists);
+        Assert.Equal("rg-1", song.MusicBrainzReleaseGroupId);
+        Assert.Equal("aa-1", song.AlbumArtistMusicBrainzId);
+        Assert.Equal("single", song.ReleaseTypePrimary);
+        Assert.Equal(1, song.DiscNumber);
+        Assert.Equal(2, song.TotalDiscs);
+        Assert.Equal(9, song.TotalTracks);
+    }
+
+    [Fact]
+    public void Compilation_FlagIsAdditive()
+    {
+        var song = Song(artist: "A", title: "T");
+        Assert.False(song.IsCompilation);
+
+        Merge(song, Winner(artist: "A", title: "T", isCompilation: true), confidence: 0.90, providers: 1);
+
+        Assert.True(song.IsCompilation);
+    }
+
+    [Fact]
+    public void AlbumArtist_NeverBecomesFeaturedCredit()
+    {
+        // The provider sends a clean primary as AlbumArtist even though the track artist has a feat.
+        var song = Song(artist: null, title: "T");
+        Merge(
+            song,
+            Winner(artist: "Alice feat. Bob", title: "T", albumArtist: "Alice", artists: "Alice; Bob"),
+            confidence: 0.92, providers: 1);
+
+        Assert.Equal("Alice", song.AlbumArtist);
+        Assert.DoesNotContain("feat", song.AlbumArtist!, StringComparison.OrdinalIgnoreCase);
+    }
+
     // --- helpers ---
 
     private static IReadOnlyList<MetadataMerger.FieldChange> Merge(
@@ -101,9 +146,16 @@ public class MetadataMergerTests
 
     private static EnrichmentProviderResult Winner(
         string? artist, string? title, int? year = null,
-        string? spotifyId = null, string? isrc = null, string? mbid = null)
-        => new(artist, artist, title, year, null, mbid, null, spotifyId, null, isrc,
-            "TestProvider", 0.9, [], EnrichmentStatus.Matched);
+        string? spotifyId = null, string? isrc = null, string? mbid = null,
+        string? albumArtist = null, string? artists = null, string? releaseGroupId = null,
+        string? albumArtistMbid = null, string? releaseTypePrimary = null, string? releaseTypes = null,
+        int? discNumber = null, int? totalDiscs = null, int? totalTracks = null, bool? isCompilation = null)
+        => new(artist, albumArtist ?? artist, title, year, null, mbid, null, spotifyId, null, isrc,
+            "TestProvider", 0.9, [], EnrichmentStatus.Matched,
+            Album: null, Artists: artists, ArtistMusicBrainzIds: null,
+            AlbumArtistMusicBrainzId: albumArtistMbid, MusicBrainzReleaseGroupId: releaseGroupId,
+            DiscNumber: discNumber, TotalDiscs: totalDiscs, TotalTracks: totalTracks,
+            IsCompilation: isCompilation, ReleaseTypePrimary: releaseTypePrimary, ReleaseTypes: releaseTypes);
 
     private static SongMetadata Song(string? artist, string? title) => new()
     {
