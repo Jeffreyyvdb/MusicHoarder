@@ -34,7 +34,7 @@
   {/if}
   <Sidebar.Inset
     class={cn(
-      'bg-background h-svh',
+      'bg-background h-svh min-w-0',
       isMobile.current
         ? 'overflow-hidden'
         : cn(playerPad && !drawerOpen && 'pb-[60px] sm:pb-[68px]', drawerOpen && 'pb-[340px]')
