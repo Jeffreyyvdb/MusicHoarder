@@ -271,6 +271,20 @@ public class MusicEnricherOptions
     [Range(0.0, 1.0)]
     public double TrackerMatchedThreshold { get; set; } = 0.85;
 
+    // --- Kanye West "yetracker" community tracker (local JSON catalog, no API) ---
+
+    /// <summary>
+    /// Enable the yetracker (Kanye West) enrichment provider. Backed by a committed, offline-normalized
+    /// JSON catalog (<c>Data/yetracker.json</c>) rather than a live API. Disabled by default.
+    /// </summary>
+    public bool EnableYeTrackerProvider { get; set; } = false;
+
+    /// <summary>
+    /// Artist names/aliases the yetracker covers. The provider only attempts a lookup when the song's
+    /// resolved artist fuzzy-matches one of these — the catalog is single-artist (Kanye West).
+    /// </summary>
+    public string[] YeTrackerArtistAllowlist { get; set; } = ["Kanye West", "Ye", "Kanye", "Yeezy"];
+
     // --- Consensus / identity matching ---
 
     /// <summary>Minimum own-confidence for a provider candidate to act as a corroborating vote.</summary>

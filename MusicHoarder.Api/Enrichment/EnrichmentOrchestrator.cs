@@ -424,7 +424,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             .ToList();
     }
 
-    private static bool IsProviderEnabled(IEnrichmentProvider provider, EffectiveSettings effective)
+    private bool IsProviderEnabled(IEnrichmentProvider provider, EffectiveSettings effective)
     {
         return provider.Name switch
         {
@@ -434,6 +434,8 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             "Tracker" => effective.EnableTrackerProvider,
             "Deezer" => effective.EnableDeezerProvider,
             "AppleMusic" => effective.EnableAppleMusicProvider,
+            // Config-only toggle (no runtime/DB setting): the yetracker is a static local catalog.
+            "YeTracker" => _options.Value.EnableYeTrackerProvider,
             _ => true
         };
     }
@@ -446,6 +448,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         "Tracker" => EnrichmentProvider.Tracker,
         "Deezer" => EnrichmentProvider.Deezer,
         "AppleMusic" => EnrichmentProvider.AppleMusic,
+        "YeTracker" => EnrichmentProvider.YeTracker,
         _ => null
     };
 
@@ -455,6 +458,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         _providerSemaphores["SpotifyAPI"] = new SemaphoreSlim(opts.SpotifyApiConcurrency, opts.SpotifyApiConcurrency);
         _providerSemaphores["MusicBrainzWeb"] = new SemaphoreSlim(1, 1);
         _providerSemaphores["Tracker"] = new SemaphoreSlim(1, 1);
+        _providerSemaphores["YeTracker"] = new SemaphoreSlim(1, 1);
         _providerSemaphores["Deezer"] = new SemaphoreSlim(opts.DeezerConcurrency, opts.DeezerConcurrency);
         _providerSemaphores["AppleMusic"] = new SemaphoreSlim(opts.AppleMusicConcurrency, opts.AppleMusicConcurrency);
     }

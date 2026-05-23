@@ -42,4 +42,10 @@
         <EmbeddedResource Include="Auth\Resources\demo-songs.json" />
     </ItemGroup>
 
+    <ItemGroup>
+        <!-- Offline-normalized yetracker (Kanye West) catalog, loaded at runtime by
+             YeTrackerCatalogService from AppContext.BaseDirectory. Regenerate via tools/yetracker-import. -->
+        <Content Update="Data\yetracker.json" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
 </Project>
