@@ -48,7 +48,7 @@ services:
       - Frontend__PublicBaseUrl=${PUBLIC_BASE_URL:?PUBLIC_BASE_URL is required}
       # AI quality grading (OpenAI-compatible; OpenRouter by default). Key blank → grading is a no-op.
       - QualityGrading__ApiKey=${QUALITY_GRADING_API_KEY:-}
-      - QualityGrading__Model=${QUALITY_GRADING_MODEL:-openai/gpt-4o-mini}
+      - QualityGrading__Model=${QUALITY_GRADING_MODEL:-deepseek/deepseek-v4-flash}
       - QualityGrading__BaseUrl=${QUALITY_GRADING_BASE_URL:-https://openrouter.ai/api/v1}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/alive"]
