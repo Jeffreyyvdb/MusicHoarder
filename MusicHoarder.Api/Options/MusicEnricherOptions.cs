@@ -280,9 +280,11 @@ public class MusicEnricherOptions
 
     /// <summary>
     /// Enable the yetracker (Kanye West) enrichment provider. Backed by a committed, offline-normalized
-    /// JSON catalog (<c>Data/yetracker.json</c>) rather than a live API. Disabled by default.
+    /// JSON catalog (<c>Data/yetracker.json</c>) rather than a live API. On by default: it's gated to
+    /// <see cref="YeTrackerArtistAllowlist"/> so it only fires for the artists it covers (Kanye West),
+    /// and for those songs its catalog of leaks / alternate versions is richer than mainstream services.
     /// </summary>
-    public bool EnableYeTrackerProvider { get; set; } = false;
+    public bool EnableYeTrackerProvider { get; set; } = true;
 
     /// <summary>
     /// Artist names/aliases the yetracker covers. The provider only attempts a lookup when the song's
