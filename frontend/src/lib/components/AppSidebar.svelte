@@ -226,6 +226,20 @@
             </span>
           </a>
         {/each}
+        {@const tracksActive = pathname === '/tracks'}
+        <a
+          href="/tracks"
+          data-active={tracksActive || undefined}
+          class={cn(
+            'mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors',
+            'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+            'data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:font-medium'
+          )}
+        >
+          <ListMusic class={cn('size-3.5 shrink-0', tracksActive && 'text-primary')} />
+          <span class="flex-1 truncate text-left">All tracks</span>
+          <span class="text-muted-foreground font-mono text-[10.5px]">{fmtCount(totalTracks)}</span>
+        </a>
       </Sidebar.GroupContent>
     </Sidebar.Group>
 

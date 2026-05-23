@@ -40,6 +40,8 @@
   const pathname = $derived(page.url.pathname);
   const onApp = $derived(pathname === '/library' || pathname.startsWith('/library/'));
   const onAlbumsRoot = $derived(pathname === '/library');
+  const onTracks = $derived(pathname === '/tracks');
+  const searchEnabled = $derived(onAlbumsRoot || onTracks);
   const albumKey = $derived(page.url.searchParams.get('album'));
   const section = $derived(page.url.searchParams.get('section'));
   const onRuns = $derived(pathname.startsWith('/runs'));
@@ -82,6 +84,7 @@
       ];
     }
     if (onRuns) return [{ label: 'MusicHoarder', href: '/library' }, { label: 'Runs', href: null }];
+    if (onTracks) return [{ label: 'MusicHoarder', href: '/library' }, { label: 'All tracks', href: null }];
     if (pathname.startsWith('/artists')) return [{ label: 'MusicHoarder', href: '/library' }, { label: 'Artists', href: null }];
     if (pathname.startsWith('/spotify')) return [{ label: 'MusicHoarder', href: '/library' }, { label: 'Spotify', href: null }];
     if (pathname.startsWith('/review')) return [{ label: 'MusicHoarder', href: '/library' }, { label: 'Provenance & review', href: null }];
@@ -101,7 +104,7 @@
   });
 
   function commitSearch(value: string) {
-    if (!onAlbumsRoot) return;
+    if (!searchEnabled) return;
     const url = new URL(page.url);
     if (value.trim()) url.searchParams.set('q', value);
     else url.searchParams.delete('q');
@@ -297,10 +300,10 @@
       <Search class="text-muted-foreground size-3.5 shrink-0" />
       <Input
         type="search"
-        placeholder={onAlbumsRoot ? 'Search albums, artists…' : 'Search'}
+        placeholder={onAlbumsRoot ? 'Search albums, artists…' : onTracks ? 'Search tracks…' : 'Search'}
         value={searchValue}
         oninput={onSearchInput}
-        disabled={!onAlbumsRoot}
+        disabled={!searchEnabled}
         class="h-auto flex-1 border-0 bg-transparent p-0 text-xs shadow-none focus-visible:ring-0"
         aria-label="Search library"
       />

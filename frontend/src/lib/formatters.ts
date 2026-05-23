@@ -58,3 +58,26 @@ export function formatBitrate(bitRate: number | null | undefined, extension?: st
   if (!bitRate || bitRate <= 0) return ext || '—';
   return ext ? `${ext} ${bitRate}kbps` : `${bitRate} kbps`;
 }
+
+export type FormatFamily = 'FLAC' | 'MP3' | 'AAC' | 'WAV' | 'OGG' | 'OTHER';
+
+/** Collapse a file extension into a broad format family for filtering/grouping. */
+export function formatFamily(extension: string | null | undefined): FormatFamily {
+  const ext = (extension ?? '').replace(/^\./, '').toLowerCase();
+  switch (ext) {
+    case 'flac':
+      return 'FLAC';
+    case 'mp3':
+      return 'MP3';
+    case 'm4a':
+    case 'aac':
+      return 'AAC';
+    case 'wav':
+      return 'WAV';
+    case 'ogg':
+    case 'opus':
+      return 'OGG';
+    default:
+      return 'OTHER';
+  }
+}
