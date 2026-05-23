@@ -319,10 +319,19 @@ export interface GroupSummary {
   coverUrl: string | null
 }
 
-function albumKeyOf(song: ApiSong): string {
+/**
+ * Stable `(artist, album)` key for a song — `${artistLower}::${titleLower}`,
+ * matching the keys produced by {@link buildAlbumsFromSongs}. Use it to build
+ * `/library?album=<key>` deep-links from a single song.
+ */
+export function albumKeyForSong(song: ApiSong): string {
   const title = nonEmpty(song.album) ?? UNKNOWN_ALBUM
   const artist = nonEmpty(song.albumArtist) ?? nonEmpty(song.artist) ?? UNKNOWN_ARTIST
   return `${artist.toLowerCase()}::${title.toLowerCase()}`
+}
+
+function albumKeyOf(song: ApiSong): string {
+  return albumKeyForSong(song)
 }
 
 interface GroupAccumulator extends GroupSummary {

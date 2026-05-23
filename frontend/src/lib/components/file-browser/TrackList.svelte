@@ -1,7 +1,5 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
   import { ArrowDown, ArrowUp, Clock, FileText, ListMusic, Pause, Play } from '@lucide/svelte';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import {
     formatDuration,
@@ -10,7 +8,7 @@
     formatFamily,
     type FormatFamily
   } from '$lib/formatters';
-  import { songAddedTime, toPlayerSong, type ApiSong } from '$lib/api-client';
+  import { albumKeyForSong, songAddedTime, toPlayerSong, type ApiSong } from '$lib/api-client';
   import { playerStore } from '$lib/stores/player.svelte';
   import { cn } from '$lib/utils';
 
@@ -18,8 +16,10 @@
     songs: ApiSong[];
     searchQuery: string;
     isLoading: boolean;
+    selectedId?: number | null;
+    onSelect: (song: ApiSong) => void;
   };
-  const { songs, searchQuery, isLoading }: Props = $props();
+  const { songs, searchQuery, isLoading, selectedId = null, onSelect }: Props = $props();
 
   type SortKey = 'added' | 'title' | 'artist' | 'album' | 'year' | 'size' | 'match' | 'dur';
   const STRING_KEYS: SortKey[] = ['title', 'artist', 'album'];
@@ -31,8 +31,9 @@
 
   const UNKNOWN_ARTIST = 'Unknown Artist';
 
+  // Album-artist-preferred, matching buildArtistGroups / the `?artist=` browse filter.
   function artistOf(s: ApiSong): string {
-    return (s.artist ?? s.albumArtist ?? '').trim() || UNKNOWN_ARTIST;
+    return (s.albumArtist ?? s.artist ?? '').trim() || UNKNOWN_ARTIST;
   }
   function titleOf(s: ApiSong): string {
     return (s.title ?? s.fileName).trim() || s.fileName;
@@ -44,6 +45,12 @@
   function matchValue(s: ApiSong): number {
     if (typeof s.matchConfidence === 'number') return Math.max(0, Math.min(1, s.matchConfidence));
     return 0.74 + ((s.id * 17) % 22) / 100;
+  }
+  function artistHref(s: ApiSong): string {
+    return `/library?artist=${encodeURIComponent(artistOf(s))}`;
+  }
+  function albumHref(s: ApiSong): string {
+    return `/library?album=${encodeURIComponent(albumKeyForSong(s))}`;
   }
 
   // Per-family hue (oklch) for the chip dot + row format pill. OTHER stays neutral.
@@ -154,10 +161,7 @@
     totalBytes: filtered.reduce((n, s) => n + (s.fileSizeBytes ?? 0), 0)
   }));
 
-  const albumCount = $derived(
-    new Set(songs.map((s) => `${artistOf(s).toLowerCase()}::${(s.album ?? '').toLowerCase()}`)).size
-  );
-
+  const albumCount = $derived(new Set(songs.map((s) => albumKeyForSong(s))).size);
   const hasFilters = $derived(fmt !== 'all' || lyricsOnly);
 
   function playFrom(target: ApiSong) {
@@ -167,33 +171,62 @@
     void playerStore.playSong(toPlayerSong(target, artistOf(target)), queue, index);
   }
 
-  function openTrack(s: ApiSong) {
-    void goto(`/library?song=${s.id}`);
+  // ── Virtualization ────────────────────────────────────────────────────────
+  // One DOM row per track is too heavy for large libraries (each row mounts a
+  // Cover). Render only the rows in (or near) the viewport, absolutely
+  // positioned inside a full-height spacer so the scrollbar still reflects the
+  // whole list.
+  const ROW_H = 52;
+  const OVERSCAN = 8;
+  let scrollEl = $state<HTMLDivElement>();
+  let scrollTop = $state(0);
+  let viewportH = $state(600);
+
+  const startIndex = $derived(Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN));
+  const endIndex = $derived(
+    Math.min(sorted.length, Math.ceil((scrollTop + viewportH) / ROW_H) + OVERSCAN)
+  );
+  const visible = $derived(sorted.slice(startIndex, endIndex));
+
+  function onScroll() {
+    if (scrollEl) scrollTop = scrollEl.scrollTop;
   }
 
-  // Two grid templates: compact on mobile (#, cover, title, dur), full on sm+.
-  const GRID =
-    'grid-cols-[36px_40px_minmax(0,1fr)_52px] ' +
-    'sm:grid-cols-[40px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.9fr)_52px_104px_72px_128px_52px]';
+  $effect(() => {
+    const el = scrollEl;
+    if (!el) return;
+    viewportH = el.clientHeight;
+    const ro = new ResizeObserver(() => (viewportH = el.clientHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+
+  // Jump back to the top whenever the visible set changes shape, so the user
+  // isn't left scrolled past the end of a now-shorter list.
+  $effect(() => {
+    // referenced for reactivity
+    void searchQuery;
+    void fmt;
+    void lyricsOnly;
+    void sortKey;
+    void sortDir;
+    if (scrollEl) scrollEl.scrollTop = 0;
+    scrollTop = 0;
+  });
 </script>
 
-{#snippet sortHead(k: SortKey, label: string, alignRight = false)}
+{#snippet sortHead(k: SortKey, label: string)}
   <button
     type="button"
     onclick={() => toggleSort(k)}
     class={cn(
       'flex items-center gap-1 text-[10px] font-semibold tracking-wider uppercase transition-colors',
-      alignRight ? 'justify-end' : 'justify-start',
       sortKey === k ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
     )}
   >
     <span class="truncate">{label}</span>
     {#if sortKey === k}
-      {#if sortDir === 'asc'}
-        <ArrowUp class="size-3 shrink-0" />
-      {:else}
-        <ArrowDown class="size-3 shrink-0" />
-      {/if}
+      {#if sortDir === 'asc'}<ArrowUp class="size-3 shrink-0" />{:else}<ArrowDown class="size-3 shrink-0" />{/if}
     {/if}
   </button>
 {/snippet}
@@ -269,69 +302,72 @@
     </span>
   </div>
 
+  <!-- Column headers (sticky, outside the scroll area so columns stay aligned) -->
+  <div
+    class={cn(
+      'border-border text-muted-foreground grid shrink-0 items-center gap-3 border-b px-5 py-2.5',
+      'grid-cols-[40px_40px_minmax(0,1fr)_52px] sm:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.9fr)_52px_104px_72px_128px_52px]'
+    )}
+  >
+    <span class="text-right text-[10px] font-semibold tracking-wider uppercase">#</span>
+    <span></span>
+    {@render sortHead('title', 'Title')}
+    <span class="hidden sm:block">{@render sortHead('artist', 'Artist')}</span>
+    <span class="hidden sm:block">{@render sortHead('album', 'Album')}</span>
+    <span class="hidden sm:block">{@render sortHead('year', 'Year')}</span>
+    <span class="hidden text-[10px] font-semibold tracking-wider uppercase sm:block">Format</span>
+    <span class="hidden sm:block">{@render sortHead('size', 'Size')}</span>
+    <span class="hidden sm:block">{@render sortHead('match', 'Match')}</span>
+    <button
+      type="button"
+      onclick={() => toggleSort('dur')}
+      class={cn(
+        'flex items-center justify-end gap-1 transition-colors',
+        sortKey === 'dur' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+      )}
+      aria-label="Sort by duration"
+    >
+      {#if sortKey === 'dur'}
+        {#if sortDir === 'asc'}<ArrowUp class="size-3" />{:else}<ArrowDown class="size-3" />{/if}
+      {/if}
+      <Clock class="size-3" />
+    </button>
+  </div>
+
   {#if isLoading && songs.length === 0}
     <div class="text-muted-foreground flex flex-1 items-center justify-center p-8 text-sm">
       Loading tracks…
     </div>
+  {:else if sorted.length === 0}
+    <div class="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+      <ListMusic class="size-10 opacity-40" />
+      <p class="text-sm">No tracks match</p>
+      <p class="text-xs">Try clearing filters or a different search.</p>
+    </div>
   {:else}
-    <ScrollArea class="min-h-0 flex-1">
-      <div class="px-2 pt-2 pb-20 sm:px-4">
-        <!-- Column headers -->
-        <div
-          class={cn(
-            'border-border text-muted-foreground grid items-center gap-3 border-b px-3 py-2.5',
-            GRID
-          )}
-        >
-          <span class="text-right text-[10px] font-semibold tracking-wider uppercase">#</span>
-          <span></span>
-          {@render sortHead('title', 'Title')}
-          <span class="hidden sm:block">{@render sortHead('artist', 'Artist')}</span>
-          <span class="hidden sm:block">{@render sortHead('album', 'Album')}</span>
-          <span class="hidden sm:block">{@render sortHead('year', 'Year')}</span>
-          <span class="hidden text-[10px] font-semibold tracking-wider uppercase sm:block">Format</span>
-          <span class="hidden sm:block">{@render sortHead('size', 'Size')}</span>
-          <span class="hidden sm:block">{@render sortHead('match', 'Match')}</span>
-          <button
-            type="button"
-            onclick={() => toggleSort('dur')}
-            class={cn(
-              'flex items-center justify-end gap-1 transition-colors',
-              sortKey === 'dur' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
-            )}
-            aria-label="Sort by duration"
-          >
-            {#if sortKey === 'dur'}
-              {#if sortDir === 'asc'}<ArrowUp class="size-3" />{:else}<ArrowDown class="size-3" />{/if}
-            {/if}
-            <Clock class="size-3" />
-          </button>
-        </div>
-
-        {#if sorted.length === 0}
-          <div class="text-muted-foreground flex flex-col items-center justify-center gap-3 py-16 text-center">
-            <ListMusic class="size-10 opacity-40" />
-            <p class="text-sm">No tracks match</p>
-            <p class="text-xs">Try clearing filters or a different search.</p>
-          </div>
-        {/if}
-
-        {#each sorted as song, i (song.id)}
+    <!-- Virtualized scroll viewport -->
+    <div bind:this={scrollEl} onscroll={onScroll} class="min-h-0 flex-1 overflow-y-auto px-2 sm:px-3">
+      <div class="relative" style="height: {sorted.length * ROW_H}px;">
+        {#each visible as song, vi (song.id)}
+          {@const i = startIndex + vi}
           {@const family = formatFamily(song.extension)}
           {@const mv = matchValue(song)}
           {@const isLoaded = playerStore.currentSong?.id === song.id}
           {@const isCurrentlyPlaying = isLoaded && playerStore.isPlaying}
+          {@const isSelected = selectedId === song.id}
           <div
             role="button"
             tabindex="0"
-            onclick={() => openTrack(song)}
-            onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && openTrack(song)}
+            onclick={() => onSelect(song)}
+            onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && onSelect(song)}
             class={cn(
-              'group grid cursor-pointer items-center gap-3 rounded-md px-3 py-1.5 transition-colors',
-              GRID,
+              'group absolute right-0 left-0 grid cursor-pointer items-center gap-3 rounded-md px-3',
+              'grid-cols-[40px_40px_minmax(0,1fr)_52px] sm:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.9fr)_52px_104px_72px_128px_52px]',
               'hover:bg-accent/50',
+              isSelected && 'bg-primary/10',
               isLoaded && 'text-primary'
             )}
+            style="top: {i * ROW_H}px; height: {ROW_H}px;"
           >
             <!-- # / play -->
             <span class="text-muted-foreground relative grid place-items-center text-right">
@@ -384,8 +420,14 @@
                     LRC
                   </span>
                 {/if}
-                <!-- artist inline on mobile (its own column is hidden) -->
-                <span class="truncate sm:hidden">{artistOf(song)}</span>
+                <!-- artist inline on mobile (its own column is hidden there) -->
+                <a
+                  href={artistHref(song)}
+                  onclick={(e) => e.stopPropagation()}
+                  class="truncate hover:underline sm:hidden"
+                >
+                  {artistOf(song)}
+                </a>
                 {#if song.fingerprint}
                   <span class="hidden truncate font-mono text-[9.5px] opacity-65 sm:inline">
                     {song.fingerprint.slice(0, 12)}…
@@ -394,14 +436,26 @@
               </div>
             </div>
 
-            <!-- artist -->
-            <span class="text-muted-foreground hidden truncate text-[12px] sm:block">
+            <!-- artist (clickable) -->
+            <a
+              href={artistHref(song)}
+              onclick={(e) => e.stopPropagation()}
+              class="text-muted-foreground hover:text-foreground hidden truncate text-[12px] hover:underline sm:block"
+            >
               {artistOf(song)}
-            </span>
-            <!-- album -->
-            <span class="text-muted-foreground hidden truncate text-[12px] sm:block">
-              {song.album ?? '—'}
-            </span>
+            </a>
+            <!-- album (clickable) -->
+            {#if song.album}
+              <a
+                href={albumHref(song)}
+                onclick={(e) => e.stopPropagation()}
+                class="text-muted-foreground hover:text-foreground hidden truncate text-[12px] hover:underline sm:block"
+              >
+                {song.album}
+              </a>
+            {:else}
+              <span class="text-muted-foreground hidden truncate text-[12px] sm:block">—</span>
+            {/if}
             <!-- year -->
             <span class="text-muted-foreground hidden font-mono text-[11px] sm:block">
               {song.year ?? '—'}
@@ -411,17 +465,12 @@
               {#if family === 'OTHER'}
                 <span class="text-muted-foreground font-mono text-[10px]">{(song.extension ?? '').replace(/^\./, '').toUpperCase() || '—'}</span>
               {:else}
-                <span
-                  class="rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold"
-                  style={familyPill(family)}
-                >
+                <span class="rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold" style={familyPill(family)}>
                   {family}
                 </span>
               {/if}
               {#if song.bitRate && song.bitRate > 0}
-                <span class="text-muted-foreground hidden font-mono text-[9.5px] lg:inline">
-                  {song.bitRate}kbps
-                </span>
+                <span class="text-muted-foreground hidden font-mono text-[9.5px] lg:inline">{song.bitRate}kbps</span>
               {/if}
             </span>
             <!-- size -->
@@ -433,9 +482,7 @@
               <span class="bg-border h-1 flex-1 overflow-hidden rounded-full">
                 <span class="bg-primary block h-full rounded-full" style="width: {mv * 100}%;"></span>
               </span>
-              <span class="text-muted-foreground min-w-[28px] text-right font-mono text-[10.5px]">
-                {mv.toFixed(2)}
-              </span>
+              <span class="text-muted-foreground min-w-[28px] text-right font-mono text-[10.5px]">{mv.toFixed(2)}</span>
             </span>
             <!-- duration -->
             <span class="text-muted-foreground text-right font-mono text-[11px]">
@@ -443,17 +490,16 @@
             </span>
           </div>
         {/each}
-
-        {#if sorted.length > 0}
-          <div class="border-border text-muted-foreground mt-2 flex items-center gap-2 border-t px-3 py-3 font-mono text-[11px]">
-            <span>Showing {sorted.length.toLocaleString()} of {songs.length.toLocaleString()}</span>
-            <span class="flex-1"></span>
-            <span>{formatFileSize(stats.totalBytes)}</span>
-            <span class="opacity-50">·</span>
-            <span>{formatTotalDuration(stats.totalSec)}</span>
-          </div>
-        {/if}
       </div>
-    </ScrollArea>
+    </div>
+
+    <!-- Footer totals (outside the scroll area) -->
+    <div class="border-border text-muted-foreground flex shrink-0 items-center gap-2 border-t px-5 py-2.5 font-mono text-[11px]">
+      <span>Showing {sorted.length.toLocaleString()} of {songs.length.toLocaleString()}</span>
+      <span class="flex-1"></span>
+      <span>{formatFileSize(stats.totalBytes)}</span>
+      <span class="opacity-50">·</span>
+      <span>{formatTotalDuration(stats.totalSec)}</span>
+    </div>
   {/if}
 </div>

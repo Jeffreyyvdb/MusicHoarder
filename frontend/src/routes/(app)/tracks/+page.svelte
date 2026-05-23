@@ -1,27 +1,109 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import { goto } from '$app/navigation';
+  import * as Resizable from '$lib/components/ui/resizable';
+  import * as Sheet from '$lib/components/ui/sheet';
   import TrackList from '$lib/components/file-browser/TrackList.svelte';
-  import { fetchSongs, type ApiSong } from '$lib/api-client';
+  import TrackPanel from '$lib/components/file-browser/TrackPanel.svelte';
+  import { buildAlbumsFromSongs, fetchSongs, type ApiSong } from '$lib/api-client';
+  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
+
+  const isMobile = new IsMobile();
 
   let songs = $state<ApiSong[]>([]);
   let isLoading = $state(true);
+  let isMountedRef = true;
+
+  async function loadSongs() {
+    try {
+      isLoading = true;
+      const loaded = await fetchSongs();
+      if (!isMountedRef) return;
+      songs = loaded;
+    } finally {
+      if (isMountedRef) isLoading = false;
+    }
+  }
 
   $effect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const loaded = await fetchSongs();
-        if (!cancelled) songs = loaded;
-      } finally {
-        if (!cancelled) isLoading = false;
-      }
-    })();
+    isMountedRef = true;
+    void loadSongs();
     return () => {
-      cancelled = true;
+      isMountedRef = false;
     };
   });
 
   const searchQuery = $derived(page.url.searchParams.get('q') ?? '');
+  const trackParam = $derived(page.url.searchParams.get('track'));
+  const selectedId = $derived(trackParam ? Number.parseInt(trackParam, 10) : null);
+
+  const albums = $derived(buildAlbumsFromSongs(songs));
+
+  // Resolve the owning album + the song's index within it, for the detail panel.
+  const selected = $derived.by(() => {
+    if (selectedId == null || !Number.isFinite(selectedId)) return null;
+    const album = albums.find((a) => a.songs.some((s) => s.id === selectedId));
+    if (!album) return null;
+    const index = album.songs.findIndex((s) => s.id === selectedId);
+    return { album, song: album.songs[index], index };
+  });
+
+  const panelOpen = $derived(!!selected);
+
+  function selectTrack(song: ApiSong) {
+    const url = new URL(page.url);
+    if (selectedId === song.id) url.searchParams.delete('track');
+    else url.searchParams.set('track', String(song.id));
+    void goto(url.pathname + url.search, { replaceState: true, noScroll: true });
+  }
+
+  function closeTrack() {
+    const url = new URL(page.url);
+    url.searchParams.delete('track');
+    void goto(url.pathname + url.search, { replaceState: true, noScroll: true });
+  }
 </script>
 
-<TrackList {songs} {searchQuery} {isLoading} />
+<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+  {#if isMobile.current || !panelOpen}
+    <TrackList {songs} {searchQuery} {isLoading} {selectedId} onSelect={selectTrack} />
+  {:else}
+    <Resizable.PaneGroup id="tracks-panels" direction="horizontal" class="min-h-0 flex-1">
+      <Resizable.Pane id="tracks-main" order={1} defaultSize={68}>
+        <TrackList {songs} {searchQuery} {isLoading} {selectedId} onSelect={selectTrack} />
+      </Resizable.Pane>
+      <Resizable.Handle />
+      <Resizable.Pane id="tracks-details" order={2} defaultSize={32} minSize={28} maxSize={45}>
+        {#if selected}
+          <TrackPanel
+            album={selected.album}
+            song={selected.song}
+            trackIndex={selected.index}
+            onClose={closeTrack}
+            onResetEnrichment={() => void loadSongs()}
+          />
+        {/if}
+      </Resizable.Pane>
+    </Resizable.PaneGroup>
+  {/if}
+</div>
+
+{#if isMobile.current}
+  <Sheet.Root open={panelOpen} onOpenChange={(open) => !open && closeTrack()}>
+    <Sheet.Content side="bottom" class="h-[88vh] gap-0 p-0 data-[side=bottom]:h-[88vh] [&>button]:hidden">
+      <Sheet.Title class="sr-only">Track details</Sheet.Title>
+      <Sheet.Description class="sr-only">
+        View track metadata, lyrics, fingerprint, and enrichment sources
+      </Sheet.Description>
+      {#if selected}
+        <TrackPanel
+          album={selected.album}
+          song={selected.song}
+          trackIndex={selected.index}
+          onClose={closeTrack}
+          onResetEnrichment={() => void loadSongs()}
+        />
+      {/if}
+    </Sheet.Content>
+  </Sheet.Root>
+{/if}
