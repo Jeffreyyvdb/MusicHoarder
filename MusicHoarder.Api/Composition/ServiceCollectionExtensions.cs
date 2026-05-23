@@ -113,6 +113,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IEnrichmentProvider, DeezerEnrichmentProvider>();
         services.AddSingleton<IEnrichmentProvider, AppleMusicEnrichmentProvider>();
         services.AddSingleton<IEnrichmentProvider, TrackerEnrichmentProvider>();
+        services.AddSingleton<YeTrackerCatalogService>();
+        services.AddSingleton<IEnrichmentProvider, YeTrackerEnrichmentProvider>();
         services.AddSingleton<EnrichmentPipelineChannel>();
         services.AddSingleton<IRuntimeSettingsService, RuntimeSettingsService>();
         services.AddSingleton<IEnrichmentOrchestrator, EnrichmentOrchestrator>();
