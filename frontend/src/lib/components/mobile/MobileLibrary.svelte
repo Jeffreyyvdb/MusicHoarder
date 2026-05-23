@@ -42,7 +42,7 @@
   }
 
   function openAlbum(key: string) {
-    void goto(`/app?album=${encodeURIComponent(key)}`);
+    void goto(`/library?album=${encodeURIComponent(key)}`);
   }
 
   let scanning = $state(false);

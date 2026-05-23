@@ -15,7 +15,7 @@
   };
 
   const tabs: Tab[] = [
-    { id: 'library', label: 'Library', href: '/app', icon: Library, match: (p) => p.startsWith('/app') },
+    { id: 'library', label: 'Library', href: '/library', icon: Library, match: (p) => p.startsWith('/library') },
     { id: 'spotify', label: 'Spotify', href: '/spotify', icon: Play, match: (p) => p.startsWith('/spotify') },
     { id: 'review', label: 'Review', href: '/review', icon: TriangleAlert, match: (p) => p.startsWith('/review') },
     { id: 'runs', label: 'Runs', href: '/runs', icon: Clock, match: (p) => p.startsWith('/runs') },

@@ -23,7 +23,7 @@
   const groups = $derived(buildArtistGroups(songs));
 
   function hrefFor(group: GroupSummary): string {
-    return `/app?artist=${encodeURIComponent(group.key)}`;
+    return `/library?artist=${encodeURIComponent(group.key)}`;
   }
 </script>
 

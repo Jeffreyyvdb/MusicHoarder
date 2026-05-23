@@ -130,7 +130,7 @@
   <div class="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
     <Disc3 class="text-muted-foreground size-10 opacity-40" />
     <p class="text-sm">Album not found in your library.</p>
-    <a href="/app" class="text-primary text-sm underline-offset-4 hover:underline">
+    <a href="/library" class="text-primary text-sm underline-offset-4 hover:underline">
       Back to all albums
     </a>
   </div>
@@ -142,7 +142,7 @@
       style="background: {heroBackground};"
     >
       <a
-        href="/app"
+        href="/library"
         class="text-muted-foreground hover:text-foreground absolute top-3 left-6 z-10 inline-flex items-center gap-1 rounded-full bg-black/30 px-2.5 py-1 text-xs text-white/85 backdrop-blur transition-colors hover:bg-black/40 hover:text-white sm:left-9"
       >
         <ArrowLeft class="size-3.5" />
