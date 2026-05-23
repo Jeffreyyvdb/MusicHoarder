@@ -12,6 +12,7 @@ using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Pipeline;
+using MusicHoarder.Api.Quality;
 using MusicHoarder.Api.Scanner;
 using MusicHoarder.Api.Settings;
 using MusicHoarder.Api.Spotify;
@@ -31,6 +32,12 @@ public static class ServiceCollectionExtensions
         services
             .AddOptions<FrontendOptions>()
             .BindConfiguration(FrontendOptions.SectionName);
+
+        services
+            .AddOptions<QualityGradingOptions>()
+            .BindConfiguration(QualityGradingOptions.SectionName)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
 
         services
             .AddOptions<SpotifyOptions>()
@@ -133,6 +140,23 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<EnrichmentBackgroundService>();
         services.AddHostedService<LibraryBuilderBackgroundService>();
         services.AddHostedService<IngestRunMonitor>();
+
+        // AI quality grading. The chat client + dossier factory are stateless singletons; the
+        // grading service creates its own DB scopes so it works from the background sweep and the
+        // request path alike.
+        services.AddSingleton<QualityGradingProgressTracker>();
+        services.AddSingleton<QualityGradingChannel>();
+        services.AddSingleton<IQualityDossierFactory, QualityDossierFactory>();
+        services.AddSingleton<IChatCompletionClient>(sp =>
+        {
+            var httpClient = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+            return new OpenAiCompatibleChatClient(
+                httpClient,
+                sp.GetRequiredService<IOptionsMonitor<QualityGradingOptions>>(),
+                sp.GetRequiredService<ILogger<OpenAiCompatibleChatClient>>());
+        });
+        services.AddSingleton<IQualityGradingService, QualityGradingService>();
+        services.AddHostedService<QualityGradingBackgroundService>();
 
         services.AddHealthChecks()
             .AddCheck<LibraryDirectoriesHealthCheck>("library-directories", tags: ["pipeline"]);

@@ -57,6 +57,11 @@ services:
       # exchange itself (redirect_uri = the relay URL) and validates the signed state with the shared key.
       - Spotify__OAuthRelayUrl=${SPOTIFY_OAUTH_RELAY_URL:-}
       - Spotify__OAuthStateSigningKey=${SPOTIFY_OAUTH_STATE_KEY:-}
+      # AI quality grading (OpenAI-compatible; OpenRouter by default). Key blank → grading is a
+      # no-op. Defaults to a cheap model so a single GitHub secret is enough to switch it on.
+      - QualityGrading__ApiKey=${QUALITY_GRADING_API_KEY:-}
+      - QualityGrading__Model=${QUALITY_GRADING_MODEL:-deepseek/deepseek-v4-flash}
+      - QualityGrading__BaseUrl=${QUALITY_GRADING_BASE_URL:-https://openrouter.ai/api/v1}
       - Auth__OwnerEmail=${OWNER_EMAIL}
       - Auth__DemoUserEmail=${DEMO_USER_EMAIL:-demo@musichoarder.local}
       - Auth__DataProtectionKeysPath=/data/dpkeys

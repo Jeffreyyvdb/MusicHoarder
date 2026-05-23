@@ -40,6 +40,10 @@
 #                                   used verbatim as redirect_uri. The prod relay's return-origin allowlist must
 #                                   include *.${PREVIEW_BASE_DOMAIN} so it can bounce back to this preview.
 #   PREVIEW_SPOTIFY_OAUTH_STATE_KEY  shared HMAC key signing the OAuth state; MUST equal the prod relay's key.
+#   PREVIEW_QUALITY_GRADING_API_KEY  OpenRouter (or other OpenAI-compatible) key for AI quality grading.
+#                                   Empty → grading is a no-op in the preview.
+#   PREVIEW_QUALITY_GRADING_MODEL    model id; default deepseek/deepseek-v4-flash.
+#   PREVIEW_QUALITY_GRADING_BASE_URL OpenAI-compatible base URL; default https://openrouter.ai/api/v1.
 set -euo pipefail
 
 CMD="${1:-}"
@@ -134,6 +138,9 @@ SPOTIFY_CLIENT_ID=${PREVIEW_SPOTIFY_CLIENT_ID:-}
 SPOTIFY_CLIENT_SECRET=${PREVIEW_SPOTIFY_CLIENT_SECRET:-}
 SPOTIFY_OAUTH_RELAY_URL=${PREVIEW_SPOTIFY_OAUTH_RELAY_URL:-}
 SPOTIFY_OAUTH_STATE_KEY=${PREVIEW_SPOTIFY_OAUTH_STATE_KEY:-}
+QUALITY_GRADING_API_KEY=${PREVIEW_QUALITY_GRADING_API_KEY:-}
+QUALITY_GRADING_MODEL=${PREVIEW_QUALITY_GRADING_MODEL:-deepseek/deepseek-v4-flash}
+QUALITY_GRADING_BASE_URL=${PREVIEW_QUALITY_GRADING_BASE_URL:-https://openrouter.ai/api/v1}
 RESEND_API_KEY=
 RESEND_FROM_ADDRESS=noreply@musichoarder.local
 EOF
