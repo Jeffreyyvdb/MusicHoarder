@@ -32,6 +32,9 @@ public class EnrichmentProgressTracker
             _completedAt);
     }
 
+    /// <summary>Grow the current cycle's denominator when more items are enqueued mid-flight.</summary>
+    public void AddToTotal(int count) => Interlocked.Add(ref _totalTracks, count);
+
     public void StartCycle(Guid runId, int totalTracks)
     {
         _runId = runId;
