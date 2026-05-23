@@ -68,16 +68,24 @@ public abstract class CommunityTrackerEnrichmentProvider(
         var opts = Options;
         TrackerSong? best = null;
         double bestScore = 0;
+        double bestDurationDelta = double.PositiveInfinity;
         var bestWarnings = new List<string>();
 
         foreach (var candidate in candidates)
         {
-            var (score, warnings) = ScoreCandidate(song, effectiveTitle, candidate, opts);
-            if (score > bestScore)
+            var (score, warnings, durationDelta) = ScoreCandidate(song, effectiveTitle, candidate, opts);
+
+            // Highest title agreement wins. But a single song often has many versions with the same
+            // title ([V1], [V2], …) that tie on title score — so the length closest to the file is the
+            // tiebreaker that picks the right version (a candidate with no length sorts last).
+            var better = score > bestScore + 1e-9
+                || (score > bestScore - 1e-9 && durationDelta < bestDurationDelta);
+            if (better)
             {
                 bestScore = score;
                 best = candidate;
                 bestWarnings = warnings;
+                bestDurationDelta = durationDelta;
             }
         }
 
@@ -145,7 +153,7 @@ public abstract class CommunityTrackerEnrichmentProvider(
             Album: string.IsNullOrWhiteSpace(track.Era) ? null : track.Era);
     }
 
-    private static (double Score, List<string> Warnings) ScoreCandidate(
+    private static (double Score, List<string> Warnings, double DurationDelta) ScoreCandidate(
         SongMetadata song,
         string? sourceTitle,
         TrackerSong track,
@@ -167,19 +175,22 @@ public abstract class CommunityTrackerEnrichmentProvider(
         }
 
         if (bestTitleRatio is not double titleRatio)
-            return (0, ["title_unknown"]);
+            return (0, ["title_unknown"], double.PositiveInfinity);
 
         if (titleRatio < FuzzyThreshold)
             warnings.Add("title_mismatch");
 
         var score = titleRatio / 100.0;
 
+        // Distance (seconds) between the file and this candidate; PositiveInfinity when either side
+        // has no length, so length-less candidates lose the version tiebreak to ones that match.
+        var durationDelta = double.PositiveInfinity;
         var songDurationSec = song.DurationSeconds
             ?? (song.DurationMs is int ms ? ms / 1000.0 : (double?)null);
         if (songDurationSec is not null && track.DurationSeconds is double trackDuration && trackDuration > 0)
         {
-            var delta = Math.Abs(songDurationSec.Value - trackDuration);
-            if (delta > opts.SpotifyApiDurationDeltaThresholdSeconds)
+            durationDelta = Math.Abs(songDurationSec.Value - trackDuration);
+            if (durationDelta > opts.SpotifyApiDurationDeltaThresholdSeconds)
             {
                 warnings.Add("duration_mismatch");
                 score *= opts.SpotifyApiDurationMismatchPenalty;
@@ -195,7 +206,7 @@ public abstract class CommunityTrackerEnrichmentProvider(
             score *= 0.6;
         }
 
-        return (Math.Clamp(score, 0, 1), warnings);
+        return (Math.Clamp(score, 0, 1), warnings, durationDelta);
     }
 
     private static bool HasBlockingWarning(List<string> warnings) =>

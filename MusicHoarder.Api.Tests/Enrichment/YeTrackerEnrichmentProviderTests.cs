@@ -40,6 +40,37 @@ public class YeTrackerEnrichmentProviderTests
     }
 
     [Fact]
+    public async Task ManyVersions_PicksTheOneClosestInLength()
+    {
+        // A single song with many same-title versions (each carries the version-stripped alias, so
+        // they all tie on title score). Length must break the tie and pick the closest version.
+        var provider = Create(
+            new TrackerSong(1, "LA Monster [V2]", ["LA Monster"], "unreleased", "JESUS IS KING", "Kanye West", null, 130, 2019),
+            new TrackerSong(2, "LA Monster [V4]", ["LA Monster"], "unreleased", "JESUS IS KING", "Kanye West", null, 199, 2019),
+            new TrackerSong(3, "LA Monster [V5]", ["LA Monster"], "unreleased", "JESUS IS KING", "Kanye West", null, 179, 2019));
+        var song = Song(artist: "Kanye West", title: "LA Monster", durationSec: 198); // ~V4
+
+        var outcome = await provider.TryEnrichAsync(song);
+
+        var matched = Assert.IsType<ProviderMatched>(outcome);
+        Assert.Equal("LA Monster [V4]", matched.Result.Title);
+    }
+
+    [Fact]
+    public async Task ManyVersions_LengthlessCandidate_LosesToLengthMatch()
+    {
+        var provider = Create(
+            new TrackerSong(1, "LA Monster [V1]", ["LA Monster"], "unreleased", "JESUS IS KING", "Kanye West", null, null, 2019),
+            new TrackerSong(2, "LA Monster [V4]", ["LA Monster"], "unreleased", "JESUS IS KING", "Kanye West", null, 199, 2019));
+        var song = Song(artist: "Kanye West", title: "LA Monster", durationSec: 200);
+
+        var outcome = await provider.TryEnrichAsync(song);
+
+        var matched = Assert.IsType<ProviderMatched>(outcome);
+        Assert.Equal("LA Monster [V4]", matched.Result.Title);
+    }
+
+    [Fact]
     public async Task DurationMismatch_DowngradesToNeedsReview()
     {
         var provider = Create(new TrackerSong(3, "Famous", [], "released", "TLOP", "Kanye West", null, 60, 2016));
