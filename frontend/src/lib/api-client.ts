@@ -1401,6 +1401,17 @@ export async function copyQualityExport(
     path = `/api/quality/export/library`
   }
 
-  const data = await requestJson<unknown>(path)
-  await navigator.clipboard.writeText(JSON.stringify(data, null, 2))
+  const textPromise = requestJson<unknown>(path).then((data) => JSON.stringify(data, null, 2))
+
+  // Hand the clipboard a *promise* of the data so the write is initiated
+  // synchronously inside the click's user-activation window. Awaiting the
+  // fetch first lets focus/activation lapse, which throws "Document is not
+  // focused" and can also stall. Fall back to writeText where ClipboardItem
+  // promises aren't supported.
+  if (typeof ClipboardItem !== "undefined" && "write" in navigator.clipboard) {
+    const blob = textPromise.then((text) => new Blob([text], { type: "text/plain" }))
+    await navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })])
+  } else {
+    await navigator.clipboard.writeText(await textPromise)
+  }
 }
