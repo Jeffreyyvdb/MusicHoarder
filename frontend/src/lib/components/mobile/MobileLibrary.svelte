@@ -15,8 +15,9 @@
     section: SectionId;
     searchQuery: string;
     isLoading: boolean;
+    isSourceView?: boolean;
   };
-  const { songs, section, searchQuery, isLoading }: Props = $props();
+  const { songs, section, searchQuery, isLoading, isSourceView = false }: Props = $props();
 
   let query = $state(untrack(() => searchQuery));
   let debounce: ReturnType<typeof setTimeout> | null = null;
@@ -94,7 +95,7 @@
 </script>
 
 <div class="mob">
-  <MobileHeader title="Library" sub="{trackCount.toLocaleString()} tracks · {artistCount.toLocaleString()} artists">
+  <MobileHeader title={isSourceView ? 'Source folder' : 'Library'} sub="{trackCount.toLocaleString()} tracks · {artistCount.toLocaleString()} artists">
     {#snippet right()}
       <button class="mob-h-btn" aria-label="Scan source" disabled={scanning} onclick={scanSource}>
         {#if scanning}<Loader2 size={16} class="animate-spin" />{:else}<ScanLine size={16} />{/if}

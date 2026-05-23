@@ -9,7 +9,7 @@
   import MobileLibrary from '$lib/components/mobile/MobileLibrary.svelte';
   import MobileAlbum from '$lib/components/mobile/MobileAlbum.svelte';
   import { buildAlbumsFromSongs, fetchSongs, type ApiSong } from '$lib/api-client';
-  import { applySectionFilter, isSectionId } from '$lib/album-sections';
+  import { applySectionFilter, isBuiltSong, isSectionId } from '$lib/album-sections';
   import {
     parseBrowseFilter,
     applyBrowseFilter,
@@ -33,6 +33,7 @@
   const section = $derived(isSectionId(sectionParam) ? sectionParam : 'lib');
   const trackParam = $derived(page.url.searchParams.get('track'));
   const songParam = $derived(page.url.searchParams.get('song'));
+  const isSourceView = $derived(page.url.searchParams.get('view') === 'source');
 
   async function loadSongs() {
     try {
@@ -70,7 +71,15 @@
       : null
   );
 
-  const sectionFilteredSongs = $derived(applySectionFilter(browseFilteredSongs, section));
+  // Default Library shows only clean (built) albums; the Ingest "Source folder" view
+  // (?view=source) shows the raw scan. Diagnostic sections (recent/dupes/missing/queue)
+  // always operate on the full set so problem tracks still surface.
+  const scopedSongs = $derived(
+    !isSourceView && section === 'lib'
+      ? browseFilteredSongs.filter(isBuiltSong)
+      : browseFilteredSongs
+  );
+  const sectionFilteredSongs = $derived(applySectionFilter(scopedSongs, section));
   const allAlbumsForLookup = $derived(buildAlbumsFromSongs(songs));
   const filteredAlbums = $derived(buildAlbumsFromSongs(sectionFilteredSongs));
   const openAlbum = $derived(
@@ -139,7 +148,7 @@
     {#if openAlbum && albumKey}
       <MobileAlbum {songs} {albumKey} />
     {:else}
-      <MobileLibrary songs={browseFilteredSongs} {section} {searchQuery} {isLoading} />
+      <MobileLibrary songs={scopedSongs} {section} {searchQuery} {isLoading} {isSourceView} />
     {/if}
   {:else if !trackPanelOpen}
     {#if openAlbum && albumKey}
@@ -150,6 +159,7 @@
         {section}
         {searchQuery}
         {isLoading}
+        {isSourceView}
         browseFilter={galleryBrowseFilter}
       />
     {/if}
@@ -164,6 +174,7 @@
         {section}
         {searchQuery}
         {isLoading}
+        {isSourceView}
         browseFilter={galleryBrowseFilter}
       />
         {/if}

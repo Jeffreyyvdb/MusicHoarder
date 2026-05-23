@@ -12,6 +12,19 @@ export type SectionId = 'lib' | 'recent' | 'dupes' | 'missing' | 'queue';
 export const RECENT_ALBUM_CAP = 50;
 
 /**
+ * A song is "built"/clean when it reached the destination library:
+ * LibraryBuildStatus == Done (serialized as 3 or "Done") AND a destinationPath is set.
+ * This implies it was enriched + matched first, so the main Library view can rely on it.
+ */
+export function isBuiltSong(s: ApiSong): boolean {
+  if (!s.destinationPath) return false;
+  const status = s.libraryBuildStatus;
+  if (typeof status === 'number') return status === 3;
+  if (typeof status === 'string') return status.toLowerCase() === 'done';
+  return false;
+}
+
+/**
  * Songs belonging to the N most-recently-added albums (newest first by build/index time).
  * Capped by album count — callers re-group these songs into exactly those N albums.
  */

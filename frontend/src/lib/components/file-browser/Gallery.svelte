@@ -18,8 +18,17 @@
     isLoading: boolean;
     /** When set, the gallery shows an "Organize by" drill-down (artist/year) header + back link. */
     browseFilter?: BrowseFilter | null;
+    /** Raw scan view (Ingest → Source folder): show all scanned albums, distinct header. */
+    isSourceView?: boolean;
   };
-  const { songs, section, searchQuery, isLoading, browseFilter = null }: Props = $props();
+  const {
+    songs,
+    section,
+    searchQuery,
+    isLoading,
+    browseFilter = null,
+    isSourceView = false
+  }: Props = $props();
 
   type Layout = 'grid' | 'list' | 'col';
 
@@ -67,7 +76,15 @@
     );
   });
 
-  const meta = $derived(SECTION_LABELS[section]);
+  const meta = $derived(
+    isSourceView
+      ? {
+          title: 'Source folder',
+          subtitle: (n: number) =>
+            `${n.toLocaleString()} album${n === 1 ? '' : 's'} · all scanned files`
+        }
+      : SECTION_LABELS[section]
+  );
   const showProcessing = $derived(section === 'lib' || section === 'queue');
   const isQueue = $derived(section === 'queue');
 
