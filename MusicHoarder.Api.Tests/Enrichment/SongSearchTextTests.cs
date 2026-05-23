@@ -86,6 +86,33 @@ public class SongSearchTextTests
         Assert.Equal("Benjamin", title);
     }
 
+    [Theory]
+    [InlineData("Juice – Benjamin")] // en-dash
+    [InlineData("Juice — Benjamin")] // em-dash
+    [InlineData("Juice ― Benjamin")] // horizontal bar
+    [InlineData("Juice − Benjamin")] // minus sign
+    public void Untagged_ArtistTitleFilename_StripsPrefixRegardlessOfDashType(string stem)
+    {
+        // Discord / loose-download filenames use a variety of Unicode dashes, not just "-".
+        var song = Song($"/root/music/Juice WRLD/Loose downloads discord/{stem}.mp3");
+
+        var (artist, title) = SongSearchText.Resolve(song, "/root/music");
+
+        Assert.Equal("Juice WRLD", artist);
+        Assert.Equal("Benjamin", title);
+    }
+
+    [Fact]
+    public void Untagged_HyphenatedTitleWord_NotMatchingArtist_IsLeftIntact()
+    {
+        // "Anti-Hero" has no surrounding whitespace, so it isn't a separator; lead also isn't artist.
+        var song = Song("/root/music/Taylor Swift/Midnights/Anti-Hero.mp3");
+
+        var (_, title) = SongSearchText.Resolve(song, "/root/music");
+
+        Assert.Equal("Anti-Hero", title);
+    }
+
     [Fact]
     public void Untagged_TitleWithSeparator_NotMatchingArtist_IsLeftIntact()
     {
