@@ -161,8 +161,13 @@
                 {/if}
               </span>
               <span class="min-w-0">
-                <div class="truncate text-[12.5px] font-medium">{fmtWhen(r.startedAtUtc)}</div>
-                <div class="text-muted-foreground truncate font-mono text-[10.5px]">{r.id}</div>
+                {#if r.triggerLabel}
+                  <div class="truncate text-[12.5px] font-medium">{r.triggerLabel}</div>
+                  <div class="text-muted-foreground truncate text-[10.5px]">{fmtWhen(r.startedAtUtc)}</div>
+                {:else}
+                  <div class="truncate text-[12.5px] font-medium">{fmtWhen(r.startedAtUtc)}</div>
+                  <div class="text-muted-foreground truncate font-mono text-[10.5px]">{r.id}</div>
+                {/if}
               </span>
               <span class="text-muted-foreground truncate font-mono text-[11px]">{r.sourcePath}</span>
               <span class="font-mono">{r.tracksDiscovered.toLocaleString()}</span>
@@ -199,7 +204,10 @@
                   )}
                 >{run.status}</span>
               </div>
-              <div class="text-muted-foreground -mt-2 truncate font-mono text-[11px]">{run.sourcePath}</div>
+              {#if run.triggerLabel}
+                <div class="-mt-2 truncate text-[12px] font-medium">{run.triggerLabel}</div>
+              {/if}
+              <div class={cn('text-muted-foreground truncate font-mono text-[11px]', !run.triggerLabel && '-mt-2')}>{run.sourcePath}</div>
 
               <div class="grid grid-cols-2 gap-2">
                 {#each [['STARTED', fmtWhen(run.startedAtUtc)], ['ENDED', run.endedAtUtc ? fmtWhen(run.endedAtUtc) : '—'], ['DURATION', fmtDuration(liveDuration(run))], ['THROUGHPUT', `${run.throughputPerSec} files/s`]] as [k, v] (k)}

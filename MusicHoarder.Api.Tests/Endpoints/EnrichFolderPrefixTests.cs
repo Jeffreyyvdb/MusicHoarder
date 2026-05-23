@@ -20,4 +20,14 @@ public class EnrichFolderPrefixTests
     {
         Assert.Equal("Artist/Album", EnrichmentEndpoints.ResolveFolderPrefix("", "Artist/Album"));
     }
+
+    [Theory]
+    [InlineData("/music/Kanye West", "Kanye West")]
+    [InlineData("Kanye West/", "Kanye West")]
+    [InlineData("Artist\\Album\\", "Album")]
+    [InlineData("Solo", "Solo")]
+    public void FolderDisplayName_ReturnsLastSegment(string path, string expected)
+    {
+        Assert.Equal(expected, EnrichmentEndpoints.FolderDisplayName(path));
+    }
 }

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -26,10 +27,12 @@ public class IngestRunMonitorTests
 
     private static IngestRunMonitor NewMonitor(
         DbContextOptions<MusicHoarderDbContext> options,
-        JobManager jobManager) =>
+        JobManager jobManager,
+        EnrichmentPipelineChannel? channel = null) =>
         new(
             ScopeFactoryFor(options),
             jobManager,
+            channel ?? new EnrichmentPipelineChannel(jobManager, new EnrichmentProgressTracker()),
             new TestOwnerLookupService(),
             Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
             {
@@ -104,6 +107,39 @@ public class IngestRunMonitorTests
         Assert.Equal(1, run.TracksReview);     // NeedsReview
         Assert.Equal(1, run.TracksFailed);     // Failed
         Assert.True(run.ThroughputPerSec >= 0);
+    }
+
+    [Fact]
+    public async Task Persists_enrichment_cycle_trigger_label_on_the_run()
+    {
+        var options = NewDbOptions();
+        var jobManager = new JobManager();
+        var channel = new EnrichmentPipelineChannel(jobManager, new EnrichmentProgressTracker());
+        var monitor = NewMonitor(options, jobManager, channel);
+
+        // Enqueuing with a label starts the enrich cycle (Enrich step → Running) and sets the label.
+        channel.EnqueueRange([1, 2], label: "Manual enrich — Kanye West");
+        await monitor.TickAsync(CancellationToken.None);
+
+        await using var db = new MusicHoarderDbContext(options);
+        var run = await db.IngestRuns.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(IngestRunStatus.Running, run.Status);
+        Assert.Equal("Manual enrich — Kanye West", run.TriggerLabel);
+    }
+
+    [Fact]
+    public async Task Leaves_trigger_label_null_for_unlabeled_runs()
+    {
+        var options = NewDbOptions();
+        var jobManager = new JobManager();
+        var monitor = NewMonitor(options, jobManager);
+
+        jobManager.TryStartJob(JobType.Scan, out _, out _);
+        await monitor.TickAsync(CancellationToken.None);
+
+        await using var db = new MusicHoarderDbContext(options);
+        var run = await db.IngestRuns.IgnoreQueryFilters().SingleAsync();
+        Assert.Null(run.TriggerLabel);
     }
 
     [Fact]
