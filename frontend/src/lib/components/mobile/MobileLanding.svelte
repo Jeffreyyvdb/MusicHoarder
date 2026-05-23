@@ -34,7 +34,7 @@
         class="text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[10px]"
         style="background: var(--surface-sunken);">v0.4.2</span>
     </div>
-    <a class="mob-btn ghost w-auto px-2.5 py-1.5" href="/library">Sign in</a>
+    <a class="mob-btn ghost w-auto px-2.5 py-1.5" href="/login">Sign in</a>
   </div>
 
   <div class="mob-landing-hero">
@@ -45,7 +45,7 @@
       and writes a tidy, deduplicated library to disk.
     </p>
     <div class="mob-landing-cta">
-      <a class="mob-btn primary" href="/library">Sign in</a>
+      <a class="mob-btn primary" href="/login">Sign in</a>
       <a
         class="mob-btn"
         href="https://github.com/Jeffreyyvdb/MusicHoarder"

@@ -271,7 +271,10 @@ public class LibraryBuilderService(
             candidates,
             new ParallelOptions
             {
-                MaxDegreeOfParallelism = opts.LibraryBuilderWorkerConcurrency * 2,
+                // Match the worker concurrency (the gating semaphore) rather than 2×: the surplus
+                // tasks only pinned more thread-pool threads on synchronous TagLib tag writes,
+                // starving request handling under load.
+                MaxDegreeOfParallelism = opts.LibraryBuilderWorkerConcurrency,
                 CancellationToken = ct
             },
             async (candidate, token) =>

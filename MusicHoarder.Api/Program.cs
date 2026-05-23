@@ -8,6 +8,22 @@ using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Raise the thread-pool floor before anything else starts. The pipeline workers run synchronous
+// TagLib file I/O (FileScanner, TagLibLibraryTagWriter) under high Parallel.ForEachAsync
+// parallelism across several concurrent stages, which blocks pool threads. On a low-vCPU host the
+// pool grows only ~1 thread/sec, so without a floor those blocked workers crowd out Kestrel
+// request continuations (e.g. /api/auth/me) and the UI hangs while CPU stays low. Derive the floor
+// from the configured worker concurrency plus headroom for request handling so it scales with the
+// concurrency knobs. Values mirror MusicEnricherOptions defaults.
+var enricher = builder.Configuration.GetSection("MusicEnricher");
+var smbConcurrency = enricher.GetValue("SmbConcurrency", 8);
+var fingerprintConcurrency = enricher.GetValue("FingerprintConcurrency", 8);
+var libraryBuilderConcurrency = enricher.GetValue("LibraryBuilderWorkerConcurrency", 2);
+var minThreads = Math.Max(
+    32,
+    (smbConcurrency * 2) + fingerprintConcurrency + (libraryBuilderConcurrency * 2) + 8);
+ThreadPool.SetMinThreads(minThreads, minThreads);
+
 builder.AddServiceDefaults();
 
 builder.Services.AddMusicHoarderServices();

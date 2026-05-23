@@ -52,6 +52,6 @@
       Source
     </a>
     <ThemeToggle />
-    <Button variant="ghost" size="sm" href="/library">Sign in</Button>
+    <Button variant="ghost" size="sm" href="/login">Sign in</Button>
   </div>
 </nav>
