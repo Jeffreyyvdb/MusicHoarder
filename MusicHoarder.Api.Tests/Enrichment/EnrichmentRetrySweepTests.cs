@@ -133,6 +133,128 @@ public class EnrichmentRetrySweepTests
         Assert.False(channel.Reader.TryRead(out _));
     }
 
+    [Fact]
+    public async Task EnqueueMissing_EnqueuesMatchedSong_WhenNewProviderHasNoAttempt_WithoutFlippingStatus()
+    {
+        await using var db = CreateDb();
+        var song = AddSong(db, EnrichmentStatus.Matched);
+        song.ProviderAttempts.Add(new SongProviderAttempt
+        {
+            SongId = song.Id,
+            Provider = EnrichmentProvider.SpotifyAPI,
+            Status = ProviderAttemptStatus.Matched,
+            AttemptedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var channel = new EnrichmentPipelineChannel();
+        var service = CreateService(
+            db, channel,
+            enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.SpotifyAPI, EnrichmentProvider.YeTracker });
+
+        await service.EnqueueSongsMissingProvidersAsync(CancellationToken.None);
+
+        var updated = await db.Songs.AsNoTracking().SingleAsync();
+        // Status must NOT be flipped — the orchestrator re-runs the missing provider in-place.
+        Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
+        Assert.True(channel.Reader.TryRead(out var enqueued));
+        Assert.Equal(song.Id, enqueued);
+    }
+
+    [Fact]
+    public async Task EnqueueMissing_SkipsSong_WhenAllEnabledProvidersAttempted()
+    {
+        await using var db = CreateDb();
+        var song = AddSong(db, EnrichmentStatus.Matched);
+        song.ProviderAttempts.Add(new SongProviderAttempt
+        {
+            SongId = song.Id,
+            Provider = EnrichmentProvider.SpotifyAPI,
+            Status = ProviderAttemptStatus.Matched,
+            AttemptedAtUtc = DateTime.UtcNow,
+        });
+        song.ProviderAttempts.Add(new SongProviderAttempt
+        {
+            SongId = song.Id,
+            Provider = EnrichmentProvider.YeTracker,
+            Status = ProviderAttemptStatus.NoMatch,
+            AttemptedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var channel = new EnrichmentPipelineChannel();
+        var service = CreateService(
+            db, channel,
+            enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.SpotifyAPI, EnrichmentProvider.YeTracker });
+
+        await service.EnqueueSongsMissingProvidersAsync(CancellationToken.None);
+
+        Assert.False(channel.Reader.TryRead(out _));
+    }
+
+    [Fact]
+    public async Task EnqueueMissing_SkipsManuallyApprovedSong()
+    {
+        await using var db = CreateDb();
+        var song = AddSong(db, EnrichmentStatus.Matched);
+        song.IsManuallyApproved = true;
+        song.ProviderAttempts.Add(new SongProviderAttempt
+        {
+            SongId = song.Id,
+            Provider = EnrichmentProvider.SpotifyAPI,
+            Status = ProviderAttemptStatus.Matched,
+            AttemptedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var channel = new EnrichmentPipelineChannel();
+        var service = CreateService(
+            db, channel,
+            enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.SpotifyAPI, EnrichmentProvider.YeTracker });
+
+        await service.EnqueueSongsMissingProvidersAsync(CancellationToken.None);
+
+        Assert.False(channel.Reader.TryRead(out _));
+    }
+
+    [Fact]
+    public async Task EnqueueMissing_SkipsNonEnrichableSong()
+    {
+        await using var db = CreateDb();
+        var song = AddSong(db, EnrichmentStatus.Matched);
+        // Strip everything a provider could act on.
+        song.Fingerprint = null;
+        song.DurationSeconds = null;
+        song.Artist = null;
+        song.Title = null;
+        song.Isrc = null;
+        await db.SaveChangesAsync();
+
+        var channel = new EnrichmentPipelineChannel();
+        var service = CreateService(
+            db, channel,
+            enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.SpotifyAPI, EnrichmentProvider.YeTracker });
+
+        await service.EnqueueSongsMissingProvidersAsync(CancellationToken.None);
+
+        Assert.False(channel.Reader.TryRead(out _));
+    }
+
+    [Fact]
+    public async Task EnqueueMissing_NoOp_WhenNoProvidersEnabled()
+    {
+        await using var db = CreateDb();
+        AddSong(db, EnrichmentStatus.Matched);
+        await db.SaveChangesAsync();
+
+        var channel = new EnrichmentPipelineChannel();
+        var service = CreateService(db, channel, enabled: new HashSet<EnrichmentProvider>());
+
+        await service.EnqueueSongsMissingProvidersAsync(CancellationToken.None);
+
+        Assert.False(channel.Reader.TryRead(out _));
+    }
+
     private static SongMetadata AddSong(MusicHoarderDbContext db, EnrichmentStatus status)
     {
         var song = new SongMetadata
