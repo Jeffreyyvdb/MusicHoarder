@@ -7,6 +7,7 @@
     gradeDirectory,
     gradeSong,
     type QualityOverview,
+    type QualityProgress,
     type QualityVerdict
   } from '$lib/api-client';
   import { cn } from '$lib/utils';
@@ -21,12 +22,15 @@
   let gradingId = $state<number | null>(null);
   // Assume configured until the API tells us otherwise, so the button doesn't flash disabled.
   let gradingConfigured = $state(true);
+  // Last grading error (e.g. out of OpenRouter credits); server suppresses it when grading is off.
+  let gradingError = $state<QualityProgress['lastError']>(null);
 
   async function load() {
     try {
       const [ov, progress] = await Promise.all([fetchQualityOverview(), fetchQualityProgress()]);
       overview = ov;
       gradingConfigured = progress.aiGradingConfigured ?? true;
+      gradingError = progress.lastError ?? null;
       error = null;
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load quality overview';
@@ -77,6 +81,7 @@
       for (let i = 0; i < 600; i++) {
         const p = await fetchQualityProgress();
         gradingConfigured = p.aiGradingConfigured ?? true;
+        gradingError = p.lastError ?? null;
         if (!p.active) break;
         await new Promise((r) => setTimeout(r, 2000));
       }
@@ -185,6 +190,22 @@
         AI grading is not configured on the server, so grading does nothing. Set
         <code class="font-mono text-[12px]">QUALITY_GRADING_API_KEY</code> (and optionally
         <code class="font-mono text-[12px]">QUALITY_GRADING_MODEL</code>) in the deployment environment and redeploy.
+      </div>
+    {/if}
+    {#if gradingError}
+      <div class="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-[12.5px] text-red-600 dark:text-red-400">
+        {#if gradingError.code === 'out_of_credits'}
+          AI quality grading is paused — your OpenRouter account is out of credits. Add credits at
+          <a
+            href="https://openrouter.ai/settings/credits"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="font-medium underline">openrouter.ai/settings/credits</a
+          >
+          and grading resumes automatically.
+        {:else}
+          AI quality grading is failing: {gradingError.message ?? 'unknown error'}.
+        {/if}
       </div>
     {/if}
     {#if error}

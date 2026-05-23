@@ -233,7 +233,7 @@
     {/if}
   {:else}
     <Resizable.PaneGroup id="library-albums-panels" direction="horizontal" class="min-h-0 flex-1">
-      <Resizable.Pane id="library-albums-main" order={1} defaultSize={70}>
+      <Resizable.Pane id="library-albums-main" order={1} defaultSize={70} class="flex min-h-0 flex-col">
         {#if openAlbum && albumKey}
           <AlbumPage {songs} {albumKey} {isLoading} />
         {:else}

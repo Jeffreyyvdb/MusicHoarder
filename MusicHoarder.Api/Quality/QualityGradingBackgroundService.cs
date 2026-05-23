@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Settings;
 
 namespace MusicHoarder.Api.Quality;
 
@@ -16,6 +17,7 @@ public class QualityGradingBackgroundService(
     QualityGradingChannel channel,
     QualityGradingProgressTracker progressTracker,
     IQualityGradingService gradingService,
+    IRuntimeSettingsService runtimeSettings,
     IOptionsMonitor<QualityGradingOptions> options,
     ILogger<QualityGradingBackgroundService> logger) : BackgroundService
 {
@@ -53,7 +55,8 @@ public class QualityGradingBackgroundService(
             var opts = options.CurrentValue;
             try
             {
-                if (opts.IsConfigured && opts.AutoGradeAfterEnrichment)
+                var enabled = (await runtimeSettings.GetAsync(ct).ConfigureAwait(false)).QualityGradingEnabled;
+                if (enabled && opts.IsConfigured && opts.AutoGradeAfterEnrichment)
                     await EnqueueUngradedAsync(opts, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -146,6 +149,7 @@ public class QualityGradingBackgroundService(
                         progressTracker.IncrementSkipped();
                         break;
                     default:
+                        progressTracker.RecordError(result.ErrorCode ?? "error", result.Error);
                         progressTracker.IncrementFailed();
                         break;
                 }
@@ -157,6 +161,7 @@ public class QualityGradingBackgroundService(
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Quality grading worker {WorkerId} failed on song {SongId}", workerId, item.SongId);
+                progressTracker.RecordError("error", ex.Message);
                 progressTracker.IncrementFailed();
             }
             finally

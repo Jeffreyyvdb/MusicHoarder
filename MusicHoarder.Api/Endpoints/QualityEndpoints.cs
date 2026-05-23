@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Quality;
+using MusicHoarder.Api.Settings;
 
 namespace MusicHoarder.Api.Endpoints;
 
@@ -242,8 +243,15 @@ public static class QualityEndpoints
     }
 
     private static async Task<IResult> GradeSong(
-        int id, MusicHoarderDbContext db, IQualityGradingService grader, CancellationToken ct)
+        int id, MusicHoarderDbContext db, IQualityGradingService grader,
+        IOptionsMonitor<QualityGradingOptions> options, IRuntimeSettingsService runtimeSettings,
+        CancellationToken ct)
     {
+        if (!options.CurrentValue.IsConfigured)
+            return NotConfiguredProblem();
+        if (!(await runtimeSettings.GetAsync(ct)).QualityGradingEnabled)
+            return GradingDisabledProblem();
+
         // Ownership check via the filtered context — a cross-tenant id 404s here before grading.
         var exists = await db.Songs.AnyAsync(s => s.Id == id && s.DeletedAtUtc == null, ct);
         if (!exists)
@@ -255,7 +263,9 @@ public static class QualityEndpoints
             return NotConfiguredProblem();
 
         if (result.Outcome is GradeOutcome.Failed)
-            return Results.Problem(title: "Grading failed", detail: result.Error, statusCode: 502);
+            return Results.Problem(
+                title: "Grading failed", detail: result.Error, statusCode: 502,
+                extensions: new Dictionary<string, object?> { ["errorCode"] = result.ErrorCode });
 
         var g = result.Grade;
         return Results.Ok(new
@@ -275,10 +285,13 @@ public static class QualityEndpoints
 
     private static async Task<IResult> GradeAll(
         MusicHoarderDbContext db, QualityGradingChannel channel,
-        IOptionsMonitor<QualityGradingOptions> options, CancellationToken ct)
+        IOptionsMonitor<QualityGradingOptions> options, IRuntimeSettingsService runtimeSettings,
+        CancellationToken ct)
     {
         if (!options.CurrentValue.IsConfigured)
             return NotConfiguredProblem();
+        if (!(await runtimeSettings.GetAsync(ct)).QualityGradingEnabled)
+            return GradingDisabledProblem();
 
         var ids = await db.Songs
             .Where(s => s.DeletedAtUtc == null && !s.IsDuplicate && GradeableStatuses.Contains(s.EnrichmentStatus))
@@ -293,10 +306,13 @@ public static class QualityEndpoints
 
     private static async Task<IResult> GradeDirectory(
         GradeDirectoryRequest request, MusicHoarderDbContext db, QualityGradingChannel channel,
-        IOptionsMonitor<QualityGradingOptions> options, CancellationToken ct)
+        IOptionsMonitor<QualityGradingOptions> options, IRuntimeSettingsService runtimeSettings,
+        CancellationToken ct)
     {
         if (!options.CurrentValue.IsConfigured)
             return NotConfiguredProblem();
+        if (!(await runtimeSettings.GetAsync(ct)).QualityGradingEnabled)
+            return GradingDisabledProblem();
 
         if (string.IsNullOrWhiteSpace(request.Path))
             return Results.BadRequest(new { message = "path is required." });
@@ -312,18 +328,29 @@ public static class QualityEndpoints
         return Results.Ok(new { enqueued = ids.Count, path = request.Path });
     }
 
-    private static IResult GetProgress(
-        QualityGradingProgressTracker tracker, IOptionsMonitor<QualityGradingOptions> options)
+    private static async Task<IResult> GetProgress(
+        QualityGradingProgressTracker tracker, IOptionsMonitor<QualityGradingOptions> options,
+        IRuntimeSettingsService runtimeSettings, CancellationToken ct)
     {
         var configured = options.CurrentValue.IsConfigured;
+        var enabled = (await runtimeSettings.GetAsync(ct)).QualityGradingEnabled;
+        var err = tracker.GetLastError();
+        // Suppress the error surface entirely while grading is disabled, so turning it off in
+        // Settings makes the failure banners disappear.
+        object? lastError = enabled && err is not null
+            ? new { code = err.Code, message = err.Message, atUtc = err.AtUtc }
+            : null;
+
         var state = tracker.GetCurrent();
         if (state is null)
-            return Results.Ok(new { active = false, aiGradingConfigured = configured });
+            return Results.Ok(new { active = false, aiGradingConfigured = configured, aiGradingEnabled = enabled, lastError });
 
         return Results.Ok(new
         {
             active = !state.IsComplete,
             aiGradingConfigured = configured,
+            aiGradingEnabled = enabled,
+            lastError,
             runId = state.RunId,
             total = state.Total,
             processed = state.Processed,
@@ -340,6 +367,12 @@ public static class QualityEndpoints
         Results.Problem(
             title: "AI grading not configured",
             detail: "Set QualityGrading:ApiKey (and optionally BaseUrl/Model) to enable grading.",
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+
+    private static IResult GradingDisabledProblem() =>
+        Results.Problem(
+            title: "AI grading disabled",
+            detail: "AI quality grading is turned off in Settings. Enable it to grade songs.",
             statusCode: StatusCodes.Status503ServiceUnavailable);
 
     // --- Export ---

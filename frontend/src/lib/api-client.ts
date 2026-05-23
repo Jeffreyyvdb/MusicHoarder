@@ -1130,17 +1130,24 @@ export interface SettingsSpotifyView {
   scopes: string[]
 }
 
+export interface SettingsQualityGradingView {
+  enabled: boolean
+  configured: boolean
+}
+
 export interface SettingsResponse {
   paths: SettingsPathsView
   providers: SettingsProvidersView
   pipeline: SettingsPipelineView
   spotify: SettingsSpotifyView
+  qualityGrading: SettingsQualityGradingView
   updatedAtUtc: string | null
 }
 
 export interface SettingsUpdateRequest {
   providers?: Partial<SettingsProvidersView>
   pipeline?: Partial<SettingsPipelineView>
+  qualityGrading?: { enabled?: boolean }
 }
 
 export async function fetchSettings(): Promise<SettingsResponse> {
@@ -1340,6 +1347,8 @@ export interface QualityGradeResult {
 export interface QualityProgress {
   active: boolean
   aiGradingConfigured?: boolean
+  aiGradingEnabled?: boolean
+  lastError?: { code: string; message: string; atUtc: string } | null
   runId?: string
   total?: number
   processed?: number

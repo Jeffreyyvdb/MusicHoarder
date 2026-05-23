@@ -9,16 +9,19 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IOptionsMonitor<MusicEnricherOptions> _options;
+    private readonly IOptionsMonitor<QualityGradingOptions> _qualityOptions;
 
     private readonly SemaphoreSlim _cacheLock = new(1, 1);
     private EffectiveSettings? _cache;
 
     public RuntimeSettingsService(
         IServiceScopeFactory scopeFactory,
-        IOptionsMonitor<MusicEnricherOptions> options)
+        IOptionsMonitor<MusicEnricherOptions> options,
+        IOptionsMonitor<QualityGradingOptions> qualityOptions)
     {
         _scopeFactory = scopeFactory;
         _options = options;
+        _qualityOptions = qualityOptions;
     }
 
     public async Task<EffectiveSettings> GetAsync(CancellationToken ct = default)
@@ -64,6 +67,7 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
             if (update.EnableTrackerProvider.HasValue) row.EnableTrackerProvider = update.EnableTrackerProvider;
             if (update.EnableDeezerProvider.HasValue) row.EnableDeezerProvider = update.EnableDeezerProvider;
             if (update.EnableAppleMusicProvider.HasValue) row.EnableAppleMusicProvider = update.EnableAppleMusicProvider;
+            if (update.QualityGradingEnabled.HasValue) row.QualityGradingEnabled = update.QualityGradingEnabled;
             if (update.SpotifyApiMatchedThreshold.HasValue) row.SpotifyApiMatchedThreshold = update.SpotifyApiMatchedThreshold;
             if (update.AcoustIdScoreThreshold.HasValue) row.AcoustIdScoreThreshold = update.AcoustIdScoreThreshold;
             if (update.EnrichmentWorkerConcurrency.HasValue) row.EnrichmentWorkerConcurrency = update.EnrichmentWorkerConcurrency;
@@ -84,6 +88,7 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
     private EffectiveSettings Build(RuntimeSettings? row)
     {
         var defaults = _options.CurrentValue;
+        var qualityDefaults = _qualityOptions.CurrentValue;
         return new EffectiveSettings(
             EnableAcoustIdProvider: row?.EnableAcoustIdProvider ?? defaults.EnableAcoustIdProvider,
             EnableMusicBrainzWebProvider: row?.EnableMusicBrainzWebProvider ?? defaults.EnableMusicBrainzWebProvider,
@@ -91,6 +96,7 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
             EnableTrackerProvider: row?.EnableTrackerProvider ?? defaults.EnableTrackerProvider,
             EnableDeezerProvider: row?.EnableDeezerProvider ?? defaults.EnableDeezerProvider,
             EnableAppleMusicProvider: row?.EnableAppleMusicProvider ?? defaults.EnableAppleMusicProvider,
+            QualityGradingEnabled: row?.QualityGradingEnabled ?? qualityDefaults.Enabled,
             SpotifyApiMatchedThreshold: row?.SpotifyApiMatchedThreshold ?? defaults.SpotifyApiMatchedThreshold,
             AcoustIdScoreThreshold: row?.AcoustIdScoreThreshold ?? defaults.AcoustIdScoreThreshold,
             EnrichmentWorkerConcurrency: row?.EnrichmentWorkerConcurrency ?? defaults.EnrichmentWorkerConcurrency,

@@ -16,6 +16,7 @@ public static class SettingsEndpoints
                 IRuntimeSettingsService runtimeSettings,
                 IOptions<MusicEnricherOptions> options,
                 IOptions<SpotifyOptions> spotifyOptions,
+                IOptions<QualityGradingOptions> qualityOptions,
                 ICurrentUserAccessor currentUser,
                 CancellationToken ct) =>
             {
@@ -25,6 +26,10 @@ public static class SettingsEndpoints
                 // user must not learn the owner's filesystem layout, so blank them for non-owners.
                 // Provider toggles and pipeline tuning are harmless to surface.
                 var isOwner = currentUser.User?.IsOwner == true;
+                var q = qualityOptions.Value;
+                // "Configured" = a key + base URL exist on the server, independent of the runtime
+                // Enabled toggle — lets the UI tell "you turned it off" apart from "no key set".
+                var qualityConfigured = !string.IsNullOrWhiteSpace(q.ApiKey) && !string.IsNullOrWhiteSpace(q.BaseUrl);
                 return Results.Ok(new SettingsResponse(
                     Paths: isOwner
                         ? new PathsView(
@@ -47,6 +52,9 @@ public static class SettingsEndpoints
                     Spotify: new SpotifyView(
                         OAuthRedirectBaseUrl: spotifyOptions.Value.OAuthRedirectBaseUrl,
                         Scopes: SpotifyScopes),
+                    QualityGrading: new QualityGradingView(
+                        Enabled: effective.QualityGradingEnabled,
+                        Configured: qualityConfigured),
                     UpdatedAtUtc: effective.UpdatedAtUtc));
             })
             .WithName("GetSettings")
@@ -80,6 +88,7 @@ public static class SettingsEndpoints
                     EnableTrackerProvider = request.Providers?.Tracker,
                     EnableDeezerProvider = request.Providers?.Deezer,
                     EnableAppleMusicProvider = request.Providers?.AppleMusic,
+                    QualityGradingEnabled = request.QualityGrading?.Enabled,
                     SpotifyApiMatchedThreshold = request.Pipeline?.SpotifyApiMatchedThreshold,
                     AcoustIdScoreThreshold = request.Pipeline?.AcoustIdScoreThreshold,
                     EnrichmentWorkerConcurrency = request.Pipeline?.EnrichmentWorkerConcurrency,
@@ -101,6 +110,7 @@ public static class SettingsEndpoints
                         effective.AcoustIdScoreThreshold,
                         effective.EnrichmentWorkerConcurrency,
                         effective.LibraryBuilderWorkerConcurrency),
+                    qualityGrading = new { enabled = effective.QualityGradingEnabled },
                     updatedAtUtc = effective.UpdatedAtUtc,
                 });
             })
@@ -125,6 +135,7 @@ public sealed record SettingsResponse(
     ProvidersView Providers,
     PipelineView Pipeline,
     SpotifyView Spotify,
+    QualityGradingView QualityGrading,
     DateTime? UpdatedAtUtc);
 
 public sealed record PathsView(string SourceDirectory, string DestinationDirectory, string FpcalcPath);
@@ -135,8 +146,10 @@ public sealed record PipelineView(
     int EnrichmentWorkerConcurrency,
     int LibraryBuilderWorkerConcurrency);
 public sealed record SpotifyView(string OAuthRedirectBaseUrl, IReadOnlyList<string> Scopes);
+public sealed record QualityGradingView(bool Enabled, bool Configured);
 
-public sealed record SettingsUpdateRequest(ProvidersUpdate? Providers, PipelineUpdate? Pipeline);
+public sealed record SettingsUpdateRequest(ProvidersUpdate? Providers, PipelineUpdate? Pipeline, QualityGradingUpdate? QualityGrading);
+public sealed record QualityGradingUpdate(bool? Enabled);
 public sealed record ProvidersUpdate(bool? AcoustId, bool? MusicBrainzWeb, bool? SpotifyApi, bool? Tracker, bool? Deezer, bool? AppleMusic);
 public sealed record PipelineUpdate(
     double? SpotifyApiMatchedThreshold,

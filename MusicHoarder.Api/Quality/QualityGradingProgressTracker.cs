@@ -13,6 +13,10 @@ public class QualityGradingProgressTracker
     private DateTime _startedAt;
     private DateTime? _completedAt;
 
+    // Last grading error, kept independent of the per-cycle counters so it survives across runs
+    // (the auto-sweep starts a new cycle each pass). Cleared on the next successful grade.
+    private QualityGradingError? _lastError;
+
     public QualityGradingState? GetCurrent()
     {
         var id = _runId;
@@ -40,6 +44,8 @@ public class QualityGradingProgressTracker
     {
         Interlocked.Increment(ref _processed);
         Interlocked.Increment(ref _graded);
+        // A fresh success means grading works again — clear any lingering error.
+        Interlocked.Exchange(ref _lastError, null);
     }
 
     public void IncrementSkipped()
@@ -60,7 +66,15 @@ public class QualityGradingProgressTracker
         _isComplete = true;
         _completedAt = DateTime.UtcNow;
     }
+
+    /// <summary>Records the most recent grading failure so the UI can surface why grading stalled.</summary>
+    public void RecordError(string code, string? message) =>
+        Interlocked.Exchange(ref _lastError, new QualityGradingError(code, message, DateTime.UtcNow));
+
+    public QualityGradingError? GetLastError() => _lastError;
 }
+
+public record QualityGradingError(string Code, string? Message, DateTime AtUtc);
 
 public record QualityGradingState(
     Guid RunId,
