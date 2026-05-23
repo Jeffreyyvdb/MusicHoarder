@@ -38,8 +38,8 @@
   type LibraryLayout = 'grid' | 'list' | 'col';
 
   const pathname = $derived(page.url.pathname);
-  const onApp = $derived(pathname === '/app' || pathname.startsWith('/app/'));
-  const onAlbumsRoot = $derived(pathname === '/app');
+  const onApp = $derived(pathname === '/library' || pathname.startsWith('/library/'));
+  const onAlbumsRoot = $derived(pathname === '/library');
   const albumKey = $derived(page.url.searchParams.get('album'));
   const section = $derived(page.url.searchParams.get('section'));
   const onRuns = $derived(pathname.startsWith('/runs'));
@@ -57,36 +57,36 @@
       const album = breadcrumbStore.currentAlbum;
       if (albumKey && album) {
         return [
-          { label: 'Library', href: '/app' },
-          { label: album.artist, href: '/app' },
+          { label: 'Library', href: '/library' },
+          { label: album.artist, href: '/library' },
           { label: album.title, href: null }
         ];
       }
       if (albumKey) {
         const [artistL, titleL] = decodeURIComponent(albumKey).split('::');
         return [
-          { label: 'Library', href: '/app' },
-          { label: artistL ?? '', href: '/app' },
+          { label: 'Library', href: '/library' },
+          { label: artistL ?? '', href: '/library' },
           { label: titleL ?? '', href: null }
         ];
       }
       if (section && SECTION_LABEL[section]) {
         return [
-          { label: 'Library', href: '/app' },
+          { label: 'Library', href: '/library' },
           { label: SECTION_LABEL[section], href: null }
         ];
       }
       return [
-        { label: 'Library', href: '/app' },
+        { label: 'Library', href: '/library' },
         { label: 'All albums', href: null }
       ];
     }
-    if (onRuns) return [{ label: 'MusicHoarder', href: '/app' }, { label: 'Runs', href: null }];
-    if (pathname.startsWith('/artists')) return [{ label: 'MusicHoarder', href: '/app' }, { label: 'Artists', href: null }];
-    if (pathname.startsWith('/spotify')) return [{ label: 'MusicHoarder', href: '/app' }, { label: 'Spotify', href: null }];
-    if (pathname.startsWith('/review')) return [{ label: 'MusicHoarder', href: '/app' }, { label: 'Review', href: null }];
-    if (pathname.startsWith('/settings')) return [{ label: 'MusicHoarder', href: '/app' }, { label: 'Settings', href: null }];
-    return [{ label: 'MusicHoarder', href: '/app' }];
+    if (onRuns) return [{ label: 'MusicHoarder', href: '/library' }, { label: 'Runs', href: null }];
+    if (pathname.startsWith('/artists')) return [{ label: 'MusicHoarder', href: '/library' }, { label: 'Artists', href: null }];
+    if (pathname.startsWith('/spotify')) return [{ label: 'MusicHoarder', href: '/library' }, { label: 'Spotify', href: null }];
+    if (pathname.startsWith('/review')) return [{ label: 'MusicHoarder', href: '/library' }, { label: 'Review', href: null }];
+    if (pathname.startsWith('/settings')) return [{ label: 'MusicHoarder', href: '/library' }, { label: 'Settings', href: null }];
+    return [{ label: 'MusicHoarder', href: '/library' }];
   });
 
   let searchValue = $state(page.url.searchParams.get('q') ?? '');
@@ -143,7 +143,7 @@
     if (typeof window !== 'undefined' && window.history.length > 1) {
       history.back();
     } else {
-      void goto('/app');
+      void goto('/library');
     }
   }
 

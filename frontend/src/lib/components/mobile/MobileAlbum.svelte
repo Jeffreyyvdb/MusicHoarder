@@ -49,7 +49,7 @@
   }
 
   function back() {
-    void goto('/app');
+    void goto('/library');
   }
 
   const heroGradient = $derived(

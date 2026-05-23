@@ -27,7 +27,7 @@
     result = null;
     try {
       await loginWithPasskey();
-      await goto('/app', { invalidateAll: true });
+      await goto('/library', { invalidateAll: true });
     } catch (err) {
       result = {
         ok: false,
@@ -64,7 +64,7 @@
     isStartingDemo = true;
     try {
       await signInAsDemo();
-      await goto('/app', { invalidateAll: true });
+      await goto('/library', { invalidateAll: true });
     } catch (err) {
       result = {
         ok: false,

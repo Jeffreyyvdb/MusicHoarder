@@ -1,5 +1,5 @@
 /**
- * Lightweight breadcrumb store — `/app` populates the current album title and
+ * Lightweight breadcrumb store — `/library` populates the current album title and
  * artist when an album is open; the toolbar reads it for the breadcrumb trail.
  * Reset to null when the page unmounts or no album is open.
  */
