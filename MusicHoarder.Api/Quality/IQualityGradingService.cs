@@ -16,7 +16,7 @@ public enum GradeOutcome
     Failed,
 }
 
-public record GradeSongResult(GradeOutcome Outcome, SongQualityGrade? Grade, string? Error = null);
+public record GradeSongResult(GradeOutcome Outcome, SongQualityGrade? Grade, string? Error = null, string? ErrorCode = null);
 
 public interface IQualityGradingService
 {

@@ -1398,6 +1398,7 @@ public class EnrichmentOrchestratorTests
                 opts.EnableTrackerProvider,
                 opts.EnableDeezerProvider,
                 opts.EnableAppleMusicProvider,
+                QualityGradingEnabled: true,
                 opts.SpotifyApiMatchedThreshold,
                 opts.AcoustIdScoreThreshold,
                 opts.EnrichmentWorkerConcurrency,

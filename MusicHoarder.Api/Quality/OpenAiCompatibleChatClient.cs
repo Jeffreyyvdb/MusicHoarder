@@ -54,7 +54,7 @@ public class OpenAiCompatibleChatClient(
             var body = await resp.Content.ReadAsStringAsync(cts.Token);
             // Never log the Authorization header; the URL/body here carry no secret.
             logger.LogWarning("Chat completion failed: {Status} {Body}", (int)resp.StatusCode, Truncate(body, 512));
-            throw new HttpRequestException($"Chat completion returned {(int)resp.StatusCode}.");
+            throw new HttpRequestException($"Chat completion returned {(int)resp.StatusCode}.", null, resp.StatusCode);
         }
 
         var parsed = await resp.Content.ReadFromJsonAsync<ChatResponseBody>(Json, cts.Token);

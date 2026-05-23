@@ -93,6 +93,8 @@ export interface ApiSong {
   indexedAtUtc?: string | null
   /** When the track was copied/tagged into the destination library; null until built. */
   libraryBuiltAtUtc?: string | null
+  /** Pipeline build state: Pending/Copied/Tagged/Done/Failed (number or string). */
+  libraryBuildStatus?: string | number | null
   matchedBy?: string | null
   matchConfidence?: number | null
   matchWarnings?: string[] | null
@@ -1128,17 +1130,24 @@ export interface SettingsSpotifyView {
   scopes: string[]
 }
 
+export interface SettingsQualityGradingView {
+  enabled: boolean
+  configured: boolean
+}
+
 export interface SettingsResponse {
   paths: SettingsPathsView
   providers: SettingsProvidersView
   pipeline: SettingsPipelineView
   spotify: SettingsSpotifyView
+  qualityGrading: SettingsQualityGradingView
   updatedAtUtc: string | null
 }
 
 export interface SettingsUpdateRequest {
   providers?: Partial<SettingsProvidersView>
   pipeline?: Partial<SettingsPipelineView>
+  qualityGrading?: { enabled?: boolean }
 }
 
 export async function fetchSettings(): Promise<SettingsResponse> {
@@ -1338,6 +1347,8 @@ export interface QualityGradeResult {
 export interface QualityProgress {
   active: boolean
   aiGradingConfigured?: boolean
+  aiGradingEnabled?: boolean
+  lastError?: { code: string; message: string; atUtc: string } | null
   runId?: string
   total?: number
   processed?: number

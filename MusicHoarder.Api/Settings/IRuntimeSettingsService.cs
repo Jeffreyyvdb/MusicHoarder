@@ -21,6 +21,7 @@ public sealed record EffectiveSettings(
     bool EnableTrackerProvider,
     bool EnableDeezerProvider,
     bool EnableAppleMusicProvider,
+    bool QualityGradingEnabled,
     double SpotifyApiMatchedThreshold,
     double AcoustIdScoreThreshold,
     int EnrichmentWorkerConcurrency,
@@ -39,6 +40,7 @@ public sealed record RuntimeSettingsUpdate
     public bool? EnableTrackerProvider { get; init; }
     public bool? EnableDeezerProvider { get; init; }
     public bool? EnableAppleMusicProvider { get; init; }
+    public bool? QualityGradingEnabled { get; init; }
     public double? SpotifyApiMatchedThreshold { get; init; }
     public double? AcoustIdScoreThreshold { get; init; }
     public int? EnrichmentWorkerConcurrency { get; init; }

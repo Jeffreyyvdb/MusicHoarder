@@ -6,6 +6,7 @@
   import MiniPlayer from '$lib/components/MiniPlayer.svelte';
   import MobileTabBar from '$lib/components/mobile/MobileTabBar.svelte';
   import LibraryOfflineBanner from '$lib/components/LibraryOfflineBanner.svelte';
+  import QualityGradingErrorBanner from '$lib/components/QualityGradingErrorBanner.svelte';
   import ImportPipelineDrawer from '$lib/components/pipeline/ImportPipelineDrawer.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
   import { playerStore, initPlayer } from '$lib/stores/player.svelte';
@@ -61,6 +62,7 @@
     {#if !isMobile.current}
       <AppHeader />
       <LibraryOfflineBanner />
+      <QualityGradingErrorBanner />
     {/if}
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
       {@render children()}
