@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { Music, Pause, Play, Volume2, VolumeX, X } from '@lucide/svelte';
+  import { Music, Pause, Play, SkipBack, SkipForward, Volume2, VolumeX, X } from '@lucide/svelte';
+  import { goto } from '$app/navigation';
   import { playerStore } from '$lib/stores/player.svelte';
   import { Button } from '$lib/components/ui/button';
   import { Slider } from '$lib/components/ui/slider';
@@ -87,10 +88,10 @@
   <div
     class="border-border bg-sidebar fixed right-0 left-0 z-50 border-t shadow-[0_-4px_24px_oklch(0%_0_0/0.08)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.35)]"
     style={mobileInset
-      ? 'bottom: calc(var(--tab-h, 76px) + env(safe-area-inset-bottom));'
+      ? 'bottom: var(--mob-tab-h, calc(76px + env(safe-area-inset-bottom)));'
       : 'bottom: 0;'}
   >
-    <div class="bg-muted block h-0.5 w-full overflow-hidden sm:hidden" aria-hidden="true">
+    <div class="bg-foreground/15 block h-0.5 w-full overflow-hidden sm:hidden" aria-hidden="true">
       <div
         class="bg-primary h-full w-full origin-left"
         style="transform: scaleX({progress})"
@@ -100,7 +101,7 @@
     <div class="flex h-[56px] items-center gap-2 px-3 sm:h-[64px] sm:gap-3 sm:px-4">
       <button
         type="button"
-        onclick={() => playerStore.requestShowDetails()}
+        onclick={() => goto(`/library?song=${song.id}`)}
         class="hover:bg-primary/10 flex min-w-0 flex-1 items-center gap-2.5 rounded-md p-1 text-left transition-colors sm:w-48 sm:flex-none sm:shrink-0"
       >
         <div class="bg-primary/20 flex size-10 shrink-0 items-center justify-center rounded-md">
@@ -115,6 +116,17 @@
       <Button
         variant="ghost"
         size="icon"
+        class="text-muted-foreground hover:text-foreground hover:bg-primary/10 size-9 shrink-0 disabled:opacity-40"
+        onclick={() => playerStore.playPrevious()}
+        disabled={!playerStore.hasPrevious}
+        aria-label="Previous track"
+      >
+        <SkipBack class="size-5" />
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="icon"
         class="text-foreground hover:text-primary hover:bg-primary/10 size-9 shrink-0"
         onclick={() => playerStore.togglePlay()}
         aria-label={playerStore.isPlaying ? 'Pause' : 'Play'}
@@ -124,6 +136,17 @@
         {:else}
           <Play class="size-5 translate-x-px" />
         {/if}
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="icon"
+        class="text-muted-foreground hover:text-foreground hover:bg-primary/10 size-9 shrink-0 disabled:opacity-40"
+        onclick={() => playerStore.playNext()}
+        disabled={!playerStore.hasNext}
+        aria-label="Next track"
+      >
+        <SkipForward class="size-5" />
       </Button>
 
       <span
@@ -145,7 +168,7 @@
         onpointermove={onSeekPointerMove}
         onkeydown={onSeekKeyDown}
       >
-        <div class="bg-muted relative h-2 w-full overflow-hidden rounded-full">
+        <div class="bg-foreground/15 relative h-2 w-full overflow-hidden rounded-full">
           <div
             class="bg-primary absolute inset-0 origin-left rounded-full"
             style="transform: scaleX({progress})"
@@ -183,7 +206,7 @@
           max={1}
           min={0}
           step={0.02}
-          class="w-20 shrink-0 cursor-pointer"
+          class="w-20 shrink-0 cursor-pointer [&_[data-slot=slider-track]]:bg-foreground/15"
           onValueChange={(val) => {
             if (typeof val === 'number') playerStore.setVolume(val);
           }}

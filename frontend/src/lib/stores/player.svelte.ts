@@ -13,7 +13,14 @@ let isPlaying = $state(false);
 let currentTime = $state(0);
 let duration = $state(0);
 let volumeState = $state(1);
-let detailsRequestId = $state(0);
+/**
+ * Ordered playback context the current song was started from (an album's
+ * tracks, a review list, etc.). `queueIndex` points at `currentSong` within it.
+ * When a song ends we advance to `queue[queueIndex + 1]`; there is no wrap, so
+ * playback simply stops after the last track.
+ */
+let queue = $state<PlayerSong[]>([]);
+let queueIndex = $state(-1);
 /**
  * Set to true while the in-page TrackPanel is mounted with its own waveform
  * player. The global MiniPlayer hides itself when this is true to avoid
@@ -75,6 +82,7 @@ function ensureAudioEl(): HTMLAudioElement | null {
     stopRaf();
     isPlaying = false;
     if (Number.isFinite(el.duration)) currentTime = el.duration; // land the bar at 100%
+    playNext(); // no-op when the current song is the last in the queue
   });
   el.addEventListener('error', () => {
     stopRaf();
@@ -120,18 +128,9 @@ function attemptPlay() {
     });
 }
 
-async function playSong(song: PlayerSong) {
+/** Load a fresh song onto the element and start playback (no queue changes). */
+async function loadAndPlay(song: PlayerSong) {
   if (!ensureAudioEl() || !audioEl) return;
-
-  if (currentSong?.id === song.id) {
-    if (audioEl.paused) {
-      attemptPlay();
-    } else {
-      audioEl.pause();
-      isPlaying = false;
-    }
-    return;
-  }
 
   try {
     const controller = new AbortController();
@@ -163,6 +162,47 @@ async function playSong(song: PlayerSong) {
   audioEl.src = song.streamUrl;
   audioEl.load();
   attemptPlay();
+}
+
+/**
+ * Play a song, optionally seeding the playback queue it belongs to so the
+ * player can auto-advance and offer prev/next. Re-clicking the current song
+ * toggles play/pause. `index` defaults to the song's position in `contextQueue`.
+ */
+async function playSong(song: PlayerSong, contextQueue?: PlayerSong[], index?: number) {
+  if (!ensureAudioEl() || !audioEl) return;
+
+  if (contextQueue && contextQueue.length > 0) {
+    queue = contextQueue;
+    queueIndex = index ?? contextQueue.findIndex((s) => s.id === song.id);
+  } else {
+    queue = [song];
+    queueIndex = 0;
+  }
+
+  if (currentSong?.id === song.id) {
+    if (audioEl.paused) {
+      attemptPlay();
+    } else {
+      audioEl.pause();
+      isPlaying = false;
+    }
+    return;
+  }
+
+  await loadAndPlay(song);
+}
+
+function playNext() {
+  if (queueIndex < 0 || queueIndex >= queue.length - 1) return;
+  queueIndex += 1;
+  void loadAndPlay(queue[queueIndex]);
+}
+
+function playPrevious() {
+  if (queueIndex <= 0) return;
+  queueIndex -= 1;
+  void loadAndPlay(queue[queueIndex]);
 }
 
 function pause() {
@@ -204,10 +244,8 @@ function stop() {
   isPlaying = false;
   currentTime = 0;
   duration = 0;
-}
-
-function requestShowDetails() {
-  detailsRequestId += 1;
+  queue = [];
+  queueIndex = -1;
 }
 
 function registerPanel(): () => void {
@@ -242,19 +280,23 @@ export const playerStore = {
   get volume() {
     return volumeState;
   },
-  get detailsRequestId() {
-    return detailsRequestId;
+  get hasNext() {
+    return queueIndex >= 0 && queueIndex < queue.length - 1;
+  },
+  get hasPrevious() {
+    return queueIndex > 0;
   },
   get isPanelMounted() {
     return panelMountedCount > 0;
   },
   playSong,
+  playNext,
+  playPrevious,
   pause,
   resume,
   togglePlay,
   seek,
   setVolume,
   stop,
-  requestShowDetails,
   registerPanel
 };

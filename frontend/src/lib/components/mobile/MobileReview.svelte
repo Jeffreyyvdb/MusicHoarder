@@ -11,7 +11,7 @@
     fetchEnrichmentDetail,
     submitManualReview,
     enrichSong,
-    getSongStreamUrl,
+    toPlayerSong,
     type ApiSong,
     type EnrichmentDetail
   } from '$lib/api-client';
@@ -164,12 +164,9 @@
   }
 
   function play(t: ApiSong) {
-    void playerStore.playSong({
-      id: t.id,
-      title: (t.title ?? t.fileName).trim() || t.fileName,
-      artist: (t.artist ?? 'Unknown Artist').trim() || 'Unknown Artist',
-      streamUrl: getSongStreamUrl(t.id)
-    });
+    const queue = tracks.map((s) => toPlayerSong(s, 'Unknown Artist'));
+    const index = tracks.findIndex((s) => s.id === t.id);
+    void playerStore.playSong(toPlayerSong(t, 'Unknown Artist'), queue, index);
   }
 
   function buildOverrides(id: number) {

@@ -4,7 +4,7 @@
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import ProcessingStrip from '$lib/components/file-browser/ProcessingStrip.svelte';
-  import { buildAlbumsFromSongs, getSongStreamUrl, sortAlbumsByRecency, type ApiSong } from '$lib/api-client';
+  import { buildAlbumsFromSongs, toPlayerSong, sortAlbumsByRecency, type ApiSong } from '$lib/api-client';
   import { SECTION_LABELS, type SectionId } from '$lib/album-sections';
   import { formatFileSize, formatDuration } from '$lib/formatters';
   import { playerStore } from '$lib/stores/player.svelte';
@@ -226,13 +226,8 @@
     e.stopPropagation();
     const album = filtered.find((a) => a.key === albumKey);
     if (!album || album.songs.length === 0) return;
-    const target = album.songs[0];
-    void playerStore.playSong({
-      id: target.id,
-      title: (target.title ?? target.fileName).trim() || target.fileName,
-      artist: (target.artist ?? album.artist).trim() || album.artist,
-      streamUrl: getSongStreamUrl(target.id)
-    });
+    const queue = album.songs.map((s) => toPlayerSong(s, album.artist));
+    void playerStore.playSong(queue[0], queue, 0);
   }
 
   function albumHref(key: string) {

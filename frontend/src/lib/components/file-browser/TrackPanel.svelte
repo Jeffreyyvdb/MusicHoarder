@@ -21,7 +21,7 @@
   import {
     enrichSong,
     fetchEnrichmentDetail,
-    getSongStreamUrl,
+    toPlayerSong,
     mapEnrichmentStatus,
     resetSongEnrichment,
     type ApiSong,
@@ -111,12 +111,8 @@
       playerStore.togglePlay();
       return;
     }
-    void playerStore.playSong({
-      id: song.id,
-      title: trackTitle,
-      artist: trackArtist,
-      streamUrl: getSongStreamUrl(song.id)
-    });
+    const queue = album.songs.map((s) => toPlayerSong(s, album.artist));
+    void playerStore.playSong(toPlayerSong(song, album.artist), queue, trackIndex);
   }
 
   function skipBack() {

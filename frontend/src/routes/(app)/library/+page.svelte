@@ -20,7 +20,6 @@
   import { breadcrumbStore } from '$lib/stores/breadcrumbs.svelte';
   import { cn } from '$lib/utils';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { playerStore } from '$lib/stores/player.svelte';
 
   const isMobile = new IsMobile();
   let songs = $state<ApiSong[]>([]);
@@ -125,26 +124,6 @@
     url.searchParams.delete('track');
     void goto(url.pathname + url.search, { replaceState: true, noScroll: true });
   }
-
-  // React to MiniPlayer's "show details" handshake — open the track panel
-  // for the currently-playing song.
-  let prevDetailsRequestId = 0;
-  $effect(() => {
-    const reqId = playerStore.detailsRequestId;
-    if (reqId === prevDetailsRequestId) return;
-    prevDetailsRequestId = reqId;
-    const playing = playerStore.currentSong;
-    if (!playing) return;
-    const owningAlbum = allAlbumsForLookup.find((a) => a.songs.some((s) => s.id === playing.id));
-    if (!owningAlbum) return;
-    const idx = owningAlbum.songs.findIndex((s) => s.id === playing.id);
-    const song = owningAlbum.songs[idx];
-    if (!song) return;
-    const url = new URL(page.url);
-    url.searchParams.set('album', owningAlbum.key);
-    url.searchParams.set('track', String(song.trackNumber ?? idx + 1));
-    void goto(url.pathname + url.search, { replaceState: true, noScroll: true });
-  });
 
   const trackPanelOpen = $derived(!!selectedTrack && !!openAlbum);
 </script>

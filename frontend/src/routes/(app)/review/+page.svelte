@@ -23,7 +23,7 @@
     softDeleteSong,
     bulkApprove,
     enrichSong,
-    getSongStreamUrl
+    toPlayerSong
   } from '$lib/api-client';
   import {
     reasonFor,
@@ -345,12 +345,9 @@
       playerStore.togglePlay();
       return;
     }
-    void playerStore.playSong({
-      id: track.id,
-      title: (track.title ?? track.fileName ?? 'Unknown').trim() || 'Unknown',
-      artist: (track.artist ?? 'Unknown Artist').trim() || 'Unknown Artist',
-      streamUrl: getSongStreamUrl(track.id)
-    });
+    const queue = tracks.map((t) => toPlayerSong(t, 'Unknown Artist'));
+    const index = tracks.findIndex((t) => t.id === track.id);
+    void playerStore.playSong(toPlayerSong(track, 'Unknown Artist'), queue, index);
   }
 
   function fullStamp(track: ApiSong | null, detail: EnrichmentDetail | null): string {
