@@ -1,9 +1,19 @@
+using System.Linq.Expressions;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Enrichment;
 
 internal static class EnrichmentQueries
 {
+    /// <summary>
+    /// A song has at least one set of metadata a provider can act on: a usable
+    /// fingerprint+duration, a name (artist+title), or an ISRC.
+    /// </summary>
+    private static readonly Expression<Func<SongMetadata, bool>> IsEnrichable = s =>
+        (!string.IsNullOrWhiteSpace(s.Fingerprint) && s.DurationSeconds != null)
+        || (!string.IsNullOrWhiteSpace(s.Artist) && !string.IsNullOrWhiteSpace(s.Title))
+        || !string.IsNullOrWhiteSpace(s.Isrc);
+
     /// <summary>
     /// Filters songs to those eligible for enrichment: not deleted, pending status,
     /// and having at least one set of metadata that a provider can act on.
@@ -13,10 +23,28 @@ internal static class EnrichmentQueries
         return query
             .Where(s => s.DeletedAtUtc == null)
             .Where(s => s.EnrichmentStatus == EnrichmentStatus.Pending)
-            .Where(s =>
-                (!string.IsNullOrWhiteSpace(s.Fingerprint) && s.DurationSeconds != null)
-                || (!string.IsNullOrWhiteSpace(s.Artist) && !string.IsNullOrWhiteSpace(s.Title))
-                || !string.IsNullOrWhiteSpace(s.Isrc));
+            .Where(IsEnrichable);
+    }
+
+    /// <summary>
+    /// Filters to enrichable, non-deleted, non-synthetic, non-manually-approved songs that are
+    /// missing an attempt for at least one currently-enabled provider — i.e. a newly-added
+    /// provider has never run against them. Used by the startup sweep that gives a freshly
+    /// deployed provider a turn against existing songs (regardless of their current status).
+    /// Relies on the one-attempt-per-provider invariant: counting only enabled-provider attempts
+    /// and comparing to the enabled count detects a missing provider without being thrown off by
+    /// attempts left behind by since-disabled providers.
+    /// </summary>
+    public static IQueryable<SongMetadata> WhereMissingEnabledProvider(
+        this IQueryable<SongMetadata> query, IReadOnlyCollection<EnrichmentProvider> enabled)
+    {
+        var enabledCount = enabled.Count;
+        return query
+            .Where(s => s.DeletedAtUtc == null)
+            .Where(s => !s.IsSynthetic)
+            .Where(s => !s.IsManuallyApproved)
+            .Where(IsEnrichable)
+            .Where(s => s.ProviderAttempts.Count(a => enabled.Contains(a.Provider)) < enabledCount);
     }
 
     /// <summary>

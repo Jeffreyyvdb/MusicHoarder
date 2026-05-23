@@ -30,6 +30,7 @@ public class EnrichmentBackgroundService(
         {
             await RefreshStaleStatusesAsync(stoppingToken);
             await RetryStaleStatusesAsync(stoppingToken);
+            await EnqueueSongsMissingProvidersAsync(stoppingToken);
             await BackfillPendingSongsAsync(stoppingToken);
             sweepTask = RunRetrySweepLoopAsync(stoppingToken);
         }
@@ -89,6 +90,47 @@ public class EnrichmentBackgroundService(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(ex, "Failed to refresh stale enrichment statuses on startup");
+        }
+    }
+
+    /// <summary>
+    /// Gives a newly-added provider a turn against existing songs: enqueues every enrichable song
+    /// that is missing an attempt for at least one currently-enabled provider — including songs
+    /// already <see cref="EnrichmentStatus.Matched"/>, which the refresh sweep leaves alone.
+    /// Status is NOT flipped; <see cref="IEnrichmentOrchestrator.ProcessSongAsync"/> runs only the
+    /// providers without a terminal attempt and re-evaluates consensus, so a song's status changes
+    /// only if the new provider wins. Idempotent: once every enabled provider has an attempt, the
+    /// song is no longer selected, so subsequent restarts enqueue nothing.
+    /// </summary>
+    internal async Task EnqueueSongsMissingProvidersAsync(CancellationToken ct)
+    {
+        try
+        {
+            var enabled = await orchestrator.GetEnabledProviderEnumsAsync(ct).ConfigureAwait(false);
+            if (enabled.Count == 0)
+                return;
+
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+
+            var ids = await db.Songs
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .WhereMissingEnabledProvider(enabled)
+                .Select(s => s.Id)
+                .ToListAsync(ct);
+
+            if (ids.Count > 0)
+            {
+                pipelineChannel.EnqueueRange(ids);
+                logger.LogInformation(
+                    "Enqueued {Count} songs missing an enabled provider (new-provider backfill)",
+                    ids.Count);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to enqueue songs missing an enabled provider on startup");
         }
     }
 
