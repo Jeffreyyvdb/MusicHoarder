@@ -1150,6 +1150,17 @@ export async function fetchReviewTracks(): Promise<ApiSong[]> {
   return result.songs ?? []
 }
 
+/** Enrichment-review queue filter: songs still needing a human, or already matched. */
+export type ReviewQueueFilter = "needsreview" | "matched"
+
+/** Fetch songs for the Provenance & review queue by enrichment status. */
+export async function fetchReviewQueue(filter: ReviewQueueFilter): Promise<ApiSong[]> {
+  const result = await requestJson<SongsResponse>(
+    `/songs?enrichmentStatus=${filter}`
+  )
+  return result.songs ?? []
+}
+
 // ── Enrichment detail (candidate matches) ──────────────────────────────────────
 
 export interface EnrichmentCandidate {
@@ -1180,6 +1191,28 @@ export interface ProviderAttempt {
   candidate: EnrichmentCandidate | null
 }
 
+/** One changed field in the before→after diff. `source`/`current` are scalars. */
+export interface MetadataDiffEntry {
+  field: string
+  source?: string | number | null
+  current?: string | number | null
+}
+
+/** A field-level entry from the song's metadata change history (powers the timeline). */
+export interface ChangeLogEntry {
+  id: number
+  field: string
+  oldValue?: string | null
+  newValue?: string | null
+  source?: string | null
+  confidence?: number | null
+  createdAtUtc: string
+  appliedAtUtc?: string | null
+  revertedAtUtc?: string | null
+  applied: boolean
+  proposed: boolean
+}
+
 export interface EnrichmentDetail {
   id: number
   fileName: string
@@ -1187,6 +1220,7 @@ export interface EnrichmentDetail {
   destinationPath?: string | null
   enrichmentStatus: string
   isManuallyApproved?: boolean
+  manuallyApprovedAtUtc?: string | null
   matchedBy?: string | null
   matchConfidence?: number | null
   matchWarnings?: string[] | null
@@ -1194,7 +1228,9 @@ export interface EnrichmentDetail {
   originalMetadataCaptured: boolean
   source: EnrichmentCandidate | null
   current: EnrichmentCandidate
+  diff: MetadataDiffEntry[]
   providerAttempts: ProviderAttempt[]
+  changeLog: ChangeLogEntry[]
 }
 
 export async function fetchEnrichmentDetail(songId: number): Promise<EnrichmentDetail> {

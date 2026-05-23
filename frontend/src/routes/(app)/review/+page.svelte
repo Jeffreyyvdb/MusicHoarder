@@ -7,45 +7,65 @@
     Check,
     X,
     ChevronRight,
-    Plus,
     Play,
     Pause,
     RefreshCw,
     Loader2,
     CheckCheck,
-    Trash2
+    Trash2,
+    AlertTriangle
   } from '@lucide/svelte';
   import type { ApiSong, EnrichmentDetail } from '$lib/api-client';
   import {
-    fetchReviewTracks,
+    fetchReviewQueue,
     fetchEnrichmentDetail,
     submitManualReview,
     softDeleteSong,
     bulkApprove,
+    enrichSong,
     toPlayerSong
   } from '$lib/api-client';
   import {
     reasonFor,
     candidatesFromDetail,
-    embeddedTags,
     buildDestinationPath,
-    fingerprintBars,
-    fingerprintHash,
-    type ReviewCandidate
+    bestGuess,
+    bannerFor,
+    decisionLabel,
+    elapsedMs,
+    formatElapsed,
+    contributedProviders,
+    beforeAfterRows,
+    buildTimeline,
+    buildOriginMatrix,
+    EDITABLE_FIELDS,
+    type ReviewCandidate,
+    type EditableFieldKey
   } from '$lib/review-helpers';
-  import { formatDuration, formatFileSize } from '$lib/formatters';
+  import { formatFileSize } from '$lib/formatters';
   import { playerStore } from '$lib/stores/player.svelte';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import MobileReview from '$lib/components/mobile/MobileReview.svelte';
+  import Cover from '$lib/components/file-browser/Cover.svelte';
+  import CandidateGrid from '$lib/components/review/CandidateGrid.svelte';
+  import BeforeAfterView from '$lib/components/review/BeforeAfterView.svelte';
+  import TimelineView from '$lib/components/review/TimelineView.svelte';
+  import OriginMatrixView from '$lib/components/review/OriginMatrixView.svelte';
   import { cn } from '$lib/utils';
 
   const isMobile = new IsMobile();
 
-  type MetadataEdits = { title?: string; artist?: string; album?: string; year?: number };
+  type MetadataEdits = Partial<Record<EditableFieldKey, string>>;
   type Decision = 'accept' | 'reject' | 'skip';
+  type QueueFilter = 'needsreview' | 'done' | 'all';
+  type ViewKey = 'before' | 'timeline' | 'matrix';
 
-  let tracks = $state<ApiSong[]>([]);
-  let selectedIndex = $state(0);
+  let reviewTracks = $state<ApiSong[]>([]);
+  let doneTracks = $state<ApiSong[]>([]);
+  let queueFilter = $state<QueueFilter>('needsreview');
+  let view = $state<ViewKey>('before');
+
+  let selectedId = $state<number | null>(null);
   let editedMetadata = $state<Record<number, MetadataEdits>>({});
   let pickedKey = $state<Record<number, string>>({});
   let decisions = $state<Record<number, Decision>>({});
@@ -55,7 +75,6 @@
   let loading = $state(true);
   let actionLoading = $state(false);
   let error = $state<string | null>(null);
-  let rejectReason = $state('');
   let bulkApproveMinConfidence = $state(0.75);
   let bulkApproveResult = $state<{ count: number } | null>(null);
 
@@ -65,20 +84,41 @@
     err: 'bg-red-500/15 text-red-600 dark:text-red-400'
   };
 
-  async function loadTracks() {
+  const tracks = $derived(
+    queueFilter === 'needsreview'
+      ? reviewTracks
+      : queueFilter === 'done'
+        ? doneTracks
+        : [...reviewTracks, ...doneTracks]
+  );
+  const totalCount = $derived(reviewTracks.length + doneTracks.length);
+
+  async function loadQueues() {
     try {
       loading = true;
       error = null;
-      tracks = await fetchReviewTracks();
-      selectedIndex = 0;
+      const [review, done] = await Promise.all([
+        fetchReviewQueue('needsreview'),
+        fetchReviewQueue('matched')
+      ]);
+      reviewTracks = review;
+      // Done can be the bulk of the library — show the most-recent slice.
+      doneTracks = [...done]
+        .sort(
+          (a, b) =>
+            new Date(b.libraryBuiltAtUtc ?? b.indexedAtUtc ?? 0).getTime() -
+            new Date(a.libraryBuiltAtUtc ?? a.indexedAtUtc ?? 0).getTime()
+        )
+        .slice(0, 100);
       editedMetadata = {};
       pickedKey = {};
       decisions = {};
       details = {};
       detailLoading = {};
-      // Background-prefetch candidate detail for each queue item so the sidebar
-      // can show each row's top guess (and the selected item is ready instantly).
-      for (const track of tracks) void loadDetail(track.id);
+      selectedId = tracks[0]?.id ?? null;
+      // Prefetch detail for the review queue so each row shows its guess + provenance.
+      for (const track of reviewTracks) void loadDetail(track.id);
+      if (selectedId != null) void loadDetail(selectedId);
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to load tracks';
     } finally {
@@ -88,27 +128,36 @@
 
   $effect(() => {
     if (isMobile.current) return;
-    void loadTracks();
+    void loadQueues();
   });
 
-  const selectedTrack = $derived(tracks[selectedIndex]);
+  // Keep a valid selection as the filter changes.
+  $effect(() => {
+    const list = tracks;
+    if (list.length === 0) {
+      selectedId = null;
+    } else if (selectedId == null || !list.some((t) => t.id === selectedId)) {
+      selectedId = list[0].id;
+    }
+  });
+
+  const selectedTrack = $derived(tracks.find((t) => t.id === selectedId) ?? null);
   const selectedDetail = $derived(selectedTrack ? (details[selectedTrack.id] ?? null) : null);
   const candidates = $derived(candidatesFromDetail(selectedDetail));
+  const selectedIsReview = $derived(
+    (selectedDetail?.enrichmentStatus ?? String(selectedTrack?.enrichmentStatus ?? '')).toLowerCase() ===
+      'needsreview'
+  );
 
-  function seedFields(track: ApiSong, top: ReviewCandidate | undefined): MetadataEdits {
-    if (top) {
-      return {
-        title: top.fields.title,
-        artist: top.fields.artist,
-        album: top.fields.album,
-        year: top.fields.year ? parseInt(top.fields.year, 10) : undefined
-      };
-    }
+  function seedFields(track: ApiSong, top: ReviewCandidate | undefined, detail: EnrichmentDetail | null): MetadataEdits {
+    const cur = detail?.current;
     return {
-      title: track.title ?? '',
-      artist: track.artist ?? '',
-      album: track.album ?? '',
-      year: track.year ?? undefined
+      title: top?.title ?? cur?.title ?? track.title ?? '',
+      artist: top?.artist ?? cur?.artist ?? track.artist ?? '',
+      album: top?.album ?? cur?.album ?? track.album ?? '',
+      albumArtist: cur?.albumArtist ?? track.albumArtist ?? '',
+      year: top?.year || (cur?.year != null ? String(cur.year) : (track.year != null ? String(track.year) : '')),
+      trackNumber: cur?.trackNumber != null ? String(cur.trackNumber) : track.trackNumber != null ? String(track.trackNumber) : ''
     };
   }
 
@@ -121,7 +170,7 @@
       if (!editedMetadata[id]) {
         const cands = candidatesFromDetail(detail);
         const track = tracks.find((t) => t.id === id);
-        if (track) editedMetadata = { ...editedMetadata, [id]: seedFields(track, cands[0]) };
+        if (track) editedMetadata = { ...editedMetadata, [id]: seedFields(track, cands[0], detail) };
         if (cands[0]) pickedKey = { ...pickedKey, [id]: cands[0].key };
       }
     } catch {
@@ -132,14 +181,11 @@
   }
 
   $effect(() => {
-    const track = selectedTrack;
-    if (!track) return;
-    void loadDetail(track.id);
+    if (selectedId != null) void loadDetail(selectedId);
   });
 
-  function selectTrack(index: number) {
-    selectedIndex = index;
-    rejectReason = '';
+  function selectTrack(id: number) {
+    selectedId = id;
   }
 
   function pickCandidate(c: ReviewCandidate) {
@@ -149,53 +195,49 @@
     editedMetadata = {
       ...editedMetadata,
       [id]: {
+        ...editedMetadata[id],
         title: c.fields.title,
         artist: c.fields.artist,
         album: c.fields.album,
-        year: c.fields.year ? parseInt(c.fields.year, 10) : undefined
+        year: c.fields.year
       }
     };
   }
 
-  function setField(field: keyof MetadataEdits, value: string) {
+  function setField(key: EditableFieldKey, value: string) {
     const id = selectedTrack?.id;
     if (id == null) return;
-    const next: MetadataEdits = { ...editedMetadata[id] };
-    if (field === 'year') {
-      const n = parseInt(value, 10);
-      next.year = Number.isFinite(n) ? n : undefined;
-    } else {
-      next[field] = value;
-    }
-    editedMetadata = { ...editedMetadata, [id]: next };
+    editedMetadata = { ...editedMetadata, [id]: { ...editedMetadata[id], [key]: value } };
   }
 
-  function fieldValue(field: keyof MetadataEdits): string {
-    const id = selectedTrack?.id;
-    if (id == null) return '';
-    const v = editedMetadata[id]?.[field];
-    return v == null ? '' : String(v);
+  function copyEmbedded(key: EditableFieldKey, embedded: string) {
+    setField(key, embedded);
   }
 
-  const formFields = $derived<MetadataEdits>(
-    selectedTrack ? (editedMetadata[selectedTrack.id] ?? {}) : {}
+  const finalValues = $derived<Record<string, string>>(
+    selectedTrack ? { ...(editedMetadata[selectedTrack.id] ?? {}) } : {}
   );
 
   const decidedCount = $derived(Object.values(decisions).filter(Boolean).length);
 
   function advanceToNextUndecided(fromId: number) {
     const next = tracks.find((t) => t.id !== fromId && !decisions[t.id]);
-    if (next) selectedIndex = tracks.indexOf(next);
+    if (next) selectedId = next.id;
   }
 
   function buildOverrides(id: number) {
-    const edits = editedMetadata[id];
-    if (!edits) return {};
-    const out: MetadataEdits = {};
-    if (edits.title !== undefined) out.title = edits.title;
-    if (edits.artist !== undefined) out.artist = edits.artist;
-    if (edits.album !== undefined) out.album = edits.album;
-    if (edits.year !== undefined) out.year = edits.year;
+    const edits = editedMetadata[id] ?? {};
+    const out: Record<string, string | number> = {};
+    for (const f of EDITABLE_FIELDS) {
+      const v = edits[f.key];
+      if (v == null || v === '') continue;
+      if (f.key === 'year' || f.key === 'trackNumber') {
+        const n = parseInt(v, 10);
+        if (Number.isFinite(n)) out[f.key] = n;
+      } else {
+        out[f.key] = v;
+      }
+    }
     return out;
   }
 
@@ -207,6 +249,7 @@
       error = null;
       await submitManualReview(track.id, { decision: 'approve', ...buildOverrides(track.id) });
       decisions = { ...decisions, [track.id]: 'accept' };
+      reviewTracks = reviewTracks.filter((t) => t.id !== track.id);
       advanceToNextUndecided(track.id);
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to accept track';
@@ -221,12 +264,8 @@
     try {
       actionLoading = true;
       error = null;
-      await submitManualReview(track.id, {
-        decision: 'reject',
-        rejectReason: rejectReason || undefined
-      });
+      await submitManualReview(track.id, { decision: 'reject' });
       decisions = { ...decisions, [track.id]: 'reject' };
-      rejectReason = '';
       advanceToNextUndecided(track.id);
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to reject track';
@@ -242,6 +281,21 @@
     advanceToNextUndecided(track.id);
   }
 
+  async function handleReenrich() {
+    const track = selectedTrack;
+    if (!track || actionLoading) return;
+    try {
+      actionLoading = true;
+      error = null;
+      await enrichSong(track.id, true);
+      await loadQueues();
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to re-enrich track';
+    } finally {
+      actionLoading = false;
+    }
+  }
+
   async function handleDelete() {
     const track = selectedTrack;
     if (!track || actionLoading) return;
@@ -250,9 +304,8 @@
       error = null;
       await softDeleteSong(track.id);
       const removedId = track.id;
-      const next = tracks.filter((t) => t.id !== removedId);
-      tracks = next;
-      if (selectedIndex >= next.length && selectedIndex > 0) selectedIndex = next.length - 1;
+      reviewTracks = reviewTracks.filter((t) => t.id !== removedId);
+      doneTracks = doneTracks.filter((t) => t.id !== removedId);
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to delete track';
     } finally {
@@ -268,7 +321,7 @@
       bulkApproveResult = null;
       const result = await bulkApprove(bulkApproveMinConfidence);
       bulkApproveResult = { count: result.approvedCount };
-      if (result.approvedCount > 0) await loadTracks();
+      if (result.approvedCount > 0) await loadQueues();
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to bulk approve';
     } finally {
@@ -277,7 +330,7 @@
   }
 
   const eligibleForBulk = $derived(
-    tracks.filter((t) => t.matchConfidence != null && t.matchConfidence >= bulkApproveMinConfidence)
+    reviewTracks.filter((t) => t.matchConfidence != null && t.matchConfidence >= bulkApproveMinConfidence)
       .length
   );
 
@@ -297,25 +350,80 @@
     void playerStore.playSong(toPlayerSong(track, 'Unknown Artist'), queue, index);
   }
 
-  function formatClock(iso: string | null | undefined): string {
+  function fullStamp(track: ApiSong | null, detail: EnrichmentDetail | null): string {
+    const iso = detail?.providerAttempts?.[0]?.attemptedAtUtc ?? track?.indexedAtUtc;
     if (!iso) return '';
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '';
-    return d.toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false
-    });
+    return (
+      d.toISOString().slice(0, 10) +
+      ' ' +
+      d.toLocaleTimeString([], { hour12: false }) +
+      '.' +
+      String(d.getMilliseconds()).padStart(3, '0')
+    );
   }
 
-  const flaggedAt = $derived(
-    selectedDetail?.providerAttempts?.[0]?.attemptedAtUtc
-      ? formatClock(selectedDetail.providerAttempts[0].attemptedAtUtc)
-      : ''
+  function clock(iso: string | null | undefined): string {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  }
+
+  // Header / KPI derivations for the selected track.
+  const guess = $derived(selectedTrack ? bestGuess(selectedTrack, candidates, selectedDetail) : null);
+  const banner = $derived(selectedTrack ? bannerFor(selectedTrack, selectedDetail) : null);
+  const kpiElapsed = $derived(selectedTrack ? formatElapsed(elapsedMs(selectedTrack, selectedDetail)) : '—');
+  const contributed = $derived(contributedProviders(selectedDetail));
+  const beforeRows = $derived(beforeAfterRows(selectedDetail));
+  const timeline = $derived(selectedTrack ? buildTimeline(selectedTrack, selectedDetail) : []);
+  const matrix = $derived(buildOriginMatrix(selectedDetail));
+  const flaggedAt = $derived(clock(selectedDetail?.providerAttempts?.[0]?.attemptedAtUtc));
+
+  function fmtFromMeta(track: ApiSong): string {
+    const parts: string[] = [];
+    const fmt = (track.extension ?? '').replace(/^\./, '').toUpperCase();
+    if (fmt) parts.push(track.bitRate ? `${fmt} ${track.bitRate}kbps` : fmt);
+    parts.push(formatFileSize(track.fileSizeBytes));
+    if (track.indexedAtUtc) parts.push(`indexed ${track.indexedAtUtc.slice(0, 10)}`);
+    return parts.join(' · ');
+  }
+  function destFormat(track: ApiSong): string {
+    const fmt = (track.extension ?? '').replace(/^\./, '').toUpperCase() || 'FLAC';
+    return track.bitRate ? `${fmt} ${track.bitRate}kbps` : fmt;
+  }
+
+  const destinationPath = $derived(
+    selectedTrack ? buildDestinationPath(finalValues, selectedTrack.extension) : ''
   );
-  const selectedReason = $derived(selectedTrack ? reasonFor(selectedTrack) : null);
-  const formatLabel = $derived((selectedTrack?.extension ?? '').replace(/^\./, '').toUpperCase() || '—');
+  const fromFolder = $derived(
+    selectedTrack ? selectedTrack.sourcePath.slice(0, selectedTrack.sourcePath.lastIndexOf('/')) : ''
+  );
+
+  // Lightweight per-row summary for the queue list (uses prefetched detail when present).
+  function rowGuess(track: ApiSong): { title: string; subtitle: string } {
+    const d = details[track.id];
+    if (d) {
+      const g = bestGuess(track, candidatesFromDetail(d), d);
+      return { title: g.title, subtitle: g.subtitle };
+    }
+    return {
+      title: track.title || track.fileName,
+      subtitle: [track.artist, track.album].filter(Boolean).join(' · ')
+    };
+  }
+
+  const FILTERS: { key: QueueFilter; label: string }[] = [
+    { key: 'needsreview', label: 'Needs review' },
+    { key: 'done', label: 'Done' },
+    { key: 'all', label: 'All' }
+  ];
+  const VIEWS: { key: ViewKey; label: string }[] = [
+    { key: 'before', label: 'Before → After' },
+    { key: 'timeline', label: 'Timeline' },
+    { key: 'matrix', label: 'Origin matrix' }
+  ];
 </script>
 
 {#if isMobile.current}
@@ -324,10 +432,10 @@
   <main class="flex flex-1 items-center justify-center p-4">
     <div class="flex flex-col items-center gap-4">
       <Loader2 class="text-primary size-8 animate-spin" />
-      <p class="text-muted-foreground">Loading review queue…</p>
+      <p class="text-muted-foreground">Loading enrichments…</p>
     </div>
   </main>
-{:else if error && tracks.length === 0}
+{:else if error && totalCount === 0}
   <main class="flex flex-1 items-center justify-center p-4">
     <div class="max-w-md text-center">
       <div class="bg-destructive/10 mx-auto mb-4 flex size-16 items-center justify-center rounded-full">
@@ -335,37 +443,18 @@
       </div>
       <h2 class="mb-2 text-xl font-semibold">Error</h2>
       <p class="text-muted-foreground mb-4">{error}</p>
-      <Button onclick={loadTracks}>Retry</Button>
-    </div>
-  </main>
-{:else if tracks.length === 0}
-  <main class="flex flex-1 items-center justify-center p-4">
-    <div class="max-w-md text-center">
-      <div class="bg-primary/10 mx-auto mb-4 flex size-16 items-center justify-center rounded-full">
-        <Check class="text-primary size-8" />
-      </div>
-      <h2 class="mb-2 text-xl font-semibold">All clear</h2>
-      <p class="text-muted-foreground mb-4">No items in the review queue.</p>
-      <div class="flex justify-center gap-2">
-        <Button variant="outline" onclick={loadTracks}>
-          <RefreshCw class="mr-2 size-4" />
-          Refresh
-        </Button>
-        <Button href="/runs">Back to Runs</Button>
-      </div>
+      <Button onclick={loadQueues}>Retry</Button>
     </div>
   </main>
 {:else}
-  <main class="grid min-h-0 flex-1 grid-cols-[320px_1fr] overflow-hidden">
-    <!-- Queue list -->
+  <main class="grid min-h-0 flex-1 grid-cols-[340px_1fr] overflow-hidden">
+    <!-- Queue -->
     <aside class="bg-surface-sunken border-border flex min-h-0 flex-col border-r">
-      <div class="border-border flex items-center justify-between gap-2 border-b px-[18px] py-3">
+      <div class="border-border flex items-start justify-between gap-2 border-b px-[18px] py-3">
         <div class="min-w-0">
-          <div class="text-sm font-semibold">Review queue</div>
-          <div class="text-muted-foreground mt-1 flex items-center gap-1.5 text-[11.5px]">
-            <span>{tracks.length} items</span>
-            <span>·</span>
-            <span class="font-mono">{decidedCount} decided</span>
+          <div class="text-sm font-semibold">Enrichments</div>
+          <div class="text-muted-foreground mt-0.5 text-[11.5px]">
+            {totalCount} total · <span class="font-mono">{decidedCount} decided</span>
           </div>
         </div>
         <div class="flex items-center gap-1">
@@ -419,273 +508,271 @@
               </AlertDialog.Footer>
             </AlertDialog.Content>
           </AlertDialog.Root>
-          <Button variant="ghost" size="icon" class="size-8" onclick={loadTracks} title="Refresh">
+          <Button variant="ghost" size="icon" class="size-8" onclick={loadQueues} title="Refresh">
             <RefreshCw class="size-4" />
           </Button>
         </div>
       </div>
 
+      <!-- Segmented filter -->
+      <div class="border-border bg-surface-sunken flex items-center gap-1 border-b px-[14px] py-2">
+        {#each FILTERS as f (f.key)}
+          {@const count = f.key === 'needsreview' ? reviewTracks.length : f.key === 'done' ? doneTracks.length : totalCount}
+          <button
+            type="button"
+            onclick={() => (queueFilter = f.key)}
+            class={cn(
+              'flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-colors',
+              queueFilter === f.key ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-accent'
+            )}
+          >
+            {#if f.key === 'needsreview'}<AlertTriangle class="size-3.5" />{/if}
+            {#if f.key === 'done'}<Check class="size-3.5" />{/if}
+            <span>{f.label}</span>
+            <span
+              class={cn(
+                'rounded-full px-1.5 text-[10px] font-semibold tabular-nums',
+                queueFilter === f.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+              )}>{count}</span
+            >
+          </button>
+        {/each}
+      </div>
+
       <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
-        {#each tracks as track, index (track.id)}
+        {#if tracks.length === 0}
+          <div class="text-muted-foreground px-4 py-12 text-center text-sm">
+            {queueFilter === 'needsreview' ? 'Nothing needs review.' : 'No items here yet.'}
+          </div>
+        {/if}
+        {#each tracks as track (track.id)}
           {@const r = reasonFor(track)}
           {@const d = decisions[track.id]}
-          {@const top = candidatesFromDetail(details[track.id])[0]}
+          {@const info = rowGuess(track)}
+          {@const detail = details[track.id]}
+          {@const provs = contributedProviders(detail)}
+          {@const ms = detail ? formatElapsed(elapsedMs(track, detail)) : null}
           <button
             class={cn(
-              'mb-0.5 flex w-full items-start gap-2 rounded-md border border-transparent p-2.5 text-left transition-colors',
-              selectedIndex === index ? 'bg-card border-border' : 'hover:bg-accent',
+              'mb-0.5 flex w-full items-center gap-2.5 rounded-md border-l-2 border-transparent py-2.5 pr-2.5 pl-2 text-left transition-colors',
+              selectedId === track.id ? 'border-l-primary bg-card' : 'hover:bg-accent',
               d === 'accept' && 'opacity-60',
               d === 'reject' && 'opacity-45',
               d === 'skip' && 'opacity-60'
             )}
-            onclick={() => selectTrack(index)}
+            onclick={() => selectTrack(track.id)}
           >
+            <Cover artist={track.artist ?? 'Unknown'} title={info.title} size={42} corner={6} caption={false} />
             <div class="min-w-0 flex-1">
-              <div class="mb-1 flex flex-wrap items-center gap-2">
+              <div class="truncate text-[13px] font-medium">{info.title}</div>
+              <div class="text-muted-foreground truncate text-[11.5px]">{info.subtitle || '—'}</div>
+              <div class="mt-1 flex flex-wrap items-center gap-1.5">
                 <span
-                  class={cn(
-                    'rounded px-1.5 py-0.5 text-[9px] font-bold tracking-wide uppercase',
-                    PILL_TINT[r.tint]
-                  )}>{r.label}</span>
-                {#if track.matchConfidence != null}
-                  <span class="text-muted-foreground font-mono text-[11px]">
-                    {track.matchConfidence.toFixed(2)}
-                  </span>
-                {/if}
-              </div>
-              <div class="truncate text-[11.5px]">{track.fileName}</div>
-              <div class="text-muted-foreground mt-0.5 truncate text-[11px]">
-                {#if top}{top.artist} — {top.title}{:else}no candidates{/if}
+                  class={cn('rounded px-1.5 py-0.5 text-[9px] font-bold tracking-wide uppercase', PILL_TINT[r.tint])}
+                  >{r.label}</span
+                >
+                {#each provs.slice(0, 3) as p (p.label)}
+                  <span class="size-1.5 rounded-full" style="background: {p.color}" title={p.label}></span>
+                {/each}
               </div>
             </div>
-            {#if d}
-              <span
-                class={cn(
-                  'mt-0.5 grid size-[18px] shrink-0 place-items-center rounded-full text-white',
-                  d === 'accept' && 'bg-primary',
-                  d === 'reject' && 'bg-[#c23a3a]',
-                  d === 'skip' && 'bg-muted-foreground'
-                )}
-              >
-                {#if d === 'accept'}<Check size={10} strokeWidth={2.5} />{/if}
-                {#if d === 'reject'}<X size={10} strokeWidth={2.5} />{/if}
-                {#if d === 'skip'}<ChevronRight size={10} strokeWidth={2} />{/if}
-              </span>
-            {/if}
+            <div class="flex shrink-0 flex-col items-end gap-1">
+              {#if ms}<span class="text-muted-foreground font-mono text-[10.5px]">{ms}</span>{/if}
+              {#if d}
+                <span
+                  class={cn(
+                    'grid size-[18px] place-items-center rounded-full text-white',
+                    d === 'accept' && 'bg-primary',
+                    d === 'reject' && 'bg-[#c23a3a]',
+                    d === 'skip' && 'bg-muted-foreground'
+                  )}
+                >
+                  {#if d === 'accept'}<Check size={10} strokeWidth={2.5} />{/if}
+                  {#if d === 'reject'}<X size={10} strokeWidth={2.5} />{/if}
+                  {#if d === 'skip'}<ChevronRight size={10} strokeWidth={2} />{/if}
+                </span>
+              {/if}
+            </div>
           </button>
         {/each}
       </div>
     </aside>
 
     <!-- Detail -->
-    {#if selectedTrack}
+    {#if selectedTrack && guess && banner}
       <div class="flex min-w-0 flex-col overflow-hidden">
-        <div class="border-border flex items-end justify-between gap-6 border-b px-7 py-5">
-          <div class="min-w-0">
-            <div class="text-muted-foreground font-mono text-[10px] tracking-[0.1em]">
-              REVIEW · {selectedIndex + 1} of {tracks.length}{#if flaggedAt} · flagged {flaggedAt}{/if}
-            </div>
-            <h1 class="my-1.5 text-[22px] font-semibold tracking-tight break-all">
-              {selectedTrack.fileName}
-            </h1>
-            <div class="text-muted-foreground font-mono text-[11px]">{selectedTrack.sourcePath}</div>
+        <!-- Banner -->
+        <div
+          class={cn(
+            'flex items-center gap-3 px-7 py-3.5',
+            banner.tone === 'warn' && 'bg-amber-500/10',
+            banner.tone === 'info' && 'bg-primary/10',
+            banner.tone === 'err' && 'bg-red-500/10',
+            banner.tone === 'ok' && 'bg-primary/10'
+          )}
+        >
+          <span
+            class={cn(
+              'grid size-9 shrink-0 place-items-center rounded-full text-white',
+              banner.tone === 'warn' && 'bg-amber-500',
+              banner.tone === 'info' && 'bg-primary',
+              banner.tone === 'err' && 'bg-red-500',
+              banner.tone === 'ok' && 'bg-primary'
+            )}
+          >
+            {#if banner.tone === 'ok'}<Check class="size-4" strokeWidth={2.5} />{:else}<AlertTriangle class="size-4" strokeWidth={2.5} />{/if}
+          </span>
+          <div class="min-w-0 flex-1">
+            <div class="text-[15px] font-semibold">{banner.title}</div>
+            <div class="text-muted-foreground text-[12.5px]">{banner.body}</div>
           </div>
-          <div class="grid shrink-0 grid-cols-4 gap-[18px]">
-            <div class="text-right">
-              <div class="text-muted-foreground font-mono text-[9.5px] font-semibold tracking-[0.08em]">DURATION</div>
-              <div class="mt-0.5 text-[13px] font-medium">{formatDuration(selectedTrack.durationSeconds)}</div>
-            </div>
-            <div class="text-right">
-              <div class="text-muted-foreground font-mono text-[9.5px] font-semibold tracking-[0.08em]">SIZE</div>
-              <div class="mt-0.5 text-[13px] font-medium">{formatFileSize(selectedTrack.fileSizeBytes)}</div>
-            </div>
-            <div class="text-right">
-              <div class="text-muted-foreground font-mono text-[9.5px] font-semibold tracking-[0.08em]">FORMAT</div>
-              <div class="mt-0.5 text-[13px] font-medium">{formatLabel}</div>
-            </div>
-            <div class="text-right">
-              <div class="text-muted-foreground font-mono text-[9.5px] font-semibold tracking-[0.08em]">REASON</div>
-              <div class="mt-0.5 text-[13px] font-medium text-amber-600 dark:text-amber-400">
-                {selectedReason?.label ?? '—'}
+          {#if flaggedAt}
+            <span class="text-muted-foreground shrink-0 font-mono text-[11px]">flagged {flaggedAt}</span>
+          {/if}
+        </div>
+
+        <!-- Header -->
+        <div class="border-border flex items-start justify-between gap-6 border-b px-7 pt-3 pb-4">
+          <div class="flex min-w-0 items-start gap-4">
+            <Cover artist={selectedTrack.artist ?? 'Unknown'} title={guess.title} size={56} corner={8} caption={false} />
+            <div class="min-w-0">
+              <div class="text-muted-foreground font-mono text-[10px] tracking-[0.1em]">
+                PROVENANCE · {fullStamp(selectedTrack, selectedDetail)}
               </div>
+              <h1 class="my-0.5 truncate text-[24px] font-semibold tracking-tight">
+                {guess.title}{#if guess.isGuess}<span class="text-muted-foreground font-normal"> (best guess)</span>{/if}
+              </h1>
+              <div class="text-muted-foreground truncate text-[13px]">{guess.subtitle || selectedTrack.fileName}</div>
+            </div>
+          </div>
+          <div class="grid shrink-0 grid-cols-4 gap-5">
+            <div class="text-right">
+              <div class="text-muted-foreground font-mono text-[9.5px] font-semibold tracking-[0.08em]">ELAPSED</div>
+              <div class="mt-0.5 font-mono text-[15px] font-semibold">{kpiElapsed}</div>
+            </div>
+            <div class="text-right">
+              <div class="text-muted-foreground font-mono text-[9.5px] font-semibold tracking-[0.08em]">PROVIDERS</div>
+              <div class="mt-0.5 font-mono text-[15px] font-semibold">{selectedDetail?.providerAttempts.length ?? 0}</div>
+            </div>
+            <div class="text-right">
+              <div class="text-muted-foreground font-mono text-[9.5px] font-semibold tracking-[0.08em]">CANDIDATES</div>
+              <div class="mt-0.5 font-mono text-[15px] font-semibold">{candidates.length}</div>
+            </div>
+            <div class="text-right">
+              <div class="text-muted-foreground font-mono text-[9.5px] font-semibold tracking-[0.08em]">DECISION</div>
+              <div class="text-primary mt-0.5 font-mono text-[15px] font-semibold">{decisionLabel(selectedDetail)}</div>
             </div>
           </div>
         </div>
 
+        <!-- Contributed + VIEW tabs -->
+        <div class="border-border flex flex-wrap items-center justify-between gap-3 border-b px-7 py-2.5">
+          <div class="flex items-center gap-2">
+            <span class="text-muted-foreground font-mono text-[10px] tracking-[0.08em]">CONTRIBUTED</span>
+            {#if contributed.length === 0}
+              <span class="text-muted-foreground/60 text-[12px]">none</span>
+            {/if}
+            {#each contributed as c (c.label)}
+              <span class="border-border inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5">
+                <span class="size-2 rounded-full" style="background: {c.color}"></span>
+                <span class="text-[12px]">{c.label}</span>
+              </span>
+            {/each}
+          </div>
+          <div class="bg-surface-sunken flex items-center gap-1 rounded-lg p-0.5">
+            {#each VIEWS as v (v.key)}
+              <button
+                type="button"
+                onclick={() => (view = v.key)}
+                class={cn(
+                  'rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-colors',
+                  view === v.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent'
+                )}>{v.label}</button
+              >
+            {/each}
+          </div>
+        </div>
+
         {#if error}
-          <div class="border-destructive/50 bg-destructive/10 text-destructive m-4 mb-0 rounded-lg border p-3 text-sm">
+          <div class="border-destructive/50 bg-destructive/10 text-destructive mx-7 mt-3 rounded-lg border p-3 text-sm">
             {error}
             <Button variant="ghost" size="sm" class="ml-2" onclick={() => (error = null)}>Dismiss</Button>
           </div>
         {/if}
 
-        <div class="bg-border grid min-h-0 flex-1 grid-cols-3 gap-px">
-          <!-- Candidate matches -->
-          <div class="bg-background overflow-y-auto px-[22px] py-[18px]">
-            <div class="text-muted-foreground mb-3 flex items-center justify-between text-[10.5px] font-semibold tracking-[0.06em] uppercase">
-              <span>Candidate matches</span>
-              <span class="font-mono">{candidates.length}</span>
-            </div>
-            {#if detailLoading[selectedTrack.id] && candidates.length === 0}
-              <div class="text-muted-foreground flex items-center gap-2 py-2 text-sm">
-                <Loader2 class="size-4 animate-spin" /> Loading candidates…
-              </div>
-            {/if}
-            {#if !detailLoading[selectedTrack.id] && candidates.length === 0}
-              <div class="bg-surface-sunken rounded-md px-3.5 py-4">
-                <div class="text-[12.5px] font-semibold">No fingerprint matches</div>
-                <div class="text-muted-foreground mt-1 text-[11.5px] leading-relaxed">
-                  AcoustID returned nothing. You can still enter metadata manually below or skip this file.
-                </div>
-              </div>
-            {/if}
-            {#each candidates as c (c.key)}
-              {@const picked = pickedKey[selectedTrack.id] === c.key}
-              <button
-                class={cn(
-                  'mb-1.5 flex w-full items-start gap-3 rounded-md border p-3 text-left transition-colors',
-                  picked ? 'border-primary bg-primary/10' : 'border-border bg-background hover:bg-accent'
-                )}
-                onclick={() => pickCandidate(c)}
-              >
-                <div class="w-14 shrink-0">
-                  <div class={cn('font-mono text-base font-semibold', picked ? 'text-primary' : '')}>
-                    {c.score != null ? c.score.toFixed(2) : '—'}
-                  </div>
-                  <div class="bg-border mt-1 h-[3px] overflow-hidden rounded-full">
-                    <div class="bg-primary h-full" style="width: {Math.round((c.score ?? 0) * 100)}%"></div>
-                  </div>
-                </div>
-                <div class="min-w-0 flex-1">
-                  <div class="text-[13px] font-medium">{c.title}</div>
-                  <div class="text-muted-foreground mt-0.5 text-[11.5px]">
-                    {c.artist} · <em class="text-foreground/70 italic">{c.album}</em> · {c.year}
-                  </div>
-                  <div class="text-muted-foreground mt-1 font-mono text-[10.5px]">{c.source}</div>
-                </div>
-                {#if picked}
-                  <div class="text-primary self-center font-mono text-[9px] font-bold tracking-[0.08em]">PICKED</div>
-                {/if}
-              </button>
-            {/each}
-            <button
-              class="border-border text-muted-foreground hover:text-primary hover:border-primary mt-1 flex w-full items-center gap-1.5 rounded-md border border-dashed px-3 py-2.5 text-xs"
-              type="button"
-              title="Manual search isn't available yet"
-            >
-              <Plus size={11} /> Search MusicBrainz manually
-            </button>
+        <!-- Scrollable content -->
+        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-7 py-5">
+          <CandidateGrid {candidates} pickedKey={pickedKey[selectedTrack.id] ?? null} loading={detailLoading[selectedTrack.id]} onpick={pickCandidate} />
+
+          {#if view === 'before'}
+            <BeforeAfterView
+              rows={beforeRows}
+              values={finalValues}
+              readonly={!selectedIsReview}
+              {fromFolder}
+              fileName={selectedTrack.fileName}
+              fromMeta={fmtFromMeta(selectedTrack)}
+              {destinationPath}
+              destFormat={destFormat(selectedTrack)}
+              onset={setField}
+              oncopy={copyEmbedded}
+            />
+          {:else if view === 'timeline'}
+            <TimelineView events={timeline} />
+          {:else}
+            <OriginMatrixView {matrix} />
+          {/if}
+        </div>
+
+        <!-- Action bar -->
+        <div class="border-border bg-background flex items-center gap-3 border-t px-7 py-3">
+          <div class="min-w-0 flex-1">
+            <div class="text-muted-foreground font-mono text-[10px] tracking-[0.08em]">WRITES TO</div>
+            <div class="text-muted-foreground truncate font-mono text-[11px]">{destinationPath}</div>
           </div>
-
-          <!-- Fingerprint + embedded tags -->
-          <div class="bg-background overflow-y-auto px-[22px] py-[18px]">
-            <div class="text-muted-foreground mb-3 flex items-center justify-between text-[10.5px] font-semibold tracking-[0.06em] uppercase">
-              <span>Audio fingerprint</span>
-              <span class="font-mono">Chromaprint v1.5</span>
-            </div>
-            <div class="bg-surface-sunken flex h-16 items-end gap-0.5 rounded p-1.5">
-              {#each fingerprintBars(selectedTrack.fingerprint) as h, i (i)}
-                <div
-                  class="from-primary flex-1 rounded-[1px] bg-gradient-to-t to-[oklch(0.7_0.1_200)]"
-                  style="height: {h}%"
-                ></div>
-              {/each}
-            </div>
-            {#if selectedTrack.fingerprint}
-              <div class="bg-surface-sunken text-muted-foreground mt-2 rounded p-2.5 font-mono text-[10px] leading-relaxed break-all">
-                {fingerprintHash(selectedTrack.fingerprint)}
-              </div>
-            {/if}
-
-            <div class="text-muted-foreground mt-4 mb-3 flex items-center justify-between text-[10.5px] font-semibold tracking-[0.06em] uppercase">
-              <span>Embedded tags</span>
-              <span class="font-mono">id3v2.4</span>
-            </div>
-            <div class="bg-surface-sunken rounded-md px-3 py-2">
-              {#each embeddedTags(selectedTrack) as tag (tag.key)}
-                <div class="grid grid-cols-[70px_1fr] items-baseline gap-2.5 py-0.5 text-xs">
-                  <span class="text-muted-foreground font-mono text-[10.5px]">{tag.key}</span>
-                  <span class="truncate">
-                    {#if tag.value}{tag.value}{:else}<em class="text-muted-foreground/60 text-[11px]">(empty)</em>{/if}
-                  </span>
-                </div>
-              {/each}
-            </div>
-
-            <Button variant="outline" class="mt-3.5 w-full gap-1.5" onclick={handlePlayPause}>
-              {#if isPlayingSelected}<Pause class="size-3.5" />Pause{:else}<Play class="size-3.5" />Preview audio{/if}
-            </Button>
-          </div>
-
-          <!-- Final metadata -->
-          <div class="bg-background overflow-y-auto px-[22px] py-[18px]">
-            <div class="text-muted-foreground mb-3 flex items-center justify-between text-[10.5px] font-semibold tracking-[0.06em] uppercase">
-              <span>Final metadata</span>
-              <span class="font-mono">writes to file</span>
-            </div>
-            <div class="flex flex-col gap-3">
-              {#each [['title', 'Title'], ['artist', 'Artist'], ['album', 'Album'], ['year', 'Year']] as [field, label] (field)}
-                <div class="flex flex-col gap-1">
-                  <Label class="text-[10.5px] font-semibold tracking-[0.04em]">{label}</Label>
-                  <Input
-                    value={fieldValue(field as keyof MetadataEdits)}
-                    type={field === 'year' ? 'number' : 'text'}
-                    placeholder={`enter ${label.toLowerCase()}`}
-                    oninput={(e) => setField(field as keyof MetadataEdits, (e.target as HTMLInputElement).value)}
-                    class="h-9"
-                  />
-                </div>
-              {/each}
-            </div>
-
-            <div class="border-primary bg-primary/10 mt-4 rounded-md border p-3">
-              <div class="text-primary text-[9.5px] font-semibold tracking-[0.08em]">DESTINATION</div>
-              <div class="mt-1 font-mono text-[11px] leading-relaxed break-all">
-                {buildDestinationPath(formFields, selectedTrack.extension)}
-              </div>
-            </div>
-
-            <div class="mt-4 flex flex-col gap-2 border-t pt-3">
-              <Input
-                bind:value={rejectReason}
-                placeholder="Reject reason (optional)"
-                class="h-8"
-              />
-              <div class="flex items-center gap-2">
-                <AlertDialog.Root>
-                  <AlertDialog.Trigger>
-                    {#snippet child({ props })}
-                      <Button {...props} variant="ghost" size="icon" class="text-destructive hover:text-destructive size-9 shrink-0" title="Delete">
-                        <Trash2 class="size-4" />
-                      </Button>
-                    {/snippet}
-                  </AlertDialog.Trigger>
-                  <AlertDialog.Content>
-                    <AlertDialog.Header>
-                      <AlertDialog.Title>Delete this track?</AlertDialog.Title>
-                      <AlertDialog.Description>
-                        This soft-deletes the track so it is excluded from review and library build. The
-                        original file is not deleted.
-                      </AlertDialog.Description>
-                    </AlertDialog.Header>
-                    <AlertDialog.Footer>
-                      <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
-                      <AlertDialog.Action onclick={handleDelete}>Delete</AlertDialog.Action>
-                    </AlertDialog.Footer>
-                  </AlertDialog.Content>
-                </AlertDialog.Root>
-                <Button variant="outline" onclick={handleReject} disabled={actionLoading} class="flex-1 gap-1.5">
-                  {#if actionLoading}<Loader2 class="size-3.5 animate-spin" />{:else}<X class="size-3.5" />{/if}
-                  Reject
+          <Button variant="outline" class="gap-1.5" onclick={handlePlayPause}>
+            {#if isPlayingSelected}<Pause class="size-3.5" />{:else}<Play class="size-3.5" />{/if}
+            Preview
+          </Button>
+          <AlertDialog.Root>
+            <AlertDialog.Trigger>
+              {#snippet child({ props })}
+                <Button {...props} variant="ghost" size="icon" class="text-destructive hover:text-destructive size-9 shrink-0" title="Delete">
+                  <Trash2 class="size-4" />
                 </Button>
-                <Button variant="outline" onclick={handleSkip} disabled={actionLoading} class="flex-1">Skip</Button>
-              </div>
-              <Button onclick={handleAccept} disabled={actionLoading} class="w-full gap-1.5">
-                {#if actionLoading}<Loader2 class="size-3.5 animate-spin" />{:else}<Check class="size-3.5" strokeWidth={2} />{/if}
-                Accept &amp; write
-              </Button>
-            </div>
-          </div>
+              {/snippet}
+            </AlertDialog.Trigger>
+            <AlertDialog.Content>
+              <AlertDialog.Header>
+                <AlertDialog.Title>Delete this track?</AlertDialog.Title>
+                <AlertDialog.Description>
+                  This soft-deletes the track so it is excluded from review and library build. The original file is
+                  not deleted.
+                </AlertDialog.Description>
+              </AlertDialog.Header>
+              <AlertDialog.Footer>
+                <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+                <AlertDialog.Action onclick={handleDelete}>Delete</AlertDialog.Action>
+              </AlertDialog.Footer>
+            </AlertDialog.Content>
+          </AlertDialog.Root>
+
+          {#if selectedIsReview}
+            <Button variant="outline" onclick={handleReject} disabled={actionLoading} class="gap-1.5">
+              {#if actionLoading}<Loader2 class="size-3.5 animate-spin" />{:else}<X class="size-3.5" />{/if}
+              Reject
+            </Button>
+            <Button variant="outline" onclick={handleSkip} disabled={actionLoading}>Skip for now</Button>
+            <Button onclick={handleAccept} disabled={actionLoading} class="gap-1.5">
+              {#if actionLoading}<Loader2 class="size-3.5 animate-spin" />{:else}<Check class="size-3.5" strokeWidth={2} />{/if}
+              Accept &amp; write
+            </Button>
+          {:else}
+            <Button onclick={handleReenrich} disabled={actionLoading} class="gap-1.5">
+              {#if actionLoading}<Loader2 class="size-3.5 animate-spin" />{:else}<RefreshCw class="size-3.5" />{/if}
+              Re-enrich
+            </Button>
+          {/if}
         </div>
       </div>
     {/if}
