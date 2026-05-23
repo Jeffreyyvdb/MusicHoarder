@@ -147,6 +147,11 @@ jobs:
           PREVIEW_SPOTIFY_CLIENT_SECRET: ${{ secrets.PREVIEW_SPOTIFY_CLIENT_SECRET }}
           PREVIEW_SPOTIFY_OAUTH_RELAY_URL: ${{ vars.PREVIEW_SPOTIFY_OAUTH_RELAY_URL }}
           PREVIEW_SPOTIFY_OAUTH_STATE_KEY: ${{ secrets.PREVIEW_SPOTIFY_OAUTH_STATE_KEY }}
+          # AI quality grading. Key empty → grading stays a no-op in the preview. Model/base URL
+          # default in the script (deepseek/deepseek-v4-flash on OpenRouter); override via repo vars.
+          PREVIEW_QUALITY_GRADING_API_KEY: ${{ secrets.PREVIEW_QUALITY_GRADING_API_KEY }}
+          PREVIEW_QUALITY_GRADING_MODEL: ${{ vars.PREVIEW_QUALITY_GRADING_MODEL }}
+          PREVIEW_QUALITY_GRADING_BASE_URL: ${{ vars.PREVIEW_QUALITY_GRADING_BASE_URL }}
           # Host path of the shared read-only sample library (repo variable). Empty → script default
           # applies. The per-PR destination is a managed named volume, not a host path.
           PREVIEW_SOURCE_DIR: ${{ vars.PREVIEW_SOURCE_DIR }}

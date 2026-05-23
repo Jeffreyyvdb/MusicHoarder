@@ -59,11 +59,12 @@ public abstract class CommunityTrackerEnrichmentProvider(
             return new ProviderRateLimited(ex.RetryAfter);
         }
 
+        logger.LogInformation(
+            "{Provider} searched '{Query}' for SongId={SongId} → {CandidateCount} candidate(s)",
+            Name, effectiveTitle, song.Id, candidates.Count);
+
         if (candidates.Count == 0)
-        {
-            logger.LogDebug("{Provider} search returned no songs for SongId={SongId}", Name, song.Id);
             return new ProviderNoMatch();
-        }
 
         var opts = Options;
         TrackerSong? best = null;

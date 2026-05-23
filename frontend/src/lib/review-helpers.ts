@@ -220,6 +220,32 @@ export function providerColor(name: string | null | undefined): string {
   }
 }
 
+/**
+ * A public search URL for a provider + query, so a reviewer can verify a result themselves.
+ * Returns null when the provider has no linkable web search (AcoustID is fingerprint-only;
+ * the YeTracker is a static local catalog).
+ */
+export function providerSearchUrl(provider: string | null | undefined, query: string | null | undefined): string | null {
+  if (!query || !query.trim()) return null;
+  const q = encodeURIComponent(query.trim());
+  switch (provider) {
+    case 'SpotifyAPI':
+      return `https://open.spotify.com/search/${q}`;
+    case 'AppleMusic':
+      return `https://music.apple.com/search?term=${q}`;
+    case 'Deezer':
+      return `https://www.deezer.com/search/${q}`;
+    case 'MusicBrainzWeb':
+      return `https://musicbrainz.org/search?query=${q}&type=recording&method=indexed`;
+    case 'Tracker':
+      return `https://juicewrldapi.com/juicewrld/songs/?format=json&search=${q}`;
+    case 'AcoustID':
+    case 'YeTracker':
+    default:
+      return null;
+  }
+}
+
 export interface ContributedProvider {
   label: string;
   color: string;
@@ -446,6 +472,10 @@ export interface TimelineEvent {
   tint: TimelineTint;
   provider: { label: string; color: string; pct: number | null } | null;
   description: string;
+  /** The term this provider searched, if any (shown as "searched …" with an optional link). */
+  searchQuery?: string | null;
+  /** Public search URL to verify the query on the provider, if linkable. */
+  searchUrl?: string | null;
   /** ms since the previous event. */
   deltaMs: number | null;
 }
@@ -514,7 +544,9 @@ export function buildTimeline(track: ApiSong, detail: EnrichmentDetail | null | 
       stage,
       tint,
       provider: { label, color: providerColor(a.candidate?.matchedBy ?? a.provider), pct },
-      description
+      description,
+      searchQuery: a.searchQuery ?? null,
+      searchUrl: providerSearchUrl(a.provider, a.searchQuery)
     });
   }
 

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MusicHoarder.Api.Persistence;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MusicHoarder.Api.Persistence.Migrations
 {
     [DbContext(typeof(MusicHoarderDbContext))]
-    partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260523171048_AddProviderAttemptSearchQuery")]
+    partial class AddProviderAttemptSearchQuery
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -673,71 +676,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.ToTable("SongProviderAttempts");
                 });
 
-            modelBuilder.Entity("MusicHoarder.Api.Persistence.SongQualityGrade", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("DestinationPathPreview")
-                        .HasColumnType("text");
-
-                    b.Property<int?>("DurationMs")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("EnrichmentStatusAtGrade")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<DateTime>("GradedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("InputFingerprint")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("IssuesJson")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Model")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<Guid>("OwnerUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("PromptVersion")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("RawResponseJson")
-                        .HasColumnType("text");
-
-                    b.Property<int>("Score")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("SongId")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Summary")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
-                    b.Property<int>("Verdict")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Verdict");
-
-                    b.HasIndex("OwnerUserId", "GradedAtUtc");
-
-                    b.HasIndex("SongId", "GradedAtUtc");
-
-                    b.ToTable("SongQualityGrades");
-                });
-
             modelBuilder.Entity("MusicHoarder.Api.Persistence.SpotifySettings", b =>
                 {
                     b.Property<int>("Id")
@@ -913,17 +851,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                 {
                     b.HasOne("MusicHoarder.Api.Persistence.SongMetadata", "Song")
                         .WithMany("ProviderAttempts")
-                        .HasForeignKey("SongId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Song");
-                });
-
-            modelBuilder.Entity("MusicHoarder.Api.Persistence.SongQualityGrade", b =>
-                {
-                    b.HasOne("MusicHoarder.Api.Persistence.SongMetadata", "Song")
-                        .WithMany()
                         .HasForeignKey("SongId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

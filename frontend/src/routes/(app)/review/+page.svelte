@@ -13,9 +13,11 @@
     Loader2,
     CheckCheck,
     Trash2,
-    AlertTriangle
+    AlertTriangle,
+    Sparkles,
+    Download
   } from '@lucide/svelte';
-  import type { ApiSong, EnrichmentDetail } from '$lib/api-client';
+  import type { ApiSong, EnrichmentDetail, SongQualityGradeView, QualityVerdict } from '$lib/api-client';
   import {
     fetchReviewQueue,
     fetchEnrichmentDetail,
@@ -23,8 +25,12 @@
     softDeleteSong,
     bulkApprove,
     enrichSong,
-    toPlayerSong
+    toPlayerSong,
+    fetchSongQualityGrade,
+    gradeSong,
+    downloadQualityExport
   } from '$lib/api-client';
+  import { toast } from 'svelte-sonner';
   import {
     reasonFor,
     candidatesFromDetail,
@@ -73,6 +79,8 @@
   let decisions = $state<Record<number, Decision>>({});
   let details = $state<Record<number, EnrichmentDetail>>({});
   let detailLoading = $state<Record<number, boolean>>({});
+  let songGrades = $state<Record<number, SongQualityGradeView>>({});
+  let gradeBusy = $state(false);
 
   let loading = $state(true);
   let actionLoading = $state(false);
@@ -145,6 +153,60 @@
 
   const selectedTrack = $derived(tracks.find((t) => t.id === selectedId) ?? null);
   const selectedDetail = $derived(selectedTrack ? (details[selectedTrack.id] ?? null) : null);
+  const selectedGrade = $derived(selectedTrack ? (songGrades[selectedTrack.id] ?? null) : null);
+
+  // Lazily load the AI quality grade for whichever track is selected.
+  $effect(() => {
+    const id = selectedId;
+    if (id == null || songGrades[id]) return;
+    void (async () => {
+      try {
+        songGrades = { ...songGrades, [id]: await fetchSongQualityGrade(id) };
+      } catch {
+        // grade is optional UI; ignore load failures
+      }
+    })();
+  });
+
+  function verdictTint(v: QualityVerdict | undefined): string {
+    switch (v) {
+      case 'Excellent':
+        return 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30';
+      case 'Good':
+        return 'bg-teal-500/15 text-teal-600 dark:text-teal-400 border-teal-500/30';
+      case 'Questionable':
+        return 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30';
+      case 'Wrong':
+        return 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30';
+      default:
+        return 'bg-muted text-muted-foreground border-border';
+    }
+  }
+
+  async function onGradeNow() {
+    const id = selectedId;
+    if (id == null) return;
+    gradeBusy = true;
+    try {
+      const r = await gradeSong(id);
+      songGrades = { ...songGrades, [id]: await fetchSongQualityGrade(id) };
+      toast.success(`Graded: ${r.verdict ?? r.outcome}${r.score != null ? ` (${r.score})` : ''}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Grading failed');
+    } finally {
+      gradeBusy = false;
+    }
+  }
+
+  async function onExportDossier() {
+    const id = selectedId;
+    if (id == null) return;
+    try {
+      await downloadQualityExport('song', { songId: id });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Export failed');
+    }
+  }
   const candidates = $derived(candidatesFromDetail(selectedDetail));
   const selectedIsReview = $derived(
     (selectedDetail?.enrichmentStatus ?? String(selectedTrack?.enrichmentStatus ?? '')).toLowerCase() ===
@@ -667,6 +729,40 @@
               <div class="text-primary mt-0.5 font-mono text-[15px] font-semibold">{decisionLabel(selectedDetail)}</div>
             </div>
           </div>
+        </div>
+
+        <!-- AI quality grade -->
+        <div class="border-border flex flex-wrap items-center gap-3 border-b px-7 py-2.5">
+          <span class="text-muted-foreground font-mono text-[10px] tracking-[0.08em]">AI QUALITY</span>
+          {#if selectedGrade?.graded}
+            <span class={cn('rounded-md border px-1.5 py-0.5 text-[10.5px] font-semibold', verdictTint(selectedGrade.verdict))}>
+              {selectedGrade.verdict} · {selectedGrade.score}
+            </span>
+            {#if selectedGrade.summary}
+              <span class="text-muted-foreground min-w-0 flex-1 truncate text-[12px]">{selectedGrade.summary}</span>
+            {/if}
+            {#each selectedGrade.issues ?? [] as issue (issue.code)}
+              <code class="bg-muted/60 rounded px-1 py-px font-mono text-[10px]">{issue.code}</code>
+            {/each}
+          {:else}
+            <span class="text-muted-foreground/70 flex-1 text-[12px]">Not graded yet.</span>
+          {/if}
+          <button
+            type="button"
+            disabled={gradeBusy}
+            onclick={onGradeNow}
+            class="border-border hover:bg-accent inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors disabled:opacity-50"
+          >
+            {#if gradeBusy}<Loader2 class="size-3 animate-spin" />{:else}<Sparkles class="size-3" />{/if}
+            {selectedGrade?.graded ? 'Re-grade' : 'Grade now'}
+          </button>
+          <button
+            type="button"
+            onclick={onExportDossier}
+            class="border-border hover:bg-accent inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors"
+          >
+            <Download class="size-3" /> Export dossier
+          </button>
         </div>
 
         <!-- Contributed + VIEW tabs -->

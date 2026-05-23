@@ -68,6 +68,15 @@ var publicUmamiWebsiteId = builder.AddParameter("public-umami-website-id", build
 var publicUmamiRecorderSrc = builder.AddParameter("public-umami-recorder-src", builder.Configuration["Parameters:public-umami-recorder-src"] ?? "")
     .WithDescription("Optional Umami session-recorder URL ending in /recorder.js. Blank disables the recorder.");
 
+// AI quality grading calls an OpenAI-compatible endpoint (OpenRouter by default). The key is the
+// only required secret; with it blank the grader degrades to a no-op like the other providers.
+var qualityGradingApiKey = builder.AddParameter("quality-grading-api-key", builder.Configuration["Parameters:quality-grading-api-key"] ?? "", secret: true)
+    .WithDescription("API key for the OpenAI-compatible quality-grading endpoint (e.g. an OpenRouter key). Optional — disables AI grading when blank.");
+var qualityGradingBaseUrl = builder.AddParameter("quality-grading-base-url", builder.Configuration["Parameters:quality-grading-base-url"] ?? "https://openrouter.ai/api/v1")
+    .WithDescription("Base URL of the OpenAI-compatible chat-completions API used for grading.");
+var qualityGradingModel = builder.AddParameter("quality-grading-model", builder.Configuration["Parameters:quality-grading-model"] ?? "openai/gpt-4o-mini")
+    .WithDescription("Cheap model id used for grading (provider namespace, e.g. openai/gpt-4o-mini or google/gemini-2.0-flash-001).");
+
 var ownerEmail = builder.AddParameter("owner-email")
     .WithDescription("Email of the owner (admin) account. Used by magic-link sign-in.");
 var demoUserEmail = builder.AddParameter("demo-user-email")
@@ -109,6 +118,9 @@ var api = builder.AddProject<Projects.MusicHoarder_Api>("api")
     .WithEnvironment("Auth__DataProtectionKeysPath", "/data/dpkeys")
     .WithEnvironment("Resend__ApiKey", resendApiKey)
     .WithEnvironment("Resend__FromAddress", resendFromAddress)
+    .WithEnvironment("QualityGrading__ApiKey", qualityGradingApiKey)
+    .WithEnvironment("QualityGrading__BaseUrl", qualityGradingBaseUrl)
+    .WithEnvironment("QualityGrading__Model", qualityGradingModel)
     .WithExternalHttpEndpoints()
     .WithUrl("/scalar", "Scalar");
 #pragma warning disable ASPIRECOMPUTE003

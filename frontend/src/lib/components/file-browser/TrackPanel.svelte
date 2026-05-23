@@ -3,6 +3,7 @@
   import {
     AlertCircle,
     CheckCircle2,
+    Download,
     FastForward,
     Loader2,
     Pause,
@@ -24,10 +25,15 @@
     toPlayerSong,
     mapEnrichmentStatus,
     resetSongEnrichment,
+    fetchSongQualityGrade,
+    gradeSong,
+    downloadQualityExport,
     type ApiSong,
     type AlbumSummary,
     type EnrichmentDetail,
-    type ProviderAttempt
+    type ProviderAttempt,
+    type SongQualityGradeView,
+    type QualityVerdict
   } from '$lib/api-client';
   import { fingerprintBars, fingerprintHash, providerAttemptRows } from '$lib/review-helpers';
   import { formatDuration, formatFileSize } from '$lib/formatters';
@@ -88,6 +94,52 @@
       return;
     void loadEnrichmentDetail(song.id);
   });
+
+  // AI quality grade for the Enrichment tab — loaded lazily, refetched per song.
+  let quality = $state<SongQualityGradeView | null>(null);
+  let qualityLoadedId = $state<number | null>(null);
+  let gradeBusy = $state(false);
+
+  $effect(() => {
+    if (activeTab !== 'enrichment' || qualityLoadedId === song.id) return;
+    const id = song.id;
+    void (async () => {
+      try {
+        quality = await fetchSongQualityGrade(id);
+        qualityLoadedId = id;
+      } catch {
+        // grade is optional UI; ignore load failures
+      }
+    })();
+  });
+
+  async function handleGradeNow() {
+    gradeBusy = true;
+    try {
+      await gradeSong(song.id);
+      quality = await fetchSongQualityGrade(song.id);
+      qualityLoadedId = song.id;
+    } catch {
+      // surfaced via the unchanged grade card; keep the panel quiet
+    } finally {
+      gradeBusy = false;
+    }
+  }
+
+  function verdictTint(v: QualityVerdict | undefined): string {
+    switch (v) {
+      case 'Excellent':
+        return 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30';
+      case 'Good':
+        return 'bg-teal-500/15 text-teal-600 dark:text-teal-400 border-teal-500/30';
+      case 'Questionable':
+        return 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30';
+      case 'Wrong':
+        return 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30';
+      default:
+        return 'bg-muted text-muted-foreground border-border';
+    }
+  }
 
   const trackN = $derived(song.trackNumber ?? trackIndex + 1);
   const totalTracks = $derived(album.trackCount);
@@ -500,6 +552,56 @@
               <p class="text-[12.5px] font-medium">{song.matchedBy}</p>
             </div>
           {/if}
+
+          <!-- AI quality grade -->
+          <div class="border-border rounded-lg border px-3 py-2.5">
+            <div class="mb-1.5 flex items-center justify-between gap-2">
+              <p class="text-muted-foreground text-[10px] tracking-wider uppercase">AI quality</p>
+              {#if quality?.graded}
+                <span class={cn('rounded-md border px-1.5 py-0.5 text-[10px] font-semibold', verdictTint(quality.verdict))}>
+                  {quality.verdict} · {quality.score}
+                </span>
+              {/if}
+            </div>
+            {#if quality?.graded}
+              {#if quality.summary}
+                <p class="text-muted-foreground mb-1.5 text-[11.5px] leading-snug">{quality.summary}</p>
+              {/if}
+              {#if quality.issues && quality.issues.length > 0}
+                <div class="mb-1.5 flex flex-wrap gap-1">
+                  {#each quality.issues as issue, i (i)}
+                    <code class="bg-muted/60 rounded px-1 py-px font-mono text-[10px]">{issue.code}</code>
+                  {/each}
+                </div>
+              {/if}
+              {#if quality.model || quality.gradedAtUtc}
+                <p class="text-muted-foreground/70 text-[10px]">
+                  {quality.model ?? ''}{#if quality.model && quality.gradedAtUtc} · {/if}{#if quality.gradedAtUtc}{new Date(quality.gradedAtUtc).toLocaleString()}{/if}
+                </p>
+              {/if}
+            {:else}
+              <p class="text-muted-foreground/70 text-[11.5px]">Not graded yet.</p>
+            {/if}
+            <div class="mt-2 flex gap-1.5">
+              <Button variant="outline" size="sm" class="h-7 flex-1 text-[11px]" disabled={gradeBusy} onclick={handleGradeNow}>
+                {#if gradeBusy}
+                  <Loader2 class="mr-1 size-3 animate-spin" />
+                {:else}
+                  <Sparkles class="mr-1 size-3" />
+                {/if}
+                {quality?.graded ? 'Re-grade' : 'Grade now'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                class="h-7 text-[11px]"
+                aria-label="Export dossier"
+                onclick={() => downloadQualityExport('song', { songId: song.id })}
+              >
+                <Download class="size-3" />
+              </Button>
+            </div>
+          </div>
 
           <div class="space-y-2">
             {#each enrichmentSources as src (src.key)}

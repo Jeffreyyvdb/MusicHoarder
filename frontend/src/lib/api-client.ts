@@ -1188,6 +1188,8 @@ export interface ProviderAttempt {
   retryAfterUtc?: string | null
   nextRetryAfterUtc?: string | null
   error?: string | null
+  /** The term the provider searched (resolved artist/title, or tracker title-only). Null for AcoustID. */
+  searchQuery?: string | null
   candidate: EnrichmentCandidate | null
 }
 
@@ -1235,4 +1237,161 @@ export interface EnrichmentDetail {
 
 export async function fetchEnrichmentDetail(songId: number): Promise<EnrichmentDetail> {
   return requestJson<EnrichmentDetail>(`/songs/${songId}/enrichment-detail`)
+}
+
+/* ------------------------------------------------------------------ *
+ * AI quality grading
+ * ------------------------------------------------------------------ */
+
+export type QualityVerdict = "Excellent" | "Good" | "Questionable" | "Wrong" | "Ungradeable"
+
+export interface QualityIssue {
+  code: string
+  severity: string
+  detail?: string | null
+}
+
+export interface QualityVerdictCounts {
+  excellent: number
+  good: number
+  questionable: number
+  wrong: number
+  ungradeable: number
+}
+
+export interface QualityRollupView {
+  graded: number
+  averageScore: number | null
+  verdicts: QualityVerdictCounts
+  topIssues: { code: string; count: number }[]
+}
+
+export interface QualityWorstOffender {
+  songId: number
+  fileName: string
+  sourcePath: string
+  artist?: string | null
+  title?: string | null
+  album?: string | null
+  score: number
+  verdict: QualityVerdict
+  summary?: string | null
+  issues: QualityIssue[]
+  enrichmentStatusAtGrade?: string | null
+  destinationPathPreview?: string | null
+  gradedAtUtc: string
+}
+
+export interface QualityDirectoryRollup {
+  directory: string
+  rollup: QualityRollupView
+  worstVerdict: QualityVerdict
+  wrongCount: number
+}
+
+export interface QualityOverview {
+  gradeableTotal: number
+  coverage: number
+  library: QualityRollupView
+  worstOffenders: QualityWorstOffender[]
+  directories: QualityDirectoryRollup[]
+}
+
+export interface SongQualityGradeView {
+  songId: number
+  graded: boolean
+  score?: number
+  verdict?: QualityVerdict
+  summary?: string | null
+  issues?: QualityIssue[]
+  model?: string | null
+  promptVersion?: number
+  enrichmentStatusAtGrade?: string | null
+  destinationPathPreview?: string | null
+  durationMs?: number | null
+  gradedAtUtc?: string
+  historyCount?: number
+}
+
+export interface QualityGradeResult {
+  songId: number
+  outcome: string
+  score?: number | null
+  verdict?: QualityVerdict | null
+  summary?: string | null
+  issues: QualityIssue[]
+  model?: string | null
+  destinationPathPreview?: string | null
+  durationMs?: number | null
+  gradedAtUtc?: string | null
+}
+
+export interface QualityProgress {
+  active: boolean
+  runId?: string
+  total?: number
+  processed?: number
+  graded?: number
+  skipped?: number
+  failed?: number
+  isComplete?: boolean
+  startedAt?: string
+  completedAt?: string | null
+}
+
+export async function fetchQualityOverview(): Promise<QualityOverview> {
+  return requestJson<QualityOverview>("/api/quality/overview")
+}
+
+export async function fetchSongQualityGrade(songId: number): Promise<SongQualityGradeView> {
+  return requestJson<SongQualityGradeView>(`/api/quality/songs/${songId}`)
+}
+
+export async function gradeSong(songId: number): Promise<QualityGradeResult> {
+  return requestJson<QualityGradeResult>(`/api/quality/songs/${songId}/grade`, { method: "POST" })
+}
+
+export async function gradeAllSongs(): Promise<{ enqueued: number }> {
+  return requestJson<{ enqueued: number }>("/api/quality/grade-all", { method: "POST" })
+}
+
+export async function gradeDirectory(path: string): Promise<{ enqueued: number; path: string }> {
+  return requestJson<{ enqueued: number; path: string }>("/api/quality/grade-directory", {
+    method: "POST",
+    body: JSON.stringify({ path }),
+  })
+}
+
+export async function fetchQualityProgress(): Promise<QualityProgress> {
+  return requestJson<QualityProgress>("/api/quality/progress")
+}
+
+/** Fetches an export bundle and triggers a browser download of the pretty-printed JSON. */
+export async function downloadQualityExport(
+  scope: "song" | "directory" | "library",
+  opts: { songId?: number; path?: string } = {},
+): Promise<void> {
+  let path: string
+  let filename: string
+  if (scope === "song") {
+    path = `/api/quality/export/songs/${opts.songId}`
+    filename = `quality-song-${opts.songId}.json`
+  } else if (scope === "directory") {
+    path = `/api/quality/export/directory?path=${encodeURIComponent(opts.path ?? "")}`
+    filename = `quality-directory.json`
+  } else {
+    path = `/api/quality/export/library`
+    filename = `quality-library.json`
+  }
+
+  const data = await requestJson<unknown>(path)
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }

@@ -8,6 +8,7 @@
     Copy,
     FileWarning,
     FolderTree,
+    Gauge,
     Inbox,
     Library,
     ListMusic,
@@ -38,6 +39,7 @@
     { href: '/library', label: 'Source folder', icon: Scan, badge: false },
     { href: '/spotify', label: 'Spotify', icon: Music2, badge: false },
     { href: '/review', label: 'Provenance & review', icon: FileWarning, badge: true },
+    { href: '/quality', label: 'AI quality', icon: Gauge, badge: false },
     { href: '/directories', label: 'Match by folder', icon: FolderTree, badge: false },
     { href: '/runs', label: 'Runs · history', icon: Clock, badge: false }
   ] as const;
