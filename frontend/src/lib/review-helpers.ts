@@ -32,8 +32,12 @@ export function providerLabel(name: string | null | undefined): string {
       return 'Spotify';
     case 'MusicBrainzWeb':
       return 'MusicBrainz';
-    case 'AcoustID':
+    case 'AppleMusic':
+      return 'Apple Music';
     case 'Tracker':
+      return 'Community Tracker';
+    case 'AcoustID':
+    case 'Deezer':
     default:
       return name ?? 'Unknown';
   }
