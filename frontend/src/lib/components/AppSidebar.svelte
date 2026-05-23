@@ -30,13 +30,13 @@
     type ApiSong,
     type ApiStats
   } from '$lib/api-client';
-  import { applySectionFilter } from '$lib/album-sections';
+  import { applySectionFilter, isBuiltSong } from '$lib/album-sections';
   import { playerStore } from '$lib/stores/player.svelte';
   import { cn } from '$lib/utils';
 
   // Ingest = where music comes from + the pipeline/ops surfaces that act on it.
   const ingestNav = [
-    { href: '/library', label: 'Source folder', icon: Scan, badge: false },
+    { href: '/library?view=source', label: 'Source folder', icon: Scan, badge: false },
     { href: '/spotify', label: 'Spotify', icon: Music2, badge: false },
     { href: '/review', label: 'Provenance & review', icon: FileWarning, badge: true },
     { href: '/quality', label: 'AI quality', icon: Gauge, badge: false },
@@ -92,6 +92,7 @@
 
   const pathname = $derived(page.url.pathname);
   const onLibrary = $derived(pathname === '/library' || pathname.startsWith('/library/'));
+  const isSourceView = $derived(page.url.searchParams.get('view') === 'source');
   const activeOrganize = $derived.by<'artist' | 'year' | null>(() => {
     if (pathname.startsWith('/artists') || page.url.searchParams.get('artist')) return 'artist';
     if (pathname.startsWith('/years') || page.url.searchParams.get('year')) return 'year';
@@ -115,7 +116,7 @@
 
   const counts = $derived.by(() => {
     if (songs.length === 0) {
-      return { lib: totalTracks, recent: null, dupes: null, missing: null, queue: queueRemaining };
+      return { lib: null, recent: null, dupes: null, missing: null, queue: queueRemaining };
     }
     const normalized = songs.map((s) => mapEnrichmentStatus(s.enrichmentStatus));
     const missing = normalized.filter((s) => s === 'needsreview' || s === 'failed').length;
@@ -136,8 +137,10 @@
     for (const v of titleSeen.values()) if (v > 1) dupes += v;
     // Recently added = count of albums shown in the recent section (capped).
     const recent = buildAlbumsFromSongs(applySectionFilter(songs, 'recent')).length;
+    // Library = clean (built) tracks only; the raw total lives under Ingest → Source folder.
+    const built = songs.filter(isBuiltSong).length;
     return {
-      lib: totalTracks ?? songs.length,
+      lib: built,
       recent,
       dupes,
       missing,
@@ -206,7 +209,7 @@
       <Sidebar.GroupLabel>Library</Sidebar.GroupLabel>
       <Sidebar.GroupContent class="px-2">
         {#each SECTIONS as section (section.id)}
-          {@const isActive = onLibrary && activeSection === section.id}
+          {@const isActive = onLibrary && !isSourceView && activeSection === section.id}
           {@const count = counts[section.id]}
           <a
             href={section.id === 'lib' ? '/library' : `/library?section=${section.id}`}
@@ -277,7 +280,10 @@
       <Sidebar.GroupLabel>Ingest</Sidebar.GroupLabel>
       <Sidebar.GroupContent class="px-2">
         {#each ingestNav as item (item.href)}
-          {@const isActive = item.href === '/library' ? onLibrary : pathname.startsWith(item.href)}
+          {@const isActive =
+            item.href === '/library?view=source'
+              ? onLibrary && isSourceView
+              : pathname.startsWith(item.href)}
           <a
             href={item.href}
             data-active={isActive || undefined}
@@ -289,6 +295,10 @@
               <span
                 class="rounded-full bg-amber-500 px-1.5 py-px font-mono text-[9.5px] font-semibold text-white group-data-[collapsible=icon]:hidden"
               >{reviewCount}</span>
+            {:else if item.href === '/library?view=source' && totalTracks != null}
+              <span class="text-muted-foreground font-mono text-[10.5px] group-data-[collapsible=icon]:hidden">
+                {fmtCount(totalTracks)}
+              </span>
             {/if}
           </a>
         {/each}

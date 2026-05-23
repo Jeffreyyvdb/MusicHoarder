@@ -93,6 +93,8 @@ export interface ApiSong {
   indexedAtUtc?: string | null
   /** When the track was copied/tagged into the destination library; null until built. */
   libraryBuiltAtUtc?: string | null
+  /** Pipeline build state: Pending/Copied/Tagged/Done/Failed (number or string). */
+  libraryBuildStatus?: string | number | null
   matchedBy?: string | null
   matchConfidence?: number | null
   matchWarnings?: string[] | null

@@ -8,8 +8,14 @@
   import TrackPanel from '$lib/components/file-browser/TrackPanel.svelte';
   import MobileLibrary from '$lib/components/mobile/MobileLibrary.svelte';
   import MobileAlbum from '$lib/components/mobile/MobileAlbum.svelte';
-  import { buildAlbumsFromSongs, fetchSongs, type ApiSong } from '$lib/api-client';
-  import { applySectionFilter, isSectionId } from '$lib/album-sections';
+  import {
+    buildAlbumsFromSongs,
+    fetchSongs,
+    openProgressStream,
+    type ApiSong,
+    type ProgressSnapshot
+  } from '$lib/api-client';
+  import { applySectionFilter, isBuiltSong, isSectionId } from '$lib/album-sections';
   import {
     parseBrowseFilter,
     applyBrowseFilter,
@@ -33,28 +39,91 @@
   const section = $derived(isSectionId(sectionParam) ? sectionParam : 'lib');
   const trackParam = $derived(page.url.searchParams.get('track'));
   const songParam = $derived(page.url.searchParams.get('song'));
+  const isSourceView = $derived(page.url.searchParams.get('view') === 'source');
 
-  async function loadSongs() {
+  // `silent` keeps the current grid on screen during background refreshes (no loading flash).
+  async function loadSongs(opts?: { silent?: boolean }) {
     try {
-      isLoading = true;
+      if (!opts?.silent) isLoading = true;
       const loaded = await fetchSongs();
       if (!isMountedRef) return;
       songs = loaded;
       apiError = null;
     } catch (err) {
       if (!isMountedRef) return;
-      songs = [];
-      apiError = err instanceof Error ? err.message : 'Unknown API error';
+      if (!opts?.silent) {
+        songs = [];
+        apiError = err instanceof Error ? err.message : 'Unknown API error';
+      }
     } finally {
-      if (isMountedRef) isLoading = false;
+      if (isMountedRef && !opts?.silent) isLoading = false;
     }
+  }
+
+  // ── Live refresh ────────────────────────────────────────────────────────────
+  // The grid is a one-shot snapshot, so albums that finish building while the page
+  // is open never appear without a manual reload. Subscribe to the pipeline progress
+  // stream and re-fetch (debounced) whenever the built count changes, plus once when
+  // the run completes — mirroring the directory view's live behavior.
+  let liveCleanup: (() => void) | null = null;
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastBuilt = -1;
+  let sawActive = false;
+
+  function scheduleSongRefresh() {
+    if (refreshTimer) return; // debounce: at most one refresh per window
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null;
+      void loadSongs({ silent: true });
+    }, 3000);
+  }
+
+  function stopLive() {
+    if (refreshTimer) {
+      clearTimeout(refreshTimer);
+      refreshTimer = null;
+    }
+    if (liveCleanup) {
+      liveCleanup();
+      liveCleanup = null;
+    }
+  }
+
+  function startLive() {
+    if (liveCleanup) return;
+    lastBuilt = -1;
+    sawActive = false;
+    liveCleanup = openProgressStream(
+      (snap: ProgressSnapshot) => {
+        // A growing built count means new tracks landed in the destination → refresh.
+        if (snap.built !== lastBuilt) {
+          lastBuilt = snap.built;
+          sawActive = true;
+          scheduleSongRefresh();
+        }
+        if (snap.isComplete && sawActive) {
+          sawActive = false;
+          scheduleSongRefresh();
+        }
+      },
+      () => {
+        // Server closes the stream when the job ends — finalize with one last refresh.
+        liveCleanup = null;
+        if (sawActive) {
+          sawActive = false;
+          void loadSongs({ silent: true });
+        }
+      }
+    );
   }
 
   $effect(() => {
     isMountedRef = true;
     void loadSongs();
+    startLive();
     return () => {
       isMountedRef = false;
+      stopLive();
     };
   });
 
@@ -70,7 +139,15 @@
       : null
   );
 
-  const sectionFilteredSongs = $derived(applySectionFilter(browseFilteredSongs, section));
+  // Default Library shows only clean (built) albums; the Ingest "Source folder" view
+  // (?view=source) shows the raw scan. Diagnostic sections (recent/dupes/missing/queue)
+  // always operate on the full set so problem tracks still surface.
+  const scopedSongs = $derived(
+    !isSourceView && section === 'lib'
+      ? browseFilteredSongs.filter(isBuiltSong)
+      : browseFilteredSongs
+  );
+  const sectionFilteredSongs = $derived(applySectionFilter(scopedSongs, section));
   const allAlbumsForLookup = $derived(buildAlbumsFromSongs(songs));
   const filteredAlbums = $derived(buildAlbumsFromSongs(sectionFilteredSongs));
   const openAlbum = $derived(
@@ -139,7 +216,7 @@
     {#if openAlbum && albumKey}
       <MobileAlbum {songs} {albumKey} />
     {:else}
-      <MobileLibrary songs={browseFilteredSongs} {section} {searchQuery} {isLoading} />
+      <MobileLibrary songs={scopedSongs} {section} {searchQuery} {isLoading} {isSourceView} />
     {/if}
   {:else if !trackPanelOpen}
     {#if openAlbum && albumKey}
@@ -150,6 +227,7 @@
         {section}
         {searchQuery}
         {isLoading}
+        {isSourceView}
         browseFilter={galleryBrowseFilter}
       />
     {/if}
@@ -164,6 +242,7 @@
         {section}
         {searchQuery}
         {isLoading}
+        {isSourceView}
         browseFilter={galleryBrowseFilter}
       />
         {/if}
