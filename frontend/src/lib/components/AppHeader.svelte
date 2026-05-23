@@ -84,7 +84,7 @@
     if (onRuns) return [{ label: 'MusicHoarder', href: '/library' }, { label: 'Runs', href: null }];
     if (pathname.startsWith('/artists')) return [{ label: 'MusicHoarder', href: '/library' }, { label: 'Artists', href: null }];
     if (pathname.startsWith('/spotify')) return [{ label: 'MusicHoarder', href: '/library' }, { label: 'Spotify', href: null }];
-    if (pathname.startsWith('/review')) return [{ label: 'MusicHoarder', href: '/library' }, { label: 'Review', href: null }];
+    if (pathname.startsWith('/review')) return [{ label: 'MusicHoarder', href: '/library' }, { label: 'Provenance & review', href: null }];
     if (pathname.startsWith('/settings')) return [{ label: 'MusicHoarder', href: '/library' }, { label: 'Settings', href: null }];
     return [{ label: 'MusicHoarder', href: '/library' }];
   });
