@@ -47,7 +47,7 @@ public class QualityGradingOptions
     public int TimeoutSeconds { get; set; } = 60;
 
     [Range(64, 4096)]
-    public int MaxOutputTokens { get; set; } = 700;
+    public int MaxOutputTokens { get; set; } = 2048;
 
     [Range(0.0, 2.0)]
     public double Temperature { get; set; } = 0.0;
