@@ -19,10 +19,14 @@
   let busy = $state(false);
   let polling = $state(false);
   let gradingId = $state<number | null>(null);
+  // Assume configured until the API tells us otherwise, so the button doesn't flash disabled.
+  let gradingConfigured = $state(true);
 
   async function load() {
     try {
-      overview = await fetchQualityOverview();
+      const [ov, progress] = await Promise.all([fetchQualityOverview(), fetchQualityProgress()]);
+      overview = ov;
+      gradingConfigured = progress.aiGradingConfigured ?? true;
       error = null;
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load quality overview';
@@ -72,6 +76,7 @@
       // Poll the grading run until it drains, then refresh the rollups.
       for (let i = 0; i < 600; i++) {
         const p = await fetchQualityProgress();
+        gradingConfigured = p.aiGradingConfigured ?? true;
         if (!p.active) break;
         await new Promise((r) => setTimeout(r, 2000));
       }
@@ -145,8 +150,9 @@
     </div>
     <button
       type="button"
-      disabled={busy || polling}
+      disabled={busy || polling || !gradingConfigured}
       onclick={onGradeAll}
+      title={gradingConfigured ? undefined : 'AI grading is not configured on the server'}
       class="bg-primary text-primary-foreground inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
     >
       {#if busy || polling}
@@ -174,6 +180,13 @@
   </header>
 
   <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+    {#if !gradingConfigured}
+      <div class="mb-4 rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[12.5px] text-amber-700 dark:text-amber-400">
+        AI grading is not configured on the server, so grading does nothing. Set
+        <code class="font-mono text-[12px]">QUALITY_GRADING_API_KEY</code> (and optionally
+        <code class="font-mono text-[12px]">QUALITY_GRADING_MODEL</code>) in the deployment environment and redeploy.
+      </div>
+    {/if}
     {#if error}
       <div class="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-[13px] text-red-600 dark:text-red-400">
         {error}
