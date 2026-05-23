@@ -37,6 +37,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<SongMetadata> Songs { get; set; } = null!;
     public DbSet<SongProviderAttempt> SongProviderAttempts { get; set; } = null!;
     public DbSet<SongMetadataChange> SongMetadataChanges { get; set; } = null!;
+    public DbSet<SongQualityGrade> SongQualityGrades { get; set; } = null!;
     public DbSet<SpotifySettings> SpotifySettings { get; set; } = null!;
     public DbSet<SpotifyTrackLibraryMatch> SpotifyTrackLibraryMatches { get; set; } = null!;
     public DbSet<RuntimeSettings> RuntimeSettings { get; set; } = null!;
@@ -112,6 +113,24 @@ public class MusicHoarderDbContext : DbContext
             // Mirror Song's tenancy filter so this required dependent is filtered out exactly when
             // its principal would be (otherwise EF warns about the required relationship).
             entity.HasQueryFilter(e => !hasUser || e.Song.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<SongQualityGrade>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // Latest-grade-per-song lookups and rollups order by GradedAtUtc within a song.
+            entity.HasIndex(e => new { e.SongId, e.GradedAtUtc });
+            entity.HasIndex(e => new { e.OwnerUserId, e.GradedAtUtc });
+            entity.HasIndex(e => e.Verdict);
+
+            entity.HasOne(e => e.Song)
+                .WithMany()
+                .HasForeignKey(e => e.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Mirror Song's tenancy filter so this dependent is filtered exactly when its principal
+            // would be. Background services bypass via .IgnoreQueryFilters().
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
         });
 
         modelBuilder.Entity<SpotifySettings>(entity =>
