@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Quality;
 
@@ -250,10 +252,7 @@ public static class QualityEndpoints
         var result = await grader.GradeSongAsync(id, force: true, ct);
 
         if (result.Outcome == GradeOutcome.NotConfigured)
-            return Results.Problem(
-                title: "AI grading not configured",
-                detail: "Set QualityGrading:ApiKey (and optionally BaseUrl/Model) to enable grading.",
-                statusCode: StatusCodes.Status503ServiceUnavailable);
+            return NotConfiguredProblem();
 
         if (result.Outcome is GradeOutcome.Failed)
             return Results.Problem(title: "Grading failed", detail: result.Error, statusCode: 502);
@@ -274,8 +273,13 @@ public static class QualityEndpoints
         });
     }
 
-    private static async Task<IResult> GradeAll(MusicHoarderDbContext db, QualityGradingChannel channel, CancellationToken ct)
+    private static async Task<IResult> GradeAll(
+        MusicHoarderDbContext db, QualityGradingChannel channel,
+        IOptionsMonitor<QualityGradingOptions> options, CancellationToken ct)
     {
+        if (!options.CurrentValue.IsConfigured)
+            return NotConfiguredProblem();
+
         var ids = await db.Songs
             .Where(s => s.DeletedAtUtc == null && !s.IsDuplicate && GradeableStatuses.Contains(s.EnrichmentStatus))
             .Select(s => s.Id)
@@ -288,8 +292,12 @@ public static class QualityEndpoints
     private record GradeDirectoryRequest(string Path);
 
     private static async Task<IResult> GradeDirectory(
-        GradeDirectoryRequest request, MusicHoarderDbContext db, QualityGradingChannel channel, CancellationToken ct)
+        GradeDirectoryRequest request, MusicHoarderDbContext db, QualityGradingChannel channel,
+        IOptionsMonitor<QualityGradingOptions> options, CancellationToken ct)
     {
+        if (!options.CurrentValue.IsConfigured)
+            return NotConfiguredProblem();
+
         if (string.IsNullOrWhiteSpace(request.Path))
             return Results.BadRequest(new { message = "path is required." });
 
@@ -304,15 +312,18 @@ public static class QualityEndpoints
         return Results.Ok(new { enqueued = ids.Count, path = request.Path });
     }
 
-    private static IResult GetProgress(QualityGradingProgressTracker tracker)
+    private static IResult GetProgress(
+        QualityGradingProgressTracker tracker, IOptionsMonitor<QualityGradingOptions> options)
     {
+        var configured = options.CurrentValue.IsConfigured;
         var state = tracker.GetCurrent();
         if (state is null)
-            return Results.Ok(new { active = false });
+            return Results.Ok(new { active = false, aiGradingConfigured = configured });
 
         return Results.Ok(new
         {
             active = !state.IsComplete,
+            aiGradingConfigured = configured,
             runId = state.RunId,
             total = state.Total,
             processed = state.Processed,
@@ -324,6 +335,12 @@ public static class QualityEndpoints
             completedAt = state.CompletedAt,
         });
     }
+
+    private static IResult NotConfiguredProblem() =>
+        Results.Problem(
+            title: "AI grading not configured",
+            detail: "Set QualityGrading:ApiKey (and optionally BaseUrl/Model) to enable grading.",
+            statusCode: StatusCodes.Status503ServiceUnavailable);
 
     // --- Export ---
 

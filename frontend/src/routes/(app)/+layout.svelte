@@ -7,8 +7,10 @@
   import MobileTabBar from '$lib/components/mobile/MobileTabBar.svelte';
   import LibraryOfflineBanner from '$lib/components/LibraryOfflineBanner.svelte';
   import ImportPipelineDrawer from '$lib/components/pipeline/ImportPipelineDrawer.svelte';
+  import CommandPalette from '$lib/components/CommandPalette.svelte';
   import { playerStore, initPlayer } from '$lib/stores/player.svelte';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
+  import { commandPalette } from '$lib/stores/command-palette.svelte';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import { cn } from '$lib/utils';
 
@@ -16,6 +18,18 @@
   const { children }: Props = $props();
 
   const isMobile = new IsMobile();
+
+  // Global Cmd/Ctrl+K opens the "search everywhere" command palette.
+  $effect(() => {
+    function onKeydown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        commandPalette.toggle();
+      }
+    }
+    window.addEventListener('keydown', onKeydown);
+    return () => window.removeEventListener('keydown', onKeydown);
+  });
 
   // Subscribe to the pipeline progress stream while the layout is mounted so
   // the AppHeader pill can pulse during running jobs even with the drawer closed.
@@ -61,6 +75,8 @@
      TrackPanel is mounted. Its audio element is owned by the store (not the
      DOM), so playback survives re-renders, navigation, and resize. -->
 <MiniPlayer mobileInset={isMobile.current} />
+
+<CommandPalette />
 
 {#if drawerOpen && !isMobile.current}
   <ImportPipelineDrawer />

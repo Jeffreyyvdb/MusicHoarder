@@ -1337,6 +1337,7 @@ export interface QualityGradeResult {
 
 export interface QualityProgress {
   active: boolean
+  aiGradingConfigured?: boolean
   runId?: string
   total?: number
   processed?: number

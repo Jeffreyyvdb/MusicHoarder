@@ -59,7 +59,9 @@
   import OriginMatrixView from '$lib/components/review/OriginMatrixView.svelte';
   import { cn } from '$lib/utils';
 
-  const isMobile = new IsMobile();
+  // Below this width the fixed 340px queue + detail two-pane is too cramped;
+  // fall back to the single-column mobile review layout.
+  const isMobile = new IsMobile(1100);
 
   type MetadataEdits = Partial<Record<EditableFieldKey, string>>;
   type Decision = 'accept' | 'reject' | 'skip';
@@ -489,7 +491,9 @@
 </script>
 
 {#if isMobile.current}
-  <MobileReview />
+  <div class="mx-auto h-full w-full max-w-2xl">
+    <MobileReview />
+  </div>
 {:else if loading}
   <main class="flex flex-1 items-center justify-center p-4">
     <div class="flex flex-col items-center gap-4">

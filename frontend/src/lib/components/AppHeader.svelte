@@ -33,6 +33,7 @@
   } from '$lib/api-client';
   import { breadcrumbStore } from '$lib/stores/breadcrumbs.svelte';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
+  import { commandPalette } from '$lib/stores/command-palette.svelte';
   import { cn } from '$lib/utils';
 
   type LibraryLayout = 'grid' | 'list' | 'col';
@@ -307,9 +308,15 @@
         class="h-auto flex-1 border-0 bg-transparent p-0 text-xs shadow-none focus-visible:ring-0"
         aria-label="Search library"
       />
-      <span class="text-muted-foreground bg-background hidden rounded border px-1.5 py-0.5 font-mono text-[10px] sm:inline">
+      <button
+        type="button"
+        onclick={() => commandPalette.setOpen(true)}
+        title="Search everywhere"
+        aria-label="Open search everywhere"
+        class="text-muted-foreground bg-background hover:text-foreground hidden cursor-pointer rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors sm:inline"
+      >
         ⌘K
-      </span>
+      </button>
     </div>
   </div>
 

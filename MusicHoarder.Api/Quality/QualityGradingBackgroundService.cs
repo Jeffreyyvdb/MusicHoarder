@@ -24,6 +24,7 @@ public class QualityGradingBackgroundService(
 
     private readonly SemaphoreSlim _rateLock = new(1, 1);
     private DateTime _nextSlotUtc = DateTime.MinValue;
+    private int _warnedNotConfigured;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -129,10 +130,18 @@ public class QualityGradingBackgroundService(
                 switch (result.Outcome)
                 {
                     case GradeOutcome.Graded:
+                        Interlocked.Exchange(ref _warnedNotConfigured, 0);
                         progressTracker.IncrementGraded();
                         break;
-                    case GradeOutcome.Skipped:
                     case GradeOutcome.NotConfigured:
+                        // Throttle: warn once per "not configured" streak so logs explain the no-op
+                        // (the queue can hold hundreds of items) without flooding.
+                        if (Interlocked.Exchange(ref _warnedNotConfigured, 1) == 0)
+                            logger.LogWarning(
+                                "Quality grading is enqueued but not configured — skipping. Set QualityGrading:ApiKey (env QualityGrading__ApiKey) to enable grading.");
+                        progressTracker.IncrementSkipped();
+                        break;
+                    case GradeOutcome.Skipped:
                     case GradeOutcome.NotFound:
                         progressTracker.IncrementSkipped();
                         break;
