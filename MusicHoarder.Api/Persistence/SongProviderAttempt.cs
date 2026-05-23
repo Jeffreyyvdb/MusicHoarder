@@ -10,6 +10,7 @@ public enum EnrichmentProvider
     Tracker = 3,
     Deezer = 4,
     AppleMusic = 5,
+    YeTracker = 6,
 }
 
 public enum ProviderAttemptStatus

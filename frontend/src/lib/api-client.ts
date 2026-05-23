@@ -473,6 +473,7 @@ export interface ApiRun {
   endedAtUtc?: string | null
   sourcePath: string
   destinationPath: string
+  triggerLabel?: string | null
   tracksDiscovered: number
   tracksProcessed: number
   tracksFingerprinted: number

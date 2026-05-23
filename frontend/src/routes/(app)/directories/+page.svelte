@@ -1,8 +1,15 @@
 <script lang="ts">
-  import { fetchDirectoryMatchTree, type DirectoryMatchNode } from '$lib/api-client';
+  import {
+    fetchDirectoryMatchTree,
+    openProgressStream,
+    type DirectoryMatchNode,
+    type ProgressSnapshot
+  } from '$lib/api-client';
   import DirectoryTreeRow from '$lib/components/directories/DirectoryTreeRow.svelte';
   import { cn } from '$lib/utils';
   import { FolderTree, Loader2, AlertTriangle } from '@lucide/svelte';
+  import { toast } from 'svelte-sonner';
+  import { SvelteSet } from 'svelte/reactivity';
 
   let tree = $state<DirectoryMatchNode | null>(null);
   let isLoading = $state(true);
@@ -12,6 +19,89 @@
   type SortId = 'match' | 'name' | 'size';
   let filter = $state<FilterId>('all');
   let sort = $state<SortId>('match');
+
+  // ── Live enrichment ─────────────────────────────────────────────────────────
+  // Folders the user just kicked off enrichment for (drives a persistent "Enriching…"
+  // state on the row). While the enrich step is running we re-fetch the tree on a
+  // debounced cadence so folder match-bars move; `refreshToken` cascades to expanded
+  // rows so their per-file pills update too.
+  const enrichingPaths = new SvelteSet<string>();
+  let refreshToken = $state(0);
+  let liveCleanup: (() => void) | null = null;
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  let sawRunning = false;
+
+  function lastSegment(path: string): string {
+    const t = path.replace(/\\/g, '/').replace(/\/+$/, '');
+    const i = t.lastIndexOf('/');
+    const name = i >= 0 ? t.slice(i + 1) : t;
+    return name || path;
+  }
+
+  async function refreshTree() {
+    try {
+      tree = await fetchDirectoryMatchTree();
+      refreshToken += 1;
+    } catch {
+      // keep last good tree on transient failures
+    }
+  }
+
+  function scheduleRefresh() {
+    if (refreshTimer) return; // debounce: at most one refresh per window
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null;
+      void refreshTree();
+    }, 3000);
+  }
+
+  function stopLive() {
+    if (refreshTimer) {
+      clearTimeout(refreshTimer);
+      refreshTimer = null;
+    }
+    if (liveCleanup) {
+      liveCleanup();
+      liveCleanup = null;
+    }
+  }
+
+  async function finishLive() {
+    stopLive();
+    enrichingPaths.clear();
+    sawRunning = false;
+    await refreshTree();
+  }
+
+  function startLive() {
+    if (liveCleanup) return;
+    sawRunning = false;
+    liveCleanup = openProgressStream(
+      (snap: ProgressSnapshot) => {
+        if (snap.enrich?.status === 'Running') {
+          sawRunning = true;
+          scheduleRefresh();
+        } else if (sawRunning || enrichingPaths.size > 0) {
+          // Enrich finished (or was already done before we connected) — finalize once.
+          void finishLive();
+        }
+      },
+      () => {
+        // Server closes the stream when the job completes; finalize rather than reconnect.
+        liveCleanup = null;
+        void finishLive();
+      }
+    );
+  }
+
+  function handleEnriched(path: string, count: number) {
+    enrichingPaths.add(path);
+    toast.success('Enrichment started', {
+      description: `${count.toLocaleString()} ${count === 1 ? 'track' : 'tracks'} under ${lastSegment(path)} queued`
+    });
+    startLive();
+    scheduleRefresh();
+  }
 
   $effect(() => {
     let cancelled = false;
@@ -27,6 +117,7 @@
     })();
     return () => {
       cancelled = true;
+      stopLive();
     };
   });
 
@@ -176,7 +267,13 @@
       </div>
       {#if visibleChildren.length > 0}
         {#each visibleChildren as child (child.path)}
-          <DirectoryTreeRow node={child} depth={0} />
+          <DirectoryTreeRow
+            node={child}
+            depth={0}
+            {enrichingPaths}
+            {refreshToken}
+            onEnriched={handleEnriched}
+          />
         {/each}
       {:else}
         <div class="text-muted-foreground flex h-32 items-center justify-center text-sm">

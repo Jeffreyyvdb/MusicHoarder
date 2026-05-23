@@ -180,24 +180,31 @@ public static class ConsensusEvaluator
         IReadOnlySet<EnrichmentProvider> enabledProviders,
         double corroborationFloor)
     {
-        if (!enabledProviders.Contains(EnrichmentProvider.Tracker))
-            return null;
+        // Community trackers are single-artist catalogs gated by disjoint allowlists, so at most
+        // one of them has a matched attempt for any given song. Prefer whichever fired.
+        foreach (var trackerProvider in TrackerProviders)
+        {
+            if (!enabledProviders.Contains(trackerProvider))
+                continue;
 
-        var attempt = attempts.FirstOrDefault(a =>
-            a.Provider == EnrichmentProvider.Tracker
-            && a.Status == ProviderAttemptStatus.Matched
-            && a.MatchedDataJson is not null);
-        if (attempt is null)
-            return null;
+            var attempt = attempts.FirstOrDefault(a =>
+                a.Provider == trackerProvider
+                && a.Status == ProviderAttemptStatus.Matched
+                && a.MatchedDataJson is not null);
+            if (attempt is null)
+                continue;
 
-        var result = TryDeserialize(attempt.MatchedDataJson!);
-        if (result is null
-            || result.RecommendedStatus != EnrichmentStatus.Matched
-            || result.MatchConfidence < corroborationFloor)
-            return null;
+            var result = TryDeserialize(attempt.MatchedDataJson!);
+            if (result is null
+                || result.RecommendedStatus != EnrichmentStatus.Matched
+                || result.MatchConfidence < corroborationFloor)
+                continue;
 
-        return new ConsensusResult(
-            EnrichmentStatus.Matched, result, result.MatchConfidence, [EnrichmentProvider.Tracker]);
+            return new ConsensusResult(
+                EnrichmentStatus.Matched, result, result.MatchConfidence, [trackerProvider]);
+        }
+
+        return null;
     }
 
     private static List<Candidate>? BuildBestCluster(List<Candidate> strong, IdentityMatchOptions opts)
@@ -236,6 +243,10 @@ public static class ConsensusEvaluator
             inverse *= 1.0 - Math.Clamp(c.Confidence, 0, 1);
         return Math.Min(0.99, 1.0 - inverse);
     }
+
+    /// <summary>Community trackers, in preference order, that win outright on a confident match.</summary>
+    private static readonly EnrichmentProvider[] TrackerProviders =
+        [EnrichmentProvider.Tracker, EnrichmentProvider.YeTracker];
 
     public static bool IsNameBased(EnrichmentProvider provider)
         => provider is EnrichmentProvider.SpotifyAPI

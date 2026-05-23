@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -18,6 +19,7 @@ namespace MusicHoarder.Api.Jobs;
 public class IngestRunMonitor(
     IServiceScopeFactory scopeFactory,
     JobManager jobManager,
+    EnrichmentPipelineChannel enrichmentChannel,
     IOwnerLookupService ownerLookup,
     IOptions<MusicEnricherOptions> options,
     ILogger<IngestRunMonitor> logger) : BackgroundService
@@ -110,6 +112,7 @@ public class IngestRunMonitor(
             Status = IngestRunStatus.Running,
             SourcePath = opts.SourceDirectory ?? string.Empty,
             DestinationPath = opts.DestinationDirectory ?? string.Empty,
+            TriggerLabel = enrichmentChannel.CurrentLabel,
         };
 
         using var scope = scopeFactory.CreateScope();
@@ -132,6 +135,11 @@ public class IngestRunMonitor(
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(r => r.Id == runId, ct);
         if (run is null) return;
+
+        // The enrich cycle may start a tick after the run opened (e.g. a scan that later feeds
+        // enrichment) — adopt its label once it appears so the run carries a meaningful trigger.
+        if (run.TriggerLabel is null && enrichmentChannel.CurrentLabel is { } label)
+            run.TriggerLabel = label;
 
         var active = db.Songs
             .IgnoreQueryFilters()

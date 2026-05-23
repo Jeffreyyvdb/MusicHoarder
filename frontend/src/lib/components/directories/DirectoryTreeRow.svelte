@@ -5,7 +5,7 @@
     type DirectoryMatchNode,
     type SourceFile
   } from '$lib/api-client';
-  import { AlertCircle, CheckCircle2, ChevronRight, Loader2, Sparkles } from '@lucide/svelte';
+  import { AlertCircle, ChevronRight, Loader2, Sparkles } from '@lucide/svelte';
   import { cn } from '$lib/utils';
   import { Button } from '$lib/components/ui/button';
   import Self from './DirectoryTreeRow.svelte';
@@ -13,10 +13,16 @@
 
   let {
     node,
-    depth = 0
+    depth = 0,
+    enrichingPaths,
+    refreshToken = 0,
+    onEnriched
   }: {
     node: DirectoryMatchNode;
     depth?: number;
+    enrichingPaths?: Set<string>;
+    refreshToken?: number;
+    onEnriched?: (path: string, count: number) => void;
   } = $props();
 
   let expanded = $state(false);
@@ -28,8 +34,19 @@
   let files = $state<SourceFile[] | null>(null);
   let filesState = $state<'idle' | 'loading' | 'error'>('idle');
 
-  let enrichState = $state<'idle' | 'loading' | 'success' | 'error'>('idle');
-  let enrichCount = $state(0);
+  let enrichState = $state<'idle' | 'loading' | 'error'>('idle');
+
+  // Persistent "Enriching…" while the request is in flight OR this folder's enrich job is live.
+  const isEnriching = $derived(enrichState === 'loading' || (enrichingPaths?.has(node.path) ?? false));
+
+  // While enrichment runs the parent bumps `refreshToken`; silently refresh this folder's loaded
+  // files so per-file state pills track the live progress (no loading-spinner flicker).
+  $effect(() => {
+    void refreshToken;
+    if (expanded && files !== null && filesState !== 'loading') {
+      void silentReloadFiles();
+    }
+  });
 
   // Segment widths for the stacked status bar, as a share of this folder's total.
   function pct(n: number): number {
@@ -61,13 +78,20 @@
     }
   }
 
+  async function silentReloadFiles() {
+    try {
+      files = await fetchFolderFiles(node.path);
+    } catch {
+      // keep the last good list during live polling
+    }
+  }
+
   async function handleEnrichFolder() {
     enrichState = 'loading';
     try {
       const result = await enrichFolder(node.path);
-      enrichState = 'success';
-      enrichCount = result.enqueued;
-      setTimeout(() => (enrichState = 'idle'), 4000);
+      enrichState = 'idle';
+      onEnriched?.(node.path, result.enqueued);
     } catch {
       enrichState = 'error';
       setTimeout(() => (enrichState = 'idle'), 5000);
@@ -138,20 +162,17 @@
       size="sm"
       class={cn(
         'mr-1 h-6 shrink-0 px-2 text-[11px] opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100',
-        enrichState !== 'idle' && 'opacity-100',
-        enrichState === 'success' && 'text-primary',
+        (isEnriching || enrichState === 'error') && 'opacity-100',
+        isEnriching && 'text-primary',
         enrichState === 'error' && 'text-destructive'
       )}
-      disabled={enrichState === 'loading'}
+      disabled={isEnriching}
       title="Enqueue every song under this folder for enrichment"
       onclick={handleEnrichFolder}
     >
-      {#if enrichState === 'loading'}
+      {#if isEnriching}
         <Loader2 class="mr-1 size-3 animate-spin" />
         Enriching…
-      {:else if enrichState === 'success'}
-        <CheckCircle2 class="mr-1 size-3" />
-        Queued {enrichCount}
       {:else if enrichState === 'error'}
         <AlertCircle class="mr-1 size-3" />
         Failed
@@ -165,7 +186,7 @@
   {#if expanded}
     <div>
       {#each node.children as child (child.path)}
-        <Self node={child} depth={depth + 1} />
+        <Self node={child} depth={depth + 1} {enrichingPaths} {refreshToken} {onEnriched} />
       {/each}
 
       {#if hasFiles}

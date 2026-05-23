@@ -94,7 +94,7 @@
     <div class="mob-scroll">
       <div class="px-4 pt-2 pb-4">
         <div class="text-muted-foreground font-mono text-[11px]">{run.id}</div>
-        <div class="mt-1 text-xl font-semibold tracking-[-0.02em]">{fmtWhen(run.startedAtUtc)}</div>
+        <div class="mt-1 text-xl font-semibold tracking-[-0.02em]">{run.triggerLabel ?? fmtWhen(run.startedAtUtc)}</div>
         <div class="text-muted-foreground mt-1.5 truncate font-mono text-xs">{run.sourcePath}</div>
       </div>
 
@@ -165,7 +165,7 @@
               <span class="mob-run-when">{fmtWhen(r.startedAtUtc)}</span>
               <span class="mob-run-dur">{fmtDuration(r.durationSeconds, r)}</span>
             </div>
-            <div class="mob-run-src">{r.sourcePath}</div>
+            <div class="mob-run-src">{r.triggerLabel ?? r.sourcePath}</div>
             {#if r.status === 'running'}
               <div class="mob-bar mb-2"><div class="mob-bar-fill" style="width: {pct}%;"></div></div>
             {/if}
