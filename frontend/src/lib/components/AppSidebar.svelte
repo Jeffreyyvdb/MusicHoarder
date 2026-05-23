@@ -39,7 +39,7 @@
   ] as const;
 
   const systemNav = [
-    { href: '/review', label: 'Manual review', icon: FileWarning, badge: true },
+    { href: '/review', label: 'Provenance & review', icon: FileWarning, badge: true },
     { href: '/directories', label: 'Match by folder', icon: FolderTree, badge: false },
     { href: '/runs', label: 'Runs · history', icon: Clock, badge: false }
   ] as const;
