@@ -1188,6 +1188,8 @@ export interface ProviderAttempt {
   retryAfterUtc?: string | null
   nextRetryAfterUtc?: string | null
   error?: string | null
+  /** The term the provider searched (resolved artist/title, or tracker title-only). Null for AcoustID. */
+  searchQuery?: string | null
   candidate: EnrichmentCandidate | null
 }
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { AlertTriangle } from '@lucide/svelte';
+  import { AlertTriangle, ExternalLink, Search } from '@lucide/svelte';
   import type { TimelineEvent, TimelineTint } from '$lib/review-helpers';
   import { cn } from '$lib/utils';
 
@@ -71,6 +71,23 @@
             {/if}
           </div>
           <div class="text-foreground/90 mt-1 text-[13px] break-words">{ev.description}</div>
+          {#if ev.searchQuery}
+            <div class="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-[11.5px]">
+              <Search class="size-3 shrink-0" strokeWidth={2} />
+              <span>searched</span>
+              {#if ev.searchUrl}
+                <a
+                  href={ev.searchUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-foreground/90 hover:text-primary inline-flex items-center gap-1 font-mono underline decoration-dotted underline-offset-2"
+                  >“{ev.searchQuery}”<ExternalLink class="size-3" strokeWidth={2} /></a
+                >
+              {:else}
+                <span class="text-foreground/90 font-mono">“{ev.searchQuery}”</span>
+              {/if}
+            </div>
+          {/if}
         </div>
       </li>
     {/each}
