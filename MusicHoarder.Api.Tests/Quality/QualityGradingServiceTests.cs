@@ -92,6 +92,27 @@ public class QualityGradingServiceTests
     }
 
     [Fact]
+    public async Task GradeSong_PaymentRequired_ClassifiesAsOutOfCredits()
+    {
+        var db = CreateDb();
+        var song = AddSong(db);
+        await db.SaveChangesAsync();
+
+        var client = new FakeChatClient(configured: true, content: "{}")
+        {
+            ThrowOnComplete = new HttpRequestException(
+                "Chat completion returned 402.", null, System.Net.HttpStatusCode.PaymentRequired),
+        };
+        var service = CreateService(db, client);
+
+        var result = await service.GradeSongAsync(song.Id, force: false);
+
+        Assert.Equal(GradeOutcome.Failed, result.Outcome);
+        Assert.Equal("out_of_credits", result.ErrorCode);
+        Assert.False(await db.SongQualityGrades.AnyAsync());
+    }
+
+    [Fact]
     public async Task GradeSong_MissingSong_ReturnsNotFound()
     {
         var db = CreateDb();
@@ -142,10 +163,13 @@ public class QualityGradingServiceTests
     {
         public int CallCount { get; private set; }
         public bool IsConfigured => configured;
+        public Exception? ThrowOnComplete { get; init; }
 
         public Task<ChatCompletionResult> CompleteAsync(ChatCompletionRequest request, CancellationToken ct = default)
         {
             CallCount++;
+            if (ThrowOnComplete is not null)
+                throw ThrowOnComplete;
             return Task.FromResult(new ChatCompletionResult(content, 100, 50));
         }
     }
