@@ -7,7 +7,7 @@
 
   type Props = {
     title: string;
-    /** Builds the drill-down href for a group (e.g. `/app?artist=...`). */
+    /** Builds the drill-down href for a group (e.g. `/library?artist=...`). */
     hrefFor: (group: GroupSummary) => string;
     groups: GroupSummary[];
     isLoading: boolean;

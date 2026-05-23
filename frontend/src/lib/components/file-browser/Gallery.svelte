@@ -236,7 +236,7 @@
   }
 
   function albumHref(key: string) {
-    return `/app?album=${encodeURIComponent(key)}`;
+    return `/library?album=${encodeURIComponent(key)}`;
   }
 </script>
 

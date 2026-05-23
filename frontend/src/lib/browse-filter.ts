@@ -2,8 +2,8 @@
  * Orthogonal "Organize by" filter applied to the library on top of section filters.
  *
  * The `/artists` and `/years` index grids link into the existing library at
- * `/app?artist=<name>` / `/app?year=<n>` (`?year=unknown` for the no-year bucket).
- * `/app` parses the URL with `parseBrowseFilter` and narrows `fetchSongs()` with
+ * `/library?artist=<name>` / `/library?year=<n>` (`?year=unknown` for the no-year bucket).
+ * `/library` parses the URL with `parseBrowseFilter` and narrows `fetchSongs()` with
  * `applyBrowseFilter` before its usual section-filter + album grouping.
  */
 import { UNKNOWN_GROUP, type ApiSong } from '$lib/api-client';

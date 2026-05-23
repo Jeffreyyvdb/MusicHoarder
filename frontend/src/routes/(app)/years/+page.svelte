@@ -23,7 +23,7 @@
   const groups = $derived(buildYearGroups(songs));
 
   function hrefFor(group: GroupSummary): string {
-    return `/app?year=${encodeURIComponent(group.key.toLowerCase())}`;
+    return `/library?year=${encodeURIComponent(group.key.toLowerCase())}`;
   }
 </script>
 
