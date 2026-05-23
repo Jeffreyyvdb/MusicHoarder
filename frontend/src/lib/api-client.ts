@@ -1387,32 +1387,20 @@ export async function fetchQualityProgress(): Promise<QualityProgress> {
   return requestJson<QualityProgress>("/api/quality/progress")
 }
 
-/** Fetches an export bundle and triggers a browser download of the pretty-printed JSON. */
-export async function downloadQualityExport(
+/** Fetches an export bundle and copies the pretty-printed JSON to the clipboard. */
+export async function copyQualityExport(
   scope: "song" | "directory" | "library",
   opts: { songId?: number; path?: string } = {},
 ): Promise<void> {
   let path: string
-  let filename: string
   if (scope === "song") {
     path = `/api/quality/export/songs/${opts.songId}`
-    filename = `quality-song-${opts.songId}.json`
   } else if (scope === "directory") {
     path = `/api/quality/export/directory?path=${encodeURIComponent(opts.path ?? "")}`
-    filename = `quality-directory.json`
   } else {
     path = `/api/quality/export/library`
-    filename = `quality-library.json`
   }
 
   const data = await requestJson<unknown>(path)
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
+  await navigator.clipboard.writeText(JSON.stringify(data, null, 2))
 }

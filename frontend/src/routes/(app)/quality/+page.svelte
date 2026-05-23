@@ -1,6 +1,6 @@
 <script lang="ts">
   import {
-    downloadQualityExport,
+    copyQualityExport,
     fetchQualityOverview,
     fetchQualityProgress,
     gradeAllSongs,
@@ -11,7 +11,7 @@
     type QualityVerdict
   } from '$lib/api-client';
   import { cn } from '$lib/utils';
-  import { Download, Gauge, Loader2, RefreshCw, Sparkles } from '@lucide/svelte';
+  import { Copy, Gauge, Loader2, RefreshCw, Sparkles } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
 
   let overview = $state<QualityOverview | null>(null);
@@ -127,11 +127,12 @@
     }
   }
 
-  async function onExport(scope: 'song' | 'directory' | 'library', opts: { songId?: number; path?: string } = {}) {
+  async function onCopy(scope: 'song' | 'directory' | 'library', opts: { songId?: number; path?: string } = {}) {
     try {
-      await downloadQualityExport(scope, opts);
+      await copyQualityExport(scope, opts);
+      toast.success('Copied to clipboard — paste into Claude Code');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Export failed');
+      toast.error(e instanceof Error ? e.message : 'Copy failed');
     }
   }
 
@@ -169,10 +170,10 @@
     </button>
     <button
       type="button"
-      onclick={() => onExport('library')}
+      onclick={() => onCopy('library')}
       class="border-border hover:bg-accent inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12.5px] font-medium transition-colors"
     >
-      <Download class="size-3.5" /> Export library
+      <Copy class="size-3.5" /> Copy library
     </button>
     <button
       type="button"
@@ -334,11 +335,11 @@
                   </button>
                   <button
                     type="button"
-                    aria-label="Export song dossier"
-                    onclick={() => onExport('song', { songId: o.songId })}
+                    aria-label="Copy song dossier"
+                    onclick={() => onCopy('song', { songId: o.songId })}
                     class="border-border hover:bg-accent rounded-md border px-2 py-1 text-[11px] transition-colors"
                   >
-                    <Download class="size-3" />
+                    <Copy class="size-3" />
                   </button>
                 </div>
               </article>
@@ -373,11 +374,11 @@
                 </button>
                 <button
                   type="button"
-                  aria-label="Export folder dossiers"
-                  onclick={() => onExport('directory', { path: d.directory })}
+                  aria-label="Copy folder dossiers"
+                  onclick={() => onCopy('directory', { path: d.directory })}
                   class="border-border hover:bg-accent rounded-md border px-2 py-1 text-[11px] transition-colors"
                 >
-                  <Download class="size-3" />
+                  <Copy class="size-3" />
                 </button>
               </article>
             {/each}
