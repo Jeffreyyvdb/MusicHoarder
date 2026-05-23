@@ -296,6 +296,9 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         Dictionary<EnrichmentProvider, SongProviderAttempt> existingAttempts,
         CancellationToken ct)
     {
+        // The term the provider searched, for the review timeline (what was queried + click-through).
+        var searchQuery = ProviderSearchQuery.For(providerEnum, song, _options.Value.SourceDirectory);
+
         ProviderOutcome outcome;
         try
         {
@@ -312,7 +315,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
 
             UpsertAttempt(song, providerEnum, ProviderAttemptStatus.Failed,
                 error: ex.Message, existingAttempts: existingAttempts,
-                nextRetryAfterUtc: CooldownFor(ProviderAttemptStatus.Failed));
+                nextRetryAfterUtc: CooldownFor(ProviderAttemptStatus.Failed), searchQuery: searchQuery);
             return null;
         }
 
@@ -322,7 +325,8 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                 _logger.LogInformation("Provider {Provider} rate-limited for {Track} (SongId={SongId}), retry after {Delay}s",
                     provider.Name, song.TrackLabel, song.Id, rl.RetryAfter.TotalSeconds);
                 UpsertAttempt(song, providerEnum, ProviderAttemptStatus.RateLimited,
-                    retryAfterUtc: DateTime.UtcNow + rl.RetryAfter, existingAttempts: existingAttempts);
+                    retryAfterUtc: DateTime.UtcNow + rl.RetryAfter, existingAttempts: existingAttempts,
+                    searchQuery: searchQuery);
                 return null;
 
             case ProviderNoMatch noMatch:
@@ -333,7 +337,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                     : null;
                 UpsertAttempt(song, providerEnum, ProviderAttemptStatus.NoMatch,
                     matchedDataJson: noMatchJson, existingAttempts: existingAttempts,
-                    nextRetryAfterUtc: CooldownFor(ProviderAttemptStatus.NoMatch));
+                    nextRetryAfterUtc: CooldownFor(ProviderAttemptStatus.NoMatch), searchQuery: searchQuery);
                 return null;
 
             case ProviderMatched matched:
@@ -341,7 +345,8 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                     "Provider {Provider} produced a candidate for {Track} (SongId={SongId}), confidence={Confidence:F3}, recommends={Recommended}",
                     provider.Name, song.TrackLabel, song.Id, matched.Result.MatchConfidence, matched.Result.RecommendedStatus);
                 UpsertAttempt(song, providerEnum, ProviderAttemptStatus.Matched,
-                    matchedDataJson: SerializeResult(matched.Result), existingAttempts: existingAttempts);
+                    matchedDataJson: SerializeResult(matched.Result), existingAttempts: existingAttempts,
+                    searchQuery: searchQuery);
                 return matched.Result;
 
             default:
@@ -374,6 +379,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         DateTime? nextRetryAfterUtc = null,
         string? matchedDataJson = null,
         string? error = null,
+        string? searchQuery = null,
         Dictionary<EnrichmentProvider, SongProviderAttempt>? existingAttempts = null)
     {
         if (existingAttempts is not null && existingAttempts.TryGetValue(provider, out var existing))
@@ -384,6 +390,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             existing.NextRetryAfterUtc = nextRetryAfterUtc;
             existing.MatchedDataJson = matchedDataJson;
             existing.Error = error;
+            existing.SearchQuery = searchQuery;
         }
         else
         {
@@ -397,6 +404,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                 NextRetryAfterUtc = nextRetryAfterUtc,
                 MatchedDataJson = matchedDataJson,
                 Error = error,
+                SearchQuery = searchQuery,
             };
             song.ProviderAttempts.Add(attempt);
             existingAttempts?.TryAdd(provider, attempt);

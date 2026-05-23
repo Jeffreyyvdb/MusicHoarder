@@ -65,6 +65,78 @@ public class SongSearchTextTests
     }
 
     [Fact]
+    public void Untagged_ArtistTitleFilename_StripsArtistAbbreviationPrefix()
+    {
+        // "Juice" is an abbreviation of the "Juice WRLD" folder — the title is "Benjamin".
+        var song = Song("/root/music/Juice WRLD/Loose downloads discord/Juice - Benjamin.mp3");
+
+        var (artist, title) = SongSearchText.Resolve(song, "/root/music");
+
+        Assert.Equal("Juice WRLD", artist);
+        Assert.Equal("Benjamin", title);
+    }
+
+    [Fact]
+    public void Untagged_ArtistTitleFilename_StripsFullArtistPrefix()
+    {
+        var song = Song("/root/music/Juice WRLD/Leaks/Juice WRLD - Benjamin.mp3");
+
+        var (_, title) = SongSearchText.Resolve(song, "/root/music");
+
+        Assert.Equal("Benjamin", title);
+    }
+
+    [Theory]
+    [InlineData("Juice – Benjamin")] // en-dash
+    [InlineData("Juice — Benjamin")] // em-dash
+    [InlineData("Juice ― Benjamin")] // horizontal bar
+    [InlineData("Juice − Benjamin")] // minus sign
+    public void Untagged_ArtistTitleFilename_StripsPrefixRegardlessOfDashType(string stem)
+    {
+        // Discord / loose-download filenames use a variety of Unicode dashes, not just "-".
+        var song = Song($"/root/music/Juice WRLD/Loose downloads discord/{stem}.mp3");
+
+        var (artist, title) = SongSearchText.Resolve(song, "/root/music");
+
+        Assert.Equal("Juice WRLD", artist);
+        Assert.Equal("Benjamin", title);
+    }
+
+    [Fact]
+    public void Untagged_HyphenatedTitleWord_NotMatchingArtist_IsLeftIntact()
+    {
+        // "Anti-Hero" has no surrounding whitespace, so it isn't a separator; lead also isn't artist.
+        var song = Song("/root/music/Taylor Swift/Midnights/Anti-Hero.mp3");
+
+        var (_, title) = SongSearchText.Resolve(song, "/root/music");
+
+        Assert.Equal("Anti-Hero", title);
+    }
+
+    [Fact]
+    public void Untagged_TitleWithSeparator_NotMatchingArtist_IsLeftIntact()
+    {
+        // Lead segment "Robbery" is not the artist, so the " - " is part of the real title.
+        var song = Song("/root/music/Some Artist/Album/Robbery - Live.mp3");
+
+        var (_, title) = SongSearchText.Resolve(song, "/root/music");
+
+        Assert.Equal("Robbery - Live", title);
+    }
+
+    [Fact]
+    public void Untagged_FileUnderRootWithNoArtist_LeavesSeparatorTitleIntact()
+    {
+        // No artist folder to validate the lead against → don't split blindly.
+        var song = Song("/music/Foo - Bar.mp3");
+
+        var (artist, title) = SongSearchText.Resolve(song, "/music");
+
+        Assert.Null(artist);
+        Assert.Equal("Foo - Bar", title);
+    }
+
+    [Fact]
     public void HasSearchableText_TrueForUntaggedFileWithUsablePath()
     {
         var song = Song("/root/music/Some Artist/Album/Track.mp3");

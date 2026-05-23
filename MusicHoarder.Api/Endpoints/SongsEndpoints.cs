@@ -667,6 +667,7 @@ public static class SongsEndpoints
                 retryAfterUtc = a.RetryAfterUtc,
                 nextRetryAfterUtc = a.NextRetryAfterUtc,
                 error = a.Error,
+                searchQuery = a.SearchQuery,
                 candidate = DeserializeCandidate(a.MatchedDataJson),
             })
             .ToList();
