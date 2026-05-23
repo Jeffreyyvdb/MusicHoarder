@@ -59,20 +59,6 @@
     { id: 'label', label: 'By Label', href: null }
   ] as const;
 
-  type SourceKind = 'connected' | 'unknown';
-  type SourceRow = { id: string; label: string; color: string; status: SourceKind; rate?: string | null };
-  const SOURCES_BASE: SourceRow[] = [
-    { id: 'mb', label: 'MusicBrainz', color: '#ba478f', status: 'unknown' },
-    { id: 'ac', label: 'AcoustID', color: '#6a89cc', status: 'unknown' },
-    { id: 'dg', label: 'Discogs', color: '#1a1a1a', status: 'unknown' },
-    { id: 'sp', label: 'Spotify', color: '#1db954', status: 'unknown' },
-    { id: 'lf', label: 'Last.fm', color: '#d51007', status: 'unknown' },
-    { id: 'am', label: 'Apple Music', color: '#fa243c', status: 'unknown' },
-    { id: 'lr', label: 'LRCLIB', color: '#4a9a6a', status: 'unknown' },
-    { id: 'gn', label: 'Genius', color: '#f9e300', status: 'unknown' },
-    { id: 'caa', label: 'Cover Art Archive', color: '#ba478f', status: 'unknown' }
-  ];
-
   function formatLibrarySize(bytes: number): string {
     const gib = bytes / (1024 * 1024 * 1024);
     if (gib >= 1) return `${gib.toFixed(1)} GB`;
@@ -173,28 +159,6 @@
       label: null as number | null
     };
   });
-
-  const sourceRows = $derived<SourceRow[]>(
-    SOURCES_BASE.map((s) => {
-      if (s.id === 'sp' && songs.some((song) => song.spotifyId)) {
-        const matched = songs.filter((song) => song.spotifyId).length;
-        return { ...s, status: 'connected', rate: `${Math.min(99, Math.round((matched / Math.max(1, songs.length)) * 100))}%` };
-      }
-      if (s.id === 'mb' && songs.some((song) => song.musicBrainzId)) {
-        const matched = songs.filter((song) => song.musicBrainzId).length;
-        return { ...s, status: 'connected', rate: `${Math.min(99, Math.round((matched / Math.max(1, songs.length)) * 100))}%` };
-      }
-      if (s.id === 'ac' && songs.some((song) => song.acoustIdTrackId || song.fingerprint)) {
-        const matched = songs.filter((song) => song.acoustIdTrackId).length;
-        return { ...s, status: 'connected', rate: matched ? `${Math.min(99, Math.round((matched / Math.max(1, songs.length)) * 100))}%` : null };
-      }
-      if (s.id === 'lr' && songs.some((song) => song.lrclibId)) {
-        const matched = songs.filter((song) => song.lrclibId).length;
-        return { ...s, status: 'connected', rate: `${Math.min(99, Math.round((matched / Math.max(1, songs.length)) * 100))}%` };
-      }
-      return s;
-    })
-  );
 
   function fmtCount(n: number | null | undefined): string {
     if (n == null) return '…';
@@ -328,27 +292,6 @@
             {/if}
           </div>
         {/if}
-      </Sidebar.GroupContent>
-    </Sidebar.Group>
-
-    <Sidebar.Group class="group-data-[collapsible=icon]:hidden">
-      <Sidebar.GroupLabel>Enrichment sources</Sidebar.GroupLabel>
-      <Sidebar.GroupContent class="px-2">
-        {#each sourceRows as source (source.id)}
-          <div class="flex items-center gap-2 px-2 py-1 text-[12px]">
-            <span
-              class={cn(
-                'size-2 shrink-0 rounded-full ring-2 ring-white/60 dark:ring-white/10',
-                source.status === 'unknown' && 'opacity-40'
-              )}
-              style="background: {source.color};"
-            ></span>
-            <span class="text-sidebar-foreground/80 flex-1 truncate">{source.label}</span>
-            {#if source.rate}
-              <span class="text-muted-foreground font-mono text-[10.5px]">{source.rate}</span>
-            {/if}
-          </div>
-        {/each}
       </Sidebar.GroupContent>
     </Sidebar.Group>
   </Sidebar.Content>
