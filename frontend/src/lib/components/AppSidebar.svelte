@@ -14,6 +14,7 @@
     LogOut,
     Music,
     Music2,
+    Scan,
     Settings
   } from '@lucide/svelte';
   import { signOut } from '$lib/api-client';
@@ -32,13 +33,10 @@
   import { playerStore } from '$lib/stores/player.svelte';
   import { cn } from '$lib/utils';
 
-  // Sources = where music comes from. System = pipeline/ops surfaces, de-emphasized below.
-  const sourcesNav = [
-    { href: '/library', label: 'Local library', icon: Library },
-    { href: '/spotify', label: 'Spotify', icon: Music2 }
-  ] as const;
-
-  const systemNav = [
+  // Ingest = where music comes from + the pipeline/ops surfaces that act on it.
+  const ingestNav = [
+    { href: '/library', label: 'Source folder', icon: Scan, badge: false },
+    { href: '/spotify', label: 'Spotify', icon: Music2, badge: false },
     { href: '/review', label: 'Provenance & review', icon: FileWarning, badge: true },
     { href: '/directories', label: 'Match by folder', icon: FolderTree, badge: false },
     { href: '/runs', label: 'Runs · history', icon: Clock, badge: false }
@@ -60,20 +58,6 @@
     { id: 'year', label: 'By Year', href: '/years' },
     { id: 'label', label: 'By Label', href: null }
   ] as const;
-
-  type SourceKind = 'connected' | 'unknown';
-  type SourceRow = { id: string; label: string; color: string; status: SourceKind; rate?: string | null };
-  const SOURCES_BASE: SourceRow[] = [
-    { id: 'mb', label: 'MusicBrainz', color: '#ba478f', status: 'unknown' },
-    { id: 'ac', label: 'AcoustID', color: '#6a89cc', status: 'unknown' },
-    { id: 'dg', label: 'Discogs', color: '#1a1a1a', status: 'unknown' },
-    { id: 'sp', label: 'Spotify', color: '#1db954', status: 'unknown' },
-    { id: 'lf', label: 'Last.fm', color: '#d51007', status: 'unknown' },
-    { id: 'am', label: 'Apple Music', color: '#fa243c', status: 'unknown' },
-    { id: 'lr', label: 'LRCLIB', color: '#4a9a6a', status: 'unknown' },
-    { id: 'gn', label: 'Genius', color: '#f9e300', status: 'unknown' },
-    { id: 'caa', label: 'Cover Art Archive', color: '#ba478f', status: 'unknown' }
-  ];
 
   function formatLibrarySize(bytes: number): string {
     const gib = bytes / (1024 * 1024 * 1024);
@@ -176,28 +160,6 @@
     };
   });
 
-  const sourceRows = $derived<SourceRow[]>(
-    SOURCES_BASE.map((s) => {
-      if (s.id === 'sp' && songs.some((song) => song.spotifyId)) {
-        const matched = songs.filter((song) => song.spotifyId).length;
-        return { ...s, status: 'connected', rate: `${Math.min(99, Math.round((matched / Math.max(1, songs.length)) * 100))}%` };
-      }
-      if (s.id === 'mb' && songs.some((song) => song.musicBrainzId)) {
-        const matched = songs.filter((song) => song.musicBrainzId).length;
-        return { ...s, status: 'connected', rate: `${Math.min(99, Math.round((matched / Math.max(1, songs.length)) * 100))}%` };
-      }
-      if (s.id === 'ac' && songs.some((song) => song.acoustIdTrackId || song.fingerprint)) {
-        const matched = songs.filter((song) => song.acoustIdTrackId).length;
-        return { ...s, status: 'connected', rate: matched ? `${Math.min(99, Math.round((matched / Math.max(1, songs.length)) * 100))}%` : null };
-      }
-      if (s.id === 'lr' && songs.some((song) => song.lrclibId)) {
-        const matched = songs.filter((song) => song.lrclibId).length;
-        return { ...s, status: 'connected', rate: `${Math.min(99, Math.round((matched / Math.max(1, songs.length)) * 100))}%` };
-      }
-      return s;
-    })
-  );
-
   function fmtCount(n: number | null | undefined): string {
     if (n == null) return '…';
     return n.toLocaleString();
@@ -238,46 +200,6 @@
   </Sidebar.Header>
 
   <Sidebar.Content>
-    {#if sourcePath || destPath}
-      <Sidebar.Group class="group-data-[collapsible=icon]:hidden py-1">
-        <Sidebar.GroupContent class="px-2">
-          {#if sourcePath}
-            <div class="flex items-center gap-1.5 px-2 py-[3px]">
-              <span class="text-muted-foreground/80 w-6 shrink-0 font-mono text-[9px] font-semibold tracking-[0.08em]">SRC</span>
-              <span class="text-muted-foreground truncate font-mono text-[10.5px]" title={sourcePath}>{collapsePath(sourcePath)}</span>
-            </div>
-          {/if}
-          {#if destPath}
-            <div class="flex items-center gap-1.5 px-2 py-[3px]">
-              <span class="text-muted-foreground/80 w-6 shrink-0 font-mono text-[9px] font-semibold tracking-[0.08em]">DST</span>
-              <span class="text-muted-foreground truncate font-mono text-[10.5px]" title={destPath}>{collapsePath(destPath)}</span>
-            </div>
-          {/if}
-        </Sidebar.GroupContent>
-      </Sidebar.Group>
-    {/if}
-
-    <Sidebar.Group>
-      <Sidebar.GroupLabel>Sources</Sidebar.GroupLabel>
-      <Sidebar.GroupContent>
-        <Sidebar.Menu>
-          {#each sourcesNav as item (item.href)}
-            {@const isActive = item.href === '/library' ? onLibrary : pathname.startsWith(item.href)}
-            <Sidebar.MenuItem>
-              <Sidebar.MenuButton {isActive} tooltipContent={item.label}>
-                {#snippet child({ props })}
-                  <a {...props} href={item.href}>
-                    <item.icon class="size-4" />
-                    <span class="flex-1">{item.label}</span>
-                  </a>
-                {/snippet}
-              </Sidebar.MenuButton>
-            </Sidebar.MenuItem>
-          {/each}
-        </Sidebar.Menu>
-      </Sidebar.GroupContent>
-    </Sidebar.Group>
-
     <Sidebar.Group class="group-data-[collapsible=icon]:hidden">
       <Sidebar.GroupLabel>Library</Sidebar.GroupLabel>
       <Sidebar.GroupContent class="px-2">
@@ -306,7 +228,7 @@
     </Sidebar.Group>
 
     <Sidebar.Group class="group-data-[collapsible=icon]:hidden">
-      <Sidebar.GroupLabel>Organize by</Sidebar.GroupLabel>
+      <Sidebar.GroupLabel>Browse by</Sidebar.GroupLabel>
       <Sidebar.GroupContent class="px-2">
         {#each ORGANIZE as item (item.id)}
           {@const count = organizeCounts[item.id]}
@@ -336,10 +258,10 @@
     </Sidebar.Group>
 
     <Sidebar.Group>
-      <Sidebar.GroupLabel>System</Sidebar.GroupLabel>
+      <Sidebar.GroupLabel>Ingest</Sidebar.GroupLabel>
       <Sidebar.GroupContent class="px-2">
-        {#each systemNav as item (item.href)}
-          {@const isActive = pathname.startsWith(item.href)}
+        {#each ingestNav as item (item.href)}
+          {@const isActive = item.href === '/library' ? onLibrary : pathname.startsWith(item.href)}
           <a
             href={item.href}
             data-active={isActive || undefined}
@@ -354,27 +276,22 @@
             {/if}
           </a>
         {/each}
-      </Sidebar.GroupContent>
-    </Sidebar.Group>
-
-    <Sidebar.Group class="group-data-[collapsible=icon]:hidden">
-      <Sidebar.GroupLabel>Enrichment sources</Sidebar.GroupLabel>
-      <Sidebar.GroupContent class="px-2">
-        {#each sourceRows as source (source.id)}
-          <div class="flex items-center gap-2 px-2 py-1 text-[12px]">
-            <span
-              class={cn(
-                'size-2 shrink-0 rounded-full ring-2 ring-white/60 dark:ring-white/10',
-                source.status === 'unknown' && 'opacity-40'
-              )}
-              style="background: {source.color};"
-            ></span>
-            <span class="text-sidebar-foreground/80 flex-1 truncate">{source.label}</span>
-            {#if source.rate}
-              <span class="text-muted-foreground font-mono text-[10.5px]">{source.rate}</span>
+        {#if sourcePath || destPath}
+          <div class="group-data-[collapsible=icon]:hidden mt-1.5 space-y-px">
+            {#if sourcePath}
+              <div class="flex items-center gap-1.5 px-2 py-[3px]">
+                <span class="text-muted-foreground/80 w-6 shrink-0 font-mono text-[9px] font-semibold tracking-[0.08em]">SRC</span>
+                <span class="text-muted-foreground truncate font-mono text-[10.5px]" title={sourcePath}>{collapsePath(sourcePath)}</span>
+              </div>
+            {/if}
+            {#if destPath}
+              <div class="flex items-center gap-1.5 px-2 py-[3px]">
+                <span class="text-muted-foreground/80 w-6 shrink-0 font-mono text-[9px] font-semibold tracking-[0.08em]">DST</span>
+                <span class="text-muted-foreground truncate font-mono text-[10.5px]" title={destPath}>{collapsePath(destPath)}</span>
+              </div>
             {/if}
           </div>
-        {/each}
+        {/if}
       </Sidebar.GroupContent>
     </Sidebar.Group>
   </Sidebar.Content>
