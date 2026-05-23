@@ -1387,21 +1387,11 @@ export async function fetchQualityProgress(): Promise<QualityProgress> {
   return requestJson<QualityProgress>("/api/quality/progress")
 }
 
-/** Fetches an export bundle and copies the pretty-printed JSON to the clipboard. */
-export async function copyQualityExport(
-  scope: "song" | "directory" | "library",
-  opts: { songId?: number; path?: string } = {},
-): Promise<void> {
-  let path: string
-  if (scope === "song") {
-    path = `/api/quality/export/songs/${opts.songId}`
-  } else if (scope === "directory") {
-    path = `/api/quality/export/directory?path=${encodeURIComponent(opts.path ?? "")}`
-  } else {
-    path = `/api/quality/export/library`
-  }
-
-  const textPromise = requestJson<unknown>(path).then((data) => JSON.stringify(data, null, 2))
+/** Fetches a single song's grading dossier and copies the pretty-printed JSON to the clipboard. */
+export async function copyQualitySongDossier(songId: number): Promise<void> {
+  const textPromise = requestJson<unknown>(`/api/quality/export/songs/${songId}`).then((data) =>
+    JSON.stringify(data, null, 2),
+  )
 
   // Hand the clipboard a *promise* of the data so the write is initiated
   // synchronously inside the click's user-activation window. Awaiting the

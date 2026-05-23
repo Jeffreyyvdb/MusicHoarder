@@ -28,7 +28,7 @@
     toPlayerSong,
     fetchSongQualityGrade,
     gradeSong,
-    copyQualityExport
+    copyQualitySongDossier
   } from '$lib/api-client';
   import { toast } from 'svelte-sonner';
   import {
@@ -202,7 +202,7 @@
     const id = selectedId;
     if (id == null) return;
     try {
-      await copyQualityExport('song', { songId: id });
+      await copyQualitySongDossier(id);
       toast.success('Copied to clipboard — paste into Claude Code');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Copy failed');

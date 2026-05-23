@@ -1,6 +1,6 @@
 <script lang="ts">
   import {
-    copyQualityExport,
+    copyQualitySongDossier,
     fetchQualityOverview,
     fetchQualityProgress,
     gradeAllSongs,
@@ -127,9 +127,9 @@
     }
   }
 
-  async function onCopy(scope: 'song' | 'directory' | 'library', opts: { songId?: number; path?: string } = {}) {
+  async function onCopySong(songId: number) {
     try {
-      await copyQualityExport(scope, opts);
+      await copyQualitySongDossier(songId);
       toast.success('Copied to clipboard — paste into Claude Code');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Copy failed');
@@ -167,13 +167,6 @@
         <Sparkles class="size-3.5" />
       {/if}
       Grade all
-    </button>
-    <button
-      type="button"
-      onclick={() => onCopy('library')}
-      class="border-border hover:bg-accent inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12.5px] font-medium transition-colors"
-    >
-      <Copy class="size-3.5" /> Copy library
     </button>
     <button
       type="button"
@@ -336,7 +329,7 @@
                   <button
                     type="button"
                     aria-label="Copy song dossier"
-                    onclick={() => onCopy('song', { songId: o.songId })}
+                    onclick={() => onCopySong(o.songId)}
                     class="border-border hover:bg-accent rounded-md border px-2 py-1 text-[11px] transition-colors"
                   >
                     <Copy class="size-3" />
@@ -371,14 +364,6 @@
                   class="border-border hover:bg-accent inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors"
                 >
                   <Sparkles class="size-3" /> Grade
-                </button>
-                <button
-                  type="button"
-                  aria-label="Copy folder dossiers"
-                  onclick={() => onCopy('directory', { path: d.directory })}
-                  class="border-border hover:bg-accent rounded-md border px-2 py-1 text-[11px] transition-colors"
-                >
-                  <Copy class="size-3" />
                 </button>
               </article>
             {/each}

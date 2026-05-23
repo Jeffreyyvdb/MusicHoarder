@@ -28,7 +28,7 @@
     resetSongEnrichment,
     fetchSongQualityGrade,
     gradeSong,
-    copyQualityExport,
+    copyQualitySongDossier,
     type ApiSong,
     type AlbumSummary,
     type EnrichmentDetail,
@@ -104,7 +104,7 @@
 
   async function handleCopyDossier() {
     try {
-      await copyQualityExport('song', { songId: song.id });
+      await copyQualitySongDossier(song.id);
       copied = true;
       setTimeout(() => (copied = false), 1500);
     } catch {
