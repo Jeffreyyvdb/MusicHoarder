@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowDown, ArrowUp, Clock, FileText, ListMusic, Pause, Play } from '@lucide/svelte';
+  import { ArrowDown, ArrowUp, Clock, FileText, ListMusic, Pause, Play, Shuffle } from '@lucide/svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import {
     formatDuration,
@@ -10,7 +10,7 @@
   } from '$lib/formatters';
   import { albumKeyForSong, songAddedTime, toPlayerSong, type ApiSong } from '$lib/api-client';
   import { playerStore } from '$lib/stores/player.svelte';
-  import { cn } from '$lib/utils';
+  import { cn, shuffle } from '$lib/utils';
 
   type Props = {
     songs: ApiSong[];
@@ -171,6 +171,12 @@
     void playerStore.playSong(toPlayerSong(target, artistOf(target)), queue, index);
   }
 
+  function shuffleTracks() {
+    if (sorted.length === 0) return;
+    const queue = shuffle(sorted).map((s) => toPlayerSong(s, artistOf(s)));
+    void playerStore.playSong(queue[0], queue, 0);
+  }
+
   // ── Virtualization ────────────────────────────────────────────────────────
   // One DOM row per track is too heavy for large libraries (each row mounts a
   // Cover). Render only the rows in (or near) the viewport, absolutely
@@ -247,18 +253,30 @@
         · <span class="font-mono">{formatFileSize(stats.totalBytes)}</span>
       </p>
     </div>
-    {#if hasFilters}
-      <button
-        type="button"
-        onclick={() => {
-          fmt = 'all';
-          lyricsOnly = false;
-        }}
-        class="text-muted-foreground hover:border-primary hover:text-primary mt-1 shrink-0 rounded-md border px-2 py-1 text-[11px] transition-colors"
-      >
-        Clear filters
-      </button>
-    {/if}
+    <div class="mt-1 flex shrink-0 items-center gap-2">
+      {#if hasFilters}
+        <button
+          type="button"
+          onclick={() => {
+            fmt = 'all';
+            lyricsOnly = false;
+          }}
+          class="text-muted-foreground hover:border-primary hover:text-primary rounded-md border px-2 py-1 text-[11px] transition-colors"
+        >
+          Clear filters
+        </button>
+      {/if}
+      {#if sorted.length > 0}
+        <button
+          type="button"
+          onclick={shuffleTracks}
+          class="border-primary/40 text-primary hover:bg-primary/10 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors"
+        >
+          <Shuffle class="size-3.5" />
+          Shuffle
+        </button>
+      {/if}
+    </div>
   </div>
 
   <!-- Filter chips -->
