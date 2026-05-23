@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Enrichment;
@@ -84,6 +85,8 @@ public static partial class SongSearchText
         if (artist is not null && IsCompilationMarker(artist))
             artist = null;
 
+        title = StripArtistPrefix(title, artist);
+
         return new Resolved(artist, album, string.IsNullOrWhiteSpace(title) ? null : title, trackNumber);
     }
 
@@ -140,6 +143,42 @@ public static partial class SongSearchText
         cleaned = cleaned.Replace('_', ' ');
         cleaned = WhitespacePattern().Replace(cleaned, " ").Trim();
         return (cleaned.Length == 0 ? name.Trim() : cleaned, trackNumber);
+    }
+
+    /// <summary>
+    /// Drops a leading "Artist - " from a path-derived title when the lead segment is the artist
+    /// we already know (e.g. "Juice - Benjamin" under a "Juice WRLD" folder → "Benjamin"). Many
+    /// loose downloads follow the "Artist - Title" filename convention, which otherwise pollutes
+    /// the provider search with the artist name. Gated on the lead actually matching the artist so
+    /// titles that legitimately contain " - " (e.g. "Robbery - Live") are left untouched, and only
+    /// applied when an artist is known.
+    /// </summary>
+    private static string StripArtistPrefix(string title, string? artist)
+    {
+        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(artist))
+            return title;
+
+        var sep = title.IndexOf(" - ", StringComparison.Ordinal);
+        if (sep < 0)
+            return title;
+
+        var lead = title[..sep].Trim();
+        var rest = title[(sep + 3)..].Trim();
+        if (rest.Length == 0)
+            return title;
+
+        var leadNorm = TitleNormalizer.NormalizeForSearch(lead);
+        var artistNorm = TitleNormalizer.NormalizeForSearch(artist);
+        if (leadNorm.Length == 0 || artistNorm.Length == 0)
+            return title;
+
+        // Strip when the lead is (an abbreviation of) the artist: equal, or either a prefix of the
+        // other ("Juice" ⊂ "Juice WRLD", and the full "Juice WRLD - Benjamin" form).
+        var matchesArtist = leadNorm == artistNorm
+            || artistNorm.StartsWith(leadNorm, StringComparison.Ordinal)
+            || leadNorm.StartsWith(artistNorm, StringComparison.Ordinal);
+
+        return matchesArtist ? rest : title;
     }
 
     [GeneratedRegex(@"^\s*(\d{1,2}-)?(?<track>\d{1,3})\s*[.\-_]?\s+", RegexOptions.Compiled)]
