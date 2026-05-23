@@ -58,9 +58,27 @@ public class OpenAiCompatibleChatClient(
         }
 
         var parsed = await resp.Content.ReadFromJsonAsync<ChatResponseBody>(Json, cts.Token);
-        var content = parsed?.Choices?.FirstOrDefault()?.Message?.Content;
+        var choice = parsed?.Choices?.FirstOrDefault();
+        var content = choice?.Message?.Content;
+
+        // Reasoning models (e.g. DeepSeek V4) write their chain-of-thought to a separate field and
+        // the answer to `content`. If the token budget is exhausted by reasoning, `content` is empty
+        // but the reasoning channel may still carry the JSON object the grader asked for — the parser
+        // tolerates prose/fences, so fall back to it before giving up.
         if (string.IsNullOrWhiteSpace(content))
-            throw new InvalidOperationException("Chat completion returned an empty message.");
+            content = choice?.Message?.Reasoning ?? choice?.Message?.ReasoningContent;
+
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            var finishReason = choice?.FinishReason ?? "unknown";
+            var completionTokens = parsed?.Usage?.CompletionTokens;
+            logger.LogWarning(
+                "Chat completion returned an empty message (finish_reason={FinishReason}, completion_tokens={CompletionTokens}). "
+                + "A reasoning model may have exhausted MaxOutputTokens before producing content.",
+                finishReason, completionTokens);
+            throw new InvalidOperationException(
+                $"Chat completion returned an empty message (finish_reason={finishReason}, completion_tokens={completionTokens?.ToString() ?? "?"}).");
+        }
 
         return new ChatCompletionResult(content, parsed?.Usage?.PromptTokens, parsed?.Usage?.CompletionTokens);
     }
@@ -82,9 +100,14 @@ public class OpenAiCompatibleChatClient(
         [property: JsonPropertyName("choices")] List<ChatResponseChoice>? Choices,
         [property: JsonPropertyName("usage")] ChatUsage? Usage);
 
-    private record ChatResponseChoice([property: JsonPropertyName("message")] ChatResponseMessage? Message);
+    private record ChatResponseChoice(
+        [property: JsonPropertyName("message")] ChatResponseMessage? Message,
+        [property: JsonPropertyName("finish_reason")] string? FinishReason);
 
-    private record ChatResponseMessage([property: JsonPropertyName("content")] string? Content);
+    private record ChatResponseMessage(
+        [property: JsonPropertyName("content")] string? Content,
+        [property: JsonPropertyName("reasoning")] string? Reasoning,
+        [property: JsonPropertyName("reasoning_content")] string? ReasoningContent);
 
     private record ChatUsage(
         [property: JsonPropertyName("prompt_tokens")] int? PromptTokens,

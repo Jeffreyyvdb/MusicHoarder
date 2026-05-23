@@ -65,25 +65,34 @@
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-  {#if isMobile.current || !panelOpen}
+  {#if isMobile.current}
     <TrackList {songs} {searchQuery} {isLoading} {selectedId} onSelect={selectTrack} />
   {:else}
+    <!-- The PaneGroup and the full-song TrackList stay mounted across open/close so
+         selecting a track only mounts the small detail pane — never tears down and
+         re-sorts the entire library (which froze the page on large libraries). -->
     <Resizable.PaneGroup id="tracks-panels" direction="horizontal" class="min-h-0 flex-1">
-      <Resizable.Pane id="tracks-main" order={1} defaultSize={68}>
+      <!-- The pane must be a bounded flex column: TrackList's root relies on a
+           flex parent (flex-1 + min-h-0) to bound its scroll viewport. A bare
+           paneforge Pane is a block div, so without this the viewport grows to
+           full content height and virtualization renders every row. -->
+      <Resizable.Pane id="tracks-main" order={1} defaultSize={panelOpen ? 68 : 100} class="flex min-h-0 flex-col">
         <TrackList {songs} {searchQuery} {isLoading} {selectedId} onSelect={selectTrack} />
       </Resizable.Pane>
-      <Resizable.Handle />
-      <Resizable.Pane id="tracks-details" order={2} defaultSize={32} minSize={28} maxSize={45}>
-        {#if selected}
-          <TrackPanel
-            album={selected.album}
-            song={selected.song}
-            trackIndex={selected.index}
-            onClose={closeTrack}
-            onResetEnrichment={() => void loadSongs()}
-          />
-        {/if}
-      </Resizable.Pane>
+      {#if panelOpen}
+        <Resizable.Handle />
+        <Resizable.Pane id="tracks-details" order={2} defaultSize={32} minSize={28} maxSize={45}>
+          {#if selected}
+            <TrackPanel
+              album={selected.album}
+              song={selected.song}
+              trackIndex={selected.index}
+              onClose={closeTrack}
+              onResetEnrichment={() => void loadSongs()}
+            />
+          {/if}
+        </Resizable.Pane>
+      {/if}
     </Resizable.PaneGroup>
   {/if}
 </div>

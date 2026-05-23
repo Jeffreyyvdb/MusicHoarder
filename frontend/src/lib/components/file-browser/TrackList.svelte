@@ -202,9 +202,21 @@
     const el = scrollEl;
     if (!el) return;
     viewportH = el.clientHeight;
-    const ro = new ResizeObserver(() => (viewportH = el.clientHeight));
+    // Coalesce resize ticks into a single rAF read so dragging the window edge
+    // (or a resizable pane) doesn't force a synchronous reflow per event.
+    let frame = 0;
+    const ro = new ResizeObserver(() => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        viewportH = el.clientHeight;
+      });
+    });
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      ro.disconnect();
+    };
   });
 
   // Jump back to the top whenever the visible set changes shape, so the user
