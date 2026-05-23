@@ -2,8 +2,9 @@
   import { onMount } from 'svelte';
   import {
     AlertCircle,
+    Check,
     CheckCircle2,
-    Download,
+    Copy,
     FastForward,
     Loader2,
     Pause,
@@ -27,7 +28,7 @@
     resetSongEnrichment,
     fetchSongQualityGrade,
     gradeSong,
-    downloadQualityExport,
+    copyQualitySongDossier,
     type ApiSong,
     type AlbumSummary,
     type EnrichmentDetail,
@@ -99,6 +100,17 @@
   let quality = $state<SongQualityGradeView | null>(null);
   let qualityLoadedId = $state<number | null>(null);
   let gradeBusy = $state(false);
+  let copied = $state(false);
+
+  async function handleCopyDossier() {
+    try {
+      await copyQualitySongDossier(song.id);
+      copied = true;
+      setTimeout(() => (copied = false), 1500);
+    } catch {
+      // keep the panel quiet; failure leaves the icon unchanged
+    }
+  }
 
   $effect(() => {
     if (activeTab !== 'enrichment' || qualityLoadedId === song.id) return;
@@ -595,10 +607,10 @@
                 variant="outline"
                 size="sm"
                 class="h-7 text-[11px]"
-                aria-label="Export dossier"
-                onclick={() => downloadQualityExport('song', { songId: song.id })}
+                aria-label="Copy dossier"
+                onclick={handleCopyDossier}
               >
-                <Download class="size-3" />
+                {#if copied}<Check class="size-3" />{:else}<Copy class="size-3" />{/if}
               </Button>
             </div>
           </div>

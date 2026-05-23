@@ -15,7 +15,7 @@
     Trash2,
     AlertTriangle,
     Sparkles,
-    Download
+    Copy
   } from '@lucide/svelte';
   import type { ApiSong, EnrichmentDetail, SongQualityGradeView, QualityVerdict } from '$lib/api-client';
   import {
@@ -28,7 +28,7 @@
     toPlayerSong,
     fetchSongQualityGrade,
     gradeSong,
-    downloadQualityExport
+    copyQualitySongDossier
   } from '$lib/api-client';
   import { toast } from 'svelte-sonner';
   import {
@@ -198,13 +198,14 @@
     }
   }
 
-  async function onExportDossier() {
+  async function onCopyDossier() {
     const id = selectedId;
     if (id == null) return;
     try {
-      await downloadQualityExport('song', { songId: id });
+      await copyQualitySongDossier(id);
+      toast.success('Copied to clipboard — paste into Claude Code');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Export failed');
+      toast.error(e instanceof Error ? e.message : 'Copy failed');
     }
   }
   const candidates = $derived(candidatesFromDetail(selectedDetail));
@@ -758,10 +759,10 @@
           </button>
           <button
             type="button"
-            onclick={onExportDossier}
+            onclick={onCopyDossier}
             class="border-border hover:bg-accent inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors"
           >
-            <Download class="size-3" /> Export dossier
+            <Copy class="size-3" /> Copy dossier
           </button>
         </div>
 
