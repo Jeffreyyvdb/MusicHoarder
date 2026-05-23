@@ -28,6 +28,13 @@ public class IngestRun
     public string SourcePath { get; set; } = string.Empty;
     public string DestinationPath { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Human-readable description of what triggered this run (e.g. "Manual enrich — Kanye West"),
+    /// or null for background/auto runs. Set by <c>IngestRunMonitor</c> from the active enrichment
+    /// cycle's label.
+    /// </summary>
+    public string? TriggerLabel { get; set; }
+
     public int TracksDiscovered { get; set; }
     public int TracksProcessed { get; set; }
     public int TracksFingerprinted { get; set; }

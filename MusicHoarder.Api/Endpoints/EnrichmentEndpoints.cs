@@ -47,7 +47,7 @@ public static class EnrichmentEndpoints
                 // Enrichment is channel-fed by always-running workers (no discrete "enrich job"), so
                 // this trigger enqueues every song that's ready for enrichment plus any whose
                 // provider-attempt cooldown has elapsed. Works whether or not AutoStartPipeline is on.
-                var enqueued = await EnqueueReadyAndRetryableAsync(db, channel, ct);
+                var enqueued = await EnqueueReadyAndRetryableAsync(db, channel, "Manual enrich — all tracks", ct);
                 return Results.Accepted("/api/enrichment/status", new { enqueued });
             })
             .WithName("TriggerEnrich")
@@ -118,7 +118,7 @@ public static class EnrichmentEndpoints
                     ids = await query.Select(s => s.Id).ToListAsync(ct);
                 }
 
-                channel.EnqueueRange(ids);
+                channel.EnqueueRange(ids, label: $"Manual enrich — {FolderDisplayName(path)}");
                 return Results.Accepted("/api/enrichment/status", new { folder = path, enqueued = ids.Count, reset = doReset });
             })
             .WithName("EnrichFolder")
@@ -153,9 +153,14 @@ public static class EnrichmentEndpoints
             .WithSummary("Trigger the LibraryBuilderService to copy and tag matched tracks to the destination.")
             .RequireOwner();
 
-        group.MapPost("/cancel", (JobManager jobManager) =>
+        group.MapPost("/cancel", (JobManager jobManager, EnrichmentPipelineChannel channel) =>
             {
-                if (!jobManager.Cancel())
+                var cancelled = jobManager.Cancel();
+                // Enrichment workers aren't driven by the job CTS — drain the channel and end the
+                // cycle explicitly so the Enrich step doesn't stay stuck Running.
+                channel.ResetCycle(cancelled: true);
+
+                if (!cancelled)
                     return Results.Ok(new { message = "No job is currently running." });
 
                 return Results.Ok(new { message = "Cancellation requested for the running job." });
@@ -260,7 +265,7 @@ public static class EnrichmentEndpoints
     }
 
     private static async Task<int> EnqueueReadyAndRetryableAsync(
-        MusicHoarderDbContext db, EnrichmentPipelineChannel channel, CancellationToken ct)
+        MusicHoarderDbContext db, EnrichmentPipelineChannel channel, string? label, CancellationToken ct)
     {
         var pendingIds = await db.Songs
             .AsNoTracking()
@@ -275,8 +280,20 @@ public static class EnrichmentEndpoints
             .ToListAsync(ct);
 
         var ids = pendingIds.Concat(retryIds).Distinct().ToList();
-        channel.EnqueueRange(ids);
+        channel.EnqueueRange(ids, label);
         return ids.Count;
+    }
+
+    /// <summary>
+    /// The last path segment of a (relative or absolute) folder path, for a human-readable run
+    /// label — e.g. "/music/Kanye West" → "Kanye West". Falls back to the raw path.
+    /// </summary>
+    internal static string FolderDisplayName(string path)
+    {
+        var trimmed = path.Replace('\\', '/').TrimEnd('/');
+        var slash = trimmed.LastIndexOf('/');
+        var name = slash >= 0 ? trimmed[(slash + 1)..] : trimmed;
+        return string.IsNullOrWhiteSpace(name) ? path : name;
     }
 
     /// <summary>

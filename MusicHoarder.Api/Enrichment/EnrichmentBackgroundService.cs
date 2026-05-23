@@ -220,18 +220,20 @@ public class EnrichmentBackgroundService(
 
         await foreach (var songId in pipelineChannel.Reader.ReadAllAsync(ct))
         {
-            if (ct.IsCancellationRequested)
-                break;
-
-            if (jobManager.IsStepPaused(JobType.Enrich))
-            {
-                await WaitUntilResumedAsync(ct);
-                if (ct.IsCancellationRequested)
-                    break;
-            }
-
+            // The finally decrements the in-flight count exactly once per dequeued item (even on the
+            // cancel/pause break paths) so the channel can end the enrich cycle when work drains.
             try
             {
+                if (ct.IsCancellationRequested)
+                    break;
+
+                if (jobManager.IsStepPaused(JobType.Enrich))
+                {
+                    await WaitUntilResumedAsync(ct);
+                    if (ct.IsCancellationRequested)
+                        break;
+                }
+
                 var outcome = await orchestrator.ProcessSongAsync(songId, ct);
 
                 switch (outcome)
@@ -256,6 +258,10 @@ public class EnrichmentBackgroundService(
                 logger.LogWarning(ex, "Enrichment worker {WorkerId} failed processing song {SongId}",
                     workerId, songId);
                 progressTracker.IncrementFailed();
+            }
+            finally
+            {
+                pipelineChannel.MarkProcessed();
             }
         }
 

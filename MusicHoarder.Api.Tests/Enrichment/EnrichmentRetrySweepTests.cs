@@ -25,7 +25,7 @@ public class EnrichmentRetrySweepTests
         });
         await db.SaveChangesAsync();
 
-        var channel = new EnrichmentPipelineChannel();
+        var channel = new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker());
         var service = CreateService(
             db, channel,
             enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.AcoustID, EnrichmentProvider.SpotifyAPI });
@@ -59,7 +59,7 @@ public class EnrichmentRetrySweepTests
         });
         await db.SaveChangesAsync();
 
-        var channel = new EnrichmentPipelineChannel();
+        var channel = new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker());
         var service = CreateService(
             db, channel,
             enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.AcoustID, EnrichmentProvider.SpotifyAPI });
@@ -92,7 +92,7 @@ public class EnrichmentRetrySweepTests
         });
         await db.SaveChangesAsync();
 
-        var channel = new EnrichmentPipelineChannel();
+        var channel = new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker());
         var service = CreateService(
             db, channel,
             enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.AcoustID },
@@ -122,7 +122,7 @@ public class EnrichmentRetrySweepTests
         AddSong(db, EnrichmentStatus.Failed);
         await db.SaveChangesAsync();
 
-        var channel = new EnrichmentPipelineChannel();
+        var channel = new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker());
         var service = CreateService(db, channel, enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.AcoustID });
 
         await service.RetryStaleStatusesAsync(CancellationToken.None);
