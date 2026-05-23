@@ -1,4 +1,5 @@
 import { createPasskey, getPasskeyAssertion } from "$lib/webauthn-client"
+import type { PlayerSong } from "$lib/stores/player.svelte"
 
 const API_PREFIX = "/api/mh"
 
@@ -778,6 +779,20 @@ export async function fetchTrackLyrics(trackId: number): Promise<TrackLyricsResp
 
 export function getSongStreamUrl(songId: number): string {
   return `${API_PREFIX}/songs/${songId}/stream`
+}
+
+/**
+ * Map an {@link ApiSong} to the minimal {@link PlayerSong} the audio store
+ * needs, applying the same title/artist fallbacks used across the play call
+ * sites. `fallbackArtist` is typically the owning album's artist.
+ */
+export function toPlayerSong(song: ApiSong, fallbackArtist: string): PlayerSong {
+  return {
+    id: song.id,
+    title: (song.title ?? song.fileName).trim() || song.fileName,
+    artist: (song.artist ?? fallbackArtist).trim() || fallbackArtist,
+    streamUrl: getSongStreamUrl(song.id),
+  }
 }
 
 export function parseSongId(fileItemId: string): number | null {
