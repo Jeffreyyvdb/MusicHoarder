@@ -307,11 +307,27 @@
           class="text-muted-foreground flex flex-col items-center justify-center gap-3 py-16 text-center"
         >
           <Disc3 class="size-10 opacity-40" />
-          <p class="text-sm">
-            {searchQuery.trim()
-              ? 'No albums match your search.'
-              : 'Nothing in this section yet.'}
-          </p>
+          {#if searchQuery.trim()}
+            <p class="text-sm">No albums match your search.</p>
+          {:else if isSourceView}
+            <div class="space-y-1">
+              <p class="text-foreground text-sm font-medium">No scanned files yet</p>
+              <p class="text-xs">Run a scan to index your source folder.</p>
+            </div>
+          {:else if section === 'lib'}
+            <div class="max-w-sm space-y-1.5">
+              <p class="text-foreground text-sm font-medium">Your library is empty</p>
+              <p class="text-xs">
+                Albums appear here once the pipeline enriches and builds them into your
+                destination. Everything you've scanned lives under
+                <a href="/library?view=source" class="text-primary underline-offset-2 hover:underline"
+                  >Source folder</a
+                >.
+              </p>
+            </div>
+          {:else}
+            <p class="text-sm">Nothing in this section yet.</p>
+          {/if}
         </div>
       {:else}
         <div class="text-muted-foreground mt-1 mb-3 text-sm font-medium">

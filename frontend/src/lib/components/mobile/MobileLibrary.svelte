@@ -158,8 +158,18 @@
     {:else}
       <div class="px-6 py-16 text-center">
         <Disc3 class="text-muted-foreground/40 mx-auto mb-3" size={32} />
-        <div class="text-sm font-medium">Nothing here</div>
-        <div class="text-muted-foreground mt-1 text-[13px]">Try a different search or filter.</div>
+        {#if query.trim()}
+          <div class="text-sm font-medium">Nothing here</div>
+          <div class="text-muted-foreground mt-1 text-[13px]">Try a different search.</div>
+        {:else if !isSourceView && section === 'lib'}
+          <div class="text-sm font-medium">Your library is empty</div>
+          <div class="text-muted-foreground mt-1 text-[13px]">
+            Albums appear here once the pipeline builds them. Scanned files live under Source folder.
+          </div>
+        {:else}
+          <div class="text-sm font-medium">Nothing here</div>
+          <div class="text-muted-foreground mt-1 text-[13px]">Try a different filter.</div>
+        {/if}
       </div>
     {/if}
   </div>
