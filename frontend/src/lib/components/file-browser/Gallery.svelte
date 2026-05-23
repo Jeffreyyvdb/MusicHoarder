@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { ArrowLeft, Disc3, Music, Play } from '@lucide/svelte';
+  import { ArrowLeft, Disc3, Music, Play, Shuffle } from '@lucide/svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import ProcessingStrip from '$lib/components/file-browser/ProcessingStrip.svelte';
@@ -250,6 +250,14 @@
   function albumHref(key: string) {
     return `/library?album=${encodeURIComponent(key)}`;
   }
+
+  function shuffleAlbums() {
+    if (filtered.length === 0) return;
+    const album = filtered[Math.floor(Math.random() * filtered.length)];
+    if (album.songs.length === 0) return;
+    const queue = album.songs.map((s) => toPlayerSong(s, album.artist));
+    void playerStore.playSong(queue[0], queue, 0);
+  }
 </script>
 
 {#if isLoading && albums.length === 0}
@@ -286,8 +294,20 @@
             </p>
           {/if}
         </div>
-        <div class="text-muted-foreground hidden text-xs sm:block">
-          Sort by <span class="text-foreground/80 ml-1 cursor-pointer">Recently added ▾</span>
+        <div class="flex shrink-0 items-center gap-3">
+          {#if filtered.length > 0}
+            <button
+              type="button"
+              onclick={shuffleAlbums}
+              class="border-primary/40 text-primary hover:bg-primary/10 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors"
+            >
+              <Shuffle class="size-3.5" />
+              Shuffle
+            </button>
+          {/if}
+          <div class="text-muted-foreground hidden text-xs sm:block">
+            Sort by <span class="text-foreground/80 ml-1 cursor-pointer">Recently added ▾</span>
+          </div>
         </div>
       </div>
 

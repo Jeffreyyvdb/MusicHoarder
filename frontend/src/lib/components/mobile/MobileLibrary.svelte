@@ -3,12 +3,13 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { toast } from 'svelte-sonner';
-  import { Search, ScanLine, Disc3, Loader2 } from '@lucide/svelte';
+  import { Search, ScanLine, Disc3, Loader2, Shuffle } from '@lucide/svelte';
   import MobileHeader from '$lib/components/mobile/MobileHeader.svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import ProcessingStrip from '$lib/components/file-browser/ProcessingStrip.svelte';
-  import { buildAlbumsFromSongs, sortAlbumsByRecency, triggerEnrichmentScan, type ApiSong } from '$lib/api-client';
+  import { buildAlbumsFromSongs, sortAlbumsByRecency, toPlayerSong, triggerEnrichmentScan, type ApiSong } from '$lib/api-client';
   import { applySectionFilter, type SectionId } from '$lib/album-sections';
+  import { playerStore } from '$lib/stores/player.svelte';
 
   type Props = {
     songs: ApiSong[];
@@ -44,6 +45,14 @@
 
   function openAlbum(key: string) {
     void goto(`/library?album=${encodeURIComponent(key)}`);
+  }
+
+  function shuffleAlbums() {
+    if (filtered.length === 0) return;
+    const album = filtered[Math.floor(Math.random() * filtered.length)];
+    if (album.songs.length === 0) return;
+    const queue = album.songs.map((s) => toPlayerSong(s, album.artist));
+    void playerStore.playSong(queue[0], queue, 0);
   }
 
   let scanning = $state(false);
@@ -97,6 +106,11 @@
 <div class="mob">
   <MobileHeader title={isSourceView ? 'Source folder' : 'Library'} sub="{trackCount.toLocaleString()} tracks · {artistCount.toLocaleString()} artists">
     {#snippet right()}
+      {#if filtered.length > 0}
+        <button class="mob-h-btn" aria-label="Shuffle albums" onclick={shuffleAlbums}>
+          <Shuffle size={16} />
+        </button>
+      {/if}
       <button class="mob-h-btn" aria-label="Scan source" disabled={scanning} onclick={scanSource}>
         {#if scanning}<Loader2 size={16} class="animate-spin" />{:else}<ScanLine size={16} />{/if}
       </button>
