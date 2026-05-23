@@ -20,6 +20,7 @@
     type SettingsResponse,
     type SettingsProvidersView,
     type SettingsPipelineView,
+    type SettingsQualityGradingView,
     type SpotifyCredentialsResponse,
     type SpotifyStatusResponse,
     type ApiStats,
@@ -44,6 +45,7 @@
   let settings = $state<SettingsResponse | null>(null);
   let providers = $state<SettingsProvidersView | null>(null);
   let pipeline = $state<SettingsPipelineView | null>(null);
+  let qualityGrading = $state<SettingsQualityGradingView | null>(null);
   let creds = $state<SpotifyCredentialsResponse | null>(null);
   let spotifyStatus = $state<SpotifyStatusResponse | null>(null);
   let stats = $state<ApiStats | null>(null);
@@ -55,6 +57,7 @@
   let savingCreds = $state(false);
   let savingProviders = $state(false);
   let savingPipeline = $state(false);
+  let savingQualityGrading = $state(false);
   let purgeError = $state<string | null>(null);
   let confirmPurge = $state(false);
   let purgeText = $state('');
@@ -71,6 +74,7 @@
       settings = s;
       providers = { ...s.providers };
       pipeline = { ...s.pipeline };
+      qualityGrading = { ...s.qualityGrading };
     }
     creds = c;
     spotifyStatus = st;
@@ -116,6 +120,16 @@
       await updateSettings({ pipeline });
     } finally {
       savingPipeline = false;
+    }
+  }
+
+  async function saveQualityGrading() {
+    if (!qualityGrading) return;
+    savingQualityGrading = true;
+    try {
+      await updateSettings({ qualityGrading: { enabled: qualityGrading.enabled } });
+    } finally {
+      savingQualityGrading = false;
     }
   }
 
@@ -248,6 +262,34 @@
       <div class="p-4">
         <button class="mob-btn primary" disabled={savingProviders} onclick={saveProviders}>
           {savingProviders ? 'Saving…' : 'Save sources'}
+        </button>
+      </div>
+
+      <div class="mob-grouped-h">AI quality grading</div>
+      <div class="mob-grouped">
+        <div class="mob-row">
+          <div class="mob-row-meta">
+            <div class="mob-row-t">Enable AI grading</div>
+            <div class="mob-row-s">
+              {#if qualityGrading && !qualityGrading.configured}
+                No API key set on the server
+              {:else}
+                Grades enriched songs in the background
+              {/if}
+            </div>
+          </div>
+          <button
+            class="mob-toggle {qualityGrading?.enabled ? 'on' : ''}"
+            aria-label="Enable AI grading"
+            aria-pressed={qualityGrading?.enabled ?? false}
+            onclick={() =>
+              qualityGrading && (qualityGrading = { ...qualityGrading, enabled: !qualityGrading.enabled })}
+          ></button>
+        </div>
+      </div>
+      <div class="p-4">
+        <button class="mob-btn primary" disabled={savingQualityGrading} onclick={saveQualityGrading}>
+          {savingQualityGrading ? 'Saving…' : 'Save grading'}
         </button>
       </div>
     </div>

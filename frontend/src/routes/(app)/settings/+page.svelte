@@ -28,6 +28,7 @@
     type SettingsResponse,
     type SettingsProvidersView,
     type SettingsPipelineView,
+    type SettingsQualityGradingView,
     type SpotifyCredentialsResponse,
     type SpotifyStatusResponse
   } from '$lib/api-client';
@@ -137,6 +138,9 @@
   let isSavingPipeline = $state(false);
   let providersResult = $state<{ success: boolean; message: string } | null>(null);
   let pipelineResult = $state<{ success: boolean; message: string } | null>(null);
+  let qualityGrading = $state<SettingsQualityGradingView | null>(null);
+  let isSavingQualityGrading = $state(false);
+  let qualityGradingResult = $state<{ success: boolean; message: string } | null>(null);
 
   // Purge state
   let purgeSnapshot = $state<PurgeSnapshot | null>(null);
@@ -180,6 +184,7 @@
           settings = settingsResp;
           providers = { ...settingsResp.providers };
           pipeline = { ...settingsResp.pipeline };
+          qualityGrading = { ...settingsResp.qualityGrading };
         }
       } finally {
         if (!cancelled) isLoading = false;
@@ -290,6 +295,28 @@
       };
     } finally {
       isSavingPipeline = false;
+    }
+  }
+
+  async function handleSaveQualityGrading() {
+    if (!qualityGrading) return;
+    isSavingQualityGrading = true;
+    qualityGradingResult = null;
+    try {
+      await updateSettings({ qualityGrading: { enabled: qualityGrading.enabled } });
+      qualityGradingResult = {
+        success: true,
+        message: qualityGrading.enabled
+          ? 'AI quality grading enabled.'
+          : 'AI quality grading disabled.'
+      };
+    } catch (err) {
+      qualityGradingResult = {
+        success: false,
+        message: err instanceof Error ? err.message : 'Failed to save AI grading setting.'
+      };
+    } finally {
+      isSavingQualityGrading = false;
     }
   }
 
@@ -632,6 +659,75 @@
                   <Save class="mr-2 size-4" />
                 {/if}
                 Save providers
+              </Button>
+            </div>
+          </section>
+
+          <section class="border-border bg-card mt-6 rounded-xl border">
+            <header class="border-border border-b px-6 py-4">
+              <h2 class="font-semibold">AI quality grading</h2>
+              <p class="text-muted-foreground text-xs">
+                An LLM grades each enrichment result so you can benchmark and debug the algorithm.
+                Turn it off to stop the background grading sweep and hide any grading-error
+                notifications.
+              </p>
+            </header>
+
+            <div class="flex items-center gap-4 px-6 py-4">
+              <div class="flex-1">
+                <div class="text-sm font-medium">Enable AI quality grading</div>
+                <div class="text-muted-foreground text-xs">
+                  {#if qualityGrading && !qualityGrading.configured}
+                    No API key set on the server — also set
+                    <code class="bg-secondary rounded px-1 py-0.5">QUALITY_GRADING_API_KEY</code>
+                    in the environment for grading to run.
+                  {:else}
+                    Grades enriched songs in the background and powers the AI quality page.
+                  {/if}
+                </div>
+              </div>
+              <label class="inline-flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  class="peer sr-only"
+                  checked={qualityGrading?.enabled ?? false}
+                  onchange={(e) => {
+                    if (qualityGrading)
+                      qualityGrading = { ...qualityGrading, enabled: e.currentTarget.checked };
+                  }}
+                />
+                <span
+                  class="border-input bg-secondary peer-checked:bg-primary relative h-5 w-9 rounded-full border transition-colors after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-4"
+                ></span>
+              </label>
+            </div>
+
+            {#if qualityGradingResult}
+              <div
+                class="mx-6 mb-4 flex items-center gap-2 rounded-lg border px-4 py-2 text-sm {qualityGradingResult.success
+                  ? 'border-[#1DB954]/50 bg-[#1DB954]/10 text-[#1DB954]'
+                  : 'border-destructive/50 bg-destructive/10 text-destructive'}"
+              >
+                {#if qualityGradingResult.success}
+                  <CheckCircle2 class="size-4 shrink-0" />
+                {:else}
+                  <AlertCircle class="size-4 shrink-0" />
+                {/if}
+                {qualityGradingResult.message}
+              </div>
+            {/if}
+
+            <div class="border-border flex justify-end gap-2 border-t px-6 py-4">
+              <Button
+                onclick={handleSaveQualityGrading}
+                disabled={isSavingQualityGrading || !qualityGrading}
+              >
+                {#if isSavingQualityGrading}
+                  <Loader2 class="mr-2 size-4 animate-spin" />
+                {:else}
+                  <Save class="mr-2 size-4" />
+                {/if}
+                Save grading
               </Button>
             </div>
           </section>

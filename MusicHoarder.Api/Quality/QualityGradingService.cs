@@ -80,7 +80,7 @@ public class QualityGradingService(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Quality grading failed for song {SongId}", songId);
-            return new GradeSongResult(GradeOutcome.Failed, latest, ex.Message);
+            return new GradeSongResult(GradeOutcome.Failed, latest, ex.Message, ClassifyError(ex));
         }
         sw.Stop();
 
@@ -107,6 +107,15 @@ public class QualityGradingService(
 
         return new GradeSongResult(GradeOutcome.Graded, grade);
     }
+
+    /// <summary>Maps a grading failure to a machine-readable code the UI can act on (e.g. show an "out of credits" banner).</summary>
+    private static string ClassifyError(Exception ex) => ex switch
+    {
+        HttpRequestException { StatusCode: System.Net.HttpStatusCode.PaymentRequired } => "out_of_credits",
+        HttpRequestException => "http_error",
+        InvalidOperationException => "empty_response",
+        _ => "error",
+    };
 
     private static string Fingerprint(SongGradingDossier dossier)
     {

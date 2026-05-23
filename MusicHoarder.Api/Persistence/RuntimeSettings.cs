@@ -3,9 +3,10 @@ using System.ComponentModel.DataAnnotations;
 namespace MusicHoarder.Api.Persistence;
 
 /// <summary>
-/// Singleton row holding the subset of <see cref="Options.MusicEnricherOptions"/> values that can
-/// be tweaked at runtime from the Settings UI. Any field left null falls back to the bound
-/// configuration value, so user-secrets / appsettings.json continue to act as defaults.
+/// Singleton row holding the subset of <see cref="Options.MusicEnricherOptions"/> (and
+/// <see cref="Options.QualityGradingOptions"/>) values that can be tweaked at runtime from the
+/// Settings UI. Any field left null falls back to the bound configuration value, so user-secrets /
+/// appsettings.json continue to act as defaults.
 /// </summary>
 public class RuntimeSettings
 {
@@ -18,6 +19,9 @@ public class RuntimeSettings
     public bool? EnableTrackerProvider { get; set; }
     public bool? EnableDeezerProvider { get; set; }
     public bool? EnableAppleMusicProvider { get; set; }
+
+    /// <summary>Overlays <see cref="Options.QualityGradingOptions.Enabled"/> — the AI quality grader master switch.</summary>
+    public bool? QualityGradingEnabled { get; set; }
 
     public double? SpotifyApiMatchedThreshold { get; set; }
     public double? AcoustIdScoreThreshold { get; set; }
