@@ -24,7 +24,7 @@
   } from '$lib/formatters';
   import {
     buildAlbumsFromSongs,
-    getSongStreamUrl,
+    toPlayerSong,
     type ApiSong
   } from '$lib/api-client';
   import { playerStore } from '$lib/stores/player.svelte';
@@ -69,26 +69,21 @@
     void goto(url.pathname + url.search, { replaceState: true, noScroll: true });
   }
 
+  function playFrom(target: ApiSong) {
+    if (!album) return;
+    const queue = tracks.map((t) => toPlayerSong(t, album.artist));
+    const index = tracks.findIndex((t) => t.id === target.id);
+    void playerStore.playSong(toPlayerSong(target, album.artist), queue, index);
+  }
+
   function playAlbumStart() {
     if (!album || tracks.length === 0) return;
-    const target = currentlyPlaying ?? tracks[0];
-    void playerStore.playSong({
-      id: target.id,
-      title: (target.title ?? target.fileName).trim() || target.fileName,
-      artist: (target.artist ?? album.artist).trim() || album.artist,
-      streamUrl: getSongStreamUrl(target.id)
-    });
+    playFrom(currentlyPlaying ?? tracks[0]);
   }
 
   function playTrack(s: ApiSong, e: MouseEvent) {
     e.stopPropagation();
-    if (!album) return;
-    void playerStore.playSong({
-      id: s.id,
-      title: (s.title ?? s.fileName).trim() || s.fileName,
-      artist: (s.artist ?? album.artist).trim() || album.artist,
-      streamUrl: getSongStreamUrl(s.id)
-    });
+    playFrom(s);
   }
 
   function trackBitrateLabel(s: ApiSong): string {

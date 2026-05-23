@@ -23,6 +23,7 @@
   ];
 
   let reviewCount = $state(0);
+  let navEl: HTMLElement | null = $state(null);
 
   async function refreshBadge() {
     try {
@@ -39,10 +40,27 @@
     return () => clearInterval(handle);
   });
 
+  // Publish the tab bar's real outer height (includes safe-area inset) to the
+  // document root so the floating MiniPlayer can dock flush above it without
+  // duplicating the height/safe-area math.
+  $effect(() => {
+    const el = navEl;
+    if (!el) return;
+    const root = document.documentElement;
+    const apply = () => root.style.setProperty('--mob-tab-h', `${el.offsetHeight}px`);
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      root.style.removeProperty('--mob-tab-h');
+    };
+  });
+
   const activeId = $derived(tabs.find((t) => t.match(page.url.pathname))?.id ?? '');
 </script>
 
-<nav class="mob-tabs">
+<nav class="mob-tabs" bind:this={navEl}>
   {#each tabs as tab (tab.id)}
     {@const Icon = tab.icon}
     <button

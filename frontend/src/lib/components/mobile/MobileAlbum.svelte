@@ -6,7 +6,7 @@
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import { albumTint } from '$lib/album-tint';
   import { formatDuration, formatFileSize, formatBitrate } from '$lib/formatters';
-  import { buildAlbumsFromSongs, getSongStreamUrl, type ApiSong } from '$lib/api-client';
+  import { buildAlbumsFromSongs, toPlayerSong, type ApiSong } from '$lib/api-client';
   import { playerStore } from '$lib/stores/player.svelte';
 
   type Props = {
@@ -33,12 +33,9 @@
 
   function play(s: ApiSong) {
     if (!album) return;
-    void playerStore.playSong({
-      id: s.id,
-      title: (s.title ?? s.fileName).trim() || s.fileName,
-      artist: (s.artist ?? album.artist).trim() || album.artist,
-      streamUrl: getSongStreamUrl(s.id)
-    });
+    const queue = tracks.map((t) => toPlayerSong(t, album.artist));
+    const index = tracks.findIndex((t) => t.id === s.id);
+    void playerStore.playSong(toPlayerSong(s, album.artist), queue, index);
   }
 
   function selectTrack(s: ApiSong) {
