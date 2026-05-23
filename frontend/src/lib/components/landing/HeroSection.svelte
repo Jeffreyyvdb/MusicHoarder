@@ -45,7 +45,7 @@
     </p>
 
     <div class="mb-6 flex flex-wrap gap-2.5">
-      <Button size="lg" href="/app">Sign in</Button>
+      <Button size="lg" href="/library">Sign in</Button>
       <Button
         size="lg"
         variant="outline"

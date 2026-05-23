@@ -3,7 +3,7 @@
  *
  * The MusicHoarder backend does not expose dedicated /recent /duplicates
  * /missing-metadata /queue endpoints, so these are derived client-side
- * from the same `fetchSongs()` result the rest of /app reads.
+ * from the same `fetchSongs()` result the rest of /library reads.
  */
 import { buildAlbumsFromSongs, mapEnrichmentStatus, sortAlbumsByRecency, type ApiSong } from '$lib/api-client';
 

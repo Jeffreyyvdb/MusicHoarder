@@ -34,7 +34,7 @@
 
   // Sources = where music comes from. System = pipeline/ops surfaces, de-emphasized below.
   const sourcesNav = [
-    { href: '/app', label: 'Local library', icon: Library },
+    { href: '/library', label: 'Local library', icon: Library },
     { href: '/spotify', label: 'Spotify', icon: Music2 }
   ] as const;
 
@@ -105,7 +105,7 @@
   });
 
   const pathname = $derived(page.url.pathname);
-  const onLibrary = $derived(pathname === '/app' || pathname.startsWith('/app/'));
+  const onLibrary = $derived(pathname === '/library' || pathname.startsWith('/library/'));
   const activeOrganize = $derived.by<'artist' | 'year' | null>(() => {
     if (pathname.startsWith('/artists') || page.url.searchParams.get('artist')) return 'artist';
     if (pathname.startsWith('/years') || page.url.searchParams.get('year')) return 'year';
@@ -218,7 +218,7 @@
       <Sidebar.MenuItem>
         <Sidebar.MenuButton size="lg" tooltipContent="MusicHoarder">
           {#snippet child({ props })}
-            <a {...props} href="/app">
+            <a {...props} href="/library">
               <div
                 class="bg-primary text-primary-foreground flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg shadow-sm"
               >
@@ -262,7 +262,7 @@
       <Sidebar.GroupContent>
         <Sidebar.Menu>
           {#each sourcesNav as item (item.href)}
-            {@const isActive = item.href === '/app' ? onLibrary : pathname.startsWith(item.href)}
+            {@const isActive = item.href === '/library' ? onLibrary : pathname.startsWith(item.href)}
             <Sidebar.MenuItem>
               <Sidebar.MenuButton {isActive} tooltipContent={item.label}>
                 {#snippet child({ props })}
@@ -285,7 +285,7 @@
           {@const isActive = onLibrary && activeSection === section.id}
           {@const count = counts[section.id]}
           <a
-            href={section.id === 'lib' ? '/app' : `/app?section=${section.id}`}
+            href={section.id === 'lib' ? '/library' : `/library?section=${section.id}`}
             data-active={isActive || undefined}
             class={cn(
               'mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors',

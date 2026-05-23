@@ -111,7 +111,7 @@
         size="sm"
         variant="outline"
         class="border-primary/40 bg-primary/15 text-primary hover:bg-primary/25 h-8 px-2.5 text-xs font-medium"
-        href={`/app?song=${songId}`}
+        href={`/library?song=${songId}`}
         onclick={(e: MouseEvent) => e.stopPropagation()}
       >
         <CheckCircle2 class="size-3.5 shrink-0" />
@@ -125,7 +125,7 @@
           variant="outline"
           class="h-8 border-amber-500/45 bg-amber-500/15 px-2.5 text-xs font-medium text-amber-900 hover:bg-amber-500/25 dark:text-amber-200"
           title="Open best-guess local track"
-          href={`/app?song=${songId}`}
+          href={`/library?song=${songId}`}
           onclick={(e: MouseEvent) => e.stopPropagation()}
         >
           ~{formatMatchConfidence(m?.matchConfidence)}
@@ -201,7 +201,7 @@
           <div class="flex items-center justify-between gap-2">
             <p class="text-muted-foreground text-[10px] tracking-wide uppercase">MusicHoarder</p>
             <a
-              href={`/app?song=${songId}`}
+              href={`/library?song=${songId}`}
               class="text-primary inline-flex items-center gap-1 text-xs hover:underline"
             >
               Open
