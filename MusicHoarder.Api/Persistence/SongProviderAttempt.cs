@@ -45,4 +45,12 @@ public class SongProviderAttempt
 
     public string? MatchedDataJson { get; set; }
     public string? Error { get; set; }
+
+    /// <summary>
+    /// The human-meaningful term the provider searched for (the resolved artist/title, or the
+    /// tracker's title-only query). Surfaced in the review timeline so a reviewer can see exactly
+    /// what was queried — and click through to the provider — instead of guessing. Null for
+    /// fingerprint-only lookups (AcoustID) and when nothing searchable was resolved.
+    /// </summary>
+    public string? SearchQuery { get; set; }
 }

@@ -282,12 +282,14 @@ public sealed class DemoSeederHostedService : IHostedService
                     RecommendedStatus: EnrichmentStatus.NeedsReview,
                     Album: c.Album);
 
+                var provider = providers[i % providers.Length];
                 song.ProviderAttempts.Add(new SongProviderAttempt
                 {
-                    Provider = providers[i % providers.Length],
+                    Provider = provider,
                     Status = ProviderAttemptStatus.Matched,
                     AttemptedAtUtc = now,
                     MatchedDataJson = JsonSerializer.Serialize(result),
+                    SearchQuery = ProviderSearchQuery.For(provider, song, "/demo/source"),
                 });
             }
 
