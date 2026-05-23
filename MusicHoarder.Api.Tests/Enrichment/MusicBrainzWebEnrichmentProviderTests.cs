@@ -123,6 +123,39 @@ public class MusicBrainzWebEnrichmentProviderTests
         Assert.IsType<ProviderNoMatch>(outcome);
     }
 
+    [Fact]
+    public async Task ExactLookup_PropagatesReleaseGroupCompilationAndDiscData()
+    {
+        var svc = new StubMb
+        {
+            ByMbid = _ => new MusicBrainzRecording(
+                "mb-1", "A Hit", "Various Performers", "Various Performers", "rel-1", "Greatest Hits", 2001, "USXXX", 200_000,
+                Artists: "Alice; Bob",
+                ArtistMusicBrainzIds: "id-a; id-b",
+                AlbumArtistMusicBrainzId: "aa-1",
+                ReleaseGroupId: "rg-1",
+                ReleaseTypePrimary: "album",
+                ReleaseTypes: "album; compilation",
+                IsCompilation: true,
+                TotalDiscs: 2,
+                TotalTracks: 30),
+        };
+        var provider = Create(svc);
+        var song = Song(artist: "Various Performers", title: "A Hit", mbid: "mb-1", durationSec: 200);
+
+        var outcome = await provider.TryEnrichAsync(song);
+
+        var result = Assert.IsType<ProviderMatched>(outcome).Result;
+        Assert.Equal("Alice; Bob", result.Artists);
+        Assert.Equal("id-a; id-b", result.ArtistMusicBrainzIds);
+        Assert.Equal("aa-1", result.AlbumArtistMusicBrainzId);
+        Assert.Equal("rg-1", result.MusicBrainzReleaseGroupId);
+        Assert.Equal("album; compilation", result.ReleaseTypes);
+        Assert.True(result.IsCompilation);
+        Assert.Equal(2, result.TotalDiscs);
+        Assert.Equal(30, result.TotalTracks);
+    }
+
     // --- helpers ---
 
     private static MusicBrainzWebEnrichmentProvider Create(IMusicBrainzWebService svc) =>

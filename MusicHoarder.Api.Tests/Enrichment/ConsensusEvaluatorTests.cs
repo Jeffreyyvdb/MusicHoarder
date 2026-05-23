@@ -201,6 +201,60 @@ public class ConsensusEvaluatorTests
     }
 
     [Fact]
+    public void TrackerMatched_BeatsAgreeingMainstream_TrackerWinsSolo()
+    {
+        // Strong preference: even when a mainstream provider lands on the same identity, the
+        // confident tracker match wins outright and supplies the tags (its catalog of leaks /
+        // alternate versions is richer for the artists it covers).
+        var song = Song();
+        Add(song, EnrichmentProvider.Tracker, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "Lucid Dreams", conf: 0.9, recommend: EnrichmentStatus.Matched));
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "Lucid Dreams", spotifyId: "s", conf: 0.95, recommend: EnrichmentStatus.Matched));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.Tracker, EnrichmentProvider.SpotifyAPI), Opts);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+        Assert.Equal(EnrichmentProvider.Tracker, Assert.Single(r.AgreeingProviders));
+    }
+
+    [Fact]
+    public void TrackerMatched_BeatsConflictingMainstream_TrackerWins()
+    {
+        // The tracker matched a leaked/alternate version; a mainstream provider matched a
+        // different (official) identity. The tracker still wins for the songs it covers.
+        var song = Song();
+        Add(song, EnrichmentProvider.Tracker, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "Lucid Dreams (OG Demo)", conf: 0.9, recommend: EnrichmentStatus.Matched));
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "Lucid Dreams", spotifyId: "s", conf: 0.97, recommend: EnrichmentStatus.Matched));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.Tracker, EnrichmentProvider.SpotifyAPI), Opts);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+        Assert.Equal(EnrichmentProvider.Tracker, Assert.Single(r.AgreeingProviders));
+        Assert.Equal("Lucid Dreams (OG Demo)", r.Winner!.Title);
+    }
+
+    [Fact]
+    public void TrackerMatched_WhileMainstreamRateLimited_TrackerWinsNotPending()
+    {
+        // A rate-limited mainstream provider can't stall an already-authoritative tracker answer.
+        var song = Song();
+        Add(song, EnrichmentProvider.Tracker, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "2MININHELL", conf: 0.92, recommend: EnrichmentStatus.Matched));
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.RateLimited, null);
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.Tracker, EnrichmentProvider.SpotifyAPI), Opts);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+        Assert.Equal(EnrichmentProvider.Tracker, Assert.Single(r.AgreeingProviders));
+    }
+
+    [Fact]
     public void SubFloorCandidate_DoesNotCorroborate()
     {
         var song = Song();

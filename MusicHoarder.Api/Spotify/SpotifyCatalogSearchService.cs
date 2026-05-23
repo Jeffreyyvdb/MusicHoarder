@@ -8,6 +8,7 @@ using System.Threading.RateLimiting;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
 
 namespace MusicHoarder.Api.Spotify;
@@ -252,6 +253,7 @@ public sealed class SpotifyCatalogSearchService(
         var durationMs = track.TryGetProperty("duration_ms", out var dur) ? dur.GetInt32() : 0;
 
         var artist = "";
+        string? artistsMulti = null;
         if (track.TryGetProperty("artists", out var artists) && artists.ValueKind == JsonValueKind.Array)
         {
             var names = new List<string>();
@@ -261,11 +263,16 @@ public sealed class SpotifyCatalogSearchService(
                     names.Add(an.GetString()!);
             }
 
+            // Keep the comma-joined display string unchanged (the fuzzy scorer depends on it);
+            // expose the discrete names separately for the multi-value ARTISTS tag.
             artist = string.Join(", ", names);
+            artistsMulti = MultiValue.Join(names);
         }
 
         var albumName = "";
         int? releaseYear = null;
+        string? albumType = null;
+        int? totalTracks = null;
         if (track.TryGetProperty("album", out var album) && album.ValueKind == JsonValueKind.Object)
         {
             if (album.TryGetProperty("name", out var alName) && alName.ValueKind == JsonValueKind.String)
@@ -273,18 +280,30 @@ public sealed class SpotifyCatalogSearchService(
 
             if (album.TryGetProperty("release_date", out var rd) && rd.ValueKind == JsonValueKind.String)
                 releaseYear = ParseReleaseYear(rd.GetString());
+
+            if (album.TryGetProperty("album_type", out var at) && at.ValueKind == JsonValueKind.String)
+                albumType = at.GetString()?.ToLowerInvariant();
+
+            if (album.TryGetProperty("total_tracks", out var tt) && tt.ValueKind == JsonValueKind.Number)
+                totalTracks = tt.GetInt32();
         }
 
         int? trackNumber = null;
         if (track.TryGetProperty("track_number", out var tn) && tn.ValueKind == JsonValueKind.Number)
             trackNumber = tn.GetInt32();
 
+        int? discNumber = null;
+        if (track.TryGetProperty("disc_number", out var dn) && dn.ValueKind == JsonValueKind.Number)
+            discNumber = dn.GetInt32();
+
         string? isrc = null;
         if (track.TryGetProperty("external_ids", out var ext) && ext.ValueKind == JsonValueKind.Object &&
             ext.TryGetProperty("isrc", out var isrcProp) && isrcProp.ValueKind == JsonValueKind.String)
             isrc = isrcProp.GetString();
 
-        return new SpotifyCatalogTrack(id, name, artist, albumName, releaseYear, trackNumber, durationMs, isrc);
+        return new SpotifyCatalogTrack(
+            id, name, artist, albumName, releaseYear, trackNumber, durationMs, isrc,
+            Artists: artistsMulti, DiscNumber: discNumber, AlbumType: albumType, TotalTracks: totalTracks);
     }
 
     private static int? ParseReleaseYear(string? releaseDate)
