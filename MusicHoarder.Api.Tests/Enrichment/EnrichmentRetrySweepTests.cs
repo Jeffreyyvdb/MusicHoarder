@@ -147,7 +147,7 @@ public class EnrichmentRetrySweepTests
         });
         await db.SaveChangesAsync();
 
-        var channel = new EnrichmentPipelineChannel();
+        var channel = new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker());
         var service = CreateService(
             db, channel,
             enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.SpotifyAPI, EnrichmentProvider.YeTracker });
@@ -182,7 +182,7 @@ public class EnrichmentRetrySweepTests
         });
         await db.SaveChangesAsync();
 
-        var channel = new EnrichmentPipelineChannel();
+        var channel = new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker());
         var service = CreateService(
             db, channel,
             enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.SpotifyAPI, EnrichmentProvider.YeTracker });
@@ -207,7 +207,7 @@ public class EnrichmentRetrySweepTests
         });
         await db.SaveChangesAsync();
 
-        var channel = new EnrichmentPipelineChannel();
+        var channel = new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker());
         var service = CreateService(
             db, channel,
             enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.SpotifyAPI, EnrichmentProvider.YeTracker });
@@ -230,7 +230,7 @@ public class EnrichmentRetrySweepTests
         song.Isrc = null;
         await db.SaveChangesAsync();
 
-        var channel = new EnrichmentPipelineChannel();
+        var channel = new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker());
         var service = CreateService(
             db, channel,
             enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.SpotifyAPI, EnrichmentProvider.YeTracker });
@@ -247,7 +247,7 @@ public class EnrichmentRetrySweepTests
         AddSong(db, EnrichmentStatus.Matched);
         await db.SaveChangesAsync();
 
-        var channel = new EnrichmentPipelineChannel();
+        var channel = new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker());
         var service = CreateService(db, channel, enabled: new HashSet<EnrichmentProvider>());
 
         await service.EnqueueSongsMissingProvidersAsync(CancellationToken.None);
