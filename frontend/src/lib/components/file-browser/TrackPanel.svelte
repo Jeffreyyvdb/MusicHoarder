@@ -6,6 +6,7 @@
     CheckCircle2,
     Copy,
     FastForward,
+    History,
     Loader2,
     Pause,
     Play,
@@ -558,6 +559,11 @@
     <Tabs.Content value="enrichment" class="flex min-h-0 flex-1 flex-col">
       <ScrollArea class="min-h-0 flex-1">
         <div class="space-y-3 px-5 py-4 text-xs">
+          <Button href={`/review?song=${song.id}`} variant="outline" size="sm" class="w-full">
+            <History class="mr-1.5 size-3.5" />
+            Provenance & review
+          </Button>
+
           {#if song.matchedBy}
             <div class="bg-muted/50 rounded-lg px-3 py-2">
               <p class="text-muted-foreground mb-0.5 text-[10px] tracking-wider uppercase">Matched via</p>
