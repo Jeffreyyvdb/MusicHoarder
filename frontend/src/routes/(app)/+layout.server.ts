@@ -8,12 +8,22 @@ import type { LayoutServerLoad } from './$types';
  */
 export const load: LayoutServerLoad = async ({ request, cookies }) => {
   const apiBase = getApiBaseUrl().replace(/\/$/, '');
-  const response = await fetch(`${apiBase}/api/auth/me`, {
-    headers: {
-      cookie: request.headers.get('cookie') ?? '',
-      'user-agent': request.headers.get('user-agent') ?? ''
-    }
-  });
+
+  let response: Response;
+  try {
+    response = await fetch(`${apiBase}/api/auth/me`, {
+      headers: {
+        cookie: request.headers.get('cookie') ?? '',
+        'user-agent': request.headers.get('user-agent') ?? ''
+      },
+      // Time-box the auth gate so a slow/busy API fails fast to /login instead of pending
+      // forever and leaving the user staring at a blank navigation.
+      signal: AbortSignal.timeout(8000)
+    });
+  } catch {
+    // Timeout or network error — treat the same as an unauthenticated response.
+    throw redirect(303, '/login');
+  }
 
   if (response.status === 401) {
     // Drop any stale cookie so the browser stops sending an invalid session.

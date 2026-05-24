@@ -14,13 +14,28 @@ async function proxy(request: Request, pathSegments: string, search: string): Pr
   const headers = new Headers(request.headers);
   headers.delete('host');
 
-  const response = await fetch(target, {
-    method,
-    headers,
-    body: shouldForwardBody ? await request.arrayBuffer() : undefined,
-    cache: 'no-store',
-    redirect: 'follow'
-  });
+  // Bound the time-to-headers, not the body stream: abort if the API hasn't returned
+  // response headers within the window, then clear the timer the moment it does. This keeps
+  // the long-lived SSE progress feed (/api/enrichment/progress) streaming after headers
+  // arrive, while preventing a busy API from making the proxy pend indefinitely.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+
+  let response: Response;
+  try {
+    response = await fetch(target, {
+      method,
+      headers,
+      body: shouldForwardBody ? await request.arrayBuffer() : undefined,
+      cache: 'no-store',
+      redirect: 'follow',
+      signal: controller.signal
+    });
+  } catch {
+    return new Response(null, { status: 504 });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const responseHeaders = new Headers(response.headers);
   responseHeaders.delete('content-encoding');

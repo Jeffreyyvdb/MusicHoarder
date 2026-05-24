@@ -141,9 +141,10 @@ public class IndexService(
                     filesToProcess,
                     new ParallelOptions
                     {
-                        // Use 2× the SMB concurrency so that we always have work
-                        // queued for the semaphore slots.
-                        MaxDegreeOfParallelism = opts.SmbConcurrency * 2,
+                        // Match the SMB concurrency (the semaphore that actually gates IO) rather
+                        // than 2×: the extra in-flight tasks only blocked more thread-pool threads
+                        // on synchronous TagLib reads, starving request handling under load.
+                        MaxDegreeOfParallelism = opts.SmbConcurrency,
                         CancellationToken = cancellationToken
                     },
                     async (filePath, ct) =>
