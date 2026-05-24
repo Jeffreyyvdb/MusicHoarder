@@ -61,7 +61,7 @@
 
 <script lang="ts">
   import type { SourceFile } from '$lib/api-client';
-  import { formatFileSize } from '$lib/formatters';
+  import { cleanDisplayName, formatFileSize } from '$lib/formatters';
   import { cn } from '$lib/utils';
 
   let { file, depth = 0 }: { file: SourceFile; depth?: number } = $props();
@@ -78,7 +78,7 @@
   <!-- filename with ext-colored prefix -->
   <span class="flex min-w-0 flex-1 items-baseline gap-1.5 font-mono">
     <span class="shrink-0 font-semibold" style="color: {EXT_COLORS[ext] ?? '#7a7a7a'}">.{ext}</span>
-    <span class="text-foreground truncate" title={file.fileName}>{file.fileName}</span>
+    <span class="text-foreground truncate" title={file.fileName}>{cleanDisplayName(file.fileName)}</span>
   </span>
 
   <!-- state pill + optional confidence -->
