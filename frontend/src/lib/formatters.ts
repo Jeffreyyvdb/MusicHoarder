@@ -39,6 +39,17 @@ export function formatFileSize(bytes: number | null | undefined): string {
   return `${kib.toFixed(0)} KB`;
 }
 
+// Strips Unicode "Other" code points (control, format, surrogate, private-use,
+// unassigned) for *display only* — these have no glyph and render as a .notdef
+// "tofu" box. Folder/file names that carry a stray control char on disk (it stays
+// in the stored path used for I/O) should still read cleanly in the UI.
+const NON_PRINTABLE = /\p{C}/gu;
+
+/** Display-safe folder/file name: drops non-rendering code points and trims. */
+export function cleanDisplayName(name: string | null | undefined): string {
+  return (name ?? '').replace(NON_PRINTABLE, '').trim();
+}
+
 /** Two-letter uppercase initials from a title. Falls back to first two chars. */
 export function computeInitials(title: string | null | undefined): string {
   if (!title) return '??';

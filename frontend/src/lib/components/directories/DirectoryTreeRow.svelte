@@ -6,6 +6,7 @@
     type SourceFile
   } from '$lib/api-client';
   import { AlertCircle, ChevronRight, Loader2, Sparkles } from '@lucide/svelte';
+  import { cleanDisplayName } from '$lib/formatters';
   import { cn } from '$lib/utils';
   import { Button } from '$lib/components/ui/button';
   import Self from './DirectoryTreeRow.svelte';
@@ -120,7 +121,7 @@
     />
 
     <span class="min-w-0 flex-1 truncate font-medium" title={node.path || node.name}>
-      {node.name}
+      {cleanDisplayName(node.name)}
     </span>
 
     <!-- Stacked status bar: written / matched / review / failed / queued -->
