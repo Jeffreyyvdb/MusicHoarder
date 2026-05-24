@@ -34,6 +34,7 @@
   } from '$lib/review-helpers';
   import { formatFileSize } from '$lib/formatters';
   import { playerStore } from '$lib/stores/player.svelte';
+  import { page } from '$app/state';
   import { cn } from '$lib/utils';
 
   type Decision = 'accept' | 'reject' | 'skip';
@@ -90,6 +91,19 @@
         )
         .slice(0, 100);
       for (const track of reviewTracks) void loadDetail(track.id);
+      // Honor a `?song=<id>` deep-link (e.g. from the library track panel): widen the
+      // filter to "All" and open that song's provenance detail directly.
+      const rawDeepLink = page.url.searchParams.get('song');
+      const deepLinkId = rawDeepLink != null ? Number(rawDeepLink) : NaN;
+      if (
+        Number.isFinite(deepLinkId) &&
+        [...reviewTracks, ...doneTracks].some((t) => t.id === deepLinkId)
+      ) {
+        queueFilter = 'all';
+        view = 'before';
+        openId = deepLinkId;
+        void loadDetail(deepLinkId);
+      }
     } catch {
       reviewTracks = [];
       doneTracks = [];
