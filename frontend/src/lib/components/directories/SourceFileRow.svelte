@@ -1,5 +1,6 @@
 <script lang="ts" module>
   import type { SourceFileState } from '$lib/api-client';
+  import { Check, TriangleAlert, X, Clock, type Icon } from '@lucide/svelte';
 
   // Per-extension accent colors, mirrored from the design's extColor map.
   const EXT_COLORS: Record<string, string> = {
@@ -17,35 +18,35 @@
   // the file is still awaiting fingerprinting (a matched file has already been fingerprinted).
   const STATE_META: Record<
     SourceFileState,
-    { label: string; icon: string; pill: string; pendingHint: string }
+    { label: string; icon: typeof Icon; pill: string; pendingHint: string }
   > = {
     written: {
       label: 'in library',
-      icon: '✓',
+      icon: Check,
       pill: 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300',
       pendingHint: 'in library'
     },
     matched: {
       label: 'matched',
-      icon: '✓',
+      icon: Check,
       pill: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
       pendingHint: 'awaiting library build'
     },
     review: {
       label: 'review',
-      icon: '⚠',
+      icon: TriangleAlert,
       pill: 'bg-amber-500/20 text-amber-700 dark:text-amber-400',
       pendingHint: 'needs review'
     },
     failed: {
       label: 'no match',
-      icon: '✕',
+      icon: X,
       pill: 'bg-red-500/15 text-red-600 dark:text-red-400',
       pendingHint: 'no match'
     },
     queued: {
       label: 'queued',
-      icon: '·',
+      icon: Clock,
       pill: 'bg-muted text-muted-foreground',
       pendingHint: 'awaiting fingerprint'
     }
@@ -60,13 +61,14 @@
 
 <script lang="ts">
   import type { SourceFile } from '$lib/api-client';
-  import { formatFileSize } from '$lib/formatters';
+  import { cleanDisplayName, formatFileSize } from '$lib/formatters';
   import { cn } from '$lib/utils';
 
   let { file, depth = 0 }: { file: SourceFile; depth?: number } = $props();
 
   const ext = $derived(fileExt(file.fileName, file.extension));
   const meta = $derived(STATE_META[file.state] ?? STATE_META.queued);
+  const StateIcon = $derived(meta.icon);
 </script>
 
 <div
@@ -76,7 +78,7 @@
   <!-- filename with ext-colored prefix -->
   <span class="flex min-w-0 flex-1 items-baseline gap-1.5 font-mono">
     <span class="shrink-0 font-semibold" style="color: {EXT_COLORS[ext] ?? '#7a7a7a'}">.{ext}</span>
-    <span class="text-foreground truncate" title={file.fileName}>{file.fileName}</span>
+    <span class="text-foreground truncate" title={file.fileName}>{cleanDisplayName(file.fileName)}</span>
   </span>
 
   <!-- state pill + optional confidence -->
@@ -86,7 +88,7 @@
       meta.pill
     )}
   >
-    <span class="font-bold">{meta.icon}</span>
+    <StateIcon class="size-3 shrink-0" aria-hidden="true" />
     <span>{meta.label}</span>
     {#if file.matchConfidence != null}
       <span class="font-mono opacity-70">{file.matchConfidence.toFixed(2)}</span>
