@@ -27,12 +27,14 @@
     beforeAfterRows,
     buildTimeline,
     buildOriginMatrix,
+    originalInfo,
     EDITABLE_FIELDS,
     type ReviewCandidate,
     type EditableFieldKey
   } from '$lib/review-helpers';
   import { formatFileSize } from '$lib/formatters';
   import { playerStore } from '$lib/stores/player.svelte';
+  import { page } from '$app/state';
   import { cn } from '$lib/utils';
 
   type Decision = 'accept' | 'reject' | 'skip';
@@ -89,6 +91,19 @@
         )
         .slice(0, 100);
       for (const track of reviewTracks) void loadDetail(track.id);
+      // Honor a `?song=<id>` deep-link (e.g. from the library track panel): widen the
+      // filter to "All" and open that song's provenance detail directly.
+      const rawDeepLink = page.url.searchParams.get('song');
+      const deepLinkId = rawDeepLink != null ? Number(rawDeepLink) : NaN;
+      if (
+        Number.isFinite(deepLinkId) &&
+        [...reviewTracks, ...doneTracks].some((t) => t.id === deepLinkId)
+      ) {
+        queueFilter = 'all';
+        view = 'before';
+        openId = deepLinkId;
+        void loadDetail(deepLinkId);
+      }
     } catch {
       reviewTracks = [];
       doneTracks = [];
@@ -223,13 +238,16 @@
     }
   }
 
-  function rowGuess(track: ApiSong): { title: string; subtitle: string } {
+  function rowOriginal(track: ApiSong): { title: string; subtitle: string; titleFromFilename: boolean } {
+    const o = originalInfo(track, details[track.id]);
+    const subtitle = o.subtitle || (o.titleFromFilename ? '' : o.fileName);
+    return { title: o.title, subtitle, titleFromFilename: o.titleFromFilename };
+  }
+
+  function rowGuessTitle(track: ApiSong): string {
     const d = details[track.id];
-    if (d) {
-      const g = bestGuess(track, candidatesFromDetail(d), d);
-      return { title: g.title, subtitle: g.subtitle };
-    }
-    return { title: track.title || track.fileName, subtitle: [track.artist, track.album].filter(Boolean).join(' · ') };
+    if (!d) return '';
+    return bestGuess(track, candidatesFromDetail(d), d).title;
   }
 
   function clock(iso: string | null | undefined): string {
@@ -251,6 +269,7 @@
 
   // Derivations for the open detail.
   const guess = $derived(open ? bestGuess(open, openCandidates, openDetail) : null);
+  const original = $derived(open ? originalInfo(open, openDetail) : null);
   const banner = $derived(open ? bannerFor(open, openDetail) : null);
   const beforeRows = $derived(beforeAfterRows(openDetail));
   const timeline = $derived(open ? buildTimeline(open, openDetail) : []);
@@ -268,12 +287,21 @@
     <div class="mob-scroll">
       <!-- title -->
       <div class="flex items-center gap-3 px-4 pt-4 pb-3">
-        <Cover artist={open.artist ?? 'Unknown'} title={guess.title} size={52} corner={8} caption={false} />
+        <Cover artist={original?.subtitle ?? 'Unknown'} title={original?.title ?? ''} size={52} corner={8} caption={false} />
         <div class="min-w-0">
-          <div class="truncate text-[19px] font-semibold">
-            {guess.title}{#if guess.isGuess}<span class="text-muted-foreground font-normal"> (best guess)</span>{/if}
+          <div class={cn('truncate text-[19px] font-semibold', original?.titleFromFilename && 'font-mono text-[15px]')}>
+            {original?.title}
           </div>
-          <div class="text-muted-foreground truncate text-[13px]">{guess.subtitle || open.fileName}</div>
+          {#if original?.subtitle}
+            <div class="text-muted-foreground truncate text-[13px]">{original.subtitle}</div>
+          {/if}
+          <div class="text-muted-foreground/70 truncate font-mono text-[11px]">{original?.fileName}</div>
+          {#if guess.title && guess.title !== original?.title}
+            <div class="text-muted-foreground/80 mt-1 truncate text-[12px]">
+              <span class="font-mono text-[10px] tracking-[0.08em]">BEST GUESS →</span>
+              {guess.title}{#if guess.isGuess}<span class="font-normal"> (best guess)</span>{/if}
+            </div>
+          {/if}
         </div>
       </div>
 
@@ -433,7 +461,8 @@
         {#each tracks as t (t.id)}
           {@const r = reasonFor(t)}
           {@const d = decisions[t.id]}
-          {@const info = rowGuess(t)}
+          {@const info = rowOriginal(t)}
+          {@const guessTitle = rowGuessTitle(t)}
           {@const detail = details[t.id]}
           {@const provs = contributedProviders(detail)}
           {@const ms = detail ? formatElapsed(elapsedMs(t, detail)) : null}
@@ -443,8 +472,11 @@
           >
             <Cover artist={t.artist ?? 'Unknown'} title={info.title} size={48} corner={8} caption={false} />
             <div class="min-w-0 flex-1">
-              <div class="truncate text-[15px] font-semibold">{info.title}</div>
+              <div class={cn('truncate text-[15px] font-semibold', info.titleFromFilename && 'font-mono text-[13px]')}>{info.title}</div>
               <div class="text-muted-foreground truncate text-[12.5px]">{info.subtitle || '—'}</div>
+              {#if guessTitle && guessTitle !== info.title}
+                <div class="text-muted-foreground/70 truncate text-[11.5px]">→ {guessTitle}</div>
+              {/if}
               <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
                 <span class={cn('rounded px-1.5 py-0.5 text-[9px] font-bold tracking-wide uppercase', PILL_TINT[r.tint])}>{r.label}</span>
                 {#each provs.slice(0, 3) as p (p.label)}
