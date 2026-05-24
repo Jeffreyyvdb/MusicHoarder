@@ -15,8 +15,11 @@
     Trash2,
     AlertTriangle,
     Sparkles,
-    Copy
+    Copy,
+    User,
+    Disc
   } from '@lucide/svelte';
+  import { page } from '$app/state';
   import type { ApiSong, EnrichmentDetail, SongQualityGradeView, QualityVerdict } from '$lib/api-client';
   import {
     fetchReviewQueue,
@@ -28,7 +31,8 @@
     toPlayerSong,
     fetchSongQualityGrade,
     gradeSong,
-    copyQualitySongDossier
+    copyQualitySongDossier,
+    albumKeyForSong
   } from '$lib/api-client';
   import { toast } from 'svelte-sonner';
   import {
@@ -126,7 +130,18 @@
       decisions = {};
       details = {};
       detailLoading = {};
-      selectedId = tracks[0]?.id ?? null;
+      // Honor a ?song=<id> deep-link (e.g. from the Quality page) by selecting that
+      // song and widening the filter to 'all' so the row is visible in any queue.
+      const deepLinkId = Number(page.url.searchParams.get('song'));
+      const deepLinked =
+        Number.isFinite(deepLinkId) &&
+        [...reviewTracks, ...doneTracks].some((t) => t.id === deepLinkId);
+      if (deepLinked) {
+        queueFilter = 'all';
+        selectedId = deepLinkId;
+      } else {
+        selectedId = tracks[0]?.id ?? null;
+      }
       // Prefetch detail for the review queue so each row shows its guess + provenance.
       for (const track of reviewTracks) void loadDetail(track.id);
       if (selectedId != null) void loadDetail(selectedId);
@@ -153,6 +168,20 @@
   });
 
   const selectedTrack = $derived(tracks.find((t) => t.id === selectedId) ?? null);
+
+  // Deep-links into the filtered library for the selected song's artist / album.
+  const artistName = $derived(
+    (selectedTrack?.albumArtist ?? selectedTrack?.artist ?? '').trim()
+  );
+  const artistHref = $derived(
+    artistName ? `/library?artist=${encodeURIComponent(artistName)}` : null
+  );
+  const albumHref = $derived(
+    selectedTrack && (selectedTrack.album ?? '').trim()
+      ? `/library?album=${encodeURIComponent(albumKeyForSong(selectedTrack))}`
+      : null
+  );
+
   const selectedDetail = $derived(selectedTrack ? (details[selectedTrack.id] ?? null) : null);
   const selectedGrade = $derived(selectedTrack ? (songGrades[selectedTrack.id] ?? null) : null);
 
@@ -725,6 +754,26 @@
                 <div class="text-muted-foreground/80 mt-1.5 truncate text-[12px]">
                   <span class="font-mono text-[10px] tracking-[0.08em]">BEST GUESS →</span>
                   {guess.title}{guess.subtitle ? ' · ' + guess.subtitle : ''}{#if guess.isGuess}<span class="font-normal"> (best guess)</span>{/if}
+                </div>
+              {/if}
+              {#if artistHref || albumHref}
+                <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  {#if artistHref}
+                    <a
+                      href={artistHref}
+                      class="border-border hover:bg-accent inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors"
+                    >
+                      <User class="size-3" /> Artist
+                    </a>
+                  {/if}
+                  {#if albumHref}
+                    <a
+                      href={albumHref}
+                      class="border-border hover:bg-accent inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors"
+                    >
+                      <Disc class="size-3" /> Album
+                    </a>
+                  {/if}
                 </div>
               {/if}
             </div>
