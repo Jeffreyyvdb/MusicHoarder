@@ -41,6 +41,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<SpotifySettings> SpotifySettings { get; set; } = null!;
     public DbSet<SpotifyTrackLibraryMatch> SpotifyTrackLibraryMatches { get; set; } = null!;
     public DbSet<RuntimeSettings> RuntimeSettings { get; set; } = null!;
+    public DbSet<MetadataMatchRule> MetadataMatchRules { get; set; } = null!;
     public DbSet<IngestRun> IngestRuns { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
     public DbSet<Session> Sessions { get; set; } = null!;
@@ -154,6 +155,12 @@ public class MusicHoarderDbContext : DbContext
         modelBuilder.Entity<RuntimeSettings>(entity =>
         {
             entity.HasKey(e => e.Id);
+        });
+
+        modelBuilder.Entity<MetadataMatchRule>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.Enabled, e.Priority });
         });
 
         modelBuilder.Entity<IngestRun>(entity =>

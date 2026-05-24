@@ -30,21 +30,26 @@ public static class MetadataMerger
     {
         song.CaptureOriginalMetadata();
 
-        var highConsensus = agreeingProviderCount >= 2 && confidence >= autoUpgradeConfidence;
+        // Force a destructive overwrite of curated values when EITHER a strong multi-provider
+        // consensus justifies it OR the winner is authoritative for the fields it set (a user
+        // match-rule rewriting its own captured tags). Originals are snapshotted above, so an
+        // authoritative overwrite stays reversible via ResetEnrichment(restoreOriginal: true).
+        var forceApply = (agreeingProviderCount >= 2 && confidence >= autoUpgradeConfidence)
+            || winner.Authoritative;
         var changes = new List<FieldChange>();
 
-        MergeText(song, "Artist", song.Artist, winner.Artist, v => song.Artist = v, highConsensus, changes);
-        MergeText(song, "AlbumArtist", song.AlbumArtist, winner.AlbumArtist, v => song.AlbumArtist = v, highConsensus, changes);
-        MergeText(song, "Title", song.Title, winner.Title, v => song.Title = v, highConsensus, changes);
-        MergeText(song, "Album", song.Album, winner.Album, v => song.Album = v, highConsensus, changes);
-        MergeText(song, "Artists", song.Artists, winner.Artists, v => song.Artists = v, highConsensus, changes);
-        MergeText(song, "ReleaseTypePrimary", song.ReleaseTypePrimary, winner.ReleaseTypePrimary, v => song.ReleaseTypePrimary = v, highConsensus, changes);
-        MergeText(song, "ReleaseTypes", song.ReleaseTypes, winner.ReleaseTypes, v => song.ReleaseTypes = v, highConsensus, changes);
-        MergeNumber(song, "Year", song.Year, winner.Year, v => song.Year = v, highConsensus, changes);
-        MergeNumber(song, "TrackNumber", song.TrackNumber, winner.TrackNumber, v => song.TrackNumber = v, highConsensus, changes);
-        MergeNumber(song, "DiscNumber", song.DiscNumber, winner.DiscNumber, v => song.DiscNumber = v, highConsensus, changes);
-        MergeNumber(song, "TotalDiscs", song.TotalDiscs, winner.TotalDiscs, v => song.TotalDiscs = v, highConsensus, changes);
-        MergeNumber(song, "TotalTracks", song.TotalTracks, winner.TotalTracks, v => song.TotalTracks = v, highConsensus, changes);
+        MergeText(song, "Artist", song.Artist, winner.Artist, v => song.Artist = v, forceApply, changes);
+        MergeText(song, "AlbumArtist", song.AlbumArtist, winner.AlbumArtist, v => song.AlbumArtist = v, forceApply, changes);
+        MergeText(song, "Title", song.Title, winner.Title, v => song.Title = v, forceApply, changes);
+        MergeText(song, "Album", song.Album, winner.Album, v => song.Album = v, forceApply, changes);
+        MergeText(song, "Artists", song.Artists, winner.Artists, v => song.Artists = v, forceApply, changes);
+        MergeText(song, "ReleaseTypePrimary", song.ReleaseTypePrimary, winner.ReleaseTypePrimary, v => song.ReleaseTypePrimary = v, forceApply, changes);
+        MergeText(song, "ReleaseTypes", song.ReleaseTypes, winner.ReleaseTypes, v => song.ReleaseTypes = v, forceApply, changes);
+        MergeNumber(song, "Year", song.Year, winner.Year, v => song.Year = v, forceApply, changes);
+        MergeNumber(song, "TrackNumber", song.TrackNumber, winner.TrackNumber, v => song.TrackNumber = v, forceApply, changes);
+        MergeNumber(song, "DiscNumber", song.DiscNumber, winner.DiscNumber, v => song.DiscNumber = v, forceApply, changes);
+        MergeNumber(song, "TotalDiscs", song.TotalDiscs, winner.TotalDiscs, v => song.TotalDiscs = v, forceApply, changes);
+        MergeNumber(song, "TotalTracks", song.TotalTracks, winner.TotalTracks, v => song.TotalTracks = v, forceApply, changes);
 
         // Identifiers and the compilation flag are additive facts — attach the matched identity's data.
         if (!string.IsNullOrWhiteSpace(winner.MusicBrainzId)) song.MusicBrainzId = winner.MusicBrainzId;
@@ -69,7 +74,7 @@ public static class MetadataMerger
 
     private static void MergeText(
         SongMetadata song, string field, string? existing, string? incoming,
-        Action<string?> set, bool highConsensus, List<FieldChange> changes)
+        Action<string?> set, bool forceApply, List<FieldChange> changes)
     {
         if (string.IsNullOrWhiteSpace(incoming))
             return;
@@ -87,7 +92,7 @@ public static class MetadataMerger
                 StringComparison.Ordinal))
             return; // same value, just spelled differently — keep the curated form
 
-        if (highConsensus)
+        if (forceApply)
         {
             set(incoming);
             changes.Add(new FieldChange(field, existing, incoming, Applied: true));
@@ -100,7 +105,7 @@ public static class MetadataMerger
 
     private static void MergeNumber(
         SongMetadata song, string field, int? existing, int? incoming,
-        Action<int?> set, bool highConsensus, List<FieldChange> changes)
+        Action<int?> set, bool forceApply, List<FieldChange> changes)
     {
         if (incoming is null)
             return;
@@ -115,7 +120,7 @@ public static class MetadataMerger
         if (existing == incoming)
             return;
 
-        if (highConsensus)
+        if (forceApply)
         {
             set(incoming);
             changes.Add(new FieldChange(field, existing.ToString(), incoming.ToString(), Applied: true));

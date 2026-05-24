@@ -26,6 +26,7 @@ public static class WebApplicationExtensions
         app.MapQualityEndpoints();
         app.MapSpotifyEndpoints();
         app.MapSettingsEndpoints();
+        app.MapMatchRulesEndpoints();
         app.MapAuthEndpoints();
         app.MapWebAuthnEndpoints();
         app.MapDebugEndpoints();

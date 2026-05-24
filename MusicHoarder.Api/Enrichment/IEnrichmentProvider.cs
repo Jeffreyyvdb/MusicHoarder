@@ -27,7 +27,8 @@ public record EnrichmentProviderResult(
     int? TotalTracks = null,
     bool? IsCompilation = null,
     string? ReleaseTypePrimary = null,
-    string? ReleaseTypes = null);
+    string? ReleaseTypes = null,
+    bool Authoritative = false);
 
 public abstract record ProviderOutcome;
 public sealed record ProviderMatched(EnrichmentProviderResult Result) : ProviderOutcome;

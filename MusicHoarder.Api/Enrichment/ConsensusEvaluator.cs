@@ -13,6 +13,8 @@ namespace MusicHoarder.Api.Enrichment;
 /// <c>Matched</c> on its own (tuned) thresholds → <c>Matched</c>.</item>
 /// <item>A confident community-tracker match (unreleased / leaks the mainstream catalogs lack,
 /// so they can never corroborate) that recommended <c>Matched</c> → <c>Matched</c>.</item>
+/// <item>A confident custom-rule match (a user-defined pattern rewrote/validated the file's own
+/// tags) that recommended <c>Matched</c> → <c>Matched</c>.</item>
 /// <item>AcoustID (fingerprint) alone is treated as a candidate only → <c>NeedsReview</c>;
 /// it must be corroborated to promote.</item>
 /// </list>
@@ -244,9 +246,13 @@ public static class ConsensusEvaluator
         return Math.Min(0.99, 1.0 - inverse);
     }
 
-    /// <summary>Community trackers, in preference order, that win outright on a confident match.</summary>
+    /// <summary>
+    /// Trusted single-source providers, in preference order, that win outright on a confident match.
+    /// Community trackers (leaks the mainstream catalogs lack) and the custom-rule provider (user
+    /// patterns are authoritative for the files they match, which the catalogs can't corroborate).
+    /// </summary>
     private static readonly EnrichmentProvider[] TrackerProviders =
-        [EnrichmentProvider.Tracker, EnrichmentProvider.YeTracker];
+        [EnrichmentProvider.Tracker, EnrichmentProvider.YeTracker, EnrichmentProvider.CustomRule];
 
     public static bool IsNameBased(EnrichmentProvider provider)
         => provider is EnrichmentProvider.SpotifyAPI

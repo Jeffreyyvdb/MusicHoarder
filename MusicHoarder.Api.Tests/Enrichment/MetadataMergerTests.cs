@@ -138,6 +138,24 @@ public class MetadataMergerTests
         Assert.DoesNotContain("feat", song.AlbumArtist!, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Authoritative_OverwritesGoodExisting_EvenSolo()
+    {
+        // A custom-rule match is authoritative for the fields it captured: it overwrites a good,
+        // non-low-quality existing value even as a single provider (originals captured for undo).
+        var song = Song(artist: "Yung Nnelg", title: "Yung Nnelg | Wintersessie 2020 | 101Barz");
+        var winner = new EnrichmentProviderResult(
+            "Yung Nnelg", "Yung Nnelg", "Wintersessie 2020", null, null, null, null, null, null, null,
+            "CustomRule", 1.0, [], EnrichmentStatus.Matched, Authoritative: true);
+
+        var changes = MetadataMerger.ApplyMatch(song, winner, confidence: 1.0, agreeingProviderCount: 1, AutoUpgrade, warningsJson: null);
+
+        Assert.Equal("Wintersessie 2020", song.Title);
+        Assert.Contains(changes, c => c is { Field: "Title", Applied: true });
+        Assert.True(song.OriginalMetadataCaptured);
+        Assert.Equal("Yung Nnelg | Wintersessie 2020 | 101Barz", song.OriginalTitle);
+    }
+
     // --- helpers ---
 
     private static IReadOnlyList<MetadataMerger.FieldChange> Merge(

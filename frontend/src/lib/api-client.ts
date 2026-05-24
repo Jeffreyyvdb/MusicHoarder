@@ -1161,6 +1161,75 @@ export async function updateSettings(update: SettingsUpdateRequest): Promise<voi
   })
 }
 
+// ---- Metadata match rules (user-defined pattern matchers) ----
+
+export type MatchRuleSourceField = "title" | "filename"
+
+export interface MatchRuleView {
+  id: number
+  name: string
+  enabled: boolean
+  priority: number
+  pattern: string
+  sourceField: MatchRuleSourceField
+  createdAtUtc: string
+  updatedAtUtc: string
+}
+
+export interface MatchRuleInput {
+  name: string
+  pattern: string
+  sourceField: MatchRuleSourceField
+  enabled: boolean
+  priority: number
+}
+
+export interface MatchRuleExtraction {
+  artist: string | null
+  title: string | null
+  album: string | null
+  albumArtist: string | null
+}
+
+export interface MatchRuleTestResponse {
+  valid: boolean
+  error: string | null
+  matched: boolean
+  extracted: MatchRuleExtraction | null
+}
+
+export async function listMatchRules(): Promise<MatchRuleView[]> {
+  return requestJson<MatchRuleView[]>("/api/settings/match-rules")
+}
+
+export async function createMatchRule(input: MatchRuleInput): Promise<MatchRuleView> {
+  return requestJson<MatchRuleView>("/api/settings/match-rules", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })
+}
+
+export async function updateMatchRule(id: number, input: MatchRuleInput): Promise<MatchRuleView> {
+  return requestJson<MatchRuleView>(`/api/settings/match-rules/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  })
+}
+
+export async function deleteMatchRule(id: number): Promise<void> {
+  await fetch(`${API_PREFIX}/api/settings/match-rules/${id}`, {
+    method: "DELETE",
+    cache: "no-store",
+  })
+}
+
+export async function testMatchRule(pattern: string, sample: string): Promise<MatchRuleTestResponse> {
+  return requestJson<MatchRuleTestResponse>("/api/settings/match-rules/test", {
+    method: "POST",
+    body: JSON.stringify({ pattern, sample }),
+  })
+}
+
 export async function fetchReviewTracks(): Promise<ApiSong[]> {
   const result = await requestJson<SongsResponse>(
     "/songs?enrichmentStatus=needsreview"

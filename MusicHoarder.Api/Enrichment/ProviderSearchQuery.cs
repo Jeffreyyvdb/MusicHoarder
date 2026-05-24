@@ -23,8 +23,8 @@ public static class ProviderSearchQuery
 
         var (artist, title) = SongSearchText.Resolve(song, sourceRoot);
 
-        // Community trackers are single-artist catalogs searched by title only.
-        if (provider is EnrichmentProvider.Tracker or EnrichmentProvider.YeTracker)
+        // Community trackers search by title only; the custom-rule provider matches on the title.
+        if (provider is EnrichmentProvider.Tracker or EnrichmentProvider.YeTracker or EnrichmentProvider.CustomRule)
             return string.IsNullOrWhiteSpace(title) ? null : title!.Trim();
 
         // Name-based catalogs search on artist + title.

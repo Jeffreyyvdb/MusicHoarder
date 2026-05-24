@@ -122,6 +122,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IEnrichmentProvider, TrackerEnrichmentProvider>();
         services.AddSingleton<YeTrackerCatalogService>();
         services.AddSingleton<IEnrichmentProvider, YeTrackerEnrichmentProvider>();
+        services.AddSingleton<IMatchRuleService, MatchRuleService>();
+        services.AddSingleton<IEnrichmentProvider, CustomRuleEnrichmentProvider>();
         services.AddSingleton<EnrichmentPipelineChannel>();
         services.AddSingleton<IRuntimeSettingsService, RuntimeSettingsService>();
         services.AddSingleton<IEnrichmentOrchestrator, EnrichmentOrchestrator>();

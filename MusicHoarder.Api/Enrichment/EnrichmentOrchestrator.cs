@@ -444,6 +444,8 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             "AppleMusic" => effective.EnableAppleMusicProvider,
             // Config-only toggle (no runtime/DB setting): the yetracker is a static local catalog.
             "YeTracker" => _options.Value.EnableYeTrackerProvider,
+            // No master toggle: the provider is gated by whether any user match-rule is enabled.
+            "CustomRule" => true,
             _ => true
         };
     }
@@ -457,6 +459,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         "Deezer" => EnrichmentProvider.Deezer,
         "AppleMusic" => EnrichmentProvider.AppleMusic,
         "YeTracker" => EnrichmentProvider.YeTracker,
+        "CustomRule" => EnrichmentProvider.CustomRule,
         _ => null
     };
 
@@ -467,6 +470,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         _providerSemaphores["MusicBrainzWeb"] = new SemaphoreSlim(1, 1);
         _providerSemaphores["Tracker"] = new SemaphoreSlim(1, 1);
         _providerSemaphores["YeTracker"] = new SemaphoreSlim(1, 1);
+        _providerSemaphores["CustomRule"] = new SemaphoreSlim(1, 1);
         _providerSemaphores["Deezer"] = new SemaphoreSlim(opts.DeezerConcurrency, opts.DeezerConcurrency);
         _providerSemaphores["AppleMusic"] = new SemaphoreSlim(opts.AppleMusicConcurrency, opts.AppleMusicConcurrency);
     }

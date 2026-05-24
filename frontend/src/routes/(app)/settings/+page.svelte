@@ -30,7 +30,15 @@
     type SettingsPipelineView,
     type SettingsQualityGradingView,
     type SpotifyCredentialsResponse,
-    type SpotifyStatusResponse
+    type SpotifyStatusResponse,
+    listMatchRules,
+    createMatchRule,
+    updateMatchRule,
+    deleteMatchRule,
+    testMatchRule,
+    type MatchRuleView,
+    type MatchRuleSourceField,
+    type MatchRuleTestResponse
   } from '$lib/api-client';
   import { isPasskeySupported } from '$lib/webauthn-client';
   import {
@@ -50,7 +58,11 @@
     SlidersHorizontal,
     Copy,
     UserRound,
-    LogOut
+    LogOut,
+    Wand2,
+    Plus,
+    Pencil,
+    X
   } from '@lucide/svelte';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import MobileSettings from '$lib/components/mobile/MobileSettings.svelte';
@@ -117,6 +129,143 @@
       passkeys = passkeys.filter((p) => p.id !== id);
     } catch (err) {
       passkeyError = err instanceof Error ? err.message : 'Could not remove passkey.';
+    }
+  }
+
+  // ---- Match rules (owner-only) ----
+  let matchRules = $state<MatchRuleView[]>([]);
+  let matchRulesLoading = $state(false);
+  let matchRuleError = $state<string | null>(null);
+
+  // Editor form (shared for create + edit; editingId === null means "new")
+  let editingId = $state<number | null>(null);
+  let ruleName = $state('');
+  let rulePattern = $state('');
+  let ruleSourceField = $state<MatchRuleSourceField>('title');
+  let rulePriority = $state(100);
+  let ruleEnabled = $state(true);
+  let isSavingRule = $state(false);
+
+  // Live test box
+  let testSample = $state('');
+  let testResult = $state<MatchRuleTestResponse | null>(null);
+
+  const isEditingRule = $derived(editingId !== null);
+
+  function resetRuleForm() {
+    editingId = null;
+    ruleName = '';
+    rulePattern = '';
+    ruleSourceField = 'title';
+    rulePriority = 100;
+    ruleEnabled = true;
+    matchRuleError = null;
+  }
+
+  function startEditRule(rule: MatchRuleView) {
+    editingId = rule.id;
+    ruleName = rule.name;
+    rulePattern = rule.pattern;
+    ruleSourceField = rule.sourceField;
+    rulePriority = rule.priority;
+    ruleEnabled = rule.enabled;
+    matchRuleError = null;
+  }
+
+  $effect(() => {
+    if (isMobile.current || user?.role !== 'Owner') return;
+    let cancelled = false;
+    void (async () => {
+      matchRulesLoading = true;
+      try {
+        const list = await listMatchRules();
+        if (!cancelled) matchRules = list;
+      } catch {
+        // non-fatal; section just shows empty
+      } finally {
+        if (!cancelled) matchRulesLoading = false;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  // Debounced live test as the user types a pattern + sample.
+  $effect(() => {
+    const pattern = rulePattern.trim();
+    const sample = testSample;
+    if (!pattern || !sample.trim()) {
+      testResult = null;
+      return;
+    }
+    let cancelled = false;
+    const id = setTimeout(async () => {
+      try {
+        const result = await testMatchRule(pattern, sample);
+        if (!cancelled) testResult = result;
+      } catch {
+        if (!cancelled) testResult = null;
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(id);
+    };
+  });
+
+  async function handleSaveRule() {
+    if (!ruleName.trim() || !rulePattern.trim()) {
+      matchRuleError = 'Name and pattern are required.';
+      return;
+    }
+    isSavingRule = true;
+    matchRuleError = null;
+    try {
+      const input = {
+        name: ruleName.trim(),
+        pattern: rulePattern.trim(),
+        sourceField: ruleSourceField,
+        enabled: ruleEnabled,
+        priority: rulePriority
+      };
+      if (editingId !== null) {
+        const updated = await updateMatchRule(editingId, input);
+        matchRules = matchRules.map((r) => (r.id === updated.id ? updated : r));
+      } else {
+        const created = await createMatchRule(input);
+        matchRules = [...matchRules, created];
+      }
+      resetRuleForm();
+    } catch (err) {
+      matchRuleError = err instanceof Error ? err.message : 'Could not save the rule.';
+    } finally {
+      isSavingRule = false;
+    }
+  }
+
+  async function handleToggleRule(rule: MatchRuleView) {
+    try {
+      const updated = await updateMatchRule(rule.id, {
+        name: rule.name,
+        pattern: rule.pattern,
+        sourceField: rule.sourceField,
+        enabled: !rule.enabled,
+        priority: rule.priority
+      });
+      matchRules = matchRules.map((r) => (r.id === updated.id ? updated : r));
+    } catch (err) {
+      matchRuleError = err instanceof Error ? err.message : 'Could not update the rule.';
+    }
+  }
+
+  async function handleDeleteRule(id: number) {
+    try {
+      await deleteMatchRule(id);
+      matchRules = matchRules.filter((r) => r.id !== id);
+      if (editingId === id) resetRuleForm();
+    } catch (err) {
+      matchRuleError = err instanceof Error ? err.message : 'Could not delete the rule.';
     }
   }
 
@@ -401,6 +550,11 @@
           <Tabs.Trigger value="enrichment" class="gap-1.5"
             ><Tag class="size-3.5" />Enrichment</Tabs.Trigger
           >
+          {#if user?.role === 'Owner'}
+            <Tabs.Trigger value="rules" class="gap-1.5"
+              ><Wand2 class="size-3.5" />Match rules</Tabs.Trigger
+            >
+          {/if}
           <Tabs.Trigger value="pipeline" class="gap-1.5"
             ><SlidersHorizontal class="size-3.5" />Pipeline</Tabs.Trigger
           >
@@ -729,6 +883,193 @@
                 {/if}
                 Save grading
               </Button>
+            </div>
+          </section>
+        </Tabs.Content>
+
+        <!-- =================== MATCH RULES =================== -->
+        <Tabs.Content value="rules" class="mt-0">
+          <section class="border-border bg-card rounded-xl border">
+            <header class="border-border border-b px-6 py-4">
+              <h2 class="flex items-center gap-2 font-semibold">
+                <Wand2 class="size-4" />
+                {isEditingRule ? 'Edit rule' : 'New rule'}
+              </h2>
+              <p class="text-muted-foreground text-xs">
+                Recognize songs the music databases don't carry (e.g. YouTube channel uploads) by a
+                pattern, and rewrite their tags from the captured parts. Use
+                <code class="bg-secondary rounded px-1 py-0.5">{'{artist}'}</code>,
+                <code class="bg-secondary rounded px-1 py-0.5">{'{title}'}</code>,
+                <code class="bg-secondary rounded px-1 py-0.5">{'{album}'}</code>, and
+                <code class="bg-secondary rounded px-1 py-0.5">{'{albumartist}'}</code>
+                placeholders; literal text (like a channel name) anchors the match. A match is trusted
+                and overwrites the existing tags (originals are kept and restored if you re-enrich).
+              </p>
+            </header>
+
+            <div class="space-y-5 p-6">
+              <div class="space-y-2">
+                <Label for="rule-name">Name</Label>
+                <Input
+                  id="rule-name"
+                  placeholder="e.g. 101Barz sessions"
+                  bind:value={ruleName}
+                  oninput={() => (matchRuleError = null)}
+                />
+              </div>
+
+              <div class="space-y-2">
+                <Label for="rule-pattern">Pattern</Label>
+                <Input
+                  id="rule-pattern"
+                  placeholder={'{artist} | {title} | 101Barz'}
+                  bind:value={rulePattern}
+                  oninput={() => (matchRuleError = null)}
+                  class="font-mono text-sm"
+                />
+              </div>
+
+              <div class="flex flex-wrap gap-4">
+                <div class="min-w-48 flex-1 space-y-2">
+                  <Label for="rule-source">Match against</Label>
+                  <select
+                    id="rule-source"
+                    bind:value={ruleSourceField}
+                    class="border-input bg-background ring-offset-background focus-visible:ring-ring h-10 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none"
+                  >
+                    <option value="title">Title tag</option>
+                    <option value="filename">File name</option>
+                  </select>
+                </div>
+                <div class="w-32 space-y-2">
+                  <Label for="rule-priority">Priority</Label>
+                  <Input id="rule-priority" type="number" bind:value={rulePriority} />
+                </div>
+                <div class="flex flex-col justify-end pb-1">
+                  <label class="inline-flex cursor-pointer items-center gap-2">
+                    <input type="checkbox" class="peer sr-only" bind:checked={ruleEnabled} />
+                    <span
+                      class="border-input bg-secondary peer-checked:bg-primary relative h-5 w-9 rounded-full border transition-colors after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-4"
+                    ></span>
+                    <span class="text-sm">Enabled</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Live preview -->
+              <div class="border-border bg-secondary/30 space-y-3 rounded-lg border p-4">
+                <Label for="rule-sample">Test against a sample</Label>
+                <Input
+                  id="rule-sample"
+                  placeholder="Yung Nnelg | Wintersessie 2020 | 101Barz"
+                  bind:value={testSample}
+                  class="font-mono text-sm"
+                />
+                {#if testResult}
+                  {#if !testResult.valid}
+                    <div class="text-destructive flex items-start gap-2 text-xs">
+                      <AlertCircle class="mt-0.5 size-3.5 shrink-0" />
+                      <span>{testResult.error}</span>
+                    </div>
+                  {:else if !testResult.matched}
+                    <div class="text-muted-foreground text-xs">No match for this sample.</div>
+                  {:else}
+                    <div class="flex flex-wrap gap-2">
+                      {#each [['Artist', testResult.extracted?.artist], ['Title', testResult.extracted?.title], ['Album', testResult.extracted?.album], ['Album artist', testResult.extracted?.albumArtist]] as [label, value] (label)}
+                        {#if value}
+                          <Badge variant="secondary" class="gap-1">
+                            <span class="text-muted-foreground">{label}:</span>
+                            {value}
+                          </Badge>
+                        {/if}
+                      {/each}
+                    </div>
+                  {/if}
+                {:else}
+                  <p class="text-muted-foreground text-xs">
+                    Type a pattern and a sample to preview the captured fields.
+                  </p>
+                {/if}
+              </div>
+
+              {#if matchRuleError}
+                <div
+                  class="border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+                >
+                  <AlertCircle class="mt-0.5 size-4 shrink-0" />
+                  <span>{matchRuleError}</span>
+                </div>
+              {/if}
+            </div>
+
+            <div class="border-border flex justify-end gap-2 border-t px-6 py-4">
+              {#if isEditingRule}
+                <Button variant="ghost" onclick={resetRuleForm} disabled={isSavingRule}>
+                  <X class="mr-2 size-4" /> Cancel
+                </Button>
+              {/if}
+              <Button onclick={handleSaveRule} disabled={isSavingRule || !ruleName.trim() || !rulePattern.trim()}>
+                {#if isSavingRule}
+                  <Loader2 class="mr-2 size-4 animate-spin" />
+                {:else if isEditingRule}
+                  <Save class="mr-2 size-4" />
+                {:else}
+                  <Plus class="mr-2 size-4" />
+                {/if}
+                {isEditingRule ? 'Save rule' : 'Add rule'}
+              </Button>
+            </div>
+          </section>
+
+          <section class="border-border bg-card mt-6 rounded-xl border">
+            <header class="border-border border-b px-6 py-4">
+              <h2 class="font-semibold">Your rules</h2>
+              <p class="text-muted-foreground text-xs">
+                Applied in priority order (lowest first); the first rule that matches a song wins.
+                Changes take effect on the next enrichment cycle.
+              </p>
+            </header>
+
+            <div class="divide-border divide-y">
+              {#if matchRulesLoading}
+                <div class="text-muted-foreground px-6 py-4 text-sm">Loading…</div>
+              {:else if matchRules.length === 0}
+                <div class="text-muted-foreground px-6 py-6 text-sm">
+                  No rules yet. Add one above to start matching.
+                </div>
+              {:else}
+                {#each matchRules as rule (rule.id)}
+                  <div class="flex items-center gap-4 px-6 py-4">
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-center gap-2">
+                        <span class="truncate text-sm font-medium">{rule.name}</span>
+                        <Badge variant="outline" class="text-muted-foreground shrink-0 text-[10px]">
+                          {rule.sourceField === 'filename' ? 'file name' : 'title'}
+                        </Badge>
+                        <span class="text-muted-foreground shrink-0 text-xs">#{rule.priority}</span>
+                      </div>
+                      <div class="text-muted-foreground truncate font-mono text-xs">{rule.pattern}</div>
+                    </div>
+                    <label class="inline-flex cursor-pointer items-center gap-2" title="Enabled">
+                      <input
+                        type="checkbox"
+                        class="peer sr-only"
+                        checked={rule.enabled}
+                        onchange={() => handleToggleRule(rule)}
+                      />
+                      <span
+                        class="border-input bg-secondary peer-checked:bg-primary relative h-5 w-9 rounded-full border transition-colors after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-4"
+                      ></span>
+                    </label>
+                    <Button variant="ghost" size="icon" onclick={() => startEditRule(rule)} aria-label="Edit rule">
+                      <Pencil class="size-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onclick={() => handleDeleteRule(rule.id)} aria-label="Delete rule">
+                      <Trash2 class="size-4" />
+                    </Button>
+                  </div>
+                {/each}
+              {/if}
             </div>
           </section>
         </Tabs.Content>

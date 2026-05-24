@@ -255,6 +255,21 @@ public class ConsensusEvaluatorTests
     }
 
     [Fact]
+    public void CustomRuleSolo_RecommendedMatched_Matched()
+    {
+        // A confident custom-rule match stands alone: a user-defined pattern is authoritative for
+        // the files it matches, which the mainstream catalogs can't corroborate.
+        var song = Song();
+        Add(song, EnrichmentProvider.CustomRule, ProviderAttemptStatus.Matched,
+            Result("Yung Nnelg", "Wintersessie 2020", conf: 1.0, recommend: EnrichmentStatus.Matched));
+
+        var r = ConsensusEvaluator.Evaluate(song, Enabled(EnrichmentProvider.CustomRule), Opts);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+        Assert.Equal(EnrichmentProvider.CustomRule, Assert.Single(r.AgreeingProviders));
+    }
+
+    [Fact]
     public void SubFloorCandidate_DoesNotCorroborate()
     {
         var song = Song();
