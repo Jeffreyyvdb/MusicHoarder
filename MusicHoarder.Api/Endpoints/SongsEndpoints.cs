@@ -624,21 +624,25 @@ public static class SongsEndpoints
         if (song is null)
             return Results.NotFound(new { message = $"Song with id {id} not found." });
 
-        object? source = song.OriginalMetadataCaptured
-            ? new
-            {
-                capturedAtUtc = song.OriginalMetadataCapturedAtUtc,
-                title = song.OriginalTitle,
-                artist = song.OriginalArtist,
-                albumArtist = song.OriginalAlbumArtist,
-                album = song.OriginalAlbum,
-                year = song.OriginalYear,
-                trackNumber = song.OriginalTrackNumber,
-                isrc = song.OriginalIsrc,
-                musicBrainzId = song.OriginalMusicBrainzId,
-                spotifyId = song.OriginalSpotifyId,
-            }
-            : null;
+        // "Embedded" tags = the file's original tags. Once an enrichment match is applied we snapshot
+        // them into Original*; before that the live row still holds the untouched embedded tags. When
+        // nothing was captured, fall back to the current row so the review UI's EMBEDDED column shows
+        // the same embedded values the AI grading dossier does (see QualityDossierFactory) instead of a
+        // blank column. The separate `originalMetadataCaptured` flag still distinguishes the two cases.
+        var captured = song.OriginalMetadataCaptured;
+        var source = new
+        {
+            capturedAtUtc = captured ? song.OriginalMetadataCapturedAtUtc : null,
+            title = captured ? song.OriginalTitle : song.Title,
+            artist = captured ? song.OriginalArtist : song.Artist,
+            albumArtist = captured ? song.OriginalAlbumArtist : song.AlbumArtist,
+            album = captured ? song.OriginalAlbum : song.Album,
+            year = captured ? song.OriginalYear : song.Year,
+            trackNumber = captured ? song.OriginalTrackNumber : song.TrackNumber,
+            isrc = captured ? song.OriginalIsrc : song.Isrc,
+            musicBrainzId = captured ? song.OriginalMusicBrainzId : song.MusicBrainzId,
+            spotifyId = captured ? song.OriginalSpotifyId : song.SpotifyId,
+        };
 
         var current = new
         {
