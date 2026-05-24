@@ -44,6 +44,7 @@
     beforeAfterRows,
     buildTimeline,
     buildOriginMatrix,
+    originalInfo,
     EDITABLE_FIELDS,
     type ReviewCandidate,
     type EditableFieldKey
@@ -438,6 +439,7 @@
 
   // Header / KPI derivations for the selected track.
   const guess = $derived(selectedTrack ? bestGuess(selectedTrack, candidates, selectedDetail) : null);
+  const original = $derived(selectedTrack ? originalInfo(selectedTrack, selectedDetail) : null);
   const banner = $derived(selectedTrack ? bannerFor(selectedTrack, selectedDetail) : null);
   const kpiElapsed = $derived(selectedTrack ? formatElapsed(elapsedMs(selectedTrack, selectedDetail)) : '—');
   const contributed = $derived(contributedProviders(selectedDetail));
@@ -466,17 +468,19 @@
     selectedTrack ? selectedTrack.sourcePath.slice(0, selectedTrack.sourcePath.lastIndexOf('/')) : ''
   );
 
-  // Lightweight per-row summary for the queue list (uses prefetched detail when present).
-  function rowGuess(track: ApiSong): { title: string; subtitle: string } {
+  // Original metadata for the queue row (uses prefetched detail when present).
+  function rowOriginal(track: ApiSong): { title: string; subtitle: string; titleFromFilename: boolean } {
+    const o = originalInfo(track, details[track.id]);
+    // Surface the filename as the subtitle only when it isn't already the (fallback) title.
+    const subtitle = o.subtitle || (o.titleFromFilename ? '' : o.fileName);
+    return { title: o.title, subtitle, titleFromFilename: o.titleFromFilename };
+  }
+
+  // The enriched best-guess title shown as a secondary hint when it differs from the original.
+  function rowGuessTitle(track: ApiSong): string {
     const d = details[track.id];
-    if (d) {
-      const g = bestGuess(track, candidatesFromDetail(d), d);
-      return { title: g.title, subtitle: g.subtitle };
-    }
-    return {
-      title: track.title || track.fileName,
-      subtitle: [track.artist, track.album].filter(Boolean).join(' · ')
-    };
+    if (!d) return '';
+    return bestGuess(track, candidatesFromDetail(d), d).title;
   }
 
   const FILTERS: { key: QueueFilter; label: string }[] = [
@@ -615,7 +619,8 @@
         {#each tracks as track (track.id)}
           {@const r = reasonFor(track)}
           {@const d = decisions[track.id]}
-          {@const info = rowGuess(track)}
+          {@const info = rowOriginal(track)}
+          {@const guessTitle = rowGuessTitle(track)}
           {@const detail = details[track.id]}
           {@const provs = contributedProviders(detail)}
           {@const ms = detail ? formatElapsed(elapsedMs(track, detail)) : null}
@@ -631,8 +636,11 @@
           >
             <Cover artist={track.artist ?? 'Unknown'} title={info.title} size={42} corner={6} caption={false} />
             <div class="min-w-0 flex-1">
-              <div class="truncate text-[13px] font-medium">{info.title}</div>
+              <div class={cn('truncate text-[13px] font-medium', info.titleFromFilename && 'font-mono text-[12px]')}>{info.title}</div>
               <div class="text-muted-foreground truncate text-[11.5px]">{info.subtitle || '—'}</div>
+              {#if guessTitle && guessTitle !== info.title}
+                <div class="text-muted-foreground/70 truncate text-[11px]">→ {guessTitle}</div>
+              {/if}
               <div class="mt-1 flex flex-wrap items-center gap-1.5">
                 <span
                   class={cn('rounded px-1.5 py-0.5 text-[9px] font-bold tracking-wide uppercase', PILL_TINT[r.tint])}
@@ -701,15 +709,24 @@
         <!-- Header -->
         <div class="border-border flex items-start justify-between gap-6 border-b px-7 pt-3 pb-4">
           <div class="flex min-w-0 items-start gap-4">
-            <Cover artist={selectedTrack.artist ?? 'Unknown'} title={guess.title} size={56} corner={8} caption={false} />
+            <Cover artist={original?.subtitle ?? 'Unknown'} title={original?.title ?? ''} size={56} corner={8} caption={false} />
             <div class="min-w-0">
               <div class="text-muted-foreground font-mono text-[10px] tracking-[0.1em]">
-                PROVENANCE · {fullStamp(selectedTrack, selectedDetail)}
+                ORIGINAL · {fullStamp(selectedTrack, selectedDetail)}
               </div>
-              <h1 class="my-0.5 truncate text-[24px] font-semibold tracking-tight">
-                {guess.title}{#if guess.isGuess}<span class="text-muted-foreground font-normal"> (best guess)</span>{/if}
+              <h1 class={cn('my-0.5 truncate text-[24px] font-semibold tracking-tight', original?.titleFromFilename && 'font-mono text-[18px]')}>
+                {original?.title}
               </h1>
-              <div class="text-muted-foreground truncate text-[13px]">{guess.subtitle || selectedTrack.fileName}</div>
+              {#if original?.subtitle}
+                <div class="text-muted-foreground truncate text-[13px]">{original.subtitle}</div>
+              {/if}
+              <div class="text-muted-foreground/70 truncate font-mono text-[11px]">{original?.fileName}</div>
+              {#if guess.title && guess.title !== original?.title}
+                <div class="text-muted-foreground/80 mt-1.5 truncate text-[12px]">
+                  <span class="font-mono text-[10px] tracking-[0.08em]">BEST GUESS →</span>
+                  {guess.title}{guess.subtitle ? ' · ' + guess.subtitle : ''}{#if guess.isGuess}<span class="font-normal"> (best guess)</span>{/if}
+                </div>
+              {/if}
             </div>
           </div>
           <div class="grid shrink-0 grid-cols-4 gap-5">

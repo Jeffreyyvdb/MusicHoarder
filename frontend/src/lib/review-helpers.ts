@@ -333,6 +333,49 @@ export function bestGuess(
   return { title, subtitle, isGuess };
 }
 
+export interface OriginalInfo {
+  /** Original embedded title, or the filename when the file carried no title. */
+  title: string;
+  /** "Original artist · Original album" (empty when neither is known). */
+  subtitle: string;
+  /** The source filename — always present, the truest anchor when tags are wrong. */
+  fileName: string;
+  /** True when `title` fell back to the filename (no usable embedded title). */
+  titleFromFilename: boolean;
+}
+
+/**
+ * The metadata the file *originally* carried, for the prominent header/queue display.
+ *
+ * For matched/done tracks `track.title` holds the enriched value and the original lives in
+ * `track.original*` / `detail.source`; for needsreview tracks the match isn't applied yet so
+ * `track.title` is still the original embedded value. The fallback chain handles both, and the
+ * filename is surfaced separately since it's often the truest signal when tags are wrong/empty.
+ */
+export function originalInfo(
+  track: ApiSong,
+  detail: EnrichmentDetail | null | undefined
+): OriginalInfo {
+  const src = detail?.source;
+  const captured = track.originalMetadataCaptured ?? false;
+  const pick = (
+    srcVal: string | null | undefined,
+    origVal: string | null | undefined,
+    curVal: string | null | undefined
+  ): string => srcVal || origVal || (captured ? '' : (curVal ?? '')) || '';
+
+  const tagTitle = pick(src?.title, track.originalTitle, track.title);
+  const artist = pick(src?.artist, track.originalArtist, track.artist);
+  const album = pick(src?.album, track.originalAlbum, track.album);
+  const titleFromFilename = !tagTitle;
+  return {
+    title: tagTitle || track.fileName,
+    subtitle: [artist, album].filter(Boolean).join(' · '),
+    fileName: track.fileName,
+    titleFromFilename
+  };
+}
+
 /** Status banner tone + copy for the detail header. */
 export interface BannerInfo {
   tone: 'warn' | 'info' | 'err' | 'ok';
