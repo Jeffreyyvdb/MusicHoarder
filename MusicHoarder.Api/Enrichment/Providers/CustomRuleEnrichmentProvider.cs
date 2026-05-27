@@ -63,8 +63,13 @@ public sealed class CustomRuleEnrichmentProvider(
         // Captured fields win; fall back to the song's existing values for fields the rule didn't set.
         var artist = extraction.Artist ?? song.Artist;
         var title = extraction.Title ?? song.Title;
-        var album = extraction.Album ?? song.Album;
-        var albumArtist = extraction.AlbumArtist
+
+        // A rule's constant overrides (e.g. a compilation album + album artist) take precedence over
+        // both the captured placeholder and the song's existing value, so many tracks with different
+        // artists collapse into one album attributed to a single album artist.
+        var album = rule.AlbumOverride ?? extraction.Album ?? song.Album;
+        var albumArtist = rule.AlbumArtistOverride
+            ?? extraction.AlbumArtist
             ?? ArtistCreditNormalizer.GetPrimaryArtist(artist)
             ?? artist;
 

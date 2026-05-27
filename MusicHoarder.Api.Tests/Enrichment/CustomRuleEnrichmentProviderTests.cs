@@ -73,9 +73,48 @@ public class CustomRuleEnrichmentProviderTests
         Assert.True(provider.CanHandle(Song(title: "anything")));
     }
 
+    [Fact]
+    public async Task AlbumOverrides_GroupDifferentArtistsIntoOneAlbum()
+    {
+        // The "compilation" case: many sessions by different rappers under one album + album artist.
+        var provider = CreateWithOverride(
+            "101Barz sessions", "{artist} | {title} | 101Barz", MatchRuleSourceField.Title,
+            albumOverride: "101Barz sessies", albumArtistOverride: "101Barz");
+
+        // Album override beats the song's existing (wrong) album.
+        var a = Assert.IsType<ProviderMatched>(await provider.TryEnrichAsync(
+            Song(artist: "ADF Samski", title: "ADF Samski | Wintersessie 2020 | 101Barz", album: "wrong")));
+        var b = Assert.IsType<ProviderMatched>(await provider.TryEnrichAsync(
+            Song(artist: "Yung Nnelg", title: "Yung Nnelg | Zomersessie 2021 | 101Barz")));
+
+        Assert.Equal("ADF Samski", a.Result.Artist);
+        Assert.Equal("Yung Nnelg", b.Result.Artist);
+        Assert.Equal("101Barz sessies", a.Result.Album);
+        Assert.Equal("101Barz sessies", b.Result.Album);
+        Assert.Equal("101Barz", a.Result.AlbumArtist);
+        Assert.Equal("101Barz", b.Result.AlbumArtist);
+    }
+
     // --- helpers ---
 
     private static CustomRuleEnrichmentProvider Create(params (string Name, string Pattern, MatchRuleSourceField Field)[] rules)
+    {
+        var enabled = rules.Select((r, i) => BuildRule(i + 1, r.Name, r.Pattern, r.Field, null, null)).ToList();
+        return Build(enabled);
+    }
+
+    private static CustomRuleEnrichmentProvider CreateWithOverride(
+        string name, string pattern, MatchRuleSourceField field, string? albumOverride, string? albumArtistOverride)
+        => Build([BuildRule(1, name, pattern, field, albumOverride, albumArtistOverride)]);
+
+    private static EnabledMatchRule BuildRule(
+        int id, string name, string pattern, MatchRuleSourceField field, string? albumOverride, string? albumArtistOverride)
+    {
+        Assert.True(MatchRulePattern.TryCompile(pattern, out var compiled, out _), $"test pattern failed to compile: {pattern}");
+        return new EnabledMatchRule(id, name, field, compiled!, albumOverride, albumArtistOverride);
+    }
+
+    private static CustomRuleEnrichmentProvider Build(List<EnabledMatchRule> rules)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
@@ -99,19 +138,9 @@ public class CustomRuleEnrichmentProviderTests
         Album = album,
     };
 
-    private sealed class FakeMatchRuleService : IMatchRuleService
+    private sealed class FakeMatchRuleService(List<EnabledMatchRule> rules) : IMatchRuleService
     {
-        private readonly List<EnabledMatchRule> _rules;
-
-        public FakeMatchRuleService((string Name, string Pattern, MatchRuleSourceField Field)[] rules)
-        {
-            _rules = [];
-            foreach (var (name, pattern, field) in rules)
-            {
-                Assert.True(MatchRulePattern.TryCompile(pattern, out var compiled, out _), $"test pattern failed to compile: {pattern}");
-                _rules.Add(new EnabledMatchRule(_rules.Count + 1, name, field, compiled!));
-            }
-        }
+        private readonly List<EnabledMatchRule> _rules = rules;
 
         public bool HasEnabledRules => _rules.Count > 0;
         public Task<IReadOnlyList<EnabledMatchRule>> GetEnabledAsync(CancellationToken ct = default) =>

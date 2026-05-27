@@ -91,11 +91,17 @@ public static class MatchRulesEndpoints
             Pattern: request.Pattern!,
             SourceField: sourceField,
             Enabled: request.Enabled ?? true,
-            Priority: request.Priority ?? 100), null);
+            Priority: request.Priority ?? 100,
+            AlbumOverride: TrimToNull(request.AlbumOverride),
+            AlbumArtistOverride: TrimToNull(request.AlbumArtistOverride)), null);
     }
 
+    private static string? TrimToNull(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
     private static MatchRuleView ToView(MetadataMatchRule r) => new(
-        r.Id, r.Name, r.Enabled, r.Priority, r.Pattern, SourceFieldToString(r.SourceField), r.CreatedAtUtc, r.UpdatedAtUtc);
+        r.Id, r.Name, r.Enabled, r.Priority, r.Pattern, SourceFieldToString(r.SourceField),
+        r.AlbumOverride, r.AlbumArtistOverride, r.CreatedAtUtc, r.UpdatedAtUtc);
 
     private static string SourceFieldToString(MatchRuleSourceField field) =>
         field == MatchRuleSourceField.FileName ? "filename" : "title";
@@ -119,9 +125,12 @@ public static class MatchRulesEndpoints
     }
 }
 
-public sealed record MatchRuleRequest(string? Name, string? Pattern, string? SourceField, bool? Enabled, int? Priority);
+public sealed record MatchRuleRequest(
+    string? Name, string? Pattern, string? SourceField, bool? Enabled, int? Priority,
+    string? AlbumOverride, string? AlbumArtistOverride);
 public sealed record MatchRuleView(
-    int Id, string Name, bool Enabled, int Priority, string Pattern, string SourceField, DateTime CreatedAtUtc, DateTime UpdatedAtUtc);
+    int Id, string Name, bool Enabled, int Priority, string Pattern, string SourceField,
+    string? AlbumOverride, string? AlbumArtistOverride, DateTime CreatedAtUtc, DateTime UpdatedAtUtc);
 public sealed record MatchRuleTestRequest(string? Pattern, string? Sample);
 public sealed record MatchRuleTestResponse(bool Valid, string? Error, bool Matched, MatchRuleExtractionView? Extracted);
 public sealed record MatchRuleExtractionView(string? Artist, string? Title, string? Album, string? AlbumArtist);

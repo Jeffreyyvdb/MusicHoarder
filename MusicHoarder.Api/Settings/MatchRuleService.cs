@@ -5,10 +5,14 @@ using MusicHoarder.Api.Persistence;
 namespace MusicHoarder.Api.Settings;
 
 /// <summary>An enabled rule with its template precompiled, ready for the provider to apply.</summary>
-public sealed record EnabledMatchRule(int Id, string Name, MatchRuleSourceField SourceField, CompiledMatchRule Compiled);
+public sealed record EnabledMatchRule(
+    int Id, string Name, MatchRuleSourceField SourceField, CompiledMatchRule Compiled,
+    string? AlbumOverride, string? AlbumArtistOverride);
 
 /// <summary>Create/update payload for a match rule (validation lives at the endpoint via <see cref="MatchRulePattern"/>).</summary>
-public sealed record MatchRuleInput(string Name, string Pattern, MatchRuleSourceField SourceField, bool Enabled, int Priority);
+public sealed record MatchRuleInput(
+    string Name, string Pattern, MatchRuleSourceField SourceField, bool Enabled, int Priority,
+    string? AlbumOverride, string? AlbumArtistOverride);
 
 /// <summary>
 /// Runtime CRUD over <see cref="MetadataMatchRule"/> with an in-memory cache of the enabled,
@@ -66,7 +70,7 @@ public sealed class MatchRuleService : IMatchRuleService
             foreach (var row in rows)
             {
                 if (MatchRulePattern.TryCompile(row.Pattern, out var c, out var error))
-                    compiled.Add(new EnabledMatchRule(row.Id, row.Name, row.SourceField, c!));
+                    compiled.Add(new EnabledMatchRule(row.Id, row.Name, row.SourceField, c!, row.AlbumOverride, row.AlbumArtistOverride));
                 else
                     _logger.LogWarning("Skipping match rule {RuleId} '{Name}': invalid pattern ({Error})", row.Id, row.Name, error);
             }
@@ -102,6 +106,8 @@ public sealed class MatchRuleService : IMatchRuleService
             SourceField = input.SourceField,
             Enabled = input.Enabled,
             Priority = input.Priority,
+            AlbumOverride = TrimToNull(input.AlbumOverride),
+            AlbumArtistOverride = TrimToNull(input.AlbumArtistOverride),
             CreatedAtUtc = now,
             UpdatedAtUtc = now,
         };
@@ -124,6 +130,8 @@ public sealed class MatchRuleService : IMatchRuleService
         rule.SourceField = input.SourceField;
         rule.Enabled = input.Enabled;
         rule.Priority = input.Priority;
+        rule.AlbumOverride = TrimToNull(input.AlbumOverride);
+        rule.AlbumArtistOverride = TrimToNull(input.AlbumArtistOverride);
         rule.UpdatedAtUtc = DateTime.UtcNow;
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
         Invalidate();
@@ -149,4 +157,7 @@ public sealed class MatchRuleService : IMatchRuleService
         _cache = null;
         _warmed = false;
     }
+
+    private static string? TrimToNull(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

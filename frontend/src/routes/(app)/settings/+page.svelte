@@ -144,6 +144,8 @@
   let ruleSourceField = $state<MatchRuleSourceField>('title');
   let rulePriority = $state(100);
   let ruleEnabled = $state(true);
+  let ruleAlbumOverride = $state('');
+  let ruleAlbumArtistOverride = $state('');
   let isSavingRule = $state(false);
 
   // Live test box
@@ -159,6 +161,8 @@
     ruleSourceField = 'title';
     rulePriority = 100;
     ruleEnabled = true;
+    ruleAlbumOverride = '';
+    ruleAlbumArtistOverride = '';
     matchRuleError = null;
   }
 
@@ -169,6 +173,8 @@
     ruleSourceField = rule.sourceField;
     rulePriority = rule.priority;
     ruleEnabled = rule.enabled;
+    ruleAlbumOverride = rule.albumOverride ?? '';
+    ruleAlbumArtistOverride = rule.albumArtistOverride ?? '';
     matchRuleError = null;
   }
 
@@ -227,7 +233,9 @@
         pattern: rulePattern.trim(),
         sourceField: ruleSourceField,
         enabled: ruleEnabled,
-        priority: rulePriority
+        priority: rulePriority,
+        albumOverride: ruleAlbumOverride.trim() || null,
+        albumArtistOverride: ruleAlbumArtistOverride.trim() || null
       };
       if (editingId !== null) {
         const updated = await updateMatchRule(editingId, input);
@@ -251,7 +259,9 @@
         pattern: rule.pattern,
         sourceField: rule.sourceField,
         enabled: !rule.enabled,
-        priority: rule.priority
+        priority: rule.priority,
+        albumOverride: rule.albumOverride,
+        albumArtistOverride: rule.albumArtistOverride
       });
       matchRules = matchRules.map((r) => (r.id === updated.id ? updated : r));
     } catch (err) {
@@ -956,6 +966,21 @@
                 </div>
               </div>
 
+              <div class="flex flex-wrap gap-4">
+                <div class="min-w-48 flex-1 space-y-2">
+                  <Label for="rule-album">Set album to <span class="text-muted-foreground font-normal">(optional)</span></Label>
+                  <Input id="rule-album" placeholder="101Barz sessies" bind:value={ruleAlbumOverride} />
+                </div>
+                <div class="min-w-48 flex-1 space-y-2">
+                  <Label for="rule-album-artist">Set album artist to <span class="text-muted-foreground font-normal">(optional)</span></Label>
+                  <Input id="rule-album-artist" placeholder="101Barz" bind:value={ruleAlbumArtistOverride} />
+                </div>
+              </div>
+              <p class="text-muted-foreground -mt-2 text-xs">
+                Constants applied on top of the captured fields — leave blank to keep each song's own.
+                Set both to group many different track artists into one compilation album.
+              </p>
+
               <!-- Live preview -->
               <div class="border-border bg-secondary/30 space-y-3 rounded-lg border p-4">
                 <Label for="rule-sample">Test against a sample</Label>
@@ -975,11 +1000,12 @@
                     <div class="text-muted-foreground text-xs">No match for this sample.</div>
                   {:else}
                     <div class="flex flex-wrap gap-2">
-                      {#each [['Artist', testResult.extracted?.artist], ['Title', testResult.extracted?.title], ['Album', testResult.extracted?.album], ['Album artist', testResult.extracted?.albumArtist]] as [label, value] (label)}
+                      {#each [['Artist', testResult.extracted?.artist ?? null, false], ['Title', testResult.extracted?.title ?? null, false], ['Album', ruleAlbumOverride.trim() || (testResult.extracted?.album ?? null), !!ruleAlbumOverride.trim()], ['Album artist', ruleAlbumArtistOverride.trim() || (testResult.extracted?.albumArtist ?? null), !!ruleAlbumArtistOverride.trim()]] as [label, value, isOverride] (label)}
                         {#if value}
                           <Badge variant="secondary" class="gap-1">
                             <span class="text-muted-foreground">{label}:</span>
                             {value}
+                            {#if isOverride}<span class="text-muted-foreground">(set)</span>{/if}
                           </Badge>
                         {/if}
                       {/each}
@@ -1049,6 +1075,11 @@
                         <span class="text-muted-foreground shrink-0 text-xs">#{rule.priority}</span>
                       </div>
                       <div class="text-muted-foreground truncate font-mono text-xs">{rule.pattern}</div>
+                      {#if rule.albumOverride || rule.albumArtistOverride}
+                        <div class="text-muted-foreground mt-0.5 truncate text-xs">
+                          → {#if rule.albumArtistOverride}album artist <span class="text-foreground">{rule.albumArtistOverride}</span>{/if}{#if rule.albumOverride && rule.albumArtistOverride} · {/if}{#if rule.albumOverride}album <span class="text-foreground">{rule.albumOverride}</span>{/if}
+                        </div>
+                      {/if}
                     </div>
                     <label class="inline-flex cursor-pointer items-center gap-2" title="Enabled">
                       <input

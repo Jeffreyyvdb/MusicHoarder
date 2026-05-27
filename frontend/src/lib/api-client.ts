@@ -1172,6 +1172,8 @@ export interface MatchRuleView {
   priority: number
   pattern: string
   sourceField: MatchRuleSourceField
+  albumOverride: string | null
+  albumArtistOverride: string | null
   createdAtUtc: string
   updatedAtUtc: string
 }
@@ -1182,6 +1184,8 @@ export interface MatchRuleInput {
   sourceField: MatchRuleSourceField
   enabled: boolean
   priority: number
+  albumOverride: string | null
+  albumArtistOverride: string | null
 }
 
 export interface MatchRuleExtraction {

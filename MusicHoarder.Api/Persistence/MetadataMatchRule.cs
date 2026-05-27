@@ -42,6 +42,22 @@ public class MetadataMatchRule
     /// <summary>Which song field the pattern is matched against.</summary>
     public MatchRuleSourceField SourceField { get; set; } = MatchRuleSourceField.Title;
 
+    /// <summary>
+    /// Optional constant album to assign on match (not captured from the pattern). Lets many songs
+    /// with different track artists collapse into one album, e.g. "101Barz sessies". Null = leave the
+    /// album to a captured <c>{album}</c> placeholder or the song's existing value.
+    /// </summary>
+    [MaxLength(200)]
+    public string? AlbumOverride { get; set; }
+
+    /// <summary>
+    /// Optional constant album artist to assign on match, e.g. "101Barz". Combined with
+    /// <see cref="AlbumOverride"/> this groups a compilation under one album artist while each track
+    /// keeps its own (captured) artist. Null = derive from the captured/track artist as before.
+    /// </summary>
+    [MaxLength(200)]
+    public string? AlbumArtistOverride { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
 }
