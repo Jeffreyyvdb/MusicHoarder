@@ -214,13 +214,13 @@
 
   {#if isMobile.current}
     {#if openAlbum && albumKey}
-      <MobileAlbum {songs} {albumKey} />
+      <MobileAlbum album={openAlbum} />
     {:else}
       <MobileLibrary songs={scopedSongs} {section} {searchQuery} {isLoading} {isSourceView} />
     {/if}
   {:else if !trackPanelOpen}
     {#if openAlbum && albumKey}
-      <AlbumPage {songs} {albumKey} {isLoading} />
+      <AlbumPage album={openAlbum} {isLoading} />
     {:else}
       <Gallery
         songs={sectionFilteredSongs}
@@ -235,7 +235,7 @@
     <Resizable.PaneGroup id="library-albums-panels" direction="horizontal" class="min-h-0 flex-1">
       <Resizable.Pane id="library-albums-main" order={1} defaultSize={70} class="flex min-h-0 flex-col">
         {#if openAlbum && albumKey}
-          <AlbumPage {songs} {albumKey} {isLoading} />
+          <AlbumPage album={openAlbum} {isLoading} />
         {:else}
           <Gallery
         songs={sectionFilteredSongs}
