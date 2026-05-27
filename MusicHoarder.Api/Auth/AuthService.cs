@@ -79,7 +79,7 @@ public sealed class AuthService : IAuthService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send magic link for {Email}", user.Email);
+            _logger.LogError(ex, "Failed to send magic link for user {UserId}", user.Id);
             throw;
         }
 
