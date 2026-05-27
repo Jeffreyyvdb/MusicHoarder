@@ -81,14 +81,14 @@ jobs:
           echo "frontend_image=${base}/frontend:pr-${pr}" >>"$GITHUB_OUTPUT"
 
       # For pull_request this checks out the merge ref; for workflow_dispatch grab the PR head.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         if: steps.pre.outputs.configured == 'true'
         with:
           ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', steps.vars.outputs.pr) }}
 
       - name: Log in to GHCR
         if: steps.pre.outputs.configured == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4.1.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -96,7 +96,7 @@ jobs:
 
       - name: Set up Docker Buildx
         if: steps.pre.outputs.configured == 'true'
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # Same Dockerfiles production uses — context `.` for the API (it bundles fpcalc + curl) and
       # ./frontend for the SvelteKit/Bun server. Built via buildx with a GitHub Actions layer cache
@@ -105,7 +105,7 @@ jobs:
       # manifest (matching the old `docker build`) so the :pr-<n> tag shape teardown prunes is intact.
       - name: Build & push API image
         if: steps.pre.outputs.configured == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
@@ -117,7 +117,7 @@ jobs:
 
       - name: Build & push frontend image
         if: steps.pre.outputs.configured == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./frontend
           file: frontend/Dockerfile
@@ -162,7 +162,7 @@ jobs:
 
       - name: Comment preview URL + label PR
         if: github.event_name == 'pull_request' && steps.provision.outputs.preview_url != ''
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           # Full head SHA of what was just built+deployed. The comment shows the short form so a
           # glance tells you whether the live preview matches the latest push.
@@ -239,7 +239,7 @@ jobs:
             echo "::notice::Dokploy preview secrets not set — nothing to tear down."
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         if: steps.pre.outputs.configured == 'true'
 
       - name: Destroy Dokploy preview stack
@@ -279,7 +279,7 @@ jobs:
 
       - name: Comment teardown + unlabel PR
         if: steps.pre.outputs.configured == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const marker = "<!-- mh-preview -->";
