@@ -13,7 +13,7 @@ If you've ever ended up with thousands of files like `track_047.mp3`, duplicate 
 bitrates, missing artwork, and inconsistent folder names, this is for you. Point it at your source
 library, let it run, and review anything it isn't sure about.
 
-<!-- TODO: add a screenshot or short demo GIF of the Library / Review UI here -->
+![MusicHoarder's library view — an album grid with pipeline controls (Scan / Fingerprint / Build) and a source/destination sidebar](docs/screenshots/library.png)
 
 ## Features
 
@@ -35,6 +35,8 @@ library, let it run, and review anything it isn't sure about.
 - **Self-hosted** — runs on your own hardware via .NET Aspire (dev) or Docker Compose (prod); your
   music never leaves your machine.
 
+![Album and track detail — per-track match confidence, the Metadata / Lyrics / Fingerprint / Enrichment provenance panel, and a built-in player with waveform](docs/screenshots/player.png)
+
 ## How it works
 
 The pipeline is a state machine over each song, run by background workers that each sweep for work
@@ -54,6 +56,8 @@ Source library
 Confident matches flow straight through to a clean destination library; uncertain ones surface in
 the review UI. The source is never modified, and removed/missing files are soft-deleted rather than
 purged.
+
+![The review queue — an ambiguous match showing candidate results from each provider with confidence scores and a before/after field diff before anything is written](docs/screenshots/provenance-and-review.png)
 
 ## Tech stack
 
