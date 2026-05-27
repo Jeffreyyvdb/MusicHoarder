@@ -87,4 +87,33 @@ public class EnrichmentPipelineChannelTests
         Assert.Equal("Idle", EnrichStatus(jobs));
         Assert.Null(tracker.GetCurrent());
     }
+
+    [Fact]
+    public void Completing_a_cycle_triggers_a_build()
+    {
+        var (channel, jobs, _) = New();
+        channel.EnqueueRange([1, 2], label: "Manual enrich — X");
+
+        channel.MarkProcessed();
+        Assert.Equal("Idle", jobs.GetStepSnapshot(JobType.Build).Status); // not yet — one still in flight
+
+        channel.MarkProcessed();
+
+        // The chained build trigger: Build step is now Running and a job id was written.
+        Assert.Equal("Running", jobs.GetStepSnapshot(JobType.Build).Status);
+        Assert.True(jobs.BuildTriggers.TryRead(out var buildJobId));
+        Assert.NotEqual(Guid.Empty, buildJobId);
+    }
+
+    [Fact]
+    public void Cancelled_cycle_does_not_trigger_a_build()
+    {
+        var (channel, jobs, _) = New();
+        channel.EnqueueRange([1, 2], label: "Manual enrich — X");
+
+        channel.ResetCycle(cancelled: true);
+
+        Assert.Equal("Idle", jobs.GetStepSnapshot(JobType.Build).Status);
+        Assert.False(jobs.BuildTriggers.TryRead(out _));
+    }
 }

@@ -239,6 +239,10 @@
 
   const enrichmentNormalized = $derived(mapEnrichmentStatus(song.enrichmentStatus));
 
+  // The enrich action also builds the track into the library, so the label reflects the outcome:
+  // "Add to library" for a track not yet built, "Update in library" once it has a destination.
+  const inLibrary = $derived(!!song.destinationPath);
+
   // Real provider attempts → candidate rows, guarded so stale data from a
   // previously-viewed song isn't shown while the new one loads.
   const attemptRows = $derived(
@@ -669,16 +673,16 @@
           >
             {#if enrichState === 'loading'}
               <Loader2 class="mr-1.5 size-3.5 animate-spin" />
-              Enriching…
+              {inLibrary ? 'Updating…' : 'Adding…'}
             {:else if enrichState === 'success'}
               <CheckCircle2 class="mr-1.5 size-3.5" />
               {enrichOutcome ?? 'Done'}
             {:else if enrichState === 'error'}
               <AlertCircle class="mr-1.5 size-3.5" />
-              Enrich failed
+              {inLibrary ? 'Update failed' : 'Add failed'}
             {:else}
               <Sparkles class="mr-1.5 size-3.5" />
-              Enrich now
+              {inLibrary ? 'Update in library' : 'Add to library'}
             {/if}
           </Button>
           {#if enrichError}

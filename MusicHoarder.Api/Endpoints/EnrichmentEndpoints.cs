@@ -59,6 +59,7 @@ public static class EnrichmentEndpoints
                 bool? reset,
                 MusicHoarderDbContext db,
                 IEnrichmentOrchestrator orchestrator,
+                JobManager jobManager,
                 CancellationToken ct) =>
             {
                 var song = await db.Songs
@@ -78,6 +79,13 @@ public static class EnrichmentEndpoints
                 // Run synchronously so the caller gets the exact outcome for this one song —
                 // ideal for targeted testing.
                 var outcome = await orchestrator.ProcessSongAsync(id, ct);
+
+                // Chain a build so a manual single-song enrich lands in the library even when
+                // AutoStartPipeline is off (mirrors the cycle-completion trigger of the channel-fed
+                // /enrich and /enrich/folder paths). No-op if a build is already running.
+                if (outcome == EnrichmentOutcome.Matched)
+                    jobManager.TryStartJob(JobType.Build, out _, out _);
+
                 return Results.Ok(new { songId = id, reset = doReset, outcome = outcome.ToString() });
             })
             .WithName("EnrichSong")

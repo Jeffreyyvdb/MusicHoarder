@@ -74,15 +74,18 @@ public class EnrichmentPipelineChannel(JobManager jobManager, EnrichmentProgress
     /// <summary>Called by a worker once per dequeued item, regardless of outcome.</summary>
     public void MarkProcessed()
     {
+        bool completed;
         lock (_lock)
         {
             if (_inFlight == 0)
                 return;
 
             _inFlight--;
-            if (_inFlight == 0)
-                CompleteLocked(cancelled: false);
+            completed = _inFlight == 0 && CompleteLocked(cancelled: false);
         }
+
+        if (completed)
+            TriggerBuild();
     }
 
     /// <summary>
@@ -91,22 +94,37 @@ public class EnrichmentPipelineChannel(JobManager jobManager, EnrichmentProgress
     /// </summary>
     public void ResetCycle(bool cancelled)
     {
+        bool completed;
         lock (_lock)
         {
             while (_channel.Reader.TryRead(out _)) { }
             _inFlight = 0;
-            CompleteLocked(cancelled);
+            completed = CompleteLocked(cancelled);
         }
+
+        if (completed && !cancelled)
+            TriggerBuild();
     }
 
-    private void CompleteLocked(bool cancelled)
+    /// <summary>Returns true when an active cycle was just completed (so the caller can chain a build).</summary>
+    private bool CompleteLocked(bool cancelled)
     {
         if (_runId == Guid.Empty)
-            return;
+            return false;
 
         jobManager.SignalComplete(JobType.Enrich, _runId, cancelled);
         progressTracker.CompleteCycle(_runId);
         _runId = Guid.Empty;
         _label = null;
+        return true;
     }
+
+    /// <summary>
+    /// Chain a library build when an enrichment cycle finishes. This is what makes a manual enrich
+    /// (e.g. "enrich this folder") land in the library even when AutoStartPipeline is off and the
+    /// builder's auto-poll never runs — it reuses the same Build trigger as the manual /build button.
+    /// Harmless in auto mode: TryStartJob no-ops if a build is already running. Fired outside the
+    /// channel lock to avoid nesting it inside JobManager's lock.
+    /// </summary>
+    private void TriggerBuild() => jobManager.TryStartJob(JobType.Build, out _, out _);
 }
