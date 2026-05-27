@@ -123,6 +123,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<YeTrackerCatalogService>();
         services.AddSingleton<IEnrichmentProvider, YeTrackerEnrichmentProvider>();
         services.AddSingleton<IMatchRuleService, MatchRuleService>();
+        services.AddSingleton<IMatchRuleSuggestionService, MatchRuleSuggestionService>();
         services.AddSingleton<IEnrichmentProvider, CustomRuleEnrichmentProvider>();
         services.AddSingleton<EnrichmentPipelineChannel>();
         services.AddSingleton<IRuntimeSettingsService, RuntimeSettingsService>();

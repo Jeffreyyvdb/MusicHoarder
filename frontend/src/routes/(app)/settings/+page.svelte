@@ -36,9 +36,11 @@
     updateMatchRule,
     deleteMatchRule,
     testMatchRule,
+    suggestMatchRules,
     type MatchRuleView,
     type MatchRuleSourceField,
-    type MatchRuleTestResponse
+    type MatchRuleTestResponse,
+    type MatchRuleSuggestion
   } from '$lib/api-client';
   import { isPasskeySupported } from '$lib/webauthn-client';
   import {
@@ -62,7 +64,8 @@
     Wand2,
     Plus,
     Pencil,
-    X
+    X,
+    Sparkles
   } from '@lucide/svelte';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import MobileSettings from '$lib/components/mobile/MobileSettings.svelte';
@@ -277,6 +280,62 @@
     } catch (err) {
       matchRuleError = err instanceof Error ? err.message : 'Could not delete the rule.';
     }
+  }
+
+  // ---- Suggestions (auto-propose rules from unmatched songs) ----
+  let isSuggesting = $state(false);
+  let suggestions = $state<MatchRuleSuggestion[]>([]);
+  let suggestSource = $state<'llm' | 'heuristic' | 'none' | null>(null);
+  let suggestSampleSize = $state(0);
+  let suggestRan = $state(false);
+  let addedSuggestions = $state(new Set<string>());
+
+  async function handleSuggestRules() {
+    isSuggesting = true;
+    matchRuleError = null;
+    try {
+      const result = await suggestMatchRules();
+      suggestions = result.suggestions;
+      suggestSource = result.source;
+      suggestSampleSize = result.sampleSize;
+      suggestRan = true;
+      addedSuggestions = new Set();
+    } catch (err) {
+      matchRuleError = err instanceof Error ? err.message : 'Could not generate suggestions.';
+    } finally {
+      isSuggesting = false;
+    }
+  }
+
+  async function handleAddSuggestion(s: MatchRuleSuggestion) {
+    matchRuleError = null;
+    try {
+      const created = await createMatchRule({
+        name: s.name,
+        pattern: s.pattern,
+        sourceField: s.sourceField,
+        enabled: true,
+        priority: 100,
+        albumOverride: s.albumOverride,
+        albumArtistOverride: s.albumArtistOverride
+      });
+      matchRules = [...matchRules, created];
+      addedSuggestions = new Set([...addedSuggestions, s.pattern]);
+    } catch (err) {
+      matchRuleError = err instanceof Error ? err.message : 'Could not add the suggested rule.';
+    }
+  }
+
+  function editSuggestion(s: MatchRuleSuggestion) {
+    editingId = null;
+    ruleName = s.name;
+    rulePattern = s.pattern;
+    ruleSourceField = s.sourceField;
+    rulePriority = 100;
+    ruleEnabled = true;
+    ruleAlbumOverride = s.albumOverride ?? '';
+    ruleAlbumArtistOverride = s.albumArtistOverride ?? '';
+    matchRuleError = null;
   }
 
   // Spotify credential form state
@@ -1045,6 +1104,86 @@
                 {isEditingRule ? 'Save rule' : 'Add rule'}
               </Button>
             </div>
+          </section>
+
+          <section class="border-border bg-card mt-6 rounded-xl border">
+            <header class="border-border flex items-center gap-3 border-b px-6 py-4">
+              <div class="min-w-0 flex-1">
+                <h2 class="flex items-center gap-2 font-semibold">
+                  <Sparkles class="size-4" /> Suggest rules
+                </h2>
+                <p class="text-muted-foreground text-xs">
+                  Scans your unmatched songs, spots recurring series (e.g. a shared channel name), and
+                  proposes ready-to-add rules. Uses AI when configured, otherwise a built-in heuristic.
+                </p>
+              </div>
+              <Button variant="outline" onclick={handleSuggestRules} disabled={isSuggesting}>
+                {#if isSuggesting}
+                  <Loader2 class="mr-2 size-4 animate-spin" />
+                {:else}
+                  <Sparkles class="mr-2 size-4" />
+                {/if}
+                Suggest rules
+              </Button>
+            </header>
+
+            {#if suggestRan}
+              <div class="space-y-3 p-6">
+                {#if suggestions.length === 0}
+                  <p class="text-muted-foreground text-sm">
+                    No recurring patterns found in the {suggestSampleSize} unmatched songs sampled.
+                  </p>
+                {:else}
+                  <p class="text-muted-foreground text-xs">
+                    Proposed from {suggestSampleSize} unmatched songs · via {suggestSource === 'llm'
+                      ? 'AI'
+                      : 'heuristic'}
+                  </p>
+                  {#each suggestions as s (s.sourceField + '|' + s.pattern)}
+                    <div class="border-border rounded-lg border p-4">
+                      <div class="flex items-start gap-3">
+                        <div class="min-w-0 flex-1">
+                          <div class="flex flex-wrap items-center gap-2">
+                            <span class="text-sm font-medium">{s.name}</span>
+                            <Badge variant="secondary" class="text-[10px]">
+                              matches {s.matchCount} of {s.sampleSize}
+                            </Badge>
+                            <Badge variant="outline" class="text-muted-foreground text-[10px]">
+                              {s.sourceField === 'filename' ? 'file name' : 'title'}
+                            </Badge>
+                          </div>
+                          <div class="text-muted-foreground mt-1 font-mono text-xs break-all">{s.pattern}</div>
+                          {#if s.albumOverride || s.albumArtistOverride}
+                            <div class="text-muted-foreground mt-0.5 text-xs">
+                              → {#if s.albumArtistOverride}album artist <span class="text-foreground">{s.albumArtistOverride}</span>{/if}{#if s.albumOverride && s.albumArtistOverride} · {/if}{#if s.albumOverride}album <span class="text-foreground">{s.albumOverride}</span>{/if}
+                            </div>
+                          {/if}
+                          {#if s.examples.length > 0}
+                            <div class="text-muted-foreground/70 mt-1 truncate text-[11px] italic">
+                              e.g. {s.examples[0]}
+                            </div>
+                          {/if}
+                        </div>
+                        <div class="flex shrink-0 gap-1">
+                          {#if addedSuggestions.has(s.pattern)}
+                            <Badge class="gap-1 bg-[#1DB954]/20 text-[#1DB954]">
+                              <CheckCircle2 class="size-3" /> Added
+                            </Badge>
+                          {:else}
+                            <Button variant="ghost" size="sm" onclick={() => editSuggestion(s)}>
+                              <Pencil class="mr-1 size-3.5" /> Edit
+                            </Button>
+                            <Button size="sm" onclick={() => handleAddSuggestion(s)}>
+                              <Plus class="mr-1 size-3.5" /> Add
+                            </Button>
+                          {/if}
+                        </div>
+                      </div>
+                    </div>
+                  {/each}
+                {/if}
+              </div>
+            {/if}
           </section>
 
           <section class="border-border bg-card mt-6 rounded-xl border">

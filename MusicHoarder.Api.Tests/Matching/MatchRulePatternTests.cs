@@ -38,6 +38,34 @@ public class MatchRulePatternTests
         Assert.Equal("Wintersessie 2020", extraction.Title);
     }
 
+    [Theory]
+    [InlineData("ADF Samski | Wintersessie 2020 | 101Barz")]       // pipe
+    [InlineData("ADF Samski - Wintersessie 2020 - 101Barz")]       // dash
+    [InlineData("ADF Samski _ Wintersessie 2020 _ 101Barz")]       // underscore
+    [InlineData("ADF Samski ｜ Wintersessie 2020 ｜ 101Barz")]      // fullwidth pipe
+    public void OneTemplate_MatchesAllSeparatorVariants(string input)
+    {
+        var extraction = MatchRulePattern.Match("{artist} | {title} | 101Barz", input);
+
+        Assert.NotNull(extraction);
+        Assert.Equal("ADF Samski", extraction!.Artist);
+        Assert.Equal("Wintersessie 2020", extraction.Title);
+    }
+
+    [Theory]
+    [InlineData("00 - Boef - Studiosessie 224 - 101Barz")]              // leading track number
+    [InlineData("346 - Boef - Studiosessie 224 - 101Barz")]            // 3-digit track number
+    [InlineData("Boef - Studiosessie 224 - 101Barz [dZ1nGVWI5a0]")]    // trailing YouTube id
+    [InlineData("Boef - Studiosessie 224 - 101Barz (1)")]              // trailing dedupe suffix
+    public void NoiseIsStrippedBeforeMatching(string input)
+    {
+        var extraction = MatchRulePattern.Match("{artist} - {title} - 101Barz", input);
+
+        Assert.NotNull(extraction);
+        Assert.Equal("Boef", extraction!.Artist);
+        Assert.Equal("Studiosessie 224", extraction.Title);
+    }
+
     [Fact]
     public void NonMatchingSample_ReturnsNull()
     {

@@ -1234,6 +1234,30 @@ export async function testMatchRule(pattern: string, sample: string): Promise<Ma
   })
 }
 
+export interface MatchRuleSuggestion {
+  name: string
+  pattern: string
+  sourceField: MatchRuleSourceField
+  albumOverride: string | null
+  albumArtistOverride: string | null
+  matchCount: number
+  sampleSize: number
+  examples: string[]
+}
+
+export interface MatchRuleSuggestionResult {
+  configured: boolean
+  source: "llm" | "heuristic" | "none"
+  sampleSize: number
+  suggestions: MatchRuleSuggestion[]
+}
+
+export async function suggestMatchRules(): Promise<MatchRuleSuggestionResult> {
+  return requestJson<MatchRuleSuggestionResult>("/api/settings/match-rules/suggest", {
+    method: "POST",
+  })
+}
+
 export async function fetchReviewTracks(): Promise<ApiSong[]> {
   const result = await requestJson<SongsResponse>(
     "/songs?enrichmentStatus=needsreview"

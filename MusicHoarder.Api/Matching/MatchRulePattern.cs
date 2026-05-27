@@ -20,7 +20,7 @@ public sealed record CompiledMatchRule(Regex Regex, IReadOnlyList<string> Fields
 /// matched verbatim (whitespace-tolerant, case-insensitive) and anchors the match; placeholders
 /// capture the variable parts into the named fields. Compilation is cached per template.
 /// </summary>
-public static class MatchRulePattern
+public static partial class MatchRulePattern
 {
     public static readonly IReadOnlyList<string> SupportedFields = ["artist", "title", "album", "albumartist"];
 
@@ -138,7 +138,7 @@ public static class MatchRulePattern
         Match m;
         try
         {
-            m = compiled.Regex.Match(input.Trim());
+            m = compiled.Regex.Match(Prepare(input));
         }
         catch (RegexMatchTimeoutException)
         {
@@ -163,27 +163,69 @@ public static class MatchRulePattern
         return value.Length == 0 ? null : value;
     }
 
-    /// <summary>Folds whitespace runs to <c>\s+</c> (tolerant of spacing) and escapes the rest.</summary>
+    /// <summary>
+    /// Compiles a literal run. A run made only of whitespace + connector punctuation
+    /// (<c>- _ | ｜ / · – —</c>) becomes a single flexible separator class, so one template like
+    /// <c>{artist} | {title} | 101Barz</c> matches the dash / underscore / fullwidth-pipe variants.
+    /// Other literals (e.g. a channel name) are escaped and matched exactly.
+    /// </summary>
     private static void AppendLiteral(StringBuilder sb, string literal)
     {
         var i = 0;
         while (i < literal.Length)
         {
-            if (char.IsWhiteSpace(literal[i]))
+            if (IsSeparator(literal[i]))
             {
-                while (i < literal.Length && char.IsWhiteSpace(literal[i]))
+                var start = i;
+                while (i < literal.Length && IsSeparator(literal[i]))
                     i++;
-                sb.Append("\\s+");
+                var run = literal[start..i];
+                // A run containing an actual connector (e.g. " | ") matches any connector with optional
+                // surrounding whitespace, so one template covers dash/underscore/pipe/fullwidth. A
+                // whitespace-only run stays a plain whitespace gap — crucially it must NOT match a bare
+                // space, or the artist/title boundary would land mid-name ("Yung Nnelg").
+                sb.Append(run.Any(IsConnector) ? ConnectorSeparator : "\\s+");
             }
             else
             {
                 var start = i;
-                while (i < literal.Length && !char.IsWhiteSpace(literal[i]))
+                while (i < literal.Length && !IsSeparator(literal[i]))
                     i++;
                 sb.Append(Regex.Escape(literal[start..i]));
             }
         }
     }
+
+    // Whitespace or a connector. Connectors are the credit separators yt-dlp / manual renames use
+    // interchangeably: ASCII hyphen/underscore/pipe/slash, fullwidth pipe U+FF5C, middle dot, en/em dash.
+    private static bool IsSeparator(char c) => char.IsWhiteSpace(c) || IsConnector(c);
+    private static bool IsConnector(char c) => c is '-' or '_' or '|' or '/' or '｜' or '·' or '–' or '—';
+
+    // At least one connector, with optional whitespace on either side.
+    private const string ConnectorSeparator = "\\s*[\\-_|/｜·–—]+\\s*";
+
+    /// <summary>
+    /// Normalizes a raw title/filename before matching: strips a leading track-number prefix
+    /// ("00 - ", "346 - "), a trailing YouTube id ("[dZ1nGVWI5a0]"), and a trailing dedupe suffix
+    /// ("(1)"), so templates needn't encode that noise.
+    /// </summary>
+    private static string Prepare(string input)
+    {
+        var value = input.Trim();
+        value = TrailingYouTubeId().Replace(value, "");
+        value = TrailingDuplicateSuffix().Replace(value, "");
+        value = LeadingTrackNumber().Replace(value, "");
+        return value.Trim();
+    }
+
+    [GeneratedRegex(@"^\s*\d{1,4}\s*[-._]\s+", RegexOptions.Compiled)]
+    private static partial Regex LeadingTrackNumber();
+
+    [GeneratedRegex(@"\s*\[[A-Za-z0-9_-]{6,}\]\s*$", RegexOptions.Compiled)]
+    private static partial Regex TrailingYouTubeId();
+
+    [GeneratedRegex(@"\s*\(\d+\)\s*$", RegexOptions.Compiled)]
+    private static partial Regex TrailingDuplicateSuffix();
 
     // A regex that never matches — cached for invalid templates so we don't recompile them.
     private static readonly Regex MatchNothing = new("(?!)", RegexOptions.CultureInvariant);

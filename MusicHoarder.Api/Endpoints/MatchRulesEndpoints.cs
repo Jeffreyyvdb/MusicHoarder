@@ -55,6 +55,14 @@ public static class MatchRulesEndpoints
             .WithName("DeleteMatchRule")
             .WithSummary("Deletes a metadata match rule.");
 
+        group.MapPost("/suggest", async (IMatchRuleSuggestionService suggester, CancellationToken ct) =>
+            {
+                var result = await suggester.SuggestAsync(ct);
+                return Results.Ok(result);
+            })
+            .WithName("SuggestMatchRules")
+            .WithSummary("Analyzes currently-unmatched songs and proposes match-rule presets (LLM-assisted, with a deterministic fallback).");
+
         group.MapPost("/test", (MatchRuleTestRequest request) =>
             {
                 if (!MatchRulePattern.TryCompile(request.Pattern, out var compiled, out var error))
