@@ -200,8 +200,8 @@
               onSelect={() => navigate(`/library?artist=${encodeURIComponent(artist.key)}`)}
             >
               <Mic2 class="text-muted-foreground" />
-              <span class="truncate">{artist.label}</span>
-              <span class="text-muted-foreground ml-auto text-xs">
+              <span class="min-w-0 flex-1 truncate">{artist.label}</span>
+              <span class="text-muted-foreground shrink-0 pl-3 text-xs">
                 {artist.trackCount} {artist.trackCount === 1 ? 'track' : 'tracks'}
               </span>
             </Command.Item>
@@ -217,8 +217,8 @@
               onSelect={() => navigate(`/library?album=${encodeURIComponent(album.key)}`)}
             >
               <Disc3 class="text-muted-foreground" />
-              <span class="truncate">{album.title}</span>
-              <span class="text-muted-foreground ml-auto truncate pl-2 text-xs">{album.artist}</span>
+              <span class="min-w-0 flex-1 truncate">{album.title}</span>
+              <span class="text-muted-foreground min-w-0 truncate pl-3 text-right text-xs">{album.artist}</span>
             </Command.Item>
           {/each}
         </Command.Group>
@@ -232,8 +232,8 @@
               onSelect={() => navigate(`/library?song=${track.id}`)}
             >
               <Music class="text-muted-foreground" />
-              <span class="truncate">{track.title ?? track.fileName}</span>
-              <span class="text-muted-foreground ml-auto truncate pl-2 text-xs">
+              <span class="min-w-0 flex-1 truncate">{track.title ?? track.fileName}</span>
+              <span class="text-muted-foreground min-w-0 truncate pl-3 text-right text-xs">
                 {trackArtist(track)}{track.album ? ` · ${track.album}` : ''}
               </span>
             </Command.Item>
@@ -253,8 +253,8 @@
               onSelect={() => navigate(`/library?artist=${encodeURIComponent(artist.key)}`)}
             >
               <Mic2 class="text-muted-foreground" />
-              <span class="truncate">{artist.label}</span>
-              <span class="text-muted-foreground ml-auto text-xs">
+              <span class="min-w-0 flex-1 truncate">{artist.label}</span>
+              <span class="text-muted-foreground shrink-0 pl-3 text-xs">
                 {artist.trackCount} {artist.trackCount === 1 ? 'track' : 'tracks'}
               </span>
             </Command.Item>
@@ -270,8 +270,8 @@
               onSelect={() => navigate(`/library?album=${encodeURIComponent(album.key)}`)}
             >
               <Disc3 class="text-muted-foreground" />
-              <span class="truncate">{album.title}</span>
-              <span class="text-muted-foreground ml-auto truncate pl-2 text-xs">{album.artist}</span>
+              <span class="min-w-0 flex-1 truncate">{album.title}</span>
+              <span class="text-muted-foreground min-w-0 truncate pl-3 text-right text-xs">{album.artist}</span>
             </Command.Item>
           {/each}
         </Command.Group>
@@ -285,8 +285,8 @@
               onSelect={() => navigate(`/library?song=${track.id}`)}
             >
               <Music class="text-muted-foreground" />
-              <span class="truncate">{track.title ?? track.fileName}</span>
-              <span class="text-muted-foreground ml-auto truncate pl-2 text-xs">
+              <span class="min-w-0 flex-1 truncate">{track.title ?? track.fileName}</span>
+              <span class="text-muted-foreground min-w-0 truncate pl-3 text-right text-xs">
                 {trackArtist(track)}{track.album ? ` · ${track.album}` : ''}
               </span>
             </Command.Item>
