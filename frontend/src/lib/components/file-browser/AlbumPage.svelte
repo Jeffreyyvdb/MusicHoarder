@@ -23,25 +23,18 @@
     formatTotalDuration
   } from '$lib/formatters';
   import {
-    buildAlbumsFromSongs,
     toPlayerSong,
+    type AlbumSummary,
     type ApiSong
   } from '$lib/api-client';
   import { playerStore } from '$lib/stores/player.svelte';
   import { cn } from '$lib/utils';
 
   type Props = {
-    songs: ApiSong[];
-    albumKey: string;
+    album: AlbumSummary | null;
     isLoading: boolean;
   };
-  const { songs, albumKey, isLoading }: Props = $props();
-
-  const album = $derived.by(() => {
-    if (!songs.length) return null;
-    const all = buildAlbumsFromSongs(songs);
-    return all.find((a) => a.key === albumKey) ?? null;
-  });
+  const { album, isLoading }: Props = $props();
 
   const tint = $derived(album ? albumTint(album.artist, album.title) : null);
   const tracks = $derived(album?.songs ?? []);
