@@ -18,11 +18,12 @@ public sealed class ConsoleMagicLinkSender : IMagicLinkSender
 
     public Task SendAsync(User user, string magicLinkUrl, CancellationToken ct = default)
     {
-        // user.Email is user-supplied; strip line breaks to prevent log forging (CWE-117).
-        var safeEmail = user.Email.Replace("\r", "").Replace("\n", "");
+        // Log the server-generated user id + role rather than the email: the email is
+        // user-influenced (log forging, CWE-117) and PII. Id + Role still identifies the
+        // account in dev, where only the seeded Owner/Demo users exist.
         _logger.LogInformation(
-            "[MAGIC LINK] for {Email} ({Role}): {Url}",
-            safeEmail, user.Role, magicLinkUrl);
+            "[MAGIC LINK] for user {UserId} ({Role}): {Url}",
+            user.Id, user.Role, magicLinkUrl);
         return Task.CompletedTask;
     }
 }
