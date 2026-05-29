@@ -37,8 +37,13 @@
 
   let enrichState = $state<'idle' | 'loading' | 'error'>('idle');
 
-  // Persistent "Enriching…" while the request is in flight OR this folder's enrich job is live.
+  // Persistent in-flight state while the request is live OR this folder's enrich job is running.
   const isEnriching = $derived(enrichState === 'loading' || (enrichingPaths?.has(node.path) ?? false));
+
+  // The action enriches and builds every track into the library, so the label reflects the
+  // outcome. A folder counts as already in the library only once every track has been written
+  // (node.done === node.total) — otherwise there's still something to add.
+  const inLibrary = $derived(node.total > 0 && node.done >= node.total);
 
   // While enrichment runs the parent bumps `refreshToken`; silently refresh this folder's loaded
   // files so per-file state pills track the live progress (no loading-spinner flicker).
@@ -168,18 +173,18 @@
         enrichState === 'error' && 'text-destructive'
       )}
       disabled={isEnriching}
-      title="Enqueue every song under this folder for enrichment"
+      title="Add every song under this folder to your library (enrich + build)"
       onclick={handleEnrichFolder}
     >
       {#if isEnriching}
         <Loader2 class="mr-1 size-3 animate-spin" />
-        Enriching…
+        {inLibrary ? 'Updating…' : 'Adding…'}
       {:else if enrichState === 'error'}
         <AlertCircle class="mr-1 size-3" />
         Failed
       {:else}
         <Sparkles class="mr-1 size-3" />
-        Enrich
+        {inLibrary ? 'Update in library' : 'Add to library'}
       {/if}
     </Button>
   </div>

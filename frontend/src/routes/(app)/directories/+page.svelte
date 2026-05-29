@@ -96,7 +96,7 @@
 
   function handleEnriched(path: string, count: number) {
     enrichingPaths.add(path);
-    toast.success('Enrichment started', {
+    toast.success('Adding to library', {
       description: `${count.toLocaleString()} ${count === 1 ? 'track' : 'tracks'} under ${lastSegment(path)} queued`
     });
     startLive();

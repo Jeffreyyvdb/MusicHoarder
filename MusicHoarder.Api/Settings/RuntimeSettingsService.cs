@@ -68,10 +68,6 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
             if (update.EnableDeezerProvider.HasValue) row.EnableDeezerProvider = update.EnableDeezerProvider;
             if (update.EnableAppleMusicProvider.HasValue) row.EnableAppleMusicProvider = update.EnableAppleMusicProvider;
             if (update.QualityGradingEnabled.HasValue) row.QualityGradingEnabled = update.QualityGradingEnabled;
-            if (update.SpotifyApiMatchedThreshold.HasValue) row.SpotifyApiMatchedThreshold = update.SpotifyApiMatchedThreshold;
-            if (update.AcoustIdScoreThreshold.HasValue) row.AcoustIdScoreThreshold = update.AcoustIdScoreThreshold;
-            if (update.EnrichmentWorkerConcurrency.HasValue) row.EnrichmentWorkerConcurrency = update.EnrichmentWorkerConcurrency;
-            if (update.LibraryBuilderWorkerConcurrency.HasValue) row.LibraryBuilderWorkerConcurrency = update.LibraryBuilderWorkerConcurrency;
 
             row.UpdatedAtUtc = DateTime.UtcNow;
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -97,10 +93,6 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
             EnableDeezerProvider: row?.EnableDeezerProvider ?? defaults.EnableDeezerProvider,
             EnableAppleMusicProvider: row?.EnableAppleMusicProvider ?? defaults.EnableAppleMusicProvider,
             QualityGradingEnabled: row?.QualityGradingEnabled ?? qualityDefaults.Enabled,
-            SpotifyApiMatchedThreshold: row?.SpotifyApiMatchedThreshold ?? defaults.SpotifyApiMatchedThreshold,
-            AcoustIdScoreThreshold: row?.AcoustIdScoreThreshold ?? defaults.AcoustIdScoreThreshold,
-            EnrichmentWorkerConcurrency: row?.EnrichmentWorkerConcurrency ?? defaults.EnrichmentWorkerConcurrency,
-            LibraryBuilderWorkerConcurrency: row?.LibraryBuilderWorkerConcurrency ?? defaults.LibraryBuilderWorkerConcurrency,
             UpdatedAtUtc: row?.UpdatedAtUtc);
     }
 }

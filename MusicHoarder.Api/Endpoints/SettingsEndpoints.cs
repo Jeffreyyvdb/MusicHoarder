@@ -44,11 +44,6 @@ public static class SettingsEndpoints
                         Tracker: effective.EnableTrackerProvider,
                         Deezer: effective.EnableDeezerProvider,
                         AppleMusic: effective.EnableAppleMusicProvider),
-                    Pipeline: new PipelineView(
-                        SpotifyApiMatchedThreshold: effective.SpotifyApiMatchedThreshold,
-                        AcoustIdScoreThreshold: effective.AcoustIdScoreThreshold,
-                        EnrichmentWorkerConcurrency: effective.EnrichmentWorkerConcurrency,
-                        LibraryBuilderWorkerConcurrency: effective.LibraryBuilderWorkerConcurrency),
                     Spotify: new SpotifyView(
                         OAuthRedirectBaseUrl: spotifyOptions.Value.OAuthRedirectBaseUrl,
                         Scopes: SpotifyScopes),
@@ -68,18 +63,6 @@ public static class SettingsEndpoints
                 if (request is null)
                     return Results.BadRequest(new { message = "Request body required." });
 
-                if (request.Pipeline?.SpotifyApiMatchedThreshold is { } sp && (sp < 0.0 || sp > 1.0))
-                    return Results.BadRequest(new { message = "SpotifyApiMatchedThreshold must be in 0..1." });
-
-                if (request.Pipeline?.AcoustIdScoreThreshold is { } ac && (ac < 0.0 || ac > 1.0))
-                    return Results.BadRequest(new { message = "AcoustIdScoreThreshold must be in 0..1." });
-
-                if (request.Pipeline?.EnrichmentWorkerConcurrency is { } ew && (ew < 1 || ew > 64))
-                    return Results.BadRequest(new { message = "EnrichmentWorkerConcurrency must be in 1..64." });
-
-                if (request.Pipeline?.LibraryBuilderWorkerConcurrency is { } lw && (lw < 1 || lw > 64))
-                    return Results.BadRequest(new { message = "LibraryBuilderWorkerConcurrency must be in 1..64." });
-
                 var update = new RuntimeSettingsUpdate
                 {
                     EnableAcoustIdProvider = request.Providers?.AcoustId,
@@ -89,10 +72,6 @@ public static class SettingsEndpoints
                     EnableDeezerProvider = request.Providers?.Deezer,
                     EnableAppleMusicProvider = request.Providers?.AppleMusic,
                     QualityGradingEnabled = request.QualityGrading?.Enabled,
-                    SpotifyApiMatchedThreshold = request.Pipeline?.SpotifyApiMatchedThreshold,
-                    AcoustIdScoreThreshold = request.Pipeline?.AcoustIdScoreThreshold,
-                    EnrichmentWorkerConcurrency = request.Pipeline?.EnrichmentWorkerConcurrency,
-                    LibraryBuilderWorkerConcurrency = request.Pipeline?.LibraryBuilderWorkerConcurrency,
                 };
 
                 var effective = await runtimeSettings.UpdateAsync(update, ct);
@@ -105,17 +84,12 @@ public static class SettingsEndpoints
                         effective.EnableTrackerProvider,
                         effective.EnableDeezerProvider,
                         effective.EnableAppleMusicProvider),
-                    pipeline = new PipelineView(
-                        effective.SpotifyApiMatchedThreshold,
-                        effective.AcoustIdScoreThreshold,
-                        effective.EnrichmentWorkerConcurrency,
-                        effective.LibraryBuilderWorkerConcurrency),
                     qualityGrading = new { enabled = effective.QualityGradingEnabled },
                     updatedAtUtc = effective.UpdatedAtUtc,
                 });
             })
             .WithName("UpdateSettings")
-            .WithSummary("Updates the persisted runtime settings overlay. Provider toggles take effect on the next enrichment cycle; worker-concurrency changes are persisted but applied on next API restart.")
+            .WithSummary("Updates the persisted runtime settings overlay (provider toggles + quality grading). Takes effect on the next enrichment cycle.")
             .RequireOwner();
 
         return app;
@@ -133,26 +107,15 @@ public static class SettingsEndpoints
 public sealed record SettingsResponse(
     PathsView Paths,
     ProvidersView Providers,
-    PipelineView Pipeline,
     SpotifyView Spotify,
     QualityGradingView QualityGrading,
     DateTime? UpdatedAtUtc);
 
 public sealed record PathsView(string SourceDirectory, string DestinationDirectory, string FpcalcPath);
 public sealed record ProvidersView(bool AcoustId, bool MusicBrainzWeb, bool SpotifyApi, bool Tracker, bool Deezer, bool AppleMusic);
-public sealed record PipelineView(
-    double SpotifyApiMatchedThreshold,
-    double AcoustIdScoreThreshold,
-    int EnrichmentWorkerConcurrency,
-    int LibraryBuilderWorkerConcurrency);
 public sealed record SpotifyView(string OAuthRedirectBaseUrl, IReadOnlyList<string> Scopes);
 public sealed record QualityGradingView(bool Enabled, bool Configured);
 
-public sealed record SettingsUpdateRequest(ProvidersUpdate? Providers, PipelineUpdate? Pipeline, QualityGradingUpdate? QualityGrading);
+public sealed record SettingsUpdateRequest(ProvidersUpdate? Providers, QualityGradingUpdate? QualityGrading);
 public sealed record QualityGradingUpdate(bool? Enabled);
 public sealed record ProvidersUpdate(bool? AcoustId, bool? MusicBrainzWeb, bool? SpotifyApi, bool? Tracker, bool? Deezer, bool? AppleMusic);
-public sealed record PipelineUpdate(
-    double? SpotifyApiMatchedThreshold,
-    double? AcoustIdScoreThreshold,
-    int? EnrichmentWorkerConcurrency,
-    int? LibraryBuilderWorkerConcurrency);

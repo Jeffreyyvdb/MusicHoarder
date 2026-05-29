@@ -6,16 +6,13 @@
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import { albumTint } from '$lib/album-tint';
   import { formatDuration, formatFileSize, formatBitrate } from '$lib/formatters';
-  import { buildAlbumsFromSongs, toPlayerSong, type ApiSong } from '$lib/api-client';
+  import { toPlayerSong, type AlbumSummary, type ApiSong } from '$lib/api-client';
   import { playerStore } from '$lib/stores/player.svelte';
 
   type Props = {
-    songs: ApiSong[];
-    albumKey: string;
+    album: AlbumSummary | null;
   };
-  const { songs, albumKey }: Props = $props();
-
-  const album = $derived(buildAlbumsFromSongs(songs).find((a) => a.key === albumKey) ?? null);
+  const { album }: Props = $props();
   const tint = $derived(album ? albumTint(album.artist, album.title) : null);
   const tracks = $derived(album?.songs ?? []);
 

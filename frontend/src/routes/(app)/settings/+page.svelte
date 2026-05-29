@@ -3,7 +3,6 @@
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
   import { Badge } from '$lib/components/ui/badge';
-  import { Slider } from '$lib/components/ui/slider';
   import * as Tabs from '$lib/components/ui/tabs';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import PurgeStatusBanner from '$lib/components/settings/PurgeStatusBanner.svelte';
@@ -27,7 +26,6 @@
     type PurgeSnapshot,
     type SettingsResponse,
     type SettingsProvidersView,
-    type SettingsPipelineView,
     type SettingsQualityGradingView,
     type SpotifyCredentialsResponse,
     type SpotifyStatusResponse,
@@ -57,7 +55,6 @@
     Folder,
     Database,
     Tag,
-    SlidersHorizontal,
     Copy,
     UserRound,
     LogOut,
@@ -351,11 +348,8 @@
   let isLoading = $state(true);
   let settings = $state<SettingsResponse | null>(null);
   let providers = $state<SettingsProvidersView | null>(null);
-  let pipeline = $state<SettingsPipelineView | null>(null);
   let isSavingProviders = $state(false);
-  let isSavingPipeline = $state(false);
   let providersResult = $state<{ success: boolean; message: string } | null>(null);
-  let pipelineResult = $state<{ success: boolean; message: string } | null>(null);
   let qualityGrading = $state<SettingsQualityGradingView | null>(null);
   let isSavingQualityGrading = $state(false);
   let qualityGradingResult = $state<{ success: boolean; message: string } | null>(null);
@@ -401,7 +395,6 @@
         if (settingsResp) {
           settings = settingsResp;
           providers = { ...settingsResp.providers };
-          pipeline = { ...settingsResp.pipeline };
           qualityGrading = { ...settingsResp.qualityGrading };
         }
       } finally {
@@ -492,27 +485,6 @@
       };
     } finally {
       isSavingProviders = false;
-    }
-  }
-
-  async function handleSavePipeline() {
-    if (!pipeline) return;
-    isSavingPipeline = true;
-    pipelineResult = null;
-    try {
-      await updateSettings({ pipeline });
-      pipelineResult = {
-        success: true,
-        message:
-          'Pipeline settings saved. Worker-concurrency changes apply on the next API restart.'
-      };
-    } catch (err) {
-      pipelineResult = {
-        success: false,
-        message: err instanceof Error ? err.message : 'Failed to save pipeline settings.'
-      };
-    } finally {
-      isSavingPipeline = false;
     }
   }
 
@@ -624,9 +596,6 @@
               ><Wand2 class="size-3.5" />Match rules</Tabs.Trigger
             >
           {/if}
-          <Tabs.Trigger value="pipeline" class="gap-1.5"
-            ><SlidersHorizontal class="size-3.5" />Pipeline</Tabs.Trigger
-          >
           <Tabs.Trigger value="spotify" class="gap-1.5"
             ><Music class="size-3.5" />Spotify</Tabs.Trigger
           >
@@ -1240,134 +1209,6 @@
                   </div>
                 {/each}
               {/if}
-            </div>
-          </section>
-        </Tabs.Content>
-
-        <!-- =================== PIPELINE =================== -->
-        <Tabs.Content value="pipeline" class="mt-0">
-          <section class="border-border bg-card rounded-xl border">
-            <header class="border-border border-b px-6 py-4">
-              <h2 class="font-semibold">Pipeline tuning</h2>
-              <p class="text-muted-foreground text-xs">
-                Confidence thresholds determine when a Spotify or AcoustID match is considered
-                "Matched" instead of "NeedsReview". Worker-concurrency changes are persisted but
-                apply only after the next API restart (SemaphoreSlim limits are set at startup).
-              </p>
-            </header>
-
-            <div class="space-y-6 p-6">
-              <div class="space-y-3">
-                <div class="flex items-center justify-between">
-                  <Label>Spotify matched threshold</Label>
-                  <span class="text-muted-foreground font-mono text-sm"
-                    >{pipeline?.spotifyApiMatchedThreshold.toFixed(2) ?? '—'}</span
-                  >
-                </div>
-                <Slider
-                  type="single"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={pipeline?.spotifyApiMatchedThreshold ?? 0.85}
-                  onValueChange={(v) => {
-                    if (pipeline && typeof v === 'number')
-                      pipeline = { ...pipeline, spotifyApiMatchedThreshold: v };
-                  }}
-                />
-                <p class="text-muted-foreground text-xs">
-                  Songs below this score fall into the manual-review queue.
-                </p>
-              </div>
-
-              <div class="space-y-3">
-                <div class="flex items-center justify-between">
-                  <Label>AcoustID score threshold</Label>
-                  <span class="text-muted-foreground font-mono text-sm"
-                    >{pipeline?.acoustIdScoreThreshold.toFixed(2) ?? '—'}</span
-                  >
-                </div>
-                <Slider
-                  type="single"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={pipeline?.acoustIdScoreThreshold ?? 0.85}
-                  onValueChange={(v) => {
-                    if (pipeline && typeof v === 'number')
-                      pipeline = { ...pipeline, acoustIdScoreThreshold: v };
-                  }}
-                />
-                <p class="text-muted-foreground text-xs">
-                  Minimum AcoustID match score (0..1) to accept the result.
-                </p>
-              </div>
-
-              <div class="space-y-3">
-                <div class="flex items-center justify-between">
-                  <Label>Enrichment worker concurrency</Label>
-                  <span class="text-muted-foreground font-mono text-sm"
-                    >{pipeline?.enrichmentWorkerConcurrency ?? '—'} workers</span
-                  >
-                </div>
-                <Slider
-                  type="single"
-                  min={1}
-                  max={16}
-                  step={1}
-                  value={pipeline?.enrichmentWorkerConcurrency ?? 2}
-                  onValueChange={(v) => {
-                    if (pipeline && typeof v === 'number')
-                      pipeline = { ...pipeline, enrichmentWorkerConcurrency: v };
-                  }}
-                />
-              </div>
-
-              <div class="space-y-3">
-                <div class="flex items-center justify-between">
-                  <Label>Library-builder worker concurrency</Label>
-                  <span class="text-muted-foreground font-mono text-sm"
-                    >{pipeline?.libraryBuilderWorkerConcurrency ?? '—'} workers</span
-                  >
-                </div>
-                <Slider
-                  type="single"
-                  min={1}
-                  max={16}
-                  step={1}
-                  value={pipeline?.libraryBuilderWorkerConcurrency ?? 2}
-                  onValueChange={(v) => {
-                    if (pipeline && typeof v === 'number')
-                      pipeline = { ...pipeline, libraryBuilderWorkerConcurrency: v };
-                  }}
-                />
-              </div>
-            </div>
-
-            {#if pipelineResult}
-              <div
-                class="mx-6 mb-4 flex items-center gap-2 rounded-lg border px-4 py-2 text-sm {pipelineResult.success
-                  ? 'border-[#1DB954]/50 bg-[#1DB954]/10 text-[#1DB954]'
-                  : 'border-destructive/50 bg-destructive/10 text-destructive'}"
-              >
-                {#if pipelineResult.success}
-                  <CheckCircle2 class="size-4 shrink-0" />
-                {:else}
-                  <AlertCircle class="size-4 shrink-0" />
-                {/if}
-                {pipelineResult.message}
-              </div>
-            {/if}
-
-            <div class="border-border flex justify-end gap-2 border-t px-6 py-4">
-              <Button onclick={handleSavePipeline} disabled={isSavingPipeline || !pipeline}>
-                {#if isSavingPipeline}
-                  <Loader2 class="mr-2 size-4 animate-spin" />
-                {:else}
-                  <Save class="mr-2 size-4" />
-                {/if}
-                Save pipeline
-              </Button>
             </div>
           </section>
         </Tabs.Content>

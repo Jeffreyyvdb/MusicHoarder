@@ -332,6 +332,11 @@ export function albumKeyForSong(song: ApiSong): string {
   return `${artist.toLowerCase()}::${title.toLowerCase()}`
 }
 
+/** Display label used to group a song by artist — matches {@link buildArtistGroups}. */
+export function artistLabelForSong(song: ApiSong): string {
+  return nonEmpty(song.albumArtist) ?? nonEmpty(song.artist) ?? UNKNOWN_ARTIST
+}
+
 function albumKeyOf(song: ApiSong): string {
   return albumKeyForSong(song)
 }
@@ -351,7 +356,7 @@ function finalizeGroups(map: Map<string, GroupAccumulator>): GroupSummary[] {
 export function buildArtistGroups(songs: ApiSong[]): GroupSummary[] {
   const map = new Map<string, GroupAccumulator>()
   for (const song of songs) {
-    const label = nonEmpty(song.albumArtist) ?? nonEmpty(song.artist) ?? UNKNOWN_ARTIST
+    const label = artistLabelForSong(song)
     const key = label.toLowerCase()
     let entry = map.get(key)
     if (!entry) {
@@ -1118,13 +1123,6 @@ export interface SettingsProvidersView {
   appleMusic: boolean
 }
 
-export interface SettingsPipelineView {
-  spotifyApiMatchedThreshold: number
-  acoustIdScoreThreshold: number
-  enrichmentWorkerConcurrency: number
-  libraryBuilderWorkerConcurrency: number
-}
-
 export interface SettingsSpotifyView {
   oAuthRedirectBaseUrl: string
   scopes: string[]
@@ -1138,7 +1136,6 @@ export interface SettingsQualityGradingView {
 export interface SettingsResponse {
   paths: SettingsPathsView
   providers: SettingsProvidersView
-  pipeline: SettingsPipelineView
   spotify: SettingsSpotifyView
   qualityGrading: SettingsQualityGradingView
   updatedAtUtc: string | null
@@ -1146,7 +1143,6 @@ export interface SettingsResponse {
 
 export interface SettingsUpdateRequest {
   providers?: Partial<SettingsProvidersView>
-  pipeline?: Partial<SettingsPipelineView>
   qualityGrading?: { enabled?: boolean }
 }
 
