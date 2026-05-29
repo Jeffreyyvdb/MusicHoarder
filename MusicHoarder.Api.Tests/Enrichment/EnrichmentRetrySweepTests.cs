@@ -72,6 +72,35 @@ public class EnrichmentRetrySweepTests
     }
 
     [Fact]
+    public async Task Refresh_SkipsManuallyApprovedSong_EvenWhenMissingProvider()
+    {
+        // A locked song missing a newly-enabled provider must NOT be flipped to Pending — the
+        // orchestrator skips manually-approved songs, so flipping it would strand it in Pending.
+        await using var db = CreateDb();
+        var song = AddSong(db, EnrichmentStatus.Matched);
+        song.IsManuallyApproved = true;
+        song.ProviderAttempts.Add(new SongProviderAttempt
+        {
+            SongId = song.Id,
+            Provider = EnrichmentProvider.AcoustID,
+            Status = ProviderAttemptStatus.NoMatch,
+            AttemptedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var channel = new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker());
+        var service = CreateService(
+            db, channel,
+            enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.AcoustID, EnrichmentProvider.SpotifyAPI });
+
+        await service.RefreshStaleStatusesAsync(CancellationToken.None);
+
+        var updated = await db.Songs.AsNoTracking().SingleAsync();
+        Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
+        Assert.False(channel.Reader.TryRead(out _));
+    }
+
+    [Fact]
     public async Task Retry_ResetsNeedsReview_WhenFlagSet_PreservesCurrentMetadata()
     {
         await using var db = CreateDb();
