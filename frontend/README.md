@@ -39,9 +39,7 @@ always required. API failures are surfaced as UI errors.
 
 Umami analytics are loaded when `PUBLIC_UMAMI_SRC` and `PUBLIC_UMAMI_WEBSITE_ID` are set. Session replay is optional via `PUBLIC_UMAMI_RECORDER_SRC`. All `PUBLIC_UMAMI_*` vars are read at runtime (`$env/dynamic/public`), so they can be set in the container env (e.g. docker-compose / Dokploy) without a rebuild.
 
-### Direct (default)
-
-Load the tracker straight from the Umami host. Leave `PUBLIC_UMAMI_HOST_URL` unset so the tracker posts events to the script's own origin:
+Load the tracker straight from the Umami host — `PUBLIC_UMAMI_SRC` is the full tracker URL ending in `/script.js` (not the dashboard root), and the tracker posts events to that same origin:
 
 ```bash
 PUBLIC_UMAMI_SRC="https://your-umami-host/script.js"
@@ -49,22 +47,7 @@ PUBLIC_UMAMI_WEBSITE_ID="<your-website-id>"
 PUBLIC_UMAMI_RECORDER_SRC="https://your-umami-host/recorder.js"   # only if using the recorder
 ```
 
-### Same-origin proxy (anti-adblock, optional)
-
-Loading the tracker directly from the Umami host is blocked by many adblockers (they target the `umami.` subdomain, `/script.js`, and the `/api/send` collect endpoint). To serve it first-party, the app proxies Umami under `/stats` via `src/routes/stats/[...path]/+server.ts`. Enable it with:
-
-```bash
-# Build-time (PUBLIC_*, inlined into the bundle)
-PUBLIC_UMAMI_SRC="/stats/script.js"
-PUBLIC_UMAMI_RECORDER_SRC="/stats/recorder.js"   # only if using the recorder
-PUBLIC_UMAMI_HOST_URL="/stats"                    # sends events to /stats/api/send
-PUBLIC_UMAMI_WEBSITE_ID="<your-website-id>"
-
-# Runtime (server-side; set in Dokploy env, no rebuild needed)
-UMAMI_ORIGIN="https://your-umami-host"
-```
-
-The proxy forwards `X-Forwarded-For` + `User-Agent` upstream so Umami still records the real visitor IP and geo. Leave `UMAMI_ORIGIN` unset to disable the proxy (`/stats/*` returns `503`).
+The tracker tag sets `data-performance="true"`, so Core Web Vitals are collected on Umami server **v3.1.0+** (silently ignored by older servers).
 
 ## Local frontend-only run (optional)
 
