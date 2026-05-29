@@ -146,7 +146,8 @@ public class DeezerEnrichmentProvider(
             MatchConfidence: Math.Clamp(score, 0, 1),
             MatchWarnings: warnings,
             RecommendedStatus: status,
-            Album: string.IsNullOrWhiteSpace(track.AlbumName) ? null : track.AlbumName);
+            Album: string.IsNullOrWhiteSpace(track.AlbumName) ? null : track.AlbumName,
+            DurationSeconds: track.DurationMs > 0 ? track.DurationMs / 1000 : null);
     }
 
     private static (double Score, List<string> Warnings) ScoreCandidate(

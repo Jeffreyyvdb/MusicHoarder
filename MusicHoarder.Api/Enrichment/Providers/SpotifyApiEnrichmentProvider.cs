@@ -148,7 +148,8 @@ public class SpotifyApiEnrichmentProvider(
             TotalTracks: track.TotalTracks,
             IsCompilation: string.Equals(track.AlbumType, "compilation", StringComparison.OrdinalIgnoreCase) ? true : null,
             ReleaseTypePrimary: string.IsNullOrWhiteSpace(track.AlbumType) ? null : track.AlbumType,
-            ReleaseTypes: string.IsNullOrWhiteSpace(track.AlbumType) ? null : track.AlbumType);
+            ReleaseTypes: string.IsNullOrWhiteSpace(track.AlbumType) ? null : track.AlbumType,
+            DurationSeconds: track.DurationMs > 0 ? track.DurationMs / 1000 : null);
     }
 
     private static string BuildSearchQuery(string artist, string title, string? album)
