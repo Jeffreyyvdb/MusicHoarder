@@ -27,7 +27,10 @@ public record EnrichmentProviderResult(
     int? TotalTracks = null,
     bool? IsCompilation = null,
     string? ReleaseTypePrimary = null,
-    string? ReleaseTypes = null);
+    string? ReleaseTypes = null,
+    /// <summary>Duration (seconds) of the recording this provider matched, for consensus identity
+    /// comparison. Null when the provider doesn't report a duration.</summary>
+    int? DurationSeconds = null);
 
 public abstract record ProviderOutcome;
 public sealed record ProviderMatched(EnrichmentProviderResult Result) : ProviderOutcome;

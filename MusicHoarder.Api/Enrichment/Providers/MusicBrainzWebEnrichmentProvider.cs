@@ -149,7 +149,8 @@ public class MusicBrainzWebEnrichmentProvider(
             TotalTracks: rec.TotalTracks,
             IsCompilation: rec.IsCompilation ? true : null,
             ReleaseTypePrimary: rec.ReleaseTypePrimary,
-            ReleaseTypes: rec.ReleaseTypes);
+            ReleaseTypes: rec.ReleaseTypes,
+            DurationSeconds: rec.LengthMs is int len && len > 0 ? len / 1000 : null);
     }
 
     private static (double Score, List<string> Warnings) Score(

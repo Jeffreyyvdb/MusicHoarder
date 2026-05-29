@@ -291,6 +291,42 @@ public class ConsensusEvaluatorTests
     }
 
     [Fact]
+    public void TwoProvidersAgreeOnName_ButDurationDiffers_NoConsensus_NeedsReview()
+    {
+        // Same artist/title and no shared identifier, but the two providers matched recordings of
+        // very different length (e.g. a radio edit vs. an extended cut). Duration now participates
+        // in identity, so they no longer falsely corroborate into a Matched consensus.
+        var song = Song();
+        Add(song, EnrichmentProvider.Deezer, ProviderAttemptStatus.Matched,
+            Result("Artist", "Title", conf: 0.8, recommend: EnrichmentStatus.NeedsReview, durationSeconds: 180));
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Artist", "Title", spotifyId: "s", conf: 0.8, recommend: EnrichmentStatus.NeedsReview, durationSeconds: 420));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.Deezer, EnrichmentProvider.SpotifyAPI), Opts);
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
+    }
+
+    [Fact]
+    public void TwoProvidersAgreeOnNameAndDuration_Matched()
+    {
+        // Control for the duration guard: same name, no shared identifier, durations within the
+        // delta → they still corroborate into a Matched consensus.
+        var song = Song();
+        Add(song, EnrichmentProvider.Deezer, ProviderAttemptStatus.Matched,
+            Result("Artist", "Title", conf: 0.8, recommend: EnrichmentStatus.NeedsReview, durationSeconds: 200));
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Artist", "Title", spotifyId: "s", conf: 0.8, recommend: EnrichmentStatus.NeedsReview, durationSeconds: 203));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.Deezer, EnrichmentProvider.SpotifyAPI), Opts);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+        Assert.Equal(2, r.AgreeingProviders.Count);
+    }
+
+    [Fact]
     public void SubFloorCandidate_DoesNotCorroborate()
     {
         var song = Song();
@@ -353,9 +389,10 @@ public class ConsensusEvaluatorTests
         string artist, string title,
         string? mbid = null, string? spotifyId = null, string? isrc = null,
         double conf = 0.8, EnrichmentStatus recommend = EnrichmentStatus.NeedsReview,
-        List<string>? warnings = null)
+        List<string>? warnings = null, int? durationSeconds = null)
         => new(artist, artist, title, null, null, mbid, null, spotifyId, null, isrc,
-            spotifyId is not null ? "SpotifyAPI" : "AcoustID", conf, warnings ?? [], recommend);
+            spotifyId is not null ? "SpotifyAPI" : "AcoustID", conf, warnings ?? [], recommend,
+            DurationSeconds: durationSeconds);
 
     private static void Add(
         SongMetadata song, EnrichmentProvider provider, ProviderAttemptStatus status, EnrichmentProviderResult? candidate)

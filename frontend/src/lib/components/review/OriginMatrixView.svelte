@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { OriginMatrix } from '$lib/review-helpers';
   import { cn } from '$lib/utils';
+  import * as Table from '$lib/components/ui/table/index.js';
 
   type Props = { matrix: OriginMatrix };
   const { matrix }: Props = $props();
@@ -12,27 +13,29 @@
   </div>
 {:else}
   <div class="border-border overflow-x-auto rounded-lg border">
-    <table class="w-full border-collapse text-left">
-      <thead>
-        <tr class="bg-surface-sunken/60">
-          <th class="border-border text-muted-foreground border-r border-b px-3 py-2.5 align-bottom">
+    <Table.Root class="w-full border-collapse text-left">
+      <Table.Header>
+        <Table.Row class="bg-surface-sunken/60">
+          <Table.Head
+            class="border-border text-muted-foreground border-r border-b px-3 py-2.5 align-bottom"
+          >
             <div class="font-mono text-[10px] tracking-[0.06em]">FIELD ↓</div>
             <div class="font-mono text-[10px] tracking-[0.06em]">PROVIDER →</div>
-          </th>
+          </Table.Head>
           {#each matrix.columns as col (col.key)}
-            <th class="border-border min-w-[140px] border-b px-3 py-2.5">
+            <Table.Head class="border-border min-w-[140px] border-b px-3 py-2.5">
               <div class="flex items-center gap-1.5">
                 <span class="size-2 rounded-full" style="background: {col.color}"></span>
                 <span class="text-[12px] font-semibold">{col.label}</span>
               </div>
-            </th>
+            </Table.Head>
           {/each}
-        </tr>
-      </thead>
-      <tbody>
+        </Table.Row>
+      </Table.Header>
+      <Table.Body>
         {#each matrix.rows as row (row.field)}
-          <tr class="border-border border-b last:border-b-0">
-            <th
+          <Table.Row class="border-border border-b last:border-b-0">
+            <Table.Head
               scope="row"
               class="border-border bg-surface-sunken/40 border-r px-3 py-2.5 align-middle font-medium"
             >
@@ -40,9 +43,9 @@
               {#if row.missing}
                 <span class="text-muted-foreground/60 ml-1.5 font-mono text-[10px] lowercase">missing</span>
               {/if}
-            </th>
+            </Table.Head>
             {#each row.cells as cell, ci (matrix.columns[ci].key)}
-              <td class="px-2 py-1.5 align-middle">
+              <Table.Cell class="px-2 py-1.5 align-middle whitespace-normal">
                 {#if cell.value == null}
                   <span class="text-muted-foreground/30 block text-center">·</span>
                 {:else}
@@ -58,11 +61,11 @@
                     <span class={cn(cell.value.length > 18 && 'font-mono text-[11px]')}>{cell.value}</span>
                   </div>
                 {/if}
-              </td>
+              </Table.Cell>
             {/each}
-          </tr>
+          </Table.Row>
         {/each}
-      </tbody>
-    </table>
+      </Table.Body>
+    </Table.Root>
   </div>
 {/if}

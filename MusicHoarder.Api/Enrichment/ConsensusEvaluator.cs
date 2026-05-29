@@ -271,7 +271,7 @@ public static class ConsensusEvaluator
             r.Artist,
             r.Title,
             r.Album,
-            DurationSeconds: null,
+            r.DurationSeconds,
             r.Isrc,
             r.MusicBrainzId,
             r.SpotifyId,

@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { Button } from '$lib/components/ui/button';
-  import { ChevronLeft, ChevronRight } from '@lucide/svelte';
+  import * as Pagination from '$lib/components/ui/pagination/index.js';
 
   type Props = {
     offset: number;
@@ -16,25 +15,40 @@
 </script>
 
 {#if totalPages > 1}
-  <div class="flex items-center justify-center gap-2 py-4">
-    <Button
-      variant="outline"
-      size="sm"
-      disabled={offset === 0 || isLoading}
-      onclick={() => onPageChange(Math.max(0, offset - limit))}
+  <div class="flex items-center justify-center py-4">
+    <Pagination.Root
+      count={total}
+      perPage={limit}
+      page={currentPage}
+      onPageChange={(p) => onPageChange((p - 1) * limit)}
     >
-      <ChevronLeft class="size-4" />
-    </Button>
-    <span class="text-muted-foreground px-2 text-sm">
-      Page {currentPage} of {totalPages}
-    </span>
-    <Button
-      variant="outline"
-      size="sm"
-      disabled={offset + limit >= total || isLoading}
-      onclick={() => onPageChange(offset + limit)}
-    >
-      <ChevronRight class="size-4" />
-    </Button>
+      {#snippet children({ pages, currentPage })}
+        <Pagination.Content>
+          <Pagination.Item>
+            <Pagination.PrevButton disabled={isLoading} />
+          </Pagination.Item>
+          {#each pages as page (page.key)}
+            {#if page.type === 'ellipsis'}
+              <Pagination.Item>
+                <Pagination.Ellipsis />
+              </Pagination.Item>
+            {:else}
+              <Pagination.Item>
+                <Pagination.Link
+                  {page}
+                  isActive={currentPage === page.value}
+                  disabled={isLoading}
+                >
+                  {page.value}
+                </Pagination.Link>
+              </Pagination.Item>
+            {/if}
+          {/each}
+          <Pagination.Item>
+            <Pagination.NextButton disabled={isLoading} />
+          </Pagination.Item>
+        </Pagination.Content>
+      {/snippet}
+    </Pagination.Root>
   </div>
 {/if}

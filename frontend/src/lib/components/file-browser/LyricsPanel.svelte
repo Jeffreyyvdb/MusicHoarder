@@ -3,6 +3,7 @@
   import { fetchTrackLyrics } from '$lib/api-client';
   import { Button } from '$lib/components/ui/button';
   import { Badge } from '$lib/components/ui/badge';
+  import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
   import {
     AlertCircle,
     AlignLeft,
@@ -204,32 +205,24 @@
         {/if}
       </div>
       {#if showSyncedToggle}
-        <div class="border-border flex overflow-hidden rounded-md border text-xs">
-          <button
-            class={cn(
-              'flex items-center gap-1 px-2 py-1 transition-colors',
-              showSynced
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:text-foreground bg-transparent'
-            )}
-            onclick={() => (showSynced = true)}
-          >
+        <ToggleGroup.Root
+          type="single"
+          size="sm"
+          value={showSynced ? 'synced' : 'plain'}
+          onValueChange={(v) => {
+            if (v) showSynced = v === 'synced';
+          }}
+          class="text-xs"
+        >
+          <ToggleGroup.Item value="synced" aria-label="Synced" class="gap-1">
             <Timer class="size-3" />
             Synced
-          </button>
-          <button
-            class={cn(
-              'flex items-center gap-1 px-2 py-1 transition-colors',
-              !showSynced
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:text-foreground bg-transparent'
-            )}
-            onclick={() => (showSynced = false)}
-          >
+          </ToggleGroup.Item>
+          <ToggleGroup.Item value="plain" aria-label="Plain" class="gap-1">
             <AlignLeft class="size-3" />
             Plain
-          </button>
-        </div>
+          </ToggleGroup.Item>
+        </ToggleGroup.Root>
       {:else if loadedSynced && !loadedPlain}
         <Badge variant="outline" class="text-muted-foreground gap-1 text-xs">
           <Timer class="size-3" />
