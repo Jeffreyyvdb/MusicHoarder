@@ -10,7 +10,7 @@
 
 <svelte:head>
   {#if enabled}
-    <script defer src={scriptSrc} data-website-id={websiteId}></script>
+    <script defer src={scriptSrc} data-website-id={websiteId} data-performance="true"></script>
     {#if recorderSrc}
       <script
         defer
