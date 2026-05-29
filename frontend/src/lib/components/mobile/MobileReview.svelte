@@ -36,6 +36,7 @@
   import { playerStore } from '$lib/stores/player.svelte';
   import { page } from '$app/state';
   import { cn } from '$lib/utils';
+  import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
 
   type Decision = 'accept' | 'reject' | 'skip';
   type QueueFilter = 'needsreview' | 'done' | 'all';
@@ -346,18 +347,18 @@
       </div>
 
       <!-- VIEW segmented -->
-      <div class="bg-surface-sunken mx-4 mt-4 flex items-center gap-1 rounded-lg p-0.5">
+      <ToggleGroup.Root
+        type="single"
+        value={view}
+        onValueChange={(v) => {
+          if (v) view = v as ViewKey;
+        }}
+        class="bg-surface-sunken mx-4 mt-4 w-[calc(100%-32px)] gap-1 rounded-lg p-0.5"
+      >
         {#each VIEWS as v (v.key)}
-          <button
-            type="button"
-            onclick={() => (view = v.key)}
-            class={cn(
-              'flex-1 rounded-md px-2 py-1.5 text-[12.5px] font-medium transition-colors',
-              view === v.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'
-            )}>{v.label}</button
-          >
+          <ToggleGroup.Item value={v.key} class="flex-1 text-[12.5px] font-medium" aria-label={v.label}>{v.label}</ToggleGroup.Item>
         {/each}
-      </div>
+      </ToggleGroup.Root>
 
       <!-- view content -->
       <div class="px-4 pt-4">
@@ -427,24 +428,31 @@
   <div class="mob">
     <MobileHeader title="Provenance & review" sub="{reviewTracks.length} pending · {doneTracks.length} done" />
     <!-- segmented filter -->
-    <div class="border-border flex items-center gap-1 border-b px-3 py-2">
+    <ToggleGroup.Root
+      type="single"
+      value={queueFilter}
+      onValueChange={(v) => {
+        if (v) queueFilter = v as QueueFilter;
+      }}
+      class="border-border gap-1 border-b px-3 py-2"
+    >
       {#each FILTERS as f (f.key)}
         {@const count = f.key === 'needsreview' ? reviewTracks.length : f.key === 'done' ? doneTracks.length : reviewTracks.length + doneTracks.length}
-        <button
-          type="button"
-          onclick={() => (queueFilter = f.key)}
+        <ToggleGroup.Item
+          value={f.key}
+          aria-label={f.label}
           class={cn(
-            'flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12.5px] font-medium transition-colors',
-            queueFilter === f.key ? 'bg-primary/15 text-primary' : 'text-muted-foreground'
+            'gap-1.5 text-[12.5px] font-medium',
+            queueFilter === f.key && 'bg-primary/15 text-primary'
           )}
         >
           {#if f.key === 'needsreview'}<AlertTriangle class="size-3.5" />{/if}
           {#if f.key === 'done'}<Check class="size-3.5" />{/if}
           <span>{f.label}</span>
           <span class={cn('rounded-full px-1.5 text-[10px] font-semibold tabular-nums', queueFilter === f.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')}>{count}</span>
-        </button>
+        </ToggleGroup.Item>
       {/each}
-    </div>
+    </ToggleGroup.Root>
 
     <div class="mob-scroll pt-2.5">
       {#if loading}

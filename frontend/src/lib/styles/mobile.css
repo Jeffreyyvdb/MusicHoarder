@@ -454,17 +454,6 @@
   white-space: nowrap;
   margin-top: 1px;
 }
-.mob-bar {
-  height: 4px;
-  background: var(--border);
-  border-radius: 2px;
-  overflow: hidden;
-}
-.mob-bar-fill {
-  height: 100%;
-  background: var(--primary);
-}
-
 .mob-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -943,35 +932,6 @@
   color: var(--fg-tertiary);
   margin-bottom: 6px;
   font-weight: 500;
-}
-
-/* iOS-style toggle */
-.mob-toggle {
-  width: 44px;
-  height: 26px;
-  border-radius: 14px;
-  background: var(--border);
-  position: relative;
-  transition: background 0.18s;
-  flex-shrink: 0;
-}
-.mob-toggle.on {
-  background: var(--primary);
-}
-.mob-toggle::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-  transition: left 0.18s;
-}
-.mob-toggle.on::after {
-  left: 20px;
 }
 
 /* ============ Landing (mobile) ============ */
