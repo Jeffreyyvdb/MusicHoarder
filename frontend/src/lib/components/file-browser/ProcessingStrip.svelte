@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { fetchOverview, type ApiOverview } from '$lib/api-client';
   import Cover from '$lib/components/file-browser/Cover.svelte';
+  import { Progress } from '$lib/components/ui/progress/index.js';
   import { cn } from '$lib/utils';
 
   const POLL_MS = 4000;
@@ -118,12 +119,7 @@
                 {Math.round(card.progress * 100)}%
               </span>
             </div>
-            <div class="bg-border mt-1.5 h-[3px] overflow-hidden rounded-full">
-              <div
-                class="bg-primary h-full transition-[width] duration-500"
-                style="width: {card.progress * 100}%;"
-              ></div>
-            </div>
+            <Progress value={card.progress * 100} class="mt-1.5 h-[3px]" />
           </div>
         </div>
       {/each}

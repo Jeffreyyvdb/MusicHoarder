@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { Check, Loader2 } from '@lucide/svelte';
+  import { Check } from '@lucide/svelte';
+  import { Spinner } from '$lib/components/ui/spinner/index.js';
   import { providerColor, type ReviewCandidate } from '$lib/review-helpers';
   import { cn } from '$lib/utils';
 
@@ -28,7 +29,7 @@
 
   {#if loading && candidates.length === 0}
     <div class="text-muted-foreground flex items-center gap-2 py-2 text-sm">
-      <Loader2 class="size-4 animate-spin" /> Loading candidates…
+      <Spinner class="size-4" /> Loading candidates…
     </div>
   {:else if candidates.length === 0}
     <div class="text-muted-foreground bg-background rounded-md px-3.5 py-4 text-[12.5px]">

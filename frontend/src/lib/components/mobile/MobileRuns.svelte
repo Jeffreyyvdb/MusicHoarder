@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { Search, Fingerprint, Sparkles, PackageCheck } from '@lucide/svelte';
   import MobileHeader from '$lib/components/mobile/MobileHeader.svelte';
+  import { Progress } from '$lib/components/ui/progress/index.js';
   import { fetchRuns, fetchRun, type ApiRun, type ApiRunDetail } from '$lib/api-client';
 
   let runs = $state<ApiRun[]>([]);
@@ -108,7 +109,7 @@
       </div>
 
       <div class="px-4 pb-4">
-        <div class="mob-bar mb-1.5"><div class="mob-bar-fill" style="width: {pct}%;"></div></div>
+        <Progress value={pct} class="mb-1.5" />
         <div class="text-muted-foreground flex justify-between font-mono text-[11.5px]">
           <span>{run.tracksProcessed.toLocaleString()} / {run.tracksDiscovered.toLocaleString()} processed</span>
           <span>{pct}%</span>
@@ -125,7 +126,7 @@
             <Icon size={14} class="text-primary" />
             <div class="mob-row-meta">
               <div class="mob-row-t text-[13.5px]">{s.label}</div>
-              <div class="mob-bar mt-1.5"><div class="mob-bar-fill" style="width: {stPct}%;"></div></div>
+              <Progress value={stPct} class="mt-1.5" />
             </div>
             <span class="text-muted-foreground font-mono text-[11.5px]">{val.toLocaleString()}</span>
           </div>
@@ -167,7 +168,7 @@
             </div>
             <div class="mob-run-src">{r.triggerLabel ?? r.sourcePath}</div>
             {#if r.status === 'running'}
-              <div class="mob-bar mb-2"><div class="mob-bar-fill" style="width: {pct}%;"></div></div>
+              <Progress value={pct} class="mb-2" />
             {/if}
             <div class="mob-run-stats">
               <span><strong>{r.tracksProcessed.toLocaleString()}</strong> / {r.tracksDiscovered.toLocaleString()}</span>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ArrowRight, Plus } from '@lucide/svelte';
   import { Input } from '$lib/components/ui/input';
+  import * as Table from '$lib/components/ui/table/index.js';
   import type { BeforeAfterRow, EditableFieldKey } from '$lib/review-helpers';
   import { cn } from '$lib/utils';
 
@@ -46,60 +47,74 @@
 
 <!-- FIELD / EMBEDDED / FINAL / SOURCE -->
 <div class="border-border mt-4 overflow-hidden rounded-lg border">
-  <div
-    class="bg-surface-sunken/60 text-muted-foreground border-border grid grid-cols-[80px_1fr_1fr_auto] gap-3 border-b px-4 py-2.5 font-mono text-[10px] tracking-[0.06em]"
-  >
-    <div>FIELD</div>
-    <div>EMBEDDED</div>
-    <div>FINAL{#if !readonly} · EDIT IF NEEDED{/if}</div>
-    <div class="text-right">SOURCE</div>
-  </div>
-  {#each rows as row (row.key)}
-    <div class="border-border grid grid-cols-[80px_1fr_1fr_auto] items-center gap-3 border-b px-4 py-2.5 last:border-b-0">
-      <div class="text-[13px] font-medium">{row.label}</div>
-      <div class="flex min-w-0 items-center gap-1.5">
-        <span class={cn('truncate text-[13px]', !row.embedded && 'text-muted-foreground/60 italic')}>
-          {row.embedded || '(empty)'}
-        </span>
-        {#if !readonly && row.embedded && row.embedded !== (values[row.key] ?? '')}
-          <button
-            type="button"
-            title="Copy embedded value into final"
-            class="text-muted-foreground hover:text-primary border-border hover:border-primary grid size-5 shrink-0 place-items-center rounded border"
-            onclick={() => oncopy(row.key, row.embedded)}
-          >
-            <Plus class="size-3" />
-          </button>
-        {/if}
-      </div>
-      <div class="min-w-0">
-        {#if readonly}
-          <span class="text-[13px] break-words">{values[row.key] || '—'}</span>
-        {:else}
-          <Input
-            value={values[row.key] ?? ''}
-            type={row.key === 'year' || row.key === 'trackNumber' ? 'number' : 'text'}
-            placeholder={`enter ${row.label.toLowerCase()}`}
-            class="h-8"
-            oninput={(e) => onset(row.key, (e.target as HTMLInputElement).value)}
-          />
-        {/if}
-      </div>
-      <div class="flex justify-end">
-        {#if row.sourceLabel}
-          <span class="border-border inline-flex items-center gap-1.5 rounded-md border px-1.5 py-0.5 whitespace-nowrap">
-            <span class="size-1.5 rounded-full" style="background: {row.sourceColor}"></span>
-            <span class="text-[10.5px]">{row.sourceLabel}</span>
-            {#if row.sourcePct != null}
-              <span class="text-muted-foreground border-border ml-0.5 border-l pl-1.5 font-mono text-[10.5px]"
-                >{row.sourcePct}</span
-              >
-            {/if}
-          </span>
-        {:else}
-          <span class="text-muted-foreground/40">·</span>
-        {/if}
-      </div>
-    </div>
-  {/each}
+  <Table.Root>
+    <Table.Header>
+      <Table.Row
+        class="bg-surface-sunken/60 text-muted-foreground hover:bg-surface-sunken/60 font-mono text-[10px] tracking-[0.06em]"
+      >
+        <Table.Head class="text-muted-foreground h-auto w-20 px-4 py-2.5 font-normal">FIELD</Table.Head>
+        <Table.Head class="text-muted-foreground h-auto px-4 py-2.5 font-normal">EMBEDDED</Table.Head>
+        <Table.Head class="text-muted-foreground h-auto px-4 py-2.5 font-normal"
+          >FINAL{#if !readonly} · EDIT IF NEEDED{/if}</Table.Head
+        >
+        <Table.Head class="text-muted-foreground h-auto w-px px-4 py-2.5 text-right font-normal">SOURCE</Table.Head>
+      </Table.Row>
+    </Table.Header>
+    <Table.Body>
+      {#each rows as row (row.key)}
+        <Table.Row class="hover:bg-transparent">
+          <Table.Cell class="w-20 px-4 py-2.5 text-[13px] font-medium">{row.label}</Table.Cell>
+          <Table.Cell class="px-4 py-2.5">
+            <div class="flex min-w-0 items-center gap-1.5">
+              <span class={cn('truncate text-[13px]', !row.embedded && 'text-muted-foreground/60 italic')}>
+                {row.embedded || '(empty)'}
+              </span>
+              {#if !readonly && row.embedded && row.embedded !== (values[row.key] ?? '')}
+                <button
+                  type="button"
+                  title="Copy embedded value into final"
+                  class="text-muted-foreground hover:text-primary border-border hover:border-primary grid size-5 shrink-0 place-items-center rounded border"
+                  onclick={() => oncopy(row.key, row.embedded)}
+                >
+                  <Plus class="size-3" />
+                </button>
+              {/if}
+            </div>
+          </Table.Cell>
+          <Table.Cell class="px-4 py-2.5">
+            <div class="min-w-0">
+              {#if readonly}
+                <span class="text-[13px] break-words whitespace-normal">{values[row.key] || '—'}</span>
+              {:else}
+                <Input
+                  value={values[row.key] ?? ''}
+                  type={row.key === 'year' || row.key === 'trackNumber' ? 'number' : 'text'}
+                  placeholder={`enter ${row.label.toLowerCase()}`}
+                  class="h-8"
+                  oninput={(e) => onset(row.key, (e.target as HTMLInputElement).value)}
+                />
+              {/if}
+            </div>
+          </Table.Cell>
+          <Table.Cell class="px-4 py-2.5 text-right">
+            <div class="flex justify-end">
+              {#if row.sourceLabel}
+                <span class="border-border inline-flex items-center gap-1.5 rounded-md border px-1.5 py-0.5 whitespace-nowrap">
+                  <span class="size-1.5 rounded-full" style="background: {row.sourceColor}"></span>
+                  <span class="text-[10.5px]">{row.sourceLabel}</span>
+                  {#if row.sourcePct != null}
+                    <span class="text-muted-foreground border-border ml-0.5 border-l pl-1.5 font-mono text-[10.5px]"
+                      >{row.sourcePct}</span
+                    >
+                  {/if}
+                </span>
+              {:else}
+                <span class="text-muted-foreground/40">·</span>
+              {/if}
+            </div>
+          </Table.Cell>
+        </Table.Row>
+      {/each}
+    </Table.Body>
+  </Table.Root>
 </div>

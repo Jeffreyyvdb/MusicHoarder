@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
   import { fetchLibraryAvailability, type LibraryAvailability } from '$lib/api-client';
+  import * as Alert from '$lib/components/ui/alert/index.js';
 
   const POLL_INTERVAL_MS = 15_000;
 
@@ -36,15 +38,14 @@
 </script>
 
 {#if offline}
-  <div
-    role="status"
+  <Alert.Root
     aria-live="polite"
-    class="flex items-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-700 dark:text-amber-400"
+    class="mx-4 my-2 border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
   >
-    <span class="size-2 shrink-0 rounded-full bg-amber-500" aria-hidden="true"></span>
-    <span>
+    <TriangleAlert class="size-4" />
+    <Alert.Description class="text-amber-700 dark:text-amber-400">
       Music library {offlineLabel} directory is unreachable — the processing pipeline is paused.
       Settings and other pages still work; it resumes automatically when you reconnect.
-    </span>
-  </div>
+    </Alert.Description>
+  </Alert.Root>
 {/if}
