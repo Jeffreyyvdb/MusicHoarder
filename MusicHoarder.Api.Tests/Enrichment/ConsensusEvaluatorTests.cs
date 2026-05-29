@@ -158,6 +158,42 @@ public class ConsensusEvaluatorTests
     }
 
     [Fact]
+    public void TwoNameBasedProvidersDisagree_NeedsReview()
+    {
+        // Two name-based providers each confident enough to recommend Matched, but landing on
+        // *different* identities. Neither may stand alone — the genuine conflict goes to review
+        // rather than silently auto-matching whichever happened to score higher.
+        var song = Song();
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Drake", "One Dance", spotifyId: "s", conf: 0.9, recommend: EnrichmentStatus.Matched));
+        Add(song, EnrichmentProvider.Deezer, ProviderAttemptStatus.Matched,
+            Result("Wizkid", "Come Closer", conf: 0.88, recommend: EnrichmentStatus.Matched));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.SpotifyAPI, EnrichmentProvider.Deezer), Opts);
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
+    }
+
+    [Fact]
+    public void NameBasedSolo_ContradictedOnlyByWeakCandidate_StillMatched()
+    {
+        // A sub-floor candidate on a different identity is too weak to vote, so it must not block
+        // a confident name-based provider from standing alone (the guard only weighs strong votes).
+        var song = Song();
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Drake", "One Dance", spotifyId: "s", conf: 0.92, recommend: EnrichmentStatus.Matched));
+        Add(song, EnrichmentProvider.Deezer, ProviderAttemptStatus.Matched,
+            Result("Wizkid", "Come Closer", conf: 0.3, recommend: EnrichmentStatus.NeedsReview)); // below floor
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.SpotifyAPI, EnrichmentProvider.Deezer), Opts);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+        Assert.Equal(EnrichmentProvider.SpotifyAPI, Assert.Single(r.AgreeingProviders));
+    }
+
+    [Fact]
     public void TrackerSolo_RecommendedMatched_Matched()
     {
         // A confident community-tracker match stands alone: mainstream catalogs can't corroborate
