@@ -17,7 +17,7 @@
   } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import * as Tabs from '$lib/components/ui/tabs';
+  import * as Tabs from '$lib/components/ui/tabs/index.js';
   import LyricsPanel from '$lib/components/file-browser/LyricsPanel.svelte';
   import SourceRow from '$lib/components/file-browser/SourceRow.svelte';
   import Waveform from '$lib/components/file-browser/Waveform.svelte';
@@ -412,7 +412,7 @@
       {#each TAB_DEFS as tab (tab.value)}
         <Tabs.Trigger
           value={tab.value}
-          class="data-[state=active]:border-primary data-[state=active]:text-foreground text-muted-foreground hover:text-foreground border-b-2 border-transparent bg-transparent px-2.5 py-2 text-xs font-medium shadow-none data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+          class="text-muted-foreground hover:text-foreground data-[state=active]:border-b-primary data-[state=active]:text-foreground rounded-none border-0 border-b-2 border-transparent bg-transparent px-2.5 py-2 text-xs font-medium shadow-none transition-colors data-[state=active]:bg-transparent data-[state=active]:shadow-none"
         >
           {tab.label}
         </Tabs.Trigger>

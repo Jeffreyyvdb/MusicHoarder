@@ -4,7 +4,7 @@
   import { Label } from '$lib/components/ui/label';
   import { Badge } from '$lib/components/ui/badge';
   import { Switch } from '$lib/components/ui/switch';
-  import * as Tabs from '$lib/components/ui/tabs';
+  import * as Tabs from '$lib/components/ui/tabs/index.js';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import PurgeStatusBanner from '$lib/components/settings/PurgeStatusBanner.svelte';
   import { goto } from '$app/navigation';
