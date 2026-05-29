@@ -2,8 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { Folder, Tag, SlidersHorizontal, Database, ChevronRight, Check, AlertTriangle } from '@lucide/svelte';
-  import { Slider } from '$lib/components/ui/slider';
+  import { Folder, Tag, Database, ChevronRight, Check, AlertTriangle } from '@lucide/svelte';
   import MobileHeader from '$lib/components/mobile/MobileHeader.svelte';
   import PurgeStatusBanner from '$lib/components/settings/PurgeStatusBanner.svelte';
   import {
@@ -19,7 +18,6 @@
     signOut,
     type SettingsResponse,
     type SettingsProvidersView,
-    type SettingsPipelineView,
     type SettingsQualityGradingView,
     type SpotifyCredentialsResponse,
     type SpotifyStatusResponse,
@@ -30,7 +28,7 @@
   import { formatFileSize } from '$lib/formatters';
   import { albumTint } from '$lib/album-tint';
 
-  type View = null | 'paths' | 'spotify' | 'enrich' | 'pipeline' | 'data';
+  type View = null | 'paths' | 'spotify' | 'enrich' | 'data';
   let view = $state<View>(null);
 
   const user = $derived(
@@ -44,7 +42,6 @@
 
   let settings = $state<SettingsResponse | null>(null);
   let providers = $state<SettingsProvidersView | null>(null);
-  let pipeline = $state<SettingsPipelineView | null>(null);
   let qualityGrading = $state<SettingsQualityGradingView | null>(null);
   let creds = $state<SpotifyCredentialsResponse | null>(null);
   let spotifyStatus = $state<SpotifyStatusResponse | null>(null);
@@ -56,7 +53,6 @@
   let showSecret = $state(false);
   let savingCreds = $state(false);
   let savingProviders = $state(false);
-  let savingPipeline = $state(false);
   let savingQualityGrading = $state(false);
   let purgeError = $state<string | null>(null);
   let confirmPurge = $state(false);
@@ -73,7 +69,6 @@
     if (s) {
       settings = s;
       providers = { ...s.providers };
-      pipeline = { ...s.pipeline };
       qualityGrading = { ...s.qualityGrading };
     }
     creds = c;
@@ -110,16 +105,6 @@
       await updateSettings({ providers });
     } finally {
       savingProviders = false;
-    }
-  }
-
-  async function savePipeline() {
-    if (!pipeline) return;
-    savingPipeline = true;
-    try {
-      await updateSettings({ pipeline });
-    } finally {
-      savingPipeline = false;
     }
   }
 
@@ -294,37 +279,6 @@
       </div>
     </div>
   </div>
-{:else if view === 'pipeline'}
-  <div class="mob">
-    <MobileHeader back="Profile" onback={() => (view = null)} title="Pipeline" />
-    <div class="mob-scroll">
-      <div class="mob-grouped-h">Tuning</div>
-      {#if pipeline}
-        <div class="mob-field">
-          <div class="mob-field-l flex justify-between"><span>SPOTIFY MATCH THRESHOLD</span><span class="text-foreground font-mono">{pipeline.spotifyApiMatchedThreshold.toFixed(2)}</span></div>
-          <Slider type="single" min={0} max={1} step={0.01} value={pipeline.spotifyApiMatchedThreshold} onValueChange={(v) => pipeline && typeof v === 'number' && (pipeline = { ...pipeline, spotifyApiMatchedThreshold: v })} />
-        </div>
-        <div class="mob-field">
-          <div class="mob-field-l flex justify-between"><span>ACOUSTID SCORE THRESHOLD</span><span class="text-foreground font-mono">{pipeline.acoustIdScoreThreshold.toFixed(2)}</span></div>
-          <Slider type="single" min={0} max={1} step={0.01} value={pipeline.acoustIdScoreThreshold} onValueChange={(v) => pipeline && typeof v === 'number' && (pipeline = { ...pipeline, acoustIdScoreThreshold: v })} />
-        </div>
-        <div class="mob-field">
-          <div class="mob-field-l flex justify-between"><span>ENRICHMENT WORKERS</span><span class="text-foreground font-mono">{pipeline.enrichmentWorkerConcurrency}</span></div>
-          <Slider type="single" min={1} max={16} step={1} value={pipeline.enrichmentWorkerConcurrency} onValueChange={(v) => pipeline && typeof v === 'number' && (pipeline = { ...pipeline, enrichmentWorkerConcurrency: v })} />
-        </div>
-        <div class="mob-field">
-          <div class="mob-field-l flex justify-between"><span>LIBRARY-BUILDER WORKERS</span><span class="text-foreground font-mono">{pipeline.libraryBuilderWorkerConcurrency}</span></div>
-          <Slider type="single" min={1} max={16} step={1} value={pipeline.libraryBuilderWorkerConcurrency} onValueChange={(v) => pipeline && typeof v === 'number' && (pipeline = { ...pipeline, libraryBuilderWorkerConcurrency: v })} />
-        </div>
-        <div class="mob-grouped-foot">More workers = faster, but more CPU and network use. Worker changes apply on the next API restart.</div>
-      {/if}
-      <div class="p-4">
-        <button class="mob-btn primary" disabled={savingPipeline} onclick={savePipeline}>
-          {savingPipeline ? 'Saving…' : 'Save pipeline'}
-        </button>
-      </div>
-    </div>
-  </div>
 {:else if view === 'data'}
   <div class="mob">
     <MobileHeader back="Profile" onback={() => (view = null)} title="Data & resets" />
@@ -393,16 +347,6 @@
             <div class="mob-row-t">Enrichment sources</div>
             <div class="mob-row-s">
               {providers ? PROVIDERS.filter((p) => providers?.[p.key]).length : 0} of {PROVIDERS.length} enabled
-            </div>
-          </div>
-          <ChevronRight size={12} class="mob-row-chev" />
-        </button>
-        <button class="mob-row" onclick={() => (view = 'pipeline')}>
-          <SlidersHorizontal size={16} class="text-muted-foreground" />
-          <div class="mob-row-meta">
-            <div class="mob-row-t">Pipeline</div>
-            <div class="mob-row-s">
-              {pipeline ? `${pipeline.enrichmentWorkerConcurrency} workers` : 'tuning'}
             </div>
           </div>
           <ChevronRight size={12} class="mob-row-chev" />

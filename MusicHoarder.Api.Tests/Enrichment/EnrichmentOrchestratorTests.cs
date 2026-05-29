@@ -1399,10 +1399,6 @@ public class EnrichmentOrchestratorTests
                 opts.EnableDeezerProvider,
                 opts.EnableAppleMusicProvider,
                 QualityGradingEnabled: true,
-                opts.SpotifyApiMatchedThreshold,
-                opts.AcoustIdScoreThreshold,
-                opts.EnrichmentWorkerConcurrency,
-                opts.LibraryBuilderWorkerConcurrency,
                 UpdatedAtUtc: null);
         }
 

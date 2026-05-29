@@ -1123,13 +1123,6 @@ export interface SettingsProvidersView {
   appleMusic: boolean
 }
 
-export interface SettingsPipelineView {
-  spotifyApiMatchedThreshold: number
-  acoustIdScoreThreshold: number
-  enrichmentWorkerConcurrency: number
-  libraryBuilderWorkerConcurrency: number
-}
-
 export interface SettingsSpotifyView {
   oAuthRedirectBaseUrl: string
   scopes: string[]
@@ -1143,7 +1136,6 @@ export interface SettingsQualityGradingView {
 export interface SettingsResponse {
   paths: SettingsPathsView
   providers: SettingsProvidersView
-  pipeline: SettingsPipelineView
   spotify: SettingsSpotifyView
   qualityGrading: SettingsQualityGradingView
   updatedAtUtc: string | null
@@ -1151,7 +1143,6 @@ export interface SettingsResponse {
 
 export interface SettingsUpdateRequest {
   providers?: Partial<SettingsProvidersView>
-  pipeline?: Partial<SettingsPipelineView>
   qualityGrading?: { enabled?: boolean }
 }
 

@@ -64,10 +64,6 @@ public class MusicEnricherOptions
     /// <summary>AcoustID application API key for fingerprint lookups.</summary>
     public string AcoustIdApiKey { get; set; } = string.Empty;
 
-    /// <summary>Minimum AcoustID match score (0.0–1.0) to accept a result.</summary>
-    [Range(0.0, 1.0)]
-    public double AcoustIdScoreThreshold { get; set; } = 0.85;
-
     /// <summary>Max AcoustID requests per second across the whole process.</summary>
     [Range(1, 20)]
     public int AcoustIdRequestsPerSecond { get; set; } = 3;

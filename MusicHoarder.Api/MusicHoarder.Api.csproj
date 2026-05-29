@@ -24,6 +24,12 @@
         <PackageReference Include="Fido2.AspNet" Version="4.0.1" />
         <PackageReference Include="FuzzySharp" Version="2.0.2" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
+        <!-- Pinned directly (design-time only) to override a bad transitive resolution to
+             EFCore.Design 8.0.0, which is ABI-incompatible with EFCore 10.x and breaks `dotnet ef`. -->
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.7">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
         <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.8">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
