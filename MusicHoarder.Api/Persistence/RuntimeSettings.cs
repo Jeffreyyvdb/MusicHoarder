@@ -23,11 +23,5 @@ public class RuntimeSettings
     /// <summary>Overlays <see cref="Options.QualityGradingOptions.Enabled"/> — the AI quality grader master switch.</summary>
     public bool? QualityGradingEnabled { get; set; }
 
-    public double? SpotifyApiMatchedThreshold { get; set; }
-    public double? AcoustIdScoreThreshold { get; set; }
-
-    public int? EnrichmentWorkerConcurrency { get; set; }
-    public int? LibraryBuilderWorkerConcurrency { get; set; }
-
     public DateTime? UpdatedAtUtc { get; set; }
 }
