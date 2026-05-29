@@ -116,16 +116,28 @@ public static class ConsensusEvaluator
             }
         }
 
-        // 2) A name-based provider that matched on its own tuned thresholds may stand alone.
+        // 2) A name-based provider that matched on its own tuned thresholds may stand alone —
+        //    but only if no other strong candidate landed on a *different* identity. Two name-based
+        //    providers that confidently disagree are a genuine conflict that belongs in review, not
+        //    an auto-match to whichever happened to score higher. (Candidates that agree would already
+        //    have been promoted as a multi-provider cluster in step 1, so any other strong candidate
+        //    reaching here necessarily contradicts.) Mirrors the fingerprint branch's guard below.
         var soloNameBased = strong
             .Where(c => c.IsNameBased && c.Result.RecommendedStatus == EnrichmentStatus.Matched)
             .OrderByDescending(c => c.Confidence)
             .FirstOrDefault();
         if (soloNameBased is not null)
         {
-            return new ConsensusResult(
-                EnrichmentStatus.Matched, soloNameBased.Result, soloNameBased.Confidence,
-                [soloNameBased.Provider]);
+            var contradictedByOther = strong.Any(c =>
+                !ReferenceEquals(c, soloNameBased)
+                && !c.Identity.AgreesWith(soloNameBased.Identity, identityOptions));
+
+            if (!contradictedByOther)
+            {
+                return new ConsensusResult(
+                    EnrichmentStatus.Matched, soloNameBased.Result, soloNameBased.Confidence,
+                    [soloNameBased.Provider]);
+            }
         }
 
         // (A confident community-tracker match is handled with top precedence above.)
