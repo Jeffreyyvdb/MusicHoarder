@@ -10,6 +10,7 @@
   import { buildAlbumsFromSongs, sortAlbumsByRecency, toPlayerSong, triggerEnrichmentScan, type ApiSong } from '$lib/api-client';
   import { applySectionFilter, type SectionId } from '$lib/album-sections';
   import { playerStore } from '$lib/stores/player.svelte';
+  import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
 
   type Props = {
     songs: ApiSong[];
@@ -128,16 +129,21 @@
     </div>
 
     <div class="mob-chips">
-      {#each chips as chip (chip.id)}
-        <button
-          class="mob-chip {section === chip.id ? 'active' : ''}"
-          onclick={() => setSection(chip.id)}
-        >
-          {#if chip.accent && section !== chip.id}<span class="mh-pulse"></span>{/if}
-          {chip.label}
-          <span class="font-mono opacity-60">{chip.n.toLocaleString()}</span>
-        </button>
-      {/each}
+      <ToggleGroup.Root
+        type="single"
+        value={section}
+        onValueChange={(v) => {
+          if (v) setSection(v as SectionId);
+        }}
+      >
+        {#each chips as chip (chip.id)}
+          <ToggleGroup.Item value={chip.id} class="mob-chip {section === chip.id ? 'active' : ''}">
+            {#if chip.accent && section !== chip.id}<span class="mh-pulse"></span>{/if}
+            {chip.label}
+            <span class="font-mono opacity-60">{chip.n.toLocaleString()}</span>
+          </ToggleGroup.Item>
+        {/each}
+      </ToggleGroup.Root>
     </div>
 
     {#if showProcessing}

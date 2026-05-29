@@ -1,6 +1,9 @@
 <script lang="ts">
   import type { PurgeSnapshot } from '$lib/api-client';
-  import { Loader2, CheckCircle2, AlertCircle } from '@lucide/svelte';
+  import { CheckCircle2, AlertCircle } from '@lucide/svelte';
+  import * as Alert from '$lib/components/ui/alert/index.js';
+  import { Progress } from '$lib/components/ui/progress/index.js';
+  import { Spinner } from '$lib/components/ui/spinner/index.js';
 
   type Props = { snapshot: PurgeSnapshot };
   const { snapshot }: Props = $props();
@@ -21,58 +24,43 @@
 </script>
 
 {#if snapshot.status === 'running'}
-  <div
-    class="border-border bg-secondary/30 flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
-  >
-    <Loader2 class="text-muted-foreground mt-0.5 size-4 shrink-0 animate-spin" />
-    <div class="min-w-0 flex-1">
-      <p class="font-medium">{modeLabel} running…</p>
-      <p class="text-muted-foreground text-xs">
-        {#if snapshot.filesTotal > 0}
-          {snapshot.filesDeleted.toLocaleString()} / {snapshot.filesTotal.toLocaleString()} destination
-          files deleted{#if snapshot.filesFailed > 0}
-            &nbsp;({snapshot.filesFailed.toLocaleString()} failed){/if}.
-        {:else}
-          Preparing {snapshot.songsTotal.toLocaleString()} songs…
-        {/if}
-      </p>
-      <div class="bg-secondary mt-2 h-1.5 w-full overflow-hidden rounded-full">
-        <div
-          class="bg-primary h-full rounded-full transition-[width] duration-300"
-          style="width: {Math.min(100, overallPct).toFixed(1)}%"
-        ></div>
-      </div>
-    </div>
-  </div>
+  <Alert.Root class="bg-secondary/30">
+    <Spinner class="text-muted-foreground size-4" />
+    <Alert.Title>{modeLabel} running…</Alert.Title>
+    <Alert.Description class="text-muted-foreground">
+      {#if snapshot.filesTotal > 0}
+        {snapshot.filesDeleted.toLocaleString()} / {snapshot.filesTotal.toLocaleString()} destination
+        files deleted{#if snapshot.filesFailed > 0}
+          &nbsp;({snapshot.filesFailed.toLocaleString()} failed){/if}.
+      {:else}
+        Preparing {snapshot.songsTotal.toLocaleString()} songs…
+      {/if}
+    </Alert.Description>
+    <Progress value={Math.min(100, overallPct)} class="mt-2 h-1.5" />
+  </Alert.Root>
 {:else if snapshot.status === 'completed'}
   {@const prefix = snapshot.mode === 'post-fingerprint' ? 'Reset' : 'Deleted'}
-  <div
-    class="flex items-start gap-2 rounded-lg border border-[#1DB954]/50 bg-[#1DB954]/10 px-4 py-3 text-sm text-[#1DB954]"
-  >
-    <CheckCircle2 class="mt-0.5 size-4 shrink-0" />
-    <div>
-      <p class="font-medium">{modeLabel} complete</p>
-      <p class="text-xs opacity-90">
-        {prefix}
-        {snapshot.songsProcessed.toLocaleString()} songs, removed {snapshot.filesDeleted.toLocaleString()}
-        destination files, cleared {snapshot.spotifyMatchesCleared.toLocaleString()} Spotify matches.
-      </p>
+  <Alert.Root class="border-[#1DB954]/50 bg-[#1DB954]/10 text-[#1DB954]">
+    <CheckCircle2 class="size-4" />
+    <Alert.Title>{modeLabel} complete</Alert.Title>
+    <Alert.Description class="text-[#1DB954] opacity-90">
+      {prefix}
+      {snapshot.songsProcessed.toLocaleString()} songs, removed {snapshot.filesDeleted.toLocaleString()}
+      destination files, cleared {snapshot.spotifyMatchesCleared.toLocaleString()} Spotify matches.
       {#if snapshot.filesFailed > 0}
-        <p class="mt-1 text-xs opacity-90">
+        <span class="mt-1 block">
           {snapshot.filesFailed.toLocaleString()} file{snapshot.filesFailed === 1 ? '' : 's'} could not
           be deleted (see server logs).
-        </p>
+        </span>
       {/if}
-    </div>
-  </div>
+    </Alert.Description>
+  </Alert.Root>
 {:else}
-  <div
-    class="border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
-  >
-    <AlertCircle class="mt-0.5 size-4 shrink-0" />
-    <div>
-      <p class="font-medium">{modeLabel} failed</p>
-      <p class="text-xs opacity-90">{snapshot.error ?? 'Unknown error — check server logs.'}</p>
-    </div>
-  </div>
+  <Alert.Root variant="destructive">
+    <AlertCircle class="size-4" />
+    <Alert.Title>{modeLabel} failed</Alert.Title>
+    <Alert.Description class="opacity-90">
+      {snapshot.error ?? 'Unknown error — check server logs.'}
+    </Alert.Description>
+  </Alert.Root>
 {/if}

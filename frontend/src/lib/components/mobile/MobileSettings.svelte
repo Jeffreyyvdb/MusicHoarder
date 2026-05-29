@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { Folder, Tag, Database, ChevronRight, Check, AlertTriangle } from '@lucide/svelte';
+  import { Switch } from '$lib/components/ui/switch/index.js';
   import MobileHeader from '$lib/components/mobile/MobileHeader.svelte';
   import PurgeStatusBanner from '$lib/components/settings/PurgeStatusBanner.svelte';
   import {
@@ -235,12 +236,11 @@
           <div class="mob-row">
             <span class="size-2.5 shrink-0 rounded-full" style="background: {p.dot}; box-shadow: 0 0 0 1.5px rgba(255,255,255,0.6);"></span>
             <div class="mob-row-meta"><div class="mob-row-t">{p.name}</div></div>
-            <button
-              class="mob-toggle {providers?.[p.key] ? 'on' : ''}"
+            <Switch
+              checked={providers?.[p.key] ?? false}
+              onCheckedChange={(v) => providers && (providers = { ...providers, [p.key]: v })}
               aria-label={p.name}
-              aria-pressed={providers?.[p.key] ?? false}
-              onclick={() => providers && (providers = { ...providers, [p.key]: !providers[p.key] })}
-            ></button>
+            />
           </div>
         {/each}
       </div>
@@ -263,13 +263,12 @@
               {/if}
             </div>
           </div>
-          <button
-            class="mob-toggle {qualityGrading?.enabled ? 'on' : ''}"
+          <Switch
+            checked={qualityGrading?.enabled ?? false}
+            onCheckedChange={(v) =>
+              qualityGrading && (qualityGrading = { ...qualityGrading, enabled: v })}
             aria-label="Enable AI grading"
-            aria-pressed={qualityGrading?.enabled ?? false}
-            onclick={() =>
-              qualityGrading && (qualityGrading = { ...qualityGrading, enabled: !qualityGrading.enabled })}
-          ></button>
+          />
         </div>
       </div>
       <div class="p-4">

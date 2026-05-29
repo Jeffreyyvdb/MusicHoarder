@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { CircleAlert } from '@lucide/svelte';
   import { fetchQualityProgress, type QualityProgress } from '$lib/api-client';
+  import * as Alert from '$lib/components/ui/alert/index.js';
 
   const POLL_INTERVAL_MS = 15_000;
 
@@ -27,14 +29,10 @@
 </script>
 
 {#if lastError}
-  <div
-    role="status"
-    aria-live="polite"
-    class="flex items-center gap-2 border-b border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-700 dark:text-red-400"
-  >
-    <span class="size-2 shrink-0 rounded-full bg-red-500" aria-hidden="true"></span>
-    {#if outOfCredits}
-      <span>
+  <Alert.Root variant="destructive" aria-live="polite" class="m-4">
+    <CircleAlert class="size-4" />
+    <Alert.Description>
+      {#if outOfCredits}
         AI quality grading is paused — your OpenRouter account is out of credits. Add credits at
         <a
           href="https://openrouter.ai/settings/credits"
@@ -43,9 +41,9 @@
           class="font-medium underline">openrouter.ai/settings/credits</a
         >
         and grading resumes automatically.
-      </span>
-    {:else}
-      <span>AI quality grading is failing: {lastError.message ?? 'unknown error'}.</span>
-    {/if}
-  </div>
+      {:else}
+        AI quality grading is failing: {lastError.message ?? 'unknown error'}.
+      {/if}
+    </Alert.Description>
+  </Alert.Root>
 {/if}
