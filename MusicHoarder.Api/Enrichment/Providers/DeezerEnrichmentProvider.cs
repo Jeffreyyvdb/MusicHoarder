@@ -33,7 +33,8 @@ public class DeezerEnrichmentProvider(
 
     public async Task<ProviderOutcome> TryEnrichAsync(SongMetadata song, CancellationToken ct = default)
     {
-        var (effectiveArtist, effectiveTitle) = SongSearchText.Resolve(song, options.Value.SourceDirectory);
+        var resolved = SongSearchText.ResolveDetailed(song, options.Value.SourceDirectory);
+        var (effectiveArtist, effectiveAlbum, effectiveTitle) = (resolved.Artist, resolved.Album, resolved.Title);
         if (string.IsNullOrWhiteSpace(effectiveArtist) || string.IsNullOrWhiteSpace(effectiveTitle))
         {
             logger.LogDebug("Deezer enrichment: no searchable artist/title (SongId={SongId})", song.Id);
@@ -61,8 +62,15 @@ public class DeezerEnrichmentProvider(
                 }
             }
 
-            var query = $"{effectiveArtist} {effectiveTitle}".Trim();
-            var tracks = await catalog.SearchTracksAsync(query, ct);
+            // Album, when known, sharpens the search so the original pressing surfaces ahead of a
+            // compilation; fall back to artist+title so recall never drops when it returns nothing.
+            var baseQuery = $"{effectiveArtist} {effectiveTitle}".Trim();
+            var tracks = string.IsNullOrWhiteSpace(effectiveAlbum)
+                ? await catalog.SearchTracksAsync(baseQuery, ct)
+                : await catalog.SearchTracksAsync($"{baseQuery} {effectiveAlbum}".Trim(), ct);
+            if (tracks.Count == 0 && !string.IsNullOrWhiteSpace(effectiveAlbum))
+                tracks = await catalog.SearchTracksAsync(baseQuery, ct);
+
             if (tracks.Count == 0)
             {
                 logger.LogDebug("Deezer search returned no tracks for SongId={SongId}", song.Id);
@@ -222,7 +230,20 @@ public class DeezerEnrichmentProvider(
             score *= VersionMismatchPenalty;
         }
 
-        return (Math.Clamp(score, 0, 1), warnings);
+        // Album is a confirmation signal only: a track legitimately appears on many releases, so we
+        // reward agreement with the file's album (the original pressing) but never penalize a
+        // difference. The boost is left un-capped here (the final confidence is clamped in BuildResult)
+        // so it still breaks a tie when artist+title already saturate the score at 1.0 — that's exactly
+        // the original-album-vs-"Greatest Hits"-reissue case where both otherwise score identically.
+        if (FuzzyTextMatch.Ratio(song.Album, track.AlbumName) is double albumRatio)
+        {
+            if (albumRatio >= FuzzyThreshold)
+                score += opts.AlbumAgreementConfidenceBoost;
+            else
+                warnings.Add("album_mismatch");
+        }
+
+        return (Math.Max(0.0, score), warnings);
     }
 
     private static bool HasBlockingWarning(List<string> warnings) =>

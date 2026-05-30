@@ -369,6 +369,37 @@ public class ConsensusEvaluatorTests
         Assert.Equal(EnrichmentStatus.Pending, r.Status);
     }
 
+    [Fact]
+    public void SameRecordingDifferentRelease_AlbumFieldsFromCorroboratedOriginal()
+    {
+        // Three providers agree on the recording (shared ISRC / name) but split on the release:
+        // Deezer attributes it to a "Greatest Hits" compilation, Spotify + Apple to the original
+        // "The Score". The recording identity winner may be Deezer, but the album-level fields must
+        // come from the corroborated original, and those fields are reported as corroborated.
+        var song = Song();
+        song.Album = "The Score (Expanded Edition)";
+        song.Year = 1996;
+        Add(song, EnrichmentProvider.Deezer, ProviderAttemptStatus.Matched,
+            FullResult("Deezer", "Fugees", "Ready or Not", isrc: "USSM19600051",
+                album: "Greatest Hits", year: 2000, track: 3, conf: 0.99));
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            FullResult("SpotifyAPI", "Fugees", "Ready or Not", isrc: "USSM19600051", spotifyId: "s-1",
+                album: "The Score (Expanded Edition)", year: 1996, track: 3, conf: 0.99));
+        Add(song, EnrichmentProvider.AppleMusic, ProviderAttemptStatus.Matched,
+            FullResult("AppleMusic", "Fugees", "Ready or Not",
+                album: "The Score", year: 1996, track: 3, conf: 0.99));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.Deezer, EnrichmentProvider.SpotifyAPI, EnrichmentProvider.AppleMusic), Opts);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+        Assert.Equal("The Score (Expanded Edition)", r.Winner!.Album);
+        Assert.Equal(1996, r.Winner.Year);
+        Assert.NotNull(r.CorroboratedFields);
+        Assert.Contains("Album", r.CorroboratedFields!);
+        Assert.Contains("Year", r.CorroboratedFields!);
+    }
+
     // --- helpers ---
 
     private static SongMetadata Song() => new()
@@ -393,6 +424,13 @@ public class ConsensusEvaluatorTests
         => new(artist, artist, title, null, null, mbid, null, spotifyId, null, isrc,
             spotifyId is not null ? "SpotifyAPI" : "AcoustID", conf, warnings ?? [], recommend,
             DurationSeconds: durationSeconds);
+
+    private static EnrichmentProviderResult FullResult(
+        string matchedBy, string artist, string title,
+        string? isrc = null, string? spotifyId = null,
+        string? album = null, int? year = null, int? track = null, double conf = 0.99)
+        => new(artist, artist, title, year, track, null, null, spotifyId, null, isrc,
+            matchedBy, conf, [], EnrichmentStatus.Matched, Album: album);
 
     private static void Add(
         SongMetadata song, EnrichmentProvider provider, ProviderAttemptStatus status, EnrichmentProviderResult? candidate)
