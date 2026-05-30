@@ -2,7 +2,7 @@
   import { Tag, Copy, Sparkles } from '@lucide/svelte';
   import type { Component } from 'svelte';
   import { page } from '$app/state';
-  import { replaceState } from '$app/navigation';
+  import { goto } from '$app/navigation';
   import { cn } from '$lib/utils';
   import InboxTagReviewV2 from './inbox/InboxTagReviewV2.svelte';
   import InboxDuplicatesV2 from './inbox/InboxDuplicatesV2.svelte';
@@ -31,7 +31,9 @@
     else url.searchParams.set('tab', next);
     // Dropping any ?song deep-link once the user navigates between tabs.
     url.searchParams.delete('song');
-    replaceState(url, {});
+    // goto (not raw replaceState) so the `tab` derived re-runs and the body
+    // switches — the same reactive update the sidebar's <a> sub-links trigger.
+    void goto(url.pathname + url.search, { replaceState: true, noScroll: true, keepFocus: true });
   }
 
   // Live per-tab counts reported up by each subtab (null while loading).

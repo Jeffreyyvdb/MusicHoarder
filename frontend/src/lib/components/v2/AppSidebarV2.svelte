@@ -14,6 +14,7 @@
     type ApiSong,
     type ApiStats
   } from '$lib/api-client';
+  import { isBuiltSong } from '$lib/album-sections';
   import { cn } from '$lib/utils';
 
   // ── v2 information architecture ───────────────────────────────────────────
@@ -30,12 +31,7 @@
     | 'aiflag'
     | 'albums'
     | 'artists'
-    | 'tracks'
-    | 'sources'
-    | 'providers'
-    | 'rules'
-    | 'output'
-    | 'account';
+    | 'tracks';
 
   type SubItem = {
     id: SubKey;
@@ -80,8 +76,13 @@
     };
   });
 
-  // ── derived counts (same data layer as AppSidebar v1) ─────────────────────
-  const totalTracks = $derived(stats?.tracks?.total ?? null);
+  // ── derived counts ────────────────────────────────────────────────────────
+  // The Library section reflects the clean output only, so every Library count
+  // below is over built (LibraryBuildStatus.Done + destinationPath) songs —
+  // matching what LibraryV2 actually lists. Storage/review figures stay over all
+  // songs/stats (those are pipeline, not library, numbers).
+  const builtSongs = $derived(songs.filter(isBuiltSong));
+  const totalTracks = $derived(songs.length === 0 ? null : builtSongs.length);
   const totalBytes = $derived(stats?.storage?.totalBytes ?? null);
   const storagePct = $derived(
     totalBytes != null ? Math.min(100, Math.round((totalBytes / (2 * 1024 ** 4)) * 100)) : null
@@ -99,11 +100,11 @@
       .map((s) => mapEnrichmentStatus(s.enrichmentStatus))
       .filter((s) => s === 'needsreview' || s === 'failed').length;
   });
-  const albumCount = $derived.by(() => (songs.length === 0 ? null : buildAlbumsFromSongs(songs).length));
+  const albumCount = $derived.by(() => (songs.length === 0 ? null : buildAlbumsFromSongs(builtSongs).length));
   const artistCount = $derived.by(() => {
     if (songs.length === 0) return null;
     const set = new Set<string>();
-    for (const s of songs) {
+    for (const s of builtSongs) {
       const a = (s.albumArtist ?? s.artist ?? '').trim();
       if (a) set.add(a.toLowerCase());
     }
@@ -147,16 +148,11 @@
       ]
     },
     {
+      // Single entry — settings lives entirely on /settings, no sidebar sub-pages.
       id: 'settings',
       label: 'Settings',
       href: '/settings',
-      sub: [
-        { id: 'sources', label: 'Sources', href: '/settings' },
-        { id: 'providers', label: 'Providers', href: '/settings' },
-        { id: 'rules', label: 'Filename rules', href: '/settings' },
-        { id: 'output', label: 'Library output', href: '/settings' },
-        { id: 'account', label: 'Account', href: '/settings' }
-      ]
+      sub: []
     }
   ];
 
@@ -193,18 +189,14 @@
         return pathname.startsWith('/artists');
       case 'tracks':
         return pathname === '/tracks';
-      case 'sources':
-      case 'providers':
-      case 'rules':
-      case 'output':
-      case 'account':
-        return pathname.startsWith('/settings');
       default:
         return false;
     }
   }
 
   function sectionActive(section: Section): boolean {
+    // Sections with no sub-items (Settings) highlight on their own route.
+    if (section.sub.length === 0) return pathname.startsWith(section.href);
     return section.sub.some((s) => subActive(s));
   }
 
@@ -274,6 +266,7 @@
             >{badge.toLocaleString()}</span>
           {/if}
         </a>
+        {#if section.sub.length > 0}
         <Sidebar.GroupContent class="mt-0.5 flex flex-col gap-px">
           {#each section.sub as item (item.id)}
             {@const active = subActive(item)}
@@ -302,6 +295,7 @@
             </a>
           {/each}
         </Sidebar.GroupContent>
+        {/if}
       </Sidebar.Group>
     {/each}
   </Sidebar.Content>
