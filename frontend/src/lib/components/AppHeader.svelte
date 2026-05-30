@@ -21,6 +21,7 @@
   import { Input } from '$lib/components/ui/input';
   import { Separator } from '$lib/components/ui/separator';
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
+  import DesignVersionToggle from '$lib/components/v2/DesignVersionToggle.svelte';
   import {
     fetchLibraryAvailability,
     fetchOverview,
@@ -415,6 +416,8 @@
     >
       <SettingsIcon class="size-4" />
     </a>
+
+    <DesignVersionToggle />
 
     <ThemeToggle />
   </div>

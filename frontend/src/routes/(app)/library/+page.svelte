@@ -26,8 +26,13 @@
   import { breadcrumbStore } from '$lib/stores/breadcrumbs.svelte';
   import { cn } from '$lib/utils';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
+  import { uiVersion } from '$lib/stores/ui-version.svelte';
+  import LibraryV2 from '$lib/components/v2/LibraryV2.svelte';
 
   const isMobile = new IsMobile();
+  // v2 desktop renders the redesigned Library shell in-place; v1 (and v2 on
+  // mobile, which falls back to the v1 chrome) keeps the existing markup.
+  const showV2 = $derived(uiVersion.isV2 && !isMobile.current);
   let songs = $state<ApiSong[]>([]);
   let apiError = $state<string | null>(null);
   let isLoading = $state(true);
@@ -118,6 +123,9 @@
   }
 
   $effect(() => {
+    // When the v2 Library owns the page it does its own fetching + live refresh;
+    // skip the v1 data layer to avoid duplicate work and breadcrumb fights.
+    if (showV2) return;
     isMountedRef = true;
     void loadSongs();
     startLive();
@@ -159,6 +167,7 @@
   );
 
   $effect(() => {
+    if (showV2) return;
     if (openAlbum) {
       breadcrumbStore.setAlbum({ artist: openAlbum.artist, title: openAlbum.title });
     } else {
@@ -205,6 +214,9 @@
   const trackPanelOpen = $derived(!!selectedTrack && !!openAlbum);
 </script>
 
+{#if showV2}
+  <LibraryV2 tab="albums" />
+{:else}
 <div class={cn('flex min-h-0 flex-1 flex-col overflow-hidden')}>
   {#if apiError}
     <div class="border-border bg-card/30 text-destructive border-b px-4 py-2 text-xs md:px-6">
@@ -288,3 +300,4 @@
     </Sheet.Root>
   {/if}
 </div>
+{/if}

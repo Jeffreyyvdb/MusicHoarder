@@ -51,8 +51,14 @@
   } from '@lucide/svelte';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import MobileSettings from '$lib/components/mobile/MobileSettings.svelte';
+  import { uiVersion } from '$lib/stores/ui-version.svelte';
+  import SettingsV2 from '$lib/components/v2/SettingsV2.svelte';
 
   const isMobile = new IsMobile();
+
+  // The v2 redesign reskins the desktop settings body in place (see ui-version
+  // store). Mobile keeps MobileSettings for both versions; v1 desktop is unchanged.
+  const useV2 = $derived(uiVersion.isV2 && !isMobile.current);
 
   const user = $derived(page.data.user as { id: string; email: string; role: 'Owner' | 'Demo'; displayName: string | null } | undefined);
   const initials = $derived((user?.displayName ?? user?.email ?? '?').slice(0, 2).toUpperCase());
@@ -75,7 +81,7 @@
   });
 
   $effect(() => {
-    if (user?.role !== 'Owner') return;
+    if (user?.role !== 'Owner' || useV2) return;
     let cancelled = false;
     void (async () => {
       passkeysLoading = true;
@@ -149,7 +155,7 @@
   );
 
   $effect(() => {
-    if (isMobile.current) return;
+    if (isMobile.current || useV2) return;
     let cancelled = false;
     void (async () => {
       isLoading = true;
@@ -344,6 +350,8 @@
 
 {#if isMobile.current}
   <MobileSettings />
+{:else if useV2}
+  <SettingsV2 />
 {:else}
 <div class="flex-1 overflow-auto">
   <div class="mx-auto max-w-4xl p-6 md:p-8">

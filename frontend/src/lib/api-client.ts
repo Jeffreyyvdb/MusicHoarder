@@ -1175,6 +1175,64 @@ export async function fetchReviewQueue(filter: ReviewQueueFilter): Promise<ApiSo
   return result.songs ?? []
 }
 
+// ── Duplicates (ambiguous fingerprint clusters) ────────────────────────────────
+
+/** One file inside a duplicate cluster (a "loser" copy flagged as IsDuplicate). */
+export interface DuplicateMember {
+  id: number
+  sourcePath: string
+  fileName: string
+  extension?: string | null
+  fileSizeBytes: number
+  artist?: string | null
+  albumArtist?: string | null
+  album?: string | null
+  title?: string | null
+  year?: number | null
+  trackNumber?: number | null
+  durationSeconds?: number | null
+  bitrate?: number | null
+  fingerprint?: string | null
+  isDuplicate: boolean
+  duplicateOfId?: number | null
+  enrichmentStatus?: string | number | null
+  /** Server-computed keep-priority (FLAC/WAV/AIFF rank above bitrate). */
+  qualityScore: number
+}
+
+/** The "kept" file the cluster's duplicates point at (the auto-resolver's pick). */
+export interface DuplicateBest {
+  id: number
+  sourcePath: string
+  fileName: string
+  extension?: string | null
+  fileSizeBytes: number
+  artist?: string | null
+  album?: string | null
+  title?: string | null
+  bitrate?: number | null
+  fingerprint?: string | null
+  qualityScore: number
+}
+
+export interface DuplicateGroup {
+  fingerprint: string | null
+  /** The kept copy; null when no DuplicateOfId was recorded for the cluster. */
+  best: DuplicateBest | null
+  duplicates: DuplicateMember[]
+}
+
+export interface DuplicatesResponse {
+  totalDuplicates: number
+  groups: number
+  duplicateGroups: DuplicateGroup[]
+}
+
+/** All tracks flagged as duplicates, grouped by fingerprint (read-only — no resolve endpoint yet). */
+export async function fetchDuplicates(): Promise<DuplicatesResponse> {
+  return requestJson<DuplicatesResponse>("/api/library/duplicates")
+}
+
 // ── Enrichment detail (candidate matches) ──────────────────────────────────────
 
 export interface EnrichmentCandidate {

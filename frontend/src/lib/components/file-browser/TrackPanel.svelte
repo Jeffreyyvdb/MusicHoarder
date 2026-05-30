@@ -51,8 +51,14 @@
     trackIndex: number;
     onClose: () => void;
     onResetEnrichment?: () => void;
+    /**
+     * v2-only: link to the standalone /track/[id] provenance timeline. When set,
+     * the Enrichment tab shows a "View timeline" link. v1 callers omit it, so the
+     * v1 panel renders exactly as before.
+     */
+    timelineHref?: string;
   };
-  const { album, song, trackIndex, onClose, onResetEnrichment }: Props = $props();
+  const { album, song, trackIndex, onClose, onResetEnrichment, timelineHref }: Props = $props();
 
   onMount(() => playerStore.registerPanel());
 
@@ -563,10 +569,17 @@
     <Tabs.Content value="enrichment" class="flex min-h-0 flex-1 flex-col">
       <ScrollArea class="min-h-0 flex-1">
         <div class="space-y-3 px-5 py-4 text-xs">
-          <Button href={`/review?song=${song.id}`} variant="outline" size="sm" class="w-full">
-            <History class="mr-1.5 size-3.5" />
-            Provenance & review
-          </Button>
+          {#if timelineHref}
+            <Button href={timelineHref} variant="outline" size="sm" class="w-full">
+              <History class="mr-1.5 size-3.5" />
+              View timeline
+            </Button>
+          {:else}
+            <Button href={`/review?song=${song.id}`} variant="outline" size="sm" class="w-full">
+              <History class="mr-1.5 size-3.5" />
+              Provenance & review
+            </Button>
+          {/if}
 
           {#if song.matchedBy}
             <div class="bg-muted/50 rounded-lg px-3 py-2">
