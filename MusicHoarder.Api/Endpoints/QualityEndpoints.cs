@@ -236,12 +236,14 @@ public static class QualityEndpoints
     /// Graded songs for the AI-quality workbench master list, filtered by <paramref name="category"/>
     /// (flagged / silent / verified, or a verdict bucket, or "all"), ordered worst-first, paged.
     /// </summary>
-    private static async Task<IResult> GetSongs(
+    // category/skip/take are optional with defaults — minimal API treats a non-nullable `int`
+    // query param as REQUIRED and 400s when it's absent, so they must have defaults here.
+    internal static async Task<IResult> GetSongs(
         MusicHoarderDbContext db,
-        string? category,
-        int skip,
-        int take,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? category = null,
+        int skip = 0,
+        int take = 100)
     {
         var cat = string.IsNullOrWhiteSpace(category) ? "all" : category.Trim().ToLowerInvariant();
         var pageSize = take <= 0 ? 100 : Math.Min(take, 500);
