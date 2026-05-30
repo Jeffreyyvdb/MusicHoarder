@@ -553,6 +553,7 @@ export interface ProgressSnapshot {
   scanned: number
   fingerprinted: number
   enriched: number
+  needsReview: number
   built: number
   failed: number
   scan: StepSnapshot

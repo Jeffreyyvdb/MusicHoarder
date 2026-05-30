@@ -18,6 +18,7 @@ public record ProgressSnapshot(
     int Scanned,
     int Fingerprinted,
     int Enriched,
+    int NeedsReview,
     int Built,
     int Failed,
     StepSnapshot Scan,

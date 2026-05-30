@@ -21,7 +21,9 @@
   import { Skeleton } from '$lib/components/ui/skeleton';
   import {
     buildAlbumsFromSongs,
+    fetchDuplicates,
     fetchQualityOverview,
+    fetchQualityProgress,
     fetchSongs,
     fetchStats,
     mapEnrichmentStatus,
@@ -31,7 +33,9 @@
     type ApiOverviewActivity,
     type ApiSong,
     type ApiStats,
-    type QualityOverview
+    type DuplicatesResponse,
+    type QualityOverview,
+    type QualityProgress
   } from '$lib/api-client';
   import { isBuiltSong } from '$lib/album-sections';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
@@ -42,19 +46,25 @@
   let stats = $state<ApiStats | null>(null);
   let songs = $state<ApiSong[]>([]);
   let quality = $state<QualityOverview | null>(null);
+  let qualityProgress = $state<QualityProgress | null>(null);
+  let duplicates = $state<DuplicatesResponse | null>(null);
   let loaded = $state(false);
   let rescanning = $state(false);
 
   async function loadAll() {
-    const [stRes, songsRes, qRes] = await Promise.allSettled([
+    const [stRes, songsRes, qRes, qpRes, dupRes] = await Promise.allSettled([
       fetchStats(),
       fetchSongs(),
-      fetchQualityOverview()
+      fetchQualityOverview(),
+      fetchQualityProgress(),
+      fetchDuplicates()
     ]);
     if (stRes.status === 'fulfilled') stats = stRes.value;
     if (songsRes.status === 'fulfilled') songs = songsRes.value;
     // Quality grading may be unconfigured — failure just leaves the KPI as "—".
     if (qRes.status === 'fulfilled') quality = qRes.value;
+    if (qpRes.status === 'fulfilled') qualityProgress = qpRes.value;
+    if (dupRes.status === 'fulfilled') duplicates = dupRes.value;
     loaded = true;
   }
 
@@ -106,8 +116,8 @@
   });
 
   // Awaiting-you breakdown — real counts. Tags = needsreview; AI = quality
-  // "wrong" verdicts. Duplicates is not yet a discrete server count (no
-  // resolve endpoint), so it is shown as "soon" rather than a fabricated number.
+  // "wrong" verdicts; Duplicates = fingerprint-flagged tracks (read-only count,
+  // no resolve endpoint yet — see duplicateCount below).
   const tagReviewCount = $derived.by(() => {
     if (!loaded) return null;
     return songs.filter((s) => {
@@ -123,6 +133,18 @@
 
   const avgQuality = $derived(quality?.library?.averageScore ?? null);
   const qualityGraded = $derived(quality?.library?.graded ?? null);
+
+  // Duplicate tracks flagged by fingerprint dedupe (DB-backed; read-only count).
+  const duplicateCount = $derived(duplicates?.totalDuplicates ?? null);
+
+  // Consensus "Decide" count — files that reached a terminal enrichment verdict
+  // (matched or sent to review). Live from the SSE snapshot while enriching,
+  // otherwise from the whole-library DB counts.
+  const decidedCount = $derived.by(() => {
+    if (anyRunning && snap) return (snap.enriched ?? 0) + (snap.needsReview ?? 0);
+    if (matchedCount == null && tagReviewCount == null) return null;
+    return (matchedCount ?? 0) + (tagReviewCount ?? 0);
+  });
 
   // Errors — failed enrichment in the current dataset (not a fabricated 24h window).
   const errorCount = $derived.by(() => {
@@ -186,29 +208,29 @@
         id: 'decide',
         label: 'Decide',
         icon: Wand2,
-        real: false,
-        count: null,
+        real: true,
+        count: decidedCount,
         sub: 'consensus',
-        live: false,
-        warn: true
+        live: running && s?.enrich?.status === 'Running',
+        warn: (tagReviewCount ?? 0) > 0
       },
       {
         id: 'grade',
         label: 'AI grade',
         icon: Sparkles,
-        real: false,
-        count: null,
+        real: true,
+        count: qualityGraded,
         sub: 'quality LLM',
-        live: false
+        live: qualityProgress?.active === true
       },
       {
         id: 'dedupe',
         label: 'Dedupe',
         icon: Copy,
-        real: false,
-        count: null,
+        real: true,
+        count: duplicateCount,
         sub: 'fingerprint',
-        live: false
+        live: running && s?.fingerprint?.status === 'Running'
       },
       {
         id: 'library',
@@ -235,26 +257,33 @@
     return Math.min(95, (st.count / maxStageCount) * 95 + 5);
   }
 
-  // In-flight items for the active stage. We only have real per-file detail for
-  // the four backed stages while a job runs, and the SSE stream is count-only,
-  // so the chips reflect cumulative counts honestly rather than inventing file
-  // names. Non-backed stages render an explicit "coming soon" affordance.
-  type StageDetail =
-    | { kind: 'real'; lines: { label: string; value: string }[] }
-    | { kind: 'soon'; note: string };
+  // Detail chips for the active stage. The SSE stream is count-only, so chips
+  // reflect cumulative counts honestly rather than inventing file names. Each
+  // stage surfaces the figures that are meaningful to it.
+  type StageDetail = { lines: { label: string; value: string }[] };
 
   const activeStageDetail = $derived.by<StageDetail>(() => {
     const st = activeStageDef;
-    if (!st.real) {
-      const note =
-        st.id === 'decide'
-          ? 'Consensus decisions are folded into Match today — a discrete Decide tracker is coming soon.'
-          : st.id === 'grade'
-            ? 'AI quality grading runs as a separate pass — see the AI quality tab. Per-stage live grading is coming soon.'
-            : 'Duplicate detection by fingerprint runs after build — a live Dedupe stage tracker is coming soon.';
-      return { kind: 'soon', note };
-    }
     const lines: { label: string; value: string }[] = [];
+
+    if (st.id === 'decide') {
+      if (decidedCount != null) lines.push({ label: 'Decided', value: decidedCount.toLocaleString() });
+      if (matchedCount != null) lines.push({ label: 'Matched', value: matchedCount.toLocaleString() });
+      if (tagReviewCount != null) lines.push({ label: 'To review', value: tagReviewCount.toLocaleString() });
+      return { lines };
+    }
+    if (st.id === 'grade') {
+      if (qualityGraded != null) lines.push({ label: 'Graded', value: qualityGraded.toLocaleString() });
+      if (avgQuality != null) lines.push({ label: 'Avg score', value: avgQuality.toFixed(0) });
+      if (aiFlaggedCount != null) lines.push({ label: 'Flagged', value: aiFlaggedCount.toLocaleString() });
+      return { lines };
+    }
+    if (st.id === 'dedupe') {
+      if (duplicateCount != null) lines.push({ label: 'Duplicates', value: duplicateCount.toLocaleString() });
+      if (duplicates?.groups != null) lines.push({ label: 'Clusters', value: duplicates.groups.toLocaleString() });
+      return { lines };
+    }
+
     if (st.count != null) lines.push({ label: 'Processed', value: st.count.toLocaleString() });
     const rate =
       st.id === 'scan'
@@ -267,7 +296,7 @@
     if (anyRunning && rate > 0) lines.push({ label: 'Throughput', value: `${rate.toFixed(1)}/s` });
     if (st.id === 'library' && inLibrary != null)
       lines.push({ label: 'In library', value: inLibrary.toLocaleString() });
-    return { kind: 'real', lines };
+    return { lines };
   });
 
   // ── live activity log (real RecentActivity from the overview poll) ──────────
@@ -340,7 +369,6 @@
     id: 'review' | 'dupes' | 'ai';
     icon: Component;
     count: number | null;
-    soon?: boolean;
     label: string;
     body: string;
     cta: string;
@@ -362,8 +390,7 @@
     {
       id: 'dupes',
       icon: Copy,
-      count: null,
-      soon: true,
+      count: duplicateCount,
       label: 'Ambiguous duplicates',
       body: "Same fingerprint, can't auto-pick which to keep. Mutable keep-A/B resolution lands with the Inbox section.",
       cta: 'Compare',
@@ -557,9 +584,6 @@
                 {/if}
               </div>
               <div class="text-muted-foreground flex items-center gap-1 text-[10.5px]">
-                {#if !st.real}
-                  <span class="rounded bg-muted px-1 py-px font-mono text-[9px] tracking-wide uppercase">soon</span>
-                {/if}
                 <span class="truncate">{st.sub}</span>
               </div>
               <div class="mt-0.5 font-mono text-base font-semibold tabular-nums">
@@ -590,9 +614,7 @@
             {/if}
             {activeStageDef.label}
           </div>
-          {#if activeStageDetail.kind === 'soon'}
-            <p class="text-muted-foreground text-[12px]">{activeStageDetail.note}</p>
-          {:else if activeStageDetail.lines.length === 0}
+          {#if activeStageDetail.lines.length === 0}
             <p class="text-muted-foreground text-[12px]">Nothing in this stage right now.</p>
           {:else}
             <div class="flex flex-wrap gap-2">
@@ -641,18 +663,13 @@
                 <Icon class="size-4" />
               </span>
               <div>
-                {#if card.soon}
-                  <div class="font-mono text-lg font-semibold leading-none text-muted-foreground">—</div>
-                {:else if card.count == null}
+                {#if card.count == null}
                   <Skeleton class="h-5 w-8" />
                 {:else}
                   <div class="font-mono text-lg font-semibold leading-none tabular-nums">{card.count.toLocaleString()}</div>
                 {/if}
                 <div class="text-muted-foreground mt-0.5 text-[11.5px]">{card.label}</div>
               </div>
-              {#if card.soon}
-                <span class="text-muted-foreground ml-auto rounded bg-muted px-1.5 py-px font-mono text-[9px] tracking-wide uppercase">soon</span>
-              {/if}
             </div>
             <p class="text-muted-foreground mt-2.5 flex-1 text-[12px] leading-relaxed">{card.body}</p>
             <span class="text-primary mt-2.5 inline-flex items-center gap-0.5 text-[12px] font-medium">
