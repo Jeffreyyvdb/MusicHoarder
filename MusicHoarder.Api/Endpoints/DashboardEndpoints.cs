@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Library;
@@ -17,6 +18,7 @@ public static class DashboardEndpoints
         app.MapGet("/overview", GetOverview).WithName("GetOverview");
         app.MapGet("/library/directory-tree", GetDirectoryTree).WithName("GetDirectoryTree");
         app.MapGet("/library/directory-tree/files", GetDirectoryFiles).WithName("GetDirectoryFiles");
+        app.MapPost("/library/directory-preferences", SetDirectoryPreference).WithName("SetDirectoryPreference");
         return app;
     }
 
@@ -29,11 +31,55 @@ public static class DashboardEndpoints
             .Select(s => new { s.SourcePath, s.EnrichmentStatus, s.LibraryBuildStatus, s.FileSizeBytes })
             .ToListAsync();
 
+        // Source-relative paths the current user has tagged "expected low" (leaks/unreleased/etc.).
+        var expectedLow = (await db.DirectoryPreferences
+            .Where(p => p.ExpectedLow)
+            .Select(p => p.Path)
+            .ToListAsync())
+            .ToHashSet(StringComparer.Ordinal);
+
         var root = BuildMatchTree(
             rows.Select(r => new MatchTreeRow(r.SourcePath, r.EnrichmentStatus, r.LibraryBuildStatus, r.FileSizeBytes)),
-            options.Value.SourceDirectory);
+            options.Value.SourceDirectory,
+            expectedLow);
 
         return Results.Ok(root.ToDto());
+    }
+
+    private record DirectoryPreferenceRequest(string Path, bool ExpectedLow);
+
+    /// <summary>
+    /// Upserts the current user's "expected low" flag for one source-relative folder path (the
+    /// <c>Path</c> emitted by the directory tree). Setting it pulls the folder out of the work queue.
+    /// </summary>
+    private static async Task<IResult> SetDirectoryPreference(
+        DirectoryPreferenceRequest request,
+        MusicHoarderDbContext db,
+        ICurrentUserAccessor currentUser,
+        CancellationToken ct)
+    {
+        if (currentUser.UserId == Guid.Empty)
+            return Results.Unauthorized();
+
+        // Normalize to the same forward-slash, no-trailing-slash form the tree node Path uses.
+        var path = (request.Path ?? string.Empty).Replace('\\', '/').TrimEnd('/');
+
+        var existing = await db.DirectoryPreferences.FirstOrDefaultAsync(p => p.Path == path, ct);
+        if (existing is null)
+        {
+            existing = new DirectoryPreference
+            {
+                OwnerUserId = currentUser.UserId,
+                Path = path,
+            };
+            db.DirectoryPreferences.Add(existing);
+        }
+
+        existing.ExpectedLow = request.ExpectedLow;
+        existing.UpdatedAtUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(new { path, expectedLow = existing.ExpectedLow });
     }
 
     /// <summary>
@@ -120,7 +166,10 @@ public static class DashboardEndpoints
     /// Folds per-song enrichment/build status into a directory tree rooted at the source library,
     /// where every node's counts are rolled up from all songs anywhere beneath it.
     /// </summary>
-    internal static DirectoryMatchNode BuildMatchTree(IEnumerable<MatchTreeRow> rows, string? sourceDirectory)
+    internal static DirectoryMatchNode BuildMatchTree(
+        IEnumerable<MatchTreeRow> rows,
+        string? sourceDirectory,
+        IReadOnlySet<string>? expectedLowPaths = null)
     {
         var sourceRoot = NormalizePath(sourceDirectory);
         var root = new DirectoryMatchNode(
@@ -145,7 +194,17 @@ public static class DashboardEndpoints
             node.AddDirectFile();
         }
 
+        if (expectedLowPaths is { Count: > 0 })
+            ApplyExpectedLow(root, expectedLowPaths);
+
         return root;
+    }
+
+    private static void ApplyExpectedLow(DirectoryMatchNode node, IReadOnlySet<string> paths)
+    {
+        node.ExpectedLow = paths.Contains(node.Path);
+        foreach (var child in node.Children)
+            ApplyExpectedLow(child, paths);
     }
 
     private static string NormalizePath(string? path)
@@ -183,6 +242,8 @@ public static class DashboardEndpoints
         public int Done { get; private set; }
         public int DirectFiles { get; private set; }
         public long SizeBytes { get; private set; }
+        /// <summary>Set from the current user's <see cref="DirectoryPreference"/>s after the tree is built.</summary>
+        public bool ExpectedLow { get; set; }
         public IReadOnlyCollection<DirectoryMatchNode> Children => _children.Values;
 
         public DirectoryMatchNode GetOrAddChild(string name, string path)
@@ -236,6 +297,7 @@ public static class DashboardEndpoints
             Done,
             DirectFileCount = DirectFiles,
             SizeBytes,
+            ExpectedLow,
             NotMatched = Total - Matched,
             MatchedPct = Total > 0 ? Math.Round(100.0 * Matched / Total, 1) : 0,
             // Worst-offending folders first so the largest review backlogs surface at the top.

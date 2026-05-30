@@ -32,6 +32,11 @@ public static class QualityEndpoints
             .WithSummary("Per-directory AI quality rollups.")
             .WithTags("Quality");
 
+        app.MapGet("/api/quality/songs", GetSongs)
+            .WithName("ListQualitySongs")
+            .WithSummary("Graded songs classified into flagged / silent-failure / verified-clean (or by verdict), worst first, paged.")
+            .WithTags("Quality");
+
         app.MapGet("/api/quality/songs/{id:int}", GetSongGrade)
             .WithName("GetSongQualityGrade")
             .WithSummary("Latest AI quality grade for one song, plus its grade history count.")
@@ -127,6 +132,39 @@ public static class QualityEndpoints
         gradedAtUtc = r.GradedAtUtc,
     };
 
+    // The worst-offender shape plus the workbench bucket, for the AI-quality master list.
+    private static object ToSongRow(GradeRowDto r) => new
+    {
+        songId = r.SongId,
+        fileName = r.FileName,
+        sourcePath = r.SourcePath,
+        artist = r.Artist,
+        title = r.Title,
+        album = r.Album,
+        score = r.Score,
+        verdict = r.Verdict.ToString(),
+        summary = r.Summary,
+        issues = ParseIssues(r.IssuesJson),
+        enrichmentStatusAtGrade = r.EnrichmentStatusAtGrade,
+        destinationPathPreview = r.DestinationPathPreview,
+        gradedAtUtc = r.GradedAtUtc,
+        bucket = QualityBuckets.Classify(r.EnrichmentStatusAtGrade, r.Verdict).Name(),
+    };
+
+    // Maps the `category` query value to a predicate over the latest grade rows.
+    private static bool MatchesCategory(GradeRowDto r, string category) => category switch
+    {
+        "flagged" => QualityBuckets.Classify(r.EnrichmentStatusAtGrade, r.Verdict) == QualityBucket.Flagged,
+        "silent" => QualityBuckets.Classify(r.EnrichmentStatusAtGrade, r.Verdict) == QualityBucket.Silent,
+        "verified" => QualityBuckets.Classify(r.EnrichmentStatusAtGrade, r.Verdict) == QualityBucket.Verified,
+        "wrong" => r.Verdict == SongQualityVerdict.Wrong,
+        "questionable" => r.Verdict == SongQualityVerdict.Questionable,
+        "good" => r.Verdict == SongQualityVerdict.Good,
+        "excellent" => r.Verdict == SongQualityVerdict.Excellent,
+        "ungradeable" => r.Verdict == SongQualityVerdict.Ungradeable,
+        _ => true, // "all" / unknown
+    };
+
     private static object AggregateToDto(QualityAggregate agg) => new
     {
         graded = agg.Graded,
@@ -169,14 +207,59 @@ public static class QualityEndpoints
 
         var directories = BuildDirectoryRollups(rows).Take(200).ToList();
 
+        // Bucket the latest grades for the workbench's three "needs attention" cards.
+        int flagged = 0, silent = 0, verified = 0;
+        foreach (var r in rows)
+        {
+            switch (QualityBuckets.Classify(r.EnrichmentStatusAtGrade, r.Verdict))
+            {
+                case QualityBucket.Flagged: flagged++; break;
+                case QualityBucket.Silent: silent++; break;
+                case QualityBucket.Verified: verified++; break;
+            }
+        }
+
         return Results.Ok(new
         {
             gradeableTotal,
             coverage = gradeableTotal == 0 ? 0d : Math.Round((double)rows.Count / gradeableTotal, 3),
             library = AggregateToDto(agg),
+            flaggedCount = flagged,
+            silentFailureCount = silent,
+            verifiedCleanCount = verified,
             worstOffenders = worst,
             directories,
         });
+    }
+
+    /// <summary>
+    /// Graded songs for the AI-quality workbench master list, filtered by <paramref name="category"/>
+    /// (flagged / silent / verified, or a verdict bucket, or "all"), ordered worst-first, paged.
+    /// </summary>
+    private static async Task<IResult> GetSongs(
+        MusicHoarderDbContext db,
+        string? category,
+        int skip,
+        int take,
+        CancellationToken ct)
+    {
+        var cat = string.IsNullOrWhiteSpace(category) ? "all" : category.Trim().ToLowerInvariant();
+        var pageSize = take <= 0 ? 100 : Math.Min(take, 500);
+        var offset = Math.Max(skip, 0);
+
+        var rows = await LoadGradeRowsAsync(db, ct);
+
+        var filtered = rows
+            .Where(r => MatchesCategory(r, cat))
+            // Worst first: lowest verdict, then lowest score, then most recently graded.
+            .OrderBy(r => (int)r.Verdict)
+            .ThenBy(r => r.Score)
+            .ThenByDescending(r => r.GradedAtUtc)
+            .ToList();
+
+        var items = filtered.Skip(offset).Take(pageSize).Select(ToSongRow).ToList();
+
+        return Results.Ok(new { total = filtered.Count, skip = offset, take = pageSize, items });
     }
 
     private static IEnumerable<object> BuildDirectoryRollups(List<GradeRowDto> rows)
