@@ -6,6 +6,7 @@
     type ProgressSnapshot
   } from '$lib/api-client';
   import DirectoryTreeRow from '$lib/components/directories/DirectoryTreeRow.svelte';
+  import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
   import { cn } from '$lib/utils';
   import { FolderTree, Loader2, AlertTriangle } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
@@ -207,11 +208,18 @@
 
     <!-- Filter pills + sort -->
     <div class="border-border flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-5 py-2">
-      <div class="flex gap-1">
+      <ToggleGroup.Root
+        type="single"
+        value={filter}
+        onValueChange={(v) => {
+          if (v) filter = v as FilterId;
+        }}
+        class="gap-1"
+      >
         {#each [{ id: 'all', label: 'All folders', n: children.length }, { id: 'needs-action', label: 'Needs action', n: needsActionCount }, { id: 'done', label: 'Done', n: doneCount }] as p (p.id)}
-          <button
-            type="button"
-            onclick={() => (filter = p.id as FilterId)}
+          <ToggleGroup.Item
+            value={p.id}
+            aria-label={p.label}
             class={cn(
               'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12px] transition-colors',
               filter === p.id
@@ -226,21 +234,30 @@
                 filter === p.id ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
               )}>{p.n}</span
             >
-          </button>
+          </ToggleGroup.Item>
         {/each}
-      </div>
+      </ToggleGroup.Root>
       <div class="text-muted-foreground flex items-center gap-1 text-[10.5px]">
         <span>sort:</span>
-        {#each [{ id: 'match', label: 'match %' }, { id: 'name', label: 'name' }, { id: 'size', label: 'size' }] as s (s.id)}
-          <button
-            type="button"
-            onclick={() => (sort = s.id as SortId)}
-            class={cn(
-              'rounded px-1.5 py-0.5 transition-colors',
-              sort === s.id ? 'bg-muted text-foreground' : 'hover:text-foreground'
-            )}>{s.label}</button
-          >
-        {/each}
+        <ToggleGroup.Root
+          type="single"
+          value={sort}
+          onValueChange={(v) => {
+            if (v) sort = v as SortId;
+          }}
+          class="gap-1"
+        >
+          {#each [{ id: 'match', label: 'match %' }, { id: 'name', label: 'name' }, { id: 'size', label: 'size' }] as s (s.id)}
+            <ToggleGroup.Item
+              value={s.id}
+              aria-label={s.label}
+              class={cn(
+                'rounded px-1.5 py-0.5 transition-colors',
+                sort === s.id ? 'bg-muted text-foreground' : 'hover:text-foreground'
+              )}>{s.label}</ToggleGroup.Item
+            >
+          {/each}
+        </ToggleGroup.Root>
       </div>
     </div>
   {/if}

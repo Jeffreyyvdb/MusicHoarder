@@ -43,11 +43,16 @@ public class EnrichmentBackgroundService(
     }
 
     /// <summary>
-    /// Recomputes summary status for every non-Pending song against the currently
-    /// enabled provider set. Songs whose status would now be Pending (because a
-    /// newly-enabled provider has no attempt yet) are flipped and enqueued.
-    /// ProviderAttempts are kept — the orchestrator skips providers with terminal
-    /// attempts, so the re-run only hits the new provider.
+    /// Recomputes summary status for non-Pending songs against the currently enabled provider set.
+    /// Songs whose status would now be Pending (because a newly-enabled provider has no attempt yet)
+    /// are flipped and enqueued. ProviderAttempts are kept — the orchestrator skips providers with
+    /// terminal attempts, so the re-run only hits the new provider.
+    ///
+    /// Only songs that are <em>missing an attempt for at least one enabled provider</em> can flip to
+    /// Pending, so we materialize just that subset (via <see cref="EnrichmentQueries.WhereMissingEnabledProvider"/>)
+    /// instead of the entire non-Pending library — in steady state (every song fully attempted) this
+    /// loads nothing and deserializes no provider JSON. Manually-approved (locked) songs are excluded:
+    /// the orchestrator would skip them anyway, so flipping them would strand them in Pending forever.
     /// </summary>
     internal async Task RefreshStaleStatusesAsync(CancellationToken ct)
     {
@@ -63,8 +68,8 @@ public class EnrichmentBackgroundService(
             var candidates = await db.Songs
                 .IgnoreQueryFilters()
                 .Include(s => s.ProviderAttempts)
-                .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
                 .Where(s => s.EnrichmentStatus != EnrichmentStatus.Pending)
+                .WhereMissingEnabledProvider(enabled)
                 .ToListAsync(ct);
 
             var flipped = new List<int>();
