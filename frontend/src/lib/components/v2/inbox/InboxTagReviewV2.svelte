@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { Check, X, ChevronRight, Loader2, RefreshCw, History } from '@lucide/svelte';
   import { page } from '$app/state';
   import type { ApiSong, EnrichmentDetail } from '$lib/api-client';
@@ -51,8 +52,15 @@
   let actionLoading = $state(false);
   let error = $state<string | null>(null);
 
+  // Report the live count up to the parent Inbox tab strip. The callback is
+  // invoked via untrack() so the effect depends only on `loading`/`tracks` — not
+  // on the `oncount` prop's identity. The parent passes a fresh inline arrow on
+  // every render, and tracking it here would re-run this effect each time the
+  // parent re-renders, which (because the parent reassigns its counts object on
+  // every call) is a self-sustaining loop → effect_update_depth_exceeded.
   $effect(() => {
-    oncount?.(loading ? null : tracks.length);
+    const n = loading ? null : tracks.length;
+    untrack(() => oncount?.(n));
   });
 
   async function loadQueue() {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { Check, Loader2, RefreshCw, Copy, Trash2 } from '@lucide/svelte';
   import {
     fetchDuplicates,
@@ -19,8 +20,12 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
 
+  // Invoke via untrack() so this effect tracks `loading`/`groups` only, not the
+  // `oncount` prop identity — see the note in InboxTagReviewV2 for why tracking
+  // it loops (effect_update_depth_exceeded).
   $effect(() => {
-    oncount?.(loading ? null : groups.length);
+    const n = loading ? null : groups.length;
+    untrack(() => oncount?.(n));
   });
 
   async function load() {

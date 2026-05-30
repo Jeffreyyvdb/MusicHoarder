@@ -36,6 +36,15 @@
 
   // Live per-tab counts reported up by each subtab (null while loading).
   let counts = $state<Record<TabId, number | null>>({ review: null, dupes: null, ai: null });
+
+  // Only reassign when the value actually changes — reallocating `counts` on
+  // every report would re-render this component (and recreate the inline
+  // oncount arrows) for no reason. The children also untrack the callback, so
+  // this is belt-and-suspenders against a reactive feedback loop.
+  function reportCount(tab: TabId, n: number | null) {
+    if (counts[tab] === n) return;
+    counts = { ...counts, [tab]: n };
+  }
   const totalAwaiting = $derived.by(() => {
     const vals = [counts.review, counts.dupes, counts.ai];
     if (vals.every((v) => v == null)) return null;
@@ -89,9 +98,9 @@
 
 <!-- Body: only the active queue is mounted (keyed so switching resets state). -->
 {#if tab === 'review'}
-  <InboxTagReviewV2 oncount={(n) => (counts = { ...counts, review: n })} />
+  <InboxTagReviewV2 oncount={(n) => reportCount('review', n)} />
 {:else if tab === 'dupes'}
-  <InboxDuplicatesV2 oncount={(n) => (counts = { ...counts, dupes: n })} />
+  <InboxDuplicatesV2 oncount={(n) => reportCount('dupes', n)} />
 {:else}
-  <InboxAiFlaggedV2 oncount={(n) => (counts = { ...counts, ai: n })} />
+  <InboxAiFlaggedV2 oncount={(n) => reportCount('ai', n)} />
 {/if}
