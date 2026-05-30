@@ -138,7 +138,57 @@ public class MetadataMergerTests
         Assert.DoesNotContain("feat", song.AlbumArtist!, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void AlbumCorroborated_UpgradesGoodEmbedded_EvenBelowBlanketConsensus()
+    {
+        // The cluster corroborated the album field (≥2 providers), so it may replace a good embedded
+        // album even though the blanket high-consensus gate (providers≥2 && conf≥0.96) isn't met.
+        var song = Song(artist: "Fugees", title: "Ready or Not");
+        song.Album = "Greatest Hits";
+        var changes = MetadataMerger.ApplyMatch(
+            song, Winner(artist: "Fugees", title: "Ready or Not", album: "The Score"),
+            confidence: 0.90, agreeingProviderCount: 2, AutoUpgrade, warningsJson: null,
+            corroboratedFields: Fields("Album"));
+
+        Assert.Equal("The Score", song.Album);
+        Assert.Contains(changes, c => c is { Field: "Album", Applied: true });
+    }
+
+    [Fact]
+    public void AlbumNotCorroborated_KeepsGoodEmbedded_ProposesChange()
+    {
+        // Album was NOT corroborated by the cluster → a good embedded album must be preserved and the
+        // provider's value only proposed, regardless of how confident the recording match was.
+        var song = Song(artist: "Fugees", title: "Ready or Not");
+        song.Album = "The Score (Expanded Edition)";
+        var changes = MetadataMerger.ApplyMatch(
+            song, Winner(artist: "Fugees", title: "Ready or Not", album: "Greatest Hits"),
+            confidence: 0.99, agreeingProviderCount: 3, AutoUpgrade, warningsJson: null,
+            corroboratedFields: Fields()); // empty: recording corroborated, album not
+
+        Assert.Equal("The Score (Expanded Edition)", song.Album);
+        Assert.Contains(changes, c => c is { Field: "Album", Applied: false });
+    }
+
+    [Fact]
+    public void YearNotCorroborated_KeepsGoodEmbedded_EvenAtHighRecordingConsensus()
+    {
+        // Song 1374: the recording is corroborated by 3 providers at high confidence, but the year is
+        // not (providers split 2000/2003/1996). The embedded 1996 must survive.
+        var song = Song(artist: "Fugees", title: "No Woman, No Cry");
+        song.Year = 1996;
+        var changes = MetadataMerger.ApplyMatch(
+            song, Winner(artist: "Fugees", title: "No Woman, No Cry", year: 2000),
+            confidence: 0.99, agreeingProviderCount: 3, AutoUpgrade, warningsJson: null,
+            corroboratedFields: Fields("Album")); // album corroborated, year not
+
+        Assert.Equal(1996, song.Year);
+        Assert.Contains(changes, c => c is { Field: "Year", Applied: false });
+    }
+
     // --- helpers ---
+
+    private static IReadOnlySet<string> Fields(params string[] fields) => new HashSet<string>(fields);
 
     private static IReadOnlyList<MetadataMerger.FieldChange> Merge(
         SongMetadata song, EnrichmentProviderResult winner, double confidence, int providers)
@@ -149,10 +199,11 @@ public class MetadataMergerTests
         string? spotifyId = null, string? isrc = null, string? mbid = null,
         string? albumArtist = null, string? artists = null, string? releaseGroupId = null,
         string? albumArtistMbid = null, string? releaseTypePrimary = null, string? releaseTypes = null,
-        int? discNumber = null, int? totalDiscs = null, int? totalTracks = null, bool? isCompilation = null)
+        int? discNumber = null, int? totalDiscs = null, int? totalTracks = null, bool? isCompilation = null,
+        string? album = null)
         => new(artist, albumArtist ?? artist, title, year, null, mbid, null, spotifyId, null, isrc,
             "TestProvider", 0.9, [], EnrichmentStatus.Matched,
-            Album: null, Artists: artists, ArtistMusicBrainzIds: null,
+            Album: album, Artists: artists, ArtistMusicBrainzIds: null,
             AlbumArtistMusicBrainzId: albumArtistMbid, MusicBrainzReleaseGroupId: releaseGroupId,
             DiscNumber: discNumber, TotalDiscs: totalDiscs, TotalTracks: totalTracks,
             IsCompilation: isCompilation, ReleaseTypePrimary: releaseTypePrimary, ReleaseTypes: releaseTypes);

@@ -28,7 +28,14 @@ public static class ConsensusEvaluator
         EnrichmentStatus Status,
         EnrichmentProviderResult? Winner,
         double Confidence,
-        IReadOnlyList<EnrichmentProvider> AgreeingProviders);
+        IReadOnlyList<EnrichmentProvider> AgreeingProviders,
+        /// <summary>
+        /// Album-level fields (Album, Year, TrackNumber …) the agreeing cluster corroborated — ≥2
+        /// providers landed on the same value. The merger may auto-overwrite a good embedded tag only
+        /// for these; non-corroborated album fields are proposed, not applied. Null for non-cluster
+        /// verdicts (solo provider / fingerprint / tracker), which carry no release corroboration.
+        /// </summary>
+        IReadOnlySet<string>? CorroboratedFields = null);
 
     private sealed record Candidate(
         EnrichmentProvider Provider,
@@ -41,7 +48,8 @@ public static class ConsensusEvaluator
         SongMetadata song,
         IReadOnlySet<EnrichmentProvider> enabledProviders,
         IdentityMatchOptions identityOptions,
-        double corroborationFloor = DefaultCorroborationFloor)
+        double corroborationFloor = DefaultCorroborationFloor,
+        bool preferOriginalRelease = true)
     {
         if (enabledProviders.Count == 0)
             return new ConsensusResult(EnrichmentStatus.NeedsReview, null, 0, []);
@@ -111,8 +119,19 @@ public static class ConsensusEvaluator
                     .OrderByDescending(c => c.IsNameBased)
                     .ThenByDescending(c => c.Confidence)
                     .First();
+
+                // The cluster agreed on the *recording*; it may still disagree on which *release*
+                // (original album vs. a later compilation) that recording belongs to. Re-derive the
+                // album-level fields by corroborating across the whole cluster instead of trusting
+                // the single identity winner, and tell the merger which of those fields ≥2 providers
+                // actually backed (so a good embedded album/year isn't overwritten on a lone vote).
+                var release = ReleaseSelector.Select(
+                    bestCluster.Select(c => c.Result).ToList(), song.Album, song.Year, preferOriginalRelease);
+                var finalWinner = ApplyRelease(winner.Result, release);
+
                 return new ConsensusResult(
-                    EnrichmentStatus.Matched, winner.Result, CombineConfidence(bestCluster), distinctProviders);
+                    EnrichmentStatus.Matched, finalWinner, CombineConfidence(bestCluster),
+                    distinctProviders, release.CorroboratedFields);
             }
         }
 
@@ -247,6 +266,25 @@ public static class ConsensusEvaluator
             .ThenByDescending(c => c.Sum(x => x.Confidence))
             .First();
     }
+
+    /// <summary>
+    /// Overlays the corroborated release's album-level fields onto the identity winner. Identity
+    /// fields (title, artist, ISRC, IDs) stay with the winner; only the album/release fields are
+    /// replaced when the selector produced a value.
+    /// </summary>
+    private static EnrichmentProviderResult ApplyRelease(EnrichmentProviderResult winner, ReleaseSelector.Selection release)
+        => winner with
+        {
+            Album = release.Album ?? winner.Album,
+            Year = release.Year ?? winner.Year,
+            TrackNumber = release.TrackNumber ?? winner.TrackNumber,
+            DiscNumber = release.DiscNumber ?? winner.DiscNumber,
+            TotalDiscs = release.TotalDiscs ?? winner.TotalDiscs,
+            TotalTracks = release.TotalTracks ?? winner.TotalTracks,
+            ReleaseTypePrimary = release.ReleaseTypePrimary ?? winner.ReleaseTypePrimary,
+            ReleaseTypes = release.ReleaseTypes ?? winner.ReleaseTypes,
+            IsCompilation = release.IsCompilation ?? winner.IsCompilation,
+        };
 
     private static double CombineConfidence(IEnumerable<Candidate> cluster)
     {

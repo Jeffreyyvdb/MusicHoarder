@@ -130,6 +130,29 @@ public class DeezerEnrichmentProviderTests
     }
 
     [Fact]
+    public async Task TryEnrichAsync_AlbumBoost_PrefersOriginalAlbumOverCompilation()
+    {
+        // The same recording appears on the original album and a "Greatest Hits" compilation with
+        // identical artist/title/duration. The album-agreement boost must select the candidate on the
+        // file's own album rather than whichever the catalog ranked first.
+        var comp = new DeezerCatalogTrack("d-comp", "Ready or Not", "Fugees", "Greatest Hits", 2000, 2, 200_000, "USSM19600051");
+        var original = new DeezerCatalogTrack("d-orig", "Ready or Not", "Fugees", "The Score", 1996, 3, 200_000, "USSM19600051");
+        var catalog = new StubDeezerCatalog
+        {
+            OnSearch = _ => [comp, original], // compilation first; the boost must flip the choice
+        };
+        var provider = CreateProvider(catalog);
+        var song = Song(artist: "Fugees", title: "Ready or Not", durationSec: 200, album: "The Score (Expanded Edition)");
+
+        var result = await provider.TryEnrichAsync(song);
+
+        var matched = Assert.IsType<ProviderMatched>(result);
+        Assert.Equal("The Score", matched.Result.Album);
+        Assert.Equal(1996, matched.Result.Year);
+        Assert.Equal(3, matched.Result.TrackNumber);
+    }
+
+    [Fact]
     public async Task TryEnrichAsync_RateLimited_ReturnsProviderRateLimited()
     {
         var catalog = new StubDeezerCatalog
@@ -154,7 +177,7 @@ public class DeezerEnrichmentProviderTests
 
     private static SongMetadata Song(
         string? artist, string? title, int durationSec, string? isrc = null,
-        string sourcePath = "/s/a.mp3", string fileName = "a.mp3") => new()
+        string sourcePath = "/s/a.mp3", string fileName = "a.mp3", string? album = null) => new()
     {
         OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
         SourcePath = sourcePath,
@@ -165,6 +188,7 @@ public class DeezerEnrichmentProviderTests
         IndexedAtUtc = DateTime.UtcNow,
         Artist = artist,
         Title = title,
+        Album = album,
         DurationSeconds = durationSec,
         Isrc = isrc,
         EnrichmentStatus = EnrichmentStatus.Pending,

@@ -238,19 +238,22 @@ public class SpotifyApiEnrichmentProvider(
         }
 
         // Album/track-number are confirmation signals only — a track legitimately appears on many
-        // releases, so we reward agreement but never penalize a difference (no blocking warning).
+        // releases, so we reward agreement but never penalize a difference (no blocking warning). The
+        // boosts are left un-capped (the final confidence is clamped in BuildResult) so they still break
+        // a tie when artist+title already saturate the score at 1.0 — exactly the original-album-vs-
+        // "Greatest Hits"-reissue case where both releases otherwise score identically.
         if (FuzzyTextMatch.Ratio(source.Album, track.AlbumName) is double albumRatio)
         {
             if (albumRatio >= FuzzyThreshold)
-                score = Math.Min(1.0, score + 0.05);
+                score += opts.AlbumAgreementConfidenceBoost;
             else
                 warnings.Add("album_mismatch");
         }
 
         if (source.TrackNumber is int sourceTrack && track.TrackNumber == sourceTrack)
-            score = Math.Min(1.0, score + 0.02);
+            score += 0.02;
 
-        return (Math.Clamp(score, 0, 1), warnings);
+        return (Math.Max(0.0, score), warnings);
     }
 
     private static bool HasBlockingWarning(List<string> warnings) =>
