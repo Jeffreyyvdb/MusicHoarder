@@ -42,6 +42,8 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<SpotifyTrackLibraryMatch> SpotifyTrackLibraryMatches { get; set; } = null!;
     public DbSet<RuntimeSettings> RuntimeSettings { get; set; } = null!;
     public DbSet<IngestRun> IngestRuns { get; set; } = null!;
+    public DbSet<EnrichmentSnapshot> EnrichmentSnapshots { get; set; } = null!;
+    public DbSet<EnrichmentSnapshotSong> EnrichmentSnapshotSongs { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
     public DbSet<Session> Sessions { get; set; } = null!;
     public DbSet<MagicLinkToken> MagicLinkTokens { get; set; } = null!;
@@ -162,6 +164,30 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => new { e.OwnerUserId, e.StartedAtUtc });
 
             entity.HasQueryFilter(r => !hasUser || r.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<EnrichmentSnapshot>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // Timeline reads order by capture time within an owner.
+            entity.HasIndex(e => new { e.OwnerUserId, e.CapturedAtUtc });
+
+            entity.HasMany(e => e.Songs)
+                .WithOne(s => s.Snapshot)
+                .HasForeignKey(s => s.SnapshotId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<EnrichmentSnapshotSong>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.SnapshotId, e.SongId });
+
+            // Mirror the parent snapshot's tenancy filter so a child is filtered exactly when its
+            // principal would be (otherwise EF warns about the required relationship).
+            entity.HasQueryFilter(e => !hasUser || e.Snapshot.OwnerUserId == userId);
         });
 
         modelBuilder.Entity<User>(entity =>

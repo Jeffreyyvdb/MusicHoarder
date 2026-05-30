@@ -1401,3 +1401,102 @@ export async function copyQualitySongDossier(songId: number): Promise<void> {
     await navigator.clipboard.writeText(await textPromise)
   }
 }
+
+// --- Pipeline performance snapshots (the version timeline) ---
+
+export interface SnapshotAiBreakdown {
+  excellent: number
+  good: number
+  questionable: number
+  wrong: number
+  ungradeable: number
+}
+
+export interface SnapshotSummary {
+  id: number
+  capturedAtUtc: string
+  trigger: string
+  triggerLabel?: string | null
+  version?: string | null
+  configHash: string
+  totalSongs: number
+  matched: number
+  needsReview: number
+  failed: number
+  pending: number
+  duplicates: number
+  buildDone: number
+  matchRate?: number | null
+  avgMatchConfidence?: number | null
+  providerMatched?: Record<string, number> | null
+  graded: number
+  avgAiScore?: number | null
+  ai: SnapshotAiBreakdown
+}
+
+export interface SnapshotConfigDiffEntry {
+  key: string
+  from?: string | null
+  to?: string | null
+}
+
+export interface SnapshotDetail {
+  summary: SnapshotSummary
+  config: unknown
+  previousSnapshotId?: number | null
+  configDiff: SnapshotConfigDiffEntry[]
+}
+
+export interface SnapshotSongState {
+  status: string
+  confidence?: number | null
+  matchedBy?: string | null
+  aiScore?: number | null
+  aiVerdict?: string | null
+}
+
+export interface SnapshotSongDiff {
+  songId: number
+  artist?: string | null
+  title?: string | null
+  sourcePath?: string | null
+  fileName?: string | null
+  reasons: string[]
+  from: SnapshotSongState
+  to: SnapshotSongState
+}
+
+export interface SnapshotCompare {
+  from: SnapshotSummary
+  to: SnapshotSummary
+  comparedSongs: number
+  regressedCount: number
+  improvedCount: number
+  regressed: SnapshotSongDiff[]
+  improved: SnapshotSongDiff[]
+}
+
+export async function fetchSnapshots(): Promise<SnapshotSummary[]> {
+  return requestJson<SnapshotSummary[]>("/api/snapshots")
+}
+
+export async function fetchSnapshot(id: number): Promise<SnapshotDetail> {
+  return requestJson<SnapshotDetail>(`/api/snapshots/${id}`)
+}
+
+export async function fetchSnapshotCompare(from?: number, to?: number): Promise<SnapshotCompare> {
+  const params = new URLSearchParams()
+  if (from != null) params.set("from", String(from))
+  if (to != null) params.set("to", String(to))
+  const query = params.toString()
+  return requestJson<SnapshotCompare>(`/api/snapshots/compare${query ? `?${query}` : ""}`)
+}
+
+export async function captureSnapshot(
+  label?: string,
+): Promise<{ captured: boolean; reason?: string; snapshot?: SnapshotSummary }> {
+  return requestJson("/api/snapshots", {
+    method: "POST",
+    body: JSON.stringify({ label: label ?? null }),
+  })
+}

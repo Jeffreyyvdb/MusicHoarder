@@ -15,6 +15,7 @@ using MusicHoarder.Api.Pipeline;
 using MusicHoarder.Api.Quality;
 using MusicHoarder.Api.Scanner;
 using MusicHoarder.Api.Settings;
+using MusicHoarder.Api.Snapshots;
 using MusicHoarder.Api.Spotify;
 
 namespace MusicHoarder.Api.Composition;
@@ -140,6 +141,9 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<EnrichmentBackgroundService>();
         services.AddHostedService<LibraryBuilderBackgroundService>();
         services.AddHostedService<IngestRunMonitor>();
+        // Per-owner pipeline-quality snapshots, captured when a run finalizes (see IngestRunMonitor /
+        // QualityGradingBackgroundService). Scoped — it reads/writes through the request DB scope.
+        services.AddScoped<IEnrichmentSnapshotService, EnrichmentSnapshotService>();
 
         // AI quality grading. The chat client + dossier factory are stateless singletons; the
         // grading service creates its own DB scopes so it works from the background sweep and the
