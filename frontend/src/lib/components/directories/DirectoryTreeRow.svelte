@@ -5,7 +5,7 @@
     type DirectoryMatchNode,
     type SourceFile
   } from '$lib/api-client';
-  import { AlertCircle, ChevronRight, Loader2, Sparkles } from '@lucide/svelte';
+  import { AlertCircle, Check, ChevronRight, Loader2, Sparkles, Tag } from '@lucide/svelte';
   import { cleanDisplayName } from '$lib/formatters';
   import { cn } from '$lib/utils';
   import { Button } from '$lib/components/ui/button';
@@ -17,13 +17,15 @@
     depth = 0,
     enrichingPaths,
     refreshToken = 0,
-    onEnriched
+    onEnriched,
+    onToggleExpected
   }: {
     node: DirectoryMatchNode;
     depth?: number;
     enrichingPaths?: Set<string>;
     refreshToken?: number;
     onEnriched?: (path: string, count: number) => void;
+    onToggleExpected?: (path: string, next: boolean) => void;
   } = $props();
 
   let expanded = $state(false);
@@ -45,6 +47,11 @@
   // (node.done === node.total) — otherwise there's still something to add.
   const inLibrary = $derived(node.total > 0 && node.done >= node.total);
 
+  // Enrich is only worth offering when there's still un-landed work, and never for folders the
+  // user has tagged "expected low" (those are deliberately out of the work queue).
+  const hasWork = $derived(node.pending > 0 || node.failed > 0);
+  const showEnrich = $derived(!node.expectedLow && hasWork);
+
   // While enrichment runs the parent bumps `refreshToken`; silently refresh this folder's loaded
   // files so per-file state pills track the live progress (no loading-spinner flicker).
   $effect(() => {
@@ -63,6 +70,7 @@
   // bar shows "in library" distinctly from "matched, not yet written" — matching the design.
   const written = $derived(node.done);
   const matchedNotWritten = $derived(Math.max(0, node.matched - node.done));
+  const enriched = $derived(node.matched);
 
   const matchedPctLabel = $derived(node.total > 0 ? Math.round(node.matchedPct) : 0);
 
@@ -106,93 +114,154 @@
 </script>
 
 <div class="select-none">
-  <div class="group relative flex items-center">
-  <button
-    type="button"
-    onclick={toggle}
+  <div
     class={cn(
-      'flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left text-[13px] transition-colors',
-      expandable ? 'hover:bg-muted/60 cursor-pointer' : 'cursor-default'
+      'group hover:bg-muted/50 relative flex items-center gap-2 rounded-md pr-2 transition-[background-color,opacity]',
+      node.expectedLow && 'opacity-70 hover:opacity-100',
+      expanded && 'bg-primary/[0.04]'
     )}
-    style="padding-left: {depth * 18 + 6}px"
-    aria-expanded={expandable ? expanded : undefined}
   >
-    <ChevronRight
+    <button
+      type="button"
+      onclick={toggle}
       class={cn(
-        'size-3.5 shrink-0 transition-transform',
-        expandable ? 'text-muted-foreground' : 'opacity-0',
-        expanded && 'rotate-90'
+        'flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left text-[13px]',
+        expandable ? 'cursor-pointer' : 'cursor-default'
       )}
-    />
-
-    <span class="min-w-0 flex-1 truncate font-medium" title={node.path || node.name}>
-      {cleanDisplayName(node.name)}
-    </span>
-
-    <!-- Stacked status bar: written / matched / review / failed / queued -->
-    <div
-      class="bg-muted hidden h-[6px] w-28 shrink-0 overflow-hidden rounded-full sm:flex"
-      title={`in library ${written} · matched ${matchedNotWritten} · review ${node.needsReview} · failed ${node.failed} · queued ${node.pending}`}
+      style="padding-left: {depth * 18 + 8}px"
+      aria-expanded={expandable ? expanded : undefined}
     >
-      <span class="h-full bg-emerald-600" style="width: {pct(written)}%"></span>
-      <span class="h-full bg-emerald-500" style="width: {pct(matchedNotWritten)}%"></span>
-      <span class="h-full bg-amber-500" style="width: {pct(node.needsReview)}%"></span>
-      <span class="h-full bg-red-500" style="width: {pct(node.failed)}%"></span>
-      <span class="h-full bg-slate-400/60" style="width: {pct(node.pending)}%"></span>
+      <ChevronRight
+        class={cn(
+          'size-3.5 shrink-0 transition-transform',
+          expandable ? 'text-muted-foreground' : 'opacity-0',
+          expanded && 'rotate-90'
+        )}
+      />
+
+      <span class="flex min-w-0 flex-1 items-center gap-1.5">
+        <span class="truncate font-medium" title={node.path || node.name}>
+          {cleanDisplayName(node.name)}
+        </span>
+        {#if node.expectedLow}
+          <span
+            class="border-border text-muted-foreground inline-flex shrink-0 items-center rounded-full border border-dashed bg-muted px-1.5 py-px text-[10px] whitespace-nowrap"
+            title="You marked this folder as expected to have a low match rate (leaks, unreleased, field recordings)."
+          >
+            expected low
+          </span>
+        {:else}
+          {#if node.needsReview > 0}
+            <span
+              class="inline-flex shrink-0 items-center rounded-full bg-amber-500/15 px-1.5 py-px text-[10px] font-medium whitespace-nowrap text-amber-600 dark:text-amber-400"
+              title={`${node.needsReview} files awaiting review`}
+            >
+              {node.needsReview.toLocaleString()} review
+            </span>
+          {/if}
+          {#if node.failed > 0}
+            <span
+              class="inline-flex shrink-0 items-center rounded-full bg-red-500/10 px-1.5 py-px text-[10px] font-medium whitespace-nowrap text-red-600 dark:text-red-400"
+              title={`${node.failed} files matched nothing`}
+            >
+              {node.failed.toLocaleString()} failed
+            </span>
+          {/if}
+        {/if}
+      </span>
+
+      <!-- Stacked status bar: written / matched / review / failed / queued -->
+      <span
+        class={cn('bg-muted hidden h-[6px] w-28 shrink-0 overflow-hidden rounded-full sm:flex', node.expectedLow && 'opacity-60')}
+        title={`in library ${written} · matched ${matchedNotWritten} · review ${node.needsReview} · failed ${node.failed} · queued ${node.pending}`}
+      >
+        <span class="h-full bg-emerald-600" style="width: {pct(written)}%"></span>
+        <span class="h-full bg-emerald-500" style="width: {pct(matchedNotWritten)}%"></span>
+        <span class="h-full bg-amber-500" style="width: {pct(node.needsReview)}%"></span>
+        <span class="h-full bg-red-500" style="width: {pct(node.failed)}%"></span>
+        <span class="h-full bg-slate-400/60" style="width: {pct(node.pending)}%"></span>
+      </span>
+
+      <span class="text-muted-foreground hidden w-16 shrink-0 text-right font-mono text-[11px] tabular-nums sm:block">
+        <span class="text-foreground">{enriched.toLocaleString()}</span><span class="text-muted-foreground/50">/</span>{node.total.toLocaleString()}
+      </span>
+
+      <span
+        class={cn(
+          'w-10 shrink-0 text-right font-mono text-[11px] tabular-nums',
+          node.expectedLow
+            ? 'text-muted-foreground/70'
+            : matchedPctLabel >= 90
+              ? 'text-emerald-600 dark:text-emerald-400'
+              : matchedPctLabel >= 60
+                ? 'text-amber-600 dark:text-amber-400'
+                : 'text-red-600 dark:text-red-400'
+        )}
+      >
+        {matchedPctLabel}%
+      </span>
+    </button>
+
+    <!-- Row actions: mark expected-low + enrich (revealed on hover; persistent when active).
+         Fixed width matches the header's actions column so the Match% column aligns across rows. -->
+    <div class="flex w-[88px] shrink-0 items-center justify-end gap-0.5">
+      {#if onToggleExpected}
+        <button
+          type="button"
+          onclick={() => onToggleExpected?.(node.path, !node.expectedLow)}
+          title={node.expectedLow
+            ? 'Clear expected-low tag'
+            : 'Mark as expected low match (leaks, unreleased, field recordings)'}
+          aria-label={node.expectedLow ? 'Clear expected-low tag' : 'Mark as expected low'}
+          class={cn(
+            'grid size-6 place-items-center rounded-md transition-[opacity,color,background-color] focus-visible:opacity-100',
+            'hover:bg-card hover:text-foreground hover:border-border border border-transparent',
+            node.expectedLow
+              ? 'text-primary opacity-100'
+              : 'text-muted-foreground opacity-0 group-hover:opacity-100'
+          )}
+        >
+          {#if node.expectedLow}
+            <Check class="size-3" />
+          {:else}
+            <Tag class="size-3" />
+          {/if}
+        </button>
+      {/if}
+
+      {#if showEnrich || isEnriching || enrichState === 'error'}
+        <Button
+          variant="ghost"
+          size="sm"
+          class={cn(
+            'h-6 shrink-0 px-2 text-[11px] opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100',
+            (isEnriching || enrichState === 'error') && 'opacity-100',
+            isEnriching && 'text-primary',
+            enrichState === 'error' && 'text-destructive'
+          )}
+          disabled={isEnriching}
+          title="Add every song under this folder to your library (enrich + build)"
+          onclick={handleEnrichFolder}
+        >
+          {#if isEnriching}
+            <Loader2 class="mr-1 size-3 animate-spin" />
+            {inLibrary ? 'Updating…' : 'Adding…'}
+          {:else if enrichState === 'error'}
+            <AlertCircle class="mr-1 size-3" />
+            Failed
+          {:else}
+            <Sparkles class="mr-1 size-3" />
+            Enrich
+          {/if}
+        </Button>
+      {/if}
     </div>
-
-    <span
-      class={cn(
-        'w-10 shrink-0 text-right font-mono text-[11px] tabular-nums',
-        matchedPctLabel >= 90
-          ? 'text-emerald-600 dark:text-emerald-400'
-          : matchedPctLabel >= 60
-            ? 'text-amber-600 dark:text-amber-400'
-            : 'text-red-600 dark:text-red-400'
-      )}
-    >
-      {matchedPctLabel}%
-    </span>
-
-    <span class="text-muted-foreground w-20 shrink-0 text-right font-mono text-[11px] tabular-nums">
-      {#if node.notMatched > 0}
-        <span class="text-foreground">{node.notMatched.toLocaleString()}</span> / {node.total.toLocaleString()}
-      {:else}
-        {node.total.toLocaleString()}
-      {/if}
-    </span>
-  </button>
-
-    <Button
-      variant="ghost"
-      size="sm"
-      class={cn(
-        'mr-1 h-6 shrink-0 px-2 text-[11px] opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100',
-        (isEnriching || enrichState === 'error') && 'opacity-100',
-        isEnriching && 'text-primary',
-        enrichState === 'error' && 'text-destructive'
-      )}
-      disabled={isEnriching}
-      title="Add every song under this folder to your library (enrich + build)"
-      onclick={handleEnrichFolder}
-    >
-      {#if isEnriching}
-        <Loader2 class="mr-1 size-3 animate-spin" />
-        {inLibrary ? 'Updating…' : 'Adding…'}
-      {:else if enrichState === 'error'}
-        <AlertCircle class="mr-1 size-3" />
-        Failed
-      {:else}
-        <Sparkles class="mr-1 size-3" />
-        {inLibrary ? 'Update in library' : 'Add to library'}
-      {/if}
-    </Button>
   </div>
 
   {#if expanded}
     <div>
       {#each node.children as child (child.path)}
-        <Self node={child} depth={depth + 1} {enrichingPaths} {refreshToken} {onEnriched} />
+        <Self node={child} depth={depth + 1} {enrichingPaths} {refreshToken} {onEnriched} {onToggleExpected} />
       {/each}
 
       {#if hasFiles}

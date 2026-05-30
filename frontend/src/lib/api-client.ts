@@ -443,11 +443,24 @@ export interface DirectoryMatchNode {
   directFileCount: number
   /** Sum of file sizes rolled up from every song beneath this node. */
   sizeBytes: number
+  /** User-tagged "expected low" folder (leaks/unreleased) — pulled out of the work queue. */
+  expectedLow: boolean
   children: DirectoryMatchNode[]
 }
 
 export async function fetchDirectoryMatchTree(): Promise<DirectoryMatchNode> {
   return requestJson<DirectoryMatchNode>("/library/directory-tree")
+}
+
+/** Toggle the current user's "expected low" flag for one source-relative folder path. */
+export async function setDirectoryExpectedLow(
+  path: string,
+  expectedLow: boolean
+): Promise<{ path: string; expectedLow: boolean }> {
+  return requestJson<{ path: string; expectedLow: boolean }>("/library/directory-preferences", {
+    method: "POST",
+    body: JSON.stringify({ path, expectedLow })
+  })
 }
 
 /** Per-file state surfaced in the folder drill-down (mirrors the backend DeriveFileState). */
@@ -1366,8 +1379,64 @@ export interface QualityOverview {
   gradeableTotal: number
   coverage: number
   library: QualityRollupView
+  /** Auto-asked-for-review (NeedsReview at grade time). */
+  flaggedCount: number
+  /** Auto-accepted (Matched) but graded Wrong/Questionable — the algorithm's blind spots. */
+  silentFailureCount: number
+  /** Auto-accepted (Matched) and graded Excellent. */
+  verifiedCleanCount: number
   worstOffenders: QualityWorstOffender[]
   directories: QualityDirectoryRollup[]
+}
+
+/** Which workbench bucket a graded song falls into (mirrors the backend classifier). */
+export type QualityBucketName = "flagged" | "silent" | "verified" | "other"
+
+/** A graded song row for the AI-quality workbench master list. */
+export interface QualitySongRow {
+  songId: number
+  fileName: string
+  sourcePath: string
+  artist?: string | null
+  title?: string | null
+  album?: string | null
+  score: number
+  verdict: QualityVerdict
+  summary?: string | null
+  issues: QualityIssue[]
+  enrichmentStatusAtGrade?: string | null
+  destinationPathPreview?: string | null
+  gradedAtUtc: string
+  bucket: QualityBucketName
+}
+
+/** Filter category for the workbench list: a bucket, a verdict, or "all". */
+export type QualityCategory =
+  | "all"
+  | "flagged"
+  | "silent"
+  | "verified"
+  | "wrong"
+  | "questionable"
+  | "good"
+  | "excellent"
+  | "ungradeable"
+
+export interface QualitySongsPage {
+  total: number
+  skip: number
+  take: number
+  items: QualitySongRow[]
+}
+
+export async function fetchQualitySongs(
+  category: QualityCategory = "all",
+  skip = 0,
+  take = 200
+): Promise<QualitySongsPage> {
+  return requestJson<QualitySongsPage>(
+    `/api/quality/songs?category=${encodeURIComponent(category)}&skip=${skip}&take=${take}`
+  )
 }
 
 export interface SongQualityGradeView {
