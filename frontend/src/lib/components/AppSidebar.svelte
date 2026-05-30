@@ -177,6 +177,13 @@
   }
 
   const reviewCount = $derived(counts.missing);
+
+  // On mobile the sidebar is an off-canvas Sheet; tapping a destination should
+  // close it (client-side nav keeps this component mounted, so it won't auto-close).
+  const sidebar = Sidebar.useSidebar();
+  function closeMobile() {
+    if (sidebar.isMobile) sidebar.setOpenMobile(false);
+  }
 </script>
 
 <Sidebar.Root collapsible="icon">
@@ -185,7 +192,7 @@
       <Sidebar.MenuItem>
         <Sidebar.MenuButton size="lg" tooltipContent="MusicHoarder">
           {#snippet child({ props })}
-            <a {...props} href="/library">
+            <a {...props} href="/library" onclick={closeMobile}>
               <div
                 class="bg-primary text-primary-foreground flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg shadow-sm"
               >
@@ -213,6 +220,7 @@
           {@const count = counts[section.id]}
           <a
             href={section.id === 'lib' ? '/library' : `/library?section=${section.id}`}
+            onclick={closeMobile}
             data-active={isActive || undefined}
             class={cn(
               'mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors',
@@ -232,6 +240,7 @@
         {@const tracksActive = pathname === '/tracks'}
         <a
           href="/tracks"
+          onclick={closeMobile}
           data-active={tracksActive || undefined}
           class={cn(
             'mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors',
@@ -255,6 +264,7 @@
             {@const isActive = activeOrganize === item.id}
             <a
               href={item.href}
+              onclick={closeMobile}
               data-active={isActive || undefined}
               class="text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:font-medium mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors"
             >
@@ -286,6 +296,7 @@
               : pathname.startsWith(item.href)}
           <a
             href={item.href}
+            onclick={closeMobile}
             data-active={isActive || undefined}
             class="text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:font-medium mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors group-data-[collapsible=icon]:justify-center"
           >
@@ -361,6 +372,7 @@
         <a
           href="/settings"
           aria-label="Settings"
+          onclick={closeMobile}
           data-active={pathname.startsWith('/settings') || undefined}
           class="text-muted-foreground hover:bg-sidebar-accent hover:text-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-primary grid size-[26px] place-items-center rounded-md transition-colors"
         >

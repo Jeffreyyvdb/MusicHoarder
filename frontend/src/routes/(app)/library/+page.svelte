@@ -6,8 +6,6 @@
   import Gallery from '$lib/components/file-browser/Gallery.svelte';
   import AlbumPage from '$lib/components/file-browser/AlbumPage.svelte';
   import TrackPanel from '$lib/components/file-browser/TrackPanel.svelte';
-  import MobileLibrary from '$lib/components/mobile/MobileLibrary.svelte';
-  import MobileAlbum from '$lib/components/mobile/MobileAlbum.svelte';
   import {
     buildAlbumsFromSongs,
     fetchSongs,
@@ -224,13 +222,7 @@
     </div>
   {/if}
 
-  {#if isMobile.current}
-    {#if openAlbum && albumKey}
-      <MobileAlbum album={openAlbum} />
-    {:else}
-      <MobileLibrary songs={scopedSongs} {section} {searchQuery} {isLoading} {isSourceView} />
-    {/if}
-  {:else if !trackPanelOpen}
+  {#snippet mainContent()}
     {#if openAlbum && albumKey}
       <AlbumPage album={openAlbum} {isLoading} />
     {:else}
@@ -243,21 +235,15 @@
         browseFilter={galleryBrowseFilter}
       />
     {/if}
-  {:else}
+  {/snippet}
+
+  <!-- One responsive tree: the same Gallery/AlbumPage render at every width. The
+       track panel is the only width-dependent shell — a resizable side pane on
+       desktop, a bottom Sheet on mobile (its TrackPanel content is shared). -->
+  {#if !isMobile.current && trackPanelOpen}
     <Resizable.PaneGroup id="library-albums-panels" direction="horizontal" class="min-h-0 flex-1">
       <Resizable.Pane id="library-albums-main" order={1} defaultSize={70} class="flex min-h-0 flex-col">
-        {#if openAlbum && albumKey}
-          <AlbumPage album={openAlbum} {isLoading} />
-        {:else}
-          <Gallery
-        songs={sectionFilteredSongs}
-        {section}
-        {searchQuery}
-        {isLoading}
-        {isSourceView}
-        browseFilter={galleryBrowseFilter}
-      />
-        {/if}
+        {@render mainContent()}
       </Resizable.Pane>
       <Resizable.Handle />
       <Resizable.Pane
@@ -278,6 +264,8 @@
         {/if}
       </Resizable.Pane>
     </Resizable.PaneGroup>
+  {:else}
+    {@render mainContent()}
   {/if}
 
   {#if isMobile.current}
