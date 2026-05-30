@@ -150,7 +150,8 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         song.Isrc = originalIsrc;
 
         var consensus = ConsensusEvaluator.Evaluate(
-            song, enabledEnums, BuildIdentityOptions(), _options.Value.ConsensusCorroborationFloor);
+            song, enabledEnums, BuildIdentityOptions(), _options.Value.ConsensusCorroborationFloor,
+            _options.Value.PreferOriginalRelease);
 
         // Visibility safety net: a Pending verdict that isn't waiting on a rate-limited provider
         // means no enabled provider can act on this song at all (e.g. no fingerprint and nothing
@@ -211,7 +212,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                 // strong multi-provider consensus justifies an upgrade; record every change.
                 var changes = MetadataMerger.ApplyMatch(
                     song, consensus.Winner, consensus.Confidence, consensus.AgreeingProviders.Count,
-                    _options.Value.AutoUpgradeConfidence, warningsJson);
+                    _options.Value.AutoUpgradeConfidence, warningsJson, consensus.CorroboratedFields);
 
                 var now = DateTime.UtcNow;
                 foreach (var c in changes)

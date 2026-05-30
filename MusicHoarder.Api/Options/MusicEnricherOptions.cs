@@ -307,6 +307,23 @@ public class MusicEnricherOptions
     public double IdentityDurationDeltaSeconds { get; set; } = 8;
 
     /// <summary>
+    /// Additive confidence boost a name-based provider applies when a candidate's album agrees
+    /// (fuzzily) with the file's album tag. Confirmation-only: a differing album is never penalized
+    /// (a track legitimately appears on many releases), but the boost breaks ties in favour of the
+    /// candidate on the file's own album so the original pressing is preferred over a compilation.
+    /// </summary>
+    [Range(0.0, 0.3)]
+    public double AlbumAgreementConfidenceBoost { get; set; } = 0.05;
+
+    /// <summary>
+    /// When a corroborated recording is attributed to more than one release (e.g. the original album
+    /// and a later "Greatest Hits" compilation), break ties toward the earliest, non-compilation
+    /// (original) release for the album-level fields. Pure provider corroboration still wins first;
+    /// this only decides equally-corroborated releases.
+    /// </summary>
+    public bool PreferOriginalRelease { get; set; } = true;
+
+    /// <summary>
     /// Minimum consensus confidence (with ≥2 agreeing providers) required to auto-overwrite a
     /// *good* existing curated value. Below this, a conflicting change is proposed for review
     /// rather than applied — so a curated library is never silently degraded.
