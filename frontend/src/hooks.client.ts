@@ -10,17 +10,24 @@ const isStaleChunkError = (error: unknown): boolean =>
     error.message
   );
 
+// Only suppress the auto-reload if we *just* reloaded — a fresh stale-chunk error this soon
+// after a reload means the new build is genuinely unreachable, so stop and show the error
+// instead of looping. A stale chunk long after the last reload is simply the NEXT deploy and
+// must reload again, so the guard is a short time window, not a permanent flag (a permanent
+// flag left every deploy after the first one stuck on "Something went wrong." until the user
+// cleared their browser data).
+const RELOAD_LOOP_WINDOW_MS = 15_000;
+
 export const handleError: HandleClientError = ({ error }) => {
-  if (isStaleChunkError(error) && typeof location !== 'undefined') {
-    // Guard against a reload loop if the fresh build is genuinely unreachable.
-    const key = 'mh:stale-chunk-reloaded';
-    if (!sessionStorage.getItem(key)) {
+  if (isStaleChunkError(error) && typeof location !== 'undefined' && typeof sessionStorage !== 'undefined') {
+    const key = 'mh:stale-chunk-reloaded-at';
+    const lastReloadAt = Number(sessionStorage.getItem(key) ?? '0');
+    const reloadedJustNow = lastReloadAt > 0 && Date.now() - lastReloadAt < RELOAD_LOOP_WINDOW_MS;
+    if (!reloadedJustNow) {
       sessionStorage.setItem(key, String(Date.now()));
       location.reload();
       return { message: 'Reloading…' };
     }
-  } else if (typeof sessionStorage !== 'undefined') {
-    sessionStorage.removeItem('mh:stale-chunk-reloaded');
   }
 
   return { message: 'Something went wrong.' };

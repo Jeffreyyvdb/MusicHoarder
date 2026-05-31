@@ -51,9 +51,15 @@
     LogOut
   } from '@lucide/svelte';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import MobileSettings from '$lib/components/mobile/MobileSettings.svelte';
+  import { uiVersion } from '$lib/stores/ui-version.svelte';
+  import SettingsV2 from '$lib/components/v2/SettingsV2.svelte';
 
   const isMobile = new IsMobile();
+
+  // The v2 redesign reskins the desktop settings body in place (see ui-version
+  // store). Everywhere else — mobile, and v1 desktop — uses the responsive Tabs
+  // body below.
+  const useV2 = $derived(uiVersion.isV2 && !isMobile.current);
 
   const user = $derived(page.data.user as { id: string; email: string; role: 'Owner' | 'Demo'; displayName: string | null } | undefined);
   const initials = $derived((user?.displayName ?? user?.email ?? '?').slice(0, 2).toUpperCase());
@@ -76,7 +82,7 @@
   });
 
   $effect(() => {
-    if (user?.role !== 'Owner') return;
+    if (user?.role !== 'Owner' || useV2) return;
     let cancelled = false;
     void (async () => {
       passkeysLoading = true;
@@ -150,7 +156,8 @@
   );
 
   $effect(() => {
-    if (isMobile.current) return;
+    // v2 desktop renders SettingsV2, which loads its own data; skip here.
+    if (useV2) return;
     let cancelled = false;
     void (async () => {
       isLoading = true;
@@ -343,11 +350,11 @@
   ];
 </script>
 
-{#if isMobile.current}
-  <MobileSettings />
+{#if useV2}
+  <SettingsV2 />
 {:else}
 <div class="flex-1 overflow-auto">
-  <div class="mx-auto max-w-4xl p-6 md:p-8">
+  <div class="mx-auto max-w-4xl p-4 sm:p-6 md:p-8">
     <div class="mb-8 flex items-center gap-3">
       <div class="bg-secondary flex size-10 items-center justify-center rounded-lg">
         <Settings class="text-foreground size-5" />

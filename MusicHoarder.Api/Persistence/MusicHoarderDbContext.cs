@@ -38,6 +38,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<SongProviderAttempt> SongProviderAttempts { get; set; } = null!;
     public DbSet<SongMetadataChange> SongMetadataChanges { get; set; } = null!;
     public DbSet<SongQualityGrade> SongQualityGrades { get; set; } = null!;
+    public DbSet<DirectoryPreference> DirectoryPreferences { get; set; } = null!;
     public DbSet<SpotifySettings> SpotifySettings { get; set; } = null!;
     public DbSet<SpotifyTrackLibraryMatch> SpotifyTrackLibraryMatches { get; set; } = null!;
     public DbSet<RuntimeSettings> RuntimeSettings { get; set; } = null!;
@@ -133,6 +134,15 @@ public class MusicHoarderDbContext : DbContext
             // Mirror Song's tenancy filter so this dependent is filtered exactly when its principal
             // would be. Background services bypass via .IgnoreQueryFilters().
             entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<DirectoryPreference>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // One preference row per (user, folder); looked up by path when toggling and rendering the tree.
+            entity.HasIndex(e => new { e.OwnerUserId, e.Path }).IsUnique();
+
+            entity.HasQueryFilter(p => !hasUser || p.OwnerUserId == userId);
         });
 
         modelBuilder.Entity<SpotifySettings>(entity =>

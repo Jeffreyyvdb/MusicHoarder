@@ -39,10 +39,6 @@
   import TrackListSkeleton from '$lib/components/spotify/TrackListSkeleton.svelte';
   import PlaylistGridSkeleton from '$lib/components/spotify/PlaylistGridSkeleton.svelte';
   import PlaylistDetailView from '$lib/components/spotify/PlaylistDetailView.svelte';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import MobileSpotify from '$lib/components/mobile/MobileSpotify.svelte';
-
-  const isMobile = new IsMobile();
 
   let status = $state<SpotifyStatusResponse | null>(null);
   let credentials = $state<SpotifyCredentialsResponse | null>(null);
@@ -97,7 +93,6 @@
   }
 
   $effect(() => {
-    if (isMobile.current) return;
     void loadStatus();
   });
 
@@ -153,7 +148,6 @@
 
   // Load data when Spotify connects.
   $effect(() => {
-    if (isMobile.current) return;
     if (status?.connected) {
       void loadLikedSongs(0);
       void loadPlaylists();
@@ -221,9 +215,7 @@
   );
 </script>
 
-{#if isMobile.current}
-  <MobileSpotify />
-{:else if isLoadingStatus}
+{#if isLoadingStatus}
   <div class="flex flex-1 items-center justify-center">
     <Loader2 class="text-muted-foreground size-8 animate-spin" />
   </div>

@@ -7,8 +7,13 @@
   import TrackPanel from '$lib/components/file-browser/TrackPanel.svelte';
   import { buildAlbumsFromSongs, fetchSongs, type ApiSong } from '$lib/api-client';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
+  import { uiVersion } from '$lib/stores/ui-version.svelte';
+  import LibraryV2 from '$lib/components/v2/LibraryV2.svelte';
 
   const isMobile = new IsMobile();
+  // v2 desktop renders the redesigned Library shell (All tracks tab) in-place;
+  // v1 (and v2 on mobile) keeps the existing resizable TrackList layout.
+  const showV2 = $derived(uiVersion.isV2 && !isMobile.current);
 
   let songs = $state<ApiSong[]>([]);
   let isLoading = $state(true);
@@ -26,6 +31,8 @@
   }
 
   $effect(() => {
+    // v2 owns its own fetching; skip the v1 data layer when it's showing.
+    if (showV2) return;
     isMountedRef = true;
     void loadSongs();
     return () => {
@@ -64,6 +71,9 @@
   }
 </script>
 
+{#if showV2}
+  <LibraryV2 tab="tracks" />
+{:else}
 <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
   {#if isMobile.current}
     <TrackList {songs} {searchQuery} {isLoading} {selectedId} onSelect={selectTrack} />
@@ -115,4 +125,5 @@
       {/if}
     </Sheet.Content>
   </Sheet.Root>
+{/if}
 {/if}

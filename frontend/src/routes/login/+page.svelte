@@ -5,7 +5,14 @@
   import { Label } from '$lib/components/ui/label';
   import { requestMagicLink, signInAsDemo, loginWithPasskey } from '$lib/api-client';
   import { isPasskeySupported } from '$lib/webauthn-client';
+  import { uiVersion } from '$lib/stores/ui-version.svelte';
   import { LogIn, Mail, Loader2, CheckCircle2, AlertCircle, ExternalLink, Sparkles, KeyRound } from '@lucide/svelte';
+
+  // The app entry differs by design version: v2 lands on the conveyor home
+  // (/pipeline), v1 keeps its long-standing landing (/library). The flag is a
+  // per-browser localStorage value, readable here in the browser; defaulting to
+  // v1 means existing users are unaffected until they opt in.
+  const landingRoute = () => (uiVersion.isV2 ? '/pipeline' : '/library');
 
   let email = $state('');
   let isSending = $state(false);
@@ -27,7 +34,7 @@
     result = null;
     try {
       await loginWithPasskey();
-      await goto('/library', { invalidateAll: true });
+      await goto(landingRoute(), { invalidateAll: true });
     } catch (err) {
       result = {
         ok: false,
@@ -64,7 +71,7 @@
     isStartingDemo = true;
     try {
       await signInAsDemo();
-      await goto('/library', { invalidateAll: true });
+      await goto(landingRoute(), { invalidateAll: true });
     } catch (err) {
       result = {
         ok: false,

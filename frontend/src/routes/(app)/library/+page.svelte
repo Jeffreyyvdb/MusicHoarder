@@ -6,8 +6,6 @@
   import Gallery from '$lib/components/file-browser/Gallery.svelte';
   import AlbumPage from '$lib/components/file-browser/AlbumPage.svelte';
   import TrackPanel from '$lib/components/file-browser/TrackPanel.svelte';
-  import MobileLibrary from '$lib/components/mobile/MobileLibrary.svelte';
-  import MobileAlbum from '$lib/components/mobile/MobileAlbum.svelte';
   import {
     buildAlbumsFromSongs,
     fetchSongs,
@@ -26,8 +24,13 @@
   import { breadcrumbStore } from '$lib/stores/breadcrumbs.svelte';
   import { cn } from '$lib/utils';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
+  import { uiVersion } from '$lib/stores/ui-version.svelte';
+  import LibraryV2 from '$lib/components/v2/LibraryV2.svelte';
 
   const isMobile = new IsMobile();
+  // v2 desktop renders the redesigned Library shell in-place; v1 (and v2 on
+  // mobile, which falls back to the v1 chrome) keeps the existing markup.
+  const showV2 = $derived(uiVersion.isV2 && !isMobile.current);
   let songs = $state<ApiSong[]>([]);
   let apiError = $state<string | null>(null);
   let isLoading = $state(true);
@@ -118,6 +121,9 @@
   }
 
   $effect(() => {
+    // When the v2 Library owns the page it does its own fetching + live refresh;
+    // skip the v1 data layer to avoid duplicate work and breadcrumb fights.
+    if (showV2) return;
     isMountedRef = true;
     void loadSongs();
     startLive();
@@ -159,6 +165,7 @@
   );
 
   $effect(() => {
+    if (showV2) return;
     if (openAlbum) {
       breadcrumbStore.setAlbum({ artist: openAlbum.artist, title: openAlbum.title });
     } else {
@@ -205,6 +212,9 @@
   const trackPanelOpen = $derived(!!selectedTrack && !!openAlbum);
 </script>
 
+{#if showV2}
+  <LibraryV2 tab="albums" />
+{:else}
 <div class={cn('flex min-h-0 flex-1 flex-col overflow-hidden')}>
   {#if apiError}
     <div class="border-border bg-card/30 text-destructive border-b px-4 py-2 text-xs md:px-6">
@@ -212,13 +222,7 @@
     </div>
   {/if}
 
-  {#if isMobile.current}
-    {#if openAlbum && albumKey}
-      <MobileAlbum album={openAlbum} />
-    {:else}
-      <MobileLibrary songs={scopedSongs} {section} {searchQuery} {isLoading} {isSourceView} />
-    {/if}
-  {:else if !trackPanelOpen}
+  {#snippet mainContent()}
     {#if openAlbum && albumKey}
       <AlbumPage album={openAlbum} {isLoading} />
     {:else}
@@ -231,21 +235,15 @@
         browseFilter={galleryBrowseFilter}
       />
     {/if}
-  {:else}
+  {/snippet}
+
+  <!-- One responsive tree: the same Gallery/AlbumPage render at every width. The
+       track panel is the only width-dependent shell — a resizable side pane on
+       desktop, a bottom Sheet on mobile (its TrackPanel content is shared). -->
+  {#if !isMobile.current && trackPanelOpen}
     <Resizable.PaneGroup id="library-albums-panels" direction="horizontal" class="min-h-0 flex-1">
       <Resizable.Pane id="library-albums-main" order={1} defaultSize={70} class="flex min-h-0 flex-col">
-        {#if openAlbum && albumKey}
-          <AlbumPage album={openAlbum} {isLoading} />
-        {:else}
-          <Gallery
-        songs={sectionFilteredSongs}
-        {section}
-        {searchQuery}
-        {isLoading}
-        {isSourceView}
-        browseFilter={galleryBrowseFilter}
-      />
-        {/if}
+        {@render mainContent()}
       </Resizable.Pane>
       <Resizable.Handle />
       <Resizable.Pane
@@ -266,6 +264,8 @@
         {/if}
       </Resizable.Pane>
     </Resizable.PaneGroup>
+  {:else}
+    {@render mainContent()}
   {/if}
 
   {#if isMobile.current}
@@ -288,3 +288,4 @@
     </Sheet.Root>
   {/if}
 </div>
+{/if}

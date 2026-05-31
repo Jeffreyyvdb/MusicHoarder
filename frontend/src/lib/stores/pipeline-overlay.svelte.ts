@@ -50,6 +50,11 @@ let overview = $state<ApiOverview | null>(null);
 let samples = $state<RateSample[]>([]);
 
 let refCount = 0;
+// Number of consumers that want the live stream active without opening the
+// drawer (e.g. the v2 conveyor home, which must reflect a running job even when
+// the bottom drawer is closed). Tracked separately from `refCount`/`isOpen` so
+// it never changes the drawer's visual state.
+let liveRefCount = 0;
 let sseCleanup: (() => void) | null = null;
 let sseReconnect: ReturnType<typeof setTimeout> | null = null;
 let pollHandle: ReturnType<typeof setInterval> | null = null;
@@ -183,11 +188,11 @@ function deactivate(): void {
  * to reflect reality.
  */
 function reconcileLifecycle(): void {
-  if (refCount <= 0) {
+  if (refCount <= 0 && liveRefCount <= 0) {
     deactivate();
     return;
   }
-  const shouldRun = isOpen || isAnyRunningFor(snapshot);
+  const shouldRun = liveRefCount > 0 || isOpen || isAnyRunningFor(snapshot);
   if (shouldRun) activate();
   else deactivate();
 }
@@ -213,6 +218,20 @@ function mount(): () => void {
   reconcileLifecycle();
   return () => {
     refCount = Math.max(0, refCount - 1);
+    reconcileLifecycle();
+  };
+}
+
+/**
+ * Keep the progress stream + overview poll active while mounted, WITHOUT
+ * opening the drawer. Used by the v2 conveyor home so its live counts reflect a
+ * running job even when the bottom drawer is closed. Returns a cleanup fn.
+ */
+function keepLive(): () => void {
+  liveRefCount += 1;
+  reconcileLifecycle();
+  return () => {
+    liveRefCount = Math.max(0, liveRefCount - 1);
     reconcileLifecycle();
   };
 }
@@ -255,7 +274,8 @@ export const pipelineOverlay = {
   },
   setOpen,
   toggle,
-  mount
+  mount,
+  keepLive
 };
 
 export type PipelineOverlayStore = typeof pipelineOverlay;

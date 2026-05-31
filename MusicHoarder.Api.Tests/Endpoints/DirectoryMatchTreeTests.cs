@@ -119,6 +119,40 @@ public class DirectoryMatchTreeTests
         Assert.Equal(350, root.SizeBytes);
     }
 
+    [Fact]
+    public void BuildMatchTree_FlagsExpectedLowNodesByPath()
+    {
+        var rows = new[]
+        {
+            Row("/music/Kanye West/Donda/01.mp3", EnrichmentStatus.Matched, LibraryBuildStatus.Done),
+            Row("/music/Kanye West/Yandhi/leak.mp3", EnrichmentStatus.Failed),
+            Row("/music/Drake/album/hit.mp3", EnrichmentStatus.Matched, LibraryBuildStatus.Done),
+        };
+
+        var expectedLow = new HashSet<string>(StringComparer.Ordinal) { "Kanye West/Yandhi" };
+        var root = DashboardEndpoints.BuildMatchTree(rows, "/music", expectedLow);
+
+        var kanye = root.Children.Single(c => c.Name == "Kanye West");
+        var yandhi = kanye.Children.Single(c => c.Name == "Yandhi");
+        var donda = kanye.Children.Single(c => c.Name == "Donda");
+
+        Assert.True(yandhi.ExpectedLow);   // tagged
+        Assert.False(donda.ExpectedLow);   // a sibling, not tagged
+        Assert.False(kanye.ExpectedLow);   // the parent path was not tagged
+        Assert.False(root.ExpectedLow);
+    }
+
+    [Fact]
+    public void BuildMatchTree_WithoutPreferences_LeavesEveryNodeNotExpectedLow()
+    {
+        var rows = new[] { Row("/music/A/song.mp3", EnrichmentStatus.Matched) };
+
+        var root = DashboardEndpoints.BuildMatchTree(rows, "/music");
+
+        Assert.False(root.ExpectedLow);
+        Assert.False(root.Children.Single().ExpectedLow);
+    }
+
     [Theory]
     [InlineData(EnrichmentStatus.Matched, LibraryBuildStatus.Done, "written")]
     [InlineData(EnrichmentStatus.Matched, LibraryBuildStatus.Pending, "matched")]
