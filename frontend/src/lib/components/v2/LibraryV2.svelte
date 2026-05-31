@@ -353,6 +353,7 @@
             {isLoading}
             selectedId={tracksSelectedId}
             onSelect={selectTrack}
+            hideHeading
           />
         </div>
         <Sheet.Root open={tracksPanelOpen} onOpenChange={(open) => !open && closeTrack()}>
@@ -387,6 +388,7 @@
               {isLoading}
               selectedId={tracksSelectedId}
               onSelect={selectTrack}
+              hideHeading
             />
           </Resizable.Pane>
           {#if tracksPanelOpen}
