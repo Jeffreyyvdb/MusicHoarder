@@ -198,7 +198,9 @@
 </script>
 
 <!-- Header -->
-<header class="border-border flex shrink-0 items-end justify-between gap-4 border-b px-7 py-5">
+<header
+  class="border-border flex shrink-0 flex-col gap-3 border-b px-4 py-4 sm:flex-row sm:items-end sm:justify-between sm:gap-4 sm:px-7 sm:py-5"
+>
   <div class="min-w-0">
     <div class="text-muted-foreground font-mono text-[10px] tracking-[0.12em] uppercase">
       Track · enrichment timeline
@@ -209,7 +211,7 @@
       touched it, and where it lives now.
     </p>
   </div>
-  <div class="flex shrink-0 items-center gap-2">
+  <div class="flex flex-wrap items-center gap-2 sm:shrink-0">
     <button
       type="button"
       onclick={goBack}
@@ -240,7 +242,7 @@
 </header>
 
 <ScrollArea class="min-h-0 flex-1">
-  <div class="mx-auto flex max-w-4xl flex-col gap-6 px-7 py-6">
+  <div class="mx-auto flex max-w-4xl flex-col gap-5 px-4 py-5 sm:gap-6 sm:px-7 sm:py-6">
     {#if !loaded}
       <!-- Hero skeleton -->
       <div class="border-border bg-card flex items-center gap-5 rounded-lg border p-5">
@@ -271,7 +273,9 @@
       </div>
     {:else}
       <!-- Hero -->
-      <section class="border-border bg-card flex items-center gap-5 rounded-lg border p-5">
+      <section
+        class="border-border bg-card flex flex-col items-start gap-4 rounded-lg border p-4 sm:flex-row sm:items-center sm:gap-5 sm:p-5"
+      >
         <Cover
           artist={heroArtist || 'Unknown'}
           title={heroAlbum || heroTitle}
@@ -288,7 +292,7 @@
               .filter(Boolean)
               .join(' · ') || '—'}
           </div>
-          <div class="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[11.5px]">
+          <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11.5px] sm:gap-x-5">
             <span class="text-muted-foreground">
               Duration <b class="text-foreground font-mono">{formatDuration(song.durationSeconds)}</b>
             </span>

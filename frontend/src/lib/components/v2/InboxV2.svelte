@@ -55,13 +55,13 @@
 </script>
 
 <!-- Header -->
-<header class="border-border flex shrink-0 items-end justify-between gap-4 border-b px-7 py-5">
+<header class="border-border flex shrink-0 items-end justify-between gap-4 border-b px-4 py-4 sm:px-7 sm:py-5">
   <div class="min-w-0">
     <div class="text-muted-foreground font-mono text-[10px] tracking-[0.12em] uppercase">
       {totalAwaiting == null ? 'Loading…' : `${totalAwaiting.toLocaleString()} item${totalAwaiting === 1 ? '' : 's'} awaiting you`}
     </div>
-    <h1 class="mt-1 text-2xl font-semibold tracking-tight">Inbox</h1>
-    <p class="text-muted-foreground mt-1 max-w-2xl text-xs">
+    <h1 class="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">Inbox</h1>
+    <p class="text-muted-foreground mt-1 hidden max-w-2xl text-xs sm:block">
       Everything the pipeline couldn't auto-resolve. Pick the right tag candidate, compare ambiguous
       duplicates, or inspect what the AI grader flagged as wrong.
     </p>
@@ -69,7 +69,7 @@
 </header>
 
 <!-- Subtabs -->
-<nav class="border-border flex shrink-0 items-center gap-1 border-b px-7" aria-label="Inbox queues">
+<nav class="border-border flex shrink-0 items-center gap-1 overflow-x-auto border-b px-4 sm:px-7" aria-label="Inbox queues">
   {#each TABS as t (t.id)}
     {@const isActive = t.id === tab}
     {@const Icon = t.icon}
@@ -79,7 +79,7 @@
       onclick={() => selectTab(t.id)}
       data-active={isActive || undefined}
       class={cn(
-        'relative flex items-center gap-1.5 px-2.5 py-2.5 text-[12.5px] transition-colors',
+        'relative flex shrink-0 items-center gap-1.5 px-2.5 py-2.5 text-[12.5px] whitespace-nowrap transition-colors',
         'after:absolute after:inset-x-2.5 after:bottom-0 after:h-[2px] after:rounded-full after:bg-transparent',
         isActive ? 'text-foreground font-medium after:bg-primary' : 'text-muted-foreground hover:text-foreground'
       )}

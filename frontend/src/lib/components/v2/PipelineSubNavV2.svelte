@@ -27,7 +27,7 @@
 </script>
 
 <nav
-  class="border-border flex shrink-0 items-center gap-1 border-b px-7"
+  class="border-border flex shrink-0 items-center gap-1 overflow-x-auto border-b px-4 sm:px-7"
   aria-label="Pipeline views"
 >
   {#each tabs as tab (tab.id)}
@@ -37,7 +37,7 @@
       href={tab.href}
       data-active={isActive || undefined}
       class={cn(
-        'relative flex items-center gap-1.5 px-2.5 py-2.5 text-[12.5px] transition-colors',
+        'relative flex shrink-0 items-center gap-1.5 px-2.5 py-2.5 text-[12.5px] whitespace-nowrap transition-colors',
         'after:absolute after:inset-x-2.5 after:bottom-0 after:h-[2px] after:rounded-full after:bg-transparent',
         isActive
           ? 'text-foreground font-medium after:bg-primary'
@@ -63,7 +63,7 @@
   {/each}
   <span class="flex-1"></span>
   {#if meta}
-    <span class="text-muted-foreground/80 font-mono text-[11px]">{meta}</span>
+    <span class="text-muted-foreground/80 hidden font-mono text-[11px] whitespace-nowrap sm:block">{meta}</span>
   {/if}
 </nav>
 

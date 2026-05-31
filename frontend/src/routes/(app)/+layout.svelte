@@ -13,13 +13,10 @@
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { commandPalette } from '$lib/stores/command-palette.svelte';
   import { uiVersion } from '$lib/stores/ui-version.svelte';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import { cn } from '$lib/utils';
 
   type Props = { children: Snippet };
   const { children }: Props = $props();
-
-  const isMobile = new IsMobile();
 
   // Global Cmd/Ctrl+K opens the "search everywhere" command palette.
   $effect(() => {
@@ -44,13 +41,13 @@
   const drawerOpen = $derived(pipelineOverlay.isOpen);
   const playerPad = $derived(playerStore.currentSong && !playerStore.isPanelMounted);
 
-  // The v2 redesign is an in-place shell swap (see ui-version store) that takes
-  // over only the desktop chrome. Everywhere else — mobile at any version, and
-  // desktop with v2 off — uses the legacy shell, which is now fully responsive:
-  // the shadcn Sidebar collapses to an off-canvas drawer on mobile (opened by the
-  // Sidebar.Trigger in AppHeader) and the header reflows. children() is rendered
-  // once per branch so navigation/resize never refetches.
-  const useV2Shell = $derived(uiVersion.isV2 && !isMobile.current);
+  // The v2 redesign is an in-place shell swap (see ui-version store). It now
+  // renders at every width: AppShellV2 reuses the shadcn Sidebar.Provider, whose
+  // offcanvas sidebar self-presents as a left drawer on mobile (opened by the
+  // Sidebar.Trigger in AppTopBarV2). v1 (toggle off) keeps the legacy shell,
+  // which is itself responsive. children() is rendered once per branch so
+  // navigation/resize never refetches.
+  const useV2Shell = $derived(uiVersion.isV2);
 </script>
 
 {#if useV2Shell}

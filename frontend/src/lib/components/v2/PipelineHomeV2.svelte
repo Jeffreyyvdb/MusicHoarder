@@ -411,7 +411,9 @@
 </script>
 
 <!-- Header -->
-<header class="border-border flex shrink-0 items-end justify-between gap-4 border-b px-7 py-5">
+<header
+  class="border-border flex shrink-0 flex-col gap-3 border-b px-4 py-4 sm:flex-row sm:items-end sm:justify-between sm:gap-4 sm:px-7 sm:py-5"
+>
   <div class="min-w-0">
     <div class="text-muted-foreground flex items-center gap-1.5 font-mono text-[10px] tracking-[0.12em] uppercase">
       <span
@@ -421,14 +423,14 @@
       ></span>
       {anyRunning ? 'Live · pipeline running' : 'Pipeline · idle'}
     </div>
-    <h1 class="mt-1 text-2xl font-semibold tracking-tight">Pipeline</h1>
-    <p class="text-muted-foreground mt-1 max-w-2xl text-xs">
+    <h1 class="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">Pipeline</h1>
+    <p class="text-muted-foreground mt-1 line-clamp-2 max-w-2xl text-xs sm:line-clamp-none">
       Files flow left-to-right: scanned, fingerprinted, matched against providers, decided on,
       graded by AI, deduped, then landed in your library. Anything that needs a human surfaces in
       <a href="/inbox" class="text-primary hover:underline">Inbox</a>.
     </p>
   </div>
-  <div class="flex shrink-0 items-center gap-2">
+  <div class="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
     <button
       type="button"
       onclick={handleRescan}
@@ -448,7 +450,7 @@
 <PipelineSubNavV2 tabs={subNavTabs} active="conveyor" running={anyRunning} />
 
 <ScrollArea class="min-h-0 flex-1">
-  <div class="flex flex-col gap-6 px-7 py-6">
+  <div class="flex flex-col gap-6 px-4 py-6 sm:px-7">
     <!-- KPI row -->
     <div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
       <!-- Source -->
@@ -457,7 +459,7 @@
         {#if sourceTotal == null}
           <Skeleton class="mt-1.5 h-7 w-16" />
         {:else}
-          <div class="mt-0.5 font-mono text-2xl font-semibold tabular-nums">{fmtNum(sourceTotal)}</div>
+          <div class="mt-0.5 font-mono text-xl font-semibold tabular-nums sm:text-2xl">{fmtNum(sourceTotal)}</div>
         {/if}
         <div class="text-muted-foreground mt-0.5 text-[11px]">
           files{sourceBytes != null ? ` · ${fmtBytes(sourceBytes)}` : ''}
@@ -470,7 +472,7 @@
         {#if inLibrary == null}
           <Skeleton class="mt-1.5 h-7 w-16" />
         {:else}
-          <div class="mt-0.5 font-mono text-2xl font-semibold tabular-nums text-primary">{fmtNum(inLibrary)}</div>
+          <div class="mt-0.5 font-mono text-xl font-semibold tabular-nums text-primary sm:text-2xl">{fmtNum(inLibrary)}</div>
         {/if}
         <div class="text-muted-foreground mt-0.5 text-[11px]">
           {enrichedPct != null ? `${enrichedPct.toFixed(1)}% enriched` : 'enriched'}
@@ -484,7 +486,7 @@
         {#if !loaded}
           <Skeleton class="mt-1.5 h-7 w-12" />
         {:else}
-          <div class="mt-0.5 font-mono text-2xl font-semibold tabular-nums text-primary">{inFlight.toLocaleString()}</div>
+          <div class="mt-0.5 font-mono text-xl font-semibold tabular-nums text-primary sm:text-2xl">{inFlight.toLocaleString()}</div>
         {/if}
         <div class="text-muted-foreground mt-0.5 text-[11px]">
           {anyRunning ? 'mid-pipeline' : 'idle'}
@@ -501,7 +503,7 @@
         {#if awaitingYou == null}
           <Skeleton class="mt-1.5 h-7 w-12" />
         {:else}
-          <div class="mt-0.5 font-mono text-2xl font-semibold tabular-nums text-amber-600 dark:text-amber-500">
+          <div class="mt-0.5 font-mono text-xl font-semibold tabular-nums text-amber-600 sm:text-2xl dark:text-amber-500">
             {fmtNum(awaitingYou)}
           </div>
         {/if}
@@ -518,12 +520,12 @@
         <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">Avg quality</div>
         {#if avgQuality == null}
           {#if loaded}
-            <div class="mt-0.5 font-mono text-2xl font-semibold tabular-nums text-muted-foreground">—</div>
+            <div class="mt-0.5 font-mono text-xl font-semibold tabular-nums text-muted-foreground sm:text-2xl">—</div>
           {:else}
             <Skeleton class="mt-1.5 h-7 w-14" />
           {/if}
         {:else}
-          <div class="mt-0.5 font-mono text-2xl font-semibold tabular-nums">{avgQuality.toFixed(1)}</div>
+          <div class="mt-0.5 font-mono text-xl font-semibold tabular-nums sm:text-2xl">{avgQuality.toFixed(1)}</div>
         {/if}
         <div class="text-muted-foreground mt-0.5 text-[11px]">
           {qualityGraded != null && qualityGraded > 0 ? `AI score · ${qualityGraded.toLocaleString()} graded` : 'AI score'}
@@ -536,7 +538,7 @@
         {#if errorCount == null}
           <Skeleton class="mt-1.5 h-7 w-10" />
         {:else}
-          <div class={cn('mt-0.5 font-mono text-2xl font-semibold tabular-nums', errorCount > 0 ? 'text-red-500' : '')}>
+          <div class={cn('mt-0.5 font-mono text-xl font-semibold tabular-nums sm:text-2xl', errorCount > 0 ? 'text-red-500' : '')}>
             {fmtNum(errorCount)}
           </div>
         {/if}
@@ -634,7 +636,7 @@
 
     <!-- Needs you -->
     <section>
-      <div class="mb-2.5 flex items-baseline gap-2">
+      <div class="mb-2.5 flex flex-wrap items-baseline gap-2">
         <span class="text-[13px] font-semibold">Needs you</span>
         <span class="text-muted-foreground text-[11.5px]">When the pipeline can't decide, items pile up here.</span>
         <a
@@ -693,7 +695,7 @@
           {#if recent.length > 0}
             <div class="space-y-0.5">
               {#each recent as a (a.id)}
-                <div class="grid grid-cols-[auto_64px_1fr] items-center gap-2 py-[3px] font-mono text-[11px]">
+                <div class="grid grid-cols-[auto_52px_1fr] items-center gap-2 py-[3px] font-mono text-[11px] sm:grid-cols-[auto_64px_1fr]">
                   <span class="text-muted-foreground/70 tabular-nums">{a.time}</span>
                   <span class={cn('truncate font-semibold tracking-wide uppercase text-[9.5px]', activityTone(a.type))}>{a.type}</span>
                   <span class="text-muted-foreground truncate">
@@ -755,13 +757,13 @@
                     <a
                       href={`/track/${firstSong.id}`}
                       title="View enrichment timeline"
-                      class="text-muted-foreground/70 hover:text-primary hover:border-primary/40 border-border inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-1 text-[10.5px] font-medium opacity-0 transition-colors group-hover/row:opacity-100 focus-visible:opacity-100"
+                      class="text-muted-foreground/70 hover:text-primary hover:border-primary/40 border-border inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-1 text-[10.5px] font-medium opacity-100 transition-colors group-hover/row:opacity-100 focus-visible:opacity-100 sm:opacity-0"
                     >
                       <History class="size-3" /> Timeline
                     </a>
                   {/if}
-                  <Clock class="text-muted-foreground/60 size-3.5 shrink-0" />
-                  <ChevronRight class="text-muted-foreground/60 size-3.5 shrink-0" />
+                  <Clock class="text-muted-foreground/60 hidden size-3.5 shrink-0 sm:inline-flex" />
+                  <ChevronRight class="text-muted-foreground/60 hidden size-3.5 shrink-0 sm:inline-flex" />
                 </div>
               {/each}
             </div>

@@ -2,13 +2,11 @@
   import GroupGrid from '$lib/components/organize/GroupGrid.svelte';
   import { buildArtistGroups, fetchSongs, type ApiSong, type GroupSummary } from '$lib/api-client';
   import { uiVersion } from '$lib/stores/ui-version.svelte';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import LibraryV2 from '$lib/components/v2/LibraryV2.svelte';
 
-  const isMobile = new IsMobile();
-  // v2 desktop renders the redesigned Library shell (Artists tab) in-place; v1
-  // (and v2 on mobile) keeps the existing GroupGrid.
-  const showV2 = $derived(uiVersion.isV2 && !isMobile.current);
+  // v2 now renders the redesigned Library shell (Artists tab) in-place at every
+  // width (it does its own responsive layout); v1 keeps the existing GroupGrid.
+  const showV2 = $derived(uiVersion.isV2);
 
   let songs = $state<ApiSong[]>([]);
   let isLoading = $state(true);

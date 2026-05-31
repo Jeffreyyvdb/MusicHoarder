@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Check, Loader2, RefreshCw, Sparkles, ChevronRight, Copy } from '@lucide/svelte';
+  import { Check, ChevronLeft, Loader2, RefreshCw, Sparkles, ChevronRight, Copy } from '@lucide/svelte';
   import {
     fetchQualityOverview,
     copyQualitySongDossier,
@@ -107,9 +107,12 @@
     </p>
   </div>
 {:else}
-  <div class="grid min-h-0 flex-1 grid-cols-[320px_1fr] overflow-hidden">
-    <!-- List -->
-    <aside class="border-border bg-surface-sunken flex min-h-0 flex-col border-r">
+  <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[320px_1fr]">
+    <!-- List — single-pane on mobile: hidden once an offender is selected. -->
+    <aside
+      class="border-border bg-surface-sunken flex min-h-0 flex-col border-r md:flex"
+      class:hidden={selectedId != null}
+    >
       <div class="border-border flex items-center justify-between gap-2 border-b px-4 py-2.5">
         <span class="text-muted-foreground text-[11px]">{offenders.length} flagged by AI</span>
         <button
@@ -142,10 +145,22 @@
       </div>
     </aside>
 
-    <!-- Detail: LLM verdict -->
+    <!-- Detail: LLM verdict — single-pane on mobile: hidden until selected. -->
     {#if selected}
-      <div class="flex min-w-0 flex-col overflow-hidden">
-        <div class="border-border flex items-start gap-3 border-b bg-red-500/5 px-6 py-3">
+      <div
+        class="flex min-h-0 min-w-0 flex-col overflow-hidden md:flex"
+        class:hidden={selectedId == null}
+      >
+        <div class="border-border flex items-start gap-3 border-b bg-red-500/5 px-4 py-3 sm:px-6">
+          <button
+            type="button"
+            onclick={() => (selectedId = null)}
+            class="text-muted-foreground hover:bg-accent hover:text-foreground -ml-1 grid size-8 shrink-0 place-items-center rounded-md transition-colors md:hidden"
+            title="Back to list"
+            aria-label="Back to list"
+          >
+            <ChevronLeft class="size-5" />
+          </button>
           <Sparkles class="mt-0.5 size-5 shrink-0 text-red-600 dark:text-red-400" />
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
@@ -158,7 +173,7 @@
           </div>
         </div>
 
-        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
+        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
           <!-- Verdict card -->
           <div class="border-border bg-card rounded-lg border">
             <div class="border-border flex items-center justify-between border-b px-4 py-2.5">
@@ -189,13 +204,13 @@
 
           <!-- What the algorithm did -->
           <div class="border-border overflow-hidden rounded-lg border">
-            <div class="bg-surface-sunken/60 text-muted-foreground border-border grid grid-cols-[120px_1fr] gap-3 border-b px-4 py-2 font-mono text-[10px] tracking-[0.06em]">
+            <div class="bg-surface-sunken/60 text-muted-foreground border-border hidden grid-cols-1 gap-3 border-b px-4 py-2 font-mono text-[10px] tracking-[0.06em] sm:grid sm:grid-cols-[120px_1fr]">
               <div>FIELD</div>
               <div>VALUE</div>
             </div>
             {#each [{ l: 'Title', v: selected.title ?? '—' }, { l: 'Artist', v: selected.artist ?? '—' }, { l: 'Album', v: selected.album ?? '—' }, { l: 'Source', v: selected.sourcePath, mono: true }, { l: 'Destination', v: selected.destinationPathPreview ?? '(not written)', mono: true }, { l: 'Status at grade', v: selected.enrichmentStatusAtGrade ?? '—' }] as row (row.l)}
-              <div class="border-border grid grid-cols-[120px_1fr] items-center gap-3 border-b px-4 py-2 last:border-b-0">
-                <div class="text-[12.5px] font-medium">{row.l}</div>
+              <div class="border-border grid grid-cols-1 gap-1 border-b px-4 py-2 last:border-b-0 sm:grid-cols-[120px_1fr] sm:items-center sm:gap-3">
+                <div class="text-muted-foreground text-[12.5px] font-medium sm:text-foreground">{row.l}</div>
                 <div class={cn('min-w-0 break-words text-[12.5px]', row.mono && 'font-mono text-[11px]')}>{row.v}</div>
               </div>
             {/each}
@@ -203,7 +218,7 @@
         </div>
 
         <!-- Action bar -->
-        <div class="border-border bg-background flex items-center gap-3 border-t px-6 py-3">
+        <div class="border-border bg-background flex flex-wrap items-center gap-2 border-t px-4 py-3 sm:gap-3 sm:px-6">
           <div class="flex-1"></div>
           <Button variant="outline" onclick={() => onCopyDossier(selected.songId)} class="gap-1.5">
             <Copy class="size-3.5" /> Copy dossier

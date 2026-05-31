@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Check, Loader2, RefreshCw, Copy, Trash2 } from '@lucide/svelte';
+  import { Check, ChevronLeft, Loader2, RefreshCw, Copy, Trash2 } from '@lucide/svelte';
   import {
     fetchDuplicates,
     type DuplicateGroup,
@@ -16,7 +16,9 @@
   const { oncount }: Props = $props();
 
   let groups = $state<DuplicateGroup[]>([]);
-  let selectedIdx = $state(0);
+  // null == "showing the list" (the mobile master pane). Defaults to the first
+  // group after a load so desktop's two-pane layout opens populated.
+  let selectedIdx = $state<number | null>(0);
   let loading = $state(true);
   let error = $state<string | null>(null);
 
@@ -46,7 +48,7 @@
     void load();
   });
 
-  const selectedGroup = $derived(groups[selectedIdx] ?? null);
+  const selectedGroup = $derived(selectedIdx != null ? (groups[selectedIdx] ?? null) : null);
 
   // The A side is the kept "best" (when the server recorded one); the B side is
   // the first flagged duplicate in the cluster. Extra members are listed below.
@@ -139,9 +141,12 @@
     </p>
   </div>
 {:else}
-  <div class="grid min-h-0 flex-1 grid-cols-[320px_1fr] overflow-hidden">
-    <!-- List -->
-    <aside class="border-border bg-surface-sunken flex min-h-0 flex-col border-r">
+  <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[320px_1fr]">
+    <!-- List — single-pane on mobile: hidden once a group is selected. -->
+    <aside
+      class="border-border bg-surface-sunken flex min-h-0 flex-col border-r md:flex"
+      class:hidden={selectedIdx != null}
+    >
       <div class="border-border flex items-center justify-between gap-2 border-b px-4 py-2.5">
         <span class="text-muted-foreground text-[11px]">{groups.length} duplicate group{groups.length === 1 ? '' : 's'}</span>
         <button
@@ -177,10 +182,22 @@
       </div>
     </aside>
 
-    <!-- Detail: A/B comparison -->
+    <!-- Detail: A/B comparison — single-pane on mobile: hidden until selected. -->
     {#if selectedGroup}
-      <div class="flex min-w-0 flex-col overflow-hidden">
-        <div class="border-border flex items-center gap-3 border-b bg-sky-500/5 px-6 py-3">
+      <div
+        class="flex min-h-0 min-w-0 flex-col overflow-hidden md:flex"
+        class:hidden={selectedIdx == null}
+      >
+        <div class="border-border flex items-center gap-3 border-b bg-sky-500/5 px-4 py-3 sm:px-6">
+          <button
+            type="button"
+            onclick={() => (selectedIdx = null)}
+            class="text-muted-foreground hover:bg-accent hover:text-foreground -ml-1 grid size-8 shrink-0 place-items-center rounded-md transition-colors md:hidden"
+            title="Back to list"
+            aria-label="Back to list"
+          >
+            <ChevronLeft class="size-5" />
+          </button>
           <Copy class="size-5 shrink-0 text-sky-600 dark:text-sky-400" />
           <div class="min-w-0 flex-1">
             <div class="text-[14px] font-semibold">Ambiguous duplicate</div>
@@ -191,7 +208,7 @@
           </div>
         </div>
 
-        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
+        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
           <div class="grid gap-3 md:grid-cols-2">
             {#each [{ side: sideA, kept: true }, { side: sideB, kept: false }] as col, ci (ci)}
               {#if col.side}
@@ -247,7 +264,7 @@
         </div>
 
         <!-- Action bar — resolve isn't a real endpoint yet -->
-        <div class="border-border bg-background flex items-center gap-3 border-t px-6 py-3">
+        <div class="border-border bg-background flex flex-wrap items-center gap-2 border-t px-4 py-3 sm:gap-3 sm:px-6">
           <div class="text-muted-foreground flex-1 text-[11px]">
             The comparison is live, but mutable keep / delete resolution
             <span class="bg-muted ml-1 rounded px-1.5 py-px font-mono text-[9px] tracking-wide uppercase">coming soon</span>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
+  import { afterNavigate, goto } from '$app/navigation';
   import { page } from '$app/state';
   import { ChevronRight, LogOut, Music } from '@lucide/svelte';
   import * as Sidebar from '$lib/components/ui/sidebar';
@@ -220,6 +220,13 @@
       | { email: string; role: 'Owner' | 'Demo'; displayName: string | null }
       | undefined
   );
+
+  // On mobile the sidebar is an off-canvas Sheet; close it after navigating so a
+  // tapped destination doesn't leave the drawer open over the freshly-loaded page.
+  const sidebar = Sidebar.useSidebar();
+  afterNavigate(() => {
+    if (sidebar.isMobile) sidebar.setOpenMobile(false);
+  });
 </script>
 
 <Sidebar.Root collapsible="offcanvas" variant="floating">

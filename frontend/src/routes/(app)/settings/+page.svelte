@@ -50,16 +50,12 @@
     UserRound,
     LogOut
   } from '@lucide/svelte';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import { uiVersion } from '$lib/stores/ui-version.svelte';
   import SettingsV2 from '$lib/components/v2/SettingsV2.svelte';
 
-  const isMobile = new IsMobile();
-
-  // The v2 redesign reskins the desktop settings body in place (see ui-version
-  // store). Everywhere else — mobile, and v1 desktop — uses the responsive Tabs
-  // body below.
-  const useV2 = $derived(uiVersion.isV2 && !isMobile.current);
+  // The v2 redesign reskins the settings body in place (see ui-version store)
+  // and renders responsively on mobile. v1 (toggle off) uses the Tabs body below.
+  const useV2 = $derived(uiVersion.isV2);
 
   const user = $derived(page.data.user as { id: string; email: string; role: 'Owner' | 'Demo'; displayName: string | null } | undefined);
   const initials = $derived((user?.displayName ?? user?.email ?? '?').slice(0, 2).toUpperCase());

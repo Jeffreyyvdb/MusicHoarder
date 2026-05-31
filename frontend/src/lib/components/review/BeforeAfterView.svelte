@@ -45,9 +45,11 @@
   </div>
 </div>
 
-<!-- FIELD / EMBEDDED / FINAL / SOURCE -->
+<!-- FIELD / EMBEDDED / FINAL / SOURCE — the Table primitive already wraps in an
+     overflow-x-auto container; the min-w forces a horizontal scroll on phones
+     instead of crushing the editable FINAL column. -->
 <div class="border-border mt-4 overflow-hidden rounded-lg border">
-  <Table.Root>
+  <Table.Root class="min-w-[34rem]">
     <Table.Header>
       <Table.Row
         class="bg-surface-sunken/60 text-muted-foreground hover:bg-surface-sunken/60 font-mono text-[10px] tracking-[0.06em]"

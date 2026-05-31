@@ -4,6 +4,7 @@
   import { Disc3, Search, Users, ListMusic, X } from '@lucide/svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import * as Resizable from '$lib/components/ui/resizable';
+  import * as Sheet from '$lib/components/ui/sheet';
   import AlbumPage from '$lib/components/file-browser/AlbumPage.svelte';
   import TrackList from '$lib/components/file-browser/TrackList.svelte';
   import TrackPanel from '$lib/components/file-browser/TrackPanel.svelte';
@@ -23,6 +24,12 @@
   import { isBuiltSong } from '$lib/album-sections';
   import { parseBrowseFilter, applyBrowseFilter, browseFilterLabel } from '$lib/browse-filter';
   import { breadcrumbStore } from '$lib/stores/breadcrumbs.svelte';
+  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
+
+  // Behaviour-only: on mobile the album-drilldown / tracks-tab detail panel
+  // moves from a desktop resizable side-pane into a bottom Sheet. Never used to
+  // gate v1-vs-v2 (the page does that with uiVersion.isV2).
+  const isMobile = new IsMobile();
 
   type LibraryTab = 'albums' | 'artists' | 'tracks';
   type Props = {
@@ -249,8 +256,30 @@
 </script>
 
 {#if openAlbum && tab === 'albums'}
-  <!-- Album drilldown reuses the existing AlbumPage (+ TrackPanel) -->
-  {#if !trackPanelOpen}
+  <!-- Album drilldown reuses the existing AlbumPage (+ TrackPanel). On mobile the
+       detail pane becomes a bottom Sheet; the side-pane and Sheet branches are
+       mutually exclusive so TrackPanel.registerPanel() mounts exactly once. -->
+  {#if isMobile.current}
+    <AlbumPage album={openAlbum} {isLoading} />
+    <Sheet.Root open={trackPanelOpen} onOpenChange={(open) => !open && closeTrack()}>
+      <Sheet.Content side="bottom" class="h-[88vh] gap-0 p-0 [&>button]:hidden">
+        <Sheet.Title class="sr-only">Track details</Sheet.Title>
+        <Sheet.Description class="sr-only">
+          View track metadata, lyrics, fingerprint, and enrichment sources
+        </Sheet.Description>
+        {#if openAlbum && selectedTrack}
+          <TrackPanel
+            album={openAlbum}
+            song={selectedTrack.song}
+            trackIndex={selectedTrack.index}
+            onClose={closeTrack}
+            onResetEnrichment={() => void loadSongs()}
+            timelineHref={`/track/${selectedTrack.song.id}`}
+          />
+        {/if}
+      </Sheet.Content>
+    </Sheet.Root>
+  {:else if !trackPanelOpen}
     <AlbumPage album={openAlbum} {isLoading} />
   {:else}
     <Resizable.PaneGroup id="library-v2-album-panels" direction="horizontal" class="min-h-0 flex-1">
@@ -274,7 +303,9 @@
   {/if}
 {:else}
   <!-- Header -->
-  <header class="border-border flex shrink-0 items-end justify-between gap-4 border-b px-7 py-5">
+  <header
+    class="border-border flex shrink-0 flex-col gap-3 border-b px-4 py-4 sm:flex-row sm:items-end sm:justify-between sm:gap-4 sm:px-7 sm:py-5"
+  >
     <div class="min-w-0">
       <div class="text-muted-foreground font-mono text-[10px] tracking-[0.12em] uppercase">
         {totalTracks.toLocaleString()} tracks · {artistCount.toLocaleString()} artists{enrichedPct !=
@@ -283,13 +314,13 @@
           : ''}
       </div>
       <h1 class="mt-1 text-2xl font-semibold tracking-tight">Library</h1>
-      <p class="text-muted-foreground mt-1 max-w-2xl text-xs">
+      <p class="text-muted-foreground mt-1 hidden max-w-2xl text-xs sm:block">
         The clean output. Click any album to drill in — every track has its own enrichment timeline
         showing which provider supplied each field.
       </p>
     </div>
     <div class="flex shrink-0 items-center gap-2">
-      <div class="relative w-[clamp(180px,28vw,280px)]">
+      <div class="relative w-full sm:w-[clamp(180px,28vw,280px)]">
         <Search class="text-muted-foreground absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
         <input
           type="search"
@@ -308,15 +339,14 @@
   />
 
   {#if tab === 'tracks'}
-    <!-- All tracks reuses the existing virtualized TrackList + TrackPanel -->
+    <!-- All tracks reuses the existing virtualized TrackList + TrackPanel. On
+         mobile the detail pane becomes a bottom Sheet; the side-pane and Sheet
+         branches are mutually exclusive so TrackPanel.registerPanel() mounts
+         exactly once. The mobile wrapper keeps the min-h-0 flex chain so
+         TrackList's scroll viewport stays bounded and virtualization works. -->
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <Resizable.PaneGroup id="library-v2-tracks-panels" direction="horizontal" class="min-h-0 flex-1">
-        <Resizable.Pane
-          id="library-v2-tracks-main"
-          order={1}
-          defaultSize={tracksPanelOpen ? 68 : 100}
-          class="flex min-h-0 flex-col"
-        >
+      {#if isMobile.current}
+        <div class="flex min-h-0 flex-1 flex-col">
           <TrackList
             songs={tracksScoped}
             searchQuery={query}
@@ -324,10 +354,13 @@
             selectedId={tracksSelectedId}
             onSelect={selectTrack}
           />
-        </Resizable.Pane>
-        {#if tracksPanelOpen}
-          <Resizable.Handle />
-          <Resizable.Pane id="library-v2-tracks-details" order={2} defaultSize={32} minSize={28} maxSize={45}>
+        </div>
+        <Sheet.Root open={tracksPanelOpen} onOpenChange={(open) => !open && closeTrack()}>
+          <Sheet.Content side="bottom" class="h-[88vh] gap-0 p-0 [&>button]:hidden">
+            <Sheet.Title class="sr-only">Track details</Sheet.Title>
+            <Sheet.Description class="sr-only">
+              View track metadata, lyrics, fingerprint, and enrichment sources
+            </Sheet.Description>
             {#if tracksSelected}
               <TrackPanel
                 album={tracksSelected.album}
@@ -338,13 +371,45 @@
                 timelineHref={`/track/${tracksSelected.song.id}`}
               />
             {/if}
+          </Sheet.Content>
+        </Sheet.Root>
+      {:else}
+        <Resizable.PaneGroup id="library-v2-tracks-panels" direction="horizontal" class="min-h-0 flex-1">
+          <Resizable.Pane
+            id="library-v2-tracks-main"
+            order={1}
+            defaultSize={tracksPanelOpen ? 68 : 100}
+            class="flex min-h-0 flex-col"
+          >
+            <TrackList
+              songs={tracksScoped}
+              searchQuery={query}
+              {isLoading}
+              selectedId={tracksSelectedId}
+              onSelect={selectTrack}
+            />
           </Resizable.Pane>
-        {/if}
-      </Resizable.PaneGroup>
+          {#if tracksPanelOpen}
+            <Resizable.Handle />
+            <Resizable.Pane id="library-v2-tracks-details" order={2} defaultSize={32} minSize={28} maxSize={45}>
+              {#if tracksSelected}
+                <TrackPanel
+                  album={tracksSelected.album}
+                  song={tracksSelected.song}
+                  trackIndex={tracksSelected.index}
+                  onClose={closeTrack}
+                  onResetEnrichment={() => void loadSongs()}
+                  timelineHref={`/track/${tracksSelected.song.id}`}
+                />
+              {/if}
+            </Resizable.Pane>
+          {/if}
+        </Resizable.PaneGroup>
+      {/if}
     </div>
   {:else}
     <ScrollArea class="min-h-0 flex-1">
-      <div class="flex flex-col gap-4 px-7 py-6">
+      <div class="flex flex-col gap-4 px-4 py-4 sm:px-7 sm:py-6">
         {#if browse?.artist && (tab === 'albums' || tab === 'artists')}
           <div class="flex items-center gap-2">
             <span

@@ -10,10 +10,12 @@
   import { uiVersion } from '$lib/stores/ui-version.svelte';
   import LibraryV2 from '$lib/components/v2/LibraryV2.svelte';
 
+  // The v1 `{:else}` branch below still swaps a desktop resizable layout for a
+  // mobile bottom Sheet, so it keeps using `isMobile`.
   const isMobile = new IsMobile();
-  // v2 desktop renders the redesigned Library shell (All tracks tab) in-place;
-  // v1 (and v2 on mobile) keeps the existing resizable TrackList layout.
-  const showV2 = $derived(uiVersion.isV2 && !isMobile.current);
+  // v2 now renders the redesigned Library shell (All tracks tab) in-place at
+  // every width; v1 keeps the existing resizable TrackList layout.
+  const showV2 = $derived(uiVersion.isV2);
 
   let songs = $state<ApiSong[]>([]);
   let isLoading = $state(true);

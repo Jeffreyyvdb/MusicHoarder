@@ -1,7 +1,8 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Check, X, ChevronRight, Loader2, RefreshCw, History } from '@lucide/svelte';
+  import { Check, X, ChevronLeft, ChevronRight, Loader2, RefreshCw, History } from '@lucide/svelte';
   import { page } from '$app/state';
+  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import type { ApiSong, EnrichmentDetail } from '$lib/api-client';
   import {
     fetchReviewQueue,
@@ -30,6 +31,11 @@
   // Reports its live remaining count up to the Inbox header (for the subtab pill).
   type Props = { oncount?: (n: number | null) => void };
   const { oncount }: Props = $props();
+
+  // Behavior-only: drives the single-pane drill-down on phones (md == 768 ==
+  // IsMobile boundary) — the master/detail back button and CandidateGrid's
+  // single-column layout. Never gates v1-vs-v2.
+  const isMobile = new IsMobile();
 
   type MetadataEdits = Partial<Record<EditableFieldKey, string>>;
   type Decision = 'accept' | 'reject' | 'skip';
@@ -310,9 +316,12 @@
     </p>
   </div>
 {:else}
-  <div class="grid min-h-0 flex-1 grid-cols-[320px_1fr] overflow-hidden">
-    <!-- List -->
-    <aside class="border-border bg-surface-sunken flex min-h-0 flex-col border-r">
+  <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[320px_1fr]">
+    <!-- List — single-pane on mobile: hidden once a track is selected. -->
+    <aside
+      class="border-border bg-surface-sunken flex min-h-0 flex-col border-r md:flex"
+      class:hidden={selectedId != null}
+    >
       <div class="border-border flex items-center justify-between gap-2 border-b px-4 py-2.5">
         <span class="text-muted-foreground text-[11px]">{tracks.length} awaiting review</span>
         <button
@@ -347,13 +356,16 @@
       </div>
     </aside>
 
-    <!-- Detail -->
+    <!-- Detail — single-pane on mobile: hidden until a track is selected. -->
     {#if selectedTrack && banner && original && guess}
-      <div class="flex min-w-0 flex-col overflow-hidden">
+      <div
+        class="flex min-h-0 min-w-0 flex-col overflow-hidden md:flex"
+        class:hidden={selectedId == null}
+      >
         <!-- Banner -->
         <div
           class={cn(
-            'flex items-center gap-3 px-6 py-3',
+            'flex items-center gap-3 px-4 py-3 sm:px-6',
             banner.tone === 'warn' && 'bg-amber-500/10',
             banner.tone === 'info' && 'bg-primary/10',
             banner.tone === 'err' && 'bg-red-500/10',
@@ -378,7 +390,16 @@
         </div>
 
         <!-- Header -->
-        <div class="border-border flex items-start gap-4 border-b px-6 pt-3 pb-4">
+        <div class="border-border flex items-start gap-4 border-b px-4 pt-3 pb-4 sm:px-6">
+          <button
+            type="button"
+            onclick={() => (selectedId = null)}
+            class="text-muted-foreground hover:bg-accent hover:text-foreground -ml-1 grid size-8 shrink-0 place-items-center rounded-md transition-colors md:hidden"
+            title="Back to list"
+            aria-label="Back to list"
+          >
+            <ChevronLeft class="size-5" />
+          </button>
           <Cover artist={original.subtitle || 'Unknown'} title={original.title} size={52} corner={8} caption={false} />
           <div class="min-w-0 flex-1">
             <div class="text-muted-foreground font-mono text-[10px] tracking-[0.1em]">ORIGINAL</div>
@@ -401,19 +422,19 @@
         </div>
 
         {#if error}
-          <div class="border-destructive/50 bg-destructive/10 text-destructive mx-6 mt-3 rounded-lg border p-3 text-sm">
+          <div class="border-destructive/50 bg-destructive/10 text-destructive mx-4 mt-3 rounded-lg border p-3 text-sm sm:mx-6">
             {error}
             <Button variant="ghost" size="sm" class="ml-2" onclick={() => (error = null)}>Dismiss</Button>
           </div>
         {/if}
 
         <!-- Scrollable body: candidates + before/after diff -->
-        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
+        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
           <div class="text-muted-foreground flex items-baseline gap-2">
             <span class="text-[12px] font-semibold tracking-wide uppercase">Candidates</span>
             <span class="text-[11.5px]">Pick a provider's answer, or override fields below.</span>
           </div>
-          <CandidateGrid {candidates} pickedKey={pickedKey[selectedTrack.id] ?? null} loading={detailLoading[selectedTrack.id]} onpick={pickCandidate} />
+          <CandidateGrid {candidates} pickedKey={pickedKey[selectedTrack.id] ?? null} loading={detailLoading[selectedTrack.id]} onpick={pickCandidate} single={isMobile.current} />
 
           <div class="text-muted-foreground flex items-baseline gap-2 pt-1">
             <span class="text-[12px] font-semibold tracking-wide uppercase">Field diff</span>
@@ -433,7 +454,7 @@
         </div>
 
         <!-- Action bar -->
-        <div class="border-border bg-background flex items-center gap-3 border-t px-6 py-3">
+        <div class="border-border bg-background flex flex-wrap items-center gap-2 border-t px-4 py-3 sm:gap-3 sm:px-6">
           <div class="text-muted-foreground hidden flex-1 items-center gap-1 text-[11px] lg:flex">
             <b class="text-foreground/80 mr-1">Keys</b>
             <kbd class="bg-muted rounded border px-1.5 py-px font-mono text-[10px]">A</kbd> accept

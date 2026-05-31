@@ -397,7 +397,7 @@
 </script>
 
 <!-- Page header (mirrors PipelineHomeV2's header rhythm) -->
-<header class="border-border flex shrink-0 items-end justify-between gap-4 border-b px-7 py-5">
+<header class="border-border flex shrink-0 items-end justify-between gap-4 border-b px-4 py-4 sm:px-7 sm:py-5">
   <div class="min-w-0">
     <div
       class="text-muted-foreground flex items-center gap-1.5 font-mono text-[10px] tracking-[0.12em] uppercase"
@@ -412,7 +412,7 @@
 </header>
 
 <!-- Tab bar -->
-<nav class="border-border flex shrink-0 items-center gap-1 overflow-x-auto border-b px-7" aria-label="Settings sections">
+<nav class="border-border flex shrink-0 items-center gap-1 overflow-x-auto border-b px-4 sm:px-7" aria-label="Settings sections">
   {#each TABS as tab (tab.id)}
     {@const isActive = tab.id === activeTab}
     <button
@@ -433,7 +433,7 @@
 </nav>
 
 <div class="min-h-0 flex-1 overflow-auto">
-  <div class="mx-auto flex max-w-4xl flex-col gap-6 px-7 py-6">
+  <div class="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-4 sm:px-7 sm:py-6">
     {#if isLoading}
       <div class="flex items-center justify-center py-16">
         <Loader2 class="text-muted-foreground size-6 animate-spin" />
@@ -542,7 +542,7 @@
                 </span>
               {/if}
             </Label>
-            <div class="flex gap-2">
+            <div class="flex flex-col gap-2 sm:flex-row">
               <Input
                 id="client-secret"
                 type={showSecret ? 'text' : 'password'}
@@ -551,9 +551,14 @@
                   : 'Enter your Spotify Client Secret'}
                 bind:value={clientSecret}
                 oninput={() => (saveResult = null)}
-                class="font-mono text-sm"
+                class="min-w-0 font-mono text-sm"
               />
-              <Button type="button" variant="outline" onclick={() => (showSecret = !showSecret)}>
+              <Button
+                type="button"
+                variant="outline"
+                class="w-full sm:w-auto"
+                onclick={() => (showSecret = !showSecret)}
+              >
                 {showSecret ? 'Hide' : 'Show'}
               </Button>
             </div>
@@ -561,9 +566,14 @@
 
           <div class="space-y-2">
             <Label>Redirect URI</Label>
-            <div class="flex gap-2">
-              <Input readonly value={redirectUri} class="font-mono text-sm" />
-              <Button type="button" variant="outline" onclick={copyRedirectUri}>
+            <div class="flex flex-col gap-2 sm:flex-row">
+              <Input readonly value={redirectUri} class="min-w-0 font-mono text-sm" />
+              <Button
+                type="button"
+                variant="outline"
+                class="w-full sm:w-auto"
+                onclick={copyRedirectUri}
+              >
                 <Copy class="mr-2 size-4" /> Copy
               </Button>
             </div>
