@@ -2,10 +2,11 @@
   import '../app.css';
   import type { Snippet } from 'svelte';
   import { ModeWatcher } from 'mode-watcher';
-  import { beforeNavigate } from '$app/navigation';
+  import { afterNavigate, beforeNavigate } from '$app/navigation';
   import { updated } from '$app/state';
   import { Toaster } from '$lib/components/ui/sonner';
   import Analytics from '$lib/components/Analytics.svelte';
+  import { clearStaleChunkRecovery } from '$lib/stale-chunk-recovery';
 
   type Props = { children: Snippet };
   const { children }: Props = $props();
@@ -19,6 +20,10 @@
       location.href = nav.to.url.href;
     }
   });
+
+  // A navigation completed without a stale-chunk failure, so chunks are loading
+  // fine — reset the stale-chunk reload budget for the next deploy.
+  afterNavigate(() => clearStaleChunkRecovery());
 </script>
 
 <ModeWatcher defaultMode="system" />
