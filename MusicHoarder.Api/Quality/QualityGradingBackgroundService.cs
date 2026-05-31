@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Settings;
+using MusicHoarder.Api.Snapshots;
 
 namespace MusicHoarder.Api.Quality;
 
@@ -18,6 +20,7 @@ public class QualityGradingBackgroundService(
     QualityGradingProgressTracker progressTracker,
     IQualityGradingService gradingService,
     IRuntimeSettingsService runtimeSettings,
+    IOwnerLookupService ownerLookup,
     IOptionsMonitor<QualityGradingOptions> options,
     ILogger<QualityGradingBackgroundService> logger) : BackgroundService
 {
@@ -123,6 +126,7 @@ public class QualityGradingBackgroundService(
     {
         await foreach (var item in channel.Reader.ReadAllAsync(ct))
         {
+            var runCompleted = false;
             try
             {
                 if (ct.IsCancellationRequested) break;
@@ -166,8 +170,31 @@ public class QualityGradingBackgroundService(
             }
             finally
             {
-                channel.MarkProcessed();
+                runCompleted = channel.MarkProcessed();
             }
+
+            // The call that drained the last in-flight item closes the grading run — capture a
+            // timeline snapshot so fresh AI scores land on the performance timeline.
+            if (runCompleted)
+                await CaptureGradingSnapshotAsync(ct);
+        }
+    }
+
+    private async Task CaptureGradingSnapshotAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var snapshots = scope.ServiceProvider.GetRequiredService<IEnrichmentSnapshotService>();
+            await snapshots.CaptureAsync(ownerLookup.OwnerUserId, SnapshotTrigger.GradingRun, "ai grading", ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // shutting down — skip
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to capture grading snapshot");
         }
     }
 
