@@ -5,6 +5,7 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Snapshots;
 
 namespace MusicHoarder.Api.Jobs;
 
@@ -173,7 +174,26 @@ public class IngestRunMonitor(
         await db.SaveChangesAsync(ct);
 
         if (finalize)
+        {
             logger.LogInformation("Finalized ingest run {RunId} as {Status}", runId, run.Status);
+
+            // Capture a pipeline-quality snapshot for the timeline. Reuses this finalize scope and is
+            // guarded so a snapshot failure never breaks run finalization. CaptureAsync de-dups, so a
+            // run that changed nothing measurable produces no new point.
+            try
+            {
+                var snapshots = scope.ServiceProvider.GetRequiredService<IEnrichmentSnapshotService>();
+                await snapshots.CaptureAsync(ownerId, SnapshotTrigger.PipelineRun, run.TriggerLabel, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to capture pipeline snapshot for run {RunId}", runId);
+            }
+        }
     }
 
     private IngestRunStatus ResolveFinalStatus()

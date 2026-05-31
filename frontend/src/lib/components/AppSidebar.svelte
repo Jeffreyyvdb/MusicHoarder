@@ -16,7 +16,8 @@
     Music,
     Music2,
     Scan,
-    Settings
+    Settings,
+    TrendingUp
   } from '@lucide/svelte';
   import { signOut } from '$lib/api-client';
   import * as Sidebar from '$lib/components/ui/sidebar';
@@ -40,6 +41,7 @@
     { href: '/spotify', label: 'Spotify', icon: Music2, badge: false },
     { href: '/review', label: 'Provenance & review', icon: FileWarning, badge: true },
     { href: '/quality', label: 'AI quality', icon: Gauge, badge: false },
+    { href: '/performance', label: 'Performance', icon: TrendingUp, badge: false },
     { href: '/directories', label: 'Match by folder', icon: FolderTree, badge: false },
     { href: '/runs', label: 'Runs · history', icon: Clock, badge: false }
   ] as const;

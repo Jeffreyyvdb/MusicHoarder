@@ -44,18 +44,24 @@ public class QualityGradingChannel(QualityGradingProgressTracker progressTracker
             _channel.Writer.TryWrite(new GradeWorkItem(id, force));
     }
 
-    /// <summary>Called once per dequeued item, regardless of outcome.</summary>
-    public void MarkProcessed()
+    /// <summary>
+    /// Called once per dequeued item, regardless of outcome. Returns <c>true</c> exactly on the call
+    /// that drains the last in-flight item (the run→idle edge), so the caller can react to a grading
+    /// run completing (e.g. capture a timeline snapshot).
+    /// </summary>
+    public bool MarkProcessed()
     {
         lock (_lock)
         {
-            if (_inFlight == 0) return;
+            if (_inFlight == 0) return false;
             _inFlight--;
             if (_inFlight == 0)
             {
                 progressTracker.CompleteCycle(_runId);
                 _runId = Guid.Empty;
+                return true;
             }
+            return false;
         }
     }
 }

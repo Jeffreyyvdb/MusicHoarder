@@ -13,6 +13,7 @@
     Settings as SettingsIcon,
     FolderTree,
     LayoutDashboard,
+    TrendingUp,
     Loader2
   } from '@lucide/svelte';
   import * as Command from '$lib/components/ui/command';
@@ -38,6 +39,7 @@
     { label: 'Artists', href: '/artists', icon: Users, keywords: 'performers' },
     { label: 'Years', href: '/years', icon: CalendarRange, keywords: 'decades' },
     { label: 'Quality', href: '/quality', icon: Gauge, keywords: 'grade bitrate' },
+    { label: 'Performance', href: '/performance', icon: TrendingUp, keywords: 'timeline regression version stats trends' },
     { label: 'Spotify', href: '/spotify', icon: ListMusic, keywords: 'playlists liked' },
     { label: 'Provenance & review', href: '/review', icon: History, keywords: 'review manual' },
     { label: 'Runs', href: '/runs', icon: History, keywords: 'jobs history' },

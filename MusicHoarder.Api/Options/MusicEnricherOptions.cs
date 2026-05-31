@@ -13,6 +13,14 @@ public class MusicEnricherOptions
     public string DestinationDirectory { get; set; } = string.Empty;
 
     /// <summary>
+    /// Optional override for the pipeline version stamped onto performance snapshots. When unset the
+    /// snapshot falls back to the assembly informational version (then "dev"). Deploys can inject the
+    /// released <c>vX.Y.Z</c> via <c>MusicEnricher__PipelineVersion</c> so timeline points carry the
+    /// real semver; during local iteration the snapshot's config fingerprint is the version signal.
+    /// </summary>
+    public string? PipelineVersion { get; set; }
+
+    /// <summary>
     /// Master switch for the automatic <em>processing</em> cascade: the scan→fingerprint→enrich→build
     /// auto-triggering, the fingerprint/build auto-poll loops, and the enrichment startup backfill +
     /// periodic retry sweep. The discovery scan (file indexing) is intentionally <em>not</em> gated —
