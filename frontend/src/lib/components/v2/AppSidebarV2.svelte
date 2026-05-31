@@ -123,7 +123,8 @@
       sub: [
         { id: 'conveyor', label: 'Conveyor', href: '/pipeline', live: true },
         { id: 'folders', label: 'By folder', href: '/directories' },
-        { id: 'quality', label: 'AI quality', href: '/quality' }
+        { id: 'quality', label: 'AI quality', href: '/quality' },
+        { id: 'performance', label: 'Performance over time', href: '/performance' }
       ]
     },
     {
