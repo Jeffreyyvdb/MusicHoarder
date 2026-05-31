@@ -200,9 +200,10 @@
     </button>
   </header>
 
-  <!-- Mobile: the whole area scrolls. Desktop: a flex column where the master–detail split
-       fills the remaining viewport (single internal scroll per pane, no outer double-scroll). -->
-  <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6 lg:flex lg:flex-col lg:gap-4 lg:space-y-0 lg:overflow-hidden">
+  <!-- The whole area scrolls at every breakpoint. On desktop it's a flex column so the
+       master–detail split grows to fill the viewport when there's room, but it keeps a
+       height floor (below) so the top blocks can never squeeze the detail pane into a sliver. -->
+  <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6 lg:flex lg:flex-col lg:gap-4 lg:space-y-0">
     {#if !gradingConfigured}
       <div class="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[12.5px] text-amber-700 dark:text-amber-400">
         AI grading is not configured on the server, so grading does nothing. Set
@@ -298,8 +299,9 @@
         </div>
 
         <!-- Master–detail split: drill-down on mobile (h-[68vh] panes); on desktop the grid
-             fills the remaining flex height so each pane scrolls internally, once. -->
-        <div class="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[340px_1fr] lg:grid-rows-1">
+             grows to fill remaining flex height (flex-1) but never below a usable floor
+             (min-h), so each pane keeps real height and scrolls internally, once. -->
+        <div class="grid gap-3 lg:min-h-[640px] lg:flex-1 lg:grid-cols-[340px_1fr] lg:grid-rows-1">
           <div class={cn('h-[68vh] min-h-0 lg:h-auto', mobileDetailOpen ? 'hidden lg:block' : 'block')}>
             <QualityList
               songs={displayedSongs}
