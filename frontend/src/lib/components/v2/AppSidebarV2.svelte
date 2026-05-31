@@ -26,6 +26,7 @@
     | 'conveyor'
     | 'folders'
     | 'quality'
+    | 'performance'
     | 'review'
     | 'dupes'
     | 'aiflag'
@@ -178,6 +179,8 @@
         return pathname.startsWith('/directories');
       case 'quality':
         return pathname.startsWith('/quality');
+      case 'performance':
+        return pathname.startsWith('/performance');
       case 'aiflag':
         return onInbox && inboxTab === 'ai';
       case 'review':
