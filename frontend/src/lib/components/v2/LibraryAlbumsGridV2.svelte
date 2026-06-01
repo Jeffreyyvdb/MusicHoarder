@@ -34,7 +34,7 @@
     {#each albums as album (album.key)}
       <a
         href={hrefFor(album)}
-        class="group focus-visible:ring-ring outline-hidden flex flex-col gap-2 rounded-lg p-1 transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-offset-2"
+        class="group focus-visible:ring-ring outline-hidden flex flex-col gap-2 rounded-lg p-1 transition-transform [content-visibility:auto] [contain-intrinsic-size:auto_13rem] hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-offset-2"
         aria-label={`Open album ${album.title} by ${album.artist}`}
       >
         <div class="relative">
