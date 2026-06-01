@@ -136,7 +136,7 @@
             : 'NO LLM GRADE YET'
   );
 
-  const reviewHref = $derived(row ? `/review?song=${row.songId}` : '#');
+  const reviewHref = $derived(row ? `/track/${row.songId}` : '#');
 
   async function onRegrade() {
     if (!row) return;

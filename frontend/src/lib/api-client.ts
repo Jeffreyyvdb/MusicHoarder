@@ -492,53 +492,6 @@ export async function fetchFolderFiles(path: string): Promise<SourceFile[]> {
   return result.files ?? []
 }
 
-// ── Ingest runs (history) ─────────────────────────────────────────────────────
-
-export type ApiRunStatus = "running" | "completed" | "cancelled" | "failed"
-
-export interface ApiRun {
-  id: string
-  status: ApiRunStatus
-  startedAtUtc: string
-  endedAtUtc?: string | null
-  sourcePath: string
-  destinationPath: string
-  triggerLabel?: string | null
-  tracksDiscovered: number
-  tracksProcessed: number
-  tracksFingerprinted: number
-  tracksEnriched: number
-  tracksCopied: number
-  tracksReview: number
-  tracksFailed: number
-  throughputPerSec: number
-  durationSeconds?: number | null
-}
-
-export interface ApiRunLogLine {
-  id: string
-  type: ApiOverviewActivity["type"]
-  track: string
-  artist: string
-  time: string
-}
-
-export interface ApiRunDetail extends ApiRun {
-  logTail: ApiRunLogLine[] | null
-}
-
-export async function fetchRuns(): Promise<ApiRun[]> {
-  return requestJson<ApiRun[]>("/runs")
-}
-
-export async function fetchRun(id: string): Promise<ApiRunDetail | null> {
-  try {
-    return await requestJson<ApiRunDetail>(`/runs/${id}`)
-  } catch {
-    return null
-  }
-}
-
 export async function fetchSongs(includeDeleted = false): Promise<ApiSong[]> {
   const result = await requestJson<SongsResponse>(`/songs?includeDeleted=${includeDeleted}`)
   return result.songs ?? []

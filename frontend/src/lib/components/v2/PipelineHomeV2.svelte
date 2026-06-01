@@ -51,27 +51,42 @@
   let loaded = $state(false);
   let rescanning = $state(false);
 
+  // Guard against overlapping polls: during an active scan the API is busy and a
+  // full refresh (which includes the entire song list) can take longer than the
+  // poll interval. Without this, ticks stack up faster than they drain, saturating
+  // the same-origin proxy — whose 10s header-timeout then aborts the in-flight
+  // requests (surfacing as the misleading "access control checks" console error)
+  // and bogs down the page. Skipping a tick while one is in flight makes the
+  // cadence adaptively back off under load.
+  let loadInFlight = false;
   async function loadAll() {
-    const [stRes, songsRes, qRes, qpRes, dupRes] = await Promise.allSettled([
-      fetchStats(),
-      fetchSongs(),
-      fetchQualityOverview(),
-      fetchQualityProgress(),
-      fetchDuplicates()
-    ]);
-    if (stRes.status === 'fulfilled') stats = stRes.value;
-    if (songsRes.status === 'fulfilled') songs = songsRes.value;
-    // Quality grading may be unconfigured — failure just leaves the KPI as "—".
-    if (qRes.status === 'fulfilled') quality = qRes.value;
-    if (qpRes.status === 'fulfilled') qualityProgress = qpRes.value;
-    if (dupRes.status === 'fulfilled') duplicates = dupRes.value;
-    loaded = true;
+    if (loadInFlight) return;
+    loadInFlight = true;
+    try {
+      const [stRes, songsRes, qRes, qpRes, dupRes] = await Promise.allSettled([
+        fetchStats(),
+        fetchSongs(),
+        fetchQualityOverview(),
+        fetchQualityProgress(),
+        fetchDuplicates()
+      ]);
+      if (stRes.status === 'fulfilled') stats = stRes.value;
+      if (songsRes.status === 'fulfilled') songs = songsRes.value;
+      // Quality grading may be unconfigured — failure just leaves the KPI as "—".
+      if (qRes.status === 'fulfilled') quality = qRes.value;
+      if (qpRes.status === 'fulfilled') qualityProgress = qpRes.value;
+      if (dupRes.status === 'fulfilled') duplicates = dupRes.value;
+      loaded = true;
+    } finally {
+      loadInFlight = false;
+    }
   }
 
   $effect(() => {
     void loadAll();
     // Re-poll on the same cadence as the rest of the app so counts stay fresh
-    // while a job runs. The SSE-backed conveyor updates independently.
+    // while a job runs. The SSE-backed conveyor updates independently, and the
+    // in-flight guard above keeps a slow refresh from stacking up.
     const poll = setInterval(() => void loadAll(), 8_000);
     return () => clearInterval(poll);
   });

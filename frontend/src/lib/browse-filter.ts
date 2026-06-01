@@ -1,10 +1,10 @@
 /**
  * Orthogonal "Organize by" filter applied to the library on top of section filters.
  *
- * The `/artists` and `/years` index grids link into the existing library at
- * `/library?artist=<name>` / `/library?year=<n>` (`?year=unknown` for the no-year bucket).
- * `/library` parses the URL with `parseBrowseFilter` and narrows `fetchSongs()` with
- * `applyBrowseFilter` before its usual section-filter + album grouping.
+ * Artist/year index grids link into the library at `/library?artist=<name>` /
+ * `/library?year=<n>` (`?year=unknown` for the no-year bucket). `LibraryV2` parses
+ * the URL with `parseBrowseFilter` and narrows `fetchSongs()` with `applyBrowseFilter`
+ * before its usual album grouping.
  */
 import { UNKNOWN_GROUP, type ApiSong } from '$lib/api-client';
 
@@ -60,13 +60,4 @@ export function browseFilterLabel(filter: BrowseFilter): string {
   if (filter.yearUnknown) return UNKNOWN_GROUP;
   if (filter.year != null) return String(filter.year);
   return '';
-}
-
-/** The href that clears the active browse filter, returning to its index grid. */
-export function browseFilterClearHref(filter: BrowseFilter): string {
-  return filter.artist != null ? '/artists' : '/years';
-}
-
-export function browseFilterKind(filter: BrowseFilter): 'artist' | 'year' {
-  return filter.artist != null ? 'artist' : 'year';
 }

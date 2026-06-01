@@ -52,9 +52,8 @@
     onClose: () => void;
     onResetEnrichment?: () => void;
     /**
-     * v2-only: link to the standalone /track/[id] provenance timeline. When set,
-     * the Enrichment tab shows a "View timeline" link. v1 callers omit it, so the
-     * v1 panel renders exactly as before.
+     * Link to the standalone /track/[id] provenance timeline. When set, the
+     * Enrichment tab shows a "View timeline" link.
      */
     timelineHref?: string;
   };
@@ -573,11 +572,6 @@
             <Button href={timelineHref} variant="outline" size="sm" class="w-full">
               <History class="mr-1.5 size-3.5" />
               View timeline
-            </Button>
-          {:else}
-            <Button href={`/review?song=${song.id}`} variant="outline" size="sm" class="w-full">
-              <History class="mr-1.5 size-3.5" />
-              Provenance & review
             </Button>
           {/if}
 
