@@ -73,7 +73,7 @@
     {#each filtered as group (group.key)}
       <a
         href={hrefFor(group)}
-        class="border-border bg-card hover:border-border/80 group grid grid-cols-[56px_1fr_auto] items-center gap-3 rounded-[10px] border px-3.5 py-3 transition-all hover:-translate-y-px hover:shadow-sm"
+        class="border-border bg-card hover:border-border/80 group grid grid-cols-[56px_1fr_auto] items-center gap-3 rounded-[10px] border px-3.5 py-3 transition-all [content-visibility:auto] [contain-intrinsic-size:auto_5rem] hover:-translate-y-px hover:shadow-sm"
         aria-label={`Browse ${group.label}`}
       >
         <Cover
