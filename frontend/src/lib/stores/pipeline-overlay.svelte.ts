@@ -59,6 +59,11 @@ let sseCleanup: (() => void) | null = null;
 let sseReconnect: ReturnType<typeof setTimeout> | null = null;
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 let active = false;
+// Guard so the 5s /overview poll never overlaps itself when the API is slow
+// (e.g. during a scan). Overlapping requests saturate the same-origin proxy,
+// which aborts them at its 10s header-timeout — flooding the console with
+// "access control checks" failures for /api/mh/overview.
+let overviewInFlight = false;
 
 function pushSample(snap: ProgressSnapshot): void {
   const now = Date.now();
@@ -125,10 +130,14 @@ function isAnyRunningFor(snap: ProgressSnapshot | null): boolean {
 }
 
 async function loadOverview(): Promise<void> {
+  if (overviewInFlight) return;
+  overviewInFlight = true;
   try {
     overview = await fetchOverview();
   } catch {
     /* silently ignore — the drawer falls back to empty state */
+  } finally {
+    overviewInFlight = false;
   }
 }
 

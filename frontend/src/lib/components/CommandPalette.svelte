@@ -4,15 +4,15 @@
     Disc3,
     Mic2,
     Music,
+    Music2,
     Library,
     Users,
-    CalendarRange,
+    Inbox,
+    Workflow,
     Gauge,
     ListMusic,
-    History,
     Settings as SettingsIcon,
     FolderTree,
-    LayoutDashboard,
     TrendingUp,
     Loader2
   } from '@lucide/svelte';
@@ -35,16 +35,15 @@
   type NavCommand = { label: string; href: string; icon: typeof Library; keywords: string };
 
   const NAV_COMMANDS: NavCommand[] = [
+    { label: 'Pipeline', href: '/pipeline', icon: Workflow, keywords: 'conveyor runs jobs history ingest overview dashboard' },
+    { label: 'Inbox', href: '/inbox', icon: Inbox, keywords: 'review duplicates ai flagged provenance manual' },
     { label: 'Library', href: '/library', icon: Library, keywords: 'albums home' },
     { label: 'Artists', href: '/artists', icon: Users, keywords: 'performers' },
-    { label: 'Years', href: '/years', icon: CalendarRange, keywords: 'decades' },
-    { label: 'Quality', href: '/quality', icon: Gauge, keywords: 'grade bitrate' },
+    { label: 'All tracks', href: '/tracks', icon: ListMusic, keywords: 'songs' },
+    { label: 'Spotify', href: '/spotify', icon: Music2, keywords: 'playlists liked' },
+    { label: 'AI quality', href: '/quality', icon: Gauge, keywords: 'grade bitrate' },
     { label: 'Performance', href: '/performance', icon: TrendingUp, keywords: 'timeline regression version stats trends' },
-    { label: 'Spotify', href: '/spotify', icon: ListMusic, keywords: 'playlists liked' },
-    { label: 'Provenance & review', href: '/review', icon: History, keywords: 'review manual' },
-    { label: 'Runs', href: '/runs', icon: History, keywords: 'jobs history' },
-    { label: 'Directories', href: '/directories', icon: FolderTree, keywords: 'folders tree' },
-    { label: 'Overview', href: '/overview', icon: LayoutDashboard, keywords: 'dashboard stats' },
+    { label: 'Directories', href: '/directories', icon: FolderTree, keywords: 'folders tree by folder match' },
     { label: 'Settings', href: '/settings', icon: SettingsIcon, keywords: 'config preferences' }
   ];
 
