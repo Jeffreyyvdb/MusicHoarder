@@ -1,7 +1,26 @@
 <script lang="ts">
   import { afterNavigate, goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { ChevronRight, LogOut, Music } from '@lucide/svelte';
+  import {
+    Activity,
+    ChevronRight,
+    Copy,
+    Disc3,
+    FolderTree,
+    Gauge,
+    Inbox,
+    Library,
+    ListMusic,
+    LogOut,
+    Music,
+    Settings,
+    Sparkles,
+    Tags,
+    TrendingUp,
+    Users,
+    Workflow,
+    type Icon as IconType
+  } from '@lucide/svelte';
   import * as Sidebar from '$lib/components/ui/sidebar';
   import {
     buildAlbumsFromSongs,
@@ -38,6 +57,7 @@
     id: SubKey;
     label: string;
     href: string;
+    icon: typeof IconType;
     /** Show a live pulse dot (e.g. the conveyor). */
     live?: boolean;
     /** Numeric/string count rendered on the right. */
@@ -50,6 +70,7 @@
     id: SectionId;
     label: string;
     href: string;
+    icon: typeof IconType;
     live?: boolean;
     badge?: () => number | null;
     sub: SubItem[];
@@ -120,33 +141,36 @@
       id: 'pipeline',
       label: 'Pipeline',
       href: '/pipeline',
+      icon: Workflow,
       live: true,
       sub: [
-        { id: 'conveyor', label: 'Conveyor', href: '/pipeline', live: true },
-        { id: 'folders', label: 'By folder', href: '/directories' },
-        { id: 'quality', label: 'AI quality', href: '/quality' },
-        { id: 'performance', label: 'Performance over time', href: '/performance' }
+        { id: 'conveyor', label: 'Conveyor', href: '/pipeline', icon: Activity, live: true },
+        { id: 'folders', label: 'By folder', href: '/directories', icon: FolderTree },
+        { id: 'quality', label: 'AI quality', href: '/quality', icon: Gauge },
+        { id: 'performance', label: 'Performance over time', href: '/performance', icon: TrendingUp }
       ]
     },
     {
       id: 'inbox',
       label: 'Inbox',
       href: '/inbox',
+      icon: Inbox,
       badge: () => reviewCount,
       sub: [
-        { id: 'review', label: 'Tag review', href: '/inbox?tab=review', count: () => reviewCount },
-        { id: 'dupes', label: 'Duplicates', href: '/inbox?tab=dupes' },
-        { id: 'aiflag', label: 'AI flagged', href: '/inbox?tab=ai' }
+        { id: 'review', label: 'Tag review', href: '/inbox?tab=review', icon: Tags, count: () => reviewCount },
+        { id: 'dupes', label: 'Duplicates', href: '/inbox?tab=dupes', icon: Copy },
+        { id: 'aiflag', label: 'AI flagged', href: '/inbox?tab=ai', icon: Sparkles }
       ]
     },
     {
       id: 'library',
       label: 'Library',
       href: '/library',
+      icon: Library,
       sub: [
-        { id: 'albums', label: 'Albums', href: '/library', count: () => albumCount },
-        { id: 'artists', label: 'Artists', href: '/artists', count: () => artistCount },
-        { id: 'tracks', label: 'All tracks', href: '/tracks', count: () => totalTracks }
+        { id: 'albums', label: 'Albums', href: '/library', icon: Disc3, count: () => albumCount },
+        { id: 'artists', label: 'Artists', href: '/artists', icon: Users, count: () => artistCount },
+        { id: 'tracks', label: 'All tracks', href: '/tracks', icon: ListMusic, count: () => totalTracks }
       ]
     },
     {
@@ -154,6 +178,7 @@
       id: 'settings',
       label: 'Settings',
       href: '/settings',
+      icon: Settings,
       sub: []
     }
   ];
@@ -267,6 +292,12 @@
             'text-sidebar-foreground hover:bg-sidebar-accent'
           )}
         >
+          <section.icon
+            class={cn(
+              'size-4 shrink-0',
+              secActive ? 'text-sidebar-foreground' : 'text-muted-foreground'
+            )}
+          />
           <span class="flex-1 text-[13px] font-semibold tracking-[-0.005em]">{section.label}</span>
           {#if section.live && indexing}
             <span class="bg-primary mh-v2-pulse size-[7px] shrink-0 rounded-full"></span>
@@ -291,6 +322,16 @@
                 'data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-foreground data-[active=true]:font-medium'
               )}
             >
+              <item.icon
+                class={cn(
+                  'size-3.5 shrink-0',
+                  item.live && indexing
+                    ? 'text-primary'
+                    : active
+                      ? 'text-sidebar-foreground/80'
+                      : 'text-muted-foreground/70'
+                )}
+              />
               {#if item.live && indexing}
                 <span class="bg-primary mh-v2-pulse size-1.5 shrink-0 rounded-full"></span>
               {/if}
