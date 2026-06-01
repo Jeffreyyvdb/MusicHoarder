@@ -198,11 +198,7 @@
   function subActive(item: SubItem): boolean {
     switch (item.id) {
       case 'conveyor':
-        return (
-          pathname === '/pipeline' ||
-          pathname === '/runs' ||
-          pathname.startsWith('/runs/')
-        );
+        return pathname === '/pipeline';
       case 'folders':
         return pathname.startsWith('/directories');
       case 'quality':
@@ -212,7 +208,7 @@
       case 'aiflag':
         return onInbox && inboxTab === 'ai';
       case 'review':
-        return (onInbox && inboxTab === 'review') || pathname.startsWith('/review');
+        return onInbox && inboxTab === 'review';
       case 'dupes':
         return onInbox && inboxTab === 'dupes';
       case 'albums':

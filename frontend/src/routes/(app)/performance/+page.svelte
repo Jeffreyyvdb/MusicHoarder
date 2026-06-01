@@ -255,7 +255,7 @@
                     <ul class="divide-y divide-border">
                       {#each compare.regressed as r (r.songId)}
                         <li class="px-4 py-2 text-sm">
-                          <a href={`/review?song=${r.songId}`} class="font-medium hover:underline">
+                          <a href={`/track/${r.songId}`} class="font-medium hover:underline">
                             {r.artist ?? '—'} — {r.title ?? r.fileName}
                           </a>
                           <div class="mt-0.5 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
@@ -282,7 +282,7 @@
                     <ul class="divide-y divide-border">
                       {#each compare.improved as r (r.songId)}
                         <li class="px-4 py-2 text-sm">
-                          <a href={`/review?song=${r.songId}`} class="font-medium hover:underline">
+                          <a href={`/track/${r.songId}`} class="font-medium hover:underline">
                             {r.artist ?? '—'} — {r.title ?? r.fileName}
                           </a>
                           <div class="mt-0.5 flex flex-wrap gap-x-3 text-xs text-muted-foreground">

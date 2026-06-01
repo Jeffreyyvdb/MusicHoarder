@@ -28,8 +28,7 @@
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
 
   // Behaviour-only: on mobile the album-drilldown / tracks-tab detail panel
-  // moves from a desktop resizable side-pane into a bottom Sheet. Never used to
-  // gate v1-vs-v2 (the page does that with uiVersion.isV2).
+  // moves from a desktop resizable side-pane into a bottom Sheet.
   const isMobile = new IsMobile();
 
   type LibraryTab = 'albums' | 'artists' | 'tracks';
