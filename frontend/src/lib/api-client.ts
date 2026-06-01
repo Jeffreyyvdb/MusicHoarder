@@ -443,11 +443,24 @@ export interface DirectoryMatchNode {
   directFileCount: number
   /** Sum of file sizes rolled up from every song beneath this node. */
   sizeBytes: number
+  /** User-tagged "expected low" folder (leaks/unreleased) — pulled out of the work queue. */
+  expectedLow: boolean
   children: DirectoryMatchNode[]
 }
 
 export async function fetchDirectoryMatchTree(): Promise<DirectoryMatchNode> {
   return requestJson<DirectoryMatchNode>("/library/directory-tree")
+}
+
+/** Toggle the current user's "expected low" flag for one source-relative folder path. */
+export async function setDirectoryExpectedLow(
+  path: string,
+  expectedLow: boolean
+): Promise<{ path: string; expectedLow: boolean }> {
+  return requestJson<{ path: string; expectedLow: boolean }>("/library/directory-preferences", {
+    method: "POST",
+    body: JSON.stringify({ path, expectedLow })
+  })
 }
 
 /** Per-file state surfaced in the folder drill-down (mirrors the backend DeriveFileState). */
@@ -553,6 +566,7 @@ export interface ProgressSnapshot {
   scanned: number
   fingerprinted: number
   enriched: number
+  needsReview: number
   built: number
   failed: number
   scan: StepSnapshot
@@ -1175,6 +1189,64 @@ export async function fetchReviewQueue(filter: ReviewQueueFilter): Promise<ApiSo
   return result.songs ?? []
 }
 
+// ── Duplicates (ambiguous fingerprint clusters) ────────────────────────────────
+
+/** One file inside a duplicate cluster (a "loser" copy flagged as IsDuplicate). */
+export interface DuplicateMember {
+  id: number
+  sourcePath: string
+  fileName: string
+  extension?: string | null
+  fileSizeBytes: number
+  artist?: string | null
+  albumArtist?: string | null
+  album?: string | null
+  title?: string | null
+  year?: number | null
+  trackNumber?: number | null
+  durationSeconds?: number | null
+  bitrate?: number | null
+  fingerprint?: string | null
+  isDuplicate: boolean
+  duplicateOfId?: number | null
+  enrichmentStatus?: string | number | null
+  /** Server-computed keep-priority (FLAC/WAV/AIFF rank above bitrate). */
+  qualityScore: number
+}
+
+/** The "kept" file the cluster's duplicates point at (the auto-resolver's pick). */
+export interface DuplicateBest {
+  id: number
+  sourcePath: string
+  fileName: string
+  extension?: string | null
+  fileSizeBytes: number
+  artist?: string | null
+  album?: string | null
+  title?: string | null
+  bitrate?: number | null
+  fingerprint?: string | null
+  qualityScore: number
+}
+
+export interface DuplicateGroup {
+  fingerprint: string | null
+  /** The kept copy; null when no DuplicateOfId was recorded for the cluster. */
+  best: DuplicateBest | null
+  duplicates: DuplicateMember[]
+}
+
+export interface DuplicatesResponse {
+  totalDuplicates: number
+  groups: number
+  duplicateGroups: DuplicateGroup[]
+}
+
+/** All tracks flagged as duplicates, grouped by fingerprint (read-only — no resolve endpoint yet). */
+export async function fetchDuplicates(): Promise<DuplicatesResponse> {
+  return requestJson<DuplicatesResponse>("/api/library/duplicates")
+}
+
 // ── Enrichment detail (candidate matches) ──────────────────────────────────────
 
 export interface EnrichmentCandidate {
@@ -1307,8 +1379,64 @@ export interface QualityOverview {
   gradeableTotal: number
   coverage: number
   library: QualityRollupView
+  /** Auto-asked-for-review (NeedsReview at grade time). */
+  flaggedCount: number
+  /** Auto-accepted (Matched) but graded Wrong/Questionable — the algorithm's blind spots. */
+  silentFailureCount: number
+  /** Auto-accepted (Matched) and graded Excellent. */
+  verifiedCleanCount: number
   worstOffenders: QualityWorstOffender[]
   directories: QualityDirectoryRollup[]
+}
+
+/** Which workbench bucket a graded song falls into (mirrors the backend classifier). */
+export type QualityBucketName = "flagged" | "silent" | "verified" | "other"
+
+/** A graded song row for the AI-quality workbench master list. */
+export interface QualitySongRow {
+  songId: number
+  fileName: string
+  sourcePath: string
+  artist?: string | null
+  title?: string | null
+  album?: string | null
+  score: number
+  verdict: QualityVerdict
+  summary?: string | null
+  issues: QualityIssue[]
+  enrichmentStatusAtGrade?: string | null
+  destinationPathPreview?: string | null
+  gradedAtUtc: string
+  bucket: QualityBucketName
+}
+
+/** Filter category for the workbench list: a bucket, a verdict, or "all". */
+export type QualityCategory =
+  | "all"
+  | "flagged"
+  | "silent"
+  | "verified"
+  | "wrong"
+  | "questionable"
+  | "good"
+  | "excellent"
+  | "ungradeable"
+
+export interface QualitySongsPage {
+  total: number
+  skip: number
+  take: number
+  items: QualitySongRow[]
+}
+
+export async function fetchQualitySongs(
+  category: QualityCategory = "all",
+  skip = 0,
+  take = 200
+): Promise<QualitySongsPage> {
+  return requestJson<QualitySongsPage>(
+    `/api/quality/songs?category=${encodeURIComponent(category)}&skip=${skip}&take=${take}`
+  )
 }
 
 export interface SongQualityGradeView {

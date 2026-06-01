@@ -6,6 +6,7 @@
   import {
     Check,
     X,
+    ChevronLeft,
     ChevronRight,
     Play,
     Pause,
@@ -55,18 +56,12 @@
   } from '$lib/review-helpers';
   import { formatFileSize } from '$lib/formatters';
   import { playerStore } from '$lib/stores/player.svelte';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import MobileReview from '$lib/components/mobile/MobileReview.svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import CandidateGrid from '$lib/components/review/CandidateGrid.svelte';
   import BeforeAfterView from '$lib/components/review/BeforeAfterView.svelte';
   import TimelineView from '$lib/components/review/TimelineView.svelte';
   import OriginMatrixView from '$lib/components/review/OriginMatrixView.svelte';
   import { cn } from '$lib/utils';
-
-  // Below this width the fixed 340px queue + detail two-pane is too cramped;
-  // fall back to the single-column mobile review layout.
-  const isMobile = new IsMobile(1100);
 
   type MetadataEdits = Partial<Record<EditableFieldKey, string>>;
   type Decision = 'accept' | 'reject' | 'skip';
@@ -79,6 +74,9 @@
   let view = $state<ViewKey>('before');
 
   let selectedId = $state<number | null>(null);
+  // Below `lg` the queue + detail two-pane becomes a drill-down: the queue shows
+  // until a row is opened, then the detail replaces it (with a back affordance).
+  let mobileDetailOpen = $state(false);
   let editedMetadata = $state<Record<number, MetadataEdits>>({});
   let pickedKey = $state<Record<number, string>>({});
   let decisions = $state<Record<number, Decision>>({});
@@ -153,7 +151,6 @@
   }
 
   $effect(() => {
-    if (isMobile.current) return;
     void loadQueues();
   });
 
@@ -281,6 +278,7 @@
 
   function selectTrack(id: number) {
     selectedId = id;
+    mobileDetailOpen = true;
   }
 
   function pickCandidate(c: ReviewCandidate) {
@@ -524,11 +522,7 @@
   ];
 </script>
 
-{#if isMobile.current}
-  <div class="mx-auto h-full w-full max-w-2xl">
-    <MobileReview />
-  </div>
-{:else if loading}
+{#if loading}
   <main class="flex flex-1 items-center justify-center p-4">
     <div class="flex flex-col items-center gap-4">
       <Loader2 class="text-primary size-8 animate-spin" />
@@ -547,9 +541,14 @@
     </div>
   </main>
 {:else}
-  <main class="grid min-h-0 flex-1 grid-cols-[340px_1fr] overflow-hidden">
+  <main class="grid min-h-0 flex-1 overflow-hidden lg:grid-cols-[340px_1fr]">
     <!-- Queue -->
-    <aside class="bg-surface-sunken border-border flex min-h-0 flex-col border-r">
+    <aside
+      class={cn(
+        'bg-surface-sunken border-border min-h-0 flex-col border-r lg:flex',
+        mobileDetailOpen ? 'hidden lg:flex' : 'flex'
+      )}
+    >
       <div class="border-border flex items-start justify-between gap-2 border-b px-[18px] py-3">
         <div class="min-w-0">
           <div class="text-sm font-semibold">Enrichments</div>
@@ -703,12 +702,25 @@
     </aside>
 
     <!-- Detail -->
-    {#if selectedTrack && guess && banner}
-      <div class="flex min-w-0 flex-col overflow-hidden">
+    <div
+      class={cn(
+        'min-w-0 flex-col overflow-hidden lg:flex',
+        mobileDetailOpen ? 'flex' : 'hidden lg:flex'
+      )}
+    >
+      <button
+        type="button"
+        class="text-muted-foreground hover:text-foreground border-border flex items-center gap-1 border-b px-4 py-3 text-xs lg:hidden"
+        onclick={() => (mobileDetailOpen = false)}
+      >
+        <ChevronLeft class="size-4" />
+        Queue
+      </button>
+      {#if selectedTrack && guess && banner}
         <!-- Banner -->
         <div
           class={cn(
-            'flex items-center gap-3 px-7 py-3.5',
+            'flex items-center gap-3 px-4 sm:px-7 py-3.5',
             banner.tone === 'warn' && 'bg-amber-500/10',
             banner.tone === 'info' && 'bg-primary/10',
             banner.tone === 'err' && 'bg-red-500/10',
@@ -736,7 +748,7 @@
         </div>
 
         <!-- Header -->
-        <div class="border-border flex items-start justify-between gap-6 border-b px-7 pt-3 pb-4">
+        <div class="border-border flex flex-col gap-4 border-b px-4 pt-3 pb-4 sm:px-7 xl:flex-row xl:items-start xl:justify-between xl:gap-6">
           <div class="flex min-w-0 items-start gap-4">
             <Cover artist={original?.subtitle ?? 'Unknown'} title={original?.title ?? ''} size={56} corner={8} caption={false} />
             <div class="min-w-0">
@@ -799,7 +811,7 @@
         </div>
 
         <!-- AI quality grade -->
-        <div class="border-border flex flex-wrap items-center gap-3 border-b px-7 py-2.5">
+        <div class="border-border flex flex-wrap items-center gap-3 border-b px-4 sm:px-7 py-2.5">
           <span class="text-muted-foreground font-mono text-[10px] tracking-[0.08em]">AI QUALITY</span>
           {#if selectedGrade?.graded}
             <span class={cn('rounded-md border px-1.5 py-0.5 text-[10.5px] font-semibold', verdictTint(selectedGrade.verdict))}>
@@ -833,7 +845,7 @@
         </div>
 
         <!-- Contributed + VIEW tabs -->
-        <div class="border-border flex flex-wrap items-center justify-between gap-3 border-b px-7 py-2.5">
+        <div class="border-border flex flex-wrap items-center justify-between gap-3 border-b px-4 sm:px-7 py-2.5">
           <div class="flex items-center gap-2">
             <span class="text-muted-foreground font-mono text-[10px] tracking-[0.08em]">CONTRIBUTED</span>
             {#if contributed.length === 0}
@@ -868,7 +880,7 @@
         {/if}
 
         <!-- Scrollable content -->
-        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-7 py-5">
+        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 sm:px-7 py-5">
           <CandidateGrid {candidates} pickedKey={pickedKey[selectedTrack.id] ?? null} loading={detailLoading[selectedTrack.id]} onpick={pickCandidate} />
 
           {#if view === 'before'}
@@ -892,7 +904,7 @@
         </div>
 
         <!-- Action bar -->
-        <div class="border-border bg-background flex items-center gap-3 border-t px-7 py-3">
+        <div class="border-border bg-background flex flex-wrap items-center gap-3 border-t px-4 sm:px-7 py-3">
           <div class="min-w-0 flex-1">
             <div class="text-muted-foreground font-mono text-[10px] tracking-[0.08em]">WRITES TO</div>
             <div class="text-muted-foreground truncate font-mono text-[11px]">{destinationPath}</div>
@@ -941,7 +953,11 @@
             </Button>
           {/if}
         </div>
-      </div>
-    {/if}
+      {:else}
+        <div class="text-muted-foreground grid flex-1 place-items-center p-6 text-sm">
+          Select a track to review.
+        </div>
+      {/if}
+    </div>
   </main>
 {/if}

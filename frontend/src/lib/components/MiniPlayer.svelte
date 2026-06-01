@@ -12,12 +12,6 @@
     return `${m}:${s.toString().padStart(2, '0')}`;
   }
 
-  type Props = {
-    /** On the mobile shell, float above the bottom tab bar instead of at bottom: 0. */
-    mobileInset?: boolean;
-  };
-  const { mobileInset = false }: Props = $props();
-
   // Progress as a 0..1 fraction. Driven into the seek bar via `transform: scaleX`
   // (composite-only) rather than a bits-ui Slider, whose per-value reflow on the
   // ~10 Hz time tick saturates the main thread and starves audio playback.
@@ -87,9 +81,7 @@
   {@const song = playerStore.currentSong}
   <div
     class="border-border bg-sidebar fixed right-0 left-0 z-50 border-t shadow-[0_-4px_24px_oklch(0%_0_0/0.08)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.35)]"
-    style={mobileInset
-      ? 'bottom: var(--mob-tab-h, calc(76px + env(safe-area-inset-bottom)));'
-      : 'bottom: 0;'}
+    style="bottom: env(safe-area-inset-bottom, 0);"
   >
     <div class="bg-foreground/15 block h-0.5 w-full overflow-hidden sm:hidden" aria-hidden="true">
       <div

@@ -39,6 +39,7 @@ public static class ProgressSnapshotFactory
         var scanned = (scanState?.Processed ?? 0) + (scanState?.SkippedFiles ?? 0);
         var fingerprinted = fpState?.Fingerprinted ?? 0;
         var enriched = enrichState?.Enriched ?? 0;
+        var needsReview = enrichState?.NeedsReview ?? 0;
         var built = buildState?.Built ?? 0;
         var failed = (scanState?.FailedFiles ?? 0)
             + (fpState?.Failed ?? 0)
@@ -55,6 +56,7 @@ public static class ProgressSnapshotFactory
             scanned,
             fingerprinted,
             enriched,
+            needsReview,
             built,
             failed,
             scanStep,

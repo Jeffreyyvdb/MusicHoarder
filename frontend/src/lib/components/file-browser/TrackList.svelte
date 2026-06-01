@@ -18,8 +18,21 @@
     isLoading: boolean;
     selectedId?: number | null;
     onSelect: (song: ApiSong) => void;
+    /**
+     * Suppress the big "All Tracks" title + stats band (used by the v2 Library
+     * shell, where the page header + active tab already provide that context).
+     * The Shuffle / Clear-filters actions move into the filter-chips row instead.
+     */
+    hideHeading?: boolean;
   };
-  const { songs, searchQuery, isLoading, selectedId = null, onSelect }: Props = $props();
+  const {
+    songs,
+    searchQuery,
+    isLoading,
+    selectedId = null,
+    onSelect,
+    hideHeading = false
+  }: Props = $props();
 
   type SortKey = 'added' | 'title' | 'artist' | 'album' | 'year' | 'size' | 'match' | 'dur';
   const STRING_KEYS: SortKey[] = ['title', 'artist', 'album'];
@@ -249,47 +262,53 @@
   </button>
 {/snippet}
 
+{#snippet headerActions()}
+  {#if hasFilters}
+    <button
+      type="button"
+      onclick={() => {
+        fmt = 'all';
+        lyricsOnly = false;
+      }}
+      class="text-muted-foreground hover:border-primary hover:text-primary rounded-md border px-2 py-1 text-[11px] transition-colors"
+    >
+      Clear filters
+    </button>
+  {/if}
+  {#if sorted.length > 0}
+    <button
+      type="button"
+      onclick={shuffleTracks}
+      class="border-primary/40 text-primary hover:bg-primary/10 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors"
+    >
+      <Shuffle class="size-3.5" />
+      Shuffle
+    </button>
+  {/if}
+{/snippet}
+
 <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-  <!-- Header band -->
-  <div class="border-border bg-card/30 flex items-start justify-between gap-4 border-b px-4 py-5 md:px-6">
-    <div class="min-w-0">
-      <h1 class="text-2xl font-bold tracking-[-0.02em]">All Tracks</h1>
-      <p class="text-muted-foreground mt-1 text-sm">
-        {stats.count.toLocaleString()} track{stats.count === 1 ? '' : 's'}
-        {#if searchQuery.trim()}
-          · matching <span class="font-mono">"{searchQuery.trim()}"</span>
-        {:else}
-          · across {albumCount.toLocaleString()} album{albumCount === 1 ? '' : 's'}
-        {/if}
-        · <span class="font-mono">{formatTotalDuration(stats.totalSec)}</span>
-        · <span class="font-mono">{formatFileSize(stats.totalBytes)}</span>
-      </p>
+  {#if !hideHeading}
+    <!-- Header band -->
+    <div class="border-border bg-card/30 flex items-start justify-between gap-4 border-b px-4 py-5 md:px-6">
+      <div class="min-w-0">
+        <h1 class="text-2xl font-bold tracking-[-0.02em]">All Tracks</h1>
+        <p class="text-muted-foreground mt-1 text-sm">
+          {stats.count.toLocaleString()} track{stats.count === 1 ? '' : 's'}
+          {#if searchQuery.trim()}
+            · matching <span class="font-mono">"{searchQuery.trim()}"</span>
+          {:else}
+            · across {albumCount.toLocaleString()} album{albumCount === 1 ? '' : 's'}
+          {/if}
+          · <span class="font-mono">{formatTotalDuration(stats.totalSec)}</span>
+          · <span class="font-mono">{formatFileSize(stats.totalBytes)}</span>
+        </p>
+      </div>
+      <div class="mt-1 flex shrink-0 items-center gap-2">
+        {@render headerActions()}
+      </div>
     </div>
-    <div class="mt-1 flex shrink-0 items-center gap-2">
-      {#if hasFilters}
-        <button
-          type="button"
-          onclick={() => {
-            fmt = 'all';
-            lyricsOnly = false;
-          }}
-          class="text-muted-foreground hover:border-primary hover:text-primary rounded-md border px-2 py-1 text-[11px] transition-colors"
-        >
-          Clear filters
-        </button>
-      {/if}
-      {#if sorted.length > 0}
-        <button
-          type="button"
-          onclick={shuffleTracks}
-          class="border-primary/40 text-primary hover:bg-primary/10 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors"
-        >
-          <Shuffle class="size-3.5" />
-          Shuffle
-        </button>
-      {/if}
-    </div>
-  </div>
+  {/if}
 
   <!-- Filter chips -->
   <div class="border-border flex flex-wrap items-center gap-2 border-b px-4 py-3 md:px-6">
@@ -330,6 +349,11 @@
       {sorted.length.toLocaleString()} shown · sorted by {sortKey}
       {sortDir === 'asc' ? '↑' : '↓'}
     </span>
+
+    {#if hideHeading}
+      <!-- No header band, so the title-bar actions live here instead. -->
+      {@render headerActions()}
+    {/if}
   </div>
 
   <!-- Column headers (sticky, outside the scroll area so columns stay aligned) -->

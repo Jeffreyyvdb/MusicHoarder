@@ -4,15 +4,16 @@
   import { Button } from '$lib/components/ui/button';
   import { fetchRuns, fetchRun, type ApiRun, type ApiRunDetail } from '$lib/api-client';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import MobileRuns from '$lib/components/mobile/MobileRuns.svelte';
+  import { ChevronLeft } from '@lucide/svelte';
   import { cn } from '$lib/utils';
-
-  const isMobile = new IsMobile();
 
   let runs = $state<ApiRun[]>([]);
   let activeId = $state<string | null>(null);
   let detail = $state<ApiRunDetail | null>(null);
+  // Below `lg` the two panes become a drill-down: the list is shown until a run is
+  // opened, then the detail replaces it (with a back affordance). At `lg`+ both panes
+  // are always visible and this flag is ignored.
+  let mobileDetailOpen = $state(false);
 
   async function loadRuns() {
     try {
@@ -103,11 +104,8 @@
   );
 </script>
 
-{#if isMobile.current}
-  <MobileRuns />
-{:else}
   <main class="flex min-h-0 flex-1 flex-col overflow-hidden">
-    <div class="border-border flex items-end justify-between border-b px-7 py-5">
+    <div class="border-border flex items-end justify-between border-b px-4 py-4 sm:px-7 sm:py-5">
       <div>
         <div class="text-muted-foreground font-mono text-[10px] tracking-[0.12em]">PIPELINE · RUNS</div>
         <h1 class="mt-1 text-2xl font-semibold tracking-tight">Ingest history</h1>
@@ -117,20 +115,20 @@
       </div>
     </div>
 
-    <div class="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[1fr_380px]">
+    <div class="grid min-h-0 flex-1 lg:grid-cols-[1fr_380px]">
       <!-- Runs table -->
-      <ScrollArea class="min-h-0">
+      <ScrollArea class={cn('min-h-0', mobileDetailOpen && 'hidden lg:block')}>
         <div class="px-3.5 pt-3.5 pb-8">
           <div
-            class="text-muted-foreground border-border grid grid-cols-[24px_1.4fr_1.4fr_70px_80px_60px_60px_80px] items-center gap-3 border-b px-3 py-2 text-[10px] font-semibold tracking-wide uppercase"
+            class="text-muted-foreground border-border grid grid-cols-[24px_1fr_auto] items-center gap-3 border-b px-3 py-2 text-[10px] font-semibold tracking-wide uppercase md:grid-cols-[24px_1.4fr_1.4fr_70px_80px_60px_60px_80px]"
           >
             <span></span>
             <span>Run</span>
-            <span>Source</span>
-            <span>Files</span>
-            <span>Written</span>
-            <span>Errors</span>
-            <span>Review</span>
+            <span class="hidden md:block">Source</span>
+            <span class="hidden md:block">Files</span>
+            <span class="hidden md:block">Written</span>
+            <span class="hidden md:block">Errors</span>
+            <span class="hidden md:block">Review</span>
             <span>Duration</span>
           </div>
           {#if runs.length === 0}
@@ -139,11 +137,14 @@
           {#each runs as r (r.id)}
             <button
               class={cn(
-                'grid w-full grid-cols-[24px_1.4fr_1.4fr_70px_80px_60px_60px_80px] items-center gap-3 rounded-md px-3 py-3 text-left text-xs transition-colors',
+                'grid w-full grid-cols-[24px_1fr_auto] items-center gap-3 rounded-md px-3 py-3 text-left text-xs transition-colors md:grid-cols-[24px_1.4fr_1.4fr_70px_80px_60px_60px_80px]',
                 'hover:bg-muted/60',
                 activeId === r.id && 'bg-primary/10'
               )}
-              onclick={() => (activeId = r.id)}
+              onclick={() => {
+                activeId = r.id;
+                mobileDetailOpen = true;
+              }}
             >
               <span class="flex items-center justify-center">
                 {#if r.status === 'running'}
@@ -169,11 +170,11 @@
                   <div class="text-muted-foreground truncate font-mono text-[10.5px]">{r.id}</div>
                 {/if}
               </span>
-              <span class="text-muted-foreground truncate font-mono text-[11px]">{r.sourcePath}</span>
-              <span class="font-mono">{r.tracksDiscovered.toLocaleString()}</span>
-              <span class="font-mono">{r.tracksCopied.toLocaleString()}</span>
-              <span class={cn('font-mono', r.tracksFailed > 0 && 'text-red-500')}>{r.tracksFailed}</span>
-              <span class={cn('font-mono', r.tracksReview > 0 && 'text-amber-600 dark:text-amber-500')}>{r.tracksReview}</span>
+              <span class="text-muted-foreground hidden truncate font-mono text-[11px] md:block">{r.sourcePath}</span>
+              <span class="hidden font-mono md:block">{r.tracksDiscovered.toLocaleString()}</span>
+              <span class="hidden font-mono md:block">{r.tracksCopied.toLocaleString()}</span>
+              <span class={cn('hidden font-mono md:block', r.tracksFailed > 0 && 'text-red-500')}>{r.tracksFailed}</span>
+              <span class={cn('hidden font-mono md:block', r.tracksReview > 0 && 'text-amber-600 dark:text-amber-500')}>{r.tracksReview}</span>
               <span class="font-mono">{fmtDuration(r.durationSeconds)}</span>
             </button>
           {/each}
@@ -181,7 +182,20 @@
       </ScrollArea>
 
       <!-- Detail aside -->
-      <aside class="border-border bg-muted/30 flex min-h-0 flex-col border-t lg:border-t-0 lg:border-l">
+      <aside
+        class={cn(
+          'border-border bg-muted/30 min-h-0 flex-col border-t lg:border-t-0 lg:border-l lg:flex',
+          mobileDetailOpen ? 'flex' : 'hidden'
+        )}
+      >
+        <button
+          type="button"
+          class="text-muted-foreground hover:text-foreground border-border flex items-center gap-1 border-b px-4 py-3 text-xs lg:hidden"
+          onclick={() => (mobileDetailOpen = false)}
+        >
+          <ChevronLeft class="size-4" />
+          All runs
+        </button>
         {#if detail}
           {@const run = detail}
           <ScrollArea class="min-h-0">
@@ -280,4 +294,3 @@
       </aside>
     </div>
   </main>
-{/if}

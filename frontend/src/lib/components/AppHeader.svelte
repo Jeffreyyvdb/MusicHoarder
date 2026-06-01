@@ -21,6 +21,7 @@
   import { Input } from '$lib/components/ui/input';
   import { Separator } from '$lib/components/ui/separator';
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
+  import DesignVersionToggle from '$lib/components/v2/DesignVersionToggle.svelte';
   import {
     fetchLibraryAvailability,
     fetchOverview,
@@ -252,7 +253,7 @@
   <Sidebar.Trigger class="-ml-1" />
   <Separator orientation="vertical" class="mx-1 h-5" />
 
-  <div class="flex items-center gap-1">
+  <div class="hidden items-center gap-1 sm:flex">
     <button
       type="button"
       onclick={handleBack}
@@ -322,7 +323,7 @@
 
   <div class="flex items-center gap-1.5">
     {#if showViewToggle}
-      <div class="bg-surface-sunken border-border flex items-center rounded-md border p-0.5">
+      <div class="bg-surface-sunken border-border hidden items-center rounded-md border p-0.5 sm:flex">
         {#each [{ id: 'grid' as const, label: 'Gallery', icon: Grid3x3 }, { id: 'list' as const, label: 'List', icon: List }, { id: 'col' as const, label: 'Column (coming soon)', icon: Columns }] as opt (opt.id)}
           {@const disabled = opt.id === 'col'}
           {@const isActive = layout === opt.id}
@@ -415,6 +416,8 @@
     >
       <SettingsIcon class="size-4" />
     </a>
+
+    <DesignVersionToggle />
 
     <ThemeToggle />
   </div>

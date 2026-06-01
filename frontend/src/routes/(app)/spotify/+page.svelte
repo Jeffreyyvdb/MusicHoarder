@@ -39,10 +39,9 @@
   import TrackListSkeleton from '$lib/components/spotify/TrackListSkeleton.svelte';
   import PlaylistGridSkeleton from '$lib/components/spotify/PlaylistGridSkeleton.svelte';
   import PlaylistDetailView from '$lib/components/spotify/PlaylistDetailView.svelte';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import MobileSpotify from '$lib/components/mobile/MobileSpotify.svelte';
-
-  const isMobile = new IsMobile();
+  import PipelineSubNavV2 from '$lib/components/v2/PipelineSubNavV2.svelte';
+  import { LIBRARY_SUBNAV } from '$lib/library-subnav';
+  import { uiVersion } from '$lib/stores/ui-version.svelte';
 
   let status = $state<SpotifyStatusResponse | null>(null);
   let credentials = $state<SpotifyCredentialsResponse | null>(null);
@@ -97,7 +96,6 @@
   }
 
   $effect(() => {
-    if (isMobile.current) return;
     void loadStatus();
   });
 
@@ -153,7 +151,6 @@
 
   // Load data when Spotify connects.
   $effect(() => {
-    if (isMobile.current) return;
     if (status?.connected) {
       void loadLikedSongs(0);
       void loadPlaylists();
@@ -221,9 +218,15 @@
   );
 </script>
 
-{#if isMobile.current}
-  <MobileSpotify />
-{:else if isLoadingStatus}
+<!-- In v2 the Spotify page belongs to the Library section, so it wears the same
+     sub-nav bar as Albums/Artists/Tracks (count-less here — the page doesn't load
+     the song set). It sits as a shrink-0 sibling above the flex-1 content; v1
+     hides it and renders exactly as before. -->
+{#if uiVersion.isV2}
+  <PipelineSubNavV2 tabs={[...LIBRARY_SUBNAV]} active="spotify" />
+{/if}
+
+{#if isLoadingStatus}
   <div class="flex flex-1 items-center justify-center">
     <Loader2 class="text-muted-foreground size-8 animate-spin" />
   </div>

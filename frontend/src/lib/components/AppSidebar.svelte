@@ -4,8 +4,10 @@
   import {
     AlertTriangle,
     Calendar,
+    CalendarRange,
     Clock,
     Copy,
+    Disc3,
     FileWarning,
     FolderTree,
     Gauge,
@@ -17,7 +19,9 @@
     Music2,
     Scan,
     Settings,
-    TrendingUp
+    Tags,
+    TrendingUp,
+    Users
   } from '@lucide/svelte';
   import { signOut } from '$lib/api-client';
   import * as Sidebar from '$lib/components/ui/sidebar';
@@ -57,10 +61,10 @@
   ];
 
   const ORGANIZE = [
-    { id: 'artist', label: 'By Artist', href: '/artists' },
-    { id: 'genre', label: 'By Genre', href: null },
-    { id: 'year', label: 'By Year', href: '/years' },
-    { id: 'label', label: 'By Label', href: null }
+    { id: 'artist', label: 'By Artist', href: '/artists', icon: Users },
+    { id: 'genre', label: 'By Genre', href: null, icon: Tags },
+    { id: 'year', label: 'By Year', href: '/years', icon: CalendarRange },
+    { id: 'label', label: 'By Label', href: null, icon: Disc3 }
   ] as const;
 
   function formatLibrarySize(bytes: number): string {
@@ -179,6 +183,13 @@
   }
 
   const reviewCount = $derived(counts.missing);
+
+  // On mobile the sidebar is an off-canvas Sheet; tapping a destination should
+  // close it (client-side nav keeps this component mounted, so it won't auto-close).
+  const sidebar = Sidebar.useSidebar();
+  function closeMobile() {
+    if (sidebar.isMobile) sidebar.setOpenMobile(false);
+  }
 </script>
 
 <Sidebar.Root collapsible="icon">
@@ -187,7 +198,7 @@
       <Sidebar.MenuItem>
         <Sidebar.MenuButton size="lg" tooltipContent="MusicHoarder">
           {#snippet child({ props })}
-            <a {...props} href="/library">
+            <a {...props} href="/library" onclick={closeMobile}>
               <div
                 class="bg-primary text-primary-foreground flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg shadow-sm"
               >
@@ -215,6 +226,7 @@
           {@const count = counts[section.id]}
           <a
             href={section.id === 'lib' ? '/library' : `/library?section=${section.id}`}
+            onclick={closeMobile}
             data-active={isActive || undefined}
             class={cn(
               'mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors',
@@ -234,6 +246,7 @@
         {@const tracksActive = pathname === '/tracks'}
         <a
           href="/tracks"
+          onclick={closeMobile}
           data-active={tracksActive || undefined}
           class={cn(
             'mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors',
@@ -257,10 +270,11 @@
             {@const isActive = activeOrganize === item.id}
             <a
               href={item.href}
+              onclick={closeMobile}
               data-active={isActive || undefined}
               class="text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:font-medium mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors"
             >
-              <ListMusic class={cn('size-3.5 shrink-0', isActive && 'text-primary')} />
+              <item.icon class={cn('size-3.5 shrink-0', isActive && 'text-primary')} />
               <span class="flex-1 truncate text-left">{item.label}</span>
               <span class="text-muted-foreground font-mono text-[10.5px]">{fmtCount(count)}</span>
             </a>
@@ -269,7 +283,7 @@
               class="text-sidebar-foreground/50 mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px]"
               title="Coming soon"
             >
-              <ListMusic class="size-3.5 shrink-0" />
+              <item.icon class="size-3.5 shrink-0" />
               <span class="flex-1 truncate text-left">{item.label}</span>
               <span class="text-muted-foreground/70 text-[9.5px] tracking-wide uppercase">Soon</span>
             </div>
@@ -288,6 +302,7 @@
               : pathname.startsWith(item.href)}
           <a
             href={item.href}
+            onclick={closeMobile}
             data-active={isActive || undefined}
             class="text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:font-medium mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors group-data-[collapsible=icon]:justify-center"
           >
@@ -363,6 +378,7 @@
         <a
           href="/settings"
           aria-label="Settings"
+          onclick={closeMobile}
           data-active={pathname.startsWith('/settings') || undefined}
           class="text-muted-foreground hover:bg-sidebar-accent hover:text-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-primary grid size-[26px] place-items-center rounded-md transition-colors"
         >

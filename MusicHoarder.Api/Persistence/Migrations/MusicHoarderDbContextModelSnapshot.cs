@@ -207,6 +207,36 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.ToTable("WebAuthnCredentials");
                 });
 
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.DirectoryPreference", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("ExpectedLow")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Path")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerUserId", "Path")
+                        .IsUnique();
+
+                    b.ToTable("DirectoryPreferences");
+                });
+
             modelBuilder.Entity("MusicHoarder.Api.Persistence.EnrichmentSnapshot", b =>
                 {
                     b.Property<int>("Id")
