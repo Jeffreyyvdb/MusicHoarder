@@ -4,8 +4,10 @@
   import {
     AlertTriangle,
     Calendar,
+    CalendarRange,
     Clock,
     Copy,
+    Disc3,
     FileWarning,
     FolderTree,
     Gauge,
@@ -17,7 +19,9 @@
     Music2,
     Scan,
     Settings,
-    TrendingUp
+    Tags,
+    TrendingUp,
+    Users
   } from '@lucide/svelte';
   import { signOut } from '$lib/api-client';
   import * as Sidebar from '$lib/components/ui/sidebar';
@@ -57,10 +61,10 @@
   ];
 
   const ORGANIZE = [
-    { id: 'artist', label: 'By Artist', href: '/artists' },
-    { id: 'genre', label: 'By Genre', href: null },
-    { id: 'year', label: 'By Year', href: '/years' },
-    { id: 'label', label: 'By Label', href: null }
+    { id: 'artist', label: 'By Artist', href: '/artists', icon: Users },
+    { id: 'genre', label: 'By Genre', href: null, icon: Tags },
+    { id: 'year', label: 'By Year', href: '/years', icon: CalendarRange },
+    { id: 'label', label: 'By Label', href: null, icon: Disc3 }
   ] as const;
 
   function formatLibrarySize(bytes: number): string {
@@ -270,7 +274,7 @@
               data-active={isActive || undefined}
               class="text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:font-medium mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] transition-colors"
             >
-              <ListMusic class={cn('size-3.5 shrink-0', isActive && 'text-primary')} />
+              <item.icon class={cn('size-3.5 shrink-0', isActive && 'text-primary')} />
               <span class="flex-1 truncate text-left">{item.label}</span>
               <span class="text-muted-foreground font-mono text-[10.5px]">{fmtCount(count)}</span>
             </a>
@@ -279,7 +283,7 @@
               class="text-sidebar-foreground/50 mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px]"
               title="Coming soon"
             >
-              <ListMusic class="size-3.5 shrink-0" />
+              <item.icon class="size-3.5 shrink-0" />
               <span class="flex-1 truncate text-left">{item.label}</span>
               <span class="text-muted-foreground/70 text-[9.5px] tracking-wide uppercase">Soon</span>
             </div>
