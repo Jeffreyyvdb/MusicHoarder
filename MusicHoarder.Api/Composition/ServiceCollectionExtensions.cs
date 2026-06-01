@@ -335,9 +335,37 @@ public static class ServiceCollectionExtensions
             ? webAuthn.RpId
             : frontendUri?.Host ?? "localhost";
 
+        // A credential is bound to the registrable domain, so it is equally valid on the apex and
+        // its `www.` host — but Fido2 still checks the assertion's full origin against this
+        // allow-list. For every configured/derived origin, add its apex⇄`www.` counterpart so a
+        // browser hitting either host passes without extra config.
+        foreach (var sibling in origins.SelectMany(WwwSiblingOrigins).ToList())
+            origins.Add(sibling);
+
         if (origins.Count == 0)
             origins.Add("https://localhost");
 
         return (rpId, origins);
+    }
+
+    /// <summary>
+    /// Yields the apex⇄<c>www.</c> counterpart of <paramref name="origin"/>: a host carrying a
+    /// <c>www.</c> prefix maps to the bare apex and vice-versa. Single-label hosts (e.g.
+    /// <c>localhost</c>) and IP literals are skipped — they have no meaningful <c>www.</c> sibling.
+    /// </summary>
+    private static IEnumerable<string> WwwSiblingOrigins(string origin)
+    {
+        if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+            yield break;
+        if (uri.HostNameType is not UriHostNameType.Dns || !uri.Host.Contains('.'))
+            yield break;
+
+        var siblingHost = uri.Host.StartsWith("www.", StringComparison.OrdinalIgnoreCase)
+            ? uri.Host["www.".Length..]
+            : $"www.{uri.Host}";
+
+        // Preserve a non-default port; drop the implicit one so the origin string stays canonical.
+        var port = uri.IsDefaultPort ? string.Empty : $":{uri.Port}";
+        yield return $"{uri.Scheme}://{siblingHost}{port}";
     }
 }
