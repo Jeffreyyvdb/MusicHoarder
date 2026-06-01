@@ -35,7 +35,7 @@
       return { section: 'Library', page: isSourceView ? 'Source folder' : 'Albums' };
     }
     if (pathname.startsWith('/years')) return { section: 'Library', page: 'By year' };
-    if (pathname.startsWith('/spotify')) return { section: 'Pipeline', page: 'Spotify' };
+    if (pathname.startsWith('/spotify')) return { section: 'Library', page: 'Spotify' };
     if (pathname.startsWith('/settings')) return { section: 'Settings', page: 'Account' };
     if (pathname.startsWith('/overview')) return { section: 'Pipeline', page: 'Overview' };
     return { section: 'MusicHoarder', page: '' };

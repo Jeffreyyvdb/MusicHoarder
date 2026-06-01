@@ -13,6 +13,7 @@
     ListMusic,
     LogOut,
     Music,
+    Music2,
     Settings,
     Sparkles,
     Tags,
@@ -51,7 +52,8 @@
     | 'aiflag'
     | 'albums'
     | 'artists'
-    | 'tracks';
+    | 'tracks'
+    | 'spotify';
 
   type SubItem = {
     id: SubKey;
@@ -170,7 +172,8 @@
       sub: [
         { id: 'albums', label: 'Albums', href: '/library', icon: Disc3, count: () => albumCount },
         { id: 'artists', label: 'Artists', href: '/artists', icon: Users, count: () => artistCount },
-        { id: 'tracks', label: 'All tracks', href: '/tracks', icon: ListMusic, count: () => totalTracks }
+        { id: 'tracks', label: 'All tracks', href: '/tracks', icon: ListMusic, count: () => totalTracks },
+        { id: 'spotify', label: 'Spotify', href: '/spotify', icon: Music2 }
       ]
     },
     {
@@ -218,6 +221,8 @@
         return pathname.startsWith('/artists');
       case 'tracks':
         return pathname === '/tracks';
+      case 'spotify':
+        return pathname.startsWith('/spotify');
       default:
         return false;
     }

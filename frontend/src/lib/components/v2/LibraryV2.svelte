@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { Disc3, Search, Users, ListMusic, X } from '@lucide/svelte';
+  import { Search, X } from '@lucide/svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import * as Resizable from '$lib/components/ui/resizable';
   import * as Sheet from '$lib/components/ui/sheet';
@@ -22,6 +22,7 @@
     type ProgressSnapshot
   } from '$lib/api-client';
   import { isBuiltSong } from '$lib/album-sections';
+  import { LIBRARY_SUBNAV } from '$lib/library-subnav';
   import { parseBrowseFilter, applyBrowseFilter, browseFilterLabel } from '$lib/browse-filter';
   import { breadcrumbStore } from '$lib/stores/breadcrumbs.svelte';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
@@ -238,11 +239,19 @@
   }
 
   // ── sub-nav (navigates between the three real routes) ────────────────────────
-  const subNavTabs = $derived([
-    { id: 'albums', label: 'Albums', href: '/library', icon: Disc3, count: albumCount },
-    { id: 'artists', label: 'Artists', href: '/artists', icon: Users, count: artistCount },
-    { id: 'tracks', label: 'All tracks', href: '/tracks', icon: ListMusic, count: totalTracks }
-  ]);
+  const subNavTabs = $derived(
+    LIBRARY_SUBNAV.map((t) => ({
+      ...t,
+      count:
+        t.id === 'albums'
+          ? albumCount
+          : t.id === 'artists'
+            ? artistCount
+            : t.id === 'tracks'
+              ? totalTracks
+              : null
+    }))
+  );
 
   const enrichedPct = $derived.by(() => {
     if (totalTracks === 0) return null;
