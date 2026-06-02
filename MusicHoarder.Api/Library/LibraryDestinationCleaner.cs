@@ -9,6 +9,8 @@ public interface ILibraryDestinationCleaner
 
 public class LibraryDestinationCleaner(IFileSystem fileSystem) : ILibraryDestinationCleaner
 {
+    private static readonly string[] CoverImageExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"];
+
     public void DeleteManagedPathAndPrune(string path, string destinationRoot)
     {
         try
@@ -43,10 +45,26 @@ public class LibraryDestinationCleaner(IFileSystem fileSystem) : ILibraryDestina
 
             try
             {
-                if (fileSystem.Directory.EnumerateFiles(current).Any()
-                    || fileSystem.Directory.EnumerateDirectories(current).Any())
+                if (fileSystem.Directory.EnumerateDirectories(current).Any())
                 {
                     break;
+                }
+
+                var files = fileSystem.Directory.EnumerateFiles(current).ToList();
+                if (files.Count > 0)
+                {
+                    // The album-cover pass may have left a cover.* behind in this otherwise-empty
+                    // managed folder (e.g. after a track moved albums). Remove that — and only that —
+                    // so the folder can be pruned; any other file means the folder is still in use.
+                    if (!files.All(IsManagedCoverFile))
+                    {
+                        break;
+                    }
+
+                    foreach (var coverFile in files)
+                    {
+                        fileSystem.File.Delete(coverFile);
+                    }
                 }
 
                 fileSystem.Directory.Delete(current);
@@ -69,6 +87,14 @@ public class LibraryDestinationCleaner(IFileSystem fileSystem) : ILibraryDestina
 
             current = fileSystem.Path.GetDirectoryName(current);
         }
+    }
+
+    private bool IsManagedCoverFile(string path)
+    {
+        var name = fileSystem.Path.GetFileNameWithoutExtension(path);
+        var ext = fileSystem.Path.GetExtension(path);
+        return string.Equals(name, "cover", StringComparison.OrdinalIgnoreCase)
+            && CoverImageExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase);
     }
 
     private bool IsWithinRoot(string path, string rootFullPath)

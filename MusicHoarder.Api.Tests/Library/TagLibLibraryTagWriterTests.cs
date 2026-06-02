@@ -129,6 +129,33 @@ public class TagLibLibraryTagWriterTests : IDisposable
     }
 
     [Fact]
+    public async Task WriteTags_Mp3_PreservesEmbeddedPicture()
+    {
+        // Embedded art must survive the build: the byte-copy keeps it and the tag writer never
+        // touches tag.Pictures, so TagLib's re-save leaves the picture intact. This locks that in.
+        var path = CopyFixture("silence.mp3");
+        var pngBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 1, 2, 3, 4 };
+        using (var seed = TagLib.File.Create(path))
+        {
+            seed.Tag.Pictures =
+            [
+                new TagLib.Picture(new TagLib.ByteVector(pngBytes))
+                {
+                    MimeType = "image/png",
+                    Type = TagLib.PictureType.FrontCover,
+                }
+            ];
+            seed.Save();
+        }
+
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, BasicSong());
+
+        using var file = TagLib.File.Create(path);
+        var picture = Assert.Single(file.Tag.Pictures);
+        Assert.Equal(pngBytes, picture.Data.Data);
+    }
+
+    [Fact]
     public async Task WriteTags_Flac_DoesNotCreateId3Tag()
     {
         var path = CopyFixture("silence.flac");
