@@ -13,7 +13,12 @@
     AlertTriangle,
     Wand2,
     Loader2,
-    History
+    History,
+    HardDrive,
+    Library,
+    Activity,
+    Inbox,
+    Gauge
   } from '@lucide/svelte';
   import type { Component } from 'svelte';
   import { goto } from '$app/navigation';
@@ -459,12 +464,17 @@
     <!-- KPI row -->
     <div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
       <!-- Source -->
-      <div class="border-border bg-card rounded-lg border p-3.5">
-        <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">Source</div>
+      <div class="border-border bg-card rounded-xl border p-4 transition-all hover:border-foreground/20 hover:shadow-sm">
+        <div class="flex items-center gap-2">
+          <span class="bg-muted text-muted-foreground grid size-7 place-items-center rounded-lg">
+            <HardDrive class="size-3.5" />
+          </span>
+          <span class="text-muted-foreground text-[13px] font-medium">Source</span>
+        </div>
         {#if sourceTotal == null}
-          <Skeleton class="mt-1.5 h-7 w-16" />
+          <Skeleton class="mt-2 h-7 w-16" />
         {:else}
-          <div class="mt-0.5 font-mono text-xl font-semibold tabular-nums sm:text-2xl">{fmtNum(sourceTotal)}</div>
+          <div class="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums">{fmtNum(sourceTotal)}</div>
         {/if}
         <div class="text-muted-foreground mt-0.5 text-[11px]">
           files{sourceBytes != null ? ` · ${fmtBytes(sourceBytes)}` : ''}
@@ -472,12 +482,17 @@
       </div>
 
       <!-- In library -->
-      <div class="border-border bg-card rounded-lg border p-3.5">
-        <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">In library</div>
+      <div class="border-border bg-card rounded-xl border p-4 transition-all hover:border-foreground/20 hover:shadow-sm">
+        <div class="flex items-center gap-2">
+          <span class="bg-muted text-muted-foreground grid size-7 place-items-center rounded-lg">
+            <Library class="size-3.5" />
+          </span>
+          <span class="text-muted-foreground text-[13px] font-medium">In library</span>
+        </div>
         {#if inLibrary == null}
-          <Skeleton class="mt-1.5 h-7 w-16" />
+          <Skeleton class="mt-2 h-7 w-16" />
         {:else}
-          <div class="mt-0.5 font-mono text-xl font-semibold tabular-nums text-primary sm:text-2xl">{fmtNum(inLibrary)}</div>
+          <div class="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums">{fmtNum(inLibrary)}</div>
         {/if}
         <div class="text-muted-foreground mt-0.5 text-[11px]">
           {enrichedPct != null ? `${enrichedPct.toFixed(1)}% enriched` : 'enriched'}
@@ -485,13 +500,22 @@
       </div>
 
       <!-- In flight -->
-      <div class="border-border bg-card relative overflow-hidden rounded-lg border p-3.5">
-        <span class="bg-primary absolute inset-y-0 left-0 w-[3px]" aria-hidden="true"></span>
-        <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">In flight</div>
+      <div class="border-border bg-card rounded-xl border p-4 transition-all hover:border-foreground/20 hover:shadow-sm">
+        <div class="flex items-center gap-2">
+          <span
+            class={cn(
+              'grid size-7 place-items-center rounded-lg',
+              anyRunning ? 'bg-primary/12 text-primary' : 'bg-muted text-muted-foreground'
+            )}
+          >
+            <Activity class="size-3.5" />
+          </span>
+          <span class="text-muted-foreground text-[13px] font-medium">In flight</span>
+        </div>
         {#if !loaded}
-          <Skeleton class="mt-1.5 h-7 w-12" />
+          <Skeleton class="mt-2 h-7 w-12" />
         {:else}
-          <div class="mt-0.5 font-mono text-xl font-semibold tabular-nums text-primary sm:text-2xl">{inFlight.toLocaleString()}</div>
+          <div class="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums">{inFlight.toLocaleString()}</div>
         {/if}
         <div class="text-muted-foreground mt-0.5 text-[11px]">
           {anyRunning ? 'mid-pipeline' : 'idle'}
@@ -501,36 +525,42 @@
       <!-- Awaiting you -->
       <a
         href="/inbox"
-        class="relative block overflow-hidden rounded-lg border border-amber-500/40 bg-amber-500/5 p-3.5 transition-colors hover:bg-amber-500/10"
+        class="border-border bg-card group block rounded-xl border p-4 transition-all hover:border-foreground/20 hover:shadow-sm"
       >
-        <span class="absolute inset-y-0 left-0 w-[3px] bg-amber-500" aria-hidden="true"></span>
-        <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">Awaiting you</div>
+        <div class="flex items-center gap-2">
+          <span class="grid size-7 place-items-center rounded-lg bg-amber-500/12 text-amber-600 dark:text-amber-500">
+            <Inbox class="size-3.5" />
+          </span>
+          <span class="text-muted-foreground text-[13px] font-medium">Awaiting you</span>
+        </div>
         {#if awaitingYou == null}
-          <Skeleton class="mt-1.5 h-7 w-12" />
+          <Skeleton class="mt-2 h-7 w-12" />
         {:else}
-          <div class="mt-0.5 font-mono text-xl font-semibold tabular-nums text-amber-600 sm:text-2xl dark:text-amber-500">
+          <div class="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums text-amber-600 dark:text-amber-500">
             {fmtNum(awaitingYou)}
           </div>
         {/if}
         <div class="text-muted-foreground mt-0.5 text-[11px]">
           {fmtNum(tagReviewCount)} tags · {aiFlaggedCount != null ? `${aiFlaggedCount} AI` : '— AI'}
         </div>
-        <div class="text-amber-600 dark:text-amber-500 mt-1 inline-flex items-center gap-0.5 text-[11px] font-medium">
-          Open Inbox <ChevronRight class="size-3" />
-        </div>
       </a>
 
       <!-- Avg quality -->
-      <div class="border-border bg-card rounded-lg border p-3.5">
-        <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">Avg quality</div>
+      <div class="border-border bg-card rounded-xl border p-4 transition-all hover:border-foreground/20 hover:shadow-sm">
+        <div class="flex items-center gap-2">
+          <span class="bg-muted text-muted-foreground grid size-7 place-items-center rounded-lg">
+            <Gauge class="size-3.5" />
+          </span>
+          <span class="text-muted-foreground text-[13px] font-medium">Avg quality</span>
+        </div>
         {#if avgQuality == null}
           {#if loaded}
-            <div class="mt-0.5 font-mono text-xl font-semibold tabular-nums text-muted-foreground sm:text-2xl">—</div>
+            <div class="text-muted-foreground mt-1.5 text-2xl font-semibold tracking-tight tabular-nums">—</div>
           {:else}
-            <Skeleton class="mt-1.5 h-7 w-14" />
+            <Skeleton class="mt-2 h-7 w-14" />
           {/if}
         {:else}
-          <div class="mt-0.5 font-mono text-xl font-semibold tabular-nums sm:text-2xl">{avgQuality.toFixed(1)}</div>
+          <div class="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums">{avgQuality.toFixed(1)}</div>
         {/if}
         <div class="text-muted-foreground mt-0.5 text-[11px]">
           {qualityGraded != null && qualityGraded > 0 ? `AI score · ${qualityGraded.toLocaleString()} graded` : 'AI score'}
@@ -538,12 +568,22 @@
       </div>
 
       <!-- Errors -->
-      <div class="border-border bg-card rounded-lg border p-3.5">
-        <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">Errors</div>
+      <div class="border-border bg-card rounded-xl border p-4 transition-all hover:border-foreground/20 hover:shadow-sm">
+        <div class="flex items-center gap-2">
+          <span
+            class={cn(
+              'grid size-7 place-items-center rounded-lg',
+              (errorCount ?? 0) > 0 ? 'bg-red-500/12 text-red-500' : 'bg-muted text-muted-foreground'
+            )}
+          >
+            <AlertTriangle class="size-3.5" />
+          </span>
+          <span class="text-muted-foreground text-[13px] font-medium">Errors</span>
+        </div>
         {#if errorCount == null}
-          <Skeleton class="mt-1.5 h-7 w-10" />
+          <Skeleton class="mt-2 h-7 w-10" />
         {:else}
-          <div class={cn('mt-0.5 font-mono text-xl font-semibold tabular-nums sm:text-2xl', errorCount > 0 ? 'text-red-500' : '')}>
+          <div class={cn('mt-1.5 text-2xl font-semibold tracking-tight tabular-nums', errorCount > 0 && 'text-red-500')}>
             {fmtNum(errorCount)}
           </div>
         {/if}
@@ -568,9 +608,8 @@
               onclick={() => (activeStage = st.id)}
               data-active={isActive || undefined}
               class={cn(
-                'group relative flex flex-col gap-1.5 rounded-md border p-2.5 text-left transition-colors',
-                isActive ? 'border-primary/40 bg-primary/5' : 'border-border bg-background hover:bg-muted/60',
-                !st.real && 'border-dashed'
+                'group relative flex flex-col gap-1.5 rounded-lg border p-3 text-left transition-colors',
+                isActive ? 'border-foreground/25 bg-muted/40' : 'border-border bg-background hover:bg-muted/60'
               )}
             >
               <div class="flex items-center justify-between">
@@ -593,7 +632,7 @@
               <div class="text-muted-foreground flex items-center gap-1 text-[10.5px]">
                 <span class="truncate">{st.sub}</span>
               </div>
-              <div class="mt-0.5 font-mono text-base font-semibold tabular-nums">
+              <div class="mt-0.5 text-base font-semibold tabular-nums">
                 {#if st.real && st.count != null}
                   {st.count.toLocaleString()}
                   <span class="text-muted-foreground text-[10px] font-normal">{st.id === 'library' ? 'tracks' : 'done'}</span>
@@ -612,8 +651,8 @@
         </div>
 
         <!-- Active-stage detail -->
-        <div class="border-border bg-muted/30 mt-3 rounded-md border p-3">
-          <div class="text-muted-foreground mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-wide uppercase">
+        <div class="border-border bg-muted/30 mt-3 rounded-lg border p-3">
+          <div class="text-muted-foreground mb-2 flex items-center gap-1.5 text-[12px] font-semibold">
             {#if activeStageDef.warn}
               <AlertTriangle class="size-3.5 text-amber-500" />
             {:else}
@@ -656,15 +695,15 @@
           {@const Icon = card.icon}
           <a
             href={card.href}
-            class="border-border bg-card hover:border-primary/40 group flex flex-col rounded-lg border p-4 transition-colors"
+            class="border-border bg-card hover:border-foreground/20 group flex flex-col rounded-xl border p-5 transition-all hover:shadow-sm"
           >
             <div class="flex items-center gap-2.5">
               <span
                 class={cn(
-                  'grid size-8 place-items-center rounded-md',
-                  card.tone === 'review' && 'bg-amber-500/15 text-amber-600 dark:text-amber-500',
-                  card.tone === 'dupes' && 'bg-sky-500/15 text-sky-600 dark:text-sky-400',
-                  card.tone === 'ai' && 'bg-primary/15 text-primary'
+                  'grid size-8 place-items-center rounded-lg',
+                  card.tone === 'review' && 'bg-amber-500/12 text-amber-600 dark:text-amber-500',
+                  card.tone === 'dupes' && 'bg-sky-500/12 text-sky-600 dark:text-sky-400',
+                  card.tone === 'ai' && 'bg-primary/12 text-primary'
                 )}
               >
                 <Icon class="size-4" />
@@ -673,13 +712,13 @@
                 {#if card.count == null}
                   <Skeleton class="h-5 w-8" />
                 {:else}
-                  <div class="font-mono text-lg font-semibold leading-none tabular-nums">{card.count.toLocaleString()}</div>
+                  <div class="text-lg font-semibold leading-none tabular-nums">{card.count.toLocaleString()}</div>
                 {/if}
                 <div class="text-muted-foreground mt-0.5 text-[11.5px]">{card.label}</div>
               </div>
             </div>
             <p class="text-muted-foreground mt-2.5 flex-1 text-[12px] leading-relaxed">{card.body}</p>
-            <span class="text-primary mt-2.5 inline-flex items-center gap-0.5 text-[12px] font-medium">
+            <span class="text-muted-foreground group-hover:text-foreground mt-2.5 inline-flex items-center gap-0.5 text-[12px] font-medium transition-colors">
               {card.cta} <ChevronRight class="size-3" />
             </span>
           </a>
