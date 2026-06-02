@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import {
+    Disc,
     Disc3,
     Mic2,
     Music,
@@ -34,16 +35,19 @@
 
   type NavCommand = { label: string; href: string; icon: typeof Library; keywords: string };
 
+  // Order + labels mirror the sidebar / section tab bars (section-nav.ts +
+  // library-subnav.ts) so the flat Jump-to list reads exactly like the navs.
   const NAV_COMMANDS: NavCommand[] = [
     { label: 'Pipeline', href: '/pipeline', icon: Workflow, keywords: 'conveyor runs jobs history ingest overview dashboard' },
+    { label: 'By folder', href: '/directories', icon: FolderTree, keywords: 'directories folders tree match' },
+    { label: 'AI quality', href: '/quality', icon: Gauge, keywords: 'grade bitrate' },
+    { label: 'Album matches', href: '/album-quality', icon: Disc, keywords: 'album quality matches reconcile tracklist' },
+    { label: 'Performance over time', href: '/performance', icon: TrendingUp, keywords: 'timeline regression version stats trends' },
     { label: 'Inbox', href: '/inbox', icon: Inbox, keywords: 'review duplicates ai flagged provenance manual' },
     { label: 'Library', href: '/library', icon: Library, keywords: 'albums home' },
     { label: 'Artists', href: '/artists', icon: Users, keywords: 'performers' },
     { label: 'All tracks', href: '/tracks', icon: ListMusic, keywords: 'songs' },
     { label: 'Spotify', href: '/spotify', icon: Music2, keywords: 'playlists liked' },
-    { label: 'AI quality', href: '/quality', icon: Gauge, keywords: 'grade bitrate' },
-    { label: 'Performance', href: '/performance', icon: TrendingUp, keywords: 'timeline regression version stats trends' },
-    { label: 'Directories', href: '/directories', icon: FolderTree, keywords: 'folders tree by folder match' },
     { label: 'Settings', href: '/settings', icon: SettingsIcon, keywords: 'config preferences' }
   ];
 
@@ -114,9 +118,6 @@
   const libraryArtists = $derived(
     artistMatches.filter((a) => builtArtistKeys.has(a.key)).slice(0, MAX_PER_GROUP)
   );
-  const sourceArtists = $derived(
-    artistMatches.filter((a) => !builtArtistKeys.has(a.key)).slice(0, MAX_PER_GROUP)
-  );
 
   const albumMatches = $derived(
     hasQuery
@@ -125,9 +126,6 @@
   );
   const libraryAlbums = $derived(
     albumMatches.filter((a) => a.songs.some(isBuiltSong)).slice(0, MAX_PER_GROUP)
-  );
-  const sourceAlbums = $derived(
-    albumMatches.filter((a) => !a.songs.some(isBuiltSong)).slice(0, MAX_PER_GROUP)
   );
 
   const trackMatches = $derived.by(() => {
@@ -140,15 +138,9 @@
     });
   });
   const libraryTracks = $derived(trackMatches.filter(isBuiltSong).slice(0, MAX_PER_GROUP));
-  const sourceTracks = $derived(
-    trackMatches.filter((t) => !isBuiltSong(t)).slice(0, MAX_PER_GROUP)
-  );
 
   const hasLibraryResults = $derived(
     libraryArtists.length > 0 || libraryAlbums.length > 0 || libraryTracks.length > 0
-  );
-  const hasSourceResults = $derived(
-    sourceArtists.length > 0 || sourceAlbums.length > 0 || sourceTracks.length > 0
   );
 
   function trackArtist(s: ApiSong): string {
@@ -178,7 +170,7 @@
         Loading library…
       </div>
     {:else}
-      {#if hasQuery && !hasLibraryResults && !hasSourceResults && navMatches.length === 0}
+      {#if hasQuery && !hasLibraryResults && navMatches.length === 0}
         <Command.Empty>No results for “{query}”.</Command.Empty>
       {/if}
 
@@ -194,7 +186,7 @@
       {/if}
 
       {#if libraryArtists.length > 0}
-        <Command.Group heading="Library · Artists">
+        <Command.Group heading="Artists">
           {#each libraryArtists as artist (artist.key)}
             <Command.Item
               value={`lib-artist-${artist.key}`}
@@ -211,7 +203,7 @@
       {/if}
 
       {#if libraryAlbums.length > 0}
-        <Command.Group heading="Library · Albums">
+        <Command.Group heading="Albums">
           {#each libraryAlbums as album (album.key)}
             <Command.Item
               value={`lib-album-${album.key}`}
@@ -226,7 +218,7 @@
       {/if}
 
       {#if libraryTracks.length > 0}
-        <Command.Group heading="Library · Tracks">
+        <Command.Group heading="Tracks">
           {#each libraryTracks as track (track.id)}
             <Command.Item
               value={`lib-track-${track.id}`}
@@ -242,58 +234,6 @@
         </Command.Group>
       {/if}
 
-      {#if hasLibraryResults && hasSourceResults}
-        <Command.Separator />
-      {/if}
-
-      {#if sourceArtists.length > 0}
-        <Command.Group heading="Source · Artists">
-          {#each sourceArtists as artist (artist.key)}
-            <Command.Item
-              value={`src-artist-${artist.key}`}
-              onSelect={() => navigate(`/library?artist=${encodeURIComponent(artist.key)}`)}
-            >
-              <Mic2 class="text-muted-foreground" />
-              <span class="min-w-0 flex-1 truncate">{artist.label}</span>
-              <span class="text-muted-foreground shrink-0 pl-3 text-xs">
-                {artist.trackCount} {artist.trackCount === 1 ? 'track' : 'tracks'}
-              </span>
-            </Command.Item>
-          {/each}
-        </Command.Group>
-      {/if}
-
-      {#if sourceAlbums.length > 0}
-        <Command.Group heading="Source · Albums">
-          {#each sourceAlbums as album (album.key)}
-            <Command.Item
-              value={`src-album-${album.key}`}
-              onSelect={() => navigate(`/library?album=${encodeURIComponent(album.key)}`)}
-            >
-              <Disc3 class="text-muted-foreground" />
-              <span class="min-w-0 flex-1 truncate">{album.title}</span>
-              <span class="text-muted-foreground min-w-0 truncate pl-3 text-right text-xs">{album.artist}</span>
-            </Command.Item>
-          {/each}
-        </Command.Group>
-      {/if}
-
-      {#if sourceTracks.length > 0}
-        <Command.Group heading="Source · Tracks">
-          {#each sourceTracks as track (track.id)}
-            <Command.Item
-              value={`src-track-${track.id}`}
-              onSelect={() => navigate(`/library?song=${track.id}`)}
-            >
-              <Music class="text-muted-foreground" />
-              <span class="min-w-0 flex-1 truncate">{track.title ?? track.fileName}</span>
-              <span class="text-muted-foreground min-w-0 truncate pl-3 text-right text-xs">
-                {trackArtist(track)}{track.album ? ` · ${track.album}` : ''}
-              </span>
-            </Command.Item>
-          {/each}
-        </Command.Group>
-      {/if}
     {/if}
   </Command.List>
 </Command.Dialog>
