@@ -219,6 +219,21 @@ The version bump follows the commit prefix — `fix:` → patch, `feat:` → min
 `feat!:`/`BREAKING CHANGE:` → major; `chore`/`docs`/`refactor`/`test`/`style` cut no release. The
 [Releases page](https://github.com/Jeffreyyvdb/MusicHoarder/releases) is the canonical changelog.
 
+### Zero-downtime deploys
+
+The prod compose (`MusicHoarder.AppHost/aspire-output/docker-compose.yaml`) declares a Swarm
+`deploy.update_config` (`order: start-first`) plus Docker `healthcheck`s on the `api` and `frontend`
+services. To get zero-downtime rollouts you must run the stack as a **Docker Stack (Swarm)** — in
+Dokploy set the Compose service's **Compose Type to "Docker Stack"**. Swarm then starts the new task,
+waits for its healthcheck to pass, and only then removes the old one, so there is no 502 window.
+(Because Swarm ignores `pull_policy`, the stack deploy must run with `--resolve-image always` so the
+unchanged `:latest` reference still re-pulls the newest digest.)
+
+These keys are inert under plain `docker compose up` (Compose ignores `deploy.update_config`), so the
+build-from-source [Self-hosting](#self-hosting-docker-compose) path above is unaffected and keeps its
+current stop-then-start behavior — self-hosters who want zero-downtime can likewise run their stack
+via `docker stack deploy`.
+
 Operational detail — PR preview environments, the Spotify OAuth relay, and the Dokploy setup — lives
 in the heavily-commented workflow files under [`.github/workflows/`](.github/workflows).
 

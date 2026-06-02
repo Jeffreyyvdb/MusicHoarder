@@ -2,6 +2,7 @@ using System.IO.Abstractions;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.AppleMusic;
+using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Deezer;
@@ -130,6 +131,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IEnrichmentOrchestrator, EnrichmentOrchestrator>();
         services.AddSingleton<IDestinationPathResolver, DestinationPathResolver>();
         services.AddSingleton<IDuplicateDetectionService, DuplicateDetectionService>();
+        services.AddSingleton<IEmbeddedPictureReader, TagLibEmbeddedPictureReader>();
+        services.AddScoped<ICoverArtResolver, CoverArtResolver>();
+        services.AddScoped<IAlbumCoverWriter, AlbumCoverWriter>();
         services.AddScoped<ILibraryTagWriter, TagLibLibraryTagWriter>();
         services.AddScoped<ILibraryDestinationCleaner, LibraryDestinationCleaner>();
         services.AddScoped<ILibraryBuilderService, LibraryBuilderService>();
@@ -150,6 +154,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAlbumTracklistProvider, AppleMusicAlbumTracklistProvider>();
         services.AddHostedService<CanonicalAlbumFetchService>();
 
+        // One-time backfill: populate HasCoverArt + write destination album covers for libraries that
+        // were already scanned/built before the artwork feature shipped. Idempotent, marker-gated.
+        services.AddHostedService<CoverArtBackfillBackgroundService>();
         services.AddHostedService<IngestRunMonitor>();
         // Per-owner pipeline-quality snapshots, captured when a run finalizes (see IngestRunMonitor /
         // QualityGradingBackgroundService). Scoped — it reads/writes through the request DB scope.

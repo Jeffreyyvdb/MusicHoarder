@@ -116,9 +116,12 @@ export interface ApiSong {
   sampleRate?: number | null
   /** Bitrate in kbps (e.g. 320, 1411). Shown in track details when present. */
   bitRate?: number | null
-  /** Optional album cover URL. The backend currently leaves this unset and the UI
-   * falls back to an initials tile. */
+  /** Optional explicit album cover URL (e.g. Spotify CDN links on Spotify pages). For
+   * library tracks the backend leaves this unset and signals art via {@link hasCoverArt}. */
   albumArt?: string | null
+  /** True when the track has resolvable artwork (embedded, or a cover/folder/front.* image in
+   * its directory). The image bytes are fetched lazily from {@link getSongCoverUrl}. */
+  hasCoverArt?: boolean | null
 }
 
 interface SongsResponse {
@@ -286,7 +289,7 @@ export function buildAlbumsFromSongs(songs: ApiSong[]): AlbumSummary[] {
     if (!entry.musicBrainzReleaseId && song.musicBrainzReleaseId) {
       entry.musicBrainzReleaseId = song.musicBrainzReleaseId
     }
-    if (!entry.coverUrl && song.albumArt) entry.coverUrl = song.albumArt
+    if (!entry.coverUrl) entry.coverUrl = coverUrlForSong(song)
     entry.songs.push(song)
   }
   for (const album of map.values()) {
@@ -387,7 +390,7 @@ export function buildArtistGroups(songs: ApiSong[]): GroupSummary[] {
     entry.byteSize += song.fileSizeBytes ?? 0
     entry.durationSeconds += song.durationSeconds ?? 0
     entry.albumKeys.add(albumKeyOf(song))
-    if (!entry.coverUrl && song.albumArt) entry.coverUrl = song.albumArt
+    if (!entry.coverUrl) entry.coverUrl = coverUrlForSong(song)
   }
   return finalizeGroups(map).sort((a, b) => a.label.localeCompare(b.label))
 }
@@ -418,7 +421,7 @@ export function buildYearGroups(songs: ApiSong[]): GroupSummary[] {
     entry.byteSize += song.fileSizeBytes ?? 0
     entry.durationSeconds += song.durationSeconds ?? 0
     entry.albumKeys.add(albumKeyOf(song))
-    if (!entry.coverUrl && song.albumArt) entry.coverUrl = song.albumArt
+    if (!entry.coverUrl) entry.coverUrl = coverUrlForSong(song)
   }
   return finalizeGroups(map).sort((a, b) => {
     if (a.key === UNKNOWN_GROUP) return 1
@@ -967,6 +970,20 @@ export async function fetchTrackLyrics(trackId: number): Promise<TrackLyricsResp
 
 export function getSongStreamUrl(songId: number): string {
   return `${API_PREFIX}/songs/${songId}/stream`
+}
+
+/** Proxy URL for a track's album artwork. The endpoint 404s when the track has no art. */
+export function getSongCoverUrl(songId: number): string {
+  return `${API_PREFIX}/songs/${songId}/cover`
+}
+
+/**
+ * Cover URL for a song: an explicit {@link ApiSong.albumArt} (Spotify pages), else the lazy
+ * cover endpoint when the backend flagged {@link ApiSong.hasCoverArt}, else null (initials tile).
+ */
+export function coverUrlForSong(song: ApiSong): string | null {
+  if (song.albumArt) return song.albumArt
+  return song.hasCoverArt ? getSongCoverUrl(song.id) : null
 }
 
 /**

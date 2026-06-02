@@ -38,11 +38,14 @@ public class FileScanner(
             int? trackNumber = null;
             int? durationMs = null;
             int? bitrate = null;
+            var hasEmbeddedCover = false;
 
             try
             {
                 using var tagFile = TagLib.File.Create(filePath);
                 var tag = tagFile.Tag;
+
+                hasEmbeddedCover = tag.Pictures?.Length > 0;
 
                 album = NullIfEmpty(tag.Album);
                 albumArtist = tag.AlbumArtists?.Length > 0
@@ -91,6 +94,7 @@ public class FileScanner(
                 DurationMs = durationMs ?? (fpcalcResult?.DurationSeconds is { } sec ? sec * 1000 : null),
                 Fingerprint = fpcalcResult?.Fingerprint,
                 Bitrate = bitrate,
+                HasCoverArt = hasEmbeddedCover,
                 IndexedAtUtc = DateTime.UtcNow,
                 DeletedAtUtc = null
             };
