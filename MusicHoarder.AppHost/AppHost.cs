@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Aspire.Hosting.Docker.Resources.ServiceNodes;
+using Aspire.Hosting.Docker.Resources.ServiceNodes.Swarm;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -9,11 +10,14 @@ builder.AddDockerComposeEnvironment("compose")
     .ConfigureComposeFile(file =>
     {
         var apiService = file.Services["api"];
+        var frontendService = file.Services["frontend"];
 
         // Force a fresh pull of the :latest images on every deploy. Without this, Dokploy's
         // `docker compose up` reuses the cached :latest tag and never picks up new builds.
+        // (Swarm/`docker stack deploy` ignores pull_policy; it relies on `--resolve-image always`
+        // re-resolving the :latest digest instead — see the deploy/healthcheck blocks below.)
         apiService.PullPolicy = "always";
-        file.Services["frontend"].PullPolicy = "always";
+        frontendService.PullPolicy = "always";
 
         // Persist ASP.NET DataProtection keys across redeploys (otherwise auth sessions reset on
         // every deploy). Named volume, so it survives container recreation.
@@ -25,6 +29,76 @@ builder.AddDockerComposeEnvironment("compose")
         // Docker creates the host dirs if missing).
         apiService.AddVolume(new Volume { Name = "music-source", Type = "bind", Source = "${SOURCE_DIRECTORY}", Target = "${SOURCE_DIRECTORY}", ReadOnly = true });
         apiService.AddVolume(new Volume { Name = "music-destination", Type = "bind", Source = "${DESTINATION_DIRECTORY}", Target = "${DESTINATION_DIRECTORY}" });
+
+        // ── Zero-downtime deploys ──────────────────────────────────────────────────────────────
+        // Dokploy "Compose" deploys (`docker compose up`) stop the old container before the new one
+        // is ready → a 502 window every release. Running the stack as a Docker Stack (swarm) instead
+        // lets `update_config: { order: start-first }` keep the old task serving until the new one
+        // passes its healthcheck, then swap. These blocks make that work; they are inert under plain
+        // `docker compose up` (compose ignores `deploy.update_config`), so self-hosters are unaffected.
+
+        // The Aspire-published images carry no Docker HEALTHCHECK (the ones in the root Dockerfile /
+        // frontend/Dockerfile are only used by the build-from-source compose). Without a healthcheck
+        // swarm treats "process started" as "healthy" and tears down the old task before EF
+        // migrations finish / Kestrel is listening — so define real probes here. `curl` is baked into
+        // the api-base image and the frontend runtime image. The api listens on ${API_PORT}
+        // (HTTP_PORTS), so probe that rather than a hardcoded port.
+        apiService.Healthcheck = new Healthcheck
+        {
+            Test = new() { "CMD-SHELL", "curl -fsS http://localhost:${API_PORT}/alive || exit 1" },
+            Interval = "10s",
+            Timeout = "5s",
+            Retries = 6,
+            StartPeriod = "40s", // headroom for EF migrations + cold start
+        };
+        frontendService.Healthcheck = new Healthcheck
+        {
+            Test = new() { "CMD-SHELL", "curl -fsS http://localhost:8001/api/health || exit 1" },
+            Interval = "10s",
+            Timeout = "5s",
+            Retries = 6,
+            StartPeriod = "20s",
+        };
+
+        // Rolling update for the request-path services. start-first = new task must go healthy
+        // before the old one is removed (zero downtime); failure_action rollback keeps the old task
+        // if the new one never gets healthy within `monitor`. replicas:1 is mandatory on the api so
+        // two cold starts never race EF migrations (only the single new, post-migration task starts
+        // while the old already-migrated task serves; EF's __EFMigrationsHistory makes it idempotent).
+        Deploy Rolling() => new()
+        {
+            Mode = "replicated",
+            Replicas = 1,
+            UpdateConfig = new()
+            {
+                Order = "start-first",
+                Parallelism = 1,
+                Delay = "5s",
+                FailureAction = "rollback",
+                Monitor = "60s",
+            },
+            RestartPolicy = new() { Condition = "any", Delay = "5s" },
+        };
+        apiService.Deploy = Rolling();
+        frontendService.Deploy = Rolling();
+
+        // Postgres has a single data volume, so it must never run two tasks at once — stop-first
+        // releases the volume before any replacement claims it. (Usually a no-op on app-only deploys:
+        // swarm leaves postgres untouched when its image tag doesn't change.)
+        file.Services["postgres"].Deploy = new()
+        {
+            Mode = "replicated",
+            Replicas = 1,
+            UpdateConfig = new() { Order = "stop-first", Parallelism = 1 },
+            RestartPolicy = new() { Condition = "any" },
+        };
+
+        // QualityGrading model/endpoint default to compose interpolation fallbacks (the deploy env
+        // may leave QUALITY_GRADING_* unset). These mirror the documented defaults in the
+        // build-from-source docker-compose.yml; encoding them here keeps `aspire publish` faithful so
+        // the generated compose never drifts back to a bare ${...} with no fallback.
+        apiService.Environment["QualityGrading__Model"] = "${QUALITY_GRADING_MODEL:-deepseek/deepseek-v4-flash}";
+        apiService.Environment["QualityGrading__BaseUrl"] = "${QUALITY_GRADING_BASE_URL:-https://openrouter.ai/api/v1}";
     });
 
 // GHCR registry so `aspire publish` emits ghcr.io image references and `aspire do push`
