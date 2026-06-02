@@ -13,9 +13,13 @@ services:
       mode: "replicated"
       update_config:
         parallelism: 1
+        delay: "5s"
+        failure_action: "rollback"
+        monitor: "60s"
         order: "stop-first"
       restart_policy:
         condition: "any"
+        delay: "5s"
   postgres:
     image: "docker.io/library/postgres:17.6"
     environment:
@@ -37,9 +41,13 @@ services:
       mode: "replicated"
       update_config:
         parallelism: 1
+        delay: "5s"
+        failure_action: "rollback"
+        monitor: "60s"
         order: "stop-first"
       restart_policy:
         condition: "any"
+        delay: "5s"
   api:
     image: "${API_IMAGE}"
     environment:
@@ -96,7 +104,7 @@ services:
         delay: "5s"
         failure_action: "rollback"
         monitor: "60s"
-        order: "start-first"
+        order: "stop-first"
       restart_policy:
         condition: "any"
         delay: "5s"

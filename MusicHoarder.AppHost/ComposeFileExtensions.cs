@@ -55,18 +55,24 @@ internal static class ComposeFileExtensions
         // ── Zero-downtime deploys ──────────────────────────────────────────────────────────────
         // Dokploy "Compose" deploys (`docker compose up`) stop the old container before the new one
         // is ready → a 502 window every release. Running the stack as a Docker Stack (swarm) instead
-        // lets `update_config: { order: start-first }` keep the old task serving until the new one
-        // passes its healthcheck, then swap. The Aspire-published images carry no Docker HEALTHCHECK
-        // (the ones in the root Dockerfile / frontend/Dockerfile are only used by the
+        // lets `update_config` gate the swap on a healthcheck. The Aspire-published images carry no
+        // Docker HEALTHCHECK (those in the root Dockerfile / frontend/Dockerfile are only used by the
         // build-from-source compose), so the probes are defined here — without one swarm treats
-        // "process started" as "healthy" and tears down the old task before EF migrations finish /
-        // Kestrel is listening. These blocks are inert under plain `docker compose up`.
+        // "process started" as "healthy" and swaps too early. These blocks are inert under plain
+        // `docker compose up`. (The api listens on ${API_PORT} (HTTP_PORTS), so probe that.)
         //
-        // The api listens on ${API_PORT} (HTTP_PORTS), so probe that rather than a hardcoded port.
-        // replicas:1 on the api (inside WithRollingUpdate) is mandatory so two cold starts never race
-        // EF migrations: only the single new, post-migration task starts while the old already-
-        // migrated task serves, and EF's __EFMigrationsHistory makes the run idempotent.
-        api.WithHttpHealthcheck("${API_PORT}", "/alive", startPeriod: "40s").WithRollingUpdate();
+        // FRONTEND → start-first: a stateless SSR/proxy, so the new task can run alongside the old and
+        // take over only once healthy → the public site never drops a request.
+        //
+        // API → stop-first, NOT start-first: the API hosts the singleton pipeline (Scanner /
+        // Fingerprint / Enrichment / LibraryBuilder background services), which is NOT safe to run as
+        // two concurrent processes — workers don't claim DB rows atomically, the one-job-at-a-time
+        // JobManager is in-memory (per-process), the LibraryBuilder's destination locks are
+        // in-process, and a new instance's startup EF migration can break a still-running old
+        // instance. So the API never overlaps: the old task stops before the new one starts (+
+        // migrates). The public site stays up (frontend); the cost is a brief window where API calls
+        // fail while the API restarts — acceptable, and safe. Keep API replicas at 1.
+        api.WithHttpHealthcheck("${API_PORT}", "/alive", startPeriod: "40s").WithStopFirstUpdate();
         frontend.WithHttpHealthcheck("8001", "/api/health", startPeriod: "20s").WithRollingUpdate();
 
         // Postgres has a single data volume, so it must never run two tasks at once — stop-first
@@ -92,43 +98,42 @@ internal static class ComposeFileExtensions
     }
 
     /// <summary>
-    /// Swarm rolling update for a request-path service: <c>start-first</c> keeps the old task serving
-    /// until the new one passes its healthcheck, with rollback if it never goes healthy.
+    /// Swarm rolling update for a stateless request-path service: <c>start-first</c> keeps the old
+    /// task serving until the new one passes its healthcheck (zero-downtime), rolling back if it
+    /// never goes healthy.
     /// </summary>
     public static Service WithRollingUpdate(this Service service)
     {
-        service.Deploy = new Deploy
-        {
-            Mode = "replicated",
-            Replicas = 1,
-            UpdateConfig = new()
-            {
-                Order = "start-first",
-                Parallelism = 1,
-                Delay = "5s",
-                FailureAction = "rollback",
-                Monitor = "60s",
-            },
-            RestartPolicy = new() { Condition = "any", Delay = "5s" },
-        };
+        service.Deploy = SwarmUpdate("start-first");
         return service;
     }
 
     /// <summary>
-    /// Swarm update policy for a single-writer stateful service (e.g. Postgres): <c>stop-first</c> so
-    /// the old container releases its volume before the replacement claims it.
+    /// Swarm update for a single-instance service — one that must never run two copies at once
+    /// (Postgres' single data volume, or the API with its in-process singleton pipeline).
+    /// <c>stop-first</c> tears down the old task before the new one starts, so they never overlap, at
+    /// the cost of a brief gap on redeploy.
     /// </summary>
     public static Service WithStopFirstUpdate(this Service service)
     {
-        service.Deploy = new Deploy
-        {
-            Mode = "replicated",
-            Replicas = 1,
-            UpdateConfig = new() { Order = "stop-first", Parallelism = 1 },
-            RestartPolicy = new() { Condition = "any" },
-        };
+        service.Deploy = SwarmUpdate("stop-first");
         return service;
     }
+
+    private static Deploy SwarmUpdate(string order) => new()
+    {
+        Mode = "replicated",
+        Replicas = 1,
+        UpdateConfig = new()
+        {
+            Order = order,
+            Parallelism = 1,
+            Delay = "5s",
+            FailureAction = "rollback",
+            Monitor = "60s",
+        },
+        RestartPolicy = new() { Condition = "any", Delay = "5s" },
+    };
 
     /// <summary>
     /// Adds a <c>curl</c>-based HTTP liveness healthcheck. <paramref name="port"/> may be a literal
