@@ -157,6 +157,15 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
+// The running build's version (clean semver, matching the GitHub release / Docker tag). Accepts an
+// optional fetch so the root layout load can pass SvelteKit's instance (required during SSR).
+export async function getVersion(fetchFn: typeof fetch = fetch): Promise<string> {
+  const response = await fetchFn(`${API_PREFIX}/api/version`, { cache: "no-store" })
+  if (!response.ok) throw new Error(`Request failed for /api/version: ${response.status}`)
+  const body = (await response.json()) as { version: string }
+  return body.version
+}
+
 export type NormalizedEnrichmentStatus =
   | "pending"
   | "processing"

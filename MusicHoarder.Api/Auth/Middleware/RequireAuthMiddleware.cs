@@ -9,6 +9,7 @@ public sealed class RequireAuthMiddleware
     private static readonly string[] AllowlistedPrefixes =
     [
         "/api/auth/",
+        "/api/version",
         "/health",
         "/alive",
         "/openapi",

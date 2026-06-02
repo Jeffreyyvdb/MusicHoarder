@@ -246,10 +246,19 @@ public class EnrichmentSnapshotService(
 
     internal static string ResolveVersion(string? overrideVersion)
     {
-        if (!string.IsNullOrWhiteSpace(overrideVersion)) return overrideVersion.Trim();
+        if (!string.IsNullOrWhiteSpace(overrideVersion)) return Clean(overrideVersion);
         var info = Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-        return string.IsNullOrWhiteSpace(info) ? "dev" : info;
+        return string.IsNullOrWhiteSpace(info) ? "dev" : Clean(info);
+
+        // Drop any "+<build-metadata>" suffix (e.g. the source-control SHA the .NET SDK appends to
+        // local/dev builds) so the timeline and /api/version always show a clean semver.
+        static string Clean(string value)
+        {
+            var v = value.Trim();
+            var plus = v.IndexOf('+');
+            return plus >= 0 ? v[..plus] : v;
+        }
     }
 
     private static string Hash(string value)
