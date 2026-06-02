@@ -1,31 +1,11 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
-using Aspire.Hosting.Docker.Resources.ServiceNodes;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
 builder.AddDockerComposeEnvironment("compose")
     .WithProperties(env => env.DashboardEnabled = true)
-    .ConfigureComposeFile(file =>
-    {
-        var apiService = file.Services["api"];
-
-        // Force a fresh pull of the :latest images on every deploy. Without this, Dokploy's
-        // `docker compose up` reuses the cached :latest tag and never picks up new builds.
-        apiService.PullPolicy = "always";
-        file.Services["frontend"].PullPolicy = "always";
-
-        // Persist ASP.NET DataProtection keys across redeploys (otherwise auth sessions reset on
-        // every deploy). Named volume, so it survives container recreation.
-        apiService.AddVolume(new Volume { Name = "musichoarder-dpkeys", Type = "volume", Source = "musichoarder-dpkeys", Target = "/data/dpkeys" });
-        file.Volumes["musichoarder-dpkeys"] = new Volume { Name = "musichoarder-dpkeys", Driver = "local" };
-
-        // Bind-mount the host music library into the API container at the same paths the app reads
-        // (compose interpolates ${SOURCE_DIRECTORY}/${DESTINATION_DIRECTORY} from the deploy env;
-        // Docker creates the host dirs if missing).
-        apiService.AddVolume(new Volume { Name = "music-source", Type = "bind", Source = "${SOURCE_DIRECTORY}", Target = "${SOURCE_DIRECTORY}", ReadOnly = true });
-        apiService.AddVolume(new Volume { Name = "music-destination", Type = "bind", Source = "${DESTINATION_DIRECTORY}", Target = "${DESTINATION_DIRECTORY}" });
-    });
+    .ConfigureComposeFile(file => file.ConfigureMusicHoarderDeployment());
 
 // GHCR registry so `aspire publish` emits ghcr.io image references and `aspire do push`
 // builds + pushes there. Dokploy's Compose service pulls these prebuilt images.
