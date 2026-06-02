@@ -287,6 +287,14 @@ public class EnrichmentBackgroundService(
                 {
                     case EnrichmentOutcome.Matched:
                         progressTracker.IncrementEnriched();
+                        // A song that reaches Matched should always land in the library, whatever
+                        // enqueued it (bulk /enrich, per-folder, retry sweep, startup backfill) and
+                        // regardless of AutoStartPipeline — in manual mode the builder won't auto-poll,
+                        // so this is the trigger that walks the last stage. TryStartJob no-ops while a
+                        // build is already running (its batch loop sweeps up this song too); the
+                        // cycle-drain trigger in MarkProcessed stays as a backstop for the narrow race
+                        // where a match commits just as a build run finishes.
+                        jobManager.TryStartJob(JobType.Build, out _, out _);
                         break;
                     case EnrichmentOutcome.NeedsReview:
                         progressTracker.IncrementNeedsReview();
