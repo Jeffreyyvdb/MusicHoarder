@@ -17,6 +17,7 @@
   import {
     albumKeyForSong,
     enrichSong,
+    coverUrlForSong,
     fetchEnrichmentDetail,
     fetchSongQualityGrade,
     fetchSongs,
@@ -279,7 +280,7 @@
         <Cover
           artist={heroArtist || 'Unknown'}
           title={heroAlbum || heroTitle}
-          coverUrl={song.albumArt}
+          coverUrl={coverUrlForSong(song)}
           size={96}
           corner={10}
           caption={false}

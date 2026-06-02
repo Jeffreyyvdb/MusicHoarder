@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Contracts;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Persistence;
@@ -27,6 +28,10 @@ public static class SongsEndpoints
             .WithSummary("Revert a previously-applied automatic metadata change to its old value.")
             .WithTags("Tracks");
         app.MapGet("/songs/{id:int}/stream", StreamSong).WithName("StreamSong");
+        app.MapGet("/songs/{id:int}/cover", GetSongCover)
+            .WithName("GetSongCover")
+            .WithSummary("Serve the track's album artwork (embedded picture or a cover/folder/front.* image in its directory).")
+            .WithTags("Tracks");
 
         app.MapGet("/api/library/duplicates", ListDuplicates)
             .WithName("GetDuplicates")
@@ -88,6 +93,7 @@ public static class SongsEndpoints
                 s.DurationSeconds,
                 s.DurationMs,
                 s.Bitrate,
+                s.HasCoverArt,
                 s.Fingerprint,
                 s.Isrc,
                 s.MusicBrainzId,
@@ -134,6 +140,7 @@ public static class SongsEndpoints
             s.Artist, s.AlbumArtist, s.Album, s.Title, s.Year, s.TrackNumber,
             s.DurationSeconds, s.DurationMs,
             s.Bitrate,
+            s.HasCoverArt,
             s.Fingerprint,
                 s.Isrc, s.MusicBrainzId, s.MusicBrainzReleaseId, s.SpotifyId, s.AcoustIdTrackId, s.LrclibId,
             s.EnrichmentStatus, s.MatchedBy, s.MatchConfidence,
@@ -338,6 +345,40 @@ public static class SongsEndpoints
             useAsync: true);
 
         return Results.Stream(stream, contentType: mimeType, enableRangeProcessing: true);
+    }
+
+    private static async Task<IResult> GetSongCover(
+        int id,
+        MusicHoarderDbContext db,
+        ICoverArtResolver coverArtResolver,
+        HttpContext http)
+    {
+        var song = await db.Songs.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null);
+
+        // Synthetic (demo) rows have no real file on disk — nothing to resolve.
+        if (song is null || song.IsSynthetic)
+            return Results.NotFound();
+
+        var filePath =
+            (!string.IsNullOrEmpty(song.SourcePath) && File.Exists(song.SourcePath)) ? song.SourcePath :
+            (!string.IsNullOrEmpty(song.DestinationPath) && File.Exists(song.DestinationPath)) ? song.DestinationPath :
+            null;
+
+        if (filePath is null)
+            return Results.NotFound();
+
+        var cover = coverArtResolver.Resolve(filePath);
+        if (cover is null)
+            return Results.NotFound();
+
+        // Covers rarely change; let the browser cache them. Private because they're served through
+        // the per-user authenticated proxy.
+        http.Response.Headers.CacheControl = "private, max-age=86400";
+
+        return cover.FilePath is not null
+            ? Results.File(cover.FilePath, contentType: cover.ContentType)
+            : Results.Bytes(cover.Bytes!, contentType: cover.ContentType);
     }
 
     private static async Task<IResult> ListDuplicates(MusicHoarderDbContext db)

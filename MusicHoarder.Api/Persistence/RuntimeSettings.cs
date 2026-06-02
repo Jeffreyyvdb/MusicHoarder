@@ -23,5 +23,12 @@ public class RuntimeSettings
     /// <summary>Overlays <see cref="Options.QualityGradingOptions.Enabled"/> — the AI quality grader master switch.</summary>
     public bool? QualityGradingEnabled { get; set; }
 
+    /// <summary>
+    /// Set once by the one-time cover-art backfill (see <c>CoverArtBackfillBackgroundService</c>) after it
+    /// has populated <c>HasCoverArt</c> and written destination album covers for the pre-existing library.
+    /// Null until then; its presence is the marker that stops the backfill from re-running.
+    /// </summary>
+    public DateTime? CoverArtBackfillCompletedAtUtc { get; set; }
+
     public DateTime? UpdatedAtUtc { get; set; }
 }
