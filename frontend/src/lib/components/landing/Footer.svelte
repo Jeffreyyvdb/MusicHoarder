@@ -1,10 +1,15 @@
-<script lang="ts"></script>
+<script lang="ts">
+  import { page } from '$app/state';
+
+  const version = $derived(page.data.appVersion as string | null | undefined);
+</script>
 
 <footer
   class="border-border text-muted-foreground mx-auto mt-12 flex max-w-[1280px] flex-col items-start justify-between gap-3 border-t px-6 py-6 font-mono text-[11px] md:flex-row md:items-center md:px-14"
 >
   <div>
-    © 2026 MusicHoarder · self-hosted release v0.4.2 · no music files were harmed
+    © 2026 MusicHoarder · self-hosted{version ? ` release v${version}` : ''} · no music files were
+    harmed
   </div>
   <div class="flex gap-4">
     <a
