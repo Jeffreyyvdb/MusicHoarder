@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Disc3, Play } from '@lucide/svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
-  import { toPlayerSong, type AlbumSummary } from '$lib/api-client';
+  import { prettyProvider, toPlayerSong, type AlbumStatusInfo, type AlbumSummary } from '$lib/api-client';
   import { playerStore } from '$lib/stores/player.svelte';
 
   type Props = {
@@ -10,8 +10,28 @@
     hrefFor: (album: AlbumSummary) => string;
     /** Whether the underlying songs are still loading (controls the empty/skeleton copy). */
     isLoading?: boolean;
+    /** Per-album provider-link status (keyed by `album.key`) for the corner badge. */
+    statuses?: Map<string, AlbumStatusInfo>;
   };
-  const { albums, hrefFor, isLoading = false }: Props = $props();
+  const { albums, hrefFor, isLoading = false, statuses }: Props = $props();
+
+  /** Corner-badge appearance for an album's link status, or null to show nothing. */
+  function badgeFor(album: AlbumSummary): { dotClass: string; label: string } | null {
+    const info = statuses?.get(album.key);
+    if (!info) return null;
+    // A confirmed mis-match dominates the badge regardless of link state.
+    if (info.verdict === 'Wrong') {
+      return { dotClass: 'bg-red-500', label: 'Likely wrong album — AI flagged the match' };
+    }
+    if (info.status === 'linked') {
+      const names = info.providers.map(prettyProvider).join(', ');
+      return { dotClass: 'bg-emerald-400', label: names ? `Linked · ${names}` : 'Linked to a provider' };
+    }
+    if (info.status === 'localOnly') {
+      return { dotClass: 'bg-white/70 dark:bg-white/60', label: 'Local only — not on any provider' };
+    }
+    return { dotClass: 'bg-amber-300/80 animate-pulse', label: 'Checking providers…' };
+  }
 
   function playFirst(album: AlbumSummary, e: MouseEvent) {
     e.preventDefault();
@@ -46,6 +66,13 @@
             interactive
             class="!h-auto !w-full aspect-square"
           />
+          {#if badgeFor(album)}
+            {@const badge = badgeFor(album)}
+            <span
+              class="absolute top-1.5 left-1.5 size-2.5 rounded-full ring-2 ring-black/35 {badge!.dotClass}"
+              title={badge!.label}
+            ></span>
+          {/if}
           <button
             type="button"
             aria-label={`Play ${album.title}`}

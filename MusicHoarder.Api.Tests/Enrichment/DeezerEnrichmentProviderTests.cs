@@ -222,5 +222,11 @@ public class DeezerEnrichmentProviderTests
             LookupIdCalls++;
             return Task.FromResult(OnLookupId?.Invoke(id));
         }
+
+        public Task<string?> SearchAlbumIdAsync(string artist, string album, CancellationToken ct = default)
+            => Task.FromResult<string?>(null);
+
+        public Task<DeezerAlbumDetail?> GetAlbumAsync(string albumId, CancellationToken ct = default)
+            => Task.FromResult<DeezerAlbumDetail?>(null);
     }
 }

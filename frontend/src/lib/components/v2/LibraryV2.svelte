@@ -13,8 +13,10 @@
   import {
     buildAlbumsFromSongs,
     buildArtistGroups,
+    fetchAlbumCanonicalStatuses,
     fetchSongs,
     openProgressStream,
+    type AlbumStatusInfo,
     type AlbumSummary,
     type ApiSong,
     type GroupSummary,
@@ -129,6 +131,28 @@
 
   const allAlbums = $derived(buildAlbumsFromSongs(builtSongs));
   const scopedAlbums = $derived(buildAlbumsFromSongs(browseScoped));
+
+  // Provider-link status per album (linked / localOnly / pending) for the grid corner badges.
+  // One batch lookup, refreshed when the album set changes.
+  let albumStatuses = $state<Map<string, AlbumStatusInfo>>(new Map());
+  $effect(() => {
+    const pairs = allAlbums.map((a) => ({ artist: a.artist, album: a.title }));
+    if (pairs.length === 0) {
+      albumStatuses = new Map();
+      return;
+    }
+    let cancelled = false;
+    void fetchAlbumCanonicalStatuses(pairs)
+      .then((map) => {
+        if (!cancelled) albumStatuses = map;
+      })
+      .catch(() => {
+        // Badges are best-effort; leave them off on error.
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
 
   function albumMatchesQuery(a: AlbumSummary, q: string): boolean {
     return a.title.toLowerCase().includes(q) || a.artist.toLowerCase().includes(q);
@@ -415,7 +439,7 @@
         {/if}
 
         {#if tab === 'albums'}
-          <LibraryAlbumsGridV2 albums={filteredAlbums} hrefFor={albumHref} {isLoading} />
+          <LibraryAlbumsGridV2 albums={filteredAlbums} hrefFor={albumHref} {isLoading} statuses={albumStatuses} />
           {#if filteredAlbums.length > 0}
             <div class="text-muted-foreground text-center text-[11px]">
               {filteredAlbums.length.toLocaleString()} album{filteredAlbums.length === 1 ? '' : 's'}

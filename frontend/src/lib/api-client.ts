@@ -509,6 +509,202 @@ export async function fetchSongs(includeDeleted = false): Promise<ApiSong[]> {
   return result.songs ?? []
 }
 
+// ── Canonical album tracklist (multi-provider, reconciled; full-album view) ─────
+
+/** One reconciled canonical track. `ownedSongId` is null when the user is missing it. */
+export interface CanonicalTrack {
+  discNumber: number
+  trackNumber: number
+  title: string | null
+  durationMs: number | null
+  musicBrainzRecordingId: string | null
+  /** Provider names that corroborate this track (e.g. ["MusicBrainzWeb","Deezer"]). */
+  corroboratingProviders: string[]
+  corroborationCount: number
+  /** True when not every winning-cluster provider backs this track (bonus / disputed). */
+  isContested: boolean
+  /** The owned ApiSong.id matched to this canonical track, or null if missing. */
+  ownedSongId: number | null
+}
+
+/** One provider that contributed a tracklist for this album. */
+export interface AlbumSource {
+  provider: string
+  albumId: string | null
+  trackCount: number
+  /** Whether this source won the reconciliation cluster (vs. a different edition). */
+  inWinningCluster: boolean
+}
+
+/** Whether an album is matched to a provider album, only in the local library, or not yet checked. */
+export type AlbumLinkStatus = "linked" | "localOnly" | "pending"
+
+/** The reconciled canonical tracklist for an album plus how much of it the user owns. */
+export interface AlbumTracklist {
+  artist: string | null
+  album: string | null
+  year: number | null
+  coverArtUrl: string | null
+  /** Consensus track count among the agreeing providers. */
+  resolvedTrackCount: number
+  /** True when the providers disagree on the album's length. */
+  trackCountContested: boolean
+  /** Canonical tracks the user owns. */
+  ownedCount: number
+  /** Canonical track count (= `tracks.length`). */
+  totalCount: number
+  sources: AlbumSource[]
+  tracks: CanonicalTrack[]
+}
+
+/** Human-friendly provider labels for the reconciliation source names returned by the API. */
+export const PROVIDER_LABELS: Record<string, string> = {
+  MusicBrainzWeb: "MusicBrainz",
+  SpotifyAPI: "Spotify",
+  Deezer: "Deezer",
+  AppleMusic: "Apple Music",
+}
+
+export function prettyProvider(provider: string): string {
+  return PROVIDER_LABELS[provider] ?? provider
+}
+
+/** Result of looking up an album: its link status plus the tracklist when `linked`. */
+export interface AlbumTracklistResult {
+  status: AlbumLinkStatus
+  /** Present only when `status === "linked"`. */
+  tracklist: AlbumTracklist | null
+}
+
+/**
+ * Fetches an album's link status and (when linked) its reconciled canonical tracklist by artist +
+ * album. A non-`linked` status means the owned-only view should be shown.
+ */
+export async function fetchAlbumTracklist(artist: string, album: string): Promise<AlbumTracklistResult> {
+  const qs = new URLSearchParams({ artist, album }).toString()
+  const response = await fetch(`${API_PREFIX}/api/albums/tracklist?${qs}`, { cache: "no-store" })
+  if (response.status === 404) return { status: "pending", tracklist: null }
+  if (!response.ok) throw new Error(`album tracklist failed: ${response.status}`)
+  const body = (await response.json()) as AlbumTracklist & { status: AlbumLinkStatus }
+  return body.status === "linked"
+    ? { status: "linked", tracklist: body }
+    : { status: body.status, tracklist: null }
+}
+
+/** Per-album link status for the library grid badges. */
+export interface AlbumStatusInfo {
+  status: AlbumLinkStatus
+  providers: string[]
+  /** Latest album-reconciliation AI verdict, when graded (drives the "Wrong" red dot). */
+  verdict?: QualityVerdict | null
+}
+
+/**
+ * Batch link-status for a list of albums. Returns a map keyed by `${artist}::${album}` lowercased
+ * (matches {@link AlbumSummary.key}) so callers can look up each card's badge.
+ */
+export async function fetchAlbumCanonicalStatuses(
+  albums: { artist: string; album: string }[]
+): Promise<Map<string, AlbumStatusInfo>> {
+  const map = new Map<string, AlbumStatusInfo>()
+  if (albums.length === 0) return map
+  const results = await requestJson<
+    { artist: string; album: string; status: AlbumLinkStatus; providers: string[]; verdict?: QualityVerdict | null }[]
+  >("/api/albums/canonical-status", { method: "POST", body: JSON.stringify({ albums }) })
+  for (const r of results ?? []) {
+    map.set(`${r.artist.toLowerCase()}::${r.album.toLowerCase()}`, {
+      status: r.status,
+      providers: r.providers ?? [],
+      verdict: r.verdict ?? null,
+    })
+  }
+  return map
+}
+
+// ── Album reconciliation grading (AI: is the linked album the correct one?) ─────
+
+/** Latest reconciliation grade for one album. */
+export interface AlbumQualityGradeView {
+  graded: boolean
+  canonicalAlbumId?: number
+  score?: number
+  verdict?: QualityVerdict
+  summary?: string | null
+  issues?: QualityIssue[]
+  ownedTrackCount?: number
+  canonicalTrackCount?: number
+  gradedAtUtc?: string
+  historyCount?: number
+}
+
+/** One graded album row for the album-quality workbench. */
+export interface AlbumQualityRow {
+  canonicalAlbumId: number
+  artist?: string | null
+  album?: string | null
+  year?: number | null
+  score: number
+  verdict: QualityVerdict
+  summary?: string | null
+  issues: QualityIssue[]
+  ownedTrackCount: number
+  canonicalTrackCount: number
+  gradedAtUtc: string
+}
+
+export interface AlbumQualityOverview {
+  gradeableTotal: number
+  coverage: number
+  library: QualityRollupView
+  wrongCount: number
+  worstOffenders: AlbumQualityRow[]
+}
+
+export async function fetchAlbumQualityGrade(artist: string, album: string): Promise<AlbumQualityGradeView> {
+  const qs = new URLSearchParams({ artist, album }).toString()
+  return requestJson<AlbumQualityGradeView>(`/api/albums/quality?${qs}`)
+}
+
+export interface AlbumGradeResult {
+  outcome: string
+  verdict?: QualityVerdict | null
+  score?: number | null
+  summary?: string | null
+  issues?: QualityIssue[]
+  gradedAtUtc?: string | null
+}
+
+export async function gradeAlbum(artist: string, album: string): Promise<AlbumGradeResult> {
+  const qs = new URLSearchParams({ artist, album }).toString()
+  return requestJson<AlbumGradeResult>(`/api/albums/quality/grade?${qs}`, { method: "POST" })
+}
+
+export async function fetchAlbumQualityOverview(): Promise<AlbumQualityOverview> {
+  return requestJson<AlbumQualityOverview>("/api/albums/quality/overview")
+}
+
+export async function gradeAllAlbums(): Promise<{ enqueued: number }> {
+  return requestJson<{ enqueued: number }>("/api/albums/quality/grade-all", { method: "POST" })
+}
+
+export async function fetchAlbumQualityProgress(): Promise<QualityProgress> {
+  return requestJson<QualityProgress>("/api/albums/quality/progress")
+}
+
+/** Fetches one album's dossier + grade and copies the pretty-printed JSON to the clipboard. */
+export async function copyAlbumDossier(artist: string, album: string): Promise<void> {
+  const qs = new URLSearchParams({ artist, album }).toString()
+  const textPromise = requestJson<unknown>(`/api/albums/quality/export?${qs}`).then((data) =>
+    JSON.stringify(data, null, 2)
+  )
+  if (typeof ClipboardItem !== "undefined" && "write" in navigator.clipboard) {
+    const blob = textPromise.then((text) => new Blob([text], { type: "text/plain" }))
+    await navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })])
+  } else {
+    await navigator.clipboard.writeText(await textPromise)
+  }
+}
+
 export async function startScan(): Promise<{ scanId: string }> {
   return requestJson<{ scanId: string }>("/scan", { method: "POST" })
 }
@@ -776,9 +972,30 @@ export function getSongStreamUrl(songId: number): string {
   return `${API_PREFIX}/songs/${songId}/stream`
 }
 
-/** Proxy URL for a track's album artwork. The endpoint 404s when the track has no art. */
-export function getSongCoverUrl(songId: number): string {
-  return `${API_PREFIX}/songs/${songId}/cover`
+/**
+ * Proxy URL for a track's album artwork. The endpoint 404s when the track has no art. Pass `size`
+ * (CSS px) to get a small cached WebP thumbnail instead of the full-resolution original — the backend
+ * clamps to its nearest size bucket. Omit `size` for the original (downloads / full-screen).
+ */
+export function getSongCoverUrl(songId: number, size?: number): string {
+  const base = `${API_PREFIX}/songs/${songId}/cover`
+  return size ? `${base}?size=${Math.round(size)}` : base
+}
+
+/** Marks our cover-endpoint URLs so {@link coverThumbUrl} only appends a size to those. */
+function isOwnCoverUrl(url: string): boolean {
+  return url.startsWith(`${API_PREFIX}/songs/`) && url.includes("/cover")
+}
+
+/**
+ * Appends a `?size=` thumbnail request to a cover URL **only** when it points at our own cover
+ * endpoint; external URLs (e.g. a Spotify CDN image) are returned unchanged.
+ */
+export function coverThumbUrl(url: string | null | undefined, size: number): string | null {
+  if (!url) return null
+  if (!isOwnCoverUrl(url)) return url
+  const sep = url.includes("?") ? "&" : "?"
+  return `${url}${sep}size=${Math.round(size)}`
 }
 
 /**

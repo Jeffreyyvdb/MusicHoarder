@@ -1,5 +1,5 @@
 import type { Component } from 'svelte';
-import { Disc3, FolderTree, Gauge, TrendingUp } from '@lucide/svelte';
+import { Disc, Disc3, FolderTree, Gauge, TrendingUp } from '@lucide/svelte';
 import { LIBRARY_SUBNAV } from '$lib/library-subnav';
 
 // A single source of truth for the section-level tab bars (the secondary nav
@@ -23,6 +23,7 @@ export const PIPELINE_SUBNAV: SectionTab[] = [
   { id: 'conveyor', label: 'Conveyor', href: '/pipeline', icon: Disc3, live: true },
   { id: 'folders', label: 'By folder', href: '/directories', icon: FolderTree },
   { id: 'quality', label: 'AI quality', href: '/quality', icon: Gauge },
+  { id: 'album-quality', label: 'Album matches', href: '/album-quality', icon: Disc },
   { id: 'performance', label: 'Performance over time', href: '/performance', icon: TrendingUp }
 ];
 
@@ -35,6 +36,7 @@ const ROUTE_MAP: Record<string, Resolved> = {
   '/pipeline': { tabs: PIPELINE_SUBNAV, active: 'conveyor' },
   '/directories': { tabs: PIPELINE_SUBNAV, active: 'folders' },
   '/quality': { tabs: PIPELINE_SUBNAV, active: 'quality' },
+  '/album-quality': { tabs: PIPELINE_SUBNAV, active: 'album-quality' },
   '/performance': { tabs: PIPELINE_SUBNAV, active: 'performance' },
   '/library': { tabs: [...LIBRARY_SUBNAV], active: 'albums' },
   '/artists': { tabs: [...LIBRARY_SUBNAV], active: 'artists' },

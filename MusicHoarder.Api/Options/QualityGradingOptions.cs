@@ -22,6 +22,13 @@ public class QualityGradingOptions
     /// </summary>
     public bool AutoGradeAfterEnrichment { get; set; } = true;
 
+    /// <summary>
+    /// When true, a background sweep grades reconciled-but-ungraded (or stale) albums automatically —
+    /// judging whether each canonical album is the correct match for the local files. Manual
+    /// "grade album" works regardless. Shares all the LLM settings below with song grading.
+    /// </summary>
+    public bool AutoGradeAlbums { get; set; } = true;
+
     /// <summary>OpenAI-compatible base URL (must include the version path, no trailing slash needed).</summary>
     public string BaseUrl { get; set; } = "https://openrouter.ai/api/v1";
 

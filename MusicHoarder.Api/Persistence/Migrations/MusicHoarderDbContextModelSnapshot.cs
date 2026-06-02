@@ -207,6 +207,170 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.ToTable("WebAuthnCredentials");
                 });
 
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.CanonicalAlbum", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AlbumKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ArtistKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CoverArtUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DisplayArtist")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DisplayTitle")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("FetchedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("NextRetryAfterUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("ResolvedTrackCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SourcesJson")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("TrackCountContested")
+                        .HasColumnType("boolean");
+
+                    b.Property<int?>("Year")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ArtistKey", "AlbumKey")
+                        .IsUnique();
+
+                    b.HasIndex("Status", "NextRetryAfterUtc");
+
+                    b.ToTable("CanonicalAlbums");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.CanonicalAlbumQualityGrade", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CanonicalAlbumId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CanonicalTrackCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("DurationMs")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("GradedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("InputFingerprint")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("IssuesJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<int>("OwnedTrackCount")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("PromptVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RawResponseJson")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Score")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Summary")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<int>("Verdict")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Verdict");
+
+                    b.HasIndex("CanonicalAlbumId", "GradedAtUtc");
+
+                    b.HasIndex("OwnerUserId", "GradedAtUtc");
+
+                    b.ToTable("CanonicalAlbumQualityGrades");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.CanonicalAlbumTrack", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CanonicalAlbumId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CorroboratingProviders")
+                        .HasColumnType("text");
+
+                    b.Property<int>("CorroborationCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("DiscNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("DurationMs")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsContested")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("MusicBrainzRecordingId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .HasColumnType("text");
+
+                    b.Property<int>("TrackNumber")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MusicBrainzRecordingId");
+
+                    b.HasIndex("CanonicalAlbumId", "DiscNumber", "TrackNumber");
+
+                    b.ToTable("CanonicalAlbumTracks");
+                });
+
             modelBuilder.Entity("MusicHoarder.Api.Persistence.DirectoryPreference", b =>
                 {
                     b.Property<int>("Id")
@@ -1044,6 +1208,28 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.CanonicalAlbumQualityGrade", b =>
+                {
+                    b.HasOne("MusicHoarder.Api.Persistence.CanonicalAlbum", "CanonicalAlbum")
+                        .WithMany()
+                        .HasForeignKey("CanonicalAlbumId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CanonicalAlbum");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.CanonicalAlbumTrack", b =>
+                {
+                    b.HasOne("MusicHoarder.Api.Persistence.CanonicalAlbum", "CanonicalAlbum")
+                        .WithMany("Tracks")
+                        .HasForeignKey("CanonicalAlbumId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CanonicalAlbum");
+                });
+
             modelBuilder.Entity("MusicHoarder.Api.Persistence.EnrichmentSnapshotSong", b =>
                 {
                     b.HasOne("MusicHoarder.Api.Persistence.EnrichmentSnapshot", "Snapshot")
@@ -1096,6 +1282,11 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Song");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.CanonicalAlbum", b =>
+                {
+                    b.Navigation("Tracks");
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.EnrichmentSnapshot", b =>

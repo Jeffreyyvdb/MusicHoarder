@@ -211,5 +211,12 @@ public class MusicBrainzWebEnrichmentProviderTests
             LastSearchAlbum = album;
             return Task.FromResult(Search?.Invoke(artist, title) ?? []);
         }
+
+        public Task<MusicBrainzRelease?> LookupReleaseAsync(string releaseId, CancellationToken ct = default)
+            => Task.FromResult<MusicBrainzRelease?>(null);
+
+        public Task<IReadOnlyList<MusicBrainzReleaseSearchResult>> SearchReleasesAsync(
+            string artist, string album, int limit, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<MusicBrainzReleaseSearchResult>>([]);
     }
 }

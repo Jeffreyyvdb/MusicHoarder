@@ -24,7 +24,9 @@ public static class WebApplicationExtensions
         app.MapDashboardEndpoints();
         app.MapRunsEndpoints();
         app.MapSongsEndpoints();
+        app.MapAlbumsEndpoints();
         app.MapQualityEndpoints();
+        app.MapAlbumQualityEndpoints();
         app.MapSnapshotsEndpoints();
         app.MapSpotifyEndpoints();
         app.MapSettingsEndpoints();

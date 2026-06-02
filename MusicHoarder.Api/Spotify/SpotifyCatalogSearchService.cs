@@ -125,6 +125,152 @@ public sealed class SpotifyCatalogSearchService(
         return [];
     }
 
+    public async Task<string?> GetTrackAlbumIdAsync(string clientId, string clientSecret, string trackId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(trackId)) return null;
+        var json = await GetApiJsonAsync(clientId, clientSecret, $"https://api.spotify.com/v1/tracks/{Uri.EscapeDataString(trackId)}", ct);
+        if (json is null) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("album", out var album) && album.ValueKind == JsonValueKind.Object &&
+                album.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String)
+                return id.GetString();
+        }
+        catch (JsonException) { /* fall through */ }
+        return null;
+    }
+
+    public async Task<string?> SearchAlbumIdAsync(string clientId, string clientSecret, string artist, string album, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(album)) return null;
+        var q = Uri.EscapeDataString($"album:{album} artist:{artist}".Trim());
+        var json = await GetApiJsonAsync(clientId, clientSecret, $"{ApiSearchUrl}?q={q}&type=album&limit=5", ct);
+        if (json is null) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("albums", out var albums) &&
+                albums.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in items.EnumerateArray())
+                {
+                    if (item.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String)
+                        return id.GetString();
+                }
+            }
+        }
+        catch (JsonException) { /* fall through */ }
+        return null;
+    }
+
+    public async Task<SpotifyAlbumDetail?> GetAlbumAsync(string clientId, string clientSecret, string albumId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(albumId)) return null;
+        var json = await GetApiJsonAsync(clientId, clientSecret, $"https://api.spotify.com/v1/albums/{Uri.EscapeDataString(albumId)}", ct);
+        return json is null ? null : ParseAlbum(json);
+    }
+
+    private static SpotifyAlbumDetail? ParseAlbum(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+
+            var id = root.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String ? idEl.GetString() : null;
+            if (string.IsNullOrEmpty(id)) return null;
+
+            var name = root.TryGetProperty("name", out var nEl) && nEl.ValueKind == JsonValueKind.String ? nEl.GetString() : null;
+            int? year = root.TryGetProperty("release_date", out var rdEl) && rdEl.ValueKind == JsonValueKind.String
+                ? ParseReleaseYear(rdEl.GetString()) : null;
+
+            string? artist = null;
+            if (root.TryGetProperty("artists", out var arts) && arts.ValueKind == JsonValueKind.Array)
+                artist = string.Join(", ", arts.EnumerateArray()
+                    .Where(a => a.TryGetProperty("name", out var an) && an.ValueKind == JsonValueKind.String)
+                    .Select(a => a.GetProperty("name").GetString()));
+
+            string? imageUrl = null;
+            if (root.TryGetProperty("images", out var imgs) && imgs.ValueKind == JsonValueKind.Array)
+                foreach (var img in imgs.EnumerateArray())
+                    if (img.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String) { imageUrl = u.GetString(); break; }
+
+            var tracks = new List<SpotifyAlbumTrackItem>();
+            if (root.TryGetProperty("tracks", out var tracksEl) && tracksEl.TryGetProperty("items", out var items) &&
+                items.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var t in items.EnumerateArray())
+                {
+                    if (t.ValueKind != JsonValueKind.Object) continue;
+                    var disc = t.TryGetProperty("disc_number", out var dn) && dn.ValueKind == JsonValueKind.Number ? dn.GetInt32() : 1;
+                    var num = t.TryGetProperty("track_number", out var tn) && tn.ValueKind == JsonValueKind.Number ? tn.GetInt32() : 0;
+                    var tName = t.TryGetProperty("name", out var nm) && nm.ValueKind == JsonValueKind.String ? nm.GetString() : null;
+                    var dur = t.TryGetProperty("duration_ms", out var dms) && dms.ValueKind == JsonValueKind.Number ? dms.GetInt32() : 0;
+                    var tId = t.TryGetProperty("id", out var ti) && ti.ValueKind == JsonValueKind.String ? ti.GetString() : null;
+                    tracks.Add(new SpotifyAlbumTrackItem(disc, num, tName, dur, tId));
+                }
+            }
+
+            return new SpotifyAlbumDetail(id!, name, string.IsNullOrWhiteSpace(artist) ? null : artist, year, imageUrl, tracks);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Authorized GET against the Spotify Web API: rate-limited, token-cached, 401-refresh + 429-retry.</summary>
+    private async Task<string?> GetApiJsonAsync(string clientId, string clientSecret, string url, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+            return null;
+
+        using var lease = await RateLimiter.AcquireAsync(options.Value.SpotifyApiRequestsPerSecond, ct);
+        if (!lease.IsAcquired)
+            return null;
+
+        var accessToken = await GetAccessTokenAsync(clientId, clientSecret, ct);
+        if (accessToken is null) return null;
+
+        var refreshed = false;
+        for (var attempt = 0; attempt <= MaxRetries; attempt++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            request.Headers.TryAddWithoutValidation("User-Agent", "MusicHoarder/1.0 (https://github.com/Jeffreyyvdb/MusicHoarder)");
+
+            var response = await httpClient.SendAsync(request, ct);
+
+            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                var retryAfter = response.Headers.RetryAfter?.Delta ?? RateLimitDefaultDelay;
+                if (attempt < MaxRetries) { await Task.Delay(retryAfter, ct); continue; }
+                throw new ProviderRateLimitedException(retryAfter);
+            }
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized && !refreshed)
+            {
+                InvalidateTokenCache(clientId);
+                accessToken = await GetAccessTokenAsync(clientId, clientSecret, ct);
+                refreshed = true;
+                if (accessToken is null) return null;
+                continue;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Spotify GET failed: {Status} {Url}", (int)response.StatusCode, url);
+                return null;
+            }
+
+            return await response.Content.ReadAsStringAsync(ct);
+        }
+
+        return null;
+    }
+
     private static string BuildSearchCacheKey(string query, int limit, string? market)
     {
         var raw = $"{limit}|{market ?? ""}|{query}";
@@ -248,6 +394,7 @@ public sealed class SpotifyCatalogSearchService(
         int? releaseYear = null;
         string? albumType = null;
         int? totalTracks = null;
+        string? albumId = null;
         if (track.TryGetProperty("album", out var album) && album.ValueKind == JsonValueKind.Object)
         {
             if (album.TryGetProperty("name", out var alName) && alName.ValueKind == JsonValueKind.String)
@@ -261,6 +408,9 @@ public sealed class SpotifyCatalogSearchService(
 
             if (album.TryGetProperty("total_tracks", out var tt) && tt.ValueKind == JsonValueKind.Number)
                 totalTracks = tt.GetInt32();
+
+            if (album.TryGetProperty("id", out var aid) && aid.ValueKind == JsonValueKind.String)
+                albumId = aid.GetString();
         }
 
         int? trackNumber = null;
@@ -278,7 +428,8 @@ public sealed class SpotifyCatalogSearchService(
 
         return new SpotifyCatalogTrack(
             id, name, artist, albumName, releaseYear, trackNumber, durationMs, isrc,
-            Artists: artistsMulti, DiscNumber: discNumber, AlbumType: albumType, TotalTracks: totalTracks);
+            Artists: artistsMulti, DiscNumber: discNumber, AlbumType: albumType, TotalTracks: totalTracks,
+            AlbumId: albumId);
     }
 
     private static int? ParseReleaseYear(string? releaseDate)

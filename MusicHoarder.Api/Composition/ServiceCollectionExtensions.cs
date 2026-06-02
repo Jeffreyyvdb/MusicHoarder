@@ -7,6 +7,8 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Deezer;
 using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Enrichment.AlbumTracklist;
+using MusicHoarder.Api.Enrichment.AlbumTracklist.Providers;
 using MusicHoarder.Api.Enrichment.Providers;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Library;
@@ -132,6 +134,15 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IEmbeddedPictureReader, TagLibEmbeddedPictureReader>();
         services.AddScoped<ICoverArtResolver, CoverArtResolver>();
         services.AddScoped<IAlbumCoverWriter, AlbumCoverWriter>();
+
+        // Disposable on-disk cache of resized WebP cover thumbnails (derived, regenerable artifacts).
+        services.AddSingleton<ICoverThumbnailService>(sp =>
+        {
+            var dir = ResolveWritableDirectory(
+                Environment.GetEnvironmentVariable("Artwork__CoverCacheDir") ?? "/data/cover-thumbs",
+                "cover-thumbs");
+            return new CoverThumbnailService(dir.FullName, sp.GetRequiredService<ILogger<CoverThumbnailService>>());
+        });
         services.AddScoped<ILibraryTagWriter, TagLibLibraryTagWriter>();
         services.AddScoped<ILibraryDestinationCleaner, LibraryDestinationCleaner>();
         services.AddScoped<ILibraryBuilderService, LibraryBuilderService>();
@@ -144,6 +155,14 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<FingerprintBackgroundService>();
         services.AddHostedService<EnrichmentBackgroundService>();
         services.AddHostedService<LibraryBuilderBackgroundService>();
+
+        // Multi-provider canonical album tracklists (full-album view, missing tracks greyed out).
+        services.AddSingleton<IAlbumTracklistProvider, MusicBrainzAlbumTracklistProvider>();
+        services.AddSingleton<IAlbumTracklistProvider, SpotifyAlbumTracklistProvider>();
+        services.AddSingleton<IAlbumTracklistProvider, DeezerAlbumTracklistProvider>();
+        services.AddSingleton<IAlbumTracklistProvider, AppleMusicAlbumTracklistProvider>();
+        services.AddHostedService<CanonicalAlbumFetchService>();
+
         // One-time backfill: populate HasCoverArt + write destination album covers for libraries that
         // were already scanned/built before the artwork feature shipped. Idempotent, marker-gated.
         services.AddHostedService<CoverArtBackfillBackgroundService>();
@@ -168,6 +187,13 @@ public static class ServiceCollectionExtensions
         });
         services.AddSingleton<IQualityGradingService, QualityGradingService>();
         services.AddHostedService<QualityGradingBackgroundService>();
+
+        // Album reconciliation grading — shares the chat client + QualityGradingOptions above.
+        services.AddSingleton<AlbumGradingProgressTracker>();
+        services.AddSingleton<AlbumGradingChannel>();
+        services.AddSingleton<IAlbumGradingDossierFactory, AlbumGradingDossierFactory>();
+        services.AddSingleton<IAlbumGradingService, AlbumGradingService>();
+        services.AddHostedService<AlbumGradingBackgroundService>();
 
         services.AddHealthChecks()
             .AddCheck<LibraryDirectoriesHealthCheck>("library-directories", tags: ["pipeline"]);
@@ -299,6 +325,14 @@ public static class ServiceCollectionExtensions
     /// path isn't writable (e.g. when the volume mount hasn't been created yet on first dev boot).
     /// </summary>
     private static DirectoryInfo ResolveDataProtectionKeysDirectory(string configuredPath)
+        => ResolveWritableDirectory(configuredPath, "dpkeys");
+
+    /// <summary>
+    /// Returns <paramref name="configuredPath"/> as a created directory, falling back to a local
+    /// <c>&lt;BaseDirectory&gt;/&lt;fallbackName&gt;</c> when the configured path isn't writable (typical on
+    /// first dev boot when the mount target doesn't exist yet).
+    /// </summary>
+    private static DirectoryInfo ResolveWritableDirectory(string configuredPath, string fallbackName)
     {
         try
         {
@@ -309,10 +343,7 @@ public static class ServiceCollectionExtensions
         }
         catch
         {
-            // Configured directory not writable (typical on first dev boot when the mount target
-            // doesn't exist). Use a local fallback so DP keys still persist across restarts
-            // within the same checkout.
-            var fallback = new DirectoryInfo(Path.Combine(AppContext.BaseDirectory, "dpkeys"));
+            var fallback = new DirectoryInfo(Path.Combine(AppContext.BaseDirectory, fallbackName));
             if (!fallback.Exists) fallback.Create();
             return fallback;
         }
