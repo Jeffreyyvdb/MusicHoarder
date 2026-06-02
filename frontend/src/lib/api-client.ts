@@ -592,6 +592,8 @@ export async function fetchAlbumTracklist(artist: string, album: string): Promis
 export interface AlbumStatusInfo {
   status: AlbumLinkStatus
   providers: string[]
+  /** Latest album-reconciliation AI verdict, when graded (drives the "Wrong" red dot). */
+  verdict?: QualityVerdict | null
 }
 
 /**
@@ -603,14 +605,101 @@ export async function fetchAlbumCanonicalStatuses(
 ): Promise<Map<string, AlbumStatusInfo>> {
   const map = new Map<string, AlbumStatusInfo>()
   if (albums.length === 0) return map
-  const results = await requestJson<{ artist: string; album: string; status: AlbumLinkStatus; providers: string[] }[]>(
-    "/api/albums/canonical-status",
-    { method: "POST", body: JSON.stringify({ albums }) }
-  )
+  const results = await requestJson<
+    { artist: string; album: string; status: AlbumLinkStatus; providers: string[]; verdict?: QualityVerdict | null }[]
+  >("/api/albums/canonical-status", { method: "POST", body: JSON.stringify({ albums }) })
   for (const r of results ?? []) {
-    map.set(`${r.artist.toLowerCase()}::${r.album.toLowerCase()}`, { status: r.status, providers: r.providers ?? [] })
+    map.set(`${r.artist.toLowerCase()}::${r.album.toLowerCase()}`, {
+      status: r.status,
+      providers: r.providers ?? [],
+      verdict: r.verdict ?? null,
+    })
   }
   return map
+}
+
+// ── Album reconciliation grading (AI: is the linked album the correct one?) ─────
+
+/** Latest reconciliation grade for one album. */
+export interface AlbumQualityGradeView {
+  graded: boolean
+  canonicalAlbumId?: number
+  score?: number
+  verdict?: QualityVerdict
+  summary?: string | null
+  issues?: QualityIssue[]
+  ownedTrackCount?: number
+  canonicalTrackCount?: number
+  gradedAtUtc?: string
+  historyCount?: number
+}
+
+/** One graded album row for the album-quality workbench. */
+export interface AlbumQualityRow {
+  canonicalAlbumId: number
+  artist?: string | null
+  album?: string | null
+  year?: number | null
+  score: number
+  verdict: QualityVerdict
+  summary?: string | null
+  issues: QualityIssue[]
+  ownedTrackCount: number
+  canonicalTrackCount: number
+  gradedAtUtc: string
+}
+
+export interface AlbumQualityOverview {
+  gradeableTotal: number
+  coverage: number
+  library: QualityRollupView
+  wrongCount: number
+  worstOffenders: AlbumQualityRow[]
+}
+
+export async function fetchAlbumQualityGrade(artist: string, album: string): Promise<AlbumQualityGradeView> {
+  const qs = new URLSearchParams({ artist, album }).toString()
+  return requestJson<AlbumQualityGradeView>(`/api/albums/quality?${qs}`)
+}
+
+export interface AlbumGradeResult {
+  outcome: string
+  verdict?: QualityVerdict | null
+  score?: number | null
+  summary?: string | null
+  issues?: QualityIssue[]
+  gradedAtUtc?: string | null
+}
+
+export async function gradeAlbum(artist: string, album: string): Promise<AlbumGradeResult> {
+  const qs = new URLSearchParams({ artist, album }).toString()
+  return requestJson<AlbumGradeResult>(`/api/albums/quality/grade?${qs}`, { method: "POST" })
+}
+
+export async function fetchAlbumQualityOverview(): Promise<AlbumQualityOverview> {
+  return requestJson<AlbumQualityOverview>("/api/albums/quality/overview")
+}
+
+export async function gradeAllAlbums(): Promise<{ enqueued: number }> {
+  return requestJson<{ enqueued: number }>("/api/albums/quality/grade-all", { method: "POST" })
+}
+
+export async function fetchAlbumQualityProgress(): Promise<QualityProgress> {
+  return requestJson<QualityProgress>("/api/albums/quality/progress")
+}
+
+/** Fetches one album's dossier + grade and copies the pretty-printed JSON to the clipboard. */
+export async function copyAlbumDossier(artist: string, album: string): Promise<void> {
+  const qs = new URLSearchParams({ artist, album }).toString()
+  const textPromise = requestJson<unknown>(`/api/albums/quality/export?${qs}`).then((data) =>
+    JSON.stringify(data, null, 2)
+  )
+  if (typeof ClipboardItem !== "undefined" && "write" in navigator.clipboard) {
+    const blob = textPromise.then((text) => new Blob([text], { type: "text/plain" }))
+    await navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })])
+  } else {
+    await navigator.clipboard.writeText(await textPromise)
+  }
 }
 
 export async function startScan(): Promise<{ scanId: string }> {

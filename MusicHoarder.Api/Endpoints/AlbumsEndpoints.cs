@@ -57,7 +57,7 @@ public static class AlbumsEndpoints
             .Where(s => s.DeletedAtUtc == null
                 && s.Album != null && s.Album.ToLower() == albumLower
                 && ((s.AlbumArtist ?? s.Artist) ?? "").ToLower() == artistLower)
-            .Select(s => new OwnedSong(s.Id, s.MusicBrainzId, s.DiscNumber, s.TrackNumber, s.Title))
+            .Select(s => new OwnedTrackInfo(s.Id, s.MusicBrainzId, s.DiscNumber, s.TrackNumber, s.Title))
             .ToListAsync(ct);
 
         var orderedTracks = canonical.Tracks
@@ -65,7 +65,7 @@ public static class AlbumsEndpoints
             .ThenBy(t => t.TrackNumber)
             .ToList();
 
-        var matches = MatchOwnedSongs(orderedTracks, ownedSongs, options.Value.IdentityTitleThreshold);
+        var matches = AlbumOwnedTrackMatcher.Match(orderedTracks, ownedSongs, options.Value.IdentityTitleThreshold);
 
         var tracks = orderedTracks
             .Select(t => new
@@ -118,9 +118,19 @@ public static class AlbumsEndpoints
         var rows = await db.CanonicalAlbums
             .AsNoTracking()
             .Where(a => artistKeys.Contains(a.ArtistKey))
-            .Select(a => new { a.ArtistKey, a.AlbumKey, a.Status, a.SourcesJson })
+            .Select(a => new { a.Id, a.ArtistKey, a.AlbumKey, a.Status, a.SourcesJson })
             .ToListAsync(ct);
         var byKey = rows.ToDictionary(r => (r.ArtistKey, r.AlbumKey));
+
+        // Latest reconciliation verdict per album (owner-filtered) so the grid can flag Wrong albums.
+        var albumIds = rows.Select(r => r.Id).ToList();
+        var grades = await db.CanonicalAlbumQualityGrades
+            .AsNoTracking()
+            .Where(g => albumIds.Contains(g.CanonicalAlbumId)
+                && !db.CanonicalAlbumQualityGrades.Any(g2 => g2.CanonicalAlbumId == g.CanonicalAlbumId && g2.GradedAtUtc > g.GradedAtUtc))
+            .Select(g => new { g.CanonicalAlbumId, g.Verdict })
+            .ToListAsync(ct);
+        var verdictByAlbum = grades.ToDictionary(g => g.CanonicalAlbumId, g => g.Verdict.ToString());
 
         var results = keyed.Select(k =>
         {
@@ -139,6 +149,7 @@ public static class AlbumsEndpoints
                 album = k.Album,
                 status,
                 providers = status == "linked" ? WinningProviderNames(row!.SourcesJson) : [],
+                verdict = row is not null && verdictByAlbum.TryGetValue(row.Id, out var v) ? v : null,
             };
         }).ToArray();
 
@@ -199,52 +210,6 @@ public static class AlbumsEndpoints
             return [];
         }
     }
-
-    /// <summary>
-    /// Maps each canonical track to the owned song that represents it (track id → song id), in strength
-    /// order across all tracks: every recording-MBID match resolves before any position match, and all
-    /// position matches before any fuzzy-title match. Each owned song is consumed at most once.
-    /// </summary>
-    private static Dictionary<int, int> MatchOwnedSongs(
-        List<CanonicalAlbumTrack> tracks, List<OwnedSong> ownedSongs, double titleThreshold)
-    {
-        var matched = new Dictionary<int, int>();
-        var consumed = new HashSet<int>();
-
-        foreach (var t in tracks)
-        {
-            if (string.IsNullOrEmpty(t.MusicBrainzRecordingId)) continue;
-            var song = ownedSongs.FirstOrDefault(s => !consumed.Contains(s.Id) && s.MusicBrainzId == t.MusicBrainzRecordingId);
-            if (song is not null) { matched[t.Id] = song.Id; consumed.Add(song.Id); }
-        }
-
-        foreach (var t in tracks)
-        {
-            if (matched.ContainsKey(t.Id)) continue;
-            var song = ownedSongs.FirstOrDefault(s =>
-                !consumed.Contains(s.Id) && (s.DiscNumber ?? 1) == t.DiscNumber && s.TrackNumber == t.TrackNumber);
-            if (song is not null) { matched[t.Id] = song.Id; consumed.Add(song.Id); }
-        }
-
-        foreach (var t in tracks)
-        {
-            if (matched.ContainsKey(t.Id) || string.IsNullOrWhiteSpace(t.Title)) continue;
-            OwnedSong? best = null;
-            double bestScore = 0;
-            foreach (var s in ownedSongs)
-            {
-                if (consumed.Contains(s.Id)) continue;
-                var score = FuzzyTextMatch.Ratio(t.Title, s.Title) ?? 0;
-                if (score > bestScore) { bestScore = score; best = s; }
-            }
-
-            if (best is not null && bestScore >= titleThreshold) { matched[t.Id] = best.Id; consumed.Add(best.Id); }
-        }
-
-        return matched;
-    }
-
-    private sealed record OwnedSong(int Id, string? MusicBrainzId, int? DiscNumber, int? TrackNumber, string? Title);
 
     private sealed record StoredSource(EnrichmentProvider Provider, string? AlbumId, int TrackCount, bool InWinningCluster);
 }

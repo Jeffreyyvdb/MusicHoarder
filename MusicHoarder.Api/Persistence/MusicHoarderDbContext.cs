@@ -38,6 +38,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<SongProviderAttempt> SongProviderAttempts { get; set; } = null!;
     public DbSet<CanonicalAlbum> CanonicalAlbums { get; set; } = null!;
     public DbSet<CanonicalAlbumTrack> CanonicalAlbumTracks { get; set; } = null!;
+    public DbSet<CanonicalAlbumQualityGrade> CanonicalAlbumQualityGrades { get; set; } = null!;
     public DbSet<SongMetadataChange> SongMetadataChanges { get; set; } = null!;
     public DbSet<SongQualityGrade> SongQualityGrades { get; set; } = null!;
     public DbSet<DirectoryPreference> DirectoryPreferences { get; set; } = null!;
@@ -124,6 +125,22 @@ public class MusicHoarderDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.CanonicalAlbumId, e.DiscNumber, e.TrackNumber });
             entity.HasIndex(e => e.MusicBrainzRecordingId);
+        });
+
+        // Owner-scoped AI grade of an album's reconciliation (judged against the owner's library).
+        modelBuilder.Entity<CanonicalAlbumQualityGrade>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.CanonicalAlbumId, e.GradedAtUtc });
+            entity.HasIndex(e => new { e.OwnerUserId, e.GradedAtUtc });
+            entity.HasIndex(e => e.Verdict);
+
+            entity.HasOne(e => e.CanonicalAlbum)
+                .WithMany()
+                .HasForeignKey(e => e.CanonicalAlbumId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
         });
 
         modelBuilder.Entity<SongMetadataChange>(entity =>

@@ -19,6 +19,10 @@
   function badgeFor(album: AlbumSummary): { dotClass: string; label: string } | null {
     const info = statuses?.get(album.key);
     if (!info) return null;
+    // A confirmed mis-match dominates the badge regardless of link state.
+    if (info.verdict === 'Wrong') {
+      return { dotClass: 'bg-red-500', label: 'Likely wrong album — AI flagged the match' };
+    }
     if (info.status === 'linked') {
       const names = info.providers.map(prettyProvider).join(', ');
       return { dotClass: 'bg-emerald-400', label: names ? `Linked · ${names}` : 'Linked to a provider' };

@@ -1,0 +1,182 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Options;
+using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Settings;
+
+namespace MusicHoarder.Api.Quality;
+
+/// <summary>
+/// Consumes <see cref="AlbumGradingChannel"/> with bounded concurrency + a shared request-rate gate,
+/// and (when enabled) periodically sweeps for reconciled-but-ungraded/stale albums and enqueues them.
+/// Mirrors <see cref="QualityGradingBackgroundService"/>; shares the same LLM settings + rate limit.
+/// </summary>
+public class AlbumGradingBackgroundService(
+    IServiceScopeFactory scopeFactory,
+    AlbumGradingChannel channel,
+    AlbumGradingProgressTracker progressTracker,
+    IAlbumGradingService gradingService,
+    IRuntimeSettingsService runtimeSettings,
+    IOptionsMonitor<QualityGradingOptions> options,
+    ILogger<AlbumGradingBackgroundService> logger) : BackgroundService
+{
+    private readonly SemaphoreSlim _rateLock = new(1, 1);
+    private DateTime _nextSlotUtc = DateTime.MinValue;
+    private int _warnedNotConfigured;
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        var opts = options.CurrentValue;
+        logger.LogInformation(
+            "Album grading service started. Configured={Configured} Auto={Auto} Concurrency={Concurrency}",
+            opts.IsConfigured, opts.AutoGradeAlbums, opts.Concurrency);
+
+        var workers = Enumerable.Range(0, Math.Max(1, opts.Concurrency))
+            .Select(i => RunWorkerAsync(i, stoppingToken))
+            .ToArray();
+
+        await Task.WhenAll([RunAutoSweepLoopAsync(stoppingToken), .. workers]);
+    }
+
+    private async Task RunAutoSweepLoopAsync(CancellationToken ct)
+    {
+        // Give the canonical-album fetch sweep a head start so there are albums to grade.
+        try { await Task.Delay(TimeSpan.FromSeconds(20), ct); }
+        catch (OperationCanceledException) { return; }
+
+        while (!ct.IsCancellationRequested)
+        {
+            var opts = options.CurrentValue;
+            try
+            {
+                var enabled = (await runtimeSettings.GetAsync(ct).ConfigureAwait(false)).QualityGradingEnabled;
+                if (enabled && opts.IsConfigured && opts.AutoGradeAlbums)
+                    await EnqueueUngradedAsync(opts, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Album auto-grade sweep failed");
+            }
+
+            try { await Task.Delay(TimeSpan.FromSeconds(opts.IdleDelaySeconds), ct); }
+            catch (OperationCanceledException) { break; }
+        }
+    }
+
+    /// <summary>Finds fetched albums whose latest grade is missing or stale and enqueues them.</summary>
+    internal async Task EnqueueUngradedAsync(QualityGradingOptions opts, CancellationToken ct)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+
+        var candidates = await db.CanonicalAlbums
+            .AsNoTracking()
+            .Where(a => a.Status == CanonicalAlbumStatus.Fetched)
+            .OrderByDescending(a => a.FetchedAtUtc)
+            .Take(opts.BatchSize)
+            .Select(a => new { a.Id, a.FetchedAtUtc })
+            .ToListAsync(ct);
+
+        if (candidates.Count == 0) return;
+
+        var ids = candidates.Select(c => c.Id).ToList();
+        var latestByAlbum = await db.CanonicalAlbumQualityGrades
+            .IgnoreQueryFilters()
+            .Where(g => ids.Contains(g.CanonicalAlbumId))
+            .GroupBy(g => g.CanonicalAlbumId)
+            .Select(grp => grp.OrderByDescending(g => g.GradedAtUtc).First())
+            .ToListAsync(ct);
+        var latest = latestByAlbum.ToDictionary(g => g.CanonicalAlbumId);
+
+        var needsGrading = candidates.Where(c =>
+        {
+            if (!latest.TryGetValue(c.Id, out var g)) return true;          // never graded
+            if (g.PromptVersion != AlbumGradingPrompt.Version) return true; // prompt changed
+            if (g.Model != opts.Model) return true;                        // model changed
+            if (c.FetchedAtUtc is { } f && g.GradedAtUtc < f) return true; // re-fetched since
+            return false;
+        }).Select(c => c.Id).ToList();
+
+        if (needsGrading.Count > 0)
+        {
+            channel.EnqueueRange(needsGrading, force: false);
+            logger.LogInformation("Auto-grade sweep enqueued {Count} albums", needsGrading.Count);
+        }
+    }
+
+    private async Task RunWorkerAsync(int workerId, CancellationToken ct)
+    {
+        await foreach (var item in channel.Reader.ReadAllAsync(ct))
+        {
+            try
+            {
+                if (ct.IsCancellationRequested) break;
+
+                await ThrottleAsync(ct);
+                var result = await gradingService.GradeAlbumAsync(item.CanonicalAlbumId, item.Force, ct);
+
+                switch (result.Outcome)
+                {
+                    case GradeOutcome.Graded:
+                        Interlocked.Exchange(ref _warnedNotConfigured, 0);
+                        progressTracker.IncrementGraded();
+                        break;
+                    case GradeOutcome.NotConfigured:
+                        if (Interlocked.Exchange(ref _warnedNotConfigured, 1) == 0)
+                            logger.LogWarning(
+                                "Album grading is enqueued but not configured — skipping. Set QualityGrading:ApiKey to enable grading.");
+                        progressTracker.IncrementSkipped();
+                        break;
+                    case GradeOutcome.Skipped:
+                    case GradeOutcome.NotFound:
+                        progressTracker.IncrementSkipped();
+                        break;
+                    default:
+                        progressTracker.RecordError(result.ErrorCode ?? "error", result.Error);
+                        progressTracker.IncrementFailed();
+                        break;
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Album grading worker {WorkerId} failed on album {AlbumId}", workerId, item.CanonicalAlbumId);
+                progressTracker.RecordError("error", ex.Message);
+                progressTracker.IncrementFailed();
+            }
+            finally
+            {
+                channel.MarkProcessed();
+            }
+        }
+    }
+
+    /// <summary>Spaces out calls to honour <see cref="QualityGradingOptions.RequestsPerSecond"/> across all workers.</summary>
+    private async Task ThrottleAsync(CancellationToken ct)
+    {
+        var rps = Math.Max(1, options.CurrentValue.RequestsPerSecond);
+        var minInterval = TimeSpan.FromSeconds(1.0 / rps);
+
+        await _rateLock.WaitAsync(ct);
+        try
+        {
+            var now = DateTime.UtcNow;
+            var wait = _nextSlotUtc - now;
+            if (wait > TimeSpan.Zero)
+                await Task.Delay(wait, ct);
+            var baseTime = now > _nextSlotUtc ? now : _nextSlotUtc;
+            _nextSlotUtc = baseTime + minInterval;
+        }
+        finally
+        {
+            _rateLock.Release();
+        }
+    }
+}

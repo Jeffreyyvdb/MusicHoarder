@@ -24,14 +24,19 @@
     formatTotalDuration
   } from '$lib/formatters';
   import {
+    copyAlbumDossier,
+    fetchAlbumQualityGrade,
     fetchAlbumTracklist,
+    gradeAlbum,
     prettyProvider,
     toPlayerSong,
     type AlbumLinkStatus,
+    type AlbumQualityGradeView,
     type AlbumSummary,
     type AlbumTracklist,
     type ApiSong
   } from '$lib/api-client';
+  import { VERDICT_DOT } from '$lib/quality-ui';
   import { playerStore } from '$lib/stores/player.svelte';
   import { cn } from '$lib/utils';
 
@@ -78,6 +83,56 @@
       ? tracklist.sources.filter((s) => s.inWinningCluster).map((s) => prettyProvider(s.provider))
       : []
   );
+
+  // AI grade of whether this album was linked to the *correct* provider album.
+  let albumGrade = $state<AlbumQualityGradeView | null>(null);
+  let grading = $state(false);
+  $effect(() => {
+    const artist = album?.artist ?? null;
+    const title = album?.title ?? null;
+    albumGrade = null;
+    if (!artist || !title) return;
+    let cancelled = false;
+    void fetchAlbumQualityGrade(artist, title)
+      .then((g) => {
+        if (!cancelled) albumGrade = g;
+      })
+      .catch(() => {
+        // Grade is best-effort (grading may be unconfigured/disabled).
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  async function gradeNow() {
+    if (!album || grading) return;
+    grading = true;
+    try {
+      const r = await gradeAlbum(album.artist, album.title);
+      albumGrade = {
+        graded: true,
+        verdict: r.verdict ?? undefined,
+        score: r.score ?? undefined,
+        summary: r.summary,
+        issues: r.issues,
+        gradedAtUtc: r.gradedAtUtc ?? undefined
+      };
+    } catch {
+      // grading endpoint returns 503 when unconfigured/disabled — leave the prior grade as-is.
+    } finally {
+      grading = false;
+    }
+  }
+
+  async function copyDossier() {
+    if (!album) return;
+    try {
+      await copyAlbumDossier(album.artist, album.title);
+    } catch {
+      // clipboard/export best-effort
+    }
+  }
 
   type DisplayRow =
     | { kind: 'owned'; key: string; disc: number; n: number; song: ApiSong; durationSeconds: number | null }
@@ -330,6 +385,30 @@
                   ⚠ Sources disagree on length
                 </span>
               {/if}
+              {#if albumGrade?.graded && albumGrade.verdict}
+                <button
+                  type="button"
+                  onclick={gradeNow}
+                  disabled={grading}
+                  class="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-0.5 font-semibold hover:bg-white/30 disabled:opacity-60"
+                  title={albumGrade.summary ?? 'AI match quality — click to re-grade'}
+                >
+                  <span class="inline-block size-1.5 rounded-full {VERDICT_DOT[albumGrade.verdict]}"></span>
+                  Match: {albumGrade.verdict}{albumGrade.score != null ? ` · ${albumGrade.score}` : ''}
+                </button>
+                <button type="button" onclick={copyDossier} class="opacity-70 underline-offset-2 hover:underline">
+                  copy dossier
+                </button>
+              {:else}
+                <button
+                  type="button"
+                  onclick={gradeNow}
+                  disabled={grading}
+                  class="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 font-medium opacity-80 hover:bg-white/20 disabled:opacity-50"
+                >
+                  {grading ? 'Grading…' : 'Grade match'}
+                </button>
+              {/if}
             {:else if linkStatus === 'localOnly'}
               <span
                 class="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-0.5 font-medium opacity-90"
@@ -345,6 +424,9 @@
               </span>
             {/if}
           </div>
+          {#if albumGrade?.graded && albumGrade.summary}
+            <p class="mt-1.5 max-w-xl text-[11px] leading-snug opacity-75">{albumGrade.summary}</p>
+          {/if}
         </div>
       </div>
     </div>

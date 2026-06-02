@@ -172,6 +172,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IQualityGradingService, QualityGradingService>();
         services.AddHostedService<QualityGradingBackgroundService>();
 
+        // Album reconciliation grading — shares the chat client + QualityGradingOptions above.
+        services.AddSingleton<AlbumGradingProgressTracker>();
+        services.AddSingleton<AlbumGradingChannel>();
+        services.AddSingleton<IAlbumGradingDossierFactory, AlbumGradingDossierFactory>();
+        services.AddSingleton<IAlbumGradingService, AlbumGradingService>();
+        services.AddHostedService<AlbumGradingBackgroundService>();
+
         services.AddHealthChecks()
             .AddCheck<LibraryDirectoriesHealthCheck>("library-directories", tags: ["pipeline"]);
 
