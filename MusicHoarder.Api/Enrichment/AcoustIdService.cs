@@ -1,8 +1,8 @@
 using System.Text.Json.Serialization;
-using System.Threading.RateLimiting;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
+using MusicHoarder.Api.RateLimiting;
 
 namespace MusicHoarder.Api.Enrichment;
 
@@ -26,9 +26,7 @@ public sealed class AcoustIdService(
     IOptions<MusicEnricherOptions> options,
     ILogger<AcoustIdService> logger) : IAcoustIdService
 {
-    private static readonly object RateLimiterLock = new();
-    private static TokenBucketRateLimiter? _sharedRateLimiter;
-    private static int _sharedRate = -1;
+    private static readonly ReconfigurableRateLimiter RateLimiter = new();
 
     public async Task<AcoustIdMatch?> LookupAsync(string fingerprint, int durationSeconds, CancellationToken ct = default)
     {
@@ -39,8 +37,7 @@ public sealed class AcoustIdService(
             return null;
         }
 
-        var limiter = GetRateLimiter(options.Value.AcoustIdRequestsPerSecond);
-        using var lease = await limiter.AcquireAsync(permitCount: 1, ct);
+        using var lease = await RateLimiter.AcquireAsync(options.Value.AcoustIdRequestsPerSecond, ct);
         if (!lease.IsAcquired)
         {
             logger.LogWarning("AcoustID rate limiter rejected the request");
@@ -127,30 +124,6 @@ public sealed class AcoustIdService(
         {
             logger.LogWarning(ex, "AcoustID lookup failed unexpectedly");
             return null;
-        }
-    }
-
-    private static TokenBucketRateLimiter GetRateLimiter(int requestsPerSecond)
-    {
-        lock (RateLimiterLock)
-        {
-            if (_sharedRateLimiter is not null && _sharedRate == requestsPerSecond)
-            {
-                return _sharedRateLimiter;
-            }
-
-            _sharedRateLimiter?.Dispose();
-            _sharedRateLimiter = new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
-            {
-                TokenLimit = requestsPerSecond,
-                TokensPerPeriod = requestsPerSecond,
-                ReplenishmentPeriod = TimeSpan.FromSeconds(1),
-                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                QueueLimit = int.MaxValue,
-                AutoReplenishment = true,
-            });
-            _sharedRate = requestsPerSecond;
-            return _sharedRateLimiter;
         }
     }
 
