@@ -46,6 +46,7 @@ public class AlbumTracklistEndpointTests
         var result = await AlbumsEndpoints.GetAlbumTracklist("Daft Punk", "Discovery", db, Opts(), CancellationToken.None);
 
         var value = Value(result);
+        Assert.Equal("linked", GetProperty<string>(value, "status"));
         Assert.Equal(3, GetProperty<int>(value, "ownedCount"));
         Assert.Equal(4, GetProperty<int>(value, "totalCount"));
         Assert.True(GetProperty<bool>(value, "trackCountContested"));
@@ -63,11 +64,68 @@ public class AlbumTracklistEndpointTests
     }
 
     [Fact]
-    public async Task GetAlbumTracklist_NotFetched_Returns404()
+    public async Task GetAlbumTracklist_NoRow_ReturnsPendingStatus()
     {
         await using var db = NewContext();
         var result = await AlbumsEndpoints.GetAlbumTracklist("Nobody", "Nothing", db, Opts(), CancellationToken.None);
+        Assert.Equal("pending", GetProperty<string>(Value(result), "status"));
+    }
+
+    [Fact]
+    public async Task GetAlbumTracklist_NotFoundRow_ReturnsLocalOnlyStatus()
+    {
+        await using var db = NewContext();
+        db.CanonicalAlbums.Add(new CanonicalAlbum
+        {
+            ArtistKey = "nobody", AlbumKey = "phantom album", Status = CanonicalAlbumStatus.NotFound,
+        });
+        await db.SaveChangesAsync();
+
+        var result = await AlbumsEndpoints.GetAlbumTracklist("Nobody", "Phantom Album", db, Opts(), CancellationToken.None);
+        Assert.Equal("localOnly", GetProperty<string>(Value(result), "status"));
+    }
+
+    [Fact]
+    public async Task GetAlbumTracklist_BlankParams_Returns404()
+    {
+        await using var db = NewContext();
+        var result = await AlbumsEndpoints.GetAlbumTracklist("", "", db, Opts(), CancellationToken.None);
         Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)result).StatusCode);
+    }
+
+    [Fact]
+    public async Task GetCanonicalStatuses_ReturnsPerAlbumStatus_WithProviders()
+    {
+        await using var db = NewContext();
+        db.CanonicalAlbums.Add(new CanonicalAlbum
+        {
+            ArtistKey = "daft punk", AlbumKey = "discovery", Status = CanonicalAlbumStatus.Fetched,
+            SourcesJson = """[{"Provider":2,"AlbumId":"r","TrackCount":4,"InWinningCluster":true},{"Provider":4,"AlbumId":"d","TrackCount":4,"InWinningCluster":false}]""",
+        });
+        db.CanonicalAlbums.Add(new CanonicalAlbum
+        {
+            ArtistKey = "nobody", AlbumKey = "phantom album", Status = CanonicalAlbumStatus.NotFound,
+        });
+        await db.SaveChangesAsync();
+
+        var request = new AlbumsEndpoints.CanonicalStatusRequest(
+        [
+            new AlbumsEndpoints.AlbumIdentity("Daft Punk", "Discovery"),
+            new AlbumsEndpoints.AlbumIdentity("Nobody", "Phantom Album"),
+            new AlbumsEndpoints.AlbumIdentity("Brand", "New Album"),
+        ]);
+
+        var result = await AlbumsEndpoints.GetCanonicalStatuses(request, db, CancellationToken.None);
+
+        var items = ((IEnumerable)Value(result)).Cast<object>().ToList();
+        Assert.Equal(3, items.Count);
+        Assert.Equal("linked", GetProperty<string>(items[0], "status"));
+        Assert.Equal("localOnly", GetProperty<string>(items[1], "status"));
+        Assert.Equal("pending", GetProperty<string>(items[2], "status"));
+        // Only the winning-cluster provider is surfaced for the linked album.
+        var providers = (string[])GetProperty<object>(items[0], "providers")!;
+        Assert.Equal(["MusicBrainzWeb"], providers);
+        Assert.Empty((string[])GetProperty<object>(items[1], "providers")!);
     }
 
     private static object Value(IResult result)

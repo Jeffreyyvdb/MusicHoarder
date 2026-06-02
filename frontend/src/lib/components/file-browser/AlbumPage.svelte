@@ -25,7 +25,9 @@
   } from '$lib/formatters';
   import {
     fetchAlbumTracklist,
+    prettyProvider,
     toPlayerSong,
+    type AlbumLinkStatus,
     type AlbumSummary,
     type AlbumTracklist,
     type ApiSong
@@ -43,18 +45,24 @@
   const tracks = $derived(album?.songs ?? []);
 
   // Reconciled multi-provider canonical tracklist for this album, fetched lazily by album identity
-  // (artist + title). When present we show every real track and grey out the ones the user is
-  // missing; when absent (not fetched yet) we fall back to the owned-only list below.
+  // (artist + title). `linkStatus` tells us whether the album is matched to a provider album
+  // ("linked"), only in the local library ("localOnly"), or not yet checked ("pending"). When linked
+  // we show every real track and grey out the ones the user is missing; otherwise we fall back to the
+  // owned-only list below.
   let tracklist = $state<AlbumTracklist | null>(null);
+  let linkStatus = $state<AlbumLinkStatus>('pending');
   $effect(() => {
     const artist = album?.artist ?? null;
     const title = album?.title ?? null;
     tracklist = null;
+    linkStatus = 'pending';
     if (!artist || !title) return;
     let cancelled = false;
     void fetchAlbumTracklist(artist, title)
-      .then((t) => {
-        if (!cancelled) tracklist = t;
+      .then((result) => {
+        if (cancelled) return;
+        tracklist = result.tracklist;
+        linkStatus = result.status;
       })
       .catch(() => {
         // Tracklist is best-effort; on error keep the owned-only fallback.
@@ -64,15 +72,7 @@
     };
   });
 
-  const PROVIDER_LABELS: Record<string, string> = {
-    MusicBrainzWeb: 'MusicBrainz',
-    SpotifyAPI: 'Spotify',
-    Deezer: 'Deezer',
-    AppleMusic: 'Apple Music'
-  };
-  const prettyProvider = (p: string) => PROVIDER_LABELS[p] ?? p;
-
-  /** Provider names that won the reconciliation, for the "sources" line. */
+  /** Provider names that won the reconciliation, for the "Linked" chip. */
   const sourceLabels = $derived(
     tracklist
       ? tracklist.sources.filter((s) => s.inWinningCluster).map((s) => prettyProvider(s.provider))
@@ -311,9 +311,17 @@
               <span class="block h-full rounded-full bg-white/90" style="width: {completeness.pct}%;"></span>
             </div>
           {/if}
-          {#if sourceLabels.length > 0}
-            <div class="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] opacity-80">
-              <span>Sources: {sourceLabels.join(' · ')}</span>
+          <div class="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+            {#if linkStatus === 'linked'}
+              <span
+                class="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-0.5 font-semibold"
+                title={sourceLabels.length > 0
+                  ? `Matched to a provider album (${sourceLabels.join(', ')})`
+                  : 'Matched to a provider album'}
+              >
+                <span class="inline-block size-1.5 rounded-full bg-emerald-300"></span>
+                Linked{sourceLabels.length > 0 ? ` · ${sourceLabels.join(' · ')}` : ''}
+              </span>
               {#if tracklist?.trackCountContested}
                 <span
                   class="inline-flex items-center gap-1 rounded-full bg-amber-400/25 px-2 py-0.5 font-medium text-amber-50"
@@ -322,8 +330,21 @@
                   ⚠ Sources disagree on length
                 </span>
               {/if}
-            </div>
-          {/if}
+            {:else if linkStatus === 'localOnly'}
+              <span
+                class="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-0.5 font-medium opacity-90"
+                title="No matching album was found on any provider — this album is only in your local library"
+              >
+                <span class="inline-block size-1.5 rounded-full bg-white/60"></span>
+                Local only
+              </span>
+            {:else}
+              <span class="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 font-medium opacity-70">
+                <span class="inline-block size-1.5 animate-pulse rounded-full bg-white/50"></span>
+                Checking providers…
+              </span>
+            {/if}
+          </div>
         </div>
       </div>
     </div>

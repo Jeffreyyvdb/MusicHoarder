@@ -533,6 +533,9 @@ export interface AlbumSource {
   inWinningCluster: boolean
 }
 
+/** Whether an album is matched to a provider album, only in the local library, or not yet checked. */
+export type AlbumLinkStatus = "linked" | "localOnly" | "pending"
+
 /** The reconciled canonical tracklist for an album plus how much of it the user owns. */
 export interface AlbumTracklist {
   artist: string | null
@@ -551,16 +554,63 @@ export interface AlbumTracklist {
   tracks: CanonicalTrack[]
 }
 
+/** Human-friendly provider labels for the reconciliation source names returned by the API. */
+export const PROVIDER_LABELS: Record<string, string> = {
+  MusicBrainzWeb: "MusicBrainz",
+  SpotifyAPI: "Spotify",
+  Deezer: "Deezer",
+  AppleMusic: "Apple Music",
+}
+
+export function prettyProvider(provider: string): string {
+  return PROVIDER_LABELS[provider] ?? provider
+}
+
+/** Result of looking up an album: its link status plus the tracklist when `linked`. */
+export interface AlbumTracklistResult {
+  status: AlbumLinkStatus
+  /** Present only when `status === "linked"`. */
+  tracklist: AlbumTracklist | null
+}
+
 /**
- * Fetches the album's reconciled canonical tracklist by artist + album. Returns `null` when the
- * backend hasn't fetched it yet (404) so callers fall back to the owned-only view.
+ * Fetches an album's link status and (when linked) its reconciled canonical tracklist by artist +
+ * album. A non-`linked` status means the owned-only view should be shown.
  */
-export async function fetchAlbumTracklist(artist: string, album: string): Promise<AlbumTracklist | null> {
+export async function fetchAlbumTracklist(artist: string, album: string): Promise<AlbumTracklistResult> {
   const qs = new URLSearchParams({ artist, album }).toString()
   const response = await fetch(`${API_PREFIX}/api/albums/tracklist?${qs}`, { cache: "no-store" })
-  if (response.status === 404) return null
+  if (response.status === 404) return { status: "pending", tracklist: null }
   if (!response.ok) throw new Error(`album tracklist failed: ${response.status}`)
-  return (await response.json()) as AlbumTracklist
+  const body = (await response.json()) as AlbumTracklist & { status: AlbumLinkStatus }
+  return body.status === "linked"
+    ? { status: "linked", tracklist: body }
+    : { status: body.status, tracklist: null }
+}
+
+/** Per-album link status for the library grid badges. */
+export interface AlbumStatusInfo {
+  status: AlbumLinkStatus
+  providers: string[]
+}
+
+/**
+ * Batch link-status for a list of albums. Returns a map keyed by `${artist}::${album}` lowercased
+ * (matches {@link AlbumSummary.key}) so callers can look up each card's badge.
+ */
+export async function fetchAlbumCanonicalStatuses(
+  albums: { artist: string; album: string }[]
+): Promise<Map<string, AlbumStatusInfo>> {
+  const map = new Map<string, AlbumStatusInfo>()
+  if (albums.length === 0) return map
+  const results = await requestJson<{ artist: string; album: string; status: AlbumLinkStatus; providers: string[] }[]>(
+    "/api/albums/canonical-status",
+    { method: "POST", body: JSON.stringify({ albums }) }
+  )
+  for (const r of results ?? []) {
+    map.set(`${r.artist.toLowerCase()}::${r.album.toLowerCase()}`, { status: r.status, providers: r.providers ?? [] })
+  }
+  return map
 }
 
 export async function startScan(): Promise<{ scanId: string }> {

@@ -18,6 +18,12 @@ public static class AlbumsEndpoints
             .WithTags("Library")
             .RequireOwner();
 
+        app.MapPost("/api/albums/canonical-status", GetCanonicalStatuses)
+            .WithName("GetAlbumCanonicalStatuses")
+            .WithSummary("Batch link-status (linked / localOnly / pending) for a list of albums, for the library grid badges.")
+            .WithTags("Library")
+            .RequireOwner();
+
         return app;
     }
 
@@ -38,9 +44,10 @@ public static class AlbumsEndpoints
             .Include(a => a.Tracks)
             .FirstOrDefaultAsync(a => a.ArtistKey == artistKey && a.AlbumKey == albumKey, ct);
 
-        // Not yet fetched (or never will be) → 404 so the frontend falls back to its owned-only view.
+        // Not linked yet: report the state (localOnly vs still-pending) so the UI can be explicit
+        // instead of silently falling back. The frontend renders its owned-only view either way.
         if (canonical is null || canonical.Status != CanonicalAlbumStatus.Fetched)
-            return Results.NotFound(new { message = "Canonical tracklist not available for this album." });
+            return Results.Ok(new { status = DeriveStatus(canonical), providers = Array.Empty<string>() });
 
         // Owned songs in this album group, mirroring the frontend's (albumArtist ?? artist, album) grouping.
         var artistLower = artist.ToLowerInvariant();
@@ -77,6 +84,7 @@ public static class AlbumsEndpoints
 
         return Results.Ok(new
         {
+            status = "linked",
             artist = canonical.DisplayArtist,
             album = canonical.DisplayTitle,
             year = canonical.Year,
@@ -89,6 +97,82 @@ public static class AlbumsEndpoints
             tracks,
         });
     }
+
+    internal static async Task<IResult> GetCanonicalStatuses(
+        CanonicalStatusRequest request,
+        MusicHoarderDbContext db,
+        CancellationToken ct)
+    {
+        var albums = request.Albums ?? [];
+        if (albums.Count == 0)
+            return Results.Ok(Array.Empty<object>());
+
+        // Normalize each requested pair the same way storage does, so the lookup matches exactly.
+        var keyed = albums
+            .Select(a => (a.Artist, a.Album,
+                ArtistKey: TitleNormalizer.NormalizeForSearch(a.Artist),
+                AlbumKey: TitleNormalizer.NormalizeForSearch(a.Album)))
+            .ToList();
+
+        var artistKeys = keyed.Select(k => k.ArtistKey).Where(k => k.Length > 0).Distinct().ToList();
+        var rows = await db.CanonicalAlbums
+            .AsNoTracking()
+            .Where(a => artistKeys.Contains(a.ArtistKey))
+            .Select(a => new { a.ArtistKey, a.AlbumKey, a.Status, a.SourcesJson })
+            .ToListAsync(ct);
+        var byKey = rows.ToDictionary(r => (r.ArtistKey, r.AlbumKey));
+
+        var results = keyed.Select(k =>
+        {
+            byKey.TryGetValue((k.ArtistKey, k.AlbumKey), out var row);
+            var status = row is null
+                ? "pending"
+                : row.Status switch
+                {
+                    CanonicalAlbumStatus.Fetched => "linked",
+                    CanonicalAlbumStatus.NotFound => "localOnly",
+                    _ => "pending",
+                };
+            return (object)new
+            {
+                artist = k.Artist,
+                album = k.Album,
+                status,
+                providers = status == "linked" ? WinningProviderNames(row!.SourcesJson) : [],
+            };
+        }).ToArray();
+
+        return Results.Ok(results);
+    }
+
+    /// <summary>linked = Fetched, localOnly = NotFound, pending = no row / Pending / Failed.</summary>
+    private static string DeriveStatus(CanonicalAlbum? row) => row?.Status switch
+    {
+        CanonicalAlbumStatus.Fetched => "linked",
+        CanonicalAlbumStatus.NotFound => "localOnly",
+        _ => "pending",
+    };
+
+    /// <summary>Distinct provider names that won the reconciliation cluster (for the UI badge/chip).</summary>
+    private static string[] WinningProviderNames(string? sourcesJson)
+    {
+        if (string.IsNullOrWhiteSpace(sourcesJson))
+            return [];
+        try
+        {
+            var stored = JsonSerializer.Deserialize<List<StoredSource>>(sourcesJson);
+            return stored is null
+                ? []
+                : stored.Where(s => s.InWinningCluster).Select(s => s.Provider.ToString()).Distinct().ToArray();
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    public sealed record CanonicalStatusRequest(List<AlbumIdentity>? Albums);
+    public sealed record AlbumIdentity(string Artist, string Album);
 
     private static string[] SplitProviders(string? csv)
         => string.IsNullOrWhiteSpace(csv) ? [] : csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
