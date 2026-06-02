@@ -147,52 +147,30 @@ Spotify metadata is optional and requires registering a Spotify app and configur
 
 ---
 
-## Self-hosting (Docker Compose)
+## Self-host
 
-`docker-compose.yml` at the repo root builds the images locally — a good fit for a homelab/NAS. (The
-hosted production deployment instead pulls prebuilt images from GHCR;
-`ghcr.io/jeffreyyvdb/musichoarder/{api,frontend}`.)
-
-1. **Copy `docker-compose.yml`** and `.env.example` to the host.
-
-2. **Create a `.env` file** next to `docker-compose.yml`:
-
-   ```env
-   POSTGRES_PASSWORD=a-strong-random-password
-   ACOUSTID_API_KEY=your-acoustid-key
-   MUSIC_SOURCE_PATH=/mnt/nas/music-source
-   MUSIC_DESTINATION_PATH=/mnt/nas/music-clean
-   ```
-
-3. **Build and start the stack** (from a checkout of this repo):
-
-   ```bash
-   docker compose build
-   docker compose up -d
-   ```
-
-   The API is reachable at `http://<host-ip>:5050` and the frontend at `http://<host-ip>:3000`.
-
-### Volume mounts
-
-Adjust the paths in `docker-compose.yml` to match your NAS mount points:
-
-```yaml
-volumes:
-  - /mnt/nas/music-source:/music/source:ro      # source library (read-only)
-  - /mnt/nas/music-clean:/music/destination      # destination for cleaned library
-  - /tmp/musicenricher:/tmp/musicenricher        # scratch space
-```
-
-### Rollback
-
-Check out a known-good commit and rebuild:
+Run MusicHoarder on your own box or NAS with Docker. The shipped `docker-compose.yml` **pulls
+prebuilt images** from GHCR (`ghcr.io/jeffreyyvdb/musichoarder/{api,frontend}`) — no repo checkout
+or build toolchain required. You only need two files: the compose file and an `.env`.
 
 ```bash
-git checkout <commit-sha>
-docker compose build
+mkdir musichoarder && cd musichoarder
+curl -fsSLO https://raw.githubusercontent.com/Jeffreyyvdb/MusicHoarder/main/docker-compose.yml
+curl -fsSL  https://raw.githubusercontent.com/Jeffreyyvdb/MusicHoarder/main/.env.example -o .env
+nano .env          # fill in the 5 required values
 docker compose up -d
 ```
+
+Required values in `.env`: `POSTGRES_PASSWORD`, `MUSIC_SOURCE_PATH`, `MUSIC_DESTINATION_PATH`,
+`OWNER_EMAIL`, and `PUBLIC_BASE_URL`. The web UI is then at `http://<host-ip>:3000` (API at
+`:5050`); migrations apply automatically.
+
+The app serves plain HTTP — put it behind your own reverse proxy for TLS and point
+`PUBLIC_BASE_URL` at the external URL.
+
+**→ Full guide:** [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) — env reference, first login,
+reverse proxy, Portainer/TrueNAS, optional integrations (AcoustID, Spotify, AI grading, Umami),
+updating, backups, build-from-source, and troubleshooting.
 
 ---
 
@@ -230,9 +208,8 @@ waits for its healthcheck to pass, and only then removes the old one, so there i
 unchanged `:latest` reference still re-pulls the newest digest.)
 
 These keys are inert under plain `docker compose up` (Compose ignores `deploy.update_config`), so the
-build-from-source [Self-hosting](#self-hosting-docker-compose) path above is unaffected and keeps its
-current stop-then-start behavior — self-hosters who want zero-downtime can likewise run their stack
-via `docker stack deploy`.
+[Self-host](#self-host) path above is unaffected and keeps its current stop-then-start behavior —
+self-hosters who want zero-downtime can likewise run their stack via `docker stack deploy`.
 
 Operational detail — PR preview environments, the Spotify OAuth relay, and the Dokploy setup — lives
 in the heavily-commented workflow files under [`.github/workflows/`](.github/workflows).
