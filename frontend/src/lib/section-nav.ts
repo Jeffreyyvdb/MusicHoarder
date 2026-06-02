@@ -47,3 +47,33 @@ export function resolveSectionSubNav(pathname: string): Resolved | null {
   const path = pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
   return ROUTE_MAP[path] ?? null;
 }
+
+// The four top-level sections, in the order the mobile bottom bar renders them.
+export type ActiveSection = 'pipeline' | 'inbox' | 'library' | 'settings';
+
+// Maps any route to its top-level section, so the mobile bottom bar can keep the
+// correct parent highlighted even on deep sub-routes (/quality, /artists,
+// /inbox?tab=…). Mirrors AppSidebarV2's sectionActive() and AppTopBarV2's
+// breadcrumb logic — keep the three in step. Returns null for routes that don't
+// belong to a section (track detail, login, …).
+export function resolveActiveSection(pathname: string): ActiveSection | null {
+  const path = pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
+  if (
+    path === '/pipeline' ||
+    path.startsWith('/directories') ||
+    path.startsWith('/quality') ||
+    path.startsWith('/performance')
+  )
+    return 'pipeline';
+  if (path.startsWith('/inbox')) return 'inbox';
+  if (
+    path === '/library' ||
+    path.startsWith('/library/') ||
+    path.startsWith('/artists') ||
+    path.startsWith('/tracks') ||
+    path.startsWith('/spotify')
+  )
+    return 'library';
+  if (path.startsWith('/settings')) return 'settings';
+  return null;
+}
