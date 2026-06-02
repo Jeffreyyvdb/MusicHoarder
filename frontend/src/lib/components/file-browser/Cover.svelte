@@ -31,6 +31,21 @@
   const initials = $derived(computeInitials(title));
   const showCaption = $derived(caption && size >= 120);
   let imgFailed = $state(false);
+  let imgLoaded = $state(false);
+
+  // A real cover is painted — hide the initials/caption fallback. Stays false while the image
+  // lazy-loads and after an error, so the letters remain the graceful fallback in both cases.
+  const showArt = $derived(!!coverUrl && imgLoaded && !imgFailed);
+
+  // The single Cover in the player/timeline is reused across songs; reset load state when the
+  // source changes so a new cover doesn't inherit the previous image's loaded/failed flags
+  // (a stale imgFailed would otherwise suppress the next valid image entirely).
+  $effect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- read to track the dep
+    coverUrl;
+    imgFailed = false;
+    imgLoaded = false;
+  });
 
   function hideOnError() {
     imgFailed = true;
@@ -52,19 +67,22 @@
       src={coverUrl}
       alt=""
       loading="lazy"
+      onload={() => (imgLoaded = true)}
       onerror={hideOnError}
       class="absolute inset-0 block size-full object-cover"
     />
   {/if}
 
-  <div
-    class="relative z-[2] font-bold tracking-[-0.04em] text-white/95 [text-shadow:_0_1px_2px_rgba(0,0,0,0.2)]"
-    style="font-size: {size / 3.6}px;"
-  >
-    {initials}
-  </div>
+  {#if !showArt}
+    <div
+      class="relative z-[2] font-bold tracking-[-0.04em] text-white/95 [text-shadow:_0_1px_2px_rgba(0,0,0,0.2)]"
+      style="font-size: {size / 3.6}px;"
+    >
+      {initials}
+    </div>
+  {/if}
 
-  {#if showCaption}
+  {#if showCaption && !showArt}
     <div
       class="absolute right-[8%] bottom-[7%] left-[8%] z-[2] truncate text-center font-mono font-medium tracking-[0.08em] text-white/75 uppercase"
       style="font-size: {Math.max(8, size / 22)}px;"
