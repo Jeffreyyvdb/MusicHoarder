@@ -2,11 +2,11 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Threading.RateLimiting;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Options;
+using MusicHoarder.Api.RateLimiting;
 
 namespace MusicHoarder.Api.Deezer;
 
@@ -27,9 +27,7 @@ public sealed class DeezerCatalogService(
     // Deezer signals quota exhaustion with HTTP 200 + an error body (code 4), not just 429.
     private const int DeezerQuotaErrorCode = 4;
 
-    private static readonly object RateLimiterLock = new();
-    private static TokenBucketRateLimiter? _sharedRateLimiter;
-    private static int _sharedRate = -1;
+    private static readonly ReconfigurableRateLimiter RateLimiter = new();
 
     public async Task<DeezerCatalogTrack?> LookupByIsrcAsync(string isrc, CancellationToken ct = default)
     {
@@ -93,8 +91,7 @@ public sealed class DeezerCatalogService(
     /// Throws <see cref="ProviderRateLimitedException"/> when Deezer signals quota exhaustion.</summary>
     private async Task<string?> GetAsync(string url, CancellationToken ct)
     {
-        var limiter = GetRateLimiter(options.Value.DeezerApiRequestsPerSecond);
-        using var lease = await limiter.AcquireAsync(permitCount: 1, ct);
+        using var lease = await RateLimiter.AcquireAsync(options.Value.DeezerApiRequestsPerSecond, ct);
         if (!lease.IsAcquired)
         {
             logger.LogWarning("Deezer rate limiter could not grant a permit (disposed or canceled)");
@@ -176,28 +173,6 @@ public sealed class DeezerCatalogService(
         var raw = $"{limit}|{query}";
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
         return $"deezer_search:{hash}";
-    }
-
-    private static TokenBucketRateLimiter GetRateLimiter(int requestsPerSecond)
-    {
-        lock (RateLimiterLock)
-        {
-            if (_sharedRateLimiter is not null && _sharedRate == requestsPerSecond)
-                return _sharedRateLimiter;
-
-            _sharedRateLimiter?.Dispose();
-            _sharedRate = requestsPerSecond;
-            _sharedRateLimiter = new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
-            {
-                TokenLimit = requestsPerSecond,
-                TokensPerPeriod = requestsPerSecond,
-                ReplenishmentPeriod = TimeSpan.FromSeconds(1),
-                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                QueueLimit = int.MaxValue,
-                AutoReplenishment = true,
-            });
-            return _sharedRateLimiter;
-        }
     }
 
     private static IReadOnlyList<DeezerCatalogTrack> ParseSearchResponse(string json)

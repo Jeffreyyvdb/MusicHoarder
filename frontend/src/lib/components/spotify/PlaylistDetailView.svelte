@@ -90,13 +90,13 @@
 
     <!-- Hero -->
     <div
-      class="relative px-6 pt-12 pb-7 text-white sm:px-9"
+      class="relative px-6 pt-6 pb-5 text-white sm:px-9"
       style="background: {heroBackground};"
     >
-      <div class="relative z-10 flex flex-col items-end gap-6 sm:flex-row sm:gap-8">
+      <div class="relative z-10 flex items-center gap-4 sm:items-end sm:gap-6">
         <div
-          class="relative grid shrink-0 place-items-center overflow-hidden shadow-[0_24px_48px_rgba(0,0,0,0.35)]"
-          style="width: 232px; height: 232px; border-radius: 6px; background: linear-gradient(135deg, {tint.from} 0%, {tint.to} 100%);"
+          class="relative grid size-20 shrink-0 place-items-center overflow-hidden shadow-[0_24px_48px_rgba(0,0,0,0.35)] sm:size-28 lg:size-32"
+          style="border-radius: 6px; background: linear-gradient(135deg, {tint.from} 0%, {tint.to} 100%);"
         >
           <div class="mh-cover-grain pointer-events-none absolute inset-0"></div>
           {#if playlist.imageUrl}
@@ -109,8 +109,7 @@
             />
           {:else}
             <div
-              class="relative z-[2] font-bold tracking-[-0.04em] text-white/95 [text-shadow:_0_1px_2px_rgba(0,0,0,0.2)]"
-              style="font-size: 64px;"
+              class="relative z-[2] text-2xl font-bold tracking-[-0.04em] text-white/95 [text-shadow:_0_1px_2px_rgba(0,0,0,0.2)] sm:text-3xl lg:text-4xl"
             >
               {initials}
             </div>
@@ -125,16 +124,16 @@
         <div class="min-w-0 flex-1 pb-2">
           <div class="text-[11px] font-semibold tracking-wider opacity-85 uppercase">Playlist</div>
           <h1
-            class="mt-3 text-[clamp(36px,5.5vw,80px)] leading-[0.95] font-extrabold tracking-[-0.03em] [text-wrap:balance]"
+            class="mt-2 text-[clamp(24px,5vw,44px)] leading-[0.95] font-extrabold tracking-[-0.03em] [text-wrap:balance]"
           >
             {playlist.name}
           </h1>
           {#if playlist.description}
-            <p class="mt-3 max-w-2xl text-sm leading-snug text-white/80 [text-wrap:pretty]">
+            <p class="mt-2 max-w-2xl text-sm leading-snug text-white/80 [text-wrap:pretty]">
               {playlist.description}
             </p>
           {/if}
-          <div class="mt-5 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[13px] opacity-90">
+          <div class="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[13px] opacity-90">
             {#if playlist.ownerName}
               <span class="inline-flex items-center gap-2 font-semibold">
                 <span

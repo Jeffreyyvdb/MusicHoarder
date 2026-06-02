@@ -40,7 +40,6 @@
   import { isBuiltSong } from '$lib/album-sections';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { cn } from '$lib/utils';
-  import PipelineSubNavV2 from './PipelineSubNavV2.svelte';
 
   // ── data layer (reuses the existing api-client + album-sections) ───────────
   let stats = $state<ApiStats | null>(null);
@@ -373,13 +372,6 @@
     }
   }
 
-  // ── sub-nav ──────────────────────────────────────────────────────────────────
-  const subNavTabs = [
-    { id: 'conveyor', label: 'Conveyor', href: '/pipeline', icon: Disc3, live: true },
-    { id: 'folders', label: 'By folder', href: '/directories', icon: undefined },
-    { id: 'quality', label: 'AI quality', href: '/quality', icon: Sparkles }
-  ];
-
   type NeedCard = {
     id: 'review' | 'dupes' | 'ai';
     icon: Component;
@@ -461,8 +453,6 @@
     </button>
   </div>
 </header>
-
-<PipelineSubNavV2 tabs={subNavTabs} active="conveyor" running={anyRunning} />
 
 <ScrollArea class="min-h-0 flex-1">
   <div class="flex flex-col gap-6 px-4 py-6 sm:px-7">

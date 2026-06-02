@@ -1,6 +1,9 @@
 <script lang="ts">
+  import { page } from '$app/state';
   import { Button } from '$lib/components/ui/button';
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
+
+  const version = $derived(page.data.appVersion as string | null | undefined);
 </script>
 
 <nav class="mx-auto flex max-w-[1280px] items-center justify-between px-6 py-6 md:px-14">
@@ -17,11 +20,13 @@
       </svg>
     </span>
     <span>MusicHoarder</span>
-    <span
-      class="bg-surface-sunken text-muted-foreground ml-1 rounded-[3px] px-1.5 py-0.5 font-mono text-[10.5px] font-normal"
-    >
-      v0.4.2
-    </span>
+    {#if version}
+      <span
+        class="bg-surface-sunken text-muted-foreground ml-1 rounded-[3px] px-1.5 py-0.5 font-mono text-[10.5px] font-normal"
+      >
+        v{version}
+      </span>
+    {/if}
   </a>
 
   <div class="flex items-center gap-4 md:gap-5">

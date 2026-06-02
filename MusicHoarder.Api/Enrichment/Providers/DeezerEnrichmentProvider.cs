@@ -8,9 +8,10 @@ using MusicHoarder.Api.Persistence;
 namespace MusicHoarder.Api.Enrichment.Providers;
 
 /// <summary>
-/// Free, no-auth Deezer name-based enrichment provider. ISRC-first (Deezer carries ISRC, so it
-/// can seed the orchestrator's identifier-gossip chain) then fuzzy artist+title search. Priority
-/// 250 so it runs before Spotify (300) / Apple (350) and any ISRC it discovers gossips forward.
+/// Free, no-auth Deezer name-based enrichment provider. ISRC-first (using the file's own ISRC tag,
+/// if any) then fuzzy artist+title search. The chosen candidate is hydrated for its ISRC so that
+/// ISRC participates in genuine cross-provider consensus (two providers independently landing on the
+/// same ISRC), not so it can be gossiped onto the row — identifier gossip was removed.
 /// </summary>
 public class DeezerEnrichmentProvider(
     IDeezerCatalogService catalog,
@@ -94,8 +95,8 @@ public class DeezerEnrichmentProvider(
             if (bestTrack is null)
                 return new ProviderNoMatch();
 
-            // Hydrate only the chosen candidate to get ISRC (for gossip) + release year / track #,
-            // which Deezer omits from search results.
+            // Hydrate only the chosen candidate to get its ISRC + release year / track #, which
+            // Deezer omits from search results (the ISRC feeds independent cross-provider consensus).
             if (string.IsNullOrEmpty(bestTrack.Isrc))
             {
                 var hydrated = await catalog.LookupByIdAsync(bestTrack.Id, ct);
@@ -246,8 +247,7 @@ public class DeezerEnrichmentProvider(
         return (Math.Max(0.0, score), warnings);
     }
 
-    private static bool HasBlockingWarning(List<string> warnings) =>
-        warnings.Exists(static w => w is "duration_mismatch" or "artist_mismatch" or "title_mismatch" or "isrc_mismatch" or "version_mismatch" or "artist_unknown");
+    private static bool HasBlockingWarning(List<string> warnings) => MatchWarnings.AnyBlocking(warnings);
 
     private static string NormalizeIsrc(string? isrc)
     {

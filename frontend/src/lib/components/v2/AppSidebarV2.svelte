@@ -37,6 +37,9 @@
   import { isBuiltSong } from '$lib/album-sections';
   import { cn } from '$lib/utils';
 
+  // The running build's version (clean semver), surfaced by the root layout load.
+  const version = $derived(page.data.appVersion as string | null | undefined);
+
   // ── v2 information architecture ───────────────────────────────────────────
   // Four flat sections, each with its sub-items listed flush beneath (the
   // shadcn "sidebar-04" docs style). For Phase 0 every sub-item deep-links into
@@ -270,7 +273,7 @@
               <div class="grid min-w-0 flex-1 text-left leading-tight">
                 <span class="truncate text-sm font-semibold">MusicHoarder</span>
                 <span class="text-muted-foreground truncate font-mono text-[10.5px]">
-                  v0.4.2 · self-hosted
+                  {version ? `v${version} · ` : ''}self-hosted
                 </span>
               </div>
             </a>

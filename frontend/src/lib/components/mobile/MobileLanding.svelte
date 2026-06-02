@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { page } from '$app/state';
+
+  const version = $derived(page.data.appVersion as string | null | undefined);
+
   const pipelineLog: [string, string][] = [
     ['scan', 'discovered 47 new audio files'],
     ['fp', 'AcoustID match 0.94 → 3f9e8c72…'],
@@ -30,9 +34,11 @@
         </svg>
       </div>
       <div class="text-sm font-semibold">MusicHoarder</div>
-      <span
-        class="text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[10px]"
-        style="background: var(--surface-sunken);">v0.4.2</span>
+      {#if version}
+        <span
+          class="text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[10px]"
+          style="background: var(--surface-sunken);">v{version}</span>
+      {/if}
     </div>
     <a class="mob-btn ghost w-auto px-2.5 py-1.5" href="/login">Sign in</a>
   </div>

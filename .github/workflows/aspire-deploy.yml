@@ -66,6 +66,9 @@ jobs:
       # filled in Dokploy). Supply throwaway values so --non-interactive never prompts.
       - name: aspire do push
         env:
+          # Bake the release semver into the API assembly (MSBuild reads $(MH_VERSION) — see
+          # MusicHoarder.Api.csproj). Blank on manual :latest-only rebuilds → SDK default 1.0.0.
+          MH_VERSION: ${{ inputs.version }}
           Parameters__source-directory: /music/source
           Parameters__destination-directory: /music/destination
           Parameters__acoustid-api-key: ""

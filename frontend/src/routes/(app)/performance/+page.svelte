@@ -128,7 +128,7 @@
   }
 </script>
 
-<div class="flex h-full min-h-0 flex-col">
+<div class="flex min-h-0 flex-1 flex-col">
   <header class="flex items-center justify-between gap-4 border-b border-border px-6 py-4">
     <div>
       <h1 class="text-lg font-semibold">Pipeline performance</h1>
