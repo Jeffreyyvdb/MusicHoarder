@@ -199,12 +199,14 @@ public class DestinationPathResolverTests
     }
 
     [Fact]
-    public void ResolvePath_WithCompilation_RoutesToVariousArtistsTree()
+    public void ResolvePath_WithVariousArtistsCompilation_RoutesToVariousArtistsTree()
     {
+        // A genuine various-artists compilation (album artist literally "Various Artists") routes
+        // under the Various Artists tree so the album stays together.
         var resolver = CreateResolver();
         var song = CreateSong(
             artist: "Various Performers",
-            albumArtist: "Some Label",
+            albumArtist: "Various Artists",
             album: "Now That's What I Call Music",
             title: "A Hit",
             year: 2001,
@@ -215,6 +217,50 @@ public class DestinationPathResolverTests
 
         Assert.Equal(
             Path.Combine(DestinationRoot, "Various Artists", "2001 - Now That's What I Call Music", "07 - A Hit.mp3"),
+            path);
+    }
+
+    [Fact]
+    public void ResolvePath_SingleArtistTrackOnCompilationFlaggedRelease_FilesUnderArtist()
+    {
+        // RHCP "Scar Tissue" matched to a compilation ("Greatest Hits and Videos") that a provider
+        // flagged IsCompilation. The track is still by a single artist, so it must file under that
+        // artist — NOT get exiled to a Various Artists folder.
+        var resolver = CreateResolver();
+        var song = CreateSong(
+            artist: "Red Hot Chili Peppers",
+            albumArtist: "Red Hot Chili Peppers",
+            album: "Greatest Hits and Videos",
+            title: "Scar Tissue",
+            year: 2003,
+            trackNumber: 3,
+            isCompilation: true);
+
+        var path = resolver.ResolvePath(song);
+
+        Assert.Equal(
+            Path.Combine(DestinationRoot, "Red Hot Chili Peppers", "2003 - Greatest Hits and Videos", "03 - Scar Tissue.mp3"),
+            path);
+    }
+
+    [Fact]
+    public void ResolvePath_CompilationWithoutAlbumArtist_RoutesToVariousArtistsTree()
+    {
+        // No album artist + compilation flag is the classic various-artists case → Various Artists.
+        var resolver = CreateResolver();
+        var song = CreateSong(
+            artist: "Various Performers",
+            albumArtist: null,
+            album: "Summer Hits",
+            title: "A Hit",
+            year: 2005,
+            trackNumber: 4,
+            isCompilation: true);
+
+        var path = resolver.ResolvePath(song);
+
+        Assert.Equal(
+            Path.Combine(DestinationRoot, "Various Artists", "2005 - Summer Hits", "04 - A Hit.mp3"),
             path);
     }
 

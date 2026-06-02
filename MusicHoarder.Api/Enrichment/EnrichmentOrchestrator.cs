@@ -88,18 +88,16 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         var existingAttempts = song.ProviderAttempts.ToDictionary(a => a.Provider);
         var anyProviderActed = false;
 
-        // Identifiers a provider already wrote on the row stay authoritative; we only ever fill
-        // empty identifier fields with what an earlier provider discovered this pass, then restore
-        // the originals before the row is finalized. Snapshot so the gossip never persists.
-        var originalMbId = song.MusicBrainzId;
-        var originalIsrc = song.Isrc;
-
         // Run every eligible provider (no stop-at-first-match): a single provider can no
         // longer finalize a song. The final decision is made by ConsensusEvaluator below.
-        // Providers read the original *name* fields (never mutated mid-pass, so a wrong-but-
-        // plausible hit can't poison a later query), but high-precision identifiers (MBID/ISRC)
-        // discovered by an earlier provider ARE handed to later ones so they can do an exact
-        // lookup instead of a fuzzy name search — genuine corroboration, not poisoning.
+        // Providers match INDEPENDENTLY of one another — they read the row's own name fields and
+        // the identifiers (MBID/ISRC) the *file itself* carries, never anything an earlier provider
+        // discovered this pass. We used to gossip a discovered MBID/ISRC forward so a later provider
+        // could do an exact lookup, but that manufactured fake corroboration: a wrong AcoustID
+        // fingerprint MBID was handed to MusicBrainzWeb, which "confirmed" it by exact lookup, and
+        // ConsensusEvaluator then saw two providers sharing an identifier and auto-matched the wrong
+        // identity. Independence is the whole point of consensus — so two providers now only share an
+        // MBID/ISRC when each arrived at it on its own.
         foreach (var provider in enabledProviders)
         {
             if (!provider.CanHandle(song))
@@ -132,22 +130,15 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
 
             var semaphore = GetProviderSemaphore(provider.Name);
             await semaphore.WaitAsync(ct);
-            EnrichmentProviderResult? matchedResult;
             try
             {
-                matchedResult = await PersistProviderOutcomeAsync(provider, providerEnum.Value, song, existingAttempts, ct);
+                await PersistProviderOutcomeAsync(provider, providerEnum.Value, song, existingAttempts, ct);
             }
             finally
             {
                 semaphore.Release();
             }
-
-            ApplyIdentifierHints(song, matchedResult);
         }
-
-        // Restore the row's original identifiers; only the consensus winner gets to write them.
-        song.MusicBrainzId = originalMbId;
-        song.Isrc = originalIsrc;
 
         var consensus = ConsensusEvaluator.Evaluate(
             song, enabledEnums, BuildIdentityOptions(), _options.Value.ConsensusCorroborationFloor,
@@ -290,7 +281,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
     /// candidate JSON (the candidate's own RecommendedStatus is preserved in the JSON for the
     /// evaluator to weigh).
     /// </summary>
-    private async Task<EnrichmentProviderResult?> PersistProviderOutcomeAsync(
+    private async Task PersistProviderOutcomeAsync(
         IEnrichmentProvider provider,
         EnrichmentProvider providerEnum,
         SongMetadata song,
@@ -317,7 +308,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             UpsertAttempt(song, providerEnum, ProviderAttemptStatus.Failed,
                 error: ex.Message, existingAttempts: existingAttempts,
                 nextRetryAfterUtc: CooldownFor(ProviderAttemptStatus.Failed), searchQuery: searchQuery);
-            return null;
+            return;
         }
 
         switch (outcome)
@@ -328,7 +319,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                 UpsertAttempt(song, providerEnum, ProviderAttemptStatus.RateLimited,
                     retryAfterUtc: DateTime.UtcNow + rl.RetryAfter, existingAttempts: existingAttempts,
                     searchQuery: searchQuery);
-                return null;
+                return;
 
             case ProviderNoMatch noMatch:
                 _logger.LogDebug("Provider {Provider} returned no match for {Track} (SongId={SongId})",
@@ -339,7 +330,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                 UpsertAttempt(song, providerEnum, ProviderAttemptStatus.NoMatch,
                     matchedDataJson: noMatchJson, existingAttempts: existingAttempts,
                     nextRetryAfterUtc: CooldownFor(ProviderAttemptStatus.NoMatch), searchQuery: searchQuery);
-                return null;
+                return;
 
             case ProviderMatched matched:
                 _logger.LogDebug(
@@ -348,28 +339,11 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                 UpsertAttempt(song, providerEnum, ProviderAttemptStatus.Matched,
                     matchedDataJson: SerializeResult(matched.Result), existingAttempts: existingAttempts,
                     searchQuery: searchQuery);
-                return matched.Result;
+                return;
 
             default:
-                return null;
+                return;
         }
-    }
-
-    /// <summary>
-    /// Fills the row's empty MBID/ISRC with a high-precision identifier an earlier provider just
-    /// discovered, so a later provider can do an exact lookup this pass. Names are never gossiped,
-    /// and these writes are reverted before the row is finalized (see ProcessSongAsync).
-    /// </summary>
-    private static void ApplyIdentifierHints(SongMetadata song, EnrichmentProviderResult? result)
-    {
-        if (result is null)
-            return;
-
-        if (string.IsNullOrWhiteSpace(song.MusicBrainzId) && !string.IsNullOrWhiteSpace(result.MusicBrainzId))
-            song.MusicBrainzId = result.MusicBrainzId;
-
-        if (string.IsNullOrWhiteSpace(song.Isrc) && !string.IsNullOrWhiteSpace(result.Isrc))
-            song.Isrc = result.Isrc;
     }
 
     private static void UpsertAttempt(

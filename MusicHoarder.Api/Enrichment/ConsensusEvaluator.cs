@@ -120,6 +120,36 @@ public static class ConsensusEvaluator
                     .ThenByDescending(c => c.Confidence)
                     .First();
 
+                // The cluster agreed on an identity, but that's not enough to auto-match if the
+                // identity itself contradicts the file. A blocking warning on the winner (e.g.
+                // title_mismatch / artist_mismatch) means the chosen recording disagrees with the
+                // file's own self-consistent tags — exactly the symptom of a wrong fingerprint that
+                // several providers echoed. Send it to review instead of silently overwriting.
+                if (MatchWarnings.AnyBlocking(winner.Result.MatchWarnings))
+                {
+                    return new ConsensusResult(
+                        EnrichmentStatus.NeedsReview, winner.Result, CombineConfidence(bestCluster),
+                        distinctProviders);
+                }
+
+                // A clean, independent name-based provider that confidently landed on a *different*
+                // identity is a genuine conflict — not corroboration to ignore. (Apple Music matching
+                // the correct song at confidence 1.0 with no warnings shouldn't lose to a cluster that
+                // formed around a different, mistaken recording.) Defer to review rather than
+                // auto-matching the cluster over a clean dissenter.
+                var contradictedByClean = strong.Any(c =>
+                    !bestCluster.Any(m => ReferenceEquals(m, c))
+                    && c.IsNameBased
+                    && c.Result.RecommendedStatus == EnrichmentStatus.Matched
+                    && !MatchWarnings.AnyBlocking(c.Result.MatchWarnings)
+                    && !c.Identity.AgreesWith(winner.Identity, identityOptions));
+                if (contradictedByClean)
+                {
+                    return new ConsensusResult(
+                        EnrichmentStatus.NeedsReview, winner.Result, CombineConfidence(bestCluster),
+                        distinctProviders);
+                }
+
                 // The cluster agreed on the *recording*; it may still disagree on which *release*
                 // (original album vs. a later compilation) that recording belongs to. Re-derive the
                 // album-level fields by corroborating across the whole cluster instead of trusting
