@@ -37,6 +37,18 @@ internal static class ComposeFileExtensions
             dashboard.WithStopFirstUpdate();
         }
 
+        // Swarm services can only attach to swarm-scoped networks. Aspire emits the inter-service
+        // `aspire` network as a plain bridge, which `docker stack deploy` rejects ("The network ...
+        // cannot be used with services. Only networks scoped to the swarm can be used, such as those
+        // created with the overlay driver."). Promote every network to an attachable overlay. Dokploy
+        // separately attaches the public service to its own `dokploy-network` and injects the Traefik
+        // labels when a Domain is configured, so inter-service traffic just needs this overlay.
+        foreach (var network in file.Networks.Values)
+        {
+            network.Driver = "overlay";
+            network.Attachable = true;
+        }
+
         file.PersistDataProtectionKeys(api);
         MountMusicLibrary(api);
 
