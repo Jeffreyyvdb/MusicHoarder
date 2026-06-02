@@ -51,7 +51,7 @@
         variant="outline"
         href="https://github.com/Jeffreyyvdb/MusicHoarder"
         target="_blank"
-        rel="noopener noreferrer">Self-host on GitHub</Button
+        rel="noopener noreferrer">Self-host</Button
       >
     </div>
 

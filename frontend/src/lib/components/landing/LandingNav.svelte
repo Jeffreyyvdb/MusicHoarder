@@ -54,7 +54,7 @@
       rel="noopener noreferrer"
       class="text-muted-foreground hover:text-foreground hidden text-[13px] transition-colors sm:inline"
     >
-      Source
+      GitHub
     </a>
     <ThemeToggle />
     <Button variant="ghost" size="sm" href="/login">Sign in</Button>

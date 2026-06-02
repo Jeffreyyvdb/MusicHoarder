@@ -23,6 +23,18 @@
     [
       'fully open formats',
       'Library writes are plain files in plain folders. No proprietary database, no lock-in.'
+    ],
+    [
+      'cover art, sorted',
+      'Fetches the right sleeve from the Cover Art Archive, caches it, and writes it into the library so Navidrome and friends show the real artwork.'
+    ],
+    [
+      'full album tracklists',
+      'Reconciles the complete tracklist across MusicBrainz, Spotify, Apple Music and Deezer — missing tracks greyed out so gaps are obvious at a glance.'
+    ],
+    [
+      'plays in your browser',
+      'A built-in player with waveform, a ⌘K command palette, and a polished mobile layout — browse and listen without leaving the app.'
     ]
   ];
 </script>

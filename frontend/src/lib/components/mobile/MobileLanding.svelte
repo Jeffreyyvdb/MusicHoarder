@@ -56,7 +56,7 @@
         class="mob-btn"
         href="https://github.com/Jeffreyyvdb/MusicHoarder"
         target="_blank"
-        rel="noopener noreferrer">Self-host on GitHub</a
+        rel="noopener noreferrer">Self-host</a
       >
     </div>
   </div>
