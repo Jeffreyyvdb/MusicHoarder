@@ -380,17 +380,17 @@
         <ScrollArea class="min-h-0 flex-1">
           <!-- Spotify-style hero — Liked Songs as a virtual playlist -->
           <div
-            class="relative px-6 pt-10 pb-7 text-white sm:px-9"
+            class="relative px-6 pt-6 pb-5 text-white sm:px-9"
             style="background: linear-gradient(180deg, oklch(0.35 0.16 320) 0%, color-mix(in oklch, oklch(0.35 0.16 320) 60%, transparent) 60%, transparent 100%), linear-gradient(135deg, color-mix(in oklch, oklch(0.62 0.16 5) 40%, transparent), transparent);"
           >
-            <div class="relative z-10 flex flex-col items-end gap-6 sm:flex-row sm:gap-8">
+            <div class="relative z-10 flex items-center gap-4 sm:items-end sm:gap-6">
               <div
-                class="relative grid shrink-0 place-items-center overflow-hidden shadow-[0_24px_48px_rgba(0,0,0,0.35)]"
-                style="width: 232px; height: 232px; border-radius: 6px; background: linear-gradient(135deg, oklch(0.45 0.18 320) 0%, oklch(0.62 0.16 5) 100%);"
+                class="relative grid size-20 shrink-0 place-items-center overflow-hidden shadow-[0_24px_48px_rgba(0,0,0,0.35)] sm:size-28 lg:size-32"
+                style="border-radius: 6px; background: linear-gradient(135deg, oklch(0.45 0.18 320) 0%, oklch(0.62 0.16 5) 100%);"
               >
                 <div class="mh-cover-grain pointer-events-none absolute inset-0"></div>
                 <Heart
-                  class="relative z-[2] size-24 fill-white text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.3)]"
+                  class="relative z-[2] size-10 fill-white text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.3)] sm:size-12 lg:size-14"
                 />
               </div>
 
@@ -399,11 +399,11 @@
                   Playlist
                 </div>
                 <h1
-                  class="mt-3 text-[clamp(36px,5.5vw,80px)] leading-[0.95] font-extrabold tracking-[-0.03em] [text-wrap:balance]"
+                  class="mt-2 text-[clamp(24px,5vw,44px)] leading-[0.95] font-extrabold tracking-[-0.03em] [text-wrap:balance]"
                 >
                   Liked Songs
                 </h1>
-                <div class="mt-5 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[13px] opacity-90">
+                <div class="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[13px] opacity-90">
                   <span class="inline-flex items-center gap-2 font-semibold">
                     <span
                       class="ring-2 ring-white/50 inline-block size-4 rounded-full"

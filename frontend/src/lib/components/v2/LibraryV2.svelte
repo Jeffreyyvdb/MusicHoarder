@@ -252,7 +252,7 @@
   {#if isMobile.current}
     <AlbumPage album={openAlbum} {isLoading} />
     <Sheet.Root open={trackPanelOpen} onOpenChange={(open) => !open && closeTrack()}>
-      <Sheet.Content side="bottom" class="h-[88vh] gap-0 p-0 [&>button]:hidden">
+      <Sheet.Content side="bottom" class="data-[side=bottom]:h-[88dvh] gap-0 p-0 [&>button]:hidden">
         <Sheet.Title class="sr-only">Track details</Sheet.Title>
         <Sheet.Description class="sr-only">
           View track metadata, lyrics, fingerprint, and enrichment sources
@@ -341,7 +341,7 @@
           />
         </div>
         <Sheet.Root open={tracksPanelOpen} onOpenChange={(open) => !open && closeTrack()}>
-          <Sheet.Content side="bottom" class="h-[88vh] gap-0 p-0 [&>button]:hidden">
+          <Sheet.Content side="bottom" class="data-[side=bottom]:h-[88dvh] gap-0 p-0 [&>button]:hidden">
             <Sheet.Title class="sr-only">Track details</Sheet.Title>
             <Sheet.Description class="sr-only">
               View track metadata, lyrics, fingerprint, and enrichment sources
