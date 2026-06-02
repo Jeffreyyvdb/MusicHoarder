@@ -161,7 +161,7 @@
   }
 </script>
 
-<div class="flex h-full min-h-0 flex-col">
+<div class="flex min-h-0 flex-1 flex-col">
   <header class="border-border flex flex-wrap items-center gap-3 border-b px-4 py-4 sm:px-6">
     <Gauge class="text-primary size-5 shrink-0" />
     <div class="min-w-0 flex-1">
