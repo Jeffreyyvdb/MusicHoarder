@@ -80,9 +80,6 @@ services:
       - type: "bind"
         target: "${DESTINATION_DIRECTORY}"
         source: "${DESTINATION_DIRECTORY}"
-    depends_on:
-      postgres:
-        condition: "service_started"
     networks:
       - "aspire"
     deploy:
@@ -128,9 +125,6 @@ services:
     ports:
       - "8000"
       - "8001"
-    depends_on:
-      api:
-        condition: "service_started"
     networks:
       - "aspire"
     deploy:

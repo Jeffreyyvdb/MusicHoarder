@@ -99,6 +99,15 @@ builder.AddDockerComposeEnvironment("compose")
         // the generated compose never drifts back to a bare ${...} with no fallback.
         apiService.Environment["QualityGrading__Model"] = "${QUALITY_GRADING_MODEL:-deepseek/deepseek-v4-flash}";
         apiService.Environment["QualityGrading__BaseUrl"] = "${QUALITY_GRADING_BASE_URL:-https://openrouter.ai/api/v1}";
+
+        // Aspire emits `depends_on` in the long (map+condition) form, which `docker stack deploy`
+        // rejects ("depends_on must be a list"). Swarm ignores depends_on conditions regardless, and
+        // startup ordering is already tolerated at runtime (the API retries Postgres via Npgsql; the
+        // frontend's /api/health probe is independent of the API), so drop it for the published
+        // compose. (The build-from-source root docker-compose.yml keeps its own healthy-gated
+        // depends_on — this only affects the Aspire/Dokploy stack.)
+        apiService.DependsOn.Clear();
+        frontendService.DependsOn.Clear();
     });
 
 // GHCR registry so `aspire publish` emits ghcr.io image references and `aspire do push`
