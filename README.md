@@ -22,6 +22,11 @@ library, let it run, and review anything it isn't sure about.
 - **Multi-source enrichment** — fills in artist, album, title, track number, year, and artwork from
   **MusicBrainz**, **Spotify**, **Apple Music**, and **Deezer** (plus custom community trackers),
   combining providers for confidence.
+- **Cover art** — resolves album artwork (Cover Art Archive, embedded pictures, provider images),
+  surfaces it throughout the app, and writes it into the destination library so players like
+  Navidrome show the real sleeve.
+- **Reconciled album tracklists** — shows the *full* tracklist for each album, cross-checked across
+  MusicBrainz, Spotify, Apple Music, and Deezer, with missing tracks greyed out so gaps are obvious.
 - **Synced lyrics** — fetches time-synced lyrics where available.
 - **Duplicate detection** — finds the same recording across formats/bitrates.
 - **Non-destructive by design** — source files are read-only; everything is written as fresh,
@@ -30,8 +35,9 @@ library, let it run, and review anything it isn't sure about.
   being guessed at.
 - **Optional AI quality review** — an LLM pass can grade match/metadata quality to help you triage
   what actually needs attention (OpenAI-compatible; defaults to OpenRouter).
-- **Web UI** — browse your library by track/artist/year/folder, watch scan & enrich progress live,
-  review matches, and inspect quality.
+- **Web UI** — browse your library by album, track, artist, year, or folder with cover-art grids,
+  play tracks in a built-in waveform player, jump anywhere with a ⌘K command palette, watch scan &
+  enrich progress live, review matches, and inspect quality — with a polished mobile layout.
 - **Self-hosted** — runs on your own hardware via .NET Aspire (dev) or Docker Compose (prod); your
   music never leaves your machine.
 

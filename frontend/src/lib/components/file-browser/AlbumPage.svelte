@@ -5,6 +5,8 @@
     ArrowLeft,
     Clock,
     Disc3,
+    Eye,
+    EyeOff,
     Fingerprint,
     HardDrive,
     Image as ImageIcon,
@@ -56,11 +58,15 @@
   // owned-only list below.
   let tracklist = $state<AlbumTracklist | null>(null);
   let linkStatus = $state<AlbumLinkStatus>('pending');
+  // When true, collapse the tracklist to just the songs the user owns, hiding the greyed-out
+  // canonical tracks they're missing. Toggle with the button in the track-list header or the `H` key.
+  let hideMissing = $state(false);
   $effect(() => {
     const artist = album?.artist ?? null;
     const title = album?.title ?? null;
     tracklist = null;
     linkStatus = 'pending';
+    hideMissing = false;
     if (!artist || !title) return;
     let cancelled = false;
     void fetchAlbumTracklist(artist, title)
@@ -207,6 +213,14 @@
   /** Whether multiple discs are present, so we can show a disc prefix on track numbers. */
   const multiDisc = $derived(displayRows.some((r) => r.disc > 1));
 
+  /** Number of canonical tracks the user is missing — drives the hide/show toggle's visibility. */
+  const missingCount = $derived(displayRows.filter((r) => r.kind === 'missing').length);
+
+  /** Rows actually rendered: all of them, or only owned ones when `hideMissing` is on. */
+  const visibleRows = $derived(
+    hideMissing ? displayRows.filter((r) => r.kind === 'owned') : displayRows
+  );
+
   const completeness = $derived.by(() => {
     const tl = tracklist;
     if (!tl || tl.totalCount === 0) return null;
@@ -216,6 +230,17 @@
       pct: Math.round((tl.ownedCount / tl.totalCount) * 100)
     };
   });
+
+  /** `H` toggles hiding missing tracks — page-scoped, ignored while typing or with modifiers. */
+  function onKeydown(e: KeyboardEvent) {
+    const el = e.target as HTMLElement | null;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key.toLowerCase() === 'h' && missingCount > 0) {
+      e.preventDefault();
+      hideMissing = !hideMissing;
+    }
+  }
 
   /** Web-search URL so the user can go find a track they're missing. */
   function findUrl(title: string): string {
@@ -289,6 +314,8 @@
     return idx > 0 ? first.destinationPath.slice(0, idx) : first.destinationPath;
   });
 </script>
+
+<svelte:window onkeydown={onKeydown} />
 
 {#if isLoading && !album}
   <div class="text-muted-foreground flex flex-1 items-center justify-center p-8 text-sm">
@@ -482,6 +509,24 @@
 
     <!-- Track list -->
     <div class="px-3 pt-2 pb-6 sm:px-6">
+      {#if missingCount > 0}
+        <div class="flex justify-end pb-1">
+          <button
+            type="button"
+            onclick={() => (hideMissing = !hideMissing)}
+            title={hideMissing ? 'Show missing tracks (H)' : 'Hide missing tracks (H)'}
+            class="text-muted-foreground hover:bg-accent hover:text-foreground inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors"
+          >
+            {#if hideMissing}
+              <Eye class="size-3.5" />
+              Show {missingCount} missing
+            {:else}
+              <EyeOff class="size-3.5" />
+              Hide {missingCount} missing
+            {/if}
+          </button>
+        </div>
+      {/if}
       <div
         class={cn(
           'border-border text-muted-foreground grid items-center gap-4 border-b px-3.5 py-2.5 text-[10px] font-semibold tracking-wider uppercase',
@@ -496,7 +541,7 @@
         <span class="text-right"><Clock class="-mt-0.5 inline size-3" /></span>
       </div>
 
-      {#each displayRows as row (row.key)}
+      {#each visibleRows as row (row.key)}
         {@const numLabel = multiDisc ? `${row.disc}.${String(row.n).padStart(2, '0')}` : String(row.n).padStart(2, '0')}
         {#if row.kind === 'owned'}
           {@const song = row.song}
