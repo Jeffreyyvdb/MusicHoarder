@@ -481,6 +481,15 @@ public class SpotifyApiEnrichmentProviderTests
             CallCount++;
             return handler(query);
         }
+
+        public Task<string?> GetTrackAlbumIdAsync(string clientId, string clientSecret, string trackId, CancellationToken ct = default)
+            => Task.FromResult<string?>(null);
+
+        public Task<string?> SearchAlbumIdAsync(string clientId, string clientSecret, string artist, string album, CancellationToken ct = default)
+            => Task.FromResult<string?>(null);
+
+        public Task<SpotifyAlbumDetail?> GetAlbumAsync(string clientId, string clientSecret, string albumId, CancellationToken ct = default)
+            => Task.FromResult<SpotifyAlbumDetail?>(null);
     }
 
     private sealed class DbOnlyScopeFactory(MusicHoarderDbContext db) : IServiceScopeFactory

@@ -22,6 +22,7 @@ public sealed class AppleMusicCatalogService(
     ILogger<AppleMusicCatalogService> logger) : IAppleMusicCatalogService
 {
     private const string SearchUrl = "https://itunes.apple.com/search";
+    private const string LookupUrl = "https://itunes.apple.com/lookup";
     private static readonly TimeSpan RateLimitDefaultDelay = TimeSpan.FromSeconds(5);
     // One in-process retry covers a transient blip; an IP-wide throttle storm is handled by the
     // shared backoff window + the orchestrator's deferred RetryAfterUtc re-sweep, not by grinding here.
@@ -106,6 +107,125 @@ public sealed class AppleMusicCatalogService(
         }
 
         return [];
+    }
+
+    public async Task<string?> SearchAlbumIdAsync(string artist, string album, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(album)) return null;
+        var opts = options.Value;
+        var country = string.IsNullOrWhiteSpace(opts.AppleMusicCountry) ? "US" : opts.AppleMusicCountry.Trim();
+        var term = Uri.EscapeDataString($"{artist} {album}".Trim());
+        var url = $"{SearchUrl}?term={term}&entity=album&limit=5&country={Uri.EscapeDataString(country)}";
+        var json = await FetchJsonAsync(url, ct);
+        if (json is null) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("results", out var results) && results.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in results.EnumerateArray())
+                {
+                    if (item.TryGetProperty("collectionId", out var cid) && cid.ValueKind == JsonValueKind.Number)
+                        return cid.GetInt64().ToString();
+                }
+            }
+        }
+        catch (JsonException) { /* fall through */ }
+        return null;
+    }
+
+    public async Task<AppleAlbumDetail?> GetAlbumAsync(string collectionId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(collectionId)) return null;
+        var opts = options.Value;
+        var country = string.IsNullOrWhiteSpace(opts.AppleMusicCountry) ? "US" : opts.AppleMusicCountry.Trim();
+        var url = $"{LookupUrl}?id={Uri.EscapeDataString(collectionId)}&entity=song&country={Uri.EscapeDataString(country)}";
+        var json = await FetchJsonAsync(url, ct);
+        return json is null ? null : ParseAlbum(json);
+    }
+
+    private static AppleAlbumDetail? ParseAlbum(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
+                return null;
+
+            string? id = null, name = null, artist = null, artwork = null;
+            int? year = null;
+            var tracks = new List<AppleAlbumTrackItem>();
+
+            foreach (var item in results.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                var wrapper = item.TryGetProperty("wrapperType", out var w) && w.ValueKind == JsonValueKind.String ? w.GetString() : null;
+
+                if (wrapper == "collection")
+                {
+                    if (item.TryGetProperty("collectionId", out var cid) && cid.ValueKind == JsonValueKind.Number) id = cid.GetInt64().ToString();
+                    if (item.TryGetProperty("collectionName", out var cn) && cn.ValueKind == JsonValueKind.String) name = cn.GetString();
+                    if (item.TryGetProperty("artistName", out var an) && an.ValueKind == JsonValueKind.String) artist = an.GetString();
+                    if (item.TryGetProperty("artworkUrl100", out var aw) && aw.ValueKind == JsonValueKind.String) artwork = aw.GetString();
+                    if (item.TryGetProperty("releaseDate", out var rd) && rd.ValueKind == JsonValueKind.String) year = ParseReleaseYear(rd.GetString());
+                }
+                else if (wrapper == "track")
+                {
+                    var disc = item.TryGetProperty("discNumber", out var dn) && dn.ValueKind == JsonValueKind.Number ? dn.GetInt32() : 1;
+                    var num = item.TryGetProperty("trackNumber", out var tn) && tn.ValueKind == JsonValueKind.Number ? tn.GetInt32() : 0;
+                    var tName = item.TryGetProperty("trackName", out var nm) && nm.ValueKind == JsonValueKind.String ? nm.GetString() : null;
+                    var dur = item.TryGetProperty("trackTimeMillis", out var tm) && tm.ValueKind == JsonValueKind.Number ? tm.GetInt32() : 0;
+                    var tId = item.TryGetProperty("trackId", out var ti) && ti.ValueKind == JsonValueKind.Number ? ti.GetInt64().ToString() : null;
+                    tracks.Add(new AppleAlbumTrackItem(disc, num, tName, dur, tId));
+                }
+            }
+
+            return id is null ? null : new AppleAlbumDetail(id, name, artist, year, artwork, tracks);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Rate-limited iTunes GET sharing the backoff window; returns the JSON body or null.</summary>
+    private async Task<string?> FetchJsonAsync(string url, CancellationToken ct)
+    {
+        var backoffUntil = BackoffUntil;
+        var now = DateTime.UtcNow;
+        if (backoffUntil > now)
+            throw new ProviderRateLimitedException(backoffUntil - now);
+
+        var limiter = GetRateLimiter(options.Value.AppleMusicApiRequestsPerSecond);
+        using var lease = await limiter.AcquireAsync(permitCount: 1, ct);
+        if (!lease.IsAcquired)
+            return null;
+
+        for (var attempt = 1; attempt <= MaxRetries; attempt++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.TryAddWithoutValidation("User-Agent", "MusicHoarder/1.0 (https://github.com/Jeffreyyvdb/MusicHoarder)");
+
+            var response = await httpClient.SendAsync(request, ct);
+
+            if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
+            {
+                var retryAfter = response.Headers.RetryAfter?.Delta ?? RateLimitDefaultDelay;
+                ExtendBackoff(retryAfter);
+                if (attempt < MaxRetries) { await Task.Delay(retryAfter, ct); continue; }
+                throw new ProviderRateLimitedException(retryAfter);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Apple Music GET failed: {Status} {Url}", (int)response.StatusCode, url);
+                return null;
+            }
+
+            return await response.Content.ReadAsStringAsync(ct);
+        }
+
+        return null;
     }
 
     private static DateTime BackoffUntil => new(Interlocked.Read(ref _backoffUntilUtcTicks), DateTimeKind.Utc);

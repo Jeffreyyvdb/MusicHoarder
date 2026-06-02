@@ -36,6 +36,8 @@ public class MusicHoarderDbContext : DbContext
 
     public DbSet<SongMetadata> Songs { get; set; } = null!;
     public DbSet<SongProviderAttempt> SongProviderAttempts { get; set; } = null!;
+    public DbSet<CanonicalAlbum> CanonicalAlbums { get; set; } = null!;
+    public DbSet<CanonicalAlbumTrack> CanonicalAlbumTracks { get; set; } = null!;
     public DbSet<SongMetadataChange> SongMetadataChanges { get; set; } = null!;
     public DbSet<SongQualityGrade> SongQualityGrades { get; set; } = null!;
     public DbSet<DirectoryPreference> DirectoryPreferences { get; set; } = null!;
@@ -101,6 +103,27 @@ public class MusicHoarderDbContext : DbContext
             // its principal would be (otherwise EF warns about the required relationship). Background
             // services that read this DbSet directly bypass via .IgnoreQueryFilters().
             entity.HasQueryFilter(e => !hasUser || e.Song.OwnerUserId == userId);
+        });
+
+        // Canonical album tracklists reconciled across providers. Catalog/reference data shared across
+        // users — no OwnerUserId query filter (unlike Songs). The fetch service sweeps by Status.
+        modelBuilder.Entity<CanonicalAlbum>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.ArtistKey, e.AlbumKey }).IsUnique();
+            entity.HasIndex(e => new { e.Status, e.NextRetryAfterUtc });
+
+            entity.HasMany(e => e.Tracks)
+                .WithOne(t => t.CanonicalAlbum)
+                .HasForeignKey(t => t.CanonicalAlbumId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CanonicalAlbumTrack>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.CanonicalAlbumId, e.DiscNumber, e.TrackNumber });
+            entity.HasIndex(e => e.MusicBrainzRecordingId);
         });
 
         modelBuilder.Entity<SongMetadataChange>(entity =>

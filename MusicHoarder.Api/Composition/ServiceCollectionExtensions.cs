@@ -6,6 +6,8 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Deezer;
 using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Enrichment.AlbumTracklist;
+using MusicHoarder.Api.Enrichment.AlbumTracklist.Providers;
 using MusicHoarder.Api.Enrichment.Providers;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Library;
@@ -140,6 +142,14 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<FingerprintBackgroundService>();
         services.AddHostedService<EnrichmentBackgroundService>();
         services.AddHostedService<LibraryBuilderBackgroundService>();
+
+        // Multi-provider canonical album tracklists (full-album view, missing tracks greyed out).
+        services.AddSingleton<IAlbumTracklistProvider, MusicBrainzAlbumTracklistProvider>();
+        services.AddSingleton<IAlbumTracklistProvider, SpotifyAlbumTracklistProvider>();
+        services.AddSingleton<IAlbumTracklistProvider, DeezerAlbumTracklistProvider>();
+        services.AddSingleton<IAlbumTracklistProvider, AppleMusicAlbumTracklistProvider>();
+        services.AddHostedService<CanonicalAlbumFetchService>();
+
         services.AddHostedService<IngestRunMonitor>();
         // Per-owner pipeline-quality snapshots, captured when a run finalizes (see IngestRunMonitor /
         // QualityGradingBackgroundService). Scoped — it reads/writes through the request DB scope.

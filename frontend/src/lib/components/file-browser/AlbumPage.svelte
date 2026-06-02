@@ -11,6 +11,7 @@
     MoreHorizontal,
     Pause,
     Play,
+    Search,
     Tag
   } from '@lucide/svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
@@ -23,8 +24,10 @@
     formatTotalDuration
   } from '$lib/formatters';
   import {
+    fetchAlbumTracklist,
     toPlayerSong,
     type AlbumSummary,
+    type AlbumTracklist,
     type ApiSong
   } from '$lib/api-client';
   import { playerStore } from '$lib/stores/player.svelte';
@@ -39,6 +42,132 @@
   const tint = $derived(album ? albumTint(album.artist, album.title) : null);
   const tracks = $derived(album?.songs ?? []);
 
+  // Reconciled multi-provider canonical tracklist for this album, fetched lazily by album identity
+  // (artist + title). When present we show every real track and grey out the ones the user is
+  // missing; when absent (not fetched yet) we fall back to the owned-only list below.
+  let tracklist = $state<AlbumTracklist | null>(null);
+  $effect(() => {
+    const artist = album?.artist ?? null;
+    const title = album?.title ?? null;
+    tracklist = null;
+    if (!artist || !title) return;
+    let cancelled = false;
+    void fetchAlbumTracklist(artist, title)
+      .then((t) => {
+        if (!cancelled) tracklist = t;
+      })
+      .catch(() => {
+        // Tracklist is best-effort; on error keep the owned-only fallback.
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  const PROVIDER_LABELS: Record<string, string> = {
+    MusicBrainzWeb: 'MusicBrainz',
+    SpotifyAPI: 'Spotify',
+    Deezer: 'Deezer',
+    AppleMusic: 'Apple Music'
+  };
+  const prettyProvider = (p: string) => PROVIDER_LABELS[p] ?? p;
+
+  /** Provider names that won the reconciliation, for the "sources" line. */
+  const sourceLabels = $derived(
+    tracklist
+      ? tracklist.sources.filter((s) => s.inWinningCluster).map((s) => prettyProvider(s.provider))
+      : []
+  );
+
+  type DisplayRow =
+    | { kind: 'owned'; key: string; disc: number; n: number; song: ApiSong; durationSeconds: number | null }
+    | {
+        kind: 'missing';
+        key: string;
+        disc: number;
+        n: number;
+        title: string;
+        durationSeconds: number | null;
+        contested: boolean;
+      };
+
+  const displayRows = $derived.by<DisplayRow[]>(() => {
+    const owned = album?.songs ?? [];
+    const tl = tracklist;
+    if (!tl) {
+      return owned.map((song, idx) => ({
+        kind: 'owned',
+        key: `song:${song.id}`,
+        disc: 1,
+        n: song.trackNumber ?? idx + 1,
+        song,
+        durationSeconds: song.durationSeconds ?? null
+      }));
+    }
+
+    const byId = new Map(owned.map((s) => [s.id, s]));
+    const used = new Set<number>();
+    const rows: DisplayRow[] = tl.tracks.map((t) => {
+      const song = t.ownedSongId != null ? (byId.get(t.ownedSongId) ?? null) : null;
+      if (song) {
+        used.add(song.id);
+        return {
+          kind: 'owned',
+          key: `song:${song.id}`,
+          disc: t.discNumber,
+          n: t.trackNumber,
+          song,
+          durationSeconds: song.durationSeconds ?? (t.durationMs != null ? t.durationMs / 1000 : null)
+        };
+      }
+      return {
+        kind: 'missing',
+        key: `miss:${t.discNumber}:${t.trackNumber}`,
+        disc: t.discNumber,
+        n: t.trackNumber,
+        title: (t.title ?? '').trim() || 'Unknown track',
+        durationSeconds: t.durationMs != null ? t.durationMs / 1000 : null,
+        contested: t.isContested
+      };
+    });
+
+    // Owned songs not matched to any canonical track (bonus tracks, alternate versions) — append so
+    // nothing the user actually owns disappears from the view.
+    let bonusN = tl.tracks.length;
+    for (const song of owned) {
+      if (used.has(song.id)) continue;
+      bonusN += 1;
+      rows.push({
+        kind: 'owned',
+        key: `song:${song.id}`,
+        disc: 1,
+        n: song.trackNumber ?? bonusN,
+        song,
+        durationSeconds: song.durationSeconds ?? null
+      });
+    }
+    return rows;
+  });
+
+  /** Whether multiple discs are present, so we can show a disc prefix on track numbers. */
+  const multiDisc = $derived(displayRows.some((r) => r.disc > 1));
+
+  const completeness = $derived.by(() => {
+    const tl = tracklist;
+    if (!tl || tl.totalCount === 0) return null;
+    return {
+      owned: tl.ownedCount,
+      total: tl.totalCount,
+      pct: Math.round((tl.ownedCount / tl.totalCount) * 100)
+    };
+  });
+
+  /** Web-search URL so the user can go find a track they're missing. */
+  function findUrl(title: string): string {
+    const q = `${album?.artist ?? ''} ${title}`.trim();
+    return `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+  }
+
   const selectedTrack = $derived(page.url.searchParams.get('track'));
   const selectedTrackId = $derived(selectedTrack ? Number.parseInt(selectedTrack, 10) : null);
 
@@ -47,10 +176,6 @@
     if (!playing) return null;
     return tracks.find((t) => t.id === playing.id) ?? null;
   });
-
-  function trackKey(s: ApiSong, fallbackIndex: number): number {
-    return s.trackNumber ?? fallbackIndex + 1;
-  }
 
   function selectTrack(s: ApiSong) {
     const url = new URL(page.url);
@@ -171,7 +296,34 @@
             </span>
             <span class="opacity-50">·</span>
             <span class="font-mono">{formatFileSize(album.byteSize)}</span>
+            {#if completeness}
+              <span class="opacity-50">·</span>
+              <span
+                class="inline-flex items-center gap-1 font-semibold"
+                title="{completeness.owned} of {completeness.total} tracks in your library"
+              >
+                {completeness.owned}/{completeness.total} · {completeness.pct}%
+              </span>
+            {/if}
           </div>
+          {#if completeness}
+            <div class="mt-3 h-1 w-full max-w-[280px] overflow-hidden rounded-full bg-white/25">
+              <span class="block h-full rounded-full bg-white/90" style="width: {completeness.pct}%;"></span>
+            </div>
+          {/if}
+          {#if sourceLabels.length > 0}
+            <div class="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] opacity-80">
+              <span>Sources: {sourceLabels.join(' · ')}</span>
+              {#if tracklist?.trackCountContested}
+                <span
+                  class="inline-flex items-center gap-1 rounded-full bg-amber-400/25 px-2 py-0.5 font-medium text-amber-50"
+                  title="Providers disagree on this album's track count"
+                >
+                  ⚠ Sources disagree on length
+                </span>
+              {/if}
+            </div>
+          {/if}
         </div>
       </div>
     </div>
@@ -241,78 +393,119 @@
         <span class="text-right"><Clock class="-mt-0.5 inline size-3" /></span>
       </div>
 
-      {#each tracks as song, idx (song.id)}
-        {@const n = trackKey(song, idx)}
-        {@const isSelected = selectedTrackId === song.id}
-        {@const isCurrentlyLoaded = playerStore.currentSong?.id === song.id}
-        {@const isCurrentlyPlaying = isCurrentlyLoaded && playerStore.isPlaying}
-        {@const matchValue = trackMatchValue(song)}
-        <div
-          role="button"
-          tabindex="0"
-          onclick={() => selectTrack(song)}
-          onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectTrack(song)}
-          class={cn(
-            'group grid cursor-pointer items-center gap-4 rounded-md px-3.5 py-2 transition-colors',
-            'grid-cols-[44px_minmax(0,1fr)_60px] sm:grid-cols-[44px_minmax(0,1fr)_110px_80px_140px_60px]',
-            'hover:bg-accent/50',
-            isSelected && 'bg-primary/10',
-            isCurrentlyLoaded && 'text-primary'
-          )}
-        >
-          <span class="text-muted-foreground relative grid place-items-center text-right">
-            <span class={cn('font-mono text-sm tabular-nums transition-opacity group-hover:opacity-0', isCurrentlyPlaying && 'opacity-0')}>
-              {String(n).padStart(2, '0')}
+      {#each displayRows as row (row.key)}
+        {@const numLabel = multiDisc ? `${row.disc}.${String(row.n).padStart(2, '0')}` : String(row.n).padStart(2, '0')}
+        {#if row.kind === 'owned'}
+          {@const song = row.song}
+          {@const isSelected = selectedTrackId === song.id}
+          {@const isCurrentlyLoaded = playerStore.currentSong?.id === song.id}
+          {@const isCurrentlyPlaying = isCurrentlyLoaded && playerStore.isPlaying}
+          {@const matchValue = trackMatchValue(song)}
+          <div
+            role="button"
+            tabindex="0"
+            onclick={() => selectTrack(song)}
+            onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectTrack(song)}
+            class={cn(
+              'group grid cursor-pointer items-center gap-4 rounded-md px-3.5 py-2 transition-colors',
+              'grid-cols-[44px_minmax(0,1fr)_60px] sm:grid-cols-[44px_minmax(0,1fr)_110px_80px_140px_60px]',
+              'hover:bg-accent/50',
+              isSelected && 'bg-primary/10',
+              isCurrentlyLoaded && 'text-primary'
+            )}
+          >
+            <span class="text-muted-foreground relative grid place-items-center text-right">
+              <span class={cn('font-mono text-sm tabular-nums transition-opacity group-hover:opacity-0', isCurrentlyPlaying && 'opacity-0')}>
+                {numLabel}
+              </span>
+              <button
+                type="button"
+                onclick={(e) => playTrack(song, e)}
+                aria-label={isCurrentlyPlaying ? 'Pause track' : 'Play track'}
+                class={cn(
+                  'text-primary absolute inset-0 grid place-items-center opacity-0 transition-opacity group-hover:opacity-100',
+                  isCurrentlyPlaying && 'opacity-100'
+                )}
+              >
+                {#if isCurrentlyPlaying}
+                  <Pause class="size-4" />
+                {:else}
+                  <Play class="size-4" />
+                {/if}
+              </button>
             </span>
-            <button
-              type="button"
-              onclick={(e) => playTrack(song, e)}
-              aria-label={isCurrentlyPlaying ? 'Pause track' : 'Play track'}
-              class={cn(
-                'text-primary absolute inset-0 grid place-items-center opacity-0 transition-opacity group-hover:opacity-100',
-                isCurrentlyPlaying && 'opacity-100'
-              )}
-            >
-              {#if isCurrentlyPlaying}
-                <Pause class="size-4" />
-              {:else}
-                <Play class="size-4" />
-              {/if}
-            </button>
-          </span>
 
-          <div class="min-w-0">
-            <div class={cn('truncate text-sm font-medium', isCurrentlyLoaded && 'text-primary')}>
-              {(song.title ?? song.fileName).trim() || song.fileName}
+            <div class="min-w-0">
+              <div class={cn('truncate text-sm font-medium', isCurrentlyLoaded && 'text-primary')}>
+                {(song.title ?? song.fileName).trim() || song.fileName}
+              </div>
+              <div class="text-muted-foreground mt-0.5 flex items-center gap-2 text-[11.5px]">
+                <span class="truncate">{(song.artist ?? album.artist).trim() || album.artist}</span>
+                {#if song.hasSyncedLyrics || song.lrclibId}
+                  <span class="bg-primary/15 text-primary rounded px-1 py-0.5 font-mono text-[9px] font-semibold tracking-wider">
+                    LRC
+                  </span>
+                {/if}
+              </div>
             </div>
-            <div class="text-muted-foreground mt-0.5 flex items-center gap-2 text-[11.5px]">
-              <span class="truncate">{(song.artist ?? album.artist).trim() || album.artist}</span>
-              {#if song.hasSyncedLyrics || song.lrclibId}
-                <span class="bg-primary/15 text-primary rounded px-1 py-0.5 font-mono text-[9px] font-semibold tracking-wider">
-                  LRC
-                </span>
-              {/if}
-            </div>
+
+            <span class="text-muted-foreground hidden truncate font-mono text-[11px] sm:inline">
+              {trackBitrateLabel(song)}
+            </span>
+            <span class="text-muted-foreground hidden font-mono text-[11px] sm:inline">
+              {formatFileSize(song.fileSizeBytes)}
+            </span>
+            <span class="hidden items-center gap-2 sm:flex">
+              <span class="bg-border h-1 flex-1 overflow-hidden rounded-full">
+                <span class="bg-primary block h-full rounded-full" style="width: {matchValue * 100}%;"></span>
+              </span>
+              <span class="text-muted-foreground min-w-[28px] text-right font-mono text-[11px]">
+                {matchValue.toFixed(2)}
+              </span>
+            </span>
+            <span class="text-muted-foreground text-right font-mono text-[11px]">
+              {formatDuration(row.durationSeconds)}
+            </span>
           </div>
-
-          <span class="text-muted-foreground hidden truncate font-mono text-[11px] sm:inline">
-            {trackBitrateLabel(song)}
-          </span>
-          <span class="text-muted-foreground hidden font-mono text-[11px] sm:inline">
-            {formatFileSize(song.fileSizeBytes)}
-          </span>
-          <span class="hidden items-center gap-2 sm:flex">
-            <span class="bg-border h-1 flex-1 overflow-hidden rounded-full">
-              <span class="bg-primary block h-full rounded-full" style="width: {matchValue * 100}%;"></span>
+        {:else}
+          <!-- Canonical track the user is missing — greyed out, with a way to go find it. -->
+          <div
+            class={cn(
+              'grid items-center gap-4 rounded-md px-3.5 py-2',
+              'grid-cols-[44px_minmax(0,1fr)_60px] sm:grid-cols-[44px_minmax(0,1fr)_110px_80px_140px_60px]'
+            )}
+          >
+            <span class="text-muted-foreground/50 text-right font-mono text-sm tabular-nums">
+              {numLabel}
             </span>
-            <span class="text-muted-foreground min-w-[28px] text-right font-mono text-[11px]">
-              {matchValue.toFixed(2)}
+            <div class="min-w-0">
+              <div class="text-muted-foreground/70 truncate text-sm font-medium">{row.title}</div>
+              <a
+                href={findUrl(row.title)}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-muted-foreground/60 hover:text-primary mt-0.5 inline-flex items-center gap-1 text-[11px] transition-colors"
+              >
+                <Search class="size-3" /> Find this track
+              </a>
+            </div>
+            <span class="text-muted-foreground/40 hidden font-mono text-[11px] sm:inline">—</span>
+            <span class="text-muted-foreground/40 hidden font-mono text-[11px] sm:inline">—</span>
+            <span class="hidden items-center sm:flex">
+              <span
+                class="bg-muted text-muted-foreground/70 rounded px-1.5 py-0.5 text-[9px] font-semibold tracking-wider uppercase"
+                title={row.contested
+                  ? 'Only some providers list this track — it may be a bonus/edition-specific track'
+                  : 'Not in your library'}
+              >
+                {row.contested ? 'Bonus?' : 'Missing'}
+              </span>
             </span>
-          </span>
-          <span class="text-muted-foreground text-right font-mono text-[11px]">
-            {formatDuration(song.durationSeconds)}
-          </span>
-        </div>
+            <span class="text-muted-foreground/50 text-right font-mono text-[11px]">
+              {formatDuration(row.durationSeconds)}
+            </span>
+          </div>
+        {/if}
       {/each}
     </div>
 
@@ -324,7 +517,13 @@
         <div class="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
           Tracks
         </div>
-        <div class="text-foreground mt-1 text-[13px]">{album.trackCount}</div>
+        <div class="text-foreground mt-1 text-[13px]">
+          {#if completeness}
+            {completeness.owned} / {completeness.total} owned
+          {:else}
+            {album.trackCount}
+          {/if}
+        </div>
       </div>
       <div>
         <div class="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">

@@ -240,6 +240,31 @@ public class MusicEnricherOptions
     [Range(1, 10)]
     public int MusicBrainzRequestsPerSecond { get; set; } = 1;
 
+    // --- Canonical album tracklists (multi-provider, reconciled; full-album view) ---
+
+    /// <summary>
+    /// Enable the background sweep that fetches each album's full tracklist from every enabled provider
+    /// (MusicBrainz, Spotify, Deezer, Apple) and reconciles them, so the album view can show every real
+    /// track and grey out the ones the user is missing.
+    /// </summary>
+    public bool EnableCanonicalAlbumFetch { get; set; } = true;
+
+    /// <summary>Number of albums fetched+reconciled per canonical-album sweep cycle.</summary>
+    [Range(1, 1000)]
+    public int CanonicalAlbumFetchBatchSize { get; set; } = 10;
+
+    /// <summary>Delay in seconds before the canonical-album sweep re-checks for new albums to fetch.</summary>
+    [Range(5, 3600)]
+    public int CanonicalAlbumFetchIdleDelaySeconds { get; set; } = 30;
+
+    /// <summary>Days before a NotFound canonical-album fetch is retried (catalogs grow). 0 = never.</summary>
+    [Range(0, 3650)]
+    public int CanonicalAlbumNotFoundRetryDays { get; set; } = 30;
+
+    /// <summary>Minutes to back off before retrying a transiently-failed canonical-album fetch.</summary>
+    [Range(1, 10080)]
+    public int CanonicalAlbumFailedRetryMinutes { get; set; } = 60;
+
     /// <summary>Days before a terminal NoMatch provider attempt is retried (catalogs grow). 0 = never.</summary>
     [Range(0, 3650)]
     public int EnrichmentNoMatchRetryDays { get; set; } = 30;

@@ -83,6 +83,95 @@ public sealed class DeezerCatalogService(
         return track;
     }
 
+    public async Task<string?> SearchAlbumIdAsync(string artist, string album, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(album)) return null;
+        var query = $"{artist} {album}".Trim();
+        var json = await GetAsync($"{BaseUrl}/search/album?q={Uri.EscapeDataString(query)}&limit=5", ct);
+        if (json is null) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in data.EnumerateArray())
+                {
+                    if (item.TryGetProperty("id", out var id) && id.ValueKind is JsonValueKind.Number or JsonValueKind.String)
+                        return id.ValueKind == JsonValueKind.Number ? id.GetInt64().ToString() : id.GetString();
+                }
+            }
+        }
+        catch (JsonException) { /* fall through */ }
+        return null;
+    }
+
+    public async Task<DeezerAlbumDetail?> GetAlbumAsync(string albumId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(albumId)) return null;
+        var json = await GetAsync($"{BaseUrl}/album/{Uri.EscapeDataString(albumId)}", ct);
+        return json is null ? null : ParseAlbum(json);
+    }
+
+    private static DeezerAlbumDetail? ParseAlbum(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+
+            var id = root.TryGetProperty("id", out var idEl)
+                ? idEl.ValueKind switch
+                {
+                    JsonValueKind.Number => idEl.GetInt64().ToString(),
+                    JsonValueKind.String => idEl.GetString() ?? "",
+                    _ => "",
+                }
+                : "";
+            if (string.IsNullOrEmpty(id)) return null;
+
+            var title = root.TryGetProperty("title", out var tEl) && tEl.ValueKind == JsonValueKind.String ? tEl.GetString() : null;
+            int? year = root.TryGetProperty("release_date", out var rdEl) && rdEl.ValueKind == JsonValueKind.String
+                ? ParseReleaseYear(rdEl.GetString()) : null;
+            string? artist = root.TryGetProperty("artist", out var aEl) && aEl.ValueKind == JsonValueKind.Object &&
+                aEl.TryGetProperty("name", out var an) && an.ValueKind == JsonValueKind.String ? an.GetString() : null;
+            string? cover = root.TryGetProperty("cover_xl", out var cEl) && cEl.ValueKind == JsonValueKind.String
+                ? cEl.GetString()
+                : root.TryGetProperty("cover_big", out var cbEl) && cbEl.ValueKind == JsonValueKind.String ? cbEl.GetString() : null;
+
+            var tracks = new List<DeezerAlbumTrackItem>();
+            if (root.TryGetProperty("tracks", out var tracksEl) && tracksEl.TryGetProperty("data", out var data) &&
+                data.ValueKind == JsonValueKind.Array)
+            {
+                var ordinal = 0;
+                foreach (var t in data.EnumerateArray())
+                {
+                    if (t.ValueKind != JsonValueKind.Object) continue;
+                    ordinal++;
+                    var disc = t.TryGetProperty("disk_number", out var dk) && dk.ValueKind == JsonValueKind.Number ? dk.GetInt32() : 1;
+                    var pos = t.TryGetProperty("track_position", out var tp) && tp.ValueKind == JsonValueKind.Number ? tp.GetInt32() : ordinal;
+                    var tTitle = t.TryGetProperty("title", out var ti) && ti.ValueKind == JsonValueKind.String ? ti.GetString() : null;
+                    var durSec = t.TryGetProperty("duration", out var du) && du.ValueKind == JsonValueKind.Number ? du.GetInt32() : 0;
+                    var tId = t.TryGetProperty("id", out var tid)
+                        ? tid.ValueKind switch
+                        {
+                            JsonValueKind.Number => tid.GetInt64().ToString(),
+                            JsonValueKind.String => tid.GetString(),
+                            _ => null,
+                        }
+                        : null;
+                    tracks.Add(new DeezerAlbumTrackItem(disc, pos, tTitle, durSec * 1000, tId));
+                }
+            }
+
+            return new DeezerAlbumDetail(id, title, artist, year, cover, tracks);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     private void CacheTrack(string cacheKey, DeezerCatalogTrack? track) =>
         cache.Set(cacheKey, track, new MemoryCacheEntryOptions
         {

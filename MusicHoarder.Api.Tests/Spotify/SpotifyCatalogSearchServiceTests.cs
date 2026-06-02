@@ -99,6 +99,41 @@ public class SpotifyCatalogSearchServiceTests
         Assert.Equal(0, handler.SendCount);
     }
 
+    [Fact]
+    public async Task GetAlbumAsync_ParsesTracklistWithDiscAndTrackNumbers()
+    {
+        var handler = new FakeHttpHandler();
+        handler.EnqueueJsonResponse("""{"access_token":"tok","token_type":"Bearer","expires_in":3600}""");
+        handler.EnqueueJsonResponse(
+            """
+            {
+              "id": "alb-1",
+              "name": "Discovery",
+              "release_date": "2001-03-12",
+              "artists": [{"name": "Daft Punk"}],
+              "images": [{"url": "https://img/cover.jpg"}],
+              "tracks": {
+                "items": [
+                  {"id": "t1", "name": "One More Time", "disc_number": 1, "track_number": 1, "duration_ms": 320000},
+                  {"id": "t2", "name": "Aerodynamic", "disc_number": 1, "track_number": 2, "duration_ms": 210000}
+                ]
+              }
+            }
+            """);
+
+        var album = await CreateService(handler).GetAlbumAsync("cid", "sec", "alb-1", CancellationToken.None);
+
+        Assert.NotNull(album);
+        Assert.Equal("alb-1", album!.Id);
+        Assert.Equal("Discovery", album.Name);
+        Assert.Equal("Daft Punk", album.Artist);
+        Assert.Equal(2001, album.Year);
+        Assert.Equal("https://img/cover.jpg", album.ImageUrl);
+        Assert.Equal(2, album.Tracks.Count);
+        Assert.Equal((1, 1, "One More Time", 320000, "t1"),
+            (album.Tracks[0].DiscNumber, album.Tracks[0].TrackNumber, album.Tracks[0].Title, album.Tracks[0].DurationMs, album.Tracks[0].Id));
+    }
+
     private static SpotifyCatalogSearchService CreateService(FakeHttpHandler handler, IMemoryCache? cache = null)
     {
         cache ??= new MemoryCache(new MemoryCacheOptions());

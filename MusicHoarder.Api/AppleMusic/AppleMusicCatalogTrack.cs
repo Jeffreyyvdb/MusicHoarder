@@ -13,3 +13,19 @@ public record AppleMusicCatalogTrack(
     int? TrackNumber,
     int DurationMs,
     string? Isrc);
+
+/// <summary>An iTunes album (collection) with its full tracklist (from <c>GET /lookup?id=..&amp;entity=song</c>).</summary>
+public record AppleAlbumDetail(
+    string Id,
+    string? Name,
+    string? Artist,
+    int? Year,
+    string? ArtworkUrl,
+    IReadOnlyList<AppleAlbumTrackItem> Tracks);
+
+public record AppleAlbumTrackItem(
+    int DiscNumber,
+    int TrackNumber,
+    string? Title,
+    int DurationMs,
+    string? Id);

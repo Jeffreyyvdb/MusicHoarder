@@ -14,3 +14,19 @@ public record DeezerCatalogTrack(
     int? TrackNumber,
     int DurationMs,
     string? Isrc);
+
+/// <summary>A Deezer album with its full tracklist (from <c>GET /album/{id}</c>).</summary>
+public record DeezerAlbumDetail(
+    string Id,
+    string? Title,
+    string? Artist,
+    int? Year,
+    string? CoverUrl,
+    IReadOnlyList<DeezerAlbumTrackItem> Tracks);
+
+public record DeezerAlbumTrackItem(
+    int DiscNumber,
+    int TrackNumber,
+    string? Title,
+    int DurationMs,
+    string? Id);

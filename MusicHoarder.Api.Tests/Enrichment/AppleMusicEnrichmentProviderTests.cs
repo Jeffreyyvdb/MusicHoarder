@@ -136,5 +136,11 @@ public class AppleMusicEnrichmentProviderTests
             SearchCalls++;
             return Task.FromResult(OnSearch?.Invoke(query) ?? []);
         }
+
+        public Task<string?> SearchAlbumIdAsync(string artist, string album, CancellationToken ct = default)
+            => Task.FromResult<string?>(null);
+
+        public Task<AppleAlbumDetail?> GetAlbumAsync(string collectionId, CancellationToken ct = default)
+            => Task.FromResult<AppleAlbumDetail?>(null);
     }
 }

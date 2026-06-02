@@ -497,6 +497,63 @@ export async function fetchSongs(includeDeleted = false): Promise<ApiSong[]> {
   return result.songs ?? []
 }
 
+// ── Canonical album tracklist (multi-provider, reconciled; full-album view) ─────
+
+/** One reconciled canonical track. `ownedSongId` is null when the user is missing it. */
+export interface CanonicalTrack {
+  discNumber: number
+  trackNumber: number
+  title: string | null
+  durationMs: number | null
+  musicBrainzRecordingId: string | null
+  /** Provider names that corroborate this track (e.g. ["MusicBrainzWeb","Deezer"]). */
+  corroboratingProviders: string[]
+  corroborationCount: number
+  /** True when not every winning-cluster provider backs this track (bonus / disputed). */
+  isContested: boolean
+  /** The owned ApiSong.id matched to this canonical track, or null if missing. */
+  ownedSongId: number | null
+}
+
+/** One provider that contributed a tracklist for this album. */
+export interface AlbumSource {
+  provider: string
+  albumId: string | null
+  trackCount: number
+  /** Whether this source won the reconciliation cluster (vs. a different edition). */
+  inWinningCluster: boolean
+}
+
+/** The reconciled canonical tracklist for an album plus how much of it the user owns. */
+export interface AlbumTracklist {
+  artist: string | null
+  album: string | null
+  year: number | null
+  coverArtUrl: string | null
+  /** Consensus track count among the agreeing providers. */
+  resolvedTrackCount: number
+  /** True when the providers disagree on the album's length. */
+  trackCountContested: boolean
+  /** Canonical tracks the user owns. */
+  ownedCount: number
+  /** Canonical track count (= `tracks.length`). */
+  totalCount: number
+  sources: AlbumSource[]
+  tracks: CanonicalTrack[]
+}
+
+/**
+ * Fetches the album's reconciled canonical tracklist by artist + album. Returns `null` when the
+ * backend hasn't fetched it yet (404) so callers fall back to the owned-only view.
+ */
+export async function fetchAlbumTracklist(artist: string, album: string): Promise<AlbumTracklist | null> {
+  const qs = new URLSearchParams({ artist, album }).toString()
+  const response = await fetch(`${API_PREFIX}/api/albums/tracklist?${qs}`, { cache: "no-store" })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`album tracklist failed: ${response.status}`)
+  return (await response.json()) as AlbumTracklist
+}
+
 export async function startScan(): Promise<{ scanId: string }> {
   return requestJson<{ scanId: string }>("/scan", { method: "POST" })
 }

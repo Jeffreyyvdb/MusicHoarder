@@ -29,11 +29,43 @@ public record MusicBrainzRecording(
     int? TotalDiscs = null,
     int? TotalTracks = null);
 
+/// <summary>The full canonical tracklist of a single MusicBrainz release (all discs/media flattened).</summary>
+public record MusicBrainzRelease(
+    string Id,
+    string? Title,
+    string? AlbumArtist,
+    int? Year,
+    int? TotalDiscs,
+    int? TotalTracks,
+    IReadOnlyList<MusicBrainzReleaseTrack> Tracks);
+
+public record MusicBrainzReleaseTrack(
+    int DiscNumber,
+    int TrackNumber,
+    string? Title,
+    int? LengthMs,
+    string? RecordingId);
+
+/// <summary>A lightweight release-search hit used to resolve a release id from artist + album.</summary>
+public record MusicBrainzReleaseSearchResult(
+    string Id,
+    string? Title,
+    int? Year,
+    int? TrackCount,
+    int Score);
+
 public interface IMusicBrainzWebService
 {
     Task<MusicBrainzRecording?> LookupByRecordingIdAsync(string mbid, CancellationToken ct = default);
     Task<MusicBrainzRecording?> LookupByIsrcAsync(string isrc, CancellationToken ct = default);
     Task<IReadOnlyList<MusicBrainzRecording>> SearchAsync(string artist, string title, int limit, string? album = null, CancellationToken ct = default);
+
+    /// <summary>Fetches a release's full canonical tracklist by release MBID. Null if not found.</summary>
+    Task<MusicBrainzRelease?> LookupReleaseAsync(string releaseId, CancellationToken ct = default);
+
+    /// <summary>Searches releases by artist + album (to resolve a release id when none is stored).</summary>
+    Task<IReadOnlyList<MusicBrainzReleaseSearchResult>> SearchReleasesAsync(
+        string artist, string album, int limit, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -81,6 +113,28 @@ public sealed class MusicBrainzWebService(
             return [];
 
         return dto.Recordings.Select(MapRecording).ToList();
+    }
+
+    public async Task<MusicBrainzRelease?> LookupReleaseAsync(string releaseId, CancellationToken ct = default)
+    {
+        var dto = await GetAsync<ReleaseDetailDto>(
+            $"release/{Uri.EscapeDataString(releaseId)}?inc=artist-credits+recordings+media&fmt=json", ct);
+        return dto is null ? null : MapRelease(dto);
+    }
+
+    public async Task<IReadOnlyList<MusicBrainzReleaseSearchResult>> SearchReleasesAsync(
+        string artist, string album, int limit, CancellationToken ct = default)
+    {
+        var query = $"artist:\"{EscapeLucene(artist)}\" AND release:\"{EscapeLucene(album)}\"";
+        var dto = await GetAsync<ReleaseSearchDto>(
+            $"release?query={Uri.EscapeDataString(query)}&fmt=json&limit={limit}", ct);
+        if (dto?.Releases is null or { Count: 0 })
+            return [];
+
+        return dto.Releases
+            .Where(r => !string.IsNullOrWhiteSpace(r.Id))
+            .Select(r => new MusicBrainzReleaseSearchResult(r.Id!, r.Title, ParseYear(r.Date), r.TrackCount, r.Score ?? 0))
+            .ToList();
     }
 
     private async Task<T?> GetAsync<T>(string relativeUrl, CancellationToken ct) where T : class
@@ -166,6 +220,44 @@ public sealed class MusicBrainzWebService(
             IsCompilation: secondaryTypes.Contains("compilation"),
             TotalDiscs: totalDiscs,
             TotalTracks: totalTracks);
+    }
+
+    private static MusicBrainzRelease MapRelease(ReleaseDetailDto r)
+    {
+        var artist = BuildArtistCredit(r.ArtistCredit);
+        var media = r.Media ?? [];
+
+        var tracks = new List<MusicBrainzReleaseTrack>();
+        foreach (var medium in media)
+        {
+            var disc = medium.Position ?? 1;
+            if (medium.Tracks is null) continue;
+            foreach (var t in medium.Tracks)
+            {
+                tracks.Add(new MusicBrainzReleaseTrack(
+                    DiscNumber: disc,
+                    // `number` is the printed track designation (can be non-numeric on vinyl, e.g. "A1");
+                    // `position` is the reliable 1-based ordinal. Prefer position.
+                    TrackNumber: t.Position ?? 0,
+                    Title: t.Title ?? t.Recording?.Title,
+                    LengthMs: t.Length ?? t.Recording?.Length,
+                    RecordingId: t.Recording?.Id));
+            }
+        }
+
+        var totalDiscs = media.Count > 0 ? media.Count : (int?)null;
+        var totalTracks = media.Count > 0
+            ? media.Sum(m => m.TrackCount ?? (m.Tracks?.Count ?? 0)) is var sum && sum > 0 ? sum : (int?)null
+            : null;
+
+        return new MusicBrainzRelease(
+            Id: r.Id,
+            Title: r.Title,
+            AlbumArtist: string.IsNullOrWhiteSpace(artist) ? null : ArtistCreditNormalizer.GetPrimaryArtist(artist),
+            Year: ParseYear(r.Date),
+            TotalDiscs: totalDiscs,
+            TotalTracks: totalTracks,
+            Tracks: tracks);
     }
 
     private static string BuildArtistCredit(List<ArtistCreditDto>? credits)
@@ -316,5 +408,82 @@ public sealed class MusicBrainzWebService(
 
         [JsonPropertyName("track-count")]
         public int? TrackCount { get; set; }
+
+        [JsonPropertyName("tracks")]
+        public List<TrackDto>? Tracks { get; set; }
+    }
+
+    // --- Release-detail (full tracklist) DTOs ---
+
+    private sealed class ReleaseDetailDto
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = string.Empty;
+
+        [JsonPropertyName("title")]
+        public string? Title { get; set; }
+
+        [JsonPropertyName("date")]
+        public string? Date { get; set; }
+
+        [JsonPropertyName("artist-credit")]
+        public List<ArtistCreditDto>? ArtistCredit { get; set; }
+
+        [JsonPropertyName("media")]
+        public List<MediaDto>? Media { get; set; }
+    }
+
+    private sealed class ReleaseSearchDto
+    {
+        [JsonPropertyName("releases")]
+        public List<ReleaseSearchItemDto>? Releases { get; set; }
+    }
+
+    private sealed class ReleaseSearchItemDto
+    {
+        [JsonPropertyName("id")]
+        public string? Id { get; set; }
+
+        [JsonPropertyName("title")]
+        public string? Title { get; set; }
+
+        [JsonPropertyName("date")]
+        public string? Date { get; set; }
+
+        [JsonPropertyName("track-count")]
+        public int? TrackCount { get; set; }
+
+        [JsonPropertyName("score")]
+        public int? Score { get; set; }
+    }
+
+    private sealed class TrackDto
+    {
+        [JsonPropertyName("position")]
+        public int? Position { get; set; }
+
+        [JsonPropertyName("number")]
+        public string? Number { get; set; }
+
+        [JsonPropertyName("title")]
+        public string? Title { get; set; }
+
+        [JsonPropertyName("length")]
+        public int? Length { get; set; }
+
+        [JsonPropertyName("recording")]
+        public RecordingRefDto? Recording { get; set; }
+    }
+
+    private sealed class RecordingRefDto
+    {
+        [JsonPropertyName("id")]
+        public string? Id { get; set; }
+
+        [JsonPropertyName("title")]
+        public string? Title { get; set; }
+
+        [JsonPropertyName("length")]
+        public int? Length { get; set; }
     }
 }
