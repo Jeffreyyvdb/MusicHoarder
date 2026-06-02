@@ -137,6 +137,55 @@ public class SongSearchTextTests
     }
 
     [Fact]
+    public void Untagged_LooseDownloadFolder_ArtistTitleFilename_UsesFilenameAsArtist()
+    {
+        // "slskd" is a download-tool folder, not the performer — the artist lives in the filename.
+        var song = Song("/music/source/slskd/Mac Miller - Someone Like You.mp3");
+
+        var (artist, title) = SongSearchText.Resolve(song, "/music/source");
+
+        Assert.Equal("Mac Miller", artist);
+        Assert.Equal("Someone Like You", title);
+    }
+
+    [Fact]
+    public void Untagged_LooseDownloadFolder_KeepsParentheticalSuffixInTitle()
+    {
+        // The "(WMWTSO)" suffix stays on the title; the normalizer drops it later for search/scoring.
+        var song = Song("/music/source/slskd/Mac Miller - Avian (WMWTSO).mp3");
+
+        var (artist, title) = SongSearchText.Resolve(song, "/music/source");
+
+        Assert.Equal("Mac Miller", artist);
+        Assert.Equal("Avian (WMWTSO)", title);
+    }
+
+    [Fact]
+    public void Untagged_ShallowFolderEqualsArtist_FilenameSplitStillCorrect()
+    {
+        // Redundant "Artist - Title" filename under an artist folder still resolves correctly.
+        var song = Song("/music/Adele/Adele - Hello.mp3");
+
+        var (artist, title) = SongSearchText.Resolve(song, "/music");
+
+        Assert.Equal("Adele", artist);
+        Assert.Equal("Hello", title);
+    }
+
+    [Fact]
+    public void Untagged_ShallowTrackNumberedFile_IsNotSplitOnDash()
+    {
+        // A track-number prefix marks the tagged "NN Title" convention — don't reinterpret the dash
+        // as an artist separator; fall back to folder-as-artist.
+        var song = Song("/music/slskd/01 - Mac Miller - Avian.mp3");
+
+        var (artist, title) = SongSearchText.Resolve(song, "/music");
+
+        Assert.Equal("slskd", artist);
+        Assert.Equal("Mac Miller - Avian", title);
+    }
+
+    [Fact]
     public void HasSearchableText_TrueForUntaggedFileWithUsablePath()
     {
         var song = Song("/root/music/Some Artist/Album/Track.mp3");
