@@ -104,7 +104,7 @@ services:
         delay: "5s"
         failure_action: "rollback"
         monitor: "60s"
-        order: "stop-first"
+        order: "start-first"
       restart_policy:
         condition: "any"
         delay: "5s"

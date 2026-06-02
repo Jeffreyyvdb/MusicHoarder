@@ -61,18 +61,19 @@ internal static class ComposeFileExtensions
         // "process started" as "healthy" and swaps too early. These blocks are inert under plain
         // `docker compose up`. (The api listens on ${API_PORT} (HTTP_PORTS), so probe that.)
         //
-        // FRONTEND → start-first: a stateless SSR/proxy, so the new task can run alongside the old and
-        // take over only once healthy → the public site never drops a request.
+        // Both services use start-first (zero-downtime: the new task must pass its healthcheck before
+        // the old one is removed). The frontend is a stateless SSR/proxy, so overlap is free.
         //
-        // API → stop-first, NOT start-first: the API hosts the singleton pipeline (Scanner /
-        // Fingerprint / Enrichment / LibraryBuilder background services), which is NOT safe to run as
-        // two concurrent processes — workers don't claim DB rows atomically, the one-job-at-a-time
-        // JobManager is in-memory (per-process), the LibraryBuilder's destination locks are
-        // in-process, and a new instance's startup EF migration can break a still-running old
-        // instance. So the API never overlaps: the old task stops before the new one starts (+
-        // migrates). The public site stays up (frontend); the cost is a brief window where API calls
-        // fail while the API restarts — acceptable, and safe. Keep API replicas at 1.
-        api.WithHttpHealthcheck("${API_PORT}", "/alive", startPeriod: "40s").WithStopFirstUpdate();
+        // The api hosts the singleton pipeline (Scanner / Fingerprint / Enrichment / LibraryBuilder),
+        // which is NOT designed to run as two concurrent processes — workers don't claim DB rows
+        // atomically, the one-job-at-a-time JobManager is in-memory (per-process), the
+        // LibraryBuilder's destination locks are in-process, and a new instance's startup EF migration
+        // can disrupt a still-running old one. start-first briefly overlaps two api tasks during a
+        // deploy, so that's a known, accepted risk for this low-frequency single-user deploy (deploys
+        // usually land while the pipeline is idle). Mitigations: keep api replicas at 1 (so two cold
+        // starts never race), and keep migrations backward-compatible. Switch the api to
+        // WithStopFirstUpdate() if you ever want to eliminate the overlap entirely.
+        api.WithHttpHealthcheck("${API_PORT}", "/alive", startPeriod: "40s").WithRollingUpdate();
         frontend.WithHttpHealthcheck("8001", "/api/health", startPeriod: "20s").WithRollingUpdate();
 
         // Postgres has a single data volume, so it must never run two tasks at once — stop-first
