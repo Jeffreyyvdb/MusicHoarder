@@ -134,6 +134,15 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IEmbeddedPictureReader, TagLibEmbeddedPictureReader>();
         services.AddScoped<ICoverArtResolver, CoverArtResolver>();
         services.AddScoped<IAlbumCoverWriter, AlbumCoverWriter>();
+
+        // Disposable on-disk cache of resized WebP cover thumbnails (derived, regenerable artifacts).
+        services.AddSingleton<ICoverThumbnailService>(sp =>
+        {
+            var dir = ResolveWritableDirectory(
+                Environment.GetEnvironmentVariable("Artwork__CoverCacheDir") ?? "/data/cover-thumbs",
+                "cover-thumbs");
+            return new CoverThumbnailService(dir.FullName, sp.GetRequiredService<ILogger<CoverThumbnailService>>());
+        });
         services.AddScoped<ILibraryTagWriter, TagLibLibraryTagWriter>();
         services.AddScoped<ILibraryDestinationCleaner, LibraryDestinationCleaner>();
         services.AddScoped<ILibraryBuilderService, LibraryBuilderService>();
@@ -316,6 +325,14 @@ public static class ServiceCollectionExtensions
     /// path isn't writable (e.g. when the volume mount hasn't been created yet on first dev boot).
     /// </summary>
     private static DirectoryInfo ResolveDataProtectionKeysDirectory(string configuredPath)
+        => ResolveWritableDirectory(configuredPath, "dpkeys");
+
+    /// <summary>
+    /// Returns <paramref name="configuredPath"/> as a created directory, falling back to a local
+    /// <c>&lt;BaseDirectory&gt;/&lt;fallbackName&gt;</c> when the configured path isn't writable (typical on
+    /// first dev boot when the mount target doesn't exist yet).
+    /// </summary>
+    private static DirectoryInfo ResolveWritableDirectory(string configuredPath, string fallbackName)
     {
         try
         {
@@ -326,10 +343,7 @@ public static class ServiceCollectionExtensions
         }
         catch
         {
-            // Configured directory not writable (typical on first dev boot when the mount target
-            // doesn't exist). Use a local fallback so DP keys still persist across restarts
-            // within the same checkout.
-            var fallback = new DirectoryInfo(Path.Combine(AppContext.BaseDirectory, "dpkeys"));
+            var fallback = new DirectoryInfo(Path.Combine(AppContext.BaseDirectory, fallbackName));
             if (!fallback.Exists) fallback.Create();
             return fallback;
         }

@@ -972,9 +972,30 @@ export function getSongStreamUrl(songId: number): string {
   return `${API_PREFIX}/songs/${songId}/stream`
 }
 
-/** Proxy URL for a track's album artwork. The endpoint 404s when the track has no art. */
-export function getSongCoverUrl(songId: number): string {
-  return `${API_PREFIX}/songs/${songId}/cover`
+/**
+ * Proxy URL for a track's album artwork. The endpoint 404s when the track has no art. Pass `size`
+ * (CSS px) to get a small cached WebP thumbnail instead of the full-resolution original — the backend
+ * clamps to its nearest size bucket. Omit `size` for the original (downloads / full-screen).
+ */
+export function getSongCoverUrl(songId: number, size?: number): string {
+  const base = `${API_PREFIX}/songs/${songId}/cover`
+  return size ? `${base}?size=${Math.round(size)}` : base
+}
+
+/** Marks our cover-endpoint URLs so {@link coverThumbUrl} only appends a size to those. */
+function isOwnCoverUrl(url: string): boolean {
+  return url.startsWith(`${API_PREFIX}/songs/`) && url.includes("/cover")
+}
+
+/**
+ * Appends a `?size=` thumbnail request to a cover URL **only** when it points at our own cover
+ * endpoint; external URLs (e.g. a Spotify CDN image) are returned unchanged.
+ */
+export function coverThumbUrl(url: string | null | undefined, size: number): string | null {
+  if (!url) return null
+  if (!isOwnCoverUrl(url)) return url
+  const sep = url.includes("?") ? "&" : "?"
+  return `${url}${sep}size=${Math.round(size)}`
 }
 
 /**

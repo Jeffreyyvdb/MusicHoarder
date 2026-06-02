@@ -1,5 +1,6 @@
 <script lang="ts">
   import { albumTint } from '$lib/album-tint';
+  import { coverThumbUrl } from '$lib/api-client';
   import { computeInitials } from '$lib/formatters';
   import { cn } from '$lib/utils';
 
@@ -30,6 +31,11 @@
   const tint = $derived(albumTint(artist || 'Unknown', title || 'Unknown'));
   const initials = $derived(computeInitials(title));
   const showCaption = $derived(caption && size >= 120);
+
+  // Request a thumbnail sized for the display box × device pixel ratio (capped at 2× — enough for
+  // retina, far smaller than the multi-MB original). External cover URLs pass through unchanged.
+  const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+  const resolvedCoverUrl = $derived(coverThumbUrl(coverUrl, Math.round(size * dpr)));
 
   let imgFailed = $state(false);
 
@@ -76,10 +82,12 @@
   {/if}
 
   <!-- Top layer: fades in over the tinted tile so covers appear smoothly instead of snapping in. -->
-  {#if coverUrl && !imgFailed}
+  {#if resolvedCoverUrl && !imgFailed}
     <img
-      src={coverUrl}
+      src={resolvedCoverUrl}
       alt=""
+      width={size}
+      height={size}
       loading="lazy"
       decoding="async"
       onerror={() => (imgFailed = true)}

@@ -351,7 +351,9 @@ public static class SongsEndpoints
         int id,
         MusicHoarderDbContext db,
         ICoverArtResolver coverArtResolver,
-        HttpContext http)
+        ICoverThumbnailService thumbnails,
+        HttpContext http,
+        int? size)
     {
         var song = await db.Songs.AsNoTracking()
             .FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null);
@@ -371,6 +373,20 @@ public static class SongsEndpoints
         var cover = coverArtResolver.Resolve(filePath);
         if (cover is null)
             return Results.NotFound();
+
+        // A `?size=` request gets a small cached WebP thumbnail instead of the multi-MB original —
+        // this is what the album grid uses so scrolling doesn't download full-resolution art.
+        if (size is int requested && requested > 0)
+        {
+            var identity = cover.FilePath ?? filePath;
+            var thumb = await thumbnails.GetThumbnailAsync(cover, identity, requested, http.RequestAborted);
+            if (thumb?.FilePath is not null)
+            {
+                http.Response.Headers.CacheControl = "private, max-age=604800";
+                return Results.File(thumb.FilePath, contentType: thumb.ContentType);
+            }
+            // Thumbnailing failed (corrupt image) — fall through to the original below.
+        }
 
         // Covers rarely change; let the browser cache them. Private because they're served through
         // the per-user authenticated proxy.
