@@ -85,6 +85,14 @@ public static partial class SongSearchText
         if (artist is not null && IsCompilationMarker(artist))
             artist = null;
 
+        // Loose-download convention: a file sitting exactly one directory under the source root, named
+        // "Artist - Title" and not track-numbered, carries its artist in the filename — the containing
+        // folder is a download-tool/category name ("slskd", "Soulseek", "Leaks"), not the performer.
+        // Structured libraries instead encode the artist as a folder (<Artist>/<Album>/NN Title) and
+        // number their tracks, so this never fires for them.
+        if (trackNumber is null && segments.Length == 2 && SplitArtistTitle(title) is { } split)
+            return new Resolved(split.Artist, album, split.Title, trackNumber);
+
         title = StripArtistPrefix(title, artist);
 
         return new Resolved(artist, album, string.IsNullOrWhiteSpace(title) ? null : title, trackNumber);
@@ -180,6 +188,24 @@ public static partial class SongSearchText
             || leadNorm.StartsWith(artistNorm, StringComparison.Ordinal);
 
         return matchesArtist ? rest : title;
+    }
+
+    /// <summary>
+    /// Splits a "Artist - Title" file stem on the first dash separator. Returns <c>null</c> when there
+    /// is no separator or either side is empty (so a leading/trailing dash isn't mistaken for a split).
+    /// </summary>
+    private static (string Artist, string Title)? SplitArtistTitle(string stem)
+    {
+        var sep = DashSeparator().Match(stem);
+        if (!sep.Success)
+            return null;
+
+        var artist = stem[..sep.Index].Trim();
+        var title = stem[(sep.Index + sep.Length)..].Trim();
+        if (artist.Length == 0 || title.Length == 0)
+            return null;
+
+        return (artist, title);
     }
 
     [GeneratedRegex(@"^\s*(\d{1,2}-)?(?<track>\d{1,3})\s*[.\-_]?\s+", RegexOptions.Compiled)]
