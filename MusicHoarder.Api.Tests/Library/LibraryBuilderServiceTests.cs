@@ -426,9 +426,10 @@ public class LibraryBuilderServiceTests
 
         var cleaner = new LibraryDestinationCleaner(fileSystem);
 
-        // Use the real resolver over the mock filesystem so folder-image detection/writing is
+        // Use the real resolver/writer over the mock filesystem so folder-image detection/writing is
         // exercised end-to-end; the embedded-picture reader (which would touch TagLib) is faked.
         var coverResolver = new CoverArtResolver(fileSystem, embeddedReader ?? new StubEmbeddedPictureReader());
+        var coverWriter = new AlbumCoverWriter(fileSystem, coverResolver, NullLogger<AlbumCoverWriter>.Instance);
 
         return new LibraryBuilderService(
             scopeFactory,
@@ -436,7 +437,7 @@ public class LibraryBuilderServiceTests
             fileSystem,
             cleaner,
             tagWriter,
-            coverResolver,
+            coverWriter,
             options,
             NullLogger<LibraryBuilderService>.Instance);
     }
@@ -496,6 +497,7 @@ public class LibraryBuilderServiceTests
     private sealed class StubEmbeddedPictureReader(EmbeddedPicture? picture = null) : IEmbeddedPictureReader
     {
         public EmbeddedPicture? ReadFront(string filePath) => picture;
+        public bool HasPicture(string filePath) => picture is not null;
     }
 
     private sealed class RecordingThrowingTagWriter : ILibraryTagWriter

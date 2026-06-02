@@ -215,7 +215,7 @@ public class LibraryBuilderService(
     IFileSystem fileSystem,
     ILibraryDestinationCleaner destinationCleaner,
     ILibraryTagWriter tagWriter,
-    ICoverArtResolver coverArtResolver,
+    IAlbumCoverWriter albumCoverWriter,
     IOptions<MusicEnricherOptions> options,
     ILogger<LibraryBuilderService> logger) : ILibraryBuilderService
 {
@@ -470,44 +470,9 @@ public class LibraryBuilderService(
             new ParallelOptions { MaxDegreeOfParallelism = maxDegreeOfParallelism, CancellationToken = ct },
             (entry, _) =>
             {
-                TryWriteAlbumCover(entry.Key, entry.Value);
+                albumCoverWriter.WriteIfMissing(entry.Key, entry.Value);
                 return ValueTask.CompletedTask;
             });
-    }
-
-    private void TryWriteAlbumCover(string destinationDirectory, string sourcePath)
-    {
-        try
-        {
-            if (!fileSystem.Directory.Exists(destinationDirectory)
-                || coverArtResolver.DirectoryHasCoverImage(destinationDirectory))
-            {
-                return;
-            }
-
-            var cover = coverArtResolver.Resolve(sourcePath);
-            if (cover is null)
-            {
-                return;
-            }
-
-            var bytes = cover.Bytes
-                ?? (cover.FilePath is not null ? fileSystem.File.ReadAllBytes(cover.FilePath) : null);
-            if (bytes is null || bytes.Length == 0)
-            {
-                return;
-            }
-
-            var coverPath = fileSystem.Path.Combine(
-                destinationDirectory,
-                $"cover{CoverArtResolver.ExtensionForContentType(cover.ContentType)}");
-            fileSystem.File.WriteAllBytes(coverPath, bytes);
-            logger.LogInformation("Wrote album cover {CoverPath}", coverPath);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to write album cover in {Directory}", destinationDirectory);
-        }
     }
 
     private async Task StreamCopyAsync(string sourcePath, string tempDestinationPath, CancellationToken ct)

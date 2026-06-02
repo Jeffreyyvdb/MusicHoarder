@@ -15,6 +15,12 @@ public interface IEmbeddedPictureReader
     /// or <c>null</c> when the file has no embedded art or cannot be read.
     /// </summary>
     EmbeddedPicture? ReadFront(string filePath);
+
+    /// <summary>
+    /// Cheaply reports whether the file has any embedded picture, without copying the image bytes.
+    /// Used by the backfill, which only needs a boolean for the <c>HasCoverArt</c> flag.
+    /// </summary>
+    bool HasPicture(string filePath);
 }
 
 public class TagLibEmbeddedPictureReader(ILogger<TagLibEmbeddedPictureReader> logger) : IEmbeddedPictureReader
@@ -43,6 +49,20 @@ public class TagLibEmbeddedPictureReader(ILogger<TagLibEmbeddedPictureReader> lo
         {
             logger.LogDebug("Could not read embedded picture from {File}: {Message}", filePath, ex.Message);
             return null;
+        }
+    }
+
+    public bool HasPicture(string filePath)
+    {
+        try
+        {
+            using var tagFile = TagLib.File.Create(filePath);
+            return tagFile.Tag.Pictures?.Length > 0;
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug("Could not read tags from {File}: {Message}", filePath, ex.Message);
+            return false;
         }
     }
 }
