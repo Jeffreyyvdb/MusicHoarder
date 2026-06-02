@@ -8,7 +8,13 @@
     formatFamily,
     type FormatFamily
   } from '$lib/formatters';
-  import { albumKeyForSong, songAddedTime, toPlayerSong, type ApiSong } from '$lib/api-client';
+  import {
+    albumKeyForSong,
+    coverUrlForSong,
+    songAddedTime,
+    toPlayerSong,
+    type ApiSong
+  } from '$lib/api-client';
   import { playerStore } from '$lib/stores/player.svelte';
   import { cn, shuffle } from '$lib/utils';
 
@@ -457,7 +463,7 @@
             <Cover
               artist={artistOf(song)}
               title={song.album ?? titleOf(song)}
-              coverUrl={song.albumArt}
+              coverUrl={coverUrlForSong(song)}
               size={36}
               corner={4}
               caption={false}

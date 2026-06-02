@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -270,10 +271,146 @@ public class LibraryBuilderServiceTests
         Assert.Single(tagWriter.Paths);
     }
 
+    [Fact]
+    public async Task ProcessNextBatchAsync_WritesAlbumCover_FromEmbeddedArt()
+    {
+        var sourcePath = "/source/track.mp3";
+        var coverPath = "/dest/Artist/2026 - Album/cover.png";
+        var pngBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 1, 2, 3 };
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourcePath, 5));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(
+            db, fileSystem, new RecordingTagWriter(),
+            new StubEmbeddedPictureReader(new EmbeddedPicture(pngBytes, "image/png")));
+
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.True(fileSystem.File.Exists(coverPath));
+        Assert.Equal(pngBytes, await fileSystem.File.ReadAllBytesAsync(coverPath));
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_WritesAlbumCover_FromSourceFolderImage()
+    {
+        var sourcePath = "/source/track.mp3";
+        var sourceCover = "/source/cover.jpg";
+        var destCover = "/dest/Artist/2026 - Album/cover.jpg";
+        var jpgBytes = new byte[] { 0xFF, 0xD8, 0xFF, 9, 8, 7 };
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde"),
+            [sourceCover] = new(jpgBytes)
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourcePath, 5));
+        await db.SaveChangesAsync();
+
+        // No embedded art — the folder image in the source directory must win (Navidrome's order).
+        var service = CreateService(db, fileSystem, new RecordingTagWriter());
+
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.True(fileSystem.File.Exists(destCover));
+        Assert.Equal(jpgBytes, await fileSystem.File.ReadAllBytesAsync(destCover));
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_DoesNotOverwriteExistingDestinationCover()
+    {
+        var sourcePath = "/source/track.mp3";
+        var existingCover = "/dest/Artist/2026 - Album/cover.jpg";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde"),
+            [existingCover] = new("user-provided")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourcePath, 5));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(
+            db, fileSystem, new RecordingTagWriter(),
+            new StubEmbeddedPictureReader(new EmbeddedPicture([0x89, 0x50, 0x4E, 0x47], "image/png")));
+
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        // The existing cover is left untouched and no second cover.* is added.
+        Assert.Equal("user-provided", fileSystem.File.ReadAllText(existingCover));
+        Assert.False(fileSystem.File.Exists("/dest/Artist/2026 - Album/cover.png"));
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_DoesNotWriteCover_ForUnreleasedTracks()
+    {
+        var sourcePath = "/source/track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourcePath, 5, isUnreleased: true));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(
+            db, fileSystem, new RecordingTagWriter(),
+            new StubEmbeddedPictureReader(new EmbeddedPicture([0x89, 0x50, 0x4E, 0x47], "image/png")));
+
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        // Unreleased folders mix unrelated singles — no shared cover is dropped in.
+        Assert.False(fileSystem.File.Exists("/dest/Artist/Unreleased/cover.png"));
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_RemovesOrphanCover_WhenAlbumFolderMoves()
+    {
+        var sourcePath = "/source/track.mp3";
+        var legacyPath = "/dest/Artist A; Artist B/2026 - Album/01 - Track.mp3";
+        var legacyCover = "/dest/Artist A; Artist B/2026 - Album/cover.jpg";
+        var newPath = "/dest/Artist A/2026 - Album/01 - Track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde"),
+            [legacyPath] = new("abcde"),
+            [legacyCover] = new("stale cover")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(
+            sourcePath,
+            5,
+            title: "Track",
+            artist: "Artist A; Artist B",
+            albumArtist: "Artist A",
+            libraryBuildStatus: LibraryBuildStatus.Done));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter());
+
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        // The track moved albums; the orphaned cover in the old folder is removed so the now-empty
+        // folder gets pruned.
+        Assert.True(fileSystem.File.Exists(newPath));
+        Assert.False(fileSystem.File.Exists(legacyCover));
+        Assert.False(fileSystem.Directory.Exists("/dest/Artist A; Artist B/2026 - Album"));
+    }
+
     private static LibraryBuilderService CreateService(
         MusicHoarderDbContext db,
         IFileSystem fileSystem,
-        ILibraryTagWriter tagWriter)
+        ILibraryTagWriter tagWriter,
+        IEmbeddedPictureReader? embeddedReader = null)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
@@ -284,17 +421,22 @@ public class LibraryBuilderServiceTests
             LibraryBuilderIdleDelaySeconds = 20
         });
 
-        var resolver = new DestinationPathResolver(options);
+        var pathResolver = new DestinationPathResolver(options);
         var scopeFactory = new SingleScopeFactory(db, tagWriter);
 
         var cleaner = new LibraryDestinationCleaner(fileSystem);
 
+        // Use the real resolver over the mock filesystem so folder-image detection/writing is
+        // exercised end-to-end; the embedded-picture reader (which would touch TagLib) is faked.
+        var coverResolver = new CoverArtResolver(fileSystem, embeddedReader ?? new StubEmbeddedPictureReader());
+
         return new LibraryBuilderService(
             scopeFactory,
-            resolver,
+            pathResolver,
             fileSystem,
             cleaner,
             tagWriter,
+            coverResolver,
             options,
             NullLogger<LibraryBuilderService>.Instance);
     }
@@ -305,7 +447,8 @@ public class LibraryBuilderServiceTests
         string title = "Track",
         string artist = "Artist",
         string albumArtist = "Artist",
-        LibraryBuildStatus libraryBuildStatus = LibraryBuildStatus.Pending)
+        LibraryBuildStatus libraryBuildStatus = LibraryBuildStatus.Pending,
+        bool isUnreleased = false)
     {
         return new SongMetadata
         {
@@ -322,6 +465,7 @@ public class LibraryBuilderServiceTests
             Title = title,
             Year = 2026,
             TrackNumber = 1,
+            IsUnreleased = isUnreleased,
             EnrichmentStatus = EnrichmentStatus.Matched,
             LibraryBuildStatus = libraryBuildStatus
         };
@@ -345,6 +489,13 @@ public class LibraryBuilderServiceTests
             Paths.Add(path);
             return Task.CompletedTask;
         }
+    }
+
+    // Stands in for the TagLib-backed reader (which would hit the real disk). Returns a fixed
+    // embedded picture for every file, or null to model files with no embedded art.
+    private sealed class StubEmbeddedPictureReader(EmbeddedPicture? picture = null) : IEmbeddedPictureReader
+    {
+        public EmbeddedPicture? ReadFront(string filePath) => picture;
     }
 
     private sealed class RecordingThrowingTagWriter : ILibraryTagWriter

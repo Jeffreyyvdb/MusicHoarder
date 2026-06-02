@@ -1,6 +1,8 @@
+using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -29,6 +31,7 @@ public class IndexService(
     MusicHoarderDbContext dbContext,
     ScanProgressTracker progressTracker,
     IOwnerLookupService ownerLookup,
+    ICoverArtResolver coverArtResolver,
     IOptions<MusicEnricherOptions> options,
     ILogger<IndexService> logger) : IIndexService
 {
@@ -133,6 +136,10 @@ public class IndexService(
         var semaphore = new SemaphoreSlim(opts.SmbConcurrency, opts.SmbConcurrency);
         var failedCount = 0;
 
+        // Folder-level cover art (cover/folder/front.*) is a property of the directory, so resolve
+        // it once per directory and reuse across every track in that folder — the scan is parallel.
+        var folderCoverCache = new ConcurrentDictionary<string, bool>(StringComparer.Ordinal);
+
         var processingTask = Task.Run(async () =>
         {
             try
@@ -157,6 +164,20 @@ public class IndexService(
                             if (metadata is not null)
                             {
                                 metadata.OwnerUserId = ownerId;
+
+                                // HasCoverArt already reflects embedded art (set by the scanner); OR in a
+                                // sibling cover/folder/front.* image so the grid shows art whether it's in
+                                // the file or in the directory (Navidrome's resolution order).
+                                if (!metadata.HasCoverArt)
+                                {
+                                    var directory = Path.GetDirectoryName(filePath);
+                                    if (!string.IsNullOrEmpty(directory))
+                                    {
+                                        metadata.HasCoverArt = folderCoverCache.GetOrAdd(
+                                            directory, d => coverArtResolver.DirectoryHasCoverImage(d));
+                                    }
+                                }
+
                                 await processedChannel.Writer.WriteAsync(metadata, ct);
 
                                 if (newFilePaths.Contains(filePath))
@@ -276,6 +297,7 @@ public class IndexService(
                 existing.DurationMs = metadata.DurationMs;
                 existing.Fingerprint = metadata.Fingerprint;
                 existing.Bitrate = metadata.Bitrate;
+                existing.HasCoverArt = metadata.HasCoverArt;
                 existing.IndexedAtUtc = metadata.IndexedAtUtc;
                 existing.DeletedAtUtc = null;
 

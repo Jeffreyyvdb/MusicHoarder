@@ -2,6 +2,7 @@ using System.IO.Abstractions;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.AppleMusic;
+using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Deezer;
@@ -128,6 +129,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IEnrichmentOrchestrator, EnrichmentOrchestrator>();
         services.AddSingleton<IDestinationPathResolver, DestinationPathResolver>();
         services.AddSingleton<IDuplicateDetectionService, DuplicateDetectionService>();
+        services.AddSingleton<IEmbeddedPictureReader, TagLibEmbeddedPictureReader>();
+        services.AddScoped<ICoverArtResolver, CoverArtResolver>();
         services.AddScoped<ILibraryTagWriter, TagLibLibraryTagWriter>();
         services.AddScoped<ILibraryDestinationCleaner, LibraryDestinationCleaner>();
         services.AddScoped<ILibraryBuilderService, LibraryBuilderService>();

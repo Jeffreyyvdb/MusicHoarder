@@ -90,6 +90,15 @@ public class SongMetadata
     public string? Fingerprint { get; set; }
     public int? Bitrate { get; set; }
 
+    /// <summary>
+    /// True when the scanner found album artwork for this track — either embedded in the file
+    /// or as a sibling <c>cover/folder/front.*</c> image in the source directory (Navidrome's
+    /// resolution order). A fact about the file, refreshed on each re-scan; orthogonal to the
+    /// enrichment/build lifecycle. The actual bytes are resolved on demand by the cover endpoint
+    /// and the library builder, never persisted.
+    /// </summary>
+    public bool HasCoverArt { get; set; }
+
     // --- Duplicate detection ---
 
     public bool IsDuplicate { get; set; }

@@ -2,6 +2,7 @@ using System.IO.Abstractions;
 using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -200,12 +201,21 @@ internal enum LibraryBuildOutcome
     Failed,
 }
 
+// Carries what the post-batch album-cover pass needs from a successful build: the source file to
+// resolve art from and whether the track is unreleased (those folders mix unrelated singles, so we
+// don't drop a single shared cover into them).
+internal sealed record LibraryBuildTrackResult(
+    LibraryBuildOutcome Outcome,
+    string? SourcePath = null,
+    bool IsUnreleased = false);
+
 public class LibraryBuilderService(
     IServiceScopeFactory scopeFactory,
     IDestinationPathResolver destinationPathResolver,
     IFileSystem fileSystem,
     ILibraryDestinationCleaner destinationCleaner,
     ILibraryTagWriter tagWriter,
+    ICoverArtResolver coverArtResolver,
     IOptions<MusicEnricherOptions> options,
     ILogger<LibraryBuilderService> logger) : ILibraryBuilderService
 {
@@ -267,6 +277,11 @@ public class LibraryBuilderService(
         var failed = 0;
         var semaphore = new SemaphoreSlim(opts.LibraryBuilderWorkerConcurrency, opts.LibraryBuilderWorkerConcurrency);
 
+        // Destination album folder -> a representative source file to lift the cover from. Populated
+        // by successful, non-unreleased builds; drained once after the track loop so each folder gets
+        // a single cover.* write with no intra-album races.
+        var coverDirectories = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+
         await Parallel.ForEachAsync(
             candidates,
             new ParallelOptions
@@ -282,16 +297,24 @@ public class LibraryBuilderService(
                 await semaphore.WaitAsync(token);
                 try
                 {
-                    LibraryBuildOutcome outcome;
+                    LibraryBuildTrackResult result;
                     using (await AcquireDestinationLockAsync(candidate.DestinationPath, token))
                     {
-                        outcome = await ProcessTrackAsync(candidate.SongId, candidate.DestinationPath, token);
+                        result = await ProcessTrackAsync(candidate.SongId, candidate.DestinationPath, token);
                     }
 
-                    switch (outcome)
+                    switch (result.Outcome)
                     {
                         case LibraryBuildOutcome.Done:
                             Interlocked.Increment(ref done);
+                            if (!result.IsUnreleased && !string.IsNullOrEmpty(result.SourcePath))
+                            {
+                                var directory = fileSystem.Path.GetDirectoryName(candidate.DestinationPath);
+                                if (!string.IsNullOrEmpty(directory))
+                                {
+                                    coverDirectories.TryAdd(directory, result.SourcePath);
+                                }
+                            }
                             break;
                         case LibraryBuildOutcome.Failed:
                             Interlocked.Increment(ref failed);
@@ -306,6 +329,8 @@ public class LibraryBuilderService(
                 }
             });
 
+        await WriteAlbumCoversAsync(coverDirectories, opts.LibraryBuilderWorkerConcurrency, ct);
+
         var duration = DateTime.UtcNow - startedAt;
         logger.LogInformation(
             "Library build run {RunId} complete: Total={Total}, Done={Done}, Failed={Failed}, Duration={Duration:F1}s",
@@ -318,7 +343,7 @@ public class LibraryBuilderService(
         return new LibraryBuildBatchResult(candidates.Count, done, failed, duration);
     }
 
-    private async Task<LibraryBuildOutcome> ProcessTrackAsync(int songId, string destinationPath, CancellationToken ct)
+    private async Task<LibraryBuildTrackResult> ProcessTrackAsync(int songId, string destinationPath, CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
@@ -327,7 +352,7 @@ public class LibraryBuilderService(
         if (song is null || song.IsDeleted || song.EnrichmentStatus != EnrichmentStatus.Matched)
         {
             logger.LogDebug("Skipping song {SongId}: not buildable (missing/deleted/not-matched)", songId);
-            return LibraryBuildOutcome.Failed;
+            return new LibraryBuildTrackResult(LibraryBuildOutcome.Failed);
         }
 
         var legacyPath = ResolveLegacyDestinationPath(song);
@@ -346,7 +371,7 @@ public class LibraryBuilderService(
                 song.TrackLabel, songId, destinationPath);
             song.MarkBuildFailed("Could not resolve destination directory");
             await db.SaveChangesAsync(ct);
-            return LibraryBuildOutcome.Failed;
+            return new LibraryBuildTrackResult(LibraryBuildOutcome.Failed);
         }
 
         var tempPath = BuildTempPath(destinationPath, songId);
@@ -369,7 +394,7 @@ public class LibraryBuilderService(
                     logger.LogInformation(
                         "Skipping copy for {Track} (SongId={SongId}): destination already exists with same size ({Bytes} bytes)",
                         song.TrackLabel, songId, existingSize);
-                    return LibraryBuildOutcome.Done;
+                    return new LibraryBuildTrackResult(LibraryBuildOutcome.Done, song.SourcePath, song.IsUnreleased);
                 }
             }
 
@@ -407,7 +432,7 @@ public class LibraryBuilderService(
             logger.LogInformation("Library build complete for {Track} (SongId={SongId}): {DestinationPath}",
                 song.TrackLabel, songId, destinationPath);
 
-            return LibraryBuildOutcome.Done;
+            return new LibraryBuildTrackResult(LibraryBuildOutcome.Done, song.SourcePath, song.IsUnreleased);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -422,7 +447,66 @@ public class LibraryBuilderService(
                 song.TrackLabel, songId, song.SourcePath, tempPath, destinationPath);
             song.MarkBuildFailed(ex.Message);
             await db.SaveChangesAsync(ct);
-            return LibraryBuildOutcome.Failed;
+            return new LibraryBuildTrackResult(LibraryBuildOutcome.Failed);
+        }
+    }
+
+    // Writes a cover.<ext> into each freshly-built album folder that doesn't already have a
+    // cover/folder/front.* image, lifting art from a representative source track (folder image first,
+    // else embedded — Navidrome's order). One task per directory, so no intra-album races. Best-effort:
+    // a cover failure never fails the build.
+    private async Task WriteAlbumCoversAsync(
+        ConcurrentDictionary<string, string> directories,
+        int maxDegreeOfParallelism,
+        CancellationToken ct)
+    {
+        if (directories.IsEmpty)
+        {
+            return;
+        }
+
+        await Parallel.ForEachAsync(
+            directories,
+            new ParallelOptions { MaxDegreeOfParallelism = maxDegreeOfParallelism, CancellationToken = ct },
+            (entry, _) =>
+            {
+                TryWriteAlbumCover(entry.Key, entry.Value);
+                return ValueTask.CompletedTask;
+            });
+    }
+
+    private void TryWriteAlbumCover(string destinationDirectory, string sourcePath)
+    {
+        try
+        {
+            if (!fileSystem.Directory.Exists(destinationDirectory)
+                || coverArtResolver.DirectoryHasCoverImage(destinationDirectory))
+            {
+                return;
+            }
+
+            var cover = coverArtResolver.Resolve(sourcePath);
+            if (cover is null)
+            {
+                return;
+            }
+
+            var bytes = cover.Bytes
+                ?? (cover.FilePath is not null ? fileSystem.File.ReadAllBytes(cover.FilePath) : null);
+            if (bytes is null || bytes.Length == 0)
+            {
+                return;
+            }
+
+            var coverPath = fileSystem.Path.Combine(
+                destinationDirectory,
+                $"cover{CoverArtResolver.ExtensionForContentType(cover.ContentType)}");
+            fileSystem.File.WriteAllBytes(coverPath, bytes);
+            logger.LogInformation("Wrote album cover {CoverPath}", coverPath);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to write album cover in {Directory}", destinationDirectory);
         }
     }
 
