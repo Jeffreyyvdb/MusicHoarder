@@ -39,8 +39,6 @@
   import TrackListSkeleton from '$lib/components/spotify/TrackListSkeleton.svelte';
   import PlaylistGridSkeleton from '$lib/components/spotify/PlaylistGridSkeleton.svelte';
   import PlaylistDetailView from '$lib/components/spotify/PlaylistDetailView.svelte';
-  import PipelineSubNavV2 from '$lib/components/v2/PipelineSubNavV2.svelte';
-  import { LIBRARY_SUBNAV } from '$lib/library-subnav';
 
   let status = $state<SpotifyStatusResponse | null>(null);
   let credentials = $state<SpotifyCredentialsResponse | null>(null);
@@ -217,11 +215,9 @@
   );
 </script>
 
-<!-- The Spotify page belongs to the Library section, so it wears the same sub-nav
-     bar as Albums/Artists/Tracks (count-less here — the page doesn't load the song
-     set). It sits as a shrink-0 sibling above the flex-1 content. -->
-<PipelineSubNavV2 tabs={[...LIBRARY_SUBNAV]} active="spotify" />
-
+<!-- The Spotify page belongs to the Library section; its tab bar (Albums/Artists/
+     Tracks/Spotify) is rendered once by the shell (SectionSubNav), pinned above
+     this content, so it never shifts when navigating between the library tabs. -->
 {#if isLoadingStatus}
   <div class="flex flex-1 items-center justify-center">
     <Loader2 class="text-muted-foreground size-8 animate-spin" />
