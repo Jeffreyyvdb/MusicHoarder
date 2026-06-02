@@ -8,7 +8,6 @@
   import AlbumPage from '$lib/components/file-browser/AlbumPage.svelte';
   import TrackList from '$lib/components/file-browser/TrackList.svelte';
   import TrackPanel from '$lib/components/file-browser/TrackPanel.svelte';
-  import PipelineSubNavV2 from '$lib/components/v2/PipelineSubNavV2.svelte';
   import LibraryAlbumsGridV2 from '$lib/components/v2/LibraryAlbumsGridV2.svelte';
   import LibraryArtistsGridV2 from '$lib/components/v2/LibraryArtistsGridV2.svelte';
   import {
@@ -22,7 +21,6 @@
     type ProgressSnapshot
   } from '$lib/api-client';
   import { isBuiltSong } from '$lib/album-sections';
-  import { LIBRARY_SUBNAV } from '$lib/library-subnav';
   import { parseBrowseFilter, applyBrowseFilter, browseFilterLabel } from '$lib/browse-filter';
   import { breadcrumbStore } from '$lib/stores/breadcrumbs.svelte';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
@@ -154,7 +152,6 @@
   const tracksScoped = $derived(browseScoped);
 
   const totalTracks = $derived(builtSongs.length);
-  const albumCount = $derived(allAlbums.length);
   const artistCount = $derived(artistGroups.length);
 
   // ── album drilldown (reuses AlbumPage + TrackPanel) ─────────────────────────
@@ -236,21 +233,6 @@
   function artistHref(g: GroupSummary): string {
     return `/library?artist=${encodeURIComponent(g.key)}`;
   }
-
-  // ── sub-nav (navigates between the three real routes) ────────────────────────
-  const subNavTabs = $derived(
-    LIBRARY_SUBNAV.map((t) => ({
-      ...t,
-      count:
-        t.id === 'albums'
-          ? albumCount
-          : t.id === 'artists'
-            ? artistCount
-            : t.id === 'tracks'
-              ? totalTracks
-              : null
-    }))
-  );
 
   const enrichedPct = $derived.by(() => {
     if (totalTracks === 0) return null;
@@ -339,12 +321,6 @@
       </div>
     </div>
   </header>
-
-  <PipelineSubNavV2
-    tabs={subNavTabs}
-    active={tab}
-    meta={browse?.artist ? `filter: ${browseFilterLabel(browse)}` : undefined}
-  />
 
   {#if tab === 'tracks'}
     <!-- All tracks reuses the existing virtualized TrackList + TrackPanel. On

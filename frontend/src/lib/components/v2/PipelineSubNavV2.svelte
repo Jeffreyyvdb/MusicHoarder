@@ -27,7 +27,7 @@
 </script>
 
 <nav
-  class="border-border flex shrink-0 items-center gap-1 overflow-x-auto border-b px-4 sm:px-7"
+  class="no-scrollbar border-border flex shrink-0 items-center gap-1 overflow-x-auto border-b px-4 sm:px-7"
   aria-label="Pipeline views"
 >
   {#each tabs as tab (tab.id)}
