@@ -400,6 +400,102 @@ public class ConsensusEvaluatorTests
         Assert.Contains("Year", r.CorroboratedFields!);
     }
 
+    [Fact]
+    public void Cluster_WinnerHasBlockingWarning_DowngradedToNeedsReview()
+    {
+        // AcoustID's fingerprint resolved to a wrong recording; MusicBrainzWeb landed on the same
+        // (wrong) MBID, so they cluster via the shared identifier. But the winner carries
+        // title_mismatch against the file's own title — the signature of a wrong recording several
+        // providers echoed. A cluster is not a license to overwrite the file with a mismatch.
+        var song = Song();
+        Add(song, EnrichmentProvider.AcoustID, ProviderAttemptStatus.Matched,
+            Result("Travis Scott", "STOP TRYING TO BE GOD", mbid: "mb-wrong", conf: 0.78,
+                recommend: EnrichmentStatus.NeedsReview, warnings: ["title_mismatch"]));
+        Add(song, EnrichmentProvider.MusicBrainzWeb, ProviderAttemptStatus.Matched,
+            Result("Travis Scott", "STOP TRYING TO BE GOD", mbid: "mb-wrong", conf: 0.9,
+                recommend: EnrichmentStatus.NeedsReview, warnings: ["title_mismatch", "album_mismatch"]));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.AcoustID, EnrichmentProvider.MusicBrainzWeb), Opts);
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
+    }
+
+    [Fact]
+    public void Cluster_ContradictedByCleanIndependentNameBased_NeedsReview()
+    {
+        // The cluster (AcoustID + MusicBrainzWeb on a shared MBID) is itself clean, but Apple Music
+        // independently matched a DIFFERENT identity at full confidence with no warnings. That's a
+        // genuine conflict — defer to review rather than auto-matching the cluster over a clean
+        // dissenter that may well be the correct song.
+        var song = Song();
+        Add(song, EnrichmentProvider.AcoustID, ProviderAttemptStatus.Matched,
+            Result("Travis Scott", "STOP TRYING TO BE GOD", mbid: "mb-x", conf: 0.8,
+                recommend: EnrichmentStatus.Matched));
+        Add(song, EnrichmentProvider.MusicBrainzWeb, ProviderAttemptStatus.Matched,
+            Result("Travis Scott", "STOP TRYING TO BE GOD", mbid: "mb-x", conf: 0.9,
+                recommend: EnrichmentStatus.Matched));
+        Add(song, EnrichmentProvider.AppleMusic, ProviderAttemptStatus.Matched,
+            FullResult("AppleMusic", "Travis Scott", "90210", album: "Rodeo", year: 2015, conf: 1.0));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song,
+            Enabled(EnrichmentProvider.AcoustID, EnrichmentProvider.MusicBrainzWeb, EnrichmentProvider.AppleMusic),
+            Opts);
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
+    }
+
+    [Fact]
+    public void Cluster_CleanAgreement_NoContradiction_StillMatched()
+    {
+        // No-regression: three providers independently agree on one clean identity with no blocking
+        // warnings and no dissenter → still Matched. The new guards must not break honest consensus.
+        var song = Song();
+        Add(song, EnrichmentProvider.AcoustID, ProviderAttemptStatus.Matched,
+            Result("Daft Punk", "One More Time", mbid: "mb-1", conf: 0.85, recommend: EnrichmentStatus.Matched));
+        Add(song, EnrichmentProvider.MusicBrainzWeb, ProviderAttemptStatus.Matched,
+            Result("Daft Punk", "One More Time", mbid: "mb-1", conf: 0.9, recommend: EnrichmentStatus.Matched));
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Daft Punk", "One More Time", spotifyId: "s", conf: 0.88, recommend: EnrichmentStatus.Matched));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song,
+            Enabled(EnrichmentProvider.AcoustID, EnrichmentProvider.MusicBrainzWeb, EnrichmentProvider.SpotifyAPI),
+            Opts);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+        Assert.Equal(3, r.AgreeingProviders.Count);
+    }
+
+    [Fact]
+    public void NinetyTwoTen_WrongFingerprintEchoed_DoesNotAutoMatch_NeedsReview()
+    {
+        // Regression for the Travis Scott "90210" dossier (AI grader: "Wrong"): AcoustID's
+        // fingerprint resolved to the wrong recording ("STOP TRYING TO BE GOD") and MusicBrainzWeb
+        // echoed the same wrong MBID. Apple Music independently matched the CORRECT song ("90210")
+        // at confidence 1.0 with no warnings. The pipeline used to auto-match the wrong cluster;
+        // it must now route to review (the blocking-warning gate fires first; the clean-dissenter
+        // guard would also catch it).
+        var song = Song();
+        song.Title = "90210";
+        Add(song, EnrichmentProvider.AcoustID, ProviderAttemptStatus.Matched,
+            Result("Travis Scott", "STOP TRYING TO BE GOD", mbid: "mb-stg", conf: 0.78,
+                recommend: EnrichmentStatus.NeedsReview, warnings: ["title_mismatch"]));
+        Add(song, EnrichmentProvider.MusicBrainzWeb, ProviderAttemptStatus.Matched,
+            Result("Travis Scott", "STOP TRYING TO BE GOD", mbid: "mb-stg", isrc: "USSM11806662", conf: 0.9,
+                recommend: EnrichmentStatus.NeedsReview, warnings: ["title_mismatch", "album_mismatch"]));
+        Add(song, EnrichmentProvider.AppleMusic, ProviderAttemptStatus.Matched,
+            FullResult("AppleMusic", "Travis Scott", "90210", album: "Rodeo", year: 2015, conf: 1.0));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song,
+            Enabled(EnrichmentProvider.AcoustID, EnrichmentProvider.MusicBrainzWeb, EnrichmentProvider.AppleMusic),
+            Opts);
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
+    }
+
     // --- helpers ---
 
     private static SongMetadata Song() => new()

@@ -1076,11 +1076,14 @@ public class EnrichmentOrchestratorTests
     }
 
     [Fact]
-    public async Task ProcessSong_AcoustIdMbid_IsGossipedToMusicBrainz_WithinSamePass()
+    public async Task ProcessSong_AcoustIdMbid_NotGossipedToMusicBrainz_SearchesIndependently()
     {
-        // AcoustID resolves a recording MBID; within the same pass that MBID is handed to the
-        // MusicBrainz provider so it can do an exact lookup (genuine corroboration), instead of
-        // only learning it on a later pass.
+        // Identifier gossip is gone: a recording MBID AcoustID discovered is NOT written onto the
+        // row mid-pass, so MusicBrainzWeb never receives it and must match independently. This is
+        // what prevents a wrong fingerprint MBID from being "confirmed" by an exact lookup it
+        // seeded itself. The MB stub here only matches when handed an MBID (modelling an exact
+        // lookup), so without the gossip it returns no match and the lone fingerprint stays in
+        // review instead of auto-matching on manufactured corroboration.
         await using var db = CreateDb();
         var song = AddPendingSong(db, artist: "Juice WRLD", title: "Lucid Dreams");
         await db.SaveChangesAsync();
@@ -1097,9 +1100,12 @@ public class EnrichmentOrchestratorTests
             enrich: s =>
             {
                 musicBrainzSawMbid = s.MusicBrainzId;
-                return Task.FromResult<ProviderOutcome>(new ProviderMatched(new EnrichmentProviderResult(
-                    "Juice WRLD", "Juice WRLD", "Lucid Dreams", 2018, null,
-                    "mb-777", null, null, null, null, "MusicBrainzWeb", 0.90, [], EnrichmentStatus.Matched)));
+                // Models an exact-MBID lookup: only "finds" the recording when handed an MBID.
+                return Task.FromResult<ProviderOutcome>(string.IsNullOrWhiteSpace(s.MusicBrainzId)
+                    ? new ProviderNoMatch()
+                    : new ProviderMatched(new EnrichmentProviderResult(
+                        "Juice WRLD", "Juice WRLD", "Lucid Dreams", 2018, null,
+                        "mb-777", null, null, null, null, "MusicBrainzWeb", 0.90, [], EnrichmentStatus.Matched)));
             });
 
         var opts = CreateOptions();
@@ -1107,19 +1113,19 @@ public class EnrichmentOrchestratorTests
         var orchestrator = CreateOrchestratorWithProviders(db, [acoustId, musicBrainz], opts);
         var outcome = await orchestrator.ProcessSongAsync(song.Id);
 
-        Assert.Equal("mb-777", musicBrainzSawMbid);
-        Assert.Equal(EnrichmentOutcome.Matched, outcome);
+        Assert.Null(musicBrainzSawMbid);
+        Assert.Equal(EnrichmentOutcome.NeedsReview, outcome);
 
         var updated = await db.Songs.SingleAsync();
-        Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
-        Assert.Equal("mb-777", updated.MusicBrainzId);
+        Assert.Equal(EnrichmentStatus.NeedsReview, updated.EnrichmentStatus);
+        Assert.Null(updated.MusicBrainzId);
     }
 
     [Fact]
-    public async Task ProcessSong_GossipedIdentifier_NotPersisted_WhenNotConsensusWinner()
+    public async Task ProcessSong_CandidateIdentifier_NotPersisted_WhenNotConsensusWinner()
     {
-        // AcoustID gossips an MBID that helps a later provider's lookup, but if the song ends in
-        // NeedsReview (no winner) the gossiped identifier must be reverted, not written to the row.
+        // A NeedsReview verdict (no consensus winner) must never write a candidate's MBID onto the
+        // row — the user-visible identifiers stay untouched until a real match is applied.
         await using var db = CreateDb();
         var song = AddPendingSong(db, artist: "Artist", title: "Title");
         await db.SaveChangesAsync();
@@ -1128,7 +1134,7 @@ public class EnrichmentOrchestratorTests
             canHandle: _ => true,
             enrich: _ => Task.FromResult<ProviderOutcome>(new ProviderMatched(new EnrichmentProviderResult(
                 "Artist", "Artist", "Title", null, null,
-                "mb-gossip", null, null, "ac-1", null, "AcoustID", 0.70, [], EnrichmentStatus.NeedsReview))));
+                "mb-candidate", null, null, "ac-1", null, "AcoustID", 0.70, [], EnrichmentStatus.NeedsReview))));
         var musicBrainz = new StubEnrichmentProvider("MusicBrainzWeb", 200,
             canHandle: _ => true,
             enrich: _ => Task.FromResult<ProviderOutcome>(new ProviderNoMatch()));

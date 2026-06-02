@@ -33,7 +33,8 @@ public class MusicBrainzWebEnrichmentProvider(
 
         try
         {
-            // 1) Exact lookup by an MBID the file already carries (or one a prior provider gossiped).
+            // 1) Exact lookup by an MBID the file itself carries (a prior provider's discovery is
+            //    never gossiped onto the row — providers match independently for honest consensus).
             if (!string.IsNullOrWhiteSpace(song.MusicBrainzId))
             {
                 var byId = await service.LookupByRecordingIdAsync(song.MusicBrainzId!, ct);
@@ -216,6 +217,5 @@ public class MusicBrainzWebEnrichmentProvider(
         return (Math.Clamp(score, 0, 1), warnings);
     }
 
-    private static bool HasBlockingWarning(List<string> warnings) =>
-        warnings.Exists(static w => w is "artist_mismatch" or "title_mismatch" or "version_mismatch" or "duration_mismatch" or "artist_unknown");
+    private static bool HasBlockingWarning(List<string> warnings) => MatchWarnings.AnyBlocking(warnings);
 }
