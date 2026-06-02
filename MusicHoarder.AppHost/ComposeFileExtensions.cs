@@ -20,12 +20,22 @@ internal static class ComposeFileExtensions
         var api = file.Services["api"];
         var frontend = file.Services["frontend"];
 
-        // Force a fresh pull of the :latest images on every deploy. Without this, Dokploy's
-        // `docker compose up` reuses the cached :latest tag and never picks up new builds.
-        // (Swarm/`docker stack deploy` ignores pull_policy; it relies on `--resolve-image always`
-        // re-resolving the :latest digest instead — see WithRollingUpdate below.)
-        api.PullPolicy = "always";
-        frontend.PullPolicy = "always";
+        // Do NOT set pull_policy: `docker stack deploy` rejects it ("Additional property pull_policy
+        // is not allowed"). Swarm pulls on image-reference change, so re-pulling a mutable :latest
+        // tag relies on the deploy running with `--resolve-image always` (or, more robustly, pinning
+        // API_IMAGE/FRONTEND_IMAGE to immutable :X.Y.Z tags). Keep it unset so the file stays valid
+        // for both `docker stack deploy` and plain `docker compose up`.
+        api.PullPolicy = null;
+        frontend.PullPolicy = null;
+
+        // The Aspire dashboard service carries a top-level `restart: always`, which `docker stack
+        // deploy` rejects the same way ("Additional property restart is not allowed"). Swap it for a
+        // swarm restart_policy. Guarded in case the dashboard is disabled (WithProperties).
+        if (file.Services.TryGetValue("compose-dashboard", out var dashboard))
+        {
+            dashboard.Restart = null;
+            dashboard.WithStopFirstUpdate();
+        }
 
         file.PersistDataProtectionKeys(api);
         MountMusicLibrary(api);

@@ -8,7 +8,14 @@ services:
       - "18890"
     networks:
       - "aspire"
-    restart: "always"
+    deploy:
+      replicas: 1
+      mode: "replicated"
+      update_config:
+        parallelism: 1
+        order: "stop-first"
+      restart_policy:
+        condition: "any"
   postgres:
     image: "docker.io/library/postgres:17.6"
     environment:
@@ -35,7 +42,6 @@ services:
         condition: "any"
   api:
     image: "${API_IMAGE}"
-    pull_policy: "always"
     environment:
       OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY: "in_memory"
       ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
@@ -104,7 +110,6 @@ services:
       start_period: "40s"
   frontend:
     image: "${FRONTEND_IMAGE}"
-    pull_policy: "always"
     environment:
       NODE_ENV: "production"
       PORT: "8001"
