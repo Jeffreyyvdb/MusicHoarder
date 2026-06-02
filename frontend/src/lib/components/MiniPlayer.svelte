@@ -80,8 +80,7 @@
 {#if playerStore.currentSong && !playerStore.isPanelMounted}
   {@const song = playerStore.currentSong}
   <div
-    class="border-border bg-sidebar fixed right-0 left-0 z-50 border-t shadow-[0_-4px_24px_oklch(0%_0_0/0.08)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.35)]"
-    style="bottom: env(safe-area-inset-bottom, 0);"
+    class="border-border bg-background/95 fixed inset-x-3 z-50 overflow-hidden rounded-2xl border shadow-[0_-4px_24px_oklch(0%_0_0/0.08)] backdrop-blur bottom-[calc(84px+env(safe-area-inset-bottom))] md:inset-x-0 md:rounded-none md:border-x-0 md:border-b-0 md:border-t md:bg-sidebar md:backdrop-blur-none md:bottom-[env(safe-area-inset-bottom)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.35)]"
   >
     <div class="bg-foreground/15 block h-0.5 w-full overflow-hidden sm:hidden" aria-hidden="true">
       <div
