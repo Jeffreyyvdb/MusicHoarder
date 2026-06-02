@@ -1,9 +1,9 @@
 using System.Globalization;
 using System.Text.Json.Serialization;
-using System.Threading.RateLimiting;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
+using MusicHoarder.Api.RateLimiting;
 
 namespace MusicHoarder.Api.Enrichment;
 
@@ -78,9 +78,7 @@ public sealed class MusicBrainzWebService(
     IOptions<MusicEnricherOptions> options,
     ILogger<MusicBrainzWebService> logger) : IMusicBrainzWebService
 {
-    private static readonly object RateLimiterLock = new();
-    private static TokenBucketRateLimiter? _sharedRateLimiter;
-    private static int _sharedRate = -1;
+    private static readonly ReconfigurableRateLimiter RateLimiter = new();
 
     public async Task<MusicBrainzRecording?> LookupByRecordingIdAsync(string mbid, CancellationToken ct = default)
     {
@@ -139,8 +137,7 @@ public sealed class MusicBrainzWebService(
 
     private async Task<T?> GetAsync<T>(string relativeUrl, CancellationToken ct) where T : class
     {
-        var limiter = GetRateLimiter(Math.Max(1, options.Value.MusicBrainzRequestsPerSecond));
-        using var lease = await limiter.AcquireAsync(permitCount: 1, ct);
+        using var lease = await RateLimiter.AcquireAsync(Math.Max(1, options.Value.MusicBrainzRequestsPerSecond), ct);
         if (!lease.IsAcquired)
         {
             logger.LogWarning("MusicBrainz rate limiter rejected the request");
@@ -289,28 +286,6 @@ public sealed class MusicBrainzWebService(
 
     private static string EscapeLucene(string value)
         => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
-
-    private static TokenBucketRateLimiter GetRateLimiter(int requestsPerSecond)
-    {
-        lock (RateLimiterLock)
-        {
-            if (_sharedRateLimiter is not null && _sharedRate == requestsPerSecond)
-                return _sharedRateLimiter;
-
-            _sharedRateLimiter?.Dispose();
-            _sharedRateLimiter = new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
-            {
-                TokenLimit = requestsPerSecond,
-                TokensPerPeriod = requestsPerSecond,
-                ReplenishmentPeriod = TimeSpan.FromSeconds(1),
-                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                QueueLimit = int.MaxValue,
-                AutoReplenishment = true,
-            });
-            _sharedRate = requestsPerSecond;
-            return _sharedRateLimiter;
-        }
-    }
 
     // --- JSON DTOs ---
 

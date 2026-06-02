@@ -57,4 +57,41 @@ public class QualityGradingPromptTests
         Assert.Single(result.Issues);
         Assert.Equal("low_confidence", result.Issues[0].Code);
     }
+
+    [Fact]
+    public void Version_IsTwo()
+    {
+        // v2 added ground-truth (proposed != applied) and unreleased/community-tracker guidance.
+        Assert.Equal(2, QualityGradingPrompt.Version);
+    }
+
+    [Fact]
+    public void BuildMessages_SystemPrompt_TeachesProposedVsAppliedAndUnreleased()
+    {
+        // The two grader false positives this prompt fixes: treating a proposed-but-unapplied change
+        // as applied, and grading an unreleased/community-tracker match "wrong" for lacking
+        // mainstream corroboration. The system prompt must address both.
+        var messages = QualityGradingPrompt.BuildMessages(SampleDossier());
+        var system = messages.Single(m => m.Role == "system").Content;
+
+        Assert.Contains("currentMetadata", system);
+        Assert.Contains("proposed", system, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("isUnreleased", system);
+        Assert.Contains("community", system, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static SongGradingDossier SampleDossier()
+    {
+        var meta = new DossierMetadata("T", "A", "A", "Al", 2020, 1, null, null, null, null);
+        return new SongGradingDossier(
+            SongId: 1,
+            File: new DossierFile("/x.mp3", "x.mp3", ".mp3", 1, 180, 320, true, DateTime.UtcNow),
+            EmbeddedTags: meta,
+            CurrentMetadata: meta,
+            Enrichment: new DossierEnrichment("Matched", "Tracker", 1.0, [], null, false, true),
+            DestinationPathPreview: "/dest/A/2020 - Al/01 - T.mp3",
+            ProviderAttempts: [],
+            ChangeLog: [],
+            Duplicate: null);
+    }
 }

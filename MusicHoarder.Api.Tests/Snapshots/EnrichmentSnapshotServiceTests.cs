@@ -132,6 +132,16 @@ public class EnrichmentSnapshotServiceTests
         Assert.False(string.IsNullOrWhiteSpace(EnrichmentSnapshotService.ResolveVersion("")));
     }
 
+    [Fact]
+    public void ResolveVersion_StripsBuildMetadataSuffix()
+    {
+        // The .NET SDK appends "+<source-revision>" to dev builds; the timeline + /api/version want
+        // a clean semver matching the GitHub release / Docker tag.
+        Assert.Equal("1.4.2", EnrichmentSnapshotService.ResolveVersion("1.4.2+abc123"));
+        Assert.Equal("1.0.0", EnrichmentSnapshotService.ResolveVersion("  1.0.0+deadbeef  "));
+        Assert.Equal("1.4.2", EnrichmentSnapshotService.ResolveVersion("1.4.2"));
+    }
+
     // --- helpers ---
 
     private static MusicHoarderDbContext CreateDb() =>

@@ -22,9 +22,15 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
         var title = NormalizeSegment(song.Title, "Unknown Title");
         var extension = NormalizeExtension(song.Extension);
 
-        // Compilations route under a single "Various Artists" tree (keyed by album, not the
-        // per-track artist) so the album stays together — same convention every server uses.
-        var topFolder = song.IsCompilation
+        // Genuine various-artists compilations route under a single "Various Artists" tree (keyed by
+        // album, not the per-track artist) so the album stays together — same convention every server
+        // uses. But a single-artist release that merely happens to be flagged "compilation" (e.g. a
+        // greatest-hits a provider tagged compilation) must still file under that artist, not get
+        // exiled to Various Artists. Treat it as various-artists only when the album artist is absent
+        // or is itself a various-artists sentinel.
+        var isVariousArtists = song.IsCompilation
+            && (string.IsNullOrWhiteSpace(song.AlbumArtist) || IsVariousArtistsSentinel(song.AlbumArtist));
+        var topFolder = isVariousArtists
             ? NormalizeSegment(_compilationFolder, "Various Artists")
             : ResolveAlbumArtist(song);
 
@@ -112,5 +118,16 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
     {
         var preferred = song.AlbumArtist ?? ArtistCreditNormalizer.GetPrimaryArtist(song.Artist) ?? song.Artist;
         return NormalizeSegment(preferred, "Unknown Artist");
+    }
+
+    // The album-artist values providers use for genuine multi-artist releases. A track whose album
+    // artist is one of these is a true compilation and belongs under the Various Artists tree.
+    private static bool IsVariousArtistsSentinel(string albumArtist)
+    {
+        var trimmed = albumArtist.Trim();
+        return trimmed.Equals("Various Artists", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("Various", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("VA", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("V.A.", StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -191,6 +191,5 @@ public class AppleMusicEnrichmentProvider(
         return (Math.Max(0.0, score), warnings);
     }
 
-    private static bool HasBlockingWarning(List<string> warnings) =>
-        warnings.Exists(static w => w is "duration_mismatch" or "artist_mismatch" or "title_mismatch" or "version_mismatch" or "artist_unknown");
+    private static bool HasBlockingWarning(List<string> warnings) => MatchWarnings.AnyBlocking(warnings);
 }

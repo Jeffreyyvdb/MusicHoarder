@@ -14,7 +14,8 @@ public class DeezerEnrichmentProviderTests
     public async Task TryEnrichAsync_StrongMatch_HydratesAndReturnsMatched()
     {
         // Search returns a lightweight track (no ISRC/year/track#); the provider hydrates the
-        // chosen candidate via LookupByIdAsync to fill those in (and seed the gossip ISRC).
+        // chosen candidate via LookupByIdAsync to fill those in (the ISRC then participates in
+        // independent cross-provider consensus).
         var lightweight = new DeezerCatalogTrack("deezer-1", "Lucid Dreams", "Juice WRLD", "Goodbye & Good Riddance", null, null, 239_000, null);
         var hydrated = new DeezerCatalogTrack("deezer-1", "Lucid Dreams", "Juice WRLD", "Goodbye & Good Riddance", 2018, 3, 239_000, "USUM71807840");
         var catalog = new StubDeezerCatalog

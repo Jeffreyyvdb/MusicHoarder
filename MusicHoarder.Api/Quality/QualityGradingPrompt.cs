@@ -18,7 +18,7 @@ public record GradingResult(
 /// </summary>
 public static class QualityGradingPrompt
 {
-    public const int Version = 1;
+    public const int Version = 2;
 
     private static readonly JsonSerializerOptions DossierJson = new(JsonSerializerDefaults.Web)
     {
@@ -37,6 +37,24 @@ public static class QualityGradingPrompt
         You will be given a JSON dossier: the file path + embedded tags as found on disk, every
         provider attempt and the candidate it returned, the field-level change log, the final chosen
         metadata, and the destination path the file would be written to.
+
+        GROUND TRUTH — read carefully before judging:
+        - `currentMetadata` and `destinationPathPreview` are what the pipeline ACTUALLY chose and what
+          will be written to disk. Judge THESE.
+        - The `changeLog` records both applied and merely-proposed changes. An entry with
+          `proposed: true` / `applied: false` was NOT applied — the pipeline deliberately declined to
+          overwrite the existing tag. Do NOT treat a proposed-but-unapplied change as if it had been
+          made, and do NOT raise `embedded_tags_overwritten` or `path_metadata_mismatch` from a
+          proposed-only change. Declining to overwrite a good embedded tag from a weak source is the
+          CORRECT behaviour, not a failure.
+
+        UNRELEASED / COMMUNITY-TRACKER tracks: when `enrichment.isUnreleased` is true or the match
+        came from a community tracker (a leak/unreleased catalog), the mainstream providers (Spotify,
+        MusicBrainz, Deezer, Apple Music) legitimately CANNOT corroborate — the song isn't in their
+        catalogs by definition. Do NOT grade such a result "wrong" merely for being single-sourced or
+        lacking mainstream matches. Judge it on internal consistency and plausibility instead — and
+        note that a file named with a working/alternate title (leaks routinely circulate under
+        working titles) matching a tracker's canonical title is normal and expected, not invented.
 
         Grade how trustworthy the FINAL chosen metadata + destination are, given the evidence:
 

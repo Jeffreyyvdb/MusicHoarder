@@ -4,6 +4,15 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Hide the scrollbar while keeping the element scrollable (e.g. horizontal tab
+ * strips that swipe-scroll on mobile, the sidebar content, the command list). */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /*
  * MusicHoarder design token mapping
  * — see /tmp/musichoarder-design/musichoarder/project/src/styles.css for the source.

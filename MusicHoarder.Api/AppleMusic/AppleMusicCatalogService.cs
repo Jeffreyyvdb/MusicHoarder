@@ -2,11 +2,11 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Threading.RateLimiting;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Options;
+using MusicHoarder.Api.RateLimiting;
 
 namespace MusicHoarder.Api.AppleMusic;
 
@@ -28,9 +28,7 @@ public sealed class AppleMusicCatalogService(
     // shared backoff window + the orchestrator's deferred RetryAfterUtc re-sweep, not by grinding here.
     private const int MaxRetries = 2;
 
-    private static readonly object RateLimiterLock = new();
-    private static TokenBucketRateLimiter? _sharedRateLimiter;
-    private static int _sharedRate = -1;
+    private static readonly ReconfigurableRateLimiter RateLimiter = new();
 
     // Shared backoff window across all instances: iTunes throttles by IP, so once one call is
     // rate-limited every concurrent/subsequent call would be too. Short-circuit them instead of
@@ -56,8 +54,7 @@ public sealed class AppleMusicCatalogService(
         if (backoffUntil > now)
             throw new ProviderRateLimitedException(backoffUntil - now);
 
-        var limiter = GetRateLimiter(opts.AppleMusicApiRequestsPerSecond);
-        using var lease = await limiter.AcquireAsync(permitCount: 1, ct);
+        using var lease = await RateLimiter.AcquireAsync(opts.AppleMusicApiRequestsPerSecond, ct);
         if (!lease.IsAcquired)
         {
             logger.LogWarning("Apple Music rate limiter could not grant a permit (disposed or canceled)");
@@ -196,8 +193,7 @@ public sealed class AppleMusicCatalogService(
         if (backoffUntil > now)
             throw new ProviderRateLimitedException(backoffUntil - now);
 
-        var limiter = GetRateLimiter(options.Value.AppleMusicApiRequestsPerSecond);
-        using var lease = await limiter.AcquireAsync(permitCount: 1, ct);
+        using var lease = await RateLimiter.AcquireAsync(options.Value.AppleMusicApiRequestsPerSecond, ct);
         if (!lease.IsAcquired)
             return null;
 
@@ -249,28 +245,6 @@ public sealed class AppleMusicCatalogService(
         var raw = $"{limit}|{country}|{query}";
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
         return $"applemusic_search:{hash}";
-    }
-
-    private static TokenBucketRateLimiter GetRateLimiter(int requestsPerSecond)
-    {
-        lock (RateLimiterLock)
-        {
-            if (_sharedRateLimiter is not null && _sharedRate == requestsPerSecond)
-                return _sharedRateLimiter;
-
-            _sharedRateLimiter?.Dispose();
-            _sharedRate = requestsPerSecond;
-            _sharedRateLimiter = new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
-            {
-                TokenLimit = requestsPerSecond,
-                TokensPerPeriod = requestsPerSecond,
-                ReplenishmentPeriod = TimeSpan.FromSeconds(1),
-                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                QueueLimit = int.MaxValue,
-                AutoReplenishment = true,
-            });
-            return _sharedRateLimiter;
-        }
     }
 
     private static IReadOnlyList<AppleMusicCatalogTrack> ParseSearchResponse(string json)

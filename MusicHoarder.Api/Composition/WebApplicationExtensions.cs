@@ -18,6 +18,7 @@ public static class WebApplicationExtensions
 
     public static WebApplication MapMusicHoarderEndpoints(this WebApplication app)
     {
+        app.MapVersionEndpoints();
         app.MapLegacyScanEndpoints();
         app.MapEnrichmentEndpoints();
         app.MapDashboardEndpoints();

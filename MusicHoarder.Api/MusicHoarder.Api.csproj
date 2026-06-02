@@ -15,6 +15,16 @@
         <ContainerUser>root</ContainerUser>
     </PropertyGroup>
 
+    <!-- Release builds bake the semantic-release version into the assembly's
+         AssemblyInformationalVersion (read at runtime by EnrichmentSnapshotService.ResolveVersion and
+         the /api/version endpoint). CI sets the MH_VERSION env var before `aspire do push`, which
+         MSBuild surfaces as $(MH_VERSION). Disable the source-revision suffix so the value is a clean
+         semver (e.g. 1.4.2, not 1.4.2+<sha>). Unset locally → SDK default 1.0.0, unchanged. -->
+    <PropertyGroup Condition="'$(MH_VERSION)' != ''">
+        <Version>$(MH_VERSION)</Version>
+        <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    </PropertyGroup>
+
     <ItemGroup>
         <InternalsVisibleTo Include="MusicHoarder.Api.Tests" />
     </ItemGroup>

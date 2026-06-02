@@ -4,12 +4,12 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Threading.RateLimiting;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
+using MusicHoarder.Api.RateLimiting;
 
 namespace MusicHoarder.Api.Spotify;
 
@@ -24,9 +24,7 @@ public sealed class SpotifyCatalogSearchService(
     private static readonly TimeSpan RateLimitDefaultDelay = TimeSpan.FromSeconds(5);
     private const int MaxRetries = 3;
 
-    private static readonly object RateLimiterLock = new();
-    private static TokenBucketRateLimiter? _sharedRateLimiter;
-    private static int _sharedRate = -1;
+    private static readonly ReconfigurableRateLimiter RateLimiter = new();
 
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _tokenLocks = new(StringComparer.Ordinal);
 
@@ -49,8 +47,7 @@ public sealed class SpotifyCatalogSearchService(
 
         // QueueLimit must be > 0 so concurrent enrichment workers wait for tokens instead of
         // failing immediately (matches AcoustIdService rate-limiter behavior).
-        var limiter = GetRateLimiter(opts.SpotifyApiRequestsPerSecond);
-        using var lease = await limiter.AcquireAsync(permitCount: 1, ct);
+        using var lease = await RateLimiter.AcquireAsync(opts.SpotifyApiRequestsPerSecond, ct);
         if (!lease.IsAcquired)
         {
             logger.LogWarning("Spotify catalog rate limiter could not grant a permit (disposed or canceled)");
@@ -230,8 +227,7 @@ public sealed class SpotifyCatalogSearchService(
         if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
             return null;
 
-        var limiter = GetRateLimiter(options.Value.SpotifyApiRequestsPerSecond);
-        using var lease = await limiter.AcquireAsync(permitCount: 1, ct);
+        using var lease = await RateLimiter.AcquireAsync(options.Value.SpotifyApiRequestsPerSecond, ct);
         if (!lease.IsAcquired)
             return null;
 
@@ -332,28 +328,6 @@ public sealed class SpotifyCatalogSearchService(
 
     private void InvalidateTokenCache(string clientId) =>
         cache.Remove($"spotify_cc_token:{clientId}");
-
-    private static TokenBucketRateLimiter GetRateLimiter(int requestsPerSecond)
-    {
-        lock (RateLimiterLock)
-        {
-            if (_sharedRateLimiter is not null && _sharedRate == requestsPerSecond)
-                return _sharedRateLimiter;
-
-            _sharedRateLimiter?.Dispose();
-            _sharedRate = requestsPerSecond;
-            _sharedRateLimiter = new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
-            {
-                TokenLimit = requestsPerSecond,
-                TokensPerPeriod = requestsPerSecond,
-                ReplenishmentPeriod = TimeSpan.FromSeconds(1),
-                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                QueueLimit = int.MaxValue,
-                AutoReplenishment = true,
-            });
-            return _sharedRateLimiter;
-        }
-    }
 
     private static IReadOnlyList<SpotifyCatalogTrack> ParseSearchResponse(string json)
     {
