@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import MiniPlayer from '$lib/components/MiniPlayer.svelte';
   import ImportPipelineDrawer from '$lib/components/pipeline/ImportPipelineDrawer.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
   import AppShellV2 from '$lib/components/v2/AppShellV2.svelte';
@@ -37,11 +36,6 @@
 <AppShellV2>
   {@render children()}
 </AppShellV2>
-
-<!-- MiniPlayer is the global playback UI; it hides itself when the in-page
-     TrackPanel is mounted. Its audio element is owned by the store (not the
-     DOM), so playback survives re-renders, navigation, and resize. -->
-<MiniPlayer />
 
 <CommandPalette />
 

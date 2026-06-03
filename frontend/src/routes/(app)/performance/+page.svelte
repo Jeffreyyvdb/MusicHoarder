@@ -133,8 +133,8 @@
     <div>
       <h1 class="text-lg font-semibold">Pipeline performance</h1>
       <p class="text-sm text-muted-foreground">
-        Quality of every enrichment version over time. A snapshot is captured automatically after each
-        run; compare two to see which songs regressed.
+        Quality of every enrichment version over time. One point per pipeline version, updated as your
+        library is processed; compare two to see which songs regressed.
       </p>
     </div>
     <Button onclick={capture} disabled={capturing} variant="outline" size="sm">
@@ -223,7 +223,9 @@
                 onchange={loadCompare}
               >
                 {#each snapshots as s (s.id)}
-                  <option value={s.id}>{fmtShort(s.capturedAtUtc)} · {s.version ?? 'dev'}</option>
+                  <option value={s.id}
+                    >{fmtShort(s.capturedAtUtc)} · {s.version ?? 'dev'} · {s.configHash.slice(0, 8)}</option
+                  >
                 {/each}
               </select>
               <span class="text-muted-foreground">→</span>
@@ -233,7 +235,9 @@
                 onchange={loadCompare}
               >
                 {#each snapshots as s (s.id)}
-                  <option value={s.id}>{fmtShort(s.capturedAtUtc)} · {s.version ?? 'dev'}</option>
+                  <option value={s.id}
+                    >{fmtShort(s.capturedAtUtc)} · {s.version ?? 'dev'} · {s.configHash.slice(0, 8)}</option
+                  >
                 {/each}
               </select>
             </div>

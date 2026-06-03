@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
@@ -30,6 +31,10 @@ public class QualityGradingBackgroundService(
     private readonly SemaphoreSlim _rateLock = new(1, 1);
     private DateTime _nextSlotUtc = DateTime.MinValue;
     private int _warnedNotConfigured;
+
+    // Songs that just failed to grade, with the UTC instant they become eligible again. A failure
+    // persists no grade row, so without this backoff the auto-sweep re-enqueues them every sweep.
+    private readonly ConcurrentDictionary<int, DateTime> _failedUntil = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -106,12 +111,21 @@ public class QualityGradingBackgroundService(
 
         var latest = latestByGrade.ToDictionary(g => g.SongId);
 
+        // Drop songs still inside their post-failure backoff, and prune entries that have expired.
+        var now = DateTime.UtcNow;
+        foreach (var kvp in _failedUntil)
+            if (kvp.Value <= now)
+                _failedUntil.TryRemove(kvp.Key, out _);
+
         var needsGrading = candidates.Where(c =>
         {
+            if (_failedUntil.TryGetValue(c.Id, out var until) && until > now) return false; // backing off
             if (!latest.TryGetValue(c.Id, out var g)) return true;            // never graded
-            if (g.PromptVersion != QualityGradingPrompt.Version) return true; // prompt changed
-            if (g.Model != opts.Model) return true;                          // model changed
             if (c.EnrichedAtUtc is { } e && g.GradedAtUtc < e) return true;  // re-enriched since
+            // A prompt-version or model change is NOT auto-regraded here: it would re-grade the whole
+            // library on every config bump. Such grades are surfaced as "outdated" in the API and
+            // regraded only on an explicit manual / "regrade outdated" action (force:false still lets
+            // the grader itself detect the version/model mismatch). See QualityEndpoints grade-outdated.
             return false;
         }).Select(c => c.Id).ToList();
 
@@ -138,6 +152,7 @@ public class QualityGradingBackgroundService(
                 {
                     case GradeOutcome.Graded:
                         Interlocked.Exchange(ref _warnedNotConfigured, 0);
+                        _failedUntil.TryRemove(item.SongId, out _); // recovered — clear any backoff
                         progressTracker.IncrementGraded();
                         break;
                     case GradeOutcome.NotConfigured:
@@ -153,6 +168,7 @@ public class QualityGradingBackgroundService(
                         progressTracker.IncrementSkipped();
                         break;
                     default:
+                        BackOff(item.SongId);
                         progressTracker.RecordError(result.ErrorCode ?? "error", result.Error);
                         progressTracker.IncrementFailed();
                         break;
@@ -164,6 +180,7 @@ public class QualityGradingBackgroundService(
             }
             catch (Exception ex)
             {
+                BackOff(item.SongId);
                 logger.LogWarning(ex, "Quality grading worker {WorkerId} failed on song {SongId}", workerId, item.SongId);
                 progressTracker.RecordError("error", ex.Message);
                 progressTracker.IncrementFailed();
@@ -197,6 +214,10 @@ public class QualityGradingBackgroundService(
             logger.LogWarning(ex, "Failed to capture grading snapshot");
         }
     }
+
+    /// <summary>Marks a song as recently-failed so the auto-sweep skips it for the backoff window.</summary>
+    private void BackOff(int songId) =>
+        _failedUntil[songId] = DateTime.UtcNow + TimeSpan.FromSeconds(options.CurrentValue.FailureBackoffSeconds);
 
     /// <summary>Spaces out calls to honour <see cref="QualityGradingOptions.RequestsPerSecond"/> across all workers.</summary>
     private async Task ThrottleAsync(CancellationToken ct)

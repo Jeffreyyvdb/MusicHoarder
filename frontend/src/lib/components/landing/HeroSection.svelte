@@ -1,65 +1,76 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
+  import { signInAsDemo } from '$lib/api-client';
   import { Button } from '$lib/components/ui/button';
+  import CommandBlock from '$lib/components/landing/CommandBlock.svelte';
+  import { demoHeroLog, githubUrl, installCommand } from '$lib/components/landing/landing-demo-data';
 
-  type LogRow = readonly [stage: string, msg: string, level: 'ok' | 'warn'];
+  let launching = $state(false);
 
-  const log: LogRow[] = [
-    ['scan', 'discovered 47 new audio files', 'ok'],
-    ['fp', 'AcoustID match (0.94) → 3f9e8c72-1a4b…', 'ok'],
-    ['meta', 'MusicBrainz: Radiohead — In Rainbows — "Nude"', 'ok'],
-    ['art', 'CAA: fetched front-1500.jpg (214 KB)', 'ok'],
-    ['lyr', 'LRCLIB: synced lyrics (142 lines)', 'ok'],
-    ['dupe', 'duplicate → keeping FLAC over 320 MP3', 'warn'],
-    ['write', '→ /dest/Radiohead/In Rainbows (2007)/03 Nude.flac', 'ok'],
-    ['fp', 'low confidence (0.62) — flagged for review', 'warn']
-  ];
+  async function tryDemo() {
+    if (launching) return;
+    launching = true;
+    try {
+      await signInAsDemo();
+      await goto('/pipeline');
+    } catch {
+      await goto('/login');
+    }
+  }
 </script>
 
 <section
-  class="mx-auto grid max-w-[1280px] items-center gap-10 px-6 pt-3 pb-14 md:grid-cols-[1.1fr_1fr] md:gap-16 md:px-14 md:pt-3 md:pb-14"
+  class="mx-auto grid max-w-[1280px] items-center gap-10 px-6 pt-3 pb-14 md:grid-cols-[1.1fr_1fr] md:gap-16 md:px-14"
 >
+  <!-- LEFT column -->
   <div class="pt-3">
     <div
-      class="text-muted-foreground font-mono text-[11px] font-semibold tracking-[0.12em] uppercase"
+      class="text-muted-foreground flex items-center gap-2 font-mono text-[11px] font-semibold tracking-[0.12em] uppercase"
     >
-      CATALOGUE · ENRICH · ARCHIVE
+      <span class="bg-primary relative inline-block size-[7px] flex-shrink-0 rounded-full">
+        <span class="bg-primary absolute inset-0 animate-ping rounded-full opacity-60"></span>
+      </span>
+      <span>SELF-HOSTED · MIT · YOUR HARDWARE</span>
     </div>
 
     <h1
-      class="mt-3.5 mb-5 text-[clamp(44px,5.5vw,76px)] leading-[0.98] font-bold tracking-[-0.035em] text-balance"
+      class="mt-3.5 mb-5 text-[clamp(40px,5.5vw,68px)] leading-[1.0] font-bold tracking-[-0.035em] text-balance"
     >
-      A library for the<br />music you actually<br /><em class="text-primary font-normal italic"
-        >collect.</em
+      Point it at the mess.<br />Get back a <em class="text-primary font-normal italic"
+        >library.</em
       >
     </h1>
 
-    <p
-      class="text-muted-foreground mb-7 max-w-[540px] text-[16px] leading-[1.55] text-pretty"
-    >
-      MusicHoarder ingests your messy folders, identifies every track by acoustic fingerprint, pulls
-      metadata from nine open sources, and writes a tidy, deduplicated library to disk —
-      <span class="text-primary font-mono text-[13px]"
-        >&nbsp;artist / album (year) /&nbsp;</span
-      >
-      — the way it should be.
+    <p class="text-muted-foreground mb-6 max-w-[540px] text-[16px] leading-[1.6] text-pretty">
+      MusicHoarder is a self-hosted pipeline that <strong class="text-foreground"
+        >fingerprints every track</strong
+      >, reaches <strong class="text-foreground">consensus across seven providers</strong>, grades
+      the result with a <strong class="text-foreground">quality LLM</strong>, dedupes, and writes a
+      tidy library to your own disk.
     </p>
 
-    <div class="mb-6 flex flex-wrap gap-2.5">
-      <Button size="lg" href="/library">Sign in</Button>
-      <Button
-        size="lg"
-        variant="outline"
-        href="https://github.com/Jeffreyyvdb/MusicHoarder"
+    <CommandBlock text={installCommand} label="your-server : ~" class="mb-6 max-w-[560px]" />
+
+    <div class="mb-6 flex flex-wrap items-center gap-3">
+      <Button size="lg" onclick={tryDemo} disabled={launching}>Try the live demo</Button>
+      <a
+        href={githubUrl}
         target="_blank"
-        rel="noopener noreferrer">Self-host</Button
+        rel="noopener noreferrer"
+        class="text-muted-foreground hover:text-foreground text-[14px] font-medium transition-colors"
       >
+        View on GitHub
+      </a>
     </div>
 
-    <div class="text-muted-foreground font-mono text-[12px]">
-      Open source · MIT · runs on your own hardware
+    <div class="text-muted-foreground flex flex-wrap gap-x-5 gap-y-1.5 font-mono text-[11.5px]">
+      <span>runs on your hardware</span>
+      <span>source mounted read-only</span>
+      <span>open files on disk</span>
     </div>
   </div>
 
+  <!-- RIGHT column: live-pipeline log card -->
   <div class="md:justify-self-end">
     <div
       class="bg-card border-border overflow-hidden rounded-[10px] border"
@@ -80,7 +91,7 @@
       </div>
 
       <div class="max-h-[280px] overflow-hidden px-4 py-3 font-mono text-[11px] leading-[1.6]">
-        {#each log as [stage, msg, level] (stage + msg)}
+        {#each demoHeroLog as [stage, msg, level] (stage + msg)}
           <div class="flex gap-2 py-0.5">
             <span
               class="flex-shrink-0 font-mono"

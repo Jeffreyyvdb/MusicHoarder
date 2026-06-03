@@ -4,6 +4,7 @@
     fetchQualityProgress,
     fetchQualitySongs,
     gradeAllSongs,
+    gradeOutdatedSongs,
     type QualityOverview,
     type QualityProgress,
     type QualityCategory,
@@ -159,6 +160,19 @@
       busy = false;
     }
   }
+
+  async function onGradeOutdated() {
+    busy = true;
+    try {
+      const r = await gradeOutdatedSongs();
+      toast.success(`Queued ${r.enqueued.toLocaleString()} outdated songs for re-grading`);
+      void pollUntilDone();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to start grading');
+    } finally {
+      busy = false;
+    }
+  }
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col">
@@ -180,6 +194,18 @@
         {/if}
       </p>
     </div>
+    {#if overview && overview.outdatedCount > 0}
+      <button
+        type="button"
+        disabled={busy || polling || !gradingConfigured}
+        onclick={onGradeOutdated}
+        title="These grades were made with an older prompt or model. Re-grade just them."
+        class="border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400 inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12.5px] font-medium transition-colors disabled:opacity-50"
+      >
+        {#if busy || polling}<Loader2 class="size-3.5 animate-spin" />{:else}<Sparkles class="size-3.5" />{/if}
+        Re-grade {overview.outdatedCount.toLocaleString()} outdated
+      </button>
+    {/if}
     <button
       type="button"
       disabled={busy || polling || !gradingConfigured}

@@ -238,7 +238,7 @@
 
     <div
       bind:this={containerEl}
-      class="bg-secondary/50 min-h-0 flex-1 overflow-y-auto rounded-lg p-4 scroll-smooth"
+      class="bg-secondary/50 min-h-0 flex-1 overflow-y-auto rounded-lg p-4 pb-[calc(1rem_+_var(--mh-content-pad))] scroll-smooth"
     >
       {#if parsedLines}
         <div class="font-sans text-sm leading-relaxed">

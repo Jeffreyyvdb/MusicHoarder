@@ -2,17 +2,17 @@
 /* Ported from the Claude Design handoff (src/mobile/mobile.css), with the
  * prototype's design tokens rewired to the app's shadcn/Tailwind tokens.
  *
- * Aliases are scoped to `.mob` so they never shadow the real shadcn tokens
- * (`--accent`, `--border`, etc.) that primitives rendered inside a mobile view
+ * Aliases are scoped to `.mob-surface` so they never shadow the real shadcn
+ * tokens (`--accent`, `--border`, etc.) that primitives rendered inside it
  * (Slider, AlertDialog, Sheet) depend on. The prototype's `--accent` /
- * `--accent-soft` are mapped to `--primary` directly in the rules below. */
+ * `--accent-soft` are mapped to `--primary` directly in the rules below.
+ *
+ * Only the login screen (`src/routes/login/+page.svelte`) still uses these
+ * styles; the rest of the app's mobile UI is pure-responsive Tailwind. */
 
 /* design-token → app-token aliases (names that don't collide with shadcn).
- * `.mob` is the fixed-height app-shell surface; `.mob-surface` is a flowing
- * surface (landing/login) that uses the same tokens without the flex layout. */
-.mob,
+ * `.mob-surface` is a flowing surface (login) that uses the app tokens. */
 .mob-surface {
-  --header-h: 56px;
   --bg: var(--background);
   --bg-panel: var(--card);
   --bg-sunken: var(--surface-sunken);
@@ -25,154 +25,11 @@
   --mono: var(--font-mono);
   --ui: var(--font-sans);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.1);
-}
 
-.mob-surface {
   background: var(--bg);
   color: var(--fg);
   font-family: var(--ui);
   -webkit-font-smoothing: antialiased;
-}
-
-.mob {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg);
-  color: var(--fg);
-  font-family: var(--ui);
-  overflow: hidden;
-  position: relative;
-  -webkit-font-smoothing: antialiased;
-}
-
-/* Scroll area sits between header and bottom tabs */
-.mob-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 24px;
-}
-.mob-scroll::-webkit-scrollbar {
-  width: 0;
-}
-
-/* ============ pulse dot ============ */
-.mh-pulse {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--primary);
-  animation: mob-pulse 2s infinite;
-  flex-shrink: 0;
-}
-@keyframes mob-pulse {
-  0% {
-    box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 50%, transparent);
-  }
-  70% {
-    box-shadow: 0 0 0 6px color-mix(in oklch, var(--primary) 0%, transparent);
-  }
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 0%, transparent);
-  }
-}
-
-/* ============ Page header ============ */
-.mob-header {
-  height: calc(var(--header-h) + env(safe-area-inset-top));
-  padding: env(safe-area-inset-top) 16px 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  position: relative;
-  z-index: 5;
-}
-.mob-header.lg {
-  height: calc(72px + env(safe-area-inset-top));
-}
-.mob-h-title {
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mob-h-sub {
-  font-size: 11px;
-  color: var(--fg-tertiary);
-  margin-top: 2px;
-}
-.mob-h-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  color: var(--fg-secondary);
-  flex-shrink: 0;
-}
-.mob-h-btn:hover {
-  background: var(--bg-hover);
-}
-.mob-h-btn.primary {
-  background: var(--primary);
-  color: #fff;
-}
-.mob-h-back {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 10px 6px 6px;
-  margin-left: -6px;
-  border-radius: 8px;
-  color: var(--primary);
-  font-size: 14.5px;
-  font-weight: 500;
-}
-.mob-h-back:hover {
-  background: var(--accent-soft);
-}
-
-/* Header rendered over a tinted album hero — white controls for contrast. */
-.mob-header.on-hero .mob-h-back,
-.mob-header.on-hero .mob-h-btn {
-  color: #fff;
-}
-.mob-header.on-hero .mob-h-back:hover,
-.mob-header.on-hero .mob-h-btn:hover {
-  background: rgba(255, 255, 255, 0.16);
-}
-
-/* Large title block on first scroll position */
-.mob-jumbo {
-  padding: 18px 18px 12px;
-}
-.mob-jumbo-eyebrow {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  color: var(--fg-tertiary);
-  text-transform: uppercase;
-}
-.mob-jumbo-title {
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  margin: 4px 0 2px;
-  line-height: 1.05;
-}
-.mob-jumbo-sub {
-  font-size: 13px;
-  color: var(--fg-secondary);
 }
 
 /* ============ Big buttons ============ */
@@ -223,104 +80,6 @@
   font-weight: 500;
 }
 
-/* ============ Landing (mobile) ============ */
-.mob-landing-hero {
-  padding: 24px 22px 32px;
-}
-.mob-landing-eyebrow {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  color: var(--primary);
-  text-transform: uppercase;
-  margin-bottom: 14px;
-}
-.mob-landing-h1 {
-  font-size: 38px;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1;
-  margin: 0 0 16px;
-  text-wrap: balance;
-}
-.mob-landing-h1 em {
-  font-style: italic;
-  font-weight: 400;
-  color: var(--primary);
-}
-.mob-landing-lede {
-  font-size: 15px;
-  color: var(--fg-secondary);
-  line-height: 1.5;
-  margin: 0 0 24px;
-  text-wrap: pretty;
-}
-.mob-landing-cta {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.mob-landing-card {
-  margin: 8px 16px 24px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  overflow: hidden;
-}
-.mob-landing-card-h {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-sunken);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--fg-secondary);
-}
-.mob-landing-card-b {
-  padding: 12px 14px;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  line-height: 1.65;
-  max-height: 200px;
-  overflow: hidden;
-}
-.mob-landing-section {
-  padding: 28px 22px;
-}
-.mob-landing-h2 {
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  margin: 8px 0 16px;
-}
-.mob-feature {
-  padding: 16px 0;
-  border-top: 1px solid var(--border);
-}
-.mob-feature:first-of-type {
-  border-top: 0;
-}
-.mob-feature-num {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--primary);
-  font-family: var(--mono);
-}
-.mob-feature-h {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 6px 0 4px;
-}
-.mob-feature-p {
-  font-size: 13px;
-  color: var(--fg-secondary);
-  line-height: 1.5;
-}
-
 /* ============ Login ============ */
 .mob-login {
   padding: 24px 22px 40px;
@@ -367,13 +126,6 @@
   border-color: var(--primary);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
-.mob-login-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 13px;
-  margin-bottom: 18px;
-}
 .mob-login-link {
   color: var(--primary);
   text-decoration: none;
@@ -392,17 +144,6 @@
   flex: 1;
   height: 1px;
   background: var(--border);
-}
-.mob-login-switch {
-  text-align: center;
-  margin-top: 24px;
-  font-size: 14px;
-  color: var(--fg-tertiary);
-}
-.mob-login-switch a {
-  color: var(--primary);
-  text-decoration: none;
-  font-weight: 500;
 }
 
 .mob-logo {

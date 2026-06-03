@@ -160,3 +160,12 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Page content scrolls behind the floating MiniPlayer / mobile bottom nav. Every
+   ScrollArea viewport inside the main content area (marked `data-mh-content` in
+   AppShellV2) reserves the floating-chrome clearance as trailing scroll padding so
+   the last items still clear the bar. Scoped so portaled dialogs / command palette
+   / the sidebar are untouched; resolves to 0 wherever `--mh-content-pad` is unset. */
+[data-mh-content] .cn-scroll-area-viewport {
+  padding-bottom: var(--mh-content-pad, 0px);
+}

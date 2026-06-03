@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using MusicHoarder.Api.Persistence;
@@ -100,8 +101,7 @@ public static class QualityGradingPrompt
     /// <summary>Parses the model reply into a <see cref="GradingResult"/>, tolerating code fences and stray prose.</summary>
     public static GradingResult Parse(string content)
     {
-        var json = ExtractJsonObject(content);
-        using var doc = JsonDocument.Parse(json);
+        using var doc = ParseLenientObject(content);
         var root = doc.RootElement;
 
         var score = root.TryGetProperty("score", out var s) && s.TryGetInt32(out var sc)
@@ -149,12 +149,140 @@ public static class QualityGradingPrompt
         },
     };
 
-    private static string ExtractJsonObject(string content)
+    /// <summary>
+    /// Finds and parses the model's JSON object from a reply that may be wrapped in code fences or
+    /// prose, and — crucially — may be <b>truncated</b> (the model ran out of output tokens, or a
+    /// reasoning model's chain-of-thought was used as a fallback). Each <c>{</c> in the text is
+    /// treated as a candidate object boundary, scanned with brace/bracket depth tracking that
+    /// respects string literals (so a <c>}</c> inside a value can't fool it):
+    /// <list type="bullet">
+    /// <item>a <i>balanced</i> region that parses as valid JSON is returned — so trailing prose and
+    /// stray <c>{ braces }</c> in reasoning text are skipped in favour of the real object;</item>
+    /// <item>a truncated tail is salvaged by rewinding to the last point where a value or container
+    /// had completed and appending the missing closers, yielding a valid object holding whatever
+    /// fields finished (score/verdict/summary + any complete issues). The tolerant field reader in
+    /// <see cref="Parse"/> turns that into a usable grade instead of a hard failure.</item>
+    /// </list>
+    /// If no candidate parses, the last <see cref="JsonException"/> is rethrown so the caller records
+    /// a clean failure.
+    /// </summary>
+    private static JsonDocument ParseLenientObject(string content)
     {
-        var start = content.IndexOf('{');
-        var end = content.LastIndexOf('}');
-        if (start >= 0 && end > start)
-            return content[start..(end + 1)];
-        return content;
+        JsonException? lastError = null;
+        var searchFrom = 0;
+
+        while (true)
+        {
+            var start = content.IndexOf('{', searchFrom);
+            if (start < 0) break;
+
+            var candidate = ExtractCandidate(content, start);
+            try
+            {
+                return JsonDocument.Parse(candidate);
+            }
+            catch (JsonException ex)
+            {
+                // This region wasn't valid JSON (e.g. prose braces) — try the next '{'.
+                lastError = ex;
+                searchFrom = start + 1;
+            }
+        }
+
+        throw lastError ?? new JsonException("No JSON object found in model reply.");
     }
+
+    /// <summary>
+    /// Returns the JSON-object text starting at <paramref name="start"/>: the balanced region if the
+    /// braces close, otherwise the truncation-salvaged prefix (closers appended). See
+    /// <see cref="ParseLenientObject"/> for how candidates are validated.
+    /// </summary>
+    private static string ExtractCandidate(string content, int start)
+    {
+        var stack = new Stack<char>();          // open containers: '{' or '['
+        var inString = false;
+        var escaped = false;
+        var expectingValue = true;              // the object itself is the awaited value
+
+        // Last index (exclusive) at which the prefix could be validly closed, plus the closers
+        // needed there. Only set after a *completed value* / container open / container close —
+        // never after a key, ':' or ',' — so the salvaged prefix never ends on a dangling token.
+        var safeEnd = -1;
+        var safeClosers = string.Empty;
+
+        void MarkSafe(int idxExclusive)
+        {
+            safeEnd = idxExclusive;
+            var sb = new StringBuilder(stack.Count);
+            foreach (var open in stack) // Stack enumerates innermost-first → correct close order
+                sb.Append(open == '{' ? '}' : ']');
+            safeClosers = sb.ToString();
+        }
+
+        for (var i = start; i < content.Length; i++)
+        {
+            var ch = content[i];
+
+            if (inString)
+            {
+                if (escaped) escaped = false;
+                else if (ch == '\\') escaped = true;
+                else if (ch == '"')
+                {
+                    inString = false;
+                    var inObject = stack.Count > 0 && stack.Peek() == '{';
+                    if (!inObject || expectingValue) MarkSafe(i + 1); // a value string just completed
+                    expectingValue = false;
+                }
+                continue;
+            }
+
+            switch (ch)
+            {
+                case '"':
+                    inString = true;
+                    break;
+                case '{':
+                case '[':
+                    stack.Push(ch);
+                    MarkSafe(i + 1);                 // an empty container is a valid stop
+                    expectingValue = ch == '[';      // arrays expect a value next; objects a key
+                    break;
+                case '}':
+                case ']':
+                    if (stack.Count > 0) stack.Pop();
+                    MarkSafe(i + 1);                 // the container is itself a completed value
+                    expectingValue = false;
+                    if (stack.Count == 0)
+                        return content[start..(i + 1)]; // balanced top-level object
+                    break;
+                case ':':
+                    expectingValue = true;
+                    break;
+                case ',':
+                    expectingValue = stack.Count > 0 && stack.Peek() == '['; // array elem vs object key
+                    break;
+                default:
+                    if (!char.IsWhiteSpace(ch))
+                    {
+                        // number / true / false / null — consume the whole token.
+                        var j = i;
+                        while (j < content.Length && IsLiteralChar(content[j])) j++;
+                        if (j < content.Length) MarkSafe(j); // token complete (a delimiter follows)
+                        expectingValue = false;
+                        i = j - 1;                            // for-loop ++ resumes at the delimiter
+                    }
+                    break;
+            }
+        }
+
+        // End of input with the object still open → truncated. Salvage to the last safe point.
+        if (safeEnd > start)
+            return content[start..safeEnd] + safeClosers;
+
+        return content[start..]; // nothing completed — let the caller's parse surface the error
+    }
+
+    private static bool IsLiteralChar(char c) =>
+        char.IsLetterOrDigit(c) || c is '+' or '-' or '.';
 }
