@@ -128,54 +128,106 @@ public class EnrichmentSnapshotService(
 
         var avgAiScore = scoreCount > 0 ? (double?)Math.Round((double)scoreSum / scoreCount, 2) : null;
         var roundedConfidence = avgConfidence is { } c ? Math.Round(c, 4) : (double?)null;
+        var version = Truncate(ResolveVersion(enr.PipelineVersion), 128);
 
-        // De-dup: skip when neither the config nor the headline metrics moved since the last snapshot.
-        var prev = await db.EnrichmentSnapshots.IgnoreQueryFilters()
-            .Where(e => e.OwnerUserId == ownerId)
-            .OrderByDescending(e => e.CapturedAtUtc)
-            .FirstOrDefaultAsync(ct);
-        if (prev is not null
-            && prev.ConfigHash == configHash
-            && prev.MatchedCount == matched && prev.NeedsReviewCount == review
-            && prev.FailedCount == failed && prev.PendingCount == pending
-            && prev.DuplicateCount == duplicateCount && prev.BuildDoneCount == buildDoneCount
-            && prev.GradedCount == graded
-            && NullableEquals(prev.AvgAiScore, avgAiScore)
-            && NullableEquals(prev.AvgMatchConfidence, roundedConfidence))
+        // Assigns the freshly-computed aggregates onto a snapshot row (shared by the insert + update paths).
+        void ApplyMetrics(EnrichmentSnapshot target)
         {
-            logger.LogDebug(
-                "Snapshot skipped for owner {Owner} ({Trigger}): unchanged since snapshot {PrevId}.",
-                ownerId, trigger, prev.Id);
-            return null;
+            target.ConfigJson = configJson;
+            target.ConfigHash = configHash;
+            target.TotalSongs = total;
+            target.MatchedCount = matched;
+            target.NeedsReviewCount = review;
+            target.FailedCount = failed;
+            target.PendingCount = pending;
+            target.DuplicateCount = duplicateCount;
+            target.BuildDoneCount = buildDoneCount;
+            target.AvgMatchConfidence = roundedConfidence;
+            target.ProviderMatchedJson = providerMatchedJson;
+            target.GradedCount = graded;
+            target.AvgAiScore = avgAiScore;
+            target.AiExcellent = aiExcellent;
+            target.AiGood = aiGood;
+            target.AiQuestionable = aiQuestionable;
+            target.AiWrong = aiWrong;
+            target.AiUngradeable = aiUngradeable;
         }
 
+        // One timeline point per behavioral version: a row is keyed by (owner, Version, ConfigHash).
+        // A new run on the same version updates that point in place instead of spawning a new one, so
+        // repeated enrich/grade passes don't flood the timeline. Hosted-service scopes have no current
+        // user, so filter explicitly by owner and ignore query filters.
+        var matches = await db.EnrichmentSnapshots.IgnoreQueryFilters()
+            .Where(e => e.OwnerUserId == ownerId && e.Version == version && e.ConfigHash == configHash)
+            .OrderByDescending(e => e.CapturedAtUtc)
+            .ThenByDescending(e => e.Id)
+            .ToListAsync(ct);
+
+        var keep = matches.FirstOrDefault();
+
+        // Collapse any historical duplicates for this version into the newest one (cleans up rows from
+        // before this de-dup existed). Delete child song rows explicitly — Npgsql cascades, but the
+        // in-memory provider used by tests does not cascade unloaded children.
+        if (matches.Count > 1)
+        {
+            var extraIds = matches.Skip(1).Select(e => e.Id).ToList();
+            var extraSongs = await db.EnrichmentSnapshotSongs
+                .Where(s => extraIds.Contains(s.SnapshotId))
+                .ToListAsync(ct);
+            db.EnrichmentSnapshotSongs.RemoveRange(extraSongs);
+            db.EnrichmentSnapshots.RemoveRange(matches.Skip(1));
+        }
+
+        if (keep is not null)
+        {
+            // De-dup: skip when nothing measurable moved (don't drift the timestamp on idle runs).
+            if (keep.MatchedCount == matched && keep.NeedsReviewCount == review
+                && keep.FailedCount == failed && keep.PendingCount == pending
+                && keep.DuplicateCount == duplicateCount && keep.BuildDoneCount == buildDoneCount
+                && keep.GradedCount == graded
+                && NullableEquals(keep.AvgAiScore, avgAiScore)
+                && NullableEquals(keep.AvgMatchConfidence, roundedConfidence))
+            {
+                if (matches.Count > 1) await db.SaveChangesAsync(ct); // persist duplicate cleanup
+                logger.LogDebug(
+                    "Snapshot skipped for owner {Owner} ({Trigger}): unchanged since snapshot {KeepId}.",
+                    ownerId, trigger, keep.Id);
+                return null;
+            }
+
+            // Same version, new measurements → refresh the existing point in place.
+            ApplyMetrics(keep);
+            keep.CapturedAtUtc = DateTime.UtcNow;
+            keep.Trigger = trigger;
+            keep.TriggerLabel = Truncate(triggerLabel, 256);
+
+            var oldSongs = await db.EnrichmentSnapshotSongs
+                .Where(s => s.SnapshotId == keep.Id)
+                .ToListAsync(ct);
+            db.EnrichmentSnapshotSongs.RemoveRange(oldSongs);
+            foreach (var s in snapshotSongs) s.SnapshotId = keep.Id;
+            db.EnrichmentSnapshotSongs.AddRange(snapshotSongs);
+
+            await db.SaveChangesAsync(ct);
+
+            logger.LogInformation(
+                "Updated enrichment snapshot {Id} for owner {Owner} ({Trigger}): {Matched} matched, {Review} review, {Failed} failed, avgAi={AvgAi}.",
+                keep.Id, ownerId, trigger, matched, review, failed, avgAiScore);
+
+            return keep;
+        }
+
+        // New behavioral version → a fresh timeline point.
         var snapshot = new EnrichmentSnapshot
         {
             OwnerUserId = ownerId,
             CapturedAtUtc = DateTime.UtcNow,
             Trigger = trigger,
             TriggerLabel = Truncate(triggerLabel, 256),
-            Version = Truncate(ResolveVersion(enr.PipelineVersion), 128),
-            ConfigJson = configJson,
-            ConfigHash = configHash,
-            TotalSongs = total,
-            MatchedCount = matched,
-            NeedsReviewCount = review,
-            FailedCount = failed,
-            PendingCount = pending,
-            DuplicateCount = duplicateCount,
-            BuildDoneCount = buildDoneCount,
-            AvgMatchConfidence = roundedConfidence,
-            ProviderMatchedJson = providerMatchedJson,
-            GradedCount = graded,
-            AvgAiScore = avgAiScore,
-            AiExcellent = aiExcellent,
-            AiGood = aiGood,
-            AiQuestionable = aiQuestionable,
-            AiWrong = aiWrong,
-            AiUngradeable = aiUngradeable,
+            Version = version,
             Songs = snapshotSongs,
         };
+        ApplyMetrics(snapshot);
 
         db.EnrichmentSnapshots.Add(snapshot);
         await db.SaveChangesAsync(ct);
