@@ -650,6 +650,7 @@ export interface AlbumQualityRow {
   ownedTrackCount: number
   canonicalTrackCount: number
   gradedAtUtc: string
+  isOutdated?: boolean
 }
 
 export interface AlbumQualityOverview {
@@ -657,6 +658,7 @@ export interface AlbumQualityOverview {
   coverage: number
   library: QualityRollupView
   wrongCount: number
+  outdatedCount: number
   worstOffenders: AlbumQualityRow[]
 }
 
@@ -685,6 +687,10 @@ export async function fetchAlbumQualityOverview(): Promise<AlbumQualityOverview>
 
 export async function gradeAllAlbums(): Promise<{ enqueued: number }> {
   return requestJson<{ enqueued: number }>("/api/albums/quality/grade-all", { method: "POST" })
+}
+
+export async function gradeOutdatedAlbums(): Promise<{ enqueued: number }> {
+  return requestJson<{ enqueued: number }>("/api/albums/quality/grade-outdated", { method: "POST" })
 }
 
 export async function fetchAlbumQualityProgress(): Promise<QualityProgress> {
@@ -1581,6 +1587,8 @@ export interface QualityOverview {
   silentFailureCount: number
   /** Auto-accepted (Matched) and graded Excellent. */
   verifiedCleanCount: number
+  /** Graded songs whose prompt version or model changed since — surfaced, not auto-regraded. */
+  outdatedCount: number
   worstOffenders: QualityWorstOffender[]
   directories: QualityDirectoryRollup[]
 }
@@ -1604,6 +1612,7 @@ export interface QualitySongRow {
   destinationPathPreview?: string | null
   gradedAtUtc: string
   bucket: QualityBucketName
+  isOutdated?: boolean
 }
 
 /** Filter category for the workbench list: a bucket, a verdict, or "all". */
@@ -1648,6 +1657,7 @@ export interface SongQualityGradeView {
   destinationPathPreview?: string | null
   durationMs?: number | null
   gradedAtUtc?: string
+  isOutdated?: boolean
   historyCount?: number
 }
 
@@ -1690,6 +1700,10 @@ export async function fetchSongQualityGrade(songId: number): Promise<SongQuality
 
 export async function gradeSong(songId: number): Promise<QualityGradeResult> {
   return requestJson<QualityGradeResult>(`/api/quality/songs/${songId}/grade`, { method: "POST" })
+}
+
+export async function gradeOutdatedSongs(): Promise<{ enqueued: number }> {
+  return requestJson<{ enqueued: number }>("/api/quality/grade-outdated", { method: "POST" })
 }
 
 export async function gradeAllSongs(): Promise<{ enqueued: number }> {
