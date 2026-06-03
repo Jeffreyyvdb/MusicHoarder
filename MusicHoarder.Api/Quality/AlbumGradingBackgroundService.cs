@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Options;
@@ -23,6 +24,12 @@ public class AlbumGradingBackgroundService(
     private readonly SemaphoreSlim _rateLock = new(1, 1);
     private DateTime _nextSlotUtc = DateTime.MinValue;
     private int _warnedNotConfigured;
+
+    // Albums that just failed to grade, with the UTC instant they become eligible again. A failure
+    // persists no grade row, so without this backoff the auto-sweep re-enqueues them every sweep —
+    // flooding logs and burning API credits on a reply that keeps failing (e.g. an OpenRouter 403).
+    // In-memory only (a restart retries); manual "grade now" (force) bypasses it. Mirrors the song sweep.
+    private readonly ConcurrentDictionary<int, DateTime> _failedUntil = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -92,12 +99,20 @@ public class AlbumGradingBackgroundService(
             .ToListAsync(ct);
         var latest = latestByAlbum.ToDictionary(g => g.CanonicalAlbumId);
 
+        // Drop albums still inside their post-failure backoff, and prune entries that have expired.
+        var now = DateTime.UtcNow;
+        foreach (var kvp in _failedUntil)
+            if (kvp.Value <= now)
+                _failedUntil.TryRemove(kvp.Key, out _);
+
         var needsGrading = candidates.Where(c =>
         {
+            if (_failedUntil.TryGetValue(c.Id, out var until) && until > now) return false; // backing off
             if (!latest.TryGetValue(c.Id, out var g)) return true;          // never graded
-            if (g.PromptVersion != AlbumGradingPrompt.Version) return true; // prompt changed
-            if (g.Model != opts.Model) return true;                        // model changed
             if (c.FetchedAtUtc is { } f && g.GradedAtUtc < f) return true; // re-fetched since
+            // A prompt-version or model change is NOT auto-regraded here (it would re-grade every
+            // album on a config bump); such grades are surfaced as "outdated" and regraded only on an
+            // explicit manual / "regrade outdated" action. See AlbumQualityEndpoints grade-outdated.
             return false;
         }).Select(c => c.Id).ToList();
 
@@ -123,6 +138,7 @@ public class AlbumGradingBackgroundService(
                 {
                     case GradeOutcome.Graded:
                         Interlocked.Exchange(ref _warnedNotConfigured, 0);
+                        _failedUntil.TryRemove(item.CanonicalAlbumId, out _); // recovered — clear any backoff
                         progressTracker.IncrementGraded();
                         break;
                     case GradeOutcome.NotConfigured:
@@ -136,6 +152,7 @@ public class AlbumGradingBackgroundService(
                         progressTracker.IncrementSkipped();
                         break;
                     default:
+                        BackOff(item.CanonicalAlbumId);
                         progressTracker.RecordError(result.ErrorCode ?? "error", result.Error);
                         progressTracker.IncrementFailed();
                         break;
@@ -147,6 +164,7 @@ public class AlbumGradingBackgroundService(
             }
             catch (Exception ex)
             {
+                BackOff(item.CanonicalAlbumId);
                 logger.LogWarning(ex, "Album grading worker {WorkerId} failed on album {AlbumId}", workerId, item.CanonicalAlbumId);
                 progressTracker.RecordError("error", ex.Message);
                 progressTracker.IncrementFailed();
@@ -157,6 +175,10 @@ public class AlbumGradingBackgroundService(
             }
         }
     }
+
+    /// <summary>Marks an album as recently-failed so the auto-sweep skips it for the backoff window.</summary>
+    private void BackOff(int albumId) =>
+        _failedUntil[albumId] = DateTime.UtcNow + TimeSpan.FromSeconds(options.CurrentValue.FailureBackoffSeconds);
 
     /// <summary>Spaces out calls to honour <see cref="QualityGradingOptions.RequestsPerSecond"/> across all workers.</summary>
     private async Task ThrottleAsync(CancellationToken ct)

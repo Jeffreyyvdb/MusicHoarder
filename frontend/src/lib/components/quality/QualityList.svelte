@@ -4,7 +4,7 @@
   import { VERDICT_DOT, verdictBadge } from '$lib/quality-ui';
   import { cleanDisplayName } from '$lib/formatters';
   import { cn } from '$lib/utils';
-  import { Check, Loader2, TriangleAlert, EarOff } from '@lucide/svelte';
+  import { Check, Loader2, TriangleAlert, EarOff, History } from '@lucide/svelte';
 
   type Props = {
     songs: QualitySongRow[];
@@ -84,6 +84,15 @@
 
             {#if s.issues.length > 0}
               <span class="bg-background text-muted-foreground border-border rounded border px-1 py-px font-mono text-[9.5px]">{s.issues[0].code}</span>
+            {/if}
+
+            {#if s.isOutdated}
+              <span
+                title="Graded with an older prompt or model — re-grade to refresh."
+                class="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-px text-[9.5px] font-semibold tracking-wide text-amber-600 uppercase dark:text-amber-400"
+              >
+                <History class="size-2.5" /> outdated
+              </span>
             {/if}
           </div>
         </div>

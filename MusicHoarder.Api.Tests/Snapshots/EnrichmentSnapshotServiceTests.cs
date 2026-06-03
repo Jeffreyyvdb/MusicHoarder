@@ -74,14 +74,16 @@ public class EnrichmentSnapshotServiceTests
     }
 
     [Fact]
-    public async Task Capture_CreatesNewSnapshotAfterAChange()
+    public async Task Capture_UpdatesInPlaceWhenMetricsChangeOnSameVersion()
     {
         var db = CreateDb();
         var song = AddSong(db, EnrichmentStatus.NeedsReview, confidence: 0.4);
         await db.SaveChangesAsync();
         var service = CreateService(db);
 
-        await service.CaptureAsync(Owner, SnapshotTrigger.PipelineRun, null);
+        var first = await service.CaptureAsync(Owner, SnapshotTrigger.PipelineRun, null);
+        Assert.NotNull(first);
+        Assert.Equal(0, first!.MatchedCount);
 
         song.EnrichmentStatus = EnrichmentStatus.Matched;
         song.MatchConfidence = 0.95;
@@ -89,8 +91,74 @@ public class EnrichmentSnapshotServiceTests
 
         var second = await service.CaptureAsync(Owner, SnapshotTrigger.PipelineRun, null);
 
+        // Same version + config → the single point is refreshed in place, not duplicated.
         Assert.NotNull(second);
+        Assert.Equal(first.Id, second!.Id);
+        Assert.Equal(1, second.MatchedCount);
+        Assert.Equal(1, await db.EnrichmentSnapshots.CountAsync());
+
+        // The per-song rows are replaced, not accumulated.
+        Assert.Equal(1, await db.EnrichmentSnapshotSongs.CountAsync(s => s.SnapshotId == second.Id));
+    }
+
+    [Fact]
+    public async Task Capture_CreatesNewSnapshotWhenConfigChanges()
+    {
+        var db = CreateDb();
+        AddSong(db, EnrichmentStatus.Matched, confidence: 0.9);
+        await db.SaveChangesAsync();
+
+        var options = new MusicEnricherOptions { EnableDeezerProvider = false };
+        var service = CreateService(db, options);
+
+        var first = await service.CaptureAsync(Owner, SnapshotTrigger.PipelineRun, null);
+        Assert.NotNull(first);
+
+        // Flip a provider so the behavioral fingerprint (ConfigHash) changes — even with identical metrics.
+        options.EnableDeezerProvider = true;
+
+        var second = await service.CaptureAsync(Owner, SnapshotTrigger.PipelineRun, null);
+
+        Assert.NotNull(second);
+        Assert.NotEqual(first!.Id, second!.Id);
+        Assert.NotEqual(first.ConfigHash, second.ConfigHash);
         Assert.Equal(2, await db.EnrichmentSnapshots.CountAsync());
+    }
+
+    [Fact]
+    public async Task Capture_CollapsesPreExistingDuplicatesForTheSameVersion()
+    {
+        var db = CreateDb();
+        var song = AddSong(db, EnrichmentStatus.NeedsReview, confidence: 0.4);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        // Capture once to learn the runtime Version + ConfigHash, then plant an older duplicate row.
+        var first = await service.CaptureAsync(Owner, SnapshotTrigger.PipelineRun, null);
+        Assert.NotNull(first);
+        db.EnrichmentSnapshots.Add(new EnrichmentSnapshot
+        {
+            OwnerUserId = Owner,
+            CapturedAtUtc = first!.CapturedAtUtc.AddMinutes(-5),
+            Trigger = SnapshotTrigger.PipelineRun,
+            Version = first.Version,
+            ConfigJson = first.ConfigJson,
+            ConfigHash = first.ConfigHash,
+            MatchedCount = 0,
+        });
+        await db.SaveChangesAsync();
+        Assert.Equal(2, await db.EnrichmentSnapshots.CountAsync());
+
+        // A change forces the next capture down the update path, which also collapses the duplicate.
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        song.MatchConfidence = 0.95;
+        await db.SaveChangesAsync();
+
+        var second = await service.CaptureAsync(Owner, SnapshotTrigger.PipelineRun, null);
+
+        Assert.NotNull(second);
+        Assert.Equal(1, await db.EnrichmentSnapshots.CountAsync());
+        Assert.Equal(first.ConfigHash, second!.ConfigHash);
     }
 
     [Fact]
@@ -148,9 +216,10 @@ public class EnrichmentSnapshotServiceTests
         new(new DbContextOptionsBuilder<MusicHoarderDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options);
 
-    private static EnrichmentSnapshotService CreateService(MusicHoarderDbContext db) =>
+    private static EnrichmentSnapshotService CreateService(
+        MusicHoarderDbContext db, MusicEnricherOptions? enricherOptions = null) =>
         new(db,
-            new Monitor<MusicEnricherOptions>(new MusicEnricherOptions()),
+            new Monitor<MusicEnricherOptions>(enricherOptions ?? new MusicEnricherOptions()),
             new Monitor<QualityGradingOptions>(new QualityGradingOptions()),
             NullLogger<EnrichmentSnapshotService>.Instance);
 

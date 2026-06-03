@@ -52,6 +52,11 @@ public static class QualityEndpoints
             .WithSummary("Enqueue every gradeable song for AI grading (skips unchanged).")
             .WithTags("Quality");
 
+        app.MapPost("/api/quality/grade-outdated", GradeOutdated)
+            .WithName("GradeOutdatedQuality")
+            .WithSummary("Enqueue only songs whose latest grade is outdated (prompt version or model changed since it was graded).")
+            .WithTags("Quality");
+
         app.MapPost("/api/quality/grade-directory", GradeDirectory)
             .WithName("GradeDirectoryQuality")
             .WithSummary("Enqueue every gradeable song under a source directory for AI grading.")
@@ -98,7 +103,9 @@ public static class QualityEndpoints
         string? IssuesJson,
         string? EnrichmentStatusAtGrade,
         string? DestinationPathPreview,
-        DateTime GradedAtUtc);
+        DateTime GradedAtUtc,
+        int PromptVersion,
+        string? Model);
 
     private static async Task<List<GradeRowDto>> LoadGradeRowsAsync(MusicHoarderDbContext db, CancellationToken ct)
     {
@@ -108,9 +115,18 @@ public static class QualityEndpoints
                 (g, s) => new GradeRowDto(
                     s.Id, s.SourcePath, s.FileName, s.Artist, s.Title, s.Album,
                     g.Score, g.Verdict, g.Summary, g.IssuesJson,
-                    g.EnrichmentStatusAtGrade, g.DestinationPathPreview, g.GradedAtUtc))
+                    g.EnrichmentStatusAtGrade, g.DestinationPathPreview, g.GradedAtUtc,
+                    g.PromptVersion, g.Model))
             .ToListAsync(ct);
     }
+
+    /// <summary>
+    /// A grade is "outdated" when the grading prompt version or the configured model has changed since
+    /// the grade was produced. These are surfaced (not auto-regraded) so the user can choose to refresh.
+    /// </summary>
+    private static bool IsGradeOutdated(int promptVersion, string? model, string currentModel) =>
+        promptVersion != QualityGradingPrompt.Version
+        || !string.Equals(model, currentModel, StringComparison.Ordinal);
 
     private static string DirectoryOf(string sourcePath)
         => Path.GetDirectoryName(sourcePath)?.Replace('\\', '/') ?? "/";
@@ -133,7 +149,7 @@ public static class QualityEndpoints
     };
 
     // The worst-offender shape plus the workbench bucket, for the AI-quality master list.
-    private static object ToSongRow(GradeRowDto r) => new
+    private static object ToSongRow(GradeRowDto r, string currentModel) => new
     {
         songId = r.SongId,
         fileName = r.FileName,
@@ -149,6 +165,7 @@ public static class QualityEndpoints
         destinationPathPreview = r.DestinationPathPreview,
         gradedAtUtc = r.GradedAtUtc,
         bucket = QualityBuckets.Classify(r.EnrichmentStatusAtGrade, r.Verdict).Name(),
+        isOutdated = IsGradeOutdated(r.PromptVersion, r.Model, currentModel),
     };
 
     // Maps the `category` query value to a predicate over the latest grade rows.
@@ -187,9 +204,11 @@ public static class QualityEndpoints
         catch { return []; }
     }
 
-    private static async Task<IResult> GetOverview(MusicHoarderDbContext db, CancellationToken ct)
+    internal static async Task<IResult> GetOverview(
+        MusicHoarderDbContext db, IOptionsMonitor<QualityGradingOptions> options, CancellationToken ct)
     {
         var rows = await LoadGradeRowsAsync(db, ct);
+        var currentModel = options.CurrentValue.Model;
 
         var gradeableTotal = await db.Songs
             .Where(s => s.DeletedAtUtc == null && !s.IsDuplicate && GradeableStatuses.Contains(s.EnrichmentStatus))
@@ -219,6 +238,8 @@ public static class QualityEndpoints
             }
         }
 
+        var outdatedCount = rows.Count(r => IsGradeOutdated(r.PromptVersion, r.Model, currentModel));
+
         return Results.Ok(new
         {
             gradeableTotal,
@@ -227,6 +248,7 @@ public static class QualityEndpoints
             flaggedCount = flagged,
             silentFailureCount = silent,
             verifiedCleanCount = verified,
+            outdatedCount,
             worstOffenders = worst,
             directories,
         });
@@ -240,6 +262,7 @@ public static class QualityEndpoints
     // query param as REQUIRED and 400s when it's absent, so they must have defaults here.
     internal static async Task<IResult> GetSongs(
         MusicHoarderDbContext db,
+        IOptionsMonitor<QualityGradingOptions> options,
         CancellationToken ct,
         string? category = null,
         int skip = 0,
@@ -248,6 +271,7 @@ public static class QualityEndpoints
         var cat = string.IsNullOrWhiteSpace(category) ? "all" : category.Trim().ToLowerInvariant();
         var pageSize = take <= 0 ? 100 : Math.Min(take, 500);
         var offset = Math.Max(skip, 0);
+        var currentModel = options.CurrentValue.Model;
 
         var rows = await LoadGradeRowsAsync(db, ct);
 
@@ -259,7 +283,7 @@ public static class QualityEndpoints
             .ThenByDescending(r => r.GradedAtUtc)
             .ToList();
 
-        var items = filtered.Skip(offset).Take(pageSize).Select(ToSongRow).ToList();
+        var items = filtered.Skip(offset).Take(pageSize).Select(r => ToSongRow(r, currentModel)).ToList();
 
         return Results.Ok(new { total = filtered.Count, skip = offset, take = pageSize, items });
     }
@@ -297,7 +321,8 @@ public static class QualityEndpoints
         return Results.Ok(new { directories = BuildDirectoryRollups(rows).ToList() });
     }
 
-    private static async Task<IResult> GetSongGrade(int id, MusicHoarderDbContext db, CancellationToken ct)
+    private static async Task<IResult> GetSongGrade(
+        int id, MusicHoarderDbContext db, IOptionsMonitor<QualityGradingOptions> options, CancellationToken ct)
     {
         var grade = await db.SongQualityGrades
             .Where(g => g.SongId == id)
@@ -323,6 +348,7 @@ public static class QualityEndpoints
             destinationPathPreview = grade.DestinationPathPreview,
             durationMs = grade.DurationMs,
             gradedAtUtc = grade.GradedAtUtc,
+            isOutdated = IsGradeOutdated(grade.PromptVersion, grade.Model, options.CurrentValue.Model),
             historyCount,
         });
     }
@@ -381,6 +407,32 @@ public static class QualityEndpoints
         var ids = await db.Songs
             .Where(s => s.DeletedAtUtc == null && !s.IsDuplicate && GradeableStatuses.Contains(s.EnrichmentStatus))
             .Select(s => s.Id)
+            .ToListAsync(ct);
+
+        channel.EnqueueRange(ids, force: false);
+        return Results.Ok(new { enqueued = ids.Count });
+    }
+
+    private static async Task<IResult> GradeOutdated(
+        MusicHoarderDbContext db, QualityGradingChannel channel,
+        IOptionsMonitor<QualityGradingOptions> options, IRuntimeSettingsService runtimeSettings,
+        CancellationToken ct)
+    {
+        if (!options.CurrentValue.IsConfigured)
+            return NotConfiguredProblem();
+        if (!(await runtimeSettings.GetAsync(ct)).QualityGradingEnabled)
+            return GradingDisabledProblem();
+
+        var currentModel = options.CurrentValue.Model;
+
+        // Songs whose latest grade is outdated (prompt version or model changed). force:false is fine —
+        // the grader's own staleness check still re-grades on a version/model mismatch.
+        var ids = await LatestGrades(db)
+            .Where(g => g.PromptVersion != QualityGradingPrompt.Version || g.Model != currentModel)
+            .Join(
+                db.Songs.Where(s => s.DeletedAtUtc == null && !s.IsDuplicate
+                    && GradeableStatuses.Contains(s.EnrichmentStatus)),
+                g => g.SongId, s => s.Id, (g, s) => s.Id)
             .ToListAsync(ct);
 
         channel.EnqueueRange(ids, force: false);

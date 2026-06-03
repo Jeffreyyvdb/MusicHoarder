@@ -41,6 +41,11 @@ public static class AlbumQualityEndpoints
             .WithSummary("Enqueue every linked album for reconciliation grading (skips unchanged).")
             .WithTags("Quality").RequireOwner();
 
+        app.MapPost("/api/albums/quality/grade-outdated", GradeOutdated)
+            .WithName("GradeOutdatedAlbumQuality")
+            .WithSummary("Enqueue only albums whose latest grade is outdated (prompt version or model changed since it was graded).")
+            .WithTags("Quality").RequireOwner();
+
         app.MapGet("/api/albums/quality/progress", GetProgress)
             .WithName("GetAlbumQualityProgress")
             .WithSummary("Current album grading run progress.")
@@ -62,7 +67,8 @@ public static class AlbumQualityEndpoints
     private record GradeRowDto(
         int CanonicalAlbumId, string? Artist, string? Album, int? Year,
         int Score, SongQualityVerdict Verdict, string? Summary, string? IssuesJson,
-        int OwnedTrackCount, int CanonicalTrackCount, DateTime GradedAtUtc);
+        int OwnedTrackCount, int CanonicalTrackCount, DateTime GradedAtUtc,
+        int PromptVersion, string? Model);
 
     private static async Task<List<GradeRowDto>> LoadGradeRowsAsync(MusicHoarderDbContext db, CancellationToken ct) =>
         await LatestGrades(db)
@@ -70,10 +76,17 @@ public static class AlbumQualityEndpoints
                 (g, a) => new GradeRowDto(
                     a.Id, a.DisplayArtist, a.DisplayTitle, a.Year,
                     g.Score, g.Verdict, g.Summary, g.IssuesJson,
-                    g.OwnedTrackCount, g.CanonicalTrackCount, g.GradedAtUtc))
+                    g.OwnedTrackCount, g.CanonicalTrackCount, g.GradedAtUtc,
+                    g.PromptVersion, g.Model))
             .ToListAsync(ct);
 
-    private static object ToAlbumRow(GradeRowDto r) => new
+    /// <summary>A grade is "outdated" when the album-grading prompt version or the configured model has
+    /// changed since the grade was produced — surfaced (not auto-regraded) for an explicit refresh.</summary>
+    private static bool IsGradeOutdated(int promptVersion, string? model, string currentModel) =>
+        promptVersion != AlbumGradingPrompt.Version
+        || !string.Equals(model, currentModel, StringComparison.Ordinal);
+
+    private static object ToAlbumRow(GradeRowDto r, string currentModel) => new
     {
         canonicalAlbumId = r.CanonicalAlbumId,
         artist = r.Artist,
@@ -86,11 +99,14 @@ public static class AlbumQualityEndpoints
         ownedTrackCount = r.OwnedTrackCount,
         canonicalTrackCount = r.CanonicalTrackCount,
         gradedAtUtc = r.GradedAtUtc,
+        isOutdated = IsGradeOutdated(r.PromptVersion, r.Model, currentModel),
     };
 
-    internal static async Task<IResult> GetOverview(MusicHoarderDbContext db, CancellationToken ct)
+    internal static async Task<IResult> GetOverview(
+        MusicHoarderDbContext db, IOptionsMonitor<QualityGradingOptions> options, CancellationToken ct)
     {
         var rows = await LoadGradeRowsAsync(db, ct);
+        var currentModel = options.CurrentValue.Model;
         var fetchedTotal = await db.CanonicalAlbums.CountAsync(a => a.Status == CanonicalAlbumStatus.Fetched, ct);
         var agg = QualityRollup.Aggregate(rows.Select(r => new QualityRollup.GradeRow(r.Verdict, r.Score, r.IssuesJson)));
 
@@ -99,13 +115,16 @@ public static class AlbumQualityEndpoints
             .ThenBy(r => r.Score)
             .ThenByDescending(r => r.GradedAtUtc)
             .Take(100)
-            .Select(ToAlbumRow)
+            .Select(r => ToAlbumRow(r, currentModel))
             .ToList();
+
+        var outdatedCount = rows.Count(r => IsGradeOutdated(r.PromptVersion, r.Model, currentModel));
 
         return Results.Ok(new
         {
             gradeableTotal = fetchedTotal,
             coverage = fetchedTotal == 0 ? 0d : Math.Round((double)rows.Count / fetchedTotal, 3),
+            outdatedCount,
             library = new
             {
                 graded = agg.Graded,
@@ -126,7 +145,8 @@ public static class AlbumQualityEndpoints
     }
 
     internal static async Task<IResult> GetAlbumGrade(
-        string artist, string album, MusicHoarderDbContext db, CancellationToken ct)
+        string artist, string album, MusicHoarderDbContext db,
+        IOptionsMonitor<QualityGradingOptions> options, CancellationToken ct)
     {
         var albumId = await ResolveAlbumIdAsync(artist, album, db, ct);
         if (albumId is null)
@@ -156,6 +176,7 @@ public static class AlbumQualityEndpoints
             canonicalTrackCount = grade.CanonicalTrackCount,
             durationMs = grade.DurationMs,
             gradedAtUtc = grade.GradedAtUtc,
+            isOutdated = IsGradeOutdated(grade.PromptVersion, grade.Model, options.CurrentValue.Model),
             historyCount,
         });
     }
@@ -200,6 +221,28 @@ public static class AlbumQualityEndpoints
         var ids = await db.CanonicalAlbums
             .Where(a => a.Status == CanonicalAlbumStatus.Fetched)
             .Select(a => a.Id)
+            .ToListAsync(ct);
+
+        channel.EnqueueRange(ids, force: false);
+        return Results.Ok(new { enqueued = ids.Count });
+    }
+
+    private static async Task<IResult> GradeOutdated(
+        MusicHoarderDbContext db, AlbumGradingChannel channel,
+        IOptionsMonitor<QualityGradingOptions> options, IRuntimeSettingsService runtimeSettings, CancellationToken ct)
+    {
+        if (!options.CurrentValue.IsConfigured) return NotConfiguredProblem();
+        if (!(await runtimeSettings.GetAsync(ct)).QualityGradingEnabled) return GradingDisabledProblem();
+
+        var currentModel = options.CurrentValue.Model;
+
+        // Albums whose latest grade is outdated (prompt version or model changed). force:false is fine —
+        // the grader's own staleness check still re-grades on a version/model mismatch.
+        var ids = await LatestGrades(db)
+            .Where(g => g.PromptVersion != AlbumGradingPrompt.Version || g.Model != currentModel)
+            .Join(
+                db.CanonicalAlbums.Where(a => a.Status == CanonicalAlbumStatus.Fetched),
+                g => g.CanonicalAlbumId, a => a.Id, (g, a) => a.Id)
             .ToListAsync(ct);
 
         channel.EnqueueRange(ids, force: false);
