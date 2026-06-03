@@ -121,9 +121,11 @@ public class QualityGradingBackgroundService(
         {
             if (_failedUntil.TryGetValue(c.Id, out var until) && until > now) return false; // backing off
             if (!latest.TryGetValue(c.Id, out var g)) return true;            // never graded
-            if (g.PromptVersion != QualityGradingPrompt.Version) return true; // prompt changed
-            if (g.Model != opts.Model) return true;                          // model changed
             if (c.EnrichedAtUtc is { } e && g.GradedAtUtc < e) return true;  // re-enriched since
+            // A prompt-version or model change is NOT auto-regraded here: it would re-grade the whole
+            // library on every config bump. Such grades are surfaced as "outdated" in the API and
+            // regraded only on an explicit manual / "regrade outdated" action (force:false still lets
+            // the grader itself detect the version/model mismatch). See QualityEndpoints grade-outdated.
             return false;
         }).Select(c => c.Id).ToList();
 

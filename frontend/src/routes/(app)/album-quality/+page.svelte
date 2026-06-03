@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Disc3, RefreshCw } from '@lucide/svelte';
+  import { Disc3, History, RefreshCw } from '@lucide/svelte';
   import {
     fetchAlbumQualityOverview,
     fetchAlbumQualityProgress,
     gradeAllAlbums,
+    gradeOutdatedAlbums,
     type AlbumQualityOverview,
     type AlbumQualityRow
   } from '$lib/api-client';
@@ -34,12 +35,12 @@
     return `/library?album=${encodeURIComponent(key)}`;
   }
 
-  async function regradeAll() {
+  async function regrade(outdatedOnly = false) {
     if (grading) return;
     grading = true;
     progressText = 'Queuing…';
     try {
-      const { enqueued } = await gradeAllAlbums();
+      const { enqueued } = outdatedOnly ? await gradeOutdatedAlbums() : await gradeAllAlbums();
       if (enqueued === 0) {
         progressText = 'Everything is up to date.';
         grading = false;
@@ -84,9 +85,21 @@
       {#if progressText}
         <span class="text-muted-foreground text-xs">{progressText}</span>
       {/if}
+      {#if overview && overview.outdatedCount > 0}
+        <button
+          type="button"
+          onclick={() => regrade(true)}
+          disabled={grading}
+          title="These grades were made with an older prompt or model. Re-grade just them."
+          class="border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400 inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-60"
+        >
+          <History class="size-4" />
+          Re-grade {overview.outdatedCount.toLocaleString()} outdated
+        </button>
+      {/if}
       <button
         type="button"
-        onclick={regradeAll}
+        onclick={() => regrade(false)}
         disabled={grading}
         class="bg-primary text-primary-foreground inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-60"
       >
@@ -130,7 +143,17 @@
                 </span>
                 <span class={`w-8 shrink-0 text-right font-mono text-sm ${scoreColor(row.score)}`}>{row.score}</span>
                 <span class="min-w-0 flex-1">
-                  <span class="block truncate text-sm font-medium">{row.album ?? '—'}</span>
+                  <span class="flex items-center gap-1.5 truncate text-sm font-medium">
+                    {row.album ?? '—'}
+                    {#if row.isOutdated}
+                      <span
+                        title="Graded with an older prompt or model — re-grade to refresh."
+                        class="inline-flex shrink-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-px text-[9.5px] font-semibold tracking-wide text-amber-600 uppercase dark:text-amber-400"
+                      >
+                        <History class="size-2.5" /> outdated
+                      </span>
+                    {/if}
+                  </span>
                   <span class="text-muted-foreground block truncate text-[12px]">
                     {row.artist ?? '—'} · {row.ownedTrackCount}/{row.canonicalTrackCount} owned
                     {#if row.summary}— {row.summary}{/if}
