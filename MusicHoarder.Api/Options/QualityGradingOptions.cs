@@ -71,6 +71,15 @@ public class QualityGradingOptions
     [Range(5, 3600)]
     public int IdleDelaySeconds { get; set; } = 30;
 
+    /// <summary>
+    /// How long the auto-sweep skips a song after it failed to grade. A failure writes no grade row,
+    /// so without this the sweep treats the song as "never graded" and re-enqueues it every
+    /// <see cref="IdleDelaySeconds"/> — flooding logs and burning API credits on a reply that keeps
+    /// failing. In-memory only (a restart retries), and manual "grade now" bypasses it.
+    /// </summary>
+    [Range(30, 86400)]
+    public int FailureBackoffSeconds { get; set; } = 1800;
+
     /// <summary>True when a key is present and grading is enabled.</summary>
     public bool IsConfigured => Enabled && !string.IsNullOrWhiteSpace(ApiKey) && !string.IsNullOrWhiteSpace(BaseUrl);
 }
