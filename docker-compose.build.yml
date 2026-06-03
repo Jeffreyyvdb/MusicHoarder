@@ -1,0 +1,19 @@
+# Build-from-source override for docker-compose.yml.
+#
+# The base docker-compose.yml pulls prebuilt images from GHCR. Layer this file on top to build
+# the images locally from a checkout of this repo instead:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#
+# The `image:` names still apply, so the locally built images are tagged with the same GHCR
+# references (a later `docker compose pull` would replace them with the published ones).
+services:
+  musichoarder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile

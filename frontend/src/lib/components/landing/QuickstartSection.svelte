@@ -11,7 +11,7 @@
     Self-host it in three steps.
   </h2>
   <p class="text-muted-foreground max-w-[640px] text-[14.5px] leading-[1.6] text-pretty">
-    No account, no SaaS. <strong class="text-foreground">Clone the repo</strong>, point it at two folders,
+    No account, no SaaS. <strong class="text-foreground">Grab two files</strong>, point it at two folders,
     open a browser. An <strong class="text-foreground">AcoustID key</strong> is optional but sharpens matching.
   </p>
 
