@@ -119,6 +119,12 @@ jobs:
       # Dokploy exposes a per-service webhook deploy URL (service → Deployments → Webhook URL) that
       # triggers the same `docker stack deploy`. Store the FULL URL — it embeds a secret token — as
       # the DOKPLOY_DEPLOY_WEBHOOK_URL repo secret. Skips cleanly when unset.
+      #
+      # IMPORTANT: the webhook only fires when "Auto Deploy" is ENABLED on the compose
+      # (service → Deployments → Auto Deploy). With it off, the webhook returns
+      # `400 {"message":"Automatic deployments are disabled for this compose"}`. There's no
+      # double-deploy risk from enabling it: GHCR doesn't send registry push webhooks (see above),
+      # so this Action is the only thing that ever hits the URL.
       - name: Trigger Dokploy redeploy (webhook)
         env:
           WEBHOOK_URL: ${{ secrets.DOKPLOY_DEPLOY_WEBHOOK_URL }}
@@ -135,5 +141,6 @@ jobs:
           echo "Response:"; cat /tmp/deploy.out 2>/dev/null || echo "(none)"; echo
           case "${status}" in
             2??) echo "Redeploy triggered." ;;
-            *) echo "::error::Dokploy redeploy webhook failed (HTTP ${status}). Check DOKPLOY_DEPLOY_WEBHOOK_URL (Dokploy → service → Deployments → Webhook URL; rotate the token if it leaked). Also disable Dokploy's push auto-deploy so this post-build step is the single trigger."; exit 1 ;;
+            400) echo "::error::Dokploy rejected the redeploy (HTTP 400). If the body says \"Automatic deployments are disabled for this compose\", enable Auto Deploy on the compose (Dokploy → service → Deployments → Auto Deploy) — the webhook requires it. This Action is the only caller, so there's no double-deploy risk."; exit 1 ;;
+            *) echo "::error::Dokploy redeploy webhook failed (HTTP ${status}). Check DOKPLOY_DEPLOY_WEBHOOK_URL (Dokploy → service → Deployments → Webhook URL; rotate the token if it leaked) and that Auto Deploy is enabled on the compose."; exit 1 ;;
           esac
