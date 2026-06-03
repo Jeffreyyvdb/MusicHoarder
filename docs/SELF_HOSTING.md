@@ -126,16 +126,61 @@ startup. To stay on a known version, pin `MUSICHOARDER_VERSION` in `.env`.
 
 ## Backups
 
-Two named volumes hold state worth backing up:
+Everything worth keeping — scan results, enrichment provider matches, review decisions, AI quality
+grades, lyrics, manual approvals, Spotify tokens + liked-songs match cache, canonical albums — lives
+in the **`musichoarderdb`** Postgres database (the `postgres-data` volume). Back it up with:
 
-- **`postgres-data`** — your catalog: scan results, matches, review decisions, lyrics. Back this
-  up (e.g. `docker compose exec postgres pg_dump -U musichoarder musichoarderdb > backup.sql`).
-- **`musichoarder-dpkeys`** — the DataProtection keys that sign session cookies. Losing it just
-  logs everyone out (they sign in again); it's not catastrophic, but persisting it keeps sessions
-  valid across restarts.
+```bash
+./scripts/backup.sh
+# or, by hand:
+docker compose exec -T postgres pg_dump -U postgres -d musichoarderdb --clean --if-exists > backup.sql
+```
+
+The other named volume, **`musichoarder-dpkeys`**, holds the DataProtection keys that sign session
+cookies. It's *not* in the database. Losing it just logs everyone out (they sign in again); it's not
+catastrophic, but persisting it keeps sessions valid across restarts.
 
 Your **source** library is read-only and never touched. The **destination** library is fully
 regenerable from the source + catalog, so it doesn't strictly need backing up.
+
+### Migrating from an existing instance (e.g. Dokploy → homelab)
+
+Because all the derived work is in `musichoarderdb`, moving to a new host is a database dump +
+restore — you don't re-run any enrichment provider or AI analysis. Both the shipped self-host stack
+and the Dokploy/Aspire stack use the `postgres` role by default, so ownership transfers cleanly.
+
+1. **On the source** (the instance you're moving away from), with its stack running:
+
+   ```bash
+   ./scripts/backup.sh              # writes musichoarder-backup-<timestamp>.sql
+   ```
+
+   On Dokploy you can run the underlying `pg_dump` from the Postgres service's container terminal:
+   `pg_dump -U postgres -d musichoarderdb --clean --if-exists > /tmp/backup.sql`, then download it.
+
+2. **Copy** the `.sql` file to the new host (next to its `docker-compose.yml`).
+
+3. **On the target**, restore before the app starts populating data:
+
+   ```bash
+   docker compose up -d postgres                 # database only; wait until healthy
+   ./scripts/restore.sh musichoarder-backup-<timestamp>.sql
+   docker compose up -d                          # start API + frontend
+   ```
+
+   The API applies EF migrations on boot; since the dump already carries the schema and
+   `__EFMigrationsHistory`, it finds nothing new to apply and your data is preserved as-is.
+
+Notes:
+
+- **Spotify** tokens come across in the dump, so no re-auth — but if the new host has a different
+  `PUBLIC_BASE_URL`, register `<new PUBLIC_BASE_URL>/api/spotify/callback` in the Spotify dashboard.
+- The **`musichoarder-dpkeys`** volume isn't in the dump; skipping it just means everyone logs in
+  again on the new host.
+- If your *old* volume was initialized under a non-default role (e.g. an early self-host install
+  that used `musichoarder`), pass `PG_USER=musichoarder` to `backup.sh` on that host. `POSTGRES_USER`
+  only applies to a fresh data dir, so an existing volume keeps the role it was created with — set
+  `POSTGRES_USER` in the target's `.env` to match if you're reusing such a volume.
 
 ## Build from source
 
