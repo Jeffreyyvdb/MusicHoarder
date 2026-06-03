@@ -145,31 +145,76 @@ regenerable from the source + catalog, so it doesn't strictly need backing up.
 
 ### Migrating from an existing instance (e.g. Dokploy → homelab)
 
-Because all the derived work is in `musichoarderdb`, moving to a new host is a database dump +
-restore — you don't re-run any enrichment provider or AI analysis. Both the shipped self-host stack
-and the Dokploy/Aspire stack use the `postgres` role by default, so ownership transfers cleanly.
+All the derived work is in `musichoarderdb`, so moving to a new host is a database dump + restore —
+you don't re-run any enrichment provider or AI analysis. There's **one catch that will bite you if
+you skip it**: the catalog stores *absolute* file paths, so you must remap them whenever the new
+host mounts your library at different paths than the old one did (it almost always does — see the
+box below). Do the restore + remap with **only Postgres running**, before the API ever starts.
 
-1. **On the source** (the instance you're moving away from), with its stack running:
+> **Why the remap is mandatory.** Each row in the `Songs` table stores an absolute `SourcePath`
+> (and `DestinationPath`). The API matches files to rows by *exact* `SourcePath`, and a scan fires
+> automatically on first boot. The Dokploy/Aspire stack bind-mounts your library at its host path
+> (so paths look like `/root/music/…`), while the self-host compose mounts it at a fixed
+> `/music/source`. If the stored paths don't match what the new stack scans, that first scan treats
+> every file as new and **soft-deletes your entire imported catalog**, then re-enriches from
+> scratch. Remapping the paths first makes the scan a no-op (`0 new … Marked 0 files as deleted`).
 
-   ```bash
-   ./scripts/backup.sh              # writes musichoarder-backup-<timestamp>.sql
-   ```
+1. **On the source**, dump the database.
 
-   On Dokploy you can run the underlying `pg_dump` from the Postgres service's container terminal:
-   `pg_dump -U postgres -d musichoarderdb --clean --if-exists > /tmp/backup.sql`, then download it.
+   - If it's a plain `docker compose` stack: `./scripts/backup.sh` (writes
+     `musichoarder-backup-<timestamp>.sql`).
+   - On **Dokploy** (Docker Swarm — `docker compose exec` doesn't apply), run `pg_dump` straight
+     from the container. Note that Dokploy hardens Postgres with `scram-sha-256`, so you must pass
+     the password:
 
-2. **Copy** the `.sql` file to the new host (next to its `docker-compose.yml`).
+     ```bash
+     CTR=$(docker ps --filter name=postgres --format '{{.Names}}' | head -n1)
+     docker exec "$CTR" sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" \
+       pg_dump -U postgres -d musichoarderdb --clean --if-exists' > backup.sql
+     ```
 
-3. **On the target**, restore before the app starts populating data:
+2. **Copy** the `.sql` file to the new host, next to its `docker-compose.yml`.
+
+3. **On the target**, restore into a fresh database with only Postgres up:
 
    ```bash
    docker compose up -d postgres                 # database only; wait until healthy
-   ./scripts/restore.sh musichoarder-backup-<timestamp>.sql
-   docker compose up -d                          # start API + frontend
+   ./scripts/restore.sh backup.sql               # restore.sh prints the stored paths + next steps
    ```
 
-   The API applies EF migrations on boot; since the dump already carries the schema and
-   `__EFMigrationsHistory`, it finds nothing new to apply and your data is preserved as-is.
+   `restore.sh` finishes by printing the `SourcePath`/`DestinationPath` prefixes the dump brought
+   in. Compare them with what *this* stack scans:
+
+   ```bash
+   docker compose config | grep -iE 'SourceDirectory|DestinationDirectory'
+   ```
+
+4. **Remap the paths** if they differ (they will, coming from Dokploy). `--source`/`--dest` take
+   path *prefixes*; the rewrite is prefix-anchored and leaves the demo account's rows alone:
+
+   ```bash
+   ./scripts/remap-paths.sh \
+     --source /root/music             /music/source \
+     --dest   /root/musichoarder-dest /music/destination
+   ```
+
+   Use the real prefixes you saw in step 3. Also make sure `.env`'s `MUSIC_SOURCE_PATH` /
+   `MUSIC_DESTINATION_PATH` point the `/music/source` and `/music/destination` mounts at the actual
+   library folders on the new host.
+
+5. **(Recommended) match the enrichment env** to the source — `ACOUSTID_API_KEY`, `SPOTIFY_*`,
+   `QUALITY_GRADING_*` in `.env`. If the enabled-provider set differs, the API runs a "provider-set
+   change" sweep that needlessly re-enriches (and may re-grade) songs that were already done.
+
+6. **Start the rest of the stack and confirm the scan is a no-op:**
+
+   ```bash
+   docker compose up -d
+   docker compose logs -f musichoarder
+   ```
+
+   You want `Discovery complete: N total, 0 new, 0 changed, N unchanged` and `Marked 0 files as
+   deleted`. If you see that, your full catalog (matches, grades, lyrics, review queue) is preserved.
 
 Notes:
 
@@ -177,10 +222,13 @@ Notes:
   `PUBLIC_BASE_URL`, register `<new PUBLIC_BASE_URL>/api/spotify/callback` in the Spotify dashboard.
 - The **`musichoarder-dpkeys`** volume isn't in the dump; skipping it just means everyone logs in
   again on the new host.
-- If your *old* volume was initialized under a non-default role (e.g. an early self-host install
-  that used `musichoarder`), pass `PG_USER=musichoarder` to `backup.sh` on that host. `POSTGRES_USER`
-  only applies to a fresh data dir, so an existing volume keeps the role it was created with — set
-  `POSTGRES_USER` in the target's `.env` to match if you're reusing such a volume.
+- Both stacks use the `postgres` role by default, so ownership transfers cleanly. If your *old*
+  volume was initialized under a different role (e.g. an early self-host install that used
+  `musichoarder`), pass `PG_USER=musichoarder` to `backup.sh`, and set `POSTGRES_USER` in the
+  target's `.env` if you're reusing such a volume — `POSTGRES_USER` only applies to a fresh data dir.
+- If you already booted the API before remapping and it soft-deleted everything: don't panic, no
+  data is lost from the dump. `docker compose down -v`, then redo from step 3 (restore → remap →
+  start) on a fresh volume.
 
 ## Build from source
 
