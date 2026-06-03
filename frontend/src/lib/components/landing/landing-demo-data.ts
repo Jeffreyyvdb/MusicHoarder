@@ -46,11 +46,11 @@ export const githubUrl = GITHUB_URL;
  * Two GHCR images (api + frontend) + Postgres — no single container, no `:8420`.
  * ────────────────────────────────────────────────────────────────────────────── */
 
-/** The exact homelab quickstart, copy-paste ready. Builds the images locally from a checkout. */
-export const installCommand = `git clone https://github.com/Jeffreyyvdb/MusicHoarder.git
-cd MusicHoarder
-cp .env.example .env   # set your paths + secrets
-docker compose up -d --build`;
+/** The exact homelab quickstart, copy-paste ready. Pulls prebuilt GHCR images — no checkout, no build. */
+export const installCommand = `curl -fsSLO https://raw.githubusercontent.com/Jeffreyyvdb/MusicHoarder/main/docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/Jeffreyyvdb/MusicHoarder/main/.env.example -o .env
+# edit .env — set your two folders, a Postgres password, owner email + public URL
+docker compose up -d`;
 
 /** Abridged-but-accurate excerpt of the repo's docker-compose.yml (real images, ports, mounts). */
 export const composeSnippet = `services:
@@ -58,7 +58,7 @@ export const composeSnippet = `services:
     image: postgres:17
 
   musichoarder:                   # API + the whole pipeline
-    build: .
+    image: ghcr.io/jeffreyyvdb/musichoarder/api:latest
     ports: ["5050:8080"]
     volumes:
       - \${MUSIC_SOURCE_PATH}:/music/source:ro        # read-only
@@ -70,19 +70,19 @@ export const composeSnippet = `services:
     depends_on: [postgres]
 
   frontend:                       # the web UI you're looking at
-    build: ./frontend
+    image: ghcr.io/jeffreyyvdb/musichoarder/frontend:latest
     ports: ["3000:3000"]
     depends_on: [musichoarder]`;
 
 /** Three-step quickstart, derived from the README self-hosting section. */
 export const quickstartSteps: ReadonlyArray<{ title: string; body: string }> = [
   {
-    title: 'Clone and configure',
-    body: 'Copy .env.example to .env and point MUSIC_SOURCE_PATH at your messy folder and MUSIC_DESTINATION_PATH at an empty one for the clean library. Set a POSTGRES_PASSWORD and OWNER_EMAIL.'
+    title: 'Download and configure',
+    body: 'Grab docker-compose.yml and .env.example — no repo clone needed. Point MUSIC_SOURCE_PATH at your messy folder and MUSIC_DESTINATION_PATH at an empty one for the clean library, then set a POSTGRES_PASSWORD, OWNER_EMAIL, and PUBLIC_BASE_URL.'
   },
   {
     title: 'Bring it up',
-    body: 'Run docker compose up -d --build. It builds the API + frontend images, starts PostgreSQL, applies migrations, and the scanner begins walking your source tree immediately.'
+    body: 'Run docker compose up -d. It pulls the prebuilt API + frontend images from GHCR, starts PostgreSQL, applies migrations, and the scanner begins walking your source tree immediately.'
   },
   {
     title: 'Open the dashboard',

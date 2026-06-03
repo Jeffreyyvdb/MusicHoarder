@@ -87,7 +87,7 @@ export const faqPageSchema = {
       name: 'How do I self-host MusicHoarder?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Clone the repo, copy .env.example to .env (set your source/destination folders, a Postgres password, and owner email), then run "docker compose up -d --build". It starts PostgreSQL, the API on port 5050, and the web UI on port 3000. Prebuilt images are also published to GHCR for a Dokploy-style deploy.'
+        text: 'Download docker-compose.yml and .env.example (no repo clone needed), set your source/destination folders, a Postgres password, owner email, and public URL, then run "docker compose up -d". It pulls prebuilt images from GHCR and starts PostgreSQL, the API on port 5050, and the web UI on port 3000. You can also build from source or do a Dokploy-style deploy.'
       }
     },
     {
