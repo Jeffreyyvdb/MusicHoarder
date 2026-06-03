@@ -1,40 +1,28 @@
 <script lang="ts">
   const features: ReadonlyArray<readonly [title: string, body: string]> = [
     [
-      'acoustic fingerprinting',
-      'Chromaprint + AcoustID identifies tracks even when filename is "track_047.mp3" and the embedded tags are blank.'
+      'Identified by sound',
+      'Chromaprint + AcoustID fingerprint every file — even when it is named track_047.mp3 with empty tags.'
     ],
     [
-      'nine enrichment sources',
-      'MusicBrainz, Discogs, Spotify, Last.fm, AcoustID, Apple Music, LRCLIB, Genius, Cover Art Archive — fallback chain, never just one.'
+      'Consensus across seven providers',
+      'AcoustID, Spotify, MusicBrainz, Deezer, Apple Music and two community trackers vote; MusicHoarder takes the agreement, not the first hit.'
     ],
     [
-      'deduplication',
-      'Bit-aware dedupe keeps the highest-quality copy; logs every decision so you can audit later.'
+      'Graded by an LLM',
+      'A quality LLM scores every match 0–100 and only escalates what it distrusts to your Inbox — so you review dozens of tracks, not thousands.'
     ],
     [
-      'manual review queue',
-      'Anything under your confidence threshold lands in a queue. You decide.'
+      'Bit-aware dedupe',
+      'Groups by acoustic fingerprint, keeps the highest-quality copy, and logs every decision so you can audit any choice later.'
     ],
     [
-      'original files, untouched',
-      'MusicHoarder reads but never destroys. The source folder is yours to delete or keep.'
+      'Your files, untouched',
+      'The source folder is mounted read-only. MusicHoarder writes a clean copy to a separate library; the originals are yours to keep or delete.'
     ],
     [
-      'fully open formats',
-      'Library writes are plain files in plain folders. No proprietary database, no lock-in.'
-    ],
-    [
-      'cover art, sorted',
-      'Fetches the right sleeve from the Cover Art Archive, caches it, and writes it into the library so Navidrome and friends show the real artwork.'
-    ],
-    [
-      'full album tracklists',
-      'Reconciles the complete tracklist across MusicBrainz, Spotify, Apple Music and Deezer — missing tracks greyed out so gaps are obvious at a glance.'
-    ],
-    [
-      'plays in your browser',
-      'A built-in player with waveform, a ⌘K command palette, and a polished mobile layout — browse and listen without leaving the app.'
+      'Plain files, no lock-in',
+      'Output is Artist / Year - Album / NN - Track on disk, with real artwork and synced lyrics embedded. No proprietary database, no cloud.'
     ]
   ];
 </script>
