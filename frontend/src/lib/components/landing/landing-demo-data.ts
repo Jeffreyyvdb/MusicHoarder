@@ -49,7 +49,7 @@ export const githubUrl = GITHUB_URL;
 /** The exact homelab quickstart, copy-paste ready. Builds the images locally from a checkout. */
 export const installCommand = `git clone https://github.com/Jeffreyyvdb/MusicHoarder.git
 cd MusicHoarder
-cp .env.example .env          # set MUSIC_SOURCE_PATH, MUSIC_DESTINATION_PATH, secrets
+cp .env.example .env   # set your paths + secrets
 docker compose up -d --build`;
 
 /** Abridged-but-accurate excerpt of the repo's docker-compose.yml (real images, ports, mounts). */
@@ -61,8 +61,8 @@ export const composeSnippet = `services:
     build: .
     ports: ["5050:8080"]
     volumes:
-      - \${MUSIC_SOURCE_PATH}:/music/source:ro          # read-only — never modified
-      - \${MUSIC_DESTINATION_PATH}:/music/destination   # your clean library
+      - \${MUSIC_SOURCE_PATH}:/music/source:ro        # read-only
+      - \${MUSIC_DESTINATION_PATH}:/music/destination # clean library
     environment:
       - MusicEnricher__SourceDirectory=/music/source
       - MusicEnricher__DestinationDirectory=/music/destination

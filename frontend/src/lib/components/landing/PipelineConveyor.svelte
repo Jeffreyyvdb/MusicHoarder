@@ -23,7 +23,7 @@
   </p>
 
   <!-- The conveyor strip -->
-  <div class="mt-8 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+  <div class="mt-8 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
     {#each demoStages as s (s.id)}
       <button
         type="button"
