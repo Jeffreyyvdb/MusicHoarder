@@ -61,6 +61,8 @@
   // When true, collapse the tracklist to just the songs the user owns, hiding the greyed-out
   // canonical tracks they're missing. Toggle with the button in the track-list header or the `H` key.
   let hideMissing = $state(false);
+  // The ScrollArea viewport, so we can clamp scrollTop after the list shrinks (see below).
+  let scrollViewport = $state<HTMLElement | null>(null);
   $effect(() => {
     const artist = album?.artist ?? null;
     const title = album?.title ?? null;
@@ -221,6 +223,17 @@
     hideMissing ? displayRows.filter((r) => r.kind === 'owned') : displayRows
   );
 
+  // Toggling hideMissing shrinks the list; clamp scrollTop so the viewport can't sit
+  // parked in blank space below the (now shorter) content. Runs after the DOM is patched,
+  // so scrollHeight reflects the new list.
+  $effect(() => {
+    void hideMissing;
+    const vp = scrollViewport;
+    if (!vp) return;
+    const max = vp.scrollHeight - vp.clientHeight;
+    if (vp.scrollTop > max) vp.scrollTop = Math.max(0, max);
+  });
+
   const completeness = $derived.by(() => {
     const tl = tracklist;
     if (!tl || tl.totalCount === 0) return null;
@@ -330,7 +343,7 @@
     </a>
   </div>
 {:else}
-  <ScrollArea class="min-h-0 flex-1">
+  <ScrollArea bind:viewportRef={scrollViewport} class="min-h-0 flex-1">
     <!-- Hero -->
     <div
       class="mh-album-hero relative px-6 pt-12 pb-7 text-white sm:px-9"
