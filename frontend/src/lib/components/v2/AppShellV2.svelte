@@ -24,25 +24,28 @@
 
 <Sidebar.Provider>
   <AppSidebarV2 />
-  <Sidebar.Inset
-    class={cn(
-      'bg-background h-svh min-w-0',
-      // Mobile reserves space for the floating bottom bar (hidden ≥ md); add the
-      // MiniPlayer's height on top when it's showing. Desktop keeps the original
-      // behaviour via the md: overrides (no bottom bar there).
-      !drawerOpen && [
-        playerPad
-          ? 'pb-[calc(140px+env(safe-area-inset-bottom))]'
-          : 'pb-[calc(80px+env(safe-area-inset-bottom))]',
-        playerPad ? 'md:pb-[88px]' : 'md:pb-0'
-      ],
-      drawerOpen && 'pb-[340px]'
-    )}
-  >
+  <Sidebar.Inset class={cn('bg-background h-svh min-w-0', drawerOpen && 'pb-[340px]')}>
     <AppTopBarV2 />
     <LibraryOfflineBanner />
     <QualityGradingErrorBanner />
-    <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <!-- Page content scrolls *behind* the floating MiniPlayer / mobile bottom nav
+         so the frosted glass reveals moving content. Rather than reserving dead
+         space on the inset (which left the bar over blank background), we publish
+         the clearance as `--mh-content-pad`; each scroll viewport consumes it as
+         trailing padding so the last items still clear the chrome. The mobile nav
+         is always present (80px); the player adds ~60px on top when showing. -->
+    <div
+      data-mh-content
+      class={cn(
+        'flex min-h-0 flex-1 flex-col overflow-hidden',
+        !drawerOpen && [
+          playerPad
+            ? '[--mh-content-pad:calc(140px_+_env(safe-area-inset-bottom))] md:[--mh-content-pad:88px]'
+            : '[--mh-content-pad:calc(80px_+_env(safe-area-inset-bottom))] md:[--mh-content-pad:0px]'
+        ],
+        drawerOpen && '[--mh-content-pad:0px]'
+      )}
+    >
       <SectionSubNav />
       {@render children()}
     </div>

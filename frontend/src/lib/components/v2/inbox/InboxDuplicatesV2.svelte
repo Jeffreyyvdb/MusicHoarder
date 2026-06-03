@@ -158,7 +158,7 @@
           <RefreshCw class="size-3.5" />
         </button>
       </div>
-      <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
+      <div class="min-h-0 flex-1 overflow-y-auto p-1.5 pb-[calc(0.375rem_+_var(--mh-content-pad))]">
         {#each groups as g, i (g.fingerprint ?? i)}
           {@const meta = groupLabel(g)}
           <button
@@ -208,7 +208,7 @@
           </div>
         </div>
 
-        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
+        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 pb-[calc(1rem_+_var(--mh-content-pad))] sm:px-6">
           <div class="grid gap-3 md:grid-cols-2">
             {#each [{ side: sideA, kept: true }, { side: sideB, kept: false }] as col, ci (ci)}
               {#if col.side}

@@ -333,7 +333,7 @@
           <RefreshCw class="size-3.5" />
         </button>
       </div>
-      <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
+      <div class="min-h-0 flex-1 overflow-y-auto p-1.5 pb-[calc(0.375rem_+_var(--mh-content-pad))]">
         {#each tracks as track (track.id)}
           {@const r = reasonFor(track)}
           {@const info = rowOriginal(track)}
@@ -429,7 +429,7 @@
         {/if}
 
         <!-- Scrollable body: candidates + before/after diff -->
-        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
+        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 pb-[calc(1rem_+_var(--mh-content-pad))] sm:px-6">
           <div class="text-muted-foreground flex items-baseline gap-2">
             <span class="text-[12px] font-semibold tracking-wide uppercase">Candidates</span>
             <span class="text-[11.5px]">Pick a provider's answer, or override fields below.</span>
