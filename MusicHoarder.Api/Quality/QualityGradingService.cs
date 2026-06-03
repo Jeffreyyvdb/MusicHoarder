@@ -113,6 +113,7 @@ public class QualityGradingService(
     {
         HttpRequestException { StatusCode: System.Net.HttpStatusCode.PaymentRequired } => "out_of_credits",
         HttpRequestException => "http_error",
+        JsonException => "bad_response",
         InvalidOperationException => "empty_response",
         _ => "error",
     };
