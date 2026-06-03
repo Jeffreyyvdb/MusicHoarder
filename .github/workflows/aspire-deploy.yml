@@ -108,28 +108,32 @@ jobs:
           done
 
   deploy:
-    name: Redeploy Dokploy Compose
+    name: Redeploy Dokploy
     needs: push
     runs-on: ubuntu-latest
     steps:
-      # GHCR doesn't fire push webhooks, so the redeploy is API-triggered. Skips cleanly until the
-      # Compose service exists and DOKPLOY_COMPOSE_ID (+ URL/API key) secrets are set.
-      - name: Trigger Dokploy compose redeploy
+      # GHCR doesn't fire push webhooks, so we trigger the redeploy ourselves — here, AFTER the new
+      # :latest is in GHCR, so the deploy always pulls the freshly built images (avoids the one-
+      # release lag you get from Dokploy's own on-push auto-deploy, which fires before the build).
+      #
+      # Dokploy exposes a per-service webhook deploy URL (service → Deployments → Webhook URL) that
+      # triggers the same `docker stack deploy`. Store the FULL URL — it embeds a secret token — as
+      # the DOKPLOY_DEPLOY_WEBHOOK_URL repo secret. Skips cleanly when unset.
+      - name: Trigger Dokploy redeploy (webhook)
         env:
-          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
-          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
-          COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
+          WEBHOOK_URL: ${{ secrets.DOKPLOY_DEPLOY_WEBHOOK_URL }}
         run: |
           set -euo pipefail
-          if [ -z "${COMPOSE_ID:-}" ] || [ -z "${DOKPLOY_URL:-}" ] || [ -z "${DOKPLOY_API_KEY:-}" ]; then
-            echo "::notice::DOKPLOY_COMPOSE_ID / DOKPLOY_URL / DOKPLOY_API_KEY not all set — skipping redeploy (images were still pushed)."
+          if [ -z "${WEBHOOK_URL:-}" ]; then
+            echo "::notice::DOKPLOY_DEPLOY_WEBHOOK_URL not set — skipping redeploy (images were still pushed)."
             exit 0
           fi
-          status=$(curl -fsS --max-time 60 -o /tmp/deploy.json -w "%{http_code}" \
-            -X POST "${DOKPLOY_URL%/}/api/compose.deploy" \
-            -H "x-api-key: ${DOKPLOY_API_KEY}" \
-            -H "Content-Type: application/json" \
-            --data "{\"composeId\":\"${COMPOSE_ID}\"}")
+          # No -f and a trailing `|| true` so a 4xx/5xx still prints the body instead of dying with a
+          # bare "exit 22" that hides the cause.
+          status=$(curl -sS --max-time 60 -o /tmp/deploy.out -w "%{http_code}" -X POST "${WEBHOOK_URL}" || true)
           echo "HTTP ${status}"
-          cat /tmp/deploy.json || true
-          test "${status}" = "200"
+          echo "Response:"; cat /tmp/deploy.out 2>/dev/null || echo "(none)"; echo
+          case "${status}" in
+            2??) echo "Redeploy triggered." ;;
+            *) echo "::error::Dokploy redeploy webhook failed (HTTP ${status}). Check DOKPLOY_DEPLOY_WEBHOOK_URL (Dokploy → service → Deployments → Webhook URL; rotate the token if it leaked). Also disable Dokploy's push auto-deploy so this post-build step is the single trigger."; exit 1 ;;
+          esac
