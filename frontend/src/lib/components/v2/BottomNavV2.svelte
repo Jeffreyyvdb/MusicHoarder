@@ -31,7 +31,7 @@
 
 <nav
   aria-label="Primary"
-  class="border-border bg-background/95 fixed inset-x-3 bottom-3 z-40 flex items-stretch gap-1 rounded-2xl border p-1.5 shadow-[0_-4px_24px_oklch(0%_0_0/0.08)] backdrop-blur md:hidden dark:shadow-[0_-4px_20px_rgba(0,0,0,0.35)]"
+  class="border-border bg-background/70 fixed inset-x-3 bottom-3 z-40 flex items-stretch gap-1 rounded-2xl border p-1.5 shadow-[0_-4px_24px_oklch(0%_0_0/0.08)] backdrop-blur-xl backdrop-saturate-150 md:hidden dark:shadow-[0_-4px_20px_rgba(0,0,0,0.35)]"
   style="margin-bottom: env(safe-area-inset-bottom, 0);"
 >
   {#each ITEMS as item (item.id)}

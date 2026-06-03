@@ -352,7 +352,8 @@
     </button>
 
     <span class="text-muted-foreground ml-auto font-mono text-[10.5px]">
-      {sorted.length.toLocaleString()} shown · sorted by {sortKey}
+      Showing {sorted.length.toLocaleString()} of {songs.length.toLocaleString()} ·
+      {formatFileSize(stats.totalBytes)} · {formatTotalDuration(stats.totalSec)} · sorted by {sortKey}
       {sortDir === 'asc' ? '↑' : '↓'}
     </span>
 
@@ -406,7 +407,11 @@
     </div>
   {:else}
     <!-- Virtualized scroll viewport -->
-    <div bind:this={scrollEl} onscroll={onScroll} class="min-h-0 flex-1 overflow-y-auto px-2 sm:px-3">
+    <div
+      bind:this={scrollEl}
+      onscroll={onScroll}
+      class="min-h-0 flex-1 overflow-y-auto px-2 pb-[var(--mh-content-pad)] sm:px-3"
+    >
       <div class="relative" style="height: {sorted.length * ROW_H}px;">
         {#each visible as song, vi (song.id)}
           {@const i = startIndex + vi}
@@ -551,15 +556,6 @@
           </div>
         {/each}
       </div>
-    </div>
-
-    <!-- Footer totals (outside the scroll area) -->
-    <div class="border-border text-muted-foreground flex shrink-0 items-center gap-2 border-t px-5 py-2.5 font-mono text-[11px]">
-      <span>Showing {sorted.length.toLocaleString()} of {songs.length.toLocaleString()}</span>
-      <span class="flex-1"></span>
-      <span>{formatFileSize(stats.totalBytes)}</span>
-      <span class="opacity-50">·</span>
-      <span>{formatTotalDuration(stats.totalSec)}</span>
     </div>
   {/if}
 </div>

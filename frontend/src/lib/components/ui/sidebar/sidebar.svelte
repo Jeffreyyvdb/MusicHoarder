@@ -44,7 +44,7 @@
 			data-slot="sidebar"
 			data-mobile="true"
 			class={cn(
-				"bg-sidebar text-sidebar-foreground w-(--sidebar-width) p-0 [&>button]:hidden",
+				"bg-sidebar/70 text-sidebar-foreground ring-sidebar-border w-(--sidebar-width) overflow-hidden p-0 ring-1 backdrop-blur-xl backdrop-saturate-150 [&>button]:hidden data-[side=left]:inset-y-3 data-[side=left]:left-3 data-[side=left]:h-auto data-[side=left]:rounded-2xl data-[side=left]:border-r-0 data-[side=left]:shadow-[0_4px_24px_oklch(0%_0_0/0.08)] dark:data-[side=left]:shadow-[0_4px_20px_rgba(0,0,0,0.35)]",
 				className
 			)}
 			style="--sidebar-width: {SIDEBAR_WIDTH_MOBILE};"
@@ -99,7 +99,7 @@
 			<div
 				data-sidebar="sidebar"
 				data-slot="sidebar-inner"
-				class="bg-sidebar group-data-[variant=floating]:ring-sidebar-border group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:shadow-sm group-data-[variant=floating]:ring-1 flex size-full flex-col"
+				class="bg-sidebar group-data-[variant=floating]:bg-sidebar/70 group-data-[variant=floating]:backdrop-blur-xl group-data-[variant=floating]:backdrop-saturate-150 group-data-[variant=floating]:ring-sidebar-border group-data-[variant=floating]:overflow-hidden group-data-[variant=floating]:rounded-2xl group-data-[variant=floating]:shadow-[0_4px_24px_oklch(0%_0_0/0.08)] dark:group-data-[variant=floating]:shadow-[0_4px_20px_rgba(0,0,0,0.35)] group-data-[variant=floating]:ring-1 flex size-full flex-col"
 			>
 				{@render children?.()}
 			</div>

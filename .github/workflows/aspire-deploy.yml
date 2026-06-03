@@ -119,9 +119,23 @@ jobs:
       # Dokploy exposes a per-service webhook deploy URL (service → Deployments → Webhook URL) that
       # triggers the same `docker stack deploy`. Store the FULL URL — it embeds a secret token — as
       # the DOKPLOY_DEPLOY_WEBHOOK_URL repo secret. Skips cleanly when unset.
+      #
+      # IMPORTANT: the webhook only fires when "Auto Deploy" is ENABLED on the compose
+      # (service → Deployments → Auto Deploy). With it off, the webhook returns
+      # `400 {"message":"Automatic deployments are disabled for this compose"}`. There's no
+      # double-deploy risk from enabling it: GHCR doesn't send registry push webhooks (see above),
+      # so this Action is the only thing that ever hits the URL.
+      #
+      # The webhook is Dokploy's *git-push* endpoint: it extracts the branch from a GitHub-style
+      # push payload and deploys only if it matches the compose's configured branch. A bare POST
+      # sends no branch, so Dokploy returns `301 {"message":"Branch Not Match"}`. We therefore send
+      # the `X-GitHub-Event: push` header + `{"ref":"refs/heads/<DEPLOY_BRANCH>", ...}`. DEPLOY_BRANCH
+      # must equal the branch configured on the compose in Dokploy (main for prod).
       - name: Trigger Dokploy redeploy (webhook)
         env:
           WEBHOOK_URL: ${{ secrets.DOKPLOY_DEPLOY_WEBHOOK_URL }}
+          DEPLOY_BRANCH: main
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           if [ -z "${WEBHOOK_URL:-}" ]; then
@@ -129,11 +143,16 @@ jobs:
             exit 0
           fi
           # No -f and a trailing `|| true` so a 4xx/5xx still prints the body instead of dying with a
-          # bare "exit 22" that hides the cause.
-          status=$(curl -sS --max-time 60 -o /tmp/deploy.out -w "%{http_code}" -X POST "${WEBHOOK_URL}" || true)
+          # bare "exit 22" that hides the cause. The GitHub-style payload satisfies Dokploy's branch check.
+          status=$(curl -sS --max-time 60 -o /tmp/deploy.out -w "%{http_code}" -X POST "${WEBHOOK_URL}" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Event: push" \
+            -d "{\"ref\":\"refs/heads/${DEPLOY_BRANCH}\",\"repository\":{\"full_name\":\"${REPO}\"}}" || true)
           echo "HTTP ${status}"
           echo "Response:"; cat /tmp/deploy.out 2>/dev/null || echo "(none)"; echo
           case "${status}" in
             2??) echo "Redeploy triggered." ;;
-            *) echo "::error::Dokploy redeploy webhook failed (HTTP ${status}). Check DOKPLOY_DEPLOY_WEBHOOK_URL (Dokploy → service → Deployments → Webhook URL; rotate the token if it leaked). Also disable Dokploy's push auto-deploy so this post-build step is the single trigger."; exit 1 ;;
+            301) echo "::error::Dokploy rejected the redeploy (HTTP 301 \"Branch Not Match\"). The branch we send (refs/heads/${DEPLOY_BRANCH}) must equal the branch configured on the compose (Dokploy → service → Provider → Branch). Update DEPLOY_BRANCH here or the branch in Dokploy so they agree."; exit 1 ;;
+            400) echo "::error::Dokploy rejected the redeploy (HTTP 400). If the body says \"Automatic deployments are disabled for this compose\", enable Auto Deploy on the compose (Dokploy → service → Deployments → Auto Deploy) — the webhook requires it. This Action is the only caller, so there's no double-deploy risk."; exit 1 ;;
+            *) echo "::error::Dokploy redeploy webhook failed (HTTP ${status}). Check DOKPLOY_DEPLOY_WEBHOOK_URL (Dokploy → service → Deployments → Webhook URL; rotate the token if it leaked) and that Auto Deploy is enabled on the compose."; exit 1 ;;
           esac
