@@ -4,6 +4,7 @@
   import AppSidebarV2 from '$lib/components/v2/AppSidebarV2.svelte';
   import AppTopBarV2 from '$lib/components/v2/AppTopBarV2.svelte';
   import BottomNavV2 from '$lib/components/v2/BottomNavV2.svelte';
+  import MiniPlayer from '$lib/components/MiniPlayer.svelte';
   import SectionSubNav from '$lib/components/v2/SectionSubNav.svelte';
   import LibraryOfflineBanner from '$lib/components/LibraryOfflineBanner.svelte';
   import QualityGradingErrorBanner from '$lib/components/QualityGradingErrorBanner.svelte';
@@ -33,7 +34,7 @@
         playerPad
           ? 'pb-[calc(140px+env(safe-area-inset-bottom))]'
           : 'pb-[calc(80px+env(safe-area-inset-bottom))]',
-        playerPad ? 'md:pb-[68px]' : 'md:pb-0'
+        playerPad ? 'md:pb-[88px]' : 'md:pb-0'
       ],
       drawerOpen && 'pb-[340px]'
     )}
@@ -47,4 +48,11 @@
     </div>
   </Sidebar.Inset>
   <BottomNavV2 />
+  <!-- MiniPlayer is the global playback UI; it hides itself when the in-page
+       TrackPanel is mounted. Its audio element is owned by the store (not the
+       DOM), so playback survives re-renders, navigation, and resize. Mounted
+       inside the provider — as a following sibling of the `peer` sidebar — so it
+       can read `--sidebar-width` / the sidebar's `data-state` to inset the
+       desktop bar to the content area. -->
+  <MiniPlayer />
 </Sidebar.Provider>
