@@ -33,9 +33,8 @@ Migrations apply automatically on first boot.
 
 Point your reverse proxy at the frontend (`:3000`).
 
-> **Private images?** The pull path assumes the GHCR packages are public. If `docker compose
-> up -d` reports `denied`/`unauthorized`, authenticate first with a GitHub token that has the
-> `read:packages` scope: `echo <TOKEN> | docker login ghcr.io -u <github-username> --password-stdin`.
+> The official images are **public**, so no GitHub login or token is needed to pull them. (Only
+> relevant if you publish your own *private* fork: then `docker login ghcr.io` first.)
 
 ## Configuration
 
@@ -152,8 +151,9 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 ## Troubleshooting
 
-- **`denied` / `unauthorized` when pulling** — the GHCR packages may be private; `docker login
-  ghcr.io` with a `read:packages` token (see the Quick start note), or build from source.
+- **`denied` / `unauthorized` when pulling** — the official images are public, so this shouldn't
+  happen for them. If you're pulling a *private* fork of the images, `docker login ghcr.io` with a
+  `read:packages` token first, or build from source.
 - **Tracks stuck in "Needs review"** — set `ACOUSTID_API_KEY`. Without fingerprint
   identification, the pipeline can't confidently match most tracks.
 - **Logged out after every restart** — the `musichoarder-dpkeys` volume isn't persisting. Make
