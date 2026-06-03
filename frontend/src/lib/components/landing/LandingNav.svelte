@@ -1,9 +1,20 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import { goto } from '$app/navigation';
+  import { signInAsDemo } from '$lib/api-client';
   import { Button } from '$lib/components/ui/button';
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
 
   const version = $derived(page.data.appVersion as string | null | undefined);
+
+  async function startDemo() {
+    try {
+      await signInAsDemo();
+      await goto('/pipeline');
+    } catch {
+      await goto('/login');
+    }
+  }
 </script>
 
 <nav class="mx-auto flex max-w-[1280px] items-center justify-between px-6 py-6 md:px-14">
@@ -31,22 +42,34 @@
 
   <div class="flex items-center gap-4 md:gap-5">
     <a
-      href="#features"
-      class="text-muted-foreground hover:text-foreground hidden text-[13px] transition-colors sm:inline"
-    >
-      Features
-    </a>
-    <a
       href="#pipeline"
       class="text-muted-foreground hover:text-foreground hidden text-[13px] transition-colors sm:inline"
     >
       Pipeline
     </a>
     <a
-      href="#sources"
+      href="#inbox"
       class="text-muted-foreground hover:text-foreground hidden text-[13px] transition-colors sm:inline"
     >
-      Sources
+      Inbox
+    </a>
+    <a
+      href="#library"
+      class="text-muted-foreground hover:text-foreground hidden text-[13px] transition-colors sm:inline"
+    >
+      Library
+    </a>
+    <a
+      href="#quickstart"
+      class="text-muted-foreground hover:text-foreground hidden text-[13px] transition-colors sm:inline"
+    >
+      Quickstart
+    </a>
+    <a
+      href="#features"
+      class="text-muted-foreground hover:text-foreground hidden text-[13px] transition-colors sm:inline"
+    >
+      Features
     </a>
     <a
       href="https://github.com/Jeffreyyvdb/MusicHoarder"
@@ -57,6 +80,7 @@
       GitHub
     </a>
     <ThemeToggle />
-    <Button variant="ghost" size="sm" href="/login">Sign in</Button>
+    <Button variant="ghost" size="sm" href="/login" class="hidden sm:inline-flex">Sign in</Button>
+    <Button size="sm" onclick={startDemo}>Try the live demo</Button>
   </div>
 </nav>
