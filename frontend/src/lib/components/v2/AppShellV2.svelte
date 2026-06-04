@@ -40,8 +40,8 @@
         'flex min-h-0 flex-1 flex-col overflow-hidden',
         !drawerOpen && [
           playerPad
-            ? '[--mh-content-pad:calc(140px_+_env(safe-area-inset-bottom))] md:[--mh-content-pad:88px]'
-            : '[--mh-content-pad:calc(80px_+_env(safe-area-inset-bottom))] md:[--mh-content-pad:0px]'
+            ? '[--mh-content-pad:calc(140px_+_max(env(safe-area-inset-bottom),var(--mh-vv-bottom,0px)))] md:[--mh-content-pad:88px]'
+            : '[--mh-content-pad:calc(80px_+_max(env(safe-area-inset-bottom),var(--mh-vv-bottom,0px)))] md:[--mh-content-pad:0px]'
         ],
         drawerOpen && '[--mh-content-pad:0px]'
       )}
