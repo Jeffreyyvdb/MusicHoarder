@@ -51,10 +51,32 @@ public class QualityGradingOptions
     public int RequestsPerSecond { get; set; } = 4;
 
     [Range(5, 300)]
-    public int TimeoutSeconds { get; set; } = 60;
+    public int TimeoutSeconds { get; set; } = 120;
 
-    [Range(64, 4096)]
-    public int MaxOutputTokens { get; set; } = 2048;
+    /// <summary>
+    /// Cap on the chat-completion output. Reasoning models spend this same budget on their
+    /// chain-of-thought, so it must comfortably exceed <see cref="ReasoningMaxTokens"/> or the JSON
+    /// answer gets truncated (the grader then fails with "No JSON object found in model reply").
+    /// </summary>
+    [Range(64, 16384)]
+    public int MaxOutputTokens { get; set; } = 4096;
+
+    /// <summary>
+    /// Caps reasoning-model thinking via OpenRouter's <c>reasoning.max_tokens</c>, keeping the
+    /// chain-of-thought from eating the whole <see cref="MaxOutputTokens"/> budget so the JSON answer
+    /// always has room. Keep it well below <see cref="MaxOutputTokens"/>. <c>0</c> omits the field
+    /// entirely (no reasoning control sent) for plain non-reasoning models.
+    /// </summary>
+    [Range(0, 8192)]
+    public int ReasoningMaxTokens { get; set; } = 2000;
+
+    /// <summary>
+    /// Maximum retries for a single grading call on a transient failure (HTTP 429/5xx, a per-call
+    /// timeout, or a dropped connection). <c>Retry-After</c> is honored when present; otherwise an
+    /// exponential backoff with jitter is used. <c>0</c> disables retries.
+    /// </summary>
+    [Range(0, 6)]
+    public int MaxRetries { get; set; } = 3;
 
     [Range(0.0, 2.0)]
     public double Temperature { get; set; } = 0.0;
