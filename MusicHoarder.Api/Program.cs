@@ -59,6 +59,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseMiddleware<AuthenticationMiddleware>();
 app.UseMiddleware<RequireAuthMiddleware>();
+app.UseMiddleware<DemoReadOnlyMiddleware>();
 
 app.MapMusicHoarderEndpoints();
 

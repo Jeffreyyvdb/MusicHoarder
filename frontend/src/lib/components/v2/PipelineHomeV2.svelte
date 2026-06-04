@@ -46,6 +46,10 @@
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { cn } from '$lib/utils';
 
+  // The demo account is read-only — hide the mutating Rescan control (the backend rejects it
+  // regardless, this just avoids a dead button). Defaults false so non-demo callers are unaffected.
+  let { isDemo = false }: { isDemo?: boolean } = $props();
+
   // ── data layer (reuses the existing api-client + album-sections) ───────────
   let stats = $state<ApiStats | null>(null);
   let songs = $state<ApiSong[]>([]);
@@ -443,19 +447,21 @@
     </p>
   </div>
   <div class="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
-    <button
-      type="button"
-      onclick={handleRescan}
-      disabled={rescanning || anyRunning}
-      class="border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-    >
-      {#if rescanning}
-        <Loader2 class="size-3.5 animate-spin" />
-      {:else}
-        <RefreshCw class="size-3.5" />
-      {/if}
-      Rescan
-    </button>
+    {#if !isDemo}
+      <button
+        type="button"
+        onclick={handleRescan}
+        disabled={rescanning || anyRunning}
+        class="border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {#if rescanning}
+          <Loader2 class="size-3.5 animate-spin" />
+        {:else}
+          <RefreshCw class="size-3.5" />
+        {/if}
+        Rescan
+      </button>
+    {/if}
   </div>
 </header>
 

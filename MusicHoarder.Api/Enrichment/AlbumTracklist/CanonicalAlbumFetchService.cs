@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -66,11 +67,14 @@ public sealed class CanonicalAlbumFetchService(
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
         // Matched songs that name an album+artist (background service bypasses the per-user filter).
+        // Demo rows are excluded so the read-only demo library never spawns canonical-album fetches
+        // (which would also feed AlbumGradingBackgroundService).
         // Materialize before grouping — the EF in-memory provider can't translate GroupBy here.
         var songs = await db.Songs
             .IgnoreQueryFilters()
             .AsNoTracking()
             .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic
+                && s.OwnerUserId != WellKnownUsers.DemoId
                 && s.EnrichmentStatus == EnrichmentStatus.Matched
                 && s.Album != null && s.Album != "")
             .Select(s => new SongHint(s.AlbumArtist, s.Artist, s.Album, s.MusicBrainzReleaseId, s.SpotifyId, s.Isrc))

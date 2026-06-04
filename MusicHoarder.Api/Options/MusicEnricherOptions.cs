@@ -13,6 +13,16 @@ public class MusicEnricherOptions
     public string DestinationDirectory { get; set; } = string.Empty;
 
     /// <summary>
+    /// Optional directory of real audio files used to seed the public demo account with playable
+    /// songs (the owner curates a few albums into it). Only set on the hosted demo deployment via
+    /// <c>MusicEnricher__DemoMediaDirectory</c> (a read-only bind mount) — it is intentionally unset
+    /// for self-hosters and PR previews, who keep the synthetic demo seed instead. When set and the
+    /// directory exists, <see cref="Auth.DemoSeederHostedService"/> ingests its files into the demo
+    /// user as <c>Matched</c> + <c>Done</c> rows; when unset/missing, real seeding is skipped.
+    /// </summary>
+    public string? DemoMediaDirectory { get; set; }
+
+    /// <summary>
     /// Optional override for the pipeline version stamped onto performance snapshots. When unset the
     /// snapshot falls back to the assembly informational version (then "dev"). Deploys can inject the
     /// released <c>vX.Y.Z</c> via <c>MusicEnricher__PipelineVersion</c> so timeline points carry the

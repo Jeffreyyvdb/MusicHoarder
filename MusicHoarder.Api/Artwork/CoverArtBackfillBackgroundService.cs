@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.IO.Abstractions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -48,9 +49,12 @@ public sealed class CoverArtBackfillBackgroundService(
                 var fileSystem = scope.ServiceProvider.GetRequiredService<IFileSystem>();
 
                 // Keyset-paginate by Id (background services bypass the per-user filter; single-owner app).
+                // Demo rows are skipped — their source files are a read-only mount, so neither the
+                // HasCoverArt flag nor a destination cover write should target them.
                 var batch = await db.Songs
                     .IgnoreQueryFilters()
-                    .Where(s => !s.IsSynthetic && s.DeletedAtUtc == null && s.Id > cursor)
+                    .Where(s => !s.IsSynthetic && s.DeletedAtUtc == null && s.Id > cursor
+                        && s.OwnerUserId != WellKnownUsers.DemoId)
                     .OrderBy(s => s.Id)
                     .Take(opts.LibraryBuilderBatchSize)
                     .ToListAsync(stoppingToken);

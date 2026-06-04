@@ -150,8 +150,14 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     let detail = ""
     try {
       const body = await response.json() as Record<string, unknown>
+      // The demo account is read-only: every mutation is rejected with this code by the API's
+      // DemoReadOnlyMiddleware. Surface a human message instead of the raw error code.
+      if (body.error === "demo_read_only") {
+        throw new Error("This action is disabled — the demo account is read-only.")
+      }
       detail = (body.message as string) ?? JSON.stringify(body)
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("read-only")) throw err
       // ignore parse errors
     }
     throw new Error(detail || `Request failed for ${path}: ${response.status}`)
