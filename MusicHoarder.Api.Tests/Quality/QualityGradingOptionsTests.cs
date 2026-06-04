@@ -35,4 +35,18 @@ public class QualityGradingOptionsTests
         var opts = new QualityGradingOptions { Enabled = true, ApiKey = "sk-123", BaseUrl = "" };
         Assert.False(opts.IsConfigured);
     }
+
+    // Reasoning models share MaxOutputTokens with their chain-of-thought, so the defaults must leave
+    // headroom: a bounded reasoning cap that sits comfortably below the output budget, plus retries.
+    [Fact]
+    public void Defaults_GiveReasoningHeadroomAndRetries()
+    {
+        var opts = new QualityGradingOptions();
+
+        Assert.Equal(4096, opts.MaxOutputTokens);
+        Assert.Equal(2000, opts.ReasoningMaxTokens);
+        Assert.True(opts.ReasoningMaxTokens < opts.MaxOutputTokens);
+        Assert.Equal(120, opts.TimeoutSeconds);
+        Assert.Equal(3, opts.MaxRetries);
+    }
 }

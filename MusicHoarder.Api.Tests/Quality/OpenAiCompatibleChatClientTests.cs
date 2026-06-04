@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Options;
@@ -8,6 +9,16 @@ namespace MusicHoarder.Api.Tests.Quality;
 
 public class OpenAiCompatibleChatClientTests
 {
+    private const string OkBody =
+        """
+        {
+          "choices": [
+            { "message": { "content": "{\"score\": 90, \"verdict\": \"excellent\"}" }, "finish_reason": "stop" }
+          ],
+          "usage": { "prompt_tokens": 50, "completion_tokens": 20 }
+        }
+        """;
+
     [Fact]
     public async Task Falls_back_to_reasoning_when_content_is_empty()
     {
@@ -56,26 +67,135 @@ public class OpenAiCompatibleChatClientTests
         Assert.Contains("completion_tokens=700", ex.Message);
     }
 
-    private static OpenAiCompatibleChatClient CreateClient(HttpStatusCode status, string responseBody)
+    [Fact]
+    public async Task Retries_after_429_with_retry_after_then_succeeds()
     {
-        var httpClient = new HttpClient(new FakeHttpHandler(status, responseBody));
-        var opts = new TestOptionsMonitor(new QualityGradingOptions
+        using var handler = new QueueHttpHandler(
+            Response(HttpStatusCode.TooManyRequests, "{}", retryAfter: "0"),
+            Response(HttpStatusCode.OK, OkBody));
+        var client = CreateClient(new QualityGradingOptions
         {
-            Enabled = true,
-            ApiKey = "sk-test",
-            BaseUrl = "https://openrouter.ai/api/v1",
-            Model = "deepseek/deepseek-v4-flash",
-        });
-        return new OpenAiCompatibleChatClient(httpClient, opts, NullLogger<OpenAiCompatibleChatClient>.Instance);
+            Enabled = true, ApiKey = "sk-test", BaseUrl = "https://openrouter.ai/api/v1",
+            Model = "deepseek/deepseek-v4", MaxRetries = 3,
+        }, handler);
+
+        var result = await client.CompleteAsync(new ChatCompletionRequest([new ChatMessage("user", "grade")], 0.0, 700));
+
+        Assert.Equal(2, handler.CallCount);
+        Assert.Equal(90, QualityGradingPrompt.Parse(result.Content).Score);
     }
 
-    private sealed class FakeHttpHandler(HttpStatusCode statusCode, string responseBody) : HttpMessageHandler
+    [Fact]
+    public async Task Retries_after_5xx_without_retry_after_then_succeeds()
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-            => Task.FromResult(new HttpResponseMessage(statusCode)
-            {
-                Content = new StringContent(responseBody, System.Text.Encoding.UTF8, "application/json"),
-            });
+        using var handler = new QueueHttpHandler(
+            Response(HttpStatusCode.ServiceUnavailable, "{}"),
+            Response(HttpStatusCode.OK, OkBody));
+        var client = CreateClient(new QualityGradingOptions
+        {
+            Enabled = true, ApiKey = "sk-test", BaseUrl = "https://openrouter.ai/api/v1",
+            Model = "deepseek/deepseek-v4", MaxRetries = 3,
+        }, handler);
+
+        var result = await client.CompleteAsync(new ChatCompletionRequest([new ChatMessage("user", "grade")], 0.0, 700));
+
+        Assert.Equal(2, handler.CallCount);
+        Assert.Equal(90, QualityGradingPrompt.Parse(result.Content).Score);
+    }
+
+    [Fact]
+    public async Task Throws_with_status_when_retries_exhausted()
+    {
+        using var handler = new QueueHttpHandler(
+            Response(HttpStatusCode.TooManyRequests, "{}", retryAfter: "0"),
+            Response(HttpStatusCode.TooManyRequests, "{}", retryAfter: "0"),
+            Response(HttpStatusCode.TooManyRequests, "{}", retryAfter: "0"));
+        var client = CreateClient(new QualityGradingOptions
+        {
+            Enabled = true, ApiKey = "sk-test", BaseUrl = "https://openrouter.ai/api/v1",
+            Model = "deepseek/deepseek-v4", MaxRetries = 2, // 3 attempts total
+        }, handler);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() =>
+            client.CompleteAsync(new ChatCompletionRequest([new ChatMessage("user", "grade")], 0.0, 700)));
+
+        Assert.Equal(3, handler.CallCount);
+        Assert.Equal(HttpStatusCode.TooManyRequests, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task Sends_reasoning_cap_when_configured()
+    {
+        using var handler = new QueueHttpHandler(Response(HttpStatusCode.OK, OkBody));
+        var client = CreateClient(new QualityGradingOptions
+        {
+            Enabled = true, ApiKey = "sk-test", BaseUrl = "https://openrouter.ai/api/v1",
+            Model = "deepseek/deepseek-v4", ReasoningMaxTokens = 1500,
+        }, handler);
+
+        await client.CompleteAsync(new ChatCompletionRequest([new ChatMessage("user", "grade")], 0.0, 700));
+
+        Assert.Contains("\"reasoning\":{\"max_tokens\":1500}", handler.RequestBodies[0]);
+    }
+
+    [Fact]
+    public async Task Omits_reasoning_when_zero()
+    {
+        using var handler = new QueueHttpHandler(Response(HttpStatusCode.OK, OkBody));
+        var client = CreateClient(new QualityGradingOptions
+        {
+            Enabled = true, ApiKey = "sk-test", BaseUrl = "https://openrouter.ai/api/v1",
+            Model = "openai/gpt-4o-mini", ReasoningMaxTokens = 0,
+        }, handler);
+
+        await client.CompleteAsync(new ChatCompletionRequest([new ChatMessage("user", "grade")], 0.0, 700));
+
+        Assert.DoesNotContain("reasoning", handler.RequestBodies[0]);
+    }
+
+    private static OpenAiCompatibleChatClient CreateClient(HttpStatusCode status, string responseBody)
+    {
+        var opts = new QualityGradingOptions
+        {
+            Enabled = true, ApiKey = "sk-test", BaseUrl = "https://openrouter.ai/api/v1",
+            Model = "deepseek/deepseek-v4-flash",
+        };
+        return CreateClient(opts, new QueueHttpHandler(Response(status, responseBody)));
+    }
+
+    private static OpenAiCompatibleChatClient CreateClient(QualityGradingOptions opts, QueueHttpHandler handler)
+    {
+        var httpClient = new HttpClient(handler);
+        return new OpenAiCompatibleChatClient(
+            httpClient, new TestOptionsMonitor(opts), NullLogger<OpenAiCompatibleChatClient>.Instance);
+    }
+
+    private static HttpResponseMessage Response(HttpStatusCode status, string body, string? retryAfter = null)
+    {
+        var resp = new HttpResponseMessage(status)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
+        if (retryAfter is not null)
+            resp.Headers.TryAddWithoutValidation("Retry-After", retryAfter);
+        return resp;
+    }
+
+    private sealed class QueueHttpHandler(params HttpResponseMessage[] responses) : HttpMessageHandler
+    {
+        private readonly Queue<HttpResponseMessage> _responses = new(responses);
+
+        public int CallCount { get; private set; }
+        public List<string> RequestBodies { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            CallCount++;
+            RequestBodies.Add(request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken));
+            if (_responses.Count == 0)
+                throw new InvalidOperationException("QueueHttpHandler ran out of queued responses.");
+            return _responses.Dequeue();
+        }
     }
 
     private sealed class TestOptionsMonitor(QualityGradingOptions value) : IOptionsMonitor<QualityGradingOptions>
