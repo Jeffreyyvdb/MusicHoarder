@@ -187,7 +187,7 @@ public class QualityGradingBackgroundService(
             }
             finally
             {
-                runCompleted = channel.MarkProcessed();
+                runCompleted = channel.MarkProcessed(item.SongId);
             }
 
             // The call that drained the last in-flight item closes the grading run — capture a
