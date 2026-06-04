@@ -130,6 +130,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IRuntimeSettingsService, RuntimeSettingsService>();
         services.AddSingleton<IEnrichmentOrchestrator, EnrichmentOrchestrator>();
         services.AddSingleton<IDestinationPathResolver, DestinationPathResolver>();
+        services.AddSingleton<IAlbumIdentityReconciler, AlbumIdentityReconciler>();
         services.AddSingleton<IDuplicateDetectionService, DuplicateDetectionService>();
         services.AddSingleton<IEmbeddedPictureReader, TagLibEmbeddedPictureReader>();
         services.AddScoped<ICoverArtResolver, CoverArtResolver>();

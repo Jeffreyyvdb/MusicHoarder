@@ -21,7 +21,10 @@ public interface ILibraryBuilderService
 
 public interface ILibraryTagWriter
 {
-    Task WriteTagsAsync(string path, SongMetadata song, CancellationToken ct = default);
+    // The album-IDENTITY tags (album, album artist, year, release ids, disc count, compilation,
+    // release types) come from the reconciled <paramref name="albumIdentity"/> shared by every track
+    // of the album; track-level tags still come from <paramref name="song"/>.
+    Task WriteTagsAsync(string path, SongMetadata song, AlbumIdentity albumIdentity, CancellationToken ct = default);
 }
 
 public class TagLibLibraryTagWriter : ILibraryTagWriter
@@ -36,37 +39,41 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
         TagLib.Id3v2.Tag.ForceDefaultVersion = true;
     }
 
-    public Task WriteTagsAsync(string path, SongMetadata song, CancellationToken ct = default)
+    public Task WriteTagsAsync(string path, SongMetadata song, AlbumIdentity albumIdentity, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
 
         using var tagFile = TagLib.File.Create(path);
         var tag = tagFile.Tag;
 
-        var compilation = song.IsCompilation;
-        var albumArtists = compilation ? [VariousArtists] : BuildAlbumArtistArray(song.AlbumArtist, song.Artist);
+        // Album-IDENTITY fields come from the reconciled identity (shared by every track of the album)
+        // so a single on-disk album isn't split by inconsistent per-track enrichment. Track-level
+        // fields below still come from the song.
+        var compilation = albumIdentity.IsCompilation;
+        var albumArtists = compilation ? [VariousArtists] : BuildAlbumArtistArray(albumIdentity.AlbumArtist, song.Artist);
 
         tag.Title = NullIfEmpty(song.Title);
-        tag.Album = NullIfEmpty(song.Album);
+        tag.Album = NullIfEmpty(albumIdentity.Album);
         tag.Performers = BuildPerformerArray(song.Artist);
         // ALBUMARTIST stays the main artist only (or "Various Artists" for compilations) so albums
         // never fragment by per-track featured artist.
         tag.AlbumArtists = albumArtists;
-        tag.Year = song.Year is > 0 ? (uint)song.Year.Value : 0;
+        tag.Year = albumIdentity.Year is > 0 ? (uint)albumIdentity.Year.Value : 0;
         tag.Track = song.TrackNumber is > 0 ? (uint)song.TrackNumber.Value : 0;
+        // TrackCount is per-disc on multi-disc releases, so it stays per-song; DiscCount is album-level.
         tag.TrackCount = song.TotalTracks is > 0 ? (uint)song.TotalTracks.Value : 0;
         tag.Disc = song.DiscNumber is > 0 ? (uint)song.DiscNumber.Value : 0;
-        tag.DiscCount = song.TotalDiscs is > 0 ? (uint)song.TotalDiscs.Value : 0;
+        tag.DiscCount = albumIdentity.TotalDiscs is > 0 ? (uint)albumIdentity.TotalDiscs.Value : 0;
         tag.ISRC = NullIfEmpty(song.Isrc) ?? string.Empty;
 
         // MusicBrainz IDs — the generic Tag writes the Picard-compatible frame per format.
-        // Gotcha: MusicBrainzTrackId is the field that holds the RECORDING id.
+        // Gotcha: MusicBrainzTrackId is the field that holds the RECORDING id (track-level).
         // Only assign when present: the Xiph (FLAC) setters throw on null.
         SetIfPresent(NullIfEmpty(song.MusicBrainzId), v => tag.MusicBrainzTrackId = v);
-        SetIfPresent(NullIfEmpty(song.MusicBrainzReleaseId), v => tag.MusicBrainzReleaseId = v);
-        SetIfPresent(NullIfEmpty(song.MusicBrainzReleaseGroupId), v => tag.MusicBrainzReleaseGroupId = v);
+        SetIfPresent(NullIfEmpty(albumIdentity.MusicBrainzReleaseId), v => tag.MusicBrainzReleaseId = v);
+        SetIfPresent(NullIfEmpty(albumIdentity.MusicBrainzReleaseGroupId), v => tag.MusicBrainzReleaseGroupId = v);
         SetIfPresent(
-            compilation ? VariousArtistsMbid : NullIfEmpty(song.AlbumArtistMusicBrainzId),
+            compilation ? VariousArtistsMbid : NullIfEmpty(albumIdentity.AlbumArtistMusicBrainzId),
             v => tag.MusicBrainzReleaseArtistId = v);
         var artistIds = MusicHoarder.Api.Metadata.MultiValue.Split(song.ArtistMusicBrainzIds);
         SetIfPresent(artistIds.Length > 0 ? artistIds[0] : null, v => tag.MusicBrainzArtistId = v);
@@ -77,7 +84,7 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
         // Multi-value / freeform fields the generic Tag doesn't expose. create:false so we only
         // touch the file's native tag (the generic sets above already created it) — never an
         // ID3 tag on a FLAC, which is non-spec and breaks some players.
-        WriteExtendedTags(tagFile, song, albumArtists, compilation);
+        WriteExtendedTags(tagFile, song, albumIdentity, albumArtists, compilation);
 
         tagFile.Save();
         return Task.CompletedTask;
@@ -88,7 +95,8 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
         if (!string.IsNullOrWhiteSpace(value)) set(value);
     }
 
-    private static void WriteExtendedTags(TagLib.File file, SongMetadata song, string[] albumArtists, bool compilation)
+    private static void WriteExtendedTags(
+        TagLib.File file, SongMetadata song, AlbumIdentity albumIdentity, string[] albumArtists, bool compilation)
     {
         var artists = MusicHoarder.Api.Metadata.MultiValue.Split(song.Artists);
         if (artists.Length == 0)
@@ -96,7 +104,7 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
             artists = BuildPerformerArray(song.Artist);
         }
 
-        var releaseTypes = MusicHoarder.Api.Metadata.MultiValue.Split(song.ReleaseTypes);
+        var releaseTypes = MusicHoarder.Api.Metadata.MultiValue.Split(albumIdentity.ReleaseTypes);
 
         if (file.GetTag(TagLib.TagTypes.Id3v2, false) is TagLib.Id3v2.Tag id3)
         {
@@ -193,7 +201,7 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
-internal record LibraryBuildTrackCandidate(int SongId, string DestinationPath);
+internal record LibraryBuildTrackCandidate(int SongId, string DestinationPath, string AlbumFolderKey);
 
 internal enum LibraryBuildOutcome
 {
@@ -216,6 +224,7 @@ public class LibraryBuilderService(
     ILibraryDestinationCleaner destinationCleaner,
     ILibraryTagWriter tagWriter,
     IAlbumCoverWriter albumCoverWriter,
+    IAlbumIdentityReconciler albumIdentityReconciler,
     IOptions<MusicEnricherOptions> options,
     ILogger<LibraryBuilderService> logger) : ILibraryBuilderService
 {
@@ -229,6 +238,9 @@ public class LibraryBuilderService(
         var opts = options.Value;
 
         List<LibraryBuildTrackCandidate> candidates;
+        // Destination album folder -> the single album identity every track in it must be tagged with.
+        // Empty when reconciliation is disabled (ProcessTrackAsync then falls back to per-song tags).
+        var identityByFolder = new Dictionary<string, AlbumIdentity>(StringComparer.Ordinal);
         using (var scope = scopeFactory.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
@@ -254,7 +266,8 @@ public class LibraryBuilderService(
                 var destinationPath = destinationPathResolver.ResolvePath(candidateSong);
                 if (uniqueDestinationPaths.Add(destinationPath))
                 {
-                    candidates.Add(new LibraryBuildTrackCandidate(candidateSong.Id, destinationPath));
+                    var folderKey = Path.GetDirectoryName(destinationPath) ?? string.Empty;
+                    candidates.Add(new LibraryBuildTrackCandidate(candidateSong.Id, destinationPath, folderKey));
                 }
                 else
                 {
@@ -263,6 +276,11 @@ public class LibraryBuilderService(
                         candidateSong.Id,
                         destinationPath);
                 }
+            }
+
+            if (candidates.Count > 0 && opts.EnableAlbumIdentityReconciliation)
+            {
+                await BuildAlbumIdentityMapAsync(db, candidates, identityByFolder, ct);
             }
         }
 
@@ -298,9 +316,10 @@ public class LibraryBuilderService(
                 try
                 {
                     LibraryBuildTrackResult result;
+                    identityByFolder.TryGetValue(candidate.AlbumFolderKey, out var albumIdentity);
                     using (await AcquireDestinationLockAsync(candidate.DestinationPath, token))
                     {
-                        result = await ProcessTrackAsync(candidate.SongId, candidate.DestinationPath, token);
+                        result = await ProcessTrackAsync(candidate.SongId, candidate.DestinationPath, albumIdentity, token);
                     }
 
                     switch (result.Outcome)
@@ -343,7 +362,40 @@ public class LibraryBuilderService(
         return new LibraryBuildBatchResult(candidates.Count, done, failed, duration);
     }
 
-    private async Task<LibraryBuildTrackResult> ProcessTrackAsync(int songId, string destinationPath, CancellationToken ct)
+    // Elects one album identity per destination folder represented in this batch. Crucially it elects
+    // from the FULL folder membership (every matched, buildable song that resolves to the folder), not
+    // just the batch slice — so an album whose tracks straddle batches still gets one stable identity.
+    // Unreleased tracks are excluded: they share a per-artist "Unreleased" folder with unrelated
+    // singles, so they keep their own (per-song) tags.
+    private async Task BuildAlbumIdentityMapAsync(
+        MusicHoarderDbContext db,
+        IReadOnlyList<LibraryBuildTrackCandidate> candidates,
+        Dictionary<string, AlbumIdentity> identityByFolder,
+        CancellationToken ct)
+    {
+        var batchFolders = candidates.Select(c => c.AlbumFolderKey).ToHashSet(StringComparer.Ordinal);
+
+        var allMembers = await db.Songs
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
+            .Where(s => !s.IsDuplicate && !s.IsUnreleased)
+            .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched)
+            .ToListAsync(ct);
+
+        var grouped = allMembers
+            .Select(s => (Folder: Path.GetDirectoryName(destinationPathResolver.ResolvePath(s)) ?? string.Empty, Song: s))
+            .Where(x => batchFolders.Contains(x.Folder))
+            .GroupBy(x => x.Folder, StringComparer.Ordinal);
+
+        foreach (var group in grouped)
+        {
+            identityByFolder[group.Key] = albumIdentityReconciler.Reconcile(group.Select(x => x.Song).ToList());
+        }
+    }
+
+    private async Task<LibraryBuildTrackResult> ProcessTrackAsync(
+        int songId, string destinationPath, AlbumIdentity? albumIdentity, CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
@@ -354,6 +406,10 @@ public class LibraryBuilderService(
             logger.LogDebug("Skipping song {SongId}: not buildable (missing/deleted/not-matched)", songId);
             return new LibraryBuildTrackResult(LibraryBuildOutcome.Failed);
         }
+
+        // No reconciled identity for this folder (reconciliation disabled, or an unreleased/loner
+        // track): fall back to the song's own tags — exactly today's behavior.
+        var identity = albumIdentity ?? AlbumIdentity.FromSong(song);
 
         var legacyPath = ResolveLegacyDestinationPath(song);
         var currentManagedPath = ResolveCurrentManagedPath(song, destinationPath, legacyPath);
@@ -409,7 +465,7 @@ public class LibraryBuilderService(
             logger.LogInformation("Copied {Track} (SongId={SongId}) to temp file {TempPath}",
                 song.TrackLabel, songId, tempPath);
 
-            await tagWriter.WriteTagsAsync(tempPath, song, ct);
+            await tagWriter.WriteTagsAsync(tempPath, song, identity, ct);
             song.MarkTagged();
             await db.SaveChangesAsync(ct);
             logger.LogInformation("Tagged temp file for {Track} (SongId={SongId})",
