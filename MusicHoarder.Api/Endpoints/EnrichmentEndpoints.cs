@@ -161,6 +161,47 @@ public static class EnrichmentEndpoints
             .WithSummary("Trigger the LibraryBuilderService to copy and tag matched tracks to the destination.")
             .RequireOwner();
 
+        group.MapPost("/rebuild/album", async (
+                string artist,
+                string album,
+                MusicHoarderDbContext db,
+                JobManager jobManager,
+                IDirectoryAvailability availability,
+                CancellationToken ct) =>
+            {
+                if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(album))
+                    return Results.BadRequest(new { message = "artist and album are required." });
+
+                if (!availability.Current.AllAvailable)
+                    return Results.Conflict(new { message = "Source/destination directory is offline. Reconnect to your music library before rebuilding." });
+
+                // Re-queue this album's already-built tracks so the next build re-copies and re-tags
+                // them in place with the current tag-writing logic (e.g. album-identity reconciliation).
+                // Enrichment is untouched. Match the album the same way the album view does:
+                // (AlbumArtist ?? Artist) + Album, case-insensitively. The per-user query filter scopes
+                // this to the caller's library.
+                var artistLower = artist.ToLowerInvariant();
+                var albumLower = album.ToLowerInvariant();
+                var songs = await db.Songs
+                    .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic && !s.IsDuplicate)
+                    .Where(s => s.LibraryBuildStatus == LibraryBuildStatus.Done)
+                    .Where(s => s.Album != null && s.Album.ToLower() == albumLower
+                        && ((s.AlbumArtist ?? s.Artist) ?? "").ToLower() == artistLower)
+                    .ToListAsync(ct);
+
+                foreach (var song in songs) song.RequeueForRetag();
+                await db.SaveChangesAsync(ct);
+
+                // Wake the builder. If a build is already running it'll pick these up on its next batch,
+                // so a 409 here isn't an error — the re-queue still stands.
+                jobManager.TryStartJob(JobType.Build, out var jobId, out _);
+
+                return Results.Accepted("/api/enrichment/status", new { artist, album, requeued = songs.Count, jobId });
+            })
+            .WithName("RebuildAlbum")
+            .WithSummary("Re-queue an album's already-built tracks so the next build re-tags their destination files in place (no re-enrichment).")
+            .RequireOwner();
+
         group.MapPost("/cancel", (JobManager jobManager, EnrichmentPipelineChannel channel) =>
             {
                 var cancelled = jobManager.Cancel();
