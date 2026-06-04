@@ -377,6 +377,15 @@ public class MusicEnricherOptions
     public int LibraryBuilderIdleDelaySeconds { get; set; } = 20;
 
     /// <summary>
+    /// Harmonize album-identity tags (release id, album name, year, disc count, compilation, release
+    /// types, album-artist mbids) across all tracks that build into the same destination album folder,
+    /// so a single on-disk album isn't split by a server's MusicBrainz-release grouping key (e.g.
+    /// Navidrome's default <c>PID.Album</c>). Election is non-persisted (DB rows keep their per-track
+    /// enrichment) and deterministic. Default on.
+    /// </summary>
+    public bool EnableAlbumIdentityReconciliation { get; set; } = true;
+
+    /// <summary>
     /// Top-level folder name compilations (Various-Artists releases) are filed under, keyed by
     /// album rather than per-track artist so the album stays together. Empty falls back to
     /// "Various Artists" — the literal album-artist string every music server recognizes.

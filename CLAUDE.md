@@ -73,6 +73,8 @@ Enrichment is **multi-provider**, not a single call. Each `IEnrichmentProvider` 
 
 Before modifying enrichment metadata on a song, call `CaptureOriginalMetadata()` (or go through `ApplyEnrichmentMatch`, which does it for you). `ResetEnrichment(restoreOriginal: true)` is the supported way to re-run enrichment for a song — it also clears `ProviderAttempts` and lyrics.
 
+Because enrichment is per-song, tracks of one album can carry inconsistent album-IDENTITY tags (release id, album, year…). At build time `AlbumIdentityReconciler` elects one canonical `AlbumIdentity` per destination album folder (from the full folder membership, not just the batch) and the tag writer applies it to every track — so a server's MusicBrainz-release grouping (e.g. Navidrome's default `PID.Album`) can't split one on-disk album. It's **build-time, non-persisted** (DB rows keep their per-track enrichment, no grade-staleness impact) and gated by `MusicEnricher:EnableAlbumIdentityReconciliation` (default on).
+
 Progress is surfaced via per-stage singletons (`ScanProgressTracker`, `FingerprintProgressTracker`, `EnrichmentProgressTracker`, `LibraryBuilderProgressTracker`) plus a central `JobManager` that enforces **one job at a time** (`/api/enrichment/scan|enrich|fingerprint|build` return `409 Conflict` if another job is running). Progress is streamed to the frontend via SSE endpoints under `/api/enrichment/*`.
 
 ## Configuration
