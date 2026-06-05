@@ -83,8 +83,6 @@
   });
 
   let containerEl: HTMLDivElement | undefined = $state();
-  let lineEls = $state<(HTMLDivElement | null)[]>([]);
-  let prevActiveIndex = -1;
 
   const hasSynced = $derived(Boolean(loadedSynced) || Boolean(hasSyncedFromProps));
   const hasPlain = $derived(Boolean(loadedPlain) || Boolean(hasPlainFromProps));
@@ -128,18 +126,12 @@
   const isTracking = $derived(parsedLines != null && currentTimeMs != null && currentTimeMs >= 0);
 
   $effect(() => {
-    // Reset on new parsed lines (different song or toggle).
-    void parsedLines;
-    prevActiveIndex = -1;
-    lineEls = [];
-  });
-
-  $effect(() => {
-    if (activeLineIndex < 0 || activeLineIndex === prevActiveIndex) return;
-    prevActiveIndex = activeLineIndex;
-    const el = lineEls[activeLineIndex];
+    void parsedLines; // re-center when the track / lyric set changes
+    const idx = activeLineIndex;
     const container = containerEl;
-    if (!el || !container) return;
+    if (idx < 0 || !container) return;
+    const el = container.querySelector<HTMLElement>(`[data-lyric-line="${idx}"]`);
+    if (!el) return;
 
     const elRect = el.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
@@ -248,7 +240,7 @@
             {@const isFuture = isTracking && activeLineIndex >= 0 && i > activeLineIndex}
             <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
             <div
-              bind:this={lineEls[i]}
+              data-lyric-line={i}
               class={cn(
                 '-mx-1 flex gap-2 rounded-sm px-1 py-0.5 transition-all duration-300',
                 isActive && 'bg-primary/10 text-primary font-semibold',
