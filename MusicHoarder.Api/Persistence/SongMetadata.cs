@@ -249,6 +249,50 @@ public class SongMetadata
         ReleaseTypes = OriginalReleaseTypes;
     }
 
+    /// <summary>
+    /// Applies build-time canonical-album corrections to this row so the app view and the on-disk tags
+    /// agree on one album: the unified album title/year and the canonical track/disc number. Used when
+    /// an album's tracks were each enriched against a different release and so carry inconsistent
+    /// years / track numbers; the canonical (multi-provider) tracklist is the source of truth.
+    /// Reversible — captures originals first, so <see cref="ResetEnrichment"/> with
+    /// <c>restoreOriginal</c> restores them. Deliberately does NOT touch <see cref="EnrichmentStatus"/>,
+    /// <see cref="EnrichedAtUtc"/>, <see cref="MatchConfidence"/> or any grade, so it never triggers
+    /// re-enrichment or an auto-regrade (grade staleness stays opt-in). Returns the field-level changes
+    /// it made (empty when nothing changed) so the caller can record them in the change log.
+    /// </summary>
+    public IReadOnlyList<(string Field, string? OldValue, string? NewValue)> ApplyCanonicalCorrection(
+        string? album, int? year, int? trackNumber, int? discNumber)
+    {
+        var changes = new List<(string, string?, string?)>();
+        CaptureOriginalMetadata();
+
+        if (!string.IsNullOrWhiteSpace(album) && !string.Equals(album, Album, StringComparison.Ordinal))
+        {
+            changes.Add((nameof(Album), Album, album));
+            Album = album;
+        }
+
+        if (year is > 0 && year != Year)
+        {
+            changes.Add((nameof(Year), Year?.ToString(), year.Value.ToString()));
+            Year = year;
+        }
+
+        if (trackNumber is > 0 && trackNumber != TrackNumber)
+        {
+            changes.Add((nameof(TrackNumber), TrackNumber?.ToString(), trackNumber.Value.ToString()));
+            TrackNumber = trackNumber;
+        }
+
+        if (discNumber is > 0 && discNumber != DiscNumber)
+        {
+            changes.Add((nameof(DiscNumber), DiscNumber?.ToString(), discNumber.Value.ToString()));
+            DiscNumber = discNumber;
+        }
+
+        return changes;
+    }
+
     public void ApplyEnrichmentMatch(EnrichmentMatchData match)
     {
         CaptureOriginalMetadata();

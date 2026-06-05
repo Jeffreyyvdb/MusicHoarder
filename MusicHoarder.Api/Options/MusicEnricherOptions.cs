@@ -414,6 +414,16 @@ public class MusicEnricherOptions
     public bool EnableAlbumIdentityReconciliation { get; set; } = true;
 
     /// <summary>
+    /// When re-tagging an album (POST /api/enrichment/rebuild/album), first consolidate it against the
+    /// persisted multi-provider canonical tracklist: rewrite each owned song's album title/year and
+    /// track/disc number from the canonical track it matches (by recording-MBID + fuzzy title, never by
+    /// the owned — possibly corrupt — position). This heals albums whose tracks were each enriched
+    /// against a different release (so they split across year folders and carry duplicate track
+    /// numbers). Falls back to a plain in-place re-tag when no canonical album exists. Default on.
+    /// </summary>
+    public bool EnableCanonicalDrivenBuild { get; set; } = true;
+
+    /// <summary>
     /// Top-level folder name compilations (Various-Artists releases) are filed under, keyed by
     /// album rather than per-track artist so the album stays together. Empty falls back to
     /// "Various Artists" — the literal album-artist string every music server recognizes.
