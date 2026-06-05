@@ -9,52 +9,35 @@ using MusicHoarder.Api.Persistence;
 namespace MusicHoarder.Api.Tests.Enrichment;
 
 /// <summary>
-/// Covers the per-song build chaining in <see cref="EnrichmentBackgroundService"/>: a song that the
-/// orchestrator resolves to <see cref="EnrichmentOutcome.Matched"/> triggers a library build
-/// immediately — whatever enqueued it and even with AutoStartPipeline off (the preview/manual mode,
-/// where the builder never auto-polls). This fires <em>before</em> the enrich cycle drains, which is
-/// what makes a big bulk enrich start landing tracks in the library as they match instead of all at
-/// the very end. (The channel's separate cycle-drain trigger already builds once at the end of every
-/// cycle, so these tests keep a second item in flight to isolate the per-song behavior.)
+/// Covers build chaining in <see cref="EnrichmentBackgroundService"/>: the worker does <em>not</em>
+/// trigger a library build per matched song. A per-song trigger caused a build-run storm — a build
+/// that finds no new work completes in milliseconds and flips the Build step back out of Running, so
+/// the "no-op while running" guard almost never held and every match restarted a full run, churning
+/// the DB. The build is instead kicked once per enrichment cycle when the channel drains (covered by
+/// <see cref="EnrichmentPipelineChannelTests"/>); that single run's batch loop sweeps every matched
+/// song. These tests keep a second item in flight to prove no build fires mid-cycle.
 /// </summary>
 public class EnrichmentWorkerBuildTriggerTests
 {
-    [Fact]
-    public async Task Worker_TriggersBuild_AssoonAsASongMatches_BeforeCycleDrains()
-    {
-        var jobs = new JobManager();
-        var channel = new EnrichmentPipelineChannel(jobs, new EnrichmentProgressTracker());
-        var orchestrator = new GatedOrchestrator(EnrichmentOutcome.Matched);
-        await using var harness = StartWorker(jobs, channel, orchestrator);
-
-        // Two items, concurrency 1: the first is processed, the second blocks on the gate — so the
-        // enrich cycle is still in flight (its drain trigger cannot have fired yet).
-        channel.EnqueueRange([1, 2]);
-        await orchestrator.SecondStarted;
-
-        Assert.Equal("Running", jobs.GetStepSnapshot(JobType.Enrich).Status); // cycle not drained
-        Assert.Equal("Running", jobs.GetStepSnapshot(JobType.Build).Status);  // matched song built it
-        Assert.True(jobs.BuildTriggers.TryRead(out var buildJobId));
-        Assert.NotEqual(Guid.Empty, buildJobId);
-
-        orchestrator.Release();
-    }
-
     [Theory]
+    [InlineData(EnrichmentOutcome.Matched)]
     [InlineData(EnrichmentOutcome.NeedsReview)]
     [InlineData(EnrichmentOutcome.Failed)]
     [InlineData(EnrichmentOutcome.Skipped)]
-    public async Task Worker_DoesNotTriggerBuild_WhenSongDoesNotMatch(EnrichmentOutcome outcome)
+    public async Task Worker_DoesNotTriggerBuild_MidCycle(EnrichmentOutcome outcome)
     {
         var jobs = new JobManager();
         var channel = new EnrichmentPipelineChannel(jobs, new EnrichmentProgressTracker());
         var orchestrator = new GatedOrchestrator(outcome);
         await using var harness = StartWorker(jobs, channel, orchestrator);
 
+        // Two items, concurrency 1: the first is processed, the second blocks on the gate — so the
+        // enrich cycle is still in flight (its drain trigger cannot have fired yet).
         channel.EnqueueRange([1, 2]);
         await orchestrator.SecondStarted; // first song fully processed; cycle still in flight
 
-        Assert.Equal("Idle", jobs.GetStepSnapshot(JobType.Build).Status);
+        Assert.Equal("Running", jobs.GetStepSnapshot(JobType.Enrich).Status); // cycle not drained
+        Assert.Equal("Idle", jobs.GetStepSnapshot(JobType.Build).Status);     // no per-song build
         Assert.False(jobs.BuildTriggers.TryRead(out _));
 
         orchestrator.Release();
