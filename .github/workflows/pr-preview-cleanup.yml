@@ -20,7 +20,7 @@ jobs:
     name: Reap closed-PR previews
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.2
 
       - name: Destroy previews for closed PRs
         env:

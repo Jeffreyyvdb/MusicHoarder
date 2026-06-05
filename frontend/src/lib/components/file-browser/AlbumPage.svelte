@@ -3,6 +3,7 @@
   import { page } from '$app/state';
   import {
     ArrowLeft,
+    Check,
     Clock,
     Disc3,
     Eye,
@@ -10,11 +11,14 @@
     Fingerprint,
     HardDrive,
     Image as ImageIcon,
+    Loader2,
     MoreHorizontal,
     Pause,
     Play,
+    RefreshCw,
     Search,
-    Tag
+    Tag,
+    TriangleAlert
   } from '@lucide/svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import * as Tooltip from '$lib/components/ui/tooltip';
@@ -31,6 +35,7 @@
     fetchAlbumTracklist,
     gradeAlbum,
     prettyProvider,
+    rebuildAlbum,
     toPlayerSong,
     type AlbumLinkStatus,
     type AlbumQualityGradeView,
@@ -139,6 +144,41 @@
       await copyAlbumDossier(album.artist, album.title);
     } catch {
       // clipboard/export best-effort
+    }
+  }
+
+  // Re-tag: re-queue this album's already-built tracks so the next build re-copies and re-tags their
+  // destination files in place with the current tag-writing logic (album-identity reconciliation).
+  // No re-enrichment. Feedback is local state with an auto-dismiss timer (no toast system here).
+  let retagState = $state<'idle' | 'loading' | 'done' | 'error'>('idle');
+  let retagMessage = $state<string | null>(null);
+  let retagTimer: ReturnType<typeof setTimeout> | null = null;
+
+  async function retagAlbum() {
+    if (!album || retagState === 'loading') return;
+    if (retagTimer) clearTimeout(retagTimer);
+    retagState = 'loading';
+    retagMessage = null;
+    try {
+      const res = await rebuildAlbum(album.artist, album.title);
+      if (res.ok) {
+        retagState = 'done';
+        retagMessage =
+          res.requeued > 0
+            ? `Re-tagging ${res.requeued} track${res.requeued === 1 ? '' : 's'}…`
+            : 'Nothing to re-tag yet';
+      } else {
+        retagState = 'error';
+        retagMessage = res.message;
+      }
+    } catch (err) {
+      retagState = 'error';
+      retagMessage = err instanceof Error ? err.message : 'Re-tag failed';
+    } finally {
+      retagTimer = setTimeout(() => {
+        retagState = 'idle';
+        retagMessage = null;
+      }, 4000);
     }
   }
 
@@ -488,6 +528,43 @@
           <Play class="size-5" />
         {/if}
       </button>
+
+      {#if destinationFolder}
+        <Tooltip.Provider delayDuration={300}>
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  onclick={retagAlbum}
+                  disabled={retagState === 'loading'}
+                  class="border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {#if retagState === 'loading'}
+                    <Loader2 class="size-3.5 animate-spin" />
+                    Re-tagging…
+                  {:else if retagState === 'done'}
+                    <Check class="size-3.5 text-emerald-500" />
+                    {retagMessage}
+                  {:else if retagState === 'error'}
+                    <TriangleAlert class="size-3.5 text-amber-500" />
+                    Re-tag failed
+                  {:else}
+                    <RefreshCw class="size-3.5" />
+                    Re-tag
+                  {/if}
+                </button>
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content>
+              {retagState === 'error' && retagMessage
+                ? retagMessage
+                : 'Re-copy & re-tag this album’s files in place — fixes albums split across multiple entries. No re-enrichment.'}
+            </Tooltip.Content>
+          </Tooltip.Root>
+        </Tooltip.Provider>
+      {/if}
 
       {#each [{ icon: Fingerprint, label: 'Re-fingerprint album' }, { icon: ImageIcon, label: 'Re-fetch artwork' }, { icon: Tag, label: 'Edit metadata' }, { icon: HardDrive, label: 'Reveal in destination' }, { icon: MoreHorizontal, label: 'More' }] as btn (btn.label)}
         <Tooltip.Provider delayDuration={300}>

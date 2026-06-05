@@ -272,6 +272,42 @@ public class LibraryBuilderServiceTests
     }
 
     [Fact]
+    public async Task ProcessNextBatchAsync_RetagsInPlace_WhenDoneSongRequeuedForRetag()
+    {
+        // A Done song with a destination file is normally skipped by the build query. RequeueForRetag
+        // flips it back to Pending while KEEPING DestinationPath, so the builder re-copies and re-tags
+        // the file in place (same path). This is what the album-page "Re-tag" button drives.
+        var sourcePath = "/source/track.mp3";
+        var destinationPath = "/dest/Artist/2026 - Album/01 - Track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde"),                 // 5 bytes (source)
+            [destinationPath] = new("previously-tagged") // different size -> not the skip-copy case
+        });
+
+        await using var db = CreateDbContext();
+        var song = CreateMatchedSong(sourcePath, 5, libraryBuildStatus: LibraryBuildStatus.Done);
+        song.DestinationPath = destinationPath;
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        song.RequeueForRetag();
+        await db.SaveChangesAsync();
+
+        var tagWriter = new RecordingTagWriter();
+        var service = CreateService(db, fileSystem, tagWriter);
+
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        var reloaded = await db.Songs.SingleAsync();
+
+        Assert.Equal(1, result.Done);
+        Assert.Single(tagWriter.Paths); // it actually re-tagged (not skipped)
+        Assert.Equal(LibraryBuildStatus.Done, reloaded.LibraryBuildStatus);
+        Assert.Equal(destinationPath, reloaded.DestinationPath); // same path — in place
+        Assert.Null(reloaded.PreviousDestinationPath);            // no folder move
+    }
+
+    [Fact]
     public async Task ProcessNextBatchAsync_HarmonizesAlbumIdentity_AcrossTracksOfOneFolder()
     {
         // Two tracks of one album (same artist/album/year -> same folder) that enriched to DIFFERENT

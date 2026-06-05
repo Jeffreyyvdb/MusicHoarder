@@ -805,6 +805,32 @@ export async function cancelJob(): Promise<{ message: string }> {
   return requestJson<{ message: string }>("/api/enrichment/cancel", { method: "POST" })
 }
 
+export type RebuildAlbumResult =
+  | { ok: true; requeued: number; jobId: string }
+  | { ok: false; status: number; message: string }
+
+/**
+ * Re-queue an album's already-built tracks so the next build re-copies and re-tags their destination
+ * files in place — without re-running enrichment. Used to apply the current tag-writing logic (e.g.
+ * album-identity reconciliation) to files that were built before it existed.
+ */
+export async function rebuildAlbum(artist: string, album: string): Promise<RebuildAlbumResult> {
+  const qs = new URLSearchParams({ artist, album }).toString()
+  const response = await fetch(`${API_PREFIX}/api/enrichment/rebuild/album?${qs}`, {
+    method: "POST",
+    cache: "no-store",
+  })
+  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>
+  if (response.ok) {
+    return { ok: true, requeued: Number(body.requeued ?? 0), jobId: String(body.jobId ?? "") }
+  }
+  return {
+    ok: false,
+    status: response.status,
+    message: (body.message as string) ?? `Request failed: ${response.status}`,
+  }
+}
+
 export type PurgeStatus = "idle" | "running" | "completed" | "failed"
 export type PurgeMode = "post-fingerprint" | "all"
 

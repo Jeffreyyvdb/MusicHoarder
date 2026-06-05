@@ -440,7 +440,11 @@ public class LibraryBuilderService(
 
             fileSystem.Directory.CreateDirectory(destinationDirectory);
 
-            if (fileSystem.File.Exists(destinationPath))
+            // Skip the copy when a same-size file already sits at the destination — but only on a
+            // fresh build. A forced rebuild (signalled by PreviousDestinationPath, set by
+            // ResetLibraryBuild) must always re-copy + re-tag so changed metadata reaches the file;
+            // the size heuristic compares against the source and could otherwise drop the re-tag.
+            if (string.IsNullOrWhiteSpace(song.PreviousDestinationPath) && fileSystem.File.Exists(destinationPath))
             {
                 var existingSize = fileSystem.FileInfo.New(destinationPath).Length;
                 if (existingSize == song.FileSizeBytes)
