@@ -46,6 +46,23 @@ public class MusicEnricherOptions
     [Range(1, 120)]
     public int DirectoryProbeTimeoutSeconds { get; set; } = 5;
 
+    /// <summary>
+    /// Enables the periodic GitHub Releases check that powers the in-app "update available" banner.
+    /// Safe to disable in air-gapped/offline deploys via <c>MusicEnricher__EnableUpdateCheck=false</c>;
+    /// when false the latest-version endpoint reports no update and GitHub is never contacted.
+    /// </summary>
+    public bool EnableUpdateCheck { get; set; } = true;
+
+    /// <summary><c>owner/repo</c> slug polled for the latest release.</summary>
+    public string UpdateCheckRepo { get; set; } = "Jeffreyyvdb/MusicHoarder";
+
+    /// <summary>
+    /// How often (hours) to poll GitHub for the latest release. Long by design — the result rarely
+    /// changes and a long interval keeps the process well under GitHub's 60/hr unauthenticated limit.
+    /// </summary>
+    [Range(1, 168)]
+    public int UpdateCheckIntervalHours { get; set; } = 8;
+
     /// <summary>Maximum concurrent file reads (tag reading + fpcalc) for SMB safety.</summary>
     [Range(1, 64)]
     public int SmbConcurrency { get; set; } = 8;
