@@ -167,6 +167,8 @@ public static class EnrichmentEndpoints
                 MusicHoarderDbContext db,
                 JobManager jobManager,
                 IDirectoryAvailability availability,
+                ICanonicalAlbumConsolidator consolidator,
+                IOptions<MusicEnricherOptions> options,
                 CancellationToken ct) =>
             {
                 if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(album))
@@ -175,11 +177,41 @@ public static class EnrichmentEndpoints
                 if (!availability.Current.AllAvailable)
                     return Results.Conflict(new { message = "Source/destination directory is offline. Reconnect to your music library before rebuilding." });
 
-                // Re-queue this album's already-built tracks so the next build re-copies and re-tags
-                // them in place with the current tag-writing logic (e.g. album-identity reconciliation).
-                // Enrichment is untouched. Match the album the same way the album view does:
-                // (AlbumArtist ?? Artist) + Album, case-insensitively. The per-user query filter scopes
-                // this to the caller's library.
+                // First choice: consolidate against the multi-provider canonical tracklist — this heals
+                // albums whose tracks were each enriched against a different release (split across year
+                // folders, duplicate track numbers) by rewriting album title/year + track/disc number
+                // and re-queuing the matched tracks. Falls through to a plain re-tag when there's no
+                // canonical album for this group.
+                if (options.Value.EnableCanonicalDrivenBuild)
+                {
+                    var result = await consolidator.ConsolidateAsync(db, artist, album, ct);
+                    if (result.CanonicalFound)
+                    {
+                        await db.SaveChangesAsync(ct);
+
+                        // Wake the builder. If a build is already running it'll pick these up on its next
+                        // batch, so a 409 here isn't an error — the re-queue still stands.
+                        jobManager.TryStartJob(JobType.Build, out var consolidatedJobId, out _);
+
+                        return Results.Accepted("/api/enrichment/status", new
+                        {
+                            artist,
+                            album,
+                            consolidated = true,
+                            matched = result.Matched,
+                            corrected = result.Corrected,
+                            requeued = result.Requeued,
+                            unmatched = result.Unmatched,
+                            jobId = consolidatedJobId,
+                        });
+                    }
+                }
+
+                // Plain re-tag: re-queue this album's already-built tracks so the next build re-copies
+                // and re-tags them in place with the current tag-writing logic (e.g. album-identity
+                // reconciliation). Enrichment is untouched. Match the album the same way the album view
+                // does: (AlbumArtist ?? Artist) + Album, case-insensitively. The per-user query filter
+                // scopes this to the caller's library.
                 var artistLower = artist.ToLowerInvariant();
                 var albumLower = album.ToLowerInvariant();
                 var songs = await db.Songs
@@ -199,7 +231,7 @@ public static class EnrichmentEndpoints
                 return Results.Accepted("/api/enrichment/status", new { artist, album, requeued = songs.Count, jobId });
             })
             .WithName("RebuildAlbum")
-            .WithSummary("Re-queue an album's already-built tracks so the next build re-tags their destination files in place (no re-enrichment).")
+            .WithSummary("Consolidate an album against its canonical tracklist (fix split year-folders / duplicate track numbers) and re-queue it for re-tag; falls back to a plain in-place re-tag when no canonical album exists.")
             .RequireOwner();
 
         group.MapPost("/cancel", (JobManager jobManager, EnrichmentPipelineChannel channel) =>
