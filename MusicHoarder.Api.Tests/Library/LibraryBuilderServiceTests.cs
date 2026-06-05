@@ -277,12 +277,17 @@ public class LibraryBuilderServiceTests
         // A Done song with a destination file is normally skipped by the build query. RequeueForRetag
         // flips it back to Pending while KEEPING DestinationPath, so the builder re-copies and re-tags
         // the file in place (same path). This is what the album-page "Re-tag" button drives.
+        //
+        // The destination here is the SAME size as the source — the realistic FLAC case, where padding
+        // keeps a re-tagged file's size identical. Without the PreviousDestinationPath force-signal the
+        // skip-copy fast path would mark it Done without re-tagging (the bug seen in production);
+        // RequeueForRetag sets that signal so the rewrite actually happens.
         var sourcePath = "/source/track.mp3";
         var destinationPath = "/dest/Artist/2026 - Album/01 - Track.mp3";
         var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
         {
-            [sourcePath] = new("abcde"),                 // 5 bytes (source)
-            [destinationPath] = new("previously-tagged") // different size -> not the skip-copy case
+            [sourcePath] = new("abcde"),     // 5 bytes (source)
+            [destinationPath] = new("xxxxx") // same size -> skip-copy would fire without the force-signal
         });
 
         await using var db = CreateDbContext();
