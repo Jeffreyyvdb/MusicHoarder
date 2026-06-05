@@ -204,9 +204,10 @@ public class MusicEnricherOptions
     [Range(1, 20)]
     public int AppleMusicConcurrency { get; set; } = 1;
 
-    /// <summary>Max iTunes Search API requests per second. iTunes is throttled to ~20 req/min, so keep this at 1.</summary>
-    [Range(1, 20)]
-    public int AppleMusicApiRequestsPerSecond { get; set; } = 1;
+    /// <summary>Max iTunes Search API requests per minute. Apple documents ~20/min (approx,
+    /// subject to change), so stay conservatively under it.</summary>
+    [Range(1, 30)]
+    public int AppleMusicApiRequestsPerMinute { get; set; } = 15;
 
     /// <summary>Track candidates to request from iTunes search (1–50).</summary>
     [Range(1, 50)]

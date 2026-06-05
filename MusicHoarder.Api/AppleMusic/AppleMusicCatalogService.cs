@@ -23,7 +23,9 @@ public sealed class AppleMusicCatalogService(
 {
     private const string SearchUrl = "https://itunes.apple.com/search";
     private const string LookupUrl = "https://itunes.apple.com/lookup";
-    private static readonly TimeSpan RateLimitDefaultDelay = TimeSpan.FromSeconds(5);
+    // No Retry-After header means we've likely blown the per-minute budget; back off a full minute
+    // so the quota resets before we resume (server-provided Retry-After is honored when present).
+    private static readonly TimeSpan RateLimitDefaultDelay = TimeSpan.FromSeconds(60);
     // One in-process retry covers a transient blip; an IP-wide throttle storm is handled by the
     // shared backoff window + the orchestrator's deferred RetryAfterUtc re-sweep, not by grinding here.
     private const int MaxRetries = 2;
@@ -54,7 +56,7 @@ public sealed class AppleMusicCatalogService(
         if (backoffUntil > now)
             throw new ProviderRateLimitedException(backoffUntil - now);
 
-        using var lease = await RateLimiter.AcquireAsync(opts.AppleMusicApiRequestsPerSecond, ct);
+        using var lease = await RateLimiter.AcquireAsync(1, RequestInterval(opts), ct);
         if (!lease.IsAcquired)
         {
             logger.LogWarning("Apple Music rate limiter could not grant a permit (disposed or canceled)");
@@ -193,7 +195,7 @@ public sealed class AppleMusicCatalogService(
         if (backoffUntil > now)
             throw new ProviderRateLimitedException(backoffUntil - now);
 
-        using var lease = await RateLimiter.AcquireAsync(options.Value.AppleMusicApiRequestsPerSecond, ct);
+        using var lease = await RateLimiter.AcquireAsync(1, RequestInterval(options.Value), ct);
         if (!lease.IsAcquired)
             return null;
 
@@ -223,6 +225,11 @@ public sealed class AppleMusicCatalogService(
 
         return null;
     }
+
+    // Strictly smooth spacing (1 permit per interval) rather than a per-minute burst — a burst of
+    // N then idle would still trip iTunes' per-minute throttle.
+    private static TimeSpan RequestInterval(MusicEnricherOptions opts)
+        => TimeSpan.FromSeconds(60.0 / Math.Clamp(opts.AppleMusicApiRequestsPerMinute, 1, 30));
 
     private static DateTime BackoffUntil => new(Interlocked.Read(ref _backoffUntilUtcTicks), DateTimeKind.Utc);
 
