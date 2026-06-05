@@ -65,7 +65,7 @@ public class AppleMusicCatalogServiceTests
         {
             SourceDirectory = "/s",
             DestinationDirectory = "/d",
-            AppleMusicApiRequestsPerSecond = 20,
+            AppleMusicApiRequestsPerMinute = 60,
             AppleMusicApiSearchLimit = 10,
             AppleMusicApiSearchCacheMinutes = 60,
         });

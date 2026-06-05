@@ -9,7 +9,7 @@ public sealed class RequireAuthMiddleware
     private static readonly string[] AllowlistedPrefixes =
     [
         "/api/auth/",
-        "/api/version",
+        "/api/version", // prefix match — also covers /api/version/latest (the update-check endpoint)
         "/health",
         "/alive",
         "/openapi",
