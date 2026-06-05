@@ -123,15 +123,17 @@
 
     <div class="mob-login-or"><span>or</span></div>
 
-    {#if passkeySupported}
-      <button type="button" class="mob-btn" onclick={handlePasskeyLogin} disabled={isPasskeyLogin}>
-        {isPasskeyLogin ? 'Waiting for passkey…' : 'Sign in with a passkey'}
-      </button>
-    {/if}
+    <div class="mob-login-alts">
+      {#if passkeySupported}
+        <button type="button" class="mob-btn" onclick={handlePasskeyLogin} disabled={isPasskeyLogin}>
+          {isPasskeyLogin ? 'Waiting for passkey…' : 'Sign in with a passkey'}
+        </button>
+      {/if}
 
-    <button type="button" class="mob-btn" onclick={handleTryDemo} disabled={isStartingDemo}>
-      {isStartingDemo ? 'Starting…' : 'Try the demo'}
-    </button>
+      <button type="button" class="mob-btn" onclick={handleTryDemo} disabled={isStartingDemo}>
+        {isStartingDemo ? 'Starting…' : 'Try the demo'}
+      </button>
+    </div>
     <p class="text-muted-foreground mt-2 text-center text-[12px]">
       The demo account is read-only and shares a seeded library.
     </p>
