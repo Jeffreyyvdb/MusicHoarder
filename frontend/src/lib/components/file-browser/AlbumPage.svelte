@@ -519,8 +519,7 @@
         type="button"
         onclick={playAlbumStart}
         aria-label="Play album"
-        class="bg-primary text-primary-foreground grid size-13 place-items-center rounded-full shadow-[0_6px_16px_oklch(0.5_0.17_145_/_0.4)] transition-transform hover:scale-105"
-        style="width: 52px; height: 52px;"
+        class="bg-primary text-primary-foreground grid size-13 shrink-0 place-items-center rounded-full shadow-[0_6px_16px_oklch(0.5_0.17_145_/_0.4)] transition-transform hover:scale-105"
       >
         {#if playerStore.isPlaying && currentlyPlaying}
           <Pause class="size-5" />
@@ -539,7 +538,7 @@
                   type="button"
                   onclick={retagAlbum}
                   disabled={retagState === 'loading'}
-                  class="border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                  class="border-border bg-card hover:bg-muted text-foreground inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {#if retagState === 'loading'}
                     <Loader2 class="size-3.5 animate-spin" />
@@ -575,7 +574,7 @@
                   {...props}
                   type="button"
                   aria-label={btn.label}
-                  class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-9 place-items-center rounded-full transition-colors"
+                  class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full transition-colors"
                 >
                   <btn.icon class="size-4" />
                 </button>
