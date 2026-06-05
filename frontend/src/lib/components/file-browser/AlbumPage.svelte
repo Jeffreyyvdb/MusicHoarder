@@ -182,6 +182,17 @@
     }
   }
 
+  // The icon-only button conveys all state through the tooltip (matching the sibling action buttons).
+  const retagTooltip = $derived(
+    retagState === 'loading'
+      ? 'Re-tagging…'
+      : retagState === 'done'
+        ? (retagMessage ?? 'Re-tag queued')
+        : retagState === 'error'
+          ? (retagMessage ?? 'Re-tag failed')
+          : 'Re-tag — re-copy & re-tag this album’s files in place. Fixes albums split across multiple entries; no re-enrichment.'
+  );
+
   type DisplayRow =
     | { kind: 'owned'; key: string; disc: number; n: number; song: ApiSong; durationSeconds: number | null }
     | {
@@ -539,29 +550,22 @@
                   type="button"
                   onclick={retagAlbum}
                   disabled={retagState === 'loading'}
-                  class="border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                  aria-label="Re-tag album"
+                  class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-9 place-items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {#if retagState === 'loading'}
-                    <Loader2 class="size-3.5 animate-spin" />
-                    Re-tagging…
+                    <Loader2 class="size-4 animate-spin" />
                   {:else if retagState === 'done'}
-                    <Check class="size-3.5 text-emerald-500" />
-                    {retagMessage}
+                    <Check class="size-4 text-emerald-500" />
                   {:else if retagState === 'error'}
-                    <TriangleAlert class="size-3.5 text-amber-500" />
-                    Re-tag failed
+                    <TriangleAlert class="size-4 text-amber-500" />
                   {:else}
-                    <RefreshCw class="size-3.5" />
-                    Re-tag
+                    <RefreshCw class="size-4" />
                   {/if}
                 </button>
               {/snippet}
             </Tooltip.Trigger>
-            <Tooltip.Content>
-              {retagState === 'error' && retagMessage
-                ? retagMessage
-                : 'Re-copy & re-tag this album’s files in place — fixes albums split across multiple entries. No re-enrichment.'}
-            </Tooltip.Content>
+            <Tooltip.Content>{retagTooltip}</Tooltip.Content>
           </Tooltip.Root>
         </Tooltip.Provider>
       {/if}

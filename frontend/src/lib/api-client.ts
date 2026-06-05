@@ -169,6 +169,23 @@ export async function getVersion(fetchFn: typeof fetch = fetch): Promise<string>
   return body.version
 }
 
+// Running build vs latest published release, from the backend's cached GitHub check. `latest` is null
+// until the first successful poll (or when the check is disabled / GitHub is unreachable), in which
+// case `updateAvailable` is false and no banner shows.
+export interface LatestVersionInfo {
+  current: string
+  latest: string | null
+  updateAvailable: boolean
+  releaseUrl: string | null
+  publishedAt: string | null
+}
+
+export async function fetchLatestVersion(): Promise<LatestVersionInfo> {
+  const response = await fetch(`${API_PREFIX}/api/version/latest`, { cache: "no-store" })
+  if (!response.ok) throw new Error(`Request failed for /api/version/latest: ${response.status}`)
+  return (await response.json()) as LatestVersionInfo
+}
+
 export type NormalizedEnrichmentStatus =
   | "pending"
   | "processing"
