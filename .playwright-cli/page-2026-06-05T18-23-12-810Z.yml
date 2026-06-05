@@ -1,0 +1,625 @@
+- generic [ref=e2]:
+  - region "Notifications alt+T"
+  - main [ref=e3]:
+    - navigation [ref=e4]:
+      - link "MusicHoarder v1.0.0" [ref=e5] [cursor=pointer]:
+        - /url: /
+        - img [ref=e7]
+        - generic [ref=e12]: MusicHoarder
+        - generic [ref=e13]: v1.0.0
+      - generic [ref=e14]:
+        - link "Pipeline" [ref=e15] [cursor=pointer]:
+          - /url: "#pipeline"
+        - link "Inbox" [ref=e16] [cursor=pointer]:
+          - /url: "#inbox"
+        - link "Library" [ref=e17] [cursor=pointer]:
+          - /url: "#library"
+        - link "Quickstart" [ref=e18] [cursor=pointer]:
+          - /url: "#quickstart"
+        - link "Features" [ref=e19] [cursor=pointer]:
+          - /url: "#features"
+        - link "GitHub" [ref=e20] [cursor=pointer]:
+          - /url: https://github.com/Jeffreyyvdb/MusicHoarder
+        - button "Change theme" [ref=e21]:
+          - img
+        - link "Sign in" [ref=e22] [cursor=pointer]:
+          - /url: /login
+        - button "Try the live demo" [ref=e23]
+    - generic [ref=e24]:
+      - generic [ref=e25]:
+        - generic [ref=e29]: SELF-HOSTED · MIT · YOUR HARDWARE
+        - heading "Point it at the mess. Get back a library." [level=1] [ref=e30]:
+          - text: Point it at the mess.
+          - text: Get back a
+          - emphasis [ref=e31]: library.
+        - paragraph [ref=e32]:
+          - text: MusicHoarder is a self-hosted pipeline that
+          - strong [ref=e33]: fingerprints every track
+          - text: ", reaches"
+          - strong [ref=e34]: consensus across seven providers
+          - text: ", grades the result with a"
+          - strong [ref=e35]: quality LLM
+          - text: ", dedupes, and writes a tidy library to your own disk."
+        - generic [ref=e36]:
+          - generic [ref=e37]:
+            - generic [ref=e42]: "your-server : ~"
+            - button "Copy" [ref=e43]:
+              - img [ref=e44]
+              - text: Copy
+          - generic [ref=e47]: "curl -fsSLO https://raw.githubusercontent.com/Jeffreyyvdb/MusicHoarder/main/docker-compose.yml curl -fsSL https://raw.githubusercontent.com/Jeffreyyvdb/MusicHoarder/main/.env.example -o .env # edit .env — set your two folders, a Postgres password, owner email + public URL docker compose up -d"
+        - generic [ref=e48]:
+          - button "Try the live demo" [ref=e49]
+          - link "View on GitHub" [ref=e50] [cursor=pointer]:
+            - /url: https://github.com/Jeffreyyvdb/MusicHoarder
+        - generic [ref=e51]:
+          - generic [ref=e52]: runs on your hardware
+          - generic [ref=e53]: source mounted read-only
+          - generic [ref=e54]: open files on disk
+      - generic [ref=e56]:
+        - generic [ref=e57]:
+          - generic [ref=e60]: live pipeline
+          - generic [ref=e61]: ~/Downloads/music_dump_2024
+        - generic [ref=e62]:
+          - generic [ref=e63]:
+            - generic [ref=e64]: "[scan]"
+            - generic [ref=e65]: discovered 47 new audio files
+          - generic [ref=e66]:
+            - generic [ref=e67]: "[fp]"
+            - generic [ref=e68]: AcoustID match (0.94) → 9c1ecd05…
+          - generic [ref=e69]:
+            - generic [ref=e70]: "[match]"
+            - generic [ref=e71]: 7 providers queried · 240ms avg
+          - generic [ref=e72]:
+            - generic [ref=e73]: "[decide]"
+            - generic [ref=e74]: "consensus: Radiohead — In Rainbows"
+          - generic [ref=e75]:
+            - generic [ref=e76]: "[grade]"
+            - generic [ref=e77]: quality LLM scored "Nude" → 94/100
+          - generic [ref=e78]:
+            - generic [ref=e79]: "[dedupe]"
+            - generic [ref=e80]: duplicate → keeping FLAC over 320
+          - generic [ref=e81]:
+            - generic [ref=e82]: "[write]"
+            - generic [ref=e83]: → /music/destination/Radiohead/2007 - In Rainbows/03 - Nude.flac
+          - generic [ref=e84]:
+            - generic [ref=e85]: "[decide]"
+            - generic [ref=e86]: low consensus (0.62) → sent to Inbox
+        - generic [ref=e87]:
+          - generic [ref=e88]:
+            - text: processed
+            - strong [ref=e89]: 8,955
+          - generic [ref=e90]:
+            - text: remaining
+            - strong [ref=e91]: 3,892
+          - generic [ref=e92]:
+            - text: eta
+            - strong [ref=e93]: 00:14:32
+    - generic [ref=e94]:
+      - generic [ref=e95]: THE PIPELINE
+      - heading "Seven stages on one conveyor — watch it move." [level=2] [ref=e96]
+      - paragraph [ref=e97]:
+        - text: Files flow left to right — scanned, fingerprinted, matched against providers, graded by an LLM, deduped, then written to your library.
+        - strong [ref=e98]: Click any stage
+        - text: to see what's flowing through it right now.
+      - generic [ref=e99]:
+        - 'button "Scan 0.0files/s 100 in: 12,847 out: 12,847" [ref=e100]':
+          - generic [ref=e101]:
+            - generic [ref=e102]:
+              - img [ref=e104]
+              - generic [ref=e109]: Scan
+              - generic [ref=e110]: 0.0files/s
+            - progressbar [ref=e111]
+            - generic [ref=e113]:
+              - generic [ref=e114]: "in: 12,847"
+              - generic [ref=e115]: "out: 12,847"
+        - 'button "Fingerprint 142files/s 0.2957889001323266 in: 38 out: 0" [ref=e116]':
+          - generic [ref=e117]:
+            - generic [ref=e118]:
+              - img [ref=e120]
+              - generic [ref=e122]: Fingerprint
+              - generic [ref=e123]: 142files/s
+            - progressbar [ref=e124]
+            - generic [ref=e126]:
+              - generic [ref=e127]: "in: 38"
+              - generic [ref=e128]: "out: 0"
+        - 'button "Match 31files/s 0.20298227808572097 in: 26 out: 0" [pressed] [ref=e129]':
+          - generic [ref=e130]:
+            - generic [ref=e131]:
+              - img [ref=e133]
+              - generic [ref=e136]: Match
+              - generic [ref=e137]: 31files/s
+            - progressbar [ref=e138]
+            - generic [ref=e140]:
+              - generic [ref=e141]: "in: 26"
+              - generic [ref=e142]: "out: 0"
+        - 'button "AI grade 4.0files/s 0.07040600797934757 in: 9 out: 1" [ref=e143]':
+          - generic [ref=e144]:
+            - generic [ref=e145]:
+              - img [ref=e147]
+              - generic [ref=e150]: AI grade
+              - generic [ref=e151]: 4.0files/s
+            - progressbar [ref=e152]
+            - generic [ref=e154]:
+              - generic [ref=e155]: "in: 9"
+              - generic [ref=e156]: "out: 1"
+        - 'button "Dedupe 1.0files/s 0.01565680288085173 in: 2 out: 0" [ref=e157]':
+          - generic [ref=e158]:
+            - generic [ref=e159]:
+              - img [ref=e161]
+              - generic [ref=e164]: Dedupe
+              - generic [ref=e165]: 1.0files/s
+            - progressbar [ref=e166]
+            - generic [ref=e168]:
+              - generic [ref=e169]: "in: 2"
+              - generic [ref=e170]: "out: 0"
+        - 'button "Build 8.0files/s 0.03914813654870028 in: 5 out: 0" [ref=e171]':
+          - generic [ref=e172]:
+            - generic [ref=e173]:
+              - img [ref=e175]
+              - generic [ref=e180]: Build
+              - generic [ref=e181]: 8.0files/s
+            - progressbar [ref=e182]
+            - generic [ref=e184]:
+              - generic [ref=e185]: "in: 5"
+              - generic [ref=e186]: "out: 0"
+        - 'button "Library 0.0files/s 100 in: 8,955 out: 8,955" [ref=e187]':
+          - generic [ref=e188]:
+            - generic [ref=e189]:
+              - img [ref=e191]
+              - generic [ref=e193]: Library
+              - generic [ref=e194]: 0.0files/s
+            - progressbar [ref=e195]
+            - generic [ref=e197]:
+              - generic [ref=e198]: "in: 8,955"
+              - generic [ref=e199]: "out: 8,955"
+      - generic [ref=e200]:
+        - generic [ref=e201]: Providers querying in parallel · avg 240ms
+        - generic [ref=e202]:
+          - generic [ref=e203]:
+            - generic [ref=e205]:
+              - generic [ref=e206]: AcoustID
+              - generic [ref=e207]: fingerprint
+            - generic [ref=e208]: 99%
+          - generic [ref=e209]:
+            - generic [ref=e211]:
+              - generic [ref=e212]: MusicBrainz
+              - generic [ref=e213]: metadata
+            - generic [ref=e214]: 96%
+          - generic [ref=e215]:
+            - generic [ref=e217]:
+              - generic [ref=e218]: Spotify
+              - generic [ref=e219]: metadata
+            - generic [ref=e220]: 94%
+          - generic [ref=e221]:
+            - generic [ref=e223]:
+              - generic [ref=e224]: Deezer
+              - generic [ref=e225]: metadata
+            - generic [ref=e226]: 88%
+          - generic [ref=e227]:
+            - generic [ref=e229]:
+              - generic [ref=e230]: Apple Music
+              - generic [ref=e231]: metadata
+            - generic [ref=e232]: no match
+          - generic [ref=e233]:
+            - generic [ref=e235]:
+              - generic [ref=e236]: Community Tracker
+              - generic [ref=e237]: community
+            - generic [ref=e238]: no match
+          - generic [ref=e239]:
+            - generic [ref=e241]:
+              - generic [ref=e242]: YeTracker
+              - generic [ref=e243]: community
+            - generic [ref=e244]: no match
+      - generic [ref=e245]:
+        - generic [ref=e246]: +47 tracks landed per hour
+        - generic [ref=e247]: 0 errors in 24h
+        - generic [ref=e248]: live throughput
+        - generic [ref=e250]: needs a human
+    - generic [ref=e252]:
+      - generic [ref=e253]: HUMAN REVIEW · INBOX
+      - heading "When the pipeline can't decide, you do — and only then." [level=2] [ref=e254]
+      - paragraph [ref=e255]:
+        - text: The automatic stages handle the boring 90%. Everything ambiguous — disagreeing providers, look-alike duplicates, anything the quality LLM distrusts — collects in one
+        - strong [ref=e256]: Inbox
+        - text: ", so you review dozens of items, not thousands."
+      - generic [ref=e257]:
+        - link "12 Tag reviews Providers couldn’t agree, or none cleared the confidence threshold. You pick the right candidate or override the fields by hand. Review" [ref=e258] [cursor=pointer]:
+          - /url: /login
+          - generic [ref=e259]:
+            - img [ref=e261]
+            - generic [ref=e264]:
+              - generic [ref=e265]: "12"
+              - generic [ref=e266]: Tag reviews
+          - paragraph [ref=e267]: Providers couldn’t agree, or none cleared the confidence threshold. You pick the right candidate or override the fields by hand.
+          - generic [ref=e268]:
+            - text: Review
+            - img [ref=e269]
+        - link "4 Ambiguous duplicates Same acoustic fingerprint, no obvious winner — usually a live vs. studio cut or two near-identical bitrates. You choose what to keep. Compare" [ref=e271] [cursor=pointer]:
+          - /url: /login
+          - generic [ref=e272]:
+            - img [ref=e274]
+            - generic [ref=e277]:
+              - generic [ref=e278]: "4"
+              - generic [ref=e279]: Ambiguous duplicates
+          - paragraph [ref=e280]: Same acoustic fingerprint, no obvious winner — usually a live vs. studio cut or two near-identical bitrates. You choose what to keep.
+          - generic [ref=e281]:
+            - text: Compare
+            - img [ref=e282]
+        - link "3 AI flagged Wrong Questionable The quality LLM graded a match Questionable or Wrong — a year drift, a rewritten title, a path that doesn’t fit. Worth a second look. Inspect" [ref=e284] [cursor=pointer]:
+          - /url: /login
+          - generic [ref=e285]:
+            - img [ref=e287]
+            - generic [ref=e290]:
+              - generic [ref=e291]: "3"
+              - generic [ref=e292]: AI flagged
+          - generic [ref=e293]:
+            - generic [ref=e294]: Wrong
+            - generic [ref=e295]: Questionable
+          - paragraph [ref=e296]: The quality LLM graded a match Questionable or Wrong — a year drift, a rewritten title, a path that doesn’t fit. Worth a second look.
+          - generic [ref=e297]:
+            - text: Inspect
+            - img [ref=e298]
+    - generic [ref=e300]:
+      - generic [ref=e301]: THE PAYOFF · LIBRARY
+      - heading "What comes out the other side." [level=2] [ref=e302]
+      - paragraph [ref=e303]:
+        - text: Correct titles, real artwork, consistent folders —
+        - strong [ref=e304]: Artist / Year - Album / NN - Track
+        - text: on your own disk. Browse it in a clean interface or just open the folder. No database to escape from.
+      - generic [ref=e306]:
+        - link "Open album In Rainbows by Radiohead" [ref=e307] [cursor=pointer]:
+          - /url: /login
+          - generic [ref=e308]:
+            - generic [ref=e309]:
+              - generic [ref=e310]: IR
+              - generic [ref=e311]: Radiohead
+            - button "Play In Rainbows" [ref=e312]:
+              - img [ref=e313]
+          - generic [ref=e315]:
+            - paragraph [ref=e316]: In Rainbows
+            - paragraph [ref=e317]: Radiohead · 2007
+        - link "Open album Blonde by Frank Ocean" [ref=e318] [cursor=pointer]:
+          - /url: /login
+          - generic [ref=e319]:
+            - generic [ref=e320]:
+              - generic [ref=e321]: B
+              - generic [ref=e322]: Frank Ocean
+            - button "Play Blonde" [ref=e323]:
+              - img [ref=e324]
+          - generic [ref=e326]:
+            - paragraph [ref=e327]: Blonde
+            - paragraph [ref=e328]: Frank Ocean · 2016
+        - link "Open album Random Access Memories by Daft Punk" [ref=e329] [cursor=pointer]:
+          - /url: /login
+          - generic [ref=e330]:
+            - generic [ref=e331]:
+              - generic [ref=e332]: RA
+              - generic [ref=e333]: Daft Punk
+            - button "Play Random Access Memories" [ref=e334]:
+              - img [ref=e335]
+          - generic [ref=e337]:
+            - paragraph [ref=e338]: Random Access Memories
+            - paragraph [ref=e339]: Daft Punk · 2013
+        - link "Open album To Pimp a Butterfly by Kendrick Lamar" [ref=e340] [cursor=pointer]:
+          - /url: /login
+          - generic [ref=e341]:
+            - generic [ref=e342]:
+              - generic [ref=e343]: TP
+              - generic [ref=e344]: Kendrick Lamar
+            - button "Play To Pimp a Butterfly" [ref=e345]:
+              - img [ref=e346]
+          - generic [ref=e348]:
+            - paragraph [ref=e349]: To Pimp a Butterfly
+            - paragraph [ref=e350]: Kendrick Lamar · 2015
+        - link "Open album Currents by Tame Impala" [ref=e351] [cursor=pointer]:
+          - /url: /login
+          - generic [ref=e352]:
+            - generic [ref=e353]:
+              - generic [ref=e354]: C
+              - generic [ref=e355]: Tame Impala
+            - button "Play Currents" [ref=e356]:
+              - img [ref=e357]
+          - generic [ref=e359]:
+            - paragraph [ref=e360]: Currents
+            - paragraph [ref=e361]: Tame Impala · 2015
+        - link "Open album Kid A by Radiohead" [ref=e362] [cursor=pointer]:
+          - /url: /login
+          - generic [ref=e363]:
+            - generic [ref=e364]:
+              - generic [ref=e365]: KA
+              - generic [ref=e366]: Radiohead
+            - button "Play Kid A" [ref=e367]:
+              - img [ref=e368]
+          - generic [ref=e370]:
+            - paragraph [ref=e371]: Kid A
+            - paragraph [ref=e372]: Radiohead · 2000
+        - link "Open album Discovery by Daft Punk" [ref=e373] [cursor=pointer]:
+          - /url: /login
+          - generic [ref=e374]:
+            - generic [ref=e375]:
+              - generic [ref=e376]: D
+              - generic [ref=e377]: Daft Punk
+            - button "Play Discovery" [ref=e378]:
+              - img [ref=e379]
+          - generic [ref=e381]:
+            - paragraph [ref=e382]: Discovery
+            - paragraph [ref=e383]: Daft Punk · 2001
+        - link "Open album Channel Orange by Frank Ocean" [ref=e384] [cursor=pointer]:
+          - /url: /login
+          - generic [ref=e385]:
+            - generic [ref=e386]:
+              - generic [ref=e387]: CO
+              - generic [ref=e388]: Frank Ocean
+            - button "Play Channel Orange" [ref=e389]:
+              - img [ref=e390]
+          - generic [ref=e392]:
+            - paragraph [ref=e393]: Channel Orange
+            - paragraph [ref=e394]: Frank Ocean · 2012
+        - link "Open album DAMN. by Kendrick Lamar" [ref=e395] [cursor=pointer]:
+          - /url: /login
+          - generic [ref=e396]:
+            - generic [ref=e397]:
+              - generic [ref=e398]: D
+              - generic [ref=e399]: Kendrick Lamar
+            - button "Play DAMN." [ref=e400]:
+              - img [ref=e401]
+          - generic [ref=e403]:
+            - paragraph [ref=e404]: DAMN.
+            - paragraph [ref=e405]: Kendrick Lamar · 2017
+        - link "Open album OK Computer by Radiohead" [ref=e406] [cursor=pointer]:
+          - /url: /login
+          - generic [ref=e407]:
+            - generic [ref=e408]:
+              - generic [ref=e409]: OC
+              - generic [ref=e410]: Radiohead
+            - button "Play OK Computer" [ref=e411]:
+              - img [ref=e412]
+          - generic [ref=e414]:
+            - paragraph [ref=e415]: OK Computer
+            - paragraph [ref=e416]: Radiohead · 1997
+        - link "Open album Migration by Bonobo" [ref=e417] [cursor=pointer]:
+          - /url: /login
+          - generic [ref=e418]:
+            - generic [ref=e419]:
+              - generic [ref=e420]: M
+              - generic [ref=e421]: Bonobo
+            - button "Play Migration" [ref=e422]:
+              - img [ref=e423]
+          - generic [ref=e425]:
+            - paragraph [ref=e426]: Migration
+            - paragraph [ref=e427]: Bonobo · 2017
+        - link "Open album Illinois by Sufjan Stevens" [ref=e428] [cursor=pointer]:
+          - /url: /login
+          - generic [ref=e429]:
+            - generic [ref=e430]:
+              - generic [ref=e431]: I
+              - generic [ref=e432]: Sufjan Stevens
+            - button "Play Illinois" [ref=e433]:
+              - img [ref=e434]
+          - generic [ref=e436]:
+            - paragraph [ref=e437]: Illinois
+            - paragraph [ref=e438]: Sufjan Stevens · 2005
+      - generic [ref=e439]:
+        - generic [ref=e440]:
+          - strong [ref=e441]: 8,955
+          - text: tracks catalogued
+        - generic [ref=e442]:
+          - strong [ref=e443]: "412"
+          - text: albums ·
+          - strong [ref=e444]: "168"
+          - text: artists
+        - generic [ref=e445]:
+          - strong [ref=e446]: 90.4%
+          - text: fully enriched
+        - link "Open the library in the demo →" [ref=e447] [cursor=pointer]:
+          - /url: /login
+    - generic [ref=e448]:
+      - generic [ref=e449]: THE RECEIPTS · PROVENANCE
+      - heading "Every track remembers how it got here." [level=2] [ref=e450]
+      - paragraph [ref=e451]:
+        - text: Click any track and see the whole story — where the raw file came from, every provider that touched it, what the AI graded it, and exactly where it lives now.
+        - strong [ref=e452]: Nothing is a black box.
+      - generic [ref=e453]:
+        - generic [ref=e454]:
+          - generic [ref=e456]: IR
+          - generic [ref=e457]:
+            - generic [ref=e458]: Track
+            - heading "Nude" [level=3] [ref=e459]
+            - generic [ref=e460]: Radiohead · In Rainbows · 2007
+            - generic [ref=e461]:
+              - generic [ref=e462]: Duration 4:17
+              - generic [ref=e463]: Format FLAC 1024kbps
+              - generic [ref=e464]: Size 31.8 MB
+              - generic [ref=e465]:
+                - img [ref=e466]
+                - text: AI grade
+                - generic [ref=e469]: 94/100
+        - generic [ref=e470]:
+          - generic [ref=e471]:
+            - generic [ref=e472]: Source · raw
+            - generic [ref=e473]: /music/source/Downloads/music_dump_2024/track_047.flac
+          - img [ref=e475]
+          - generic [ref=e477]:
+            - generic [ref=e478]: Destination · clean
+            - generic [ref=e479]: /music/destination/Radiohead/2007 - In Rainbows/03 - Nude.flac
+        - generic [ref=e480]:
+          - generic [ref=e481]:
+            - generic [ref=e482]: Providers that contributed
+            - generic [ref=e483]: 3 of 4 providers returned data this track used.
+          - generic [ref=e484]:
+            - generic [ref=e485]: AcoustID
+            - generic [ref=e487]: MusicBrainz
+            - generic [ref=e489]: Spotify
+        - generic [ref=e491]:
+          - generic [ref=e492]:
+            - generic [ref=e493]: Full timeline
+            - generic [ref=e494]: 8 events · 679ms end-to-end
+          - list [ref=e495]:
+            - listitem [ref=e496]:
+              - generic [ref=e500]:
+                - generic [ref=e501]:
+                  - generic [ref=e502]: 16:32:01.842
+                  - generic [ref=e503]: SCAN
+                  - generic [ref=e506]: Embedded tags
+                - generic [ref=e507]: discovered track_047.flac · no usable ID3
+            - listitem [ref=e508]:
+              - generic [ref=e512]:
+                - generic [ref=e513]:
+                  - generic [ref=e514]: 16:32:01.903
+                  - generic [ref=e515]: FINGERPRINT
+                  - generic [ref=e518]: AcoustID
+                - generic [ref=e519]: Chromaprint fingerprint computed
+            - listitem [ref=e520]:
+              - generic [ref=e524]:
+                - generic [ref=e525]:
+                  - generic [ref=e526]: 16:32:01.903
+                  - generic [ref=e527]: FP LOOKUP
+                  - generic [ref=e528]:
+                    - generic [ref=e530]: AcoustID
+                    - generic [ref=e531]: "94"
+                - generic [ref=e532]: AcoustID matched · Nude
+            - listitem [ref=e533]:
+              - generic [ref=e537]:
+                - generic [ref=e538]:
+                  - generic [ref=e539]: 16:32:02.046
+                  - generic [ref=e540]: METADATA
+                  - generic [ref=e541]:
+                    - generic [ref=e543]: MusicBrainz
+                    - generic [ref=e544]: "96"
+                - generic [ref=e545]: MusicBrainz matched · Nude
+                - generic [ref=e546]:
+                  - img [ref=e547]
+                  - generic [ref=e550]: searched
+                  - generic [ref=e551]: “Radiohead Nude”
+            - listitem [ref=e552]:
+              - generic [ref=e556]:
+                - generic [ref=e557]:
+                  - generic [ref=e558]: 16:32:02.180
+                  - generic [ref=e559]: METADATA
+                  - generic [ref=e560]:
+                    - generic [ref=e562]: Spotify
+                    - generic [ref=e563]: "94"
+                - generic [ref=e564]: Spotify matched · Nude
+                - generic [ref=e565]:
+                  - img [ref=e566]
+                  - generic [ref=e569]: searched
+                  - generic [ref=e570]: “Radiohead Nude In Rainbows”
+            - listitem [ref=e571]:
+              - img [ref=e574]
+              - generic [ref=e577]:
+                - generic [ref=e578]:
+                  - generic [ref=e579]: 16:32:02.240
+                  - generic [ref=e580]: METADATA
+                  - generic [ref=e583]: Deezer
+                - generic [ref=e584]: Deezer returned no match
+                - generic [ref=e585]:
+                  - img [ref=e586]
+                  - generic [ref=e589]: searched
+                  - generic [ref=e590]: “Radiohead Nude”
+            - listitem [ref=e591]:
+              - generic [ref=e595]:
+                - generic [ref=e596]:
+                  - generic [ref=e597]: 16:32:02.418
+                  - generic [ref=e598]: AI GRADE
+                  - generic [ref=e599]:
+                    - generic [ref=e601]: Quality LLM
+                    - generic [ref=e602]: "94"
+                - generic [ref=e603]: Quality grade · Excellent (94/100) — Fingerprint + 3-provider consensus all agree; paths and tags are consistent.
+            - listitem [ref=e604]:
+              - generic [ref=e607]:
+                - generic [ref=e608]:
+                  - generic [ref=e609]: 16:32:02.521
+                  - generic [ref=e610]: WRITE
+                - generic [ref=e611]: written to destination library
+    - generic [ref=e612]:
+      - generic [ref=e613]: QUICKSTART · ~2 MINUTES
+      - heading "Self-host it in three steps." [level=2] [ref=e614]
+      - paragraph [ref=e615]:
+        - text: No account, no SaaS.
+        - strong [ref=e616]: Grab two files
+        - text: ", point it at two folders, open a browser. An"
+        - strong [ref=e617]: AcoustID key
+        - text: is optional but sharpens matching.
+      - generic [ref=e618]:
+        - list [ref=e619]:
+          - listitem [ref=e620]:
+            - generic [ref=e621]: "1"
+            - generic [ref=e622]:
+              - generic [ref=e623]: Download and configure
+              - paragraph [ref=e624]: Grab docker-compose.yml and .env.example — no repo clone needed. Point MUSIC_SOURCE_PATH at your messy folder and MUSIC_DESTINATION_PATH at an empty one for the clean library, then set a POSTGRES_PASSWORD, OWNER_EMAIL, and PUBLIC_BASE_URL.
+          - listitem [ref=e625]:
+            - generic [ref=e626]: "2"
+            - generic [ref=e627]:
+              - generic [ref=e628]: Bring it up
+              - paragraph [ref=e629]: Run docker compose up -d. It pulls the prebuilt API + frontend images from GHCR, starts PostgreSQL, applies migrations, and the scanner begins walking your source tree immediately.
+          - listitem [ref=e630]:
+            - generic [ref=e631]: "3"
+            - generic [ref=e632]:
+              - generic [ref=e633]: Open the dashboard
+              - paragraph [ref=e634]: Visit the frontend on :3000 (the API is on :5050), watch the conveyor fill, and clear anything that lands in your Inbox. An AcoustID key is optional but makes matching far more confident.
+        - generic [ref=e635]:
+          - generic [ref=e636]:
+            - generic [ref=e637]:
+              - generic [ref=e642]: docker-compose.yml
+              - button "Copy" [ref=e643]:
+                - img [ref=e644]
+                - text: Copy
+            - generic [ref=e647]: "services: postgres: # metadata + cache image: postgres:17 musichoarder: # API + the whole pipeline image: ghcr.io/jeffreyyvdb/musichoarder/api:latest ports: [\"5050:8080\"] volumes: - ${MUSIC_SOURCE_PATH}:/music/source:ro # read-only - ${MUSIC_DESTINATION_PATH}:/music/destination # clean library environment: - MusicEnricher__SourceDirectory=/music/source - MusicEnricher__DestinationDirectory=/music/destination - MusicEnricher__AcoustIdApiKey=${ACOUSTID_API_KEY:-} depends_on: [postgres] frontend: # the web UI you're looking at image: ghcr.io/jeffreyyvdb/musichoarder/frontend:latest ports: [\"3000:3000\"] depends_on: [musichoarder]"
+          - paragraph [ref=e648]:
+            - text: Abridged — the full compose file (with Postgres, env, and healthchecks) lives in the repo.
+            - link "docker-compose.yml →" [ref=e649] [cursor=pointer]:
+              - /url: https://github.com/Jeffreyyvdb/MusicHoarder
+    - generic [ref=e651]:
+      - generic [ref=e652]:
+        - generic [ref=e653]: "01"
+        - generic [ref=e654]: Identified by sound
+        - generic [ref=e655]: Chromaprint + AcoustID fingerprint every file — even when it is named track_047.mp3 with empty tags.
+      - generic [ref=e656]:
+        - generic [ref=e657]: "02"
+        - generic [ref=e658]: Consensus across seven providers
+        - generic [ref=e659]: AcoustID, Spotify, MusicBrainz, Deezer, Apple Music and two community trackers vote; MusicHoarder takes the agreement, not the first hit.
+      - generic [ref=e660]:
+        - generic [ref=e661]: "03"
+        - generic [ref=e662]: Graded by an LLM
+        - generic [ref=e663]: A quality LLM scores every match 0–100 and only escalates what it distrusts to your Inbox — so you review dozens of tracks, not thousands.
+      - generic [ref=e664]:
+        - generic [ref=e665]: "04"
+        - generic [ref=e666]: Bit-aware dedupe
+        - generic [ref=e667]: Groups by acoustic fingerprint, keeps the highest-quality copy, and logs every decision so you can audit any choice later.
+      - generic [ref=e668]:
+        - generic [ref=e669]: "05"
+        - generic [ref=e670]: Your files, untouched
+        - generic [ref=e671]: The source folder is mounted read-only. MusicHoarder writes a clean copy to a separate library; the originals are yours to keep or delete.
+      - generic [ref=e672]:
+        - generic [ref=e673]: "06"
+        - generic [ref=e674]: Plain files, no lock-in
+        - generic [ref=e675]: Output is Artist / Year - Album / NN - Track on disk, with real artwork and synced lyrics embedded. No proprietary database, no cloud.
+    - generic [ref=e677]:
+      - generic [ref=e678]: START HOARDING
+      - heading "Your library is one command away." [level=2] [ref=e679]
+      - paragraph [ref=e680]:
+        - text: Pull the image, point it at your folders, and let the
+        - strong [ref=e681]: conveyor
+        - text: do the cataloguing.
+      - generic [ref=e682]:
+        - generic [ref=e683]:
+          - generic [ref=e688]: "your-server : ~"
+          - button "Copy" [ref=e689]:
+            - img [ref=e690]
+            - text: Copy
+        - generic [ref=e693]: "curl -fsSLO https://raw.githubusercontent.com/Jeffreyyvdb/MusicHoarder/main/docker-compose.yml curl -fsSL https://raw.githubusercontent.com/Jeffreyyvdb/MusicHoarder/main/.env.example -o .env # edit .env — set your two folders, a Postgres password, owner email + public URL docker compose up -d"
+      - generic [ref=e694]:
+        - button "Try the live demo" [ref=e695]
+        - link "View on GitHub" [ref=e696] [cursor=pointer]:
+          - /url: https://github.com/Jeffreyyvdb/MusicHoarder
+          - img
+          - text: View on GitHub
+    - generic [ref=e697]:
+      - generic [ref=e698]: © 2026 MusicHoarder · self-hosted release v1.0.0 · no music files were harmed
+      - generic [ref=e699]:
+        - link "docs" [ref=e700] [cursor=pointer]:
+          - /url: https://github.com/Jeffreyyvdb/MusicHoarder#readme
+        - link "changelog" [ref=e701] [cursor=pointer]:
+          - /url: https://github.com/Jeffreyyvdb/MusicHoarder/releases
+        - link "github" [ref=e702] [cursor=pointer]:
+          - /url: https://github.com/Jeffreyyvdb/MusicHoarder
