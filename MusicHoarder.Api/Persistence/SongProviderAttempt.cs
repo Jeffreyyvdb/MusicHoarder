@@ -38,6 +38,15 @@ public class SongProviderAttempt
     public DateTime? RetryAfterUtc { get; set; }
 
     /// <summary>
+    /// When this attempt <em>first</em> became <see cref="ProviderAttemptStatus.RateLimited"/>.
+    /// Preserved across repeated rate-limits (unlike <see cref="AttemptedAtUtc"/>, which is bumped
+    /// every retry) and cleared when the provider next returns a non-rate-limited status. Lets the
+    /// consensus evaluator bound how long a song waits on a persistently-throttled provider before
+    /// finalizing on the providers that did answer. Null when the attempt isn't rate-limited.
+    /// </summary>
+    public DateTime? RateLimitedSinceUtc { get; set; }
+
+    /// <summary>
     /// For terminal <see cref="ProviderAttemptStatus.NoMatch"/> / <see cref="ProviderAttemptStatus.Failed"/>
     /// attempts: when the provider should be retried (catalogs grow over time). Null = never.
     /// </summary>
