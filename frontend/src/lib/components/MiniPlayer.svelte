@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Music, Pause, Play, SkipBack, SkipForward, Volume2, VolumeX, X } from '@lucide/svelte';
-  import { goto } from '$app/navigation';
   import { playerStore } from '$lib/stores/player.svelte';
+  import { songDetail } from '$lib/stores/song-detail.svelte';
   import { Button } from '$lib/components/ui/button';
   import { Slider } from '$lib/components/ui/slider';
 
@@ -92,7 +92,7 @@
     <div class="flex h-[56px] items-center gap-2 px-3 sm:h-[64px] sm:gap-3 sm:px-4">
       <button
         type="button"
-        onclick={() => goto(`/library?song=${song.id}`)}
+        onclick={() => songDetail.open(song.id)}
         class="hover:bg-primary/10 flex min-w-0 flex-1 items-center gap-2.5 rounded-md p-1 text-left transition-colors sm:w-48 sm:flex-none sm:shrink-0"
       >
         <div class="bg-primary/20 flex size-10 shrink-0 items-center justify-center rounded-md">

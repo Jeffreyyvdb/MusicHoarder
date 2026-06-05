@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
-  import { page } from '$app/state';
   import {
     ArrowLeft,
     Check,
@@ -45,6 +43,7 @@
   } from '$lib/api-client';
   import { VERDICT_DOT } from '$lib/quality-ui';
   import { playerStore } from '$lib/stores/player.svelte';
+  import { songDetail } from '$lib/stores/song-detail.svelte';
   import { cn } from '$lib/utils';
 
   type Props = {
@@ -312,8 +311,10 @@
     return `https://www.google.com/search?q=${encodeURIComponent(q)}`;
   }
 
-  const selectedTrack = $derived(page.url.searchParams.get('track'));
-  const selectedTrackId = $derived(selectedTrack ? Number.parseInt(selectedTrack, 10) : null);
+  // Selection drives the global song-detail store directly (its open state is the
+  // single source of truth — no URL round-trip), so the highlight always matches
+  // the open panel.
+  const selectedTrackId = $derived(songDetail.isOpen ? (songDetail.target?.songId ?? null) : null);
 
   const currentlyPlaying = $derived.by(() => {
     const playing = playerStore.currentSong;
@@ -322,13 +323,11 @@
   });
 
   function selectTrack(s: ApiSong) {
-    const url = new URL(page.url);
-    if (selectedTrackId === s.id) {
-      url.searchParams.delete('track');
+    if (songDetail.isOpen && songDetail.target?.songId === s.id) {
+      songDetail.close();
     } else {
-      url.searchParams.set('track', String(s.id));
+      songDetail.open(s.id, album?.key);
     }
-    void goto(url.pathname + url.search, { replaceState: true, noScroll: true });
   }
 
   function playFrom(target: ApiSong) {
