@@ -5,6 +5,7 @@
   import AppTopBarV2 from '$lib/components/v2/AppTopBarV2.svelte';
   import BottomNavV2 from '$lib/components/v2/BottomNavV2.svelte';
   import MiniPlayer from '$lib/components/MiniPlayer.svelte';
+  import SongDetailHost from '$lib/components/v2/SongDetailHost.svelte';
   import SectionSubNav from '$lib/components/v2/SectionSubNav.svelte';
   import LibraryOfflineBanner from '$lib/components/LibraryOfflineBanner.svelte';
   import QualityGradingErrorBanner from '$lib/components/QualityGradingErrorBanner.svelte';
@@ -52,6 +53,11 @@
       {@render children()}
     </div>
   </Sidebar.Inset>
+  <!-- Global song-detail sidebar. On desktop it's a floating right-docked pane
+       that pushes the inset (a flex sibling shrinks the flex-1 Sidebar.Inset);
+       on mobile it's a bottom Sheet. Opened from the MiniPlayer, Library track
+       rows, deep-links, and Cmd/Ctrl+I — never via navigation. -->
+  <SongDetailHost />
   <BottomNavV2 />
   <!-- MiniPlayer is the global playback UI; it hides itself when the in-page
        TrackPanel is mounted. Its audio element is owned by the store (not the
