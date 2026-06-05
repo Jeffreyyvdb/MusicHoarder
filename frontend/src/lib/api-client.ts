@@ -169,6 +169,23 @@ export async function getVersion(fetchFn: typeof fetch = fetch): Promise<string>
   return body.version
 }
 
+// Running build vs latest published release, from the backend's cached GitHub check. `latest` is null
+// until the first successful poll (or when the check is disabled / GitHub is unreachable), in which
+// case `updateAvailable` is false and no banner shows.
+export interface LatestVersionInfo {
+  current: string
+  latest: string | null
+  updateAvailable: boolean
+  releaseUrl: string | null
+  publishedAt: string | null
+}
+
+export async function fetchLatestVersion(): Promise<LatestVersionInfo> {
+  const response = await fetch(`${API_PREFIX}/api/version/latest`, { cache: "no-store" })
+  if (!response.ok) throw new Error(`Request failed for /api/version/latest: ${response.status}`)
+  return (await response.json()) as LatestVersionInfo
+}
+
 export type NormalizedEnrichmentStatus =
   | "pending"
   | "processing"
@@ -786,6 +803,32 @@ export async function triggerBuild(): Promise<EnrichmentTriggerResult> {
 
 export async function cancelJob(): Promise<{ message: string }> {
   return requestJson<{ message: string }>("/api/enrichment/cancel", { method: "POST" })
+}
+
+export type RebuildAlbumResult =
+  | { ok: true; requeued: number; jobId: string }
+  | { ok: false; status: number; message: string }
+
+/**
+ * Re-queue an album's already-built tracks so the next build re-copies and re-tags their destination
+ * files in place — without re-running enrichment. Used to apply the current tag-writing logic (e.g.
+ * album-identity reconciliation) to files that were built before it existed.
+ */
+export async function rebuildAlbum(artist: string, album: string): Promise<RebuildAlbumResult> {
+  const qs = new URLSearchParams({ artist, album }).toString()
+  const response = await fetch(`${API_PREFIX}/api/enrichment/rebuild/album?${qs}`, {
+    method: "POST",
+    cache: "no-store",
+  })
+  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>
+  if (response.ok) {
+    return { ok: true, requeued: Number(body.requeued ?? 0), jobId: String(body.jobId ?? "") }
+  }
+  return {
+    ok: false,
+    status: response.status,
+    message: (body.message as string) ?? `Request failed: ${response.status}`,
+  }
 }
 
 export type PurgeStatus = "idle" | "running" | "completed" | "failed"

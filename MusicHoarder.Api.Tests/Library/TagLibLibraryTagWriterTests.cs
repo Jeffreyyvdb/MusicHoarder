@@ -18,7 +18,8 @@ public class TagLibLibraryTagWriterTests : IDisposable
     public async Task WriteTags_Mp3_ForcesId3v24()
     {
         var path = CopyFixture("silence.mp3");
-        await new TagLibLibraryTagWriter().WriteTagsAsync(path, BasicSong());
+        var song = BasicSong();
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song, Identity(song));
 
         using var file = TagLib.File.Create(path);
         var id3 = (TagLib.Id3v2.Tag)file.GetTag(TagLib.TagTypes.Id3v2);
@@ -34,7 +35,7 @@ public class TagLibLibraryTagWriterTests : IDisposable
         song.Artists = "Alice; Bob";
         song.AlbumArtist = "Alice";
 
-        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song);
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song, Identity(song));
 
         using var file = TagLib.File.Create(path);
         var id3 = (TagLib.Id3v2.Tag)file.GetTag(TagLib.TagTypes.Id3v2);
@@ -59,7 +60,7 @@ public class TagLibLibraryTagWriterTests : IDisposable
         song.MusicBrainzReleaseGroupId = "rg-333";
         song.AlbumArtistMusicBrainzId = "aa-444";
 
-        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song);
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song, Identity(song));
 
         using var file = TagLib.File.Create(path);
         var tag = file.Tag;
@@ -79,7 +80,7 @@ public class TagLibLibraryTagWriterTests : IDisposable
         song.AlbumArtist = "Some Performer";
         song.IsCompilation = true;
 
-        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song);
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song, Identity(song));
 
         using var file = TagLib.File.Create(path);
         var id3 = (TagLib.Id3v2.Tag)file.GetTag(TagLib.TagTypes.Id3v2);
@@ -102,7 +103,7 @@ public class TagLibLibraryTagWriterTests : IDisposable
         song.DiscNumber = 2;
         song.TotalDiscs = 2;
 
-        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song);
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song, Identity(song));
 
         using var file = TagLib.File.Create(path);
         Assert.Equal(5u, file.Tag.Track);
@@ -119,7 +120,7 @@ public class TagLibLibraryTagWriterTests : IDisposable
         song.Artists = "Alice; Bob";
         song.ReleaseTypes = "album; compilation";
 
-        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song);
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song, Identity(song));
 
         using var file = TagLib.File.Create(path);
         var xiph = (TagLib.Ogg.XiphComment)file.GetTag(TagLib.TagTypes.Xiph);
@@ -148,7 +149,7 @@ public class TagLibLibraryTagWriterTests : IDisposable
             seed.Save();
         }
 
-        await new TagLibLibraryTagWriter().WriteTagsAsync(path, BasicSong());
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, BasicSong(), Identity(BasicSong()));
 
         using var file = TagLib.File.Create(path);
         var picture = Assert.Single(file.Tag.Pictures);
@@ -159,12 +160,87 @@ public class TagLibLibraryTagWriterTests : IDisposable
     public async Task WriteTags_Flac_DoesNotCreateId3Tag()
     {
         var path = CopyFixture("silence.flac");
-        await new TagLibLibraryTagWriter().WriteTagsAsync(path, BasicSong());
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, BasicSong(), Identity(BasicSong()));
 
         using var file = TagLib.File.Create(path);
         // ID3-on-FLAC is non-spec and breaks some players; we must never create one.
         Assert.Null(file.GetTag(TagLib.TagTypes.Id3v2));
     }
+
+    [Fact]
+    public async Task WriteTags_UsesAlbumIdentityForAlbumFields_NotSongRow()
+    {
+        // The whole point of reconciliation: album-IDENTITY tags come from the shared identity, while
+        // track-level tags still come from the song. A song that enriched to a different release must
+        // be written with the album's elected identity so the on-disk album stays together.
+        var path = CopyFixture("silence.mp3");
+        var song = BasicSong();
+        song.Album = "Song Album";
+        song.Year = 1999;
+        song.MusicBrainzReleaseId = "rel-song";
+        song.MusicBrainzReleaseGroupId = "rg-song";
+        // Track-level fields that must survive from the song:
+        song.Title = "Track Title";
+        song.TrackNumber = 7;
+        song.DiscNumber = 1;
+        song.Isrc = "USABC1234567";
+        song.MusicBrainzId = "rec-song";
+
+        var identity = new AlbumIdentity(
+            Album: "Album Album",
+            AlbumArtist: "Album Artist",
+            Year: 2001,
+            IsCompilation: false,
+            TotalDiscs: 1,
+            ReleaseTypePrimary: "album",
+            ReleaseTypes: "album",
+            MusicBrainzReleaseId: "rel-album",
+            MusicBrainzReleaseGroupId: "rg-album",
+            AlbumArtistMusicBrainzId: "aa-album");
+
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song, identity);
+
+        using var file = TagLib.File.Create(path);
+        var tag = file.Tag;
+        // Album identity wins for album-level fields.
+        Assert.Equal("Album Album", tag.Album);
+        Assert.Equal(2001u, tag.Year);
+        Assert.Equal("rel-album", tag.MusicBrainzReleaseId);
+        Assert.Equal("rg-album", tag.MusicBrainzReleaseGroupId);
+        Assert.Equal("aa-album", tag.MusicBrainzReleaseArtistId);
+        // Track-level fields still come straight from the song.
+        Assert.Equal("Track Title", tag.Title);
+        Assert.Equal(7u, tag.Track);
+        Assert.Equal("USABC1234567", tag.ISRC);
+        Assert.Equal("rec-song", tag.MusicBrainzTrackId);
+    }
+
+    [Fact]
+    public async Task WriteTags_Compilation_DrivenByAlbumIdentity_NotSong()
+    {
+        // A single mis-enriched track (IsCompilation=false on the row) is still written as Various
+        // Artists when the elected album identity says the album is a compilation.
+        var path = CopyFixture("silence.mp3");
+        var song = BasicSong();
+        song.Artist = "Some Performer";
+        song.AlbumArtist = "Some Performer";
+        song.IsCompilation = false;
+
+        var identity = AlbumIdentity.FromSong(song) with { IsCompilation = true };
+
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song, identity);
+
+        using var file = TagLib.File.Create(path);
+        var id3 = (TagLib.Id3v2.Tag)file.GetTag(TagLib.TagTypes.Id3v2);
+        Assert.Equal(["Various Artists"], file.Tag.AlbumArtists);
+        var tcmp = TagLib.Id3v2.TextInformationFrame.Get(id3, "TCMP", false);
+        Assert.NotNull(tcmp);
+        Assert.Equal(["1"], tcmp!.Text);
+    }
+
+    // The identity that mirrors a song's own album fields — what reconciliation produces for a
+    // single-member album, so existing per-song assertions hold unchanged.
+    private static AlbumIdentity Identity(SongMetadata song) => AlbumIdentity.FromSong(song);
 
     private static SongMetadata BasicSong() => new()
     {

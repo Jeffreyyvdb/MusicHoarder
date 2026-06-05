@@ -20,6 +20,7 @@ using MusicHoarder.Api.Scanner;
 using MusicHoarder.Api.Settings;
 using MusicHoarder.Api.Snapshots;
 using MusicHoarder.Api.Spotify;
+using MusicHoarder.Api.Version;
 
 namespace MusicHoarder.Api.Composition;
 
@@ -111,6 +112,20 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<DirectoryAvailabilityMonitor>();
         services.AddSingleton<IDirectoryAvailability>(sp => sp.GetRequiredService<DirectoryAvailabilityMonitor>());
         services.AddHostedService(sp => sp.GetRequiredService<DirectoryAvailabilityMonitor>());
+
+        // Background poll of the GitHub Releases API (ETag-cached) powering the in-app "update available"
+        // banner. The named client carries the User-Agent GitHub requires; ServiceDefaults layers
+        // resilience/telemetry onto factory clients automatically.
+        services.AddHttpClient(ReleaseUpdateMonitor.HttpClientName, client =>
+        {
+            client.BaseAddress = new Uri("https://api.github.com/");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("MusicHoarder-UpdateCheck");
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+            client.Timeout = TimeSpan.FromSeconds(15);
+        });
+        services.AddSingleton<ReleaseUpdateMonitor>();
+        services.AddSingleton<IReleaseUpdateMonitor>(sp => sp.GetRequiredService<ReleaseUpdateMonitor>());
+        services.AddHostedService(sp => sp.GetRequiredService<ReleaseUpdateMonitor>());
         services.AddSingleton<ScanProgressTracker>();
         services.AddSingleton<FingerprintProgressTracker>();
         services.AddSingleton<EnrichmentProgressTracker>();
@@ -130,6 +145,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IRuntimeSettingsService, RuntimeSettingsService>();
         services.AddSingleton<IEnrichmentOrchestrator, EnrichmentOrchestrator>();
         services.AddSingleton<IDestinationPathResolver, DestinationPathResolver>();
+        services.AddSingleton<IAlbumIdentityReconciler, AlbumIdentityReconciler>();
         services.AddSingleton<IDuplicateDetectionService, DuplicateDetectionService>();
         services.AddSingleton<IEmbeddedPictureReader, TagLibEmbeddedPictureReader>();
         services.AddScoped<ICoverArtResolver, CoverArtResolver>();

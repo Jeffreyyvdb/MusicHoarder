@@ -252,7 +252,9 @@
   }
 </script>
 
-<div class="flex min-h-0 flex-1 flex-col">
+<!-- On mobile the whole thing scrolls (header + hero scroll away, filters stay
+     pinned); on desktop it's a flex column with only the folder list scrolling. -->
+<div class="flex min-h-0 flex-1 flex-col overflow-y-auto pb-[var(--mh-content-pad)] sm:overflow-hidden sm:pb-0">
   <!-- Header -->
   <header class="border-border flex shrink-0 flex-col gap-1.5 border-b px-4 py-4 sm:px-5">
     <div class="flex flex-wrap items-center gap-2">
@@ -271,7 +273,7 @@
         live
       </span>
     </div>
-    <p class="text-muted-foreground max-w-[880px] text-[12.5px] leading-relaxed">
+    <p class="text-muted-foreground hidden max-w-[880px] text-[12.5px] leading-relaxed sm:block">
       Files in your source directory, grouped by folder. Drill into a folder to see its sub-folders and the
       per-file enrichment state and destination. Tag a folder as <b class="text-foreground/80 font-medium"
         >expected low</b
@@ -281,11 +283,11 @@
 
   {#if !isLoading && tree}
     <!-- Hero segmented bar -->
-    <div class="border-border shrink-0 border-b px-4 py-3.5 sm:px-5">
-      <div class="bg-card border-border flex flex-col gap-4 rounded-xl border px-4 py-3.5 sm:flex-row sm:items-center sm:gap-7">
+    <div class="border-border shrink-0 border-b px-4 py-2 sm:px-5 sm:py-3.5">
+      <div class="bg-card border-border flex flex-col gap-3 rounded-xl border px-4 py-2.5 sm:flex-row sm:items-center sm:gap-7 sm:py-3.5">
         <div class="flex shrink-0 items-end gap-3 sm:flex-col sm:items-start sm:gap-0.5">
           <div class="flex items-baseline">
-            <span class={cn('text-[34px] font-semibold leading-none tracking-tight tabular-nums', pctClass(matchedPct))}>{matchedPct}</span>
+            <span class={cn('text-[26px] font-semibold leading-none tracking-tight tabular-nums sm:text-[34px]', pctClass(matchedPct))}>{matchedPct}</span>
             <span class={cn('ml-0.5 text-base font-medium', pctClass(matchedPct))}>%</span>
           </div>
           <div class="text-muted-foreground pb-1 font-mono text-[11px] whitespace-nowrap sm:pb-0">
@@ -339,8 +341,8 @@
       {/if}
     </div>
 
-    <!-- Filter pills + search + sort -->
-    <div class="border-border flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-2 sm:px-5">
+    <!-- Filter pills + search + sort — pinned on mobile while the header/hero scroll away -->
+    <div class="border-border bg-background sticky top-0 z-10 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-2 sm:static sm:z-auto sm:px-5">
       <div class="flex flex-wrap items-center gap-1">
         {#each FILTERS as p (p.id)}
           <button
@@ -386,15 +388,15 @@
     </div>
   {/if}
 
-  <!-- Table -->
-  <div class="min-h-0 flex-1 overflow-y-auto px-3 py-2 sm:px-4">
+  <!-- Table — natural height on mobile (outer scrolls), inner scroller on desktop -->
+  <div class="px-3 py-2 sm:min-h-0 sm:flex-1 sm:overflow-y-auto sm:px-4">
     {#if isLoading}
-      <div class="text-muted-foreground flex h-full items-center justify-center gap-2 text-sm">
+      <div class="text-muted-foreground flex min-h-[40vh] items-center justify-center gap-2 text-sm sm:h-full sm:min-h-0">
         <Loader2 class="size-4 animate-spin" />
         Loading directory tree…
       </div>
     {:else if error}
-      <div class="text-muted-foreground flex h-full flex-col items-center justify-center gap-2 text-sm">
+      <div class="text-muted-foreground flex min-h-[40vh] flex-col items-center justify-center gap-2 text-sm sm:h-full sm:min-h-0">
         <AlertTriangle class="size-5 text-amber-500" />
         {error}
       </div>
@@ -426,7 +428,7 @@
         </div>
       {/if}
     {:else}
-      <div class="text-muted-foreground flex h-full items-center justify-center text-sm">
+      <div class="text-muted-foreground flex min-h-[40vh] items-center justify-center text-sm sm:h-full sm:min-h-0">
         No songs indexed yet.
       </div>
     {/if}

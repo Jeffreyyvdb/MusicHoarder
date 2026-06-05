@@ -14,6 +14,10 @@ public class QualityGradingChannel(QualityGradingProgressTracker progressTracker
         new UnboundedChannelOptions { SingleReader = false, SingleWriter = false });
 
     private readonly object _lock = new();
+
+    /// <summary>Song ids currently queued or in flight, so the auto-sweep doesn't re-enqueue work it
+    /// already handed off every <c>IdleDelaySeconds</c> (which floods the channel and the API).</summary>
+    private readonly HashSet<int> _queued = [];
     private int _inFlight;
     private Guid _runId;
 
@@ -26,21 +30,31 @@ public class QualityGradingChannel(QualityGradingProgressTracker progressTracker
         var ids = songIds as ICollection<int> ?? songIds.ToList();
         if (ids.Count == 0) return;
 
+        List<int> toQueue;
         lock (_lock)
         {
+            // Drop ids already queued/in-flight — but a forced (manual "grade now") request always
+            // runs, even if a background sweep already queued the song.
+            toQueue = new List<int>(ids.Count);
+            foreach (var id in ids)
+                if (_queued.Add(id) || force)
+                    toQueue.Add(id);
+
+            if (toQueue.Count == 0) return;
+
             if (_inFlight == 0)
             {
                 _runId = Guid.NewGuid();
-                progressTracker.StartCycle(_runId, ids.Count);
+                progressTracker.StartCycle(_runId, toQueue.Count);
             }
             else
             {
-                progressTracker.AddToTotal(ids.Count);
+                progressTracker.AddToTotal(toQueue.Count);
             }
-            _inFlight += ids.Count;
+            _inFlight += toQueue.Count;
         }
 
-        foreach (var id in ids)
+        foreach (var id in toQueue)
             _channel.Writer.TryWrite(new GradeWorkItem(id, force));
     }
 
@@ -49,10 +63,11 @@ public class QualityGradingChannel(QualityGradingProgressTracker progressTracker
     /// that drains the last in-flight item (the run→idle edge), so the caller can react to a grading
     /// run completing (e.g. capture a timeline snapshot).
     /// </summary>
-    public bool MarkProcessed()
+    public bool MarkProcessed(int songId)
     {
         lock (_lock)
         {
+            _queued.Remove(songId);
             if (_inFlight == 0) return false;
             _inFlight--;
             if (_inFlight == 0)

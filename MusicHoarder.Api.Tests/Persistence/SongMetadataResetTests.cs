@@ -86,6 +86,30 @@ public class SongMetadataResetTests
         Assert.True(song.IsDeleted);
     }
 
+    [Fact]
+    public void RequeueForRetag_ResetsBuildStatus_ButKeepsDestinationAndEnrichment()
+    {
+        var song = BuildFullyPopulatedSong(); // Done, with a DestinationPath and applied enrichment
+
+        song.RequeueForRetag();
+
+        // Re-queued for the builder, with PreviousDestinationPath pointed at the (kept) destination —
+        // the signal that forces the build past its same-size skip-copy fast path...
+        Assert.Equal(LibraryBuildStatus.Pending, song.LibraryBuildStatus);
+        Assert.Null(song.LibraryBuiltAtUtc);
+        Assert.Null(song.LibraryBuildLastAttemptedAtUtc);
+        Assert.Null(song.LibraryBuildError);
+
+        // ...the destination file stays referenced (re-tag in place; previous == current means no
+        // folder move) and the enrichment match is untouched.
+        Assert.Equal("/dest/Artist/Album/01 - Track.mp3", song.DestinationPath);
+        Assert.Equal("/dest/Artist/Album/01 - Track.mp3", song.PreviousDestinationPath);
+        Assert.Equal(EnrichmentStatus.Matched, song.EnrichmentStatus);
+        Assert.Equal("New Album", song.Album);
+        Assert.Equal("mbrel-456", song.MusicBrainzReleaseId);
+        Assert.NotEmpty(song.ProviderAttempts);
+    }
+
     private static SongMetadata BuildFullyPopulatedSong()
     {
         var song = new SongMetadata

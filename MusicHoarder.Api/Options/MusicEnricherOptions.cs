@@ -46,6 +46,23 @@ public class MusicEnricherOptions
     [Range(1, 120)]
     public int DirectoryProbeTimeoutSeconds { get; set; } = 5;
 
+    /// <summary>
+    /// Enables the periodic GitHub Releases check that powers the in-app "update available" banner.
+    /// Safe to disable in air-gapped/offline deploys via <c>MusicEnricher__EnableUpdateCheck=false</c>;
+    /// when false the latest-version endpoint reports no update and GitHub is never contacted.
+    /// </summary>
+    public bool EnableUpdateCheck { get; set; } = true;
+
+    /// <summary><c>owner/repo</c> slug polled for the latest release.</summary>
+    public string UpdateCheckRepo { get; set; } = "Jeffreyyvdb/MusicHoarder";
+
+    /// <summary>
+    /// How often (hours) to poll GitHub for the latest release. Long by design — the result rarely
+    /// changes and a long interval keeps the process well under GitHub's 60/hr unauthenticated limit.
+    /// </summary>
+    [Range(1, 168)]
+    public int UpdateCheckIntervalHours { get; set; } = 8;
+
     /// <summary>Maximum concurrent file reads (tag reading + fpcalc) for SMB safety.</summary>
     [Range(1, 64)]
     public int SmbConcurrency { get; set; } = 8;
@@ -204,9 +221,10 @@ public class MusicEnricherOptions
     [Range(1, 20)]
     public int AppleMusicConcurrency { get; set; } = 1;
 
-    /// <summary>Max iTunes Search API requests per second. iTunes is throttled to ~20 req/min, so keep this at 1.</summary>
-    [Range(1, 20)]
-    public int AppleMusicApiRequestsPerSecond { get; set; } = 1;
+    /// <summary>Max iTunes Search API requests per minute. Apple documents ~20/min (approx,
+    /// subject to change), so stay conservatively under it.</summary>
+    [Range(1, 30)]
+    public int AppleMusicApiRequestsPerMinute { get; set; } = 15;
 
     /// <summary>Track candidates to request from iTunes search (1–50).</summary>
     [Range(1, 50)]
@@ -375,6 +393,15 @@ public class MusicEnricherOptions
     /// <summary>Delay in seconds before retrying when no tracks are pending library build.</summary>
     [Range(1, 300)]
     public int LibraryBuilderIdleDelaySeconds { get; set; } = 20;
+
+    /// <summary>
+    /// Harmonize album-identity tags (release id, album name, year, disc count, compilation, release
+    /// types, album-artist mbids) across all tracks that build into the same destination album folder,
+    /// so a single on-disk album isn't split by a server's MusicBrainz-release grouping key (e.g.
+    /// Navidrome's default <c>PID.Album</c>). Election is non-persisted (DB rows keep their per-track
+    /// enrichment) and deterministic. Default on.
+    /// </summary>
+    public bool EnableAlbumIdentityReconciliation { get; set; } = true;
 
     /// <summary>
     /// Top-level folder name compilations (Various-Artists releases) are filed under, keyed by

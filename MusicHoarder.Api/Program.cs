@@ -3,6 +3,7 @@ using MusicHoarder.Api.Auth.Middleware;
 using MusicHoarder.Api.Composition;
 using MusicHoarder.Api.OpenApi;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Persistence.Interceptors;
 using MusicHoarder.ServiceDefaults;
 using Scalar.AspNetCore;
 
@@ -31,10 +32,12 @@ builder.Services.AddMusicHoarderServices();
 // Register the DbContext ourselves (non-pooled) so we can use a second constructor that takes
 // ICurrentUserAccessor for per-user EF global query filters. Then call EnrichNpgsqlDbContext to
 // apply Aspire's connection-string + OpenTelemetry wiring on top.
+builder.Services.AddSingleton<RebuildOnMetadataChangeInterceptor>();
 builder.Services.AddDbContext<MusicHoarderDbContext>((sp, options) =>
 {
     var configuration = sp.GetRequiredService<IConfiguration>();
     options.UseNpgsql(configuration.GetConnectionString("musichoarderdb"));
+    options.AddInterceptors(sp.GetRequiredService<RebuildOnMetadataChangeInterceptor>());
 });
 builder.EnrichNpgsqlDbContext<MusicHoarderDbContext>();
 
