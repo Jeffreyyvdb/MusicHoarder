@@ -432,10 +432,12 @@ public class SongMetadata
 
     /// <summary>
     /// Re-queues an already-built track so the next build re-copies and re-tags its destination file
-    /// in place — WITHOUT touching enrichment. Unlike <see cref="ResetLibraryBuild"/> it keeps
-    /// <see cref="DestinationPath"/> (and leaves <see cref="PreviousDestinationPath"/> alone), so the
-    /// album stays visible in the destination view during the rebuild and no folder move/prune is
-    /// triggered. Used to apply new tag-writing logic to files that already built.
+    /// in place — WITHOUT touching enrichment. Keeps <see cref="DestinationPath"/> and points
+    /// <see cref="PreviousDestinationPath"/> at it: that's the signal the builder's skip-copy fast path
+    /// uses to force a real re-copy + re-tag instead of treating a same-size destination as "already
+    /// built". Crucial because re-tagging a FLAC leaves its size identical (padding block), so without
+    /// this the rewrite would be silently skipped. The previous == current path means no folder
+    /// move/prune is triggered. Used to apply new tag-writing logic to files that already built.
     /// </summary>
     public void RequeueForRetag()
     {
@@ -443,6 +445,7 @@ public class SongMetadata
         LibraryBuiltAtUtc = null;
         LibraryBuildLastAttemptedAtUtc = null;
         LibraryBuildError = null;
+        PreviousDestinationPath = DestinationPath;
     }
 
     public void ResetPostFingerprint()
