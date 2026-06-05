@@ -14,11 +14,12 @@
   const isMobile = new IsMobile();
   const r = $derived(songDetail.resolved);
 
-  // Make the data dataset available + keep it live while the panel is open, so a
-  // song opened off-Library still resolves and refreshes after enrichment.
+  // Keep the dataset live while the panel is open so a song opened off-Library
+  // refreshes after enrichment. The initial fetch is owned by songDetail.open()
+  // (via ensureLoaded) — deliberately NOT called here: reading songsStore's
+  // isLoading inside this effect while loads write it creates a feedback cycle.
   $effect(() => {
     if (!songDetail.isOpen) return;
-    songsStore.ensureLoaded();
     songsStore.startLive();
     return () => songsStore.stopLive();
   });

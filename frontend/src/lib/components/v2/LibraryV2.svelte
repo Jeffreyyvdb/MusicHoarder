@@ -126,57 +126,34 @@
     return () => breadcrumbStore.clear();
   });
 
-  // Deep-link via ?song= — resolve the owning album, set the drilldown context
-  // and surface it as ?track= (which the sync effect below opens in the panel).
-  let appliedSongDeepLink: number | null = null;
+  // Deep-link entry via ?song= / ?track= — consumed ONCE on load: open the
+  // global detail store, then strip the param. The store's open state is the
+  // single source of truth thereafter (no ongoing URL<->store sync, which can
+  // cycle), so closing/reopening the panel never touches the URL.
+  let consumedDeepLink = false;
   $effect(() => {
-    if (isLoading) return;
-    if (!songParam) return;
-    const songId = Number.parseInt(songParam, 10);
-    if (!Number.isFinite(songId) || appliedSongDeepLink === songId) return;
-    const owningAlbum = allAlbums.find((a) => a.songs.some((s) => s.id === songId));
-    if (!owningAlbum) return;
-    appliedSongDeepLink = songId;
+    if (isLoading || consumedDeepLink) return;
+    const raw = songParam ?? trackParam;
+    if (!raw) return;
+    consumedDeepLink = true;
+    const id = Number.parseInt(raw, 10);
+    if (!Number.isFinite(id)) return;
+    const owningAlbum = allAlbums.find((a) => a.songs.some((s) => s.id === id));
+    songDetail.open(id, owningAlbum?.key);
     const url = new URL(page.url);
     url.searchParams.delete('song');
-    url.searchParams.set('album', owningAlbum.key);
-    url.searchParams.set('track', String(songId));
-    void goto(url.pathname + url.search, { replaceState: true, noScroll: true });
-  });
-
-  // Highlighted row in the list/album views follows the URL `?track=` param.
-  const tracksSelectedId = $derived(trackParam ? Number.parseInt(trackParam, 10) : null);
-
-  // `?track=` is the shareable deep-link for an open panel; mirror it into the
-  // global detail store — open on set, close on clear. The guard keeps an
-  // unrelated reactive change (e.g. openAlbum resolving) from re-firing it.
-  let syncedTrackParam: string | null = null;
-  $effect(() => {
-    const tp = trackParam;
-    if (tp === syncedTrackParam) return;
-    syncedTrackParam = tp;
-    if (tp) {
-      const id = Number.parseInt(tp, 10);
-      if (Number.isFinite(id)) songDetail.open(id, openAlbum?.key);
-    } else {
-      songDetail.close();
-    }
-  });
-
-  // Closing the panel from the host (X / Cmd+I) leaves a stale `?track=`; strip
-  // it so the URL and the row highlight stay in sync with the closed panel.
-  $effect(() => {
-    if (songDetail.isOpen || !trackParam) return;
-    const url = new URL(page.url);
     url.searchParams.delete('track');
+    // Preserve the drilldown context for a ?song= link that carried no ?album=.
+    if (owningAlbum && tab === 'albums' && !albumKey) url.searchParams.set('album', owningAlbum.key);
     void goto(url.pathname + url.search, { replaceState: true, noScroll: true });
   });
+
+  // Highlighted row follows the open panel (the store is the source of truth).
+  const tracksSelectedId = $derived(songDetail.isOpen ? (songDetail.target?.songId ?? null) : null);
 
   function selectTrack(song: ApiSong) {
-    const url = new URL(page.url);
-    if (tracksSelectedId === song.id) url.searchParams.delete('track');
-    else url.searchParams.set('track', String(song.id));
-    void goto(url.pathname + url.search, { replaceState: true, noScroll: true });
+    if (songDetail.isOpen && songDetail.target?.songId === song.id) songDetail.close();
+    else songDetail.open(song.id, openAlbum?.key);
   }
 
   // ── hrefs (keep deep-linkable, reuse the v1 ?album= / ?artist= contract) ─────
