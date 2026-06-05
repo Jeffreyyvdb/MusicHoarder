@@ -345,6 +345,16 @@ public class MusicEnricherOptions
     [Range(0.0, 1.0)]
     public double ConsensusCorroborationFloor { get; set; } = 0.5;
 
+    /// <summary>
+    /// How long a song will keep waiting on a rate-limited provider before the consensus is
+    /// finalized on the providers that did answer. A song two providers already agree on is matched
+    /// immediately regardless; this only bounds songs that still need the throttled provider, so a
+    /// persistently rate-limited provider (e.g. iTunes throttling a shared IP) can't stall
+    /// enrichment indefinitely — past this window such songs match on the rest or surface for review.
+    /// </summary>
+    [Range(0, 1440)]
+    public int RateLimitDeferralMinutes { get; set; } = 30;
+
     /// <summary>Fuzzy ratio (0–100) above which two candidate artist names are considered the same.</summary>
     [Range(0, 100)]
     public double IdentityArtistThreshold { get; set; } = 85;

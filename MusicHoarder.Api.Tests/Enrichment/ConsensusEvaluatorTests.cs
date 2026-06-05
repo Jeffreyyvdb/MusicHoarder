@@ -356,6 +356,81 @@ public class ConsensusEvaluatorTests
     }
 
     [Fact]
+    public void RateLimitedProvider_ButTwoOthersAgree_MatchedImmediately()
+    {
+        // The core fix: a rate-limited provider must not discard a match the others already
+        // corroborate. Previously any rate-limited attempt forced the whole song to Pending.
+        var now = DateTime.UtcNow;
+        var song = Song();
+        Add(song, EnrichmentProvider.AcoustID, ProviderAttemptStatus.Matched,
+            Result("Daft Punk", "One More Time", mbid: "mb-1", conf: 0.85, recommend: EnrichmentStatus.Matched));
+        Add(song, EnrichmentProvider.MusicBrainzWeb, ProviderAttemptStatus.Matched,
+            Result("Daft Punk", "One More Time", mbid: "mb-1", conf: 0.9, recommend: EnrichmentStatus.Matched));
+        AddRateLimited(song, EnrichmentProvider.AppleMusic, since: now);
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.AcoustID, EnrichmentProvider.MusicBrainzWeb, EnrichmentProvider.AppleMusic),
+            Opts, utcNow: now, maxRateLimitDeferral: TimeSpan.FromMinutes(30));
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+        Assert.Equal(2, r.AgreeingProviders.Count);
+    }
+
+    [Fact]
+    public void FreshRateLimit_WeakVerdict_DefersPending()
+    {
+        // Only a single sub-standalone candidate; a still-fresh rate-limited provider could yet
+        // corroborate, so we keep waiting (Pending) within the deferral window.
+        var now = DateTime.UtcNow;
+        var song = Song();
+        Add(song, EnrichmentProvider.AcoustID, ProviderAttemptStatus.Matched,
+            Result("Artist", "Title", conf: 0.7, recommend: EnrichmentStatus.NeedsReview));
+        AddRateLimited(song, EnrichmentProvider.AppleMusic, since: now);
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.AcoustID, EnrichmentProvider.AppleMusic),
+            Opts, utcNow: now, maxRateLimitDeferral: TimeSpan.FromMinutes(30));
+
+        Assert.Equal(EnrichmentStatus.Pending, r.Status);
+    }
+
+    [Fact]
+    public void StaleRateLimit_WeakVerdict_FinalizesAsNeedsReview()
+    {
+        // Once the rate-limit has outlived the deferral window, stop waiting on it and surface the
+        // song for review instead of dead-ending in Pending forever.
+        var now = DateTime.UtcNow;
+        var song = Song();
+        Add(song, EnrichmentProvider.AcoustID, ProviderAttemptStatus.Matched,
+            Result("Artist", "Title", conf: 0.7, recommend: EnrichmentStatus.NeedsReview));
+        AddRateLimited(song, EnrichmentProvider.AppleMusic, since: now - TimeSpan.FromMinutes(31));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.AcoustID, EnrichmentProvider.AppleMusic),
+            Opts, utcNow: now, maxRateLimitDeferral: TimeSpan.FromMinutes(30));
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
+    }
+
+    [Fact]
+    public void StaleRateLimit_TwoOthersAgree_StillMatched()
+    {
+        var now = DateTime.UtcNow;
+        var song = Song();
+        Add(song, EnrichmentProvider.AcoustID, ProviderAttemptStatus.Matched,
+            Result("Daft Punk", "One More Time", mbid: "mb-1", conf: 0.85, recommend: EnrichmentStatus.Matched));
+        Add(song, EnrichmentProvider.MusicBrainzWeb, ProviderAttemptStatus.Matched,
+            Result("Daft Punk", "One More Time", mbid: "mb-1", conf: 0.9, recommend: EnrichmentStatus.Matched));
+        AddRateLimited(song, EnrichmentProvider.AppleMusic, since: now - TimeSpan.FromMinutes(31));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.AcoustID, EnrichmentProvider.MusicBrainzWeb, EnrichmentProvider.AppleMusic),
+            Opts, utcNow: now, maxRateLimitDeferral: TimeSpan.FromMinutes(30));
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+    }
+
+    [Fact]
     public void NotAllProvidersAttempted_Pending()
     {
         var song = Song();
@@ -537,6 +612,17 @@ public class ConsensusEvaluatorTests
             Status = status,
             AttemptedAtUtc = DateTime.UtcNow,
             MatchedDataJson = candidate is null ? null : JsonSerializer.Serialize(candidate),
+        });
+    }
+
+    private static void AddRateLimited(SongMetadata song, EnrichmentProvider provider, DateTime? since)
+    {
+        song.ProviderAttempts.Add(new SongProviderAttempt
+        {
+            Provider = provider,
+            Status = ProviderAttemptStatus.RateLimited,
+            AttemptedAtUtc = DateTime.UtcNow,
+            RateLimitedSinceUtc = since,
         });
     }
 }

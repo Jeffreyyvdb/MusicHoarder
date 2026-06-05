@@ -70,7 +70,7 @@
 {#if show && info}
   <Alert.Root
     aria-live="polite"
-    class="mx-4 my-2 border-primary/40 bg-primary/10"
+    class="mx-4 my-2 w-auto border-primary/40 bg-primary/10"
   >
     <Sparkles class="size-4" />
     <Alert.Title class="min-w-0">MusicHoarder {info.latest} is available</Alert.Title>
