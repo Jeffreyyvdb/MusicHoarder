@@ -1,8 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Webp;
-using SixLabors.ImageSharp.Processing;
+using SkiaSharp;
 
 namespace MusicHoarder.Api.Artwork;
 
@@ -51,18 +49,24 @@ public sealed class CoverThumbnailService(string cacheDirectory, ILogger<CoverTh
 
         try
         {
-            using var image = source.FilePath is not null
-                ? await Image.LoadAsync(source.FilePath, ct)
-                : Image.Load(source.Bytes!);
+            var bytes = source.FilePath is not null
+                ? await File.ReadAllBytesAsync(source.FilePath, ct)
+                : source.Bytes!;
+            ct.ThrowIfCancellationRequested();
+
+            using var original = SKBitmap.Decode(bytes);
+            if (original is null)
+                return null; // undecodable image
 
             // Fit within the box, preserving aspect; never enlarge a smaller original.
-            if (image.Width > size || image.Height > size)
-                image.Mutate(x => x.Resize(new ResizeOptions { Size = new Size(size, size), Mode = ResizeMode.Max }));
+            using var resized = ResizeToFit(original, size);
 
             Directory.CreateDirectory(Path.GetDirectoryName(cacheFile)!);
             var tmp = $"{cacheFile}.{Guid.NewGuid():N}.tmp";
+            using (var image = SKImage.FromBitmap(resized ?? original))
+            using (var data = image.Encode(SKEncodedImageFormat.Webp, 80))
             await using (var fs = File.Create(tmp))
-                await image.SaveAsync(fs, new WebpEncoder { Quality = 80 }, ct);
+                data.SaveTo(fs);
             File.Move(tmp, cacheFile, overwrite: true);
 
             return Webp(cacheFile);
@@ -72,6 +76,24 @@ public sealed class CoverThumbnailService(string cacheDirectory, ILogger<CoverTh
             logger.LogWarning(ex, "Cover thumbnail generation failed for {Path} @ {Size}", identityPath, size);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Scales <paramref name="original"/> down to fit within a <paramref name="size"/>×<paramref name="size"/>
+    /// box, preserving aspect ratio. Returns <c>null</c> when it already fits (no upscaling), letting the
+    /// caller encode the original untouched. The returned bitmap is owned by the caller.
+    /// </summary>
+    private static SKBitmap? ResizeToFit(SKBitmap original, int size)
+    {
+        if (original.Width <= size && original.Height <= size)
+            return null;
+
+        var scale = Math.Min((double)size / original.Width, (double)size / original.Height);
+        var w = Math.Max(1, (int)Math.Round(original.Width * scale));
+        var h = Math.Max(1, (int)Math.Round(original.Height * scale));
+
+        var info = new SKImageInfo(w, h, original.ColorType, original.AlphaType);
+        return original.Resize(info, new SKSamplingOptions(SKCubicResampler.Mitchell));
     }
 
     private static ResolvedCover Webp(string path) => new() { FilePath = path, ContentType = "image/webp" };
