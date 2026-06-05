@@ -120,9 +120,11 @@ public sealed class CanonicalAlbumConsolidator(
         }
 
         var unmatched = ownedSongs.Count - songToTrack.Count;
+        var safeArtist = artist.Replace("\r", "").Replace("\n", "");
+        var safeAlbum = album.Replace("\r", "").Replace("\n", "");
         logger.LogInformation(
             "Canonical consolidation for {Artist} / {Album}: {Matched}/{Owned} matched, {Corrected} corrected, {Requeued} re-queued, {Unmatched} unmatched (kept per-song).",
-            artist, album, songToTrack.Count, ownedSongs.Count, corrected, requeued, unmatched);
+            safeArtist, safeAlbum, songToTrack.Count, ownedSongs.Count, corrected, requeued, unmatched);
 
         return new CanonicalConsolidationResult(true, songToTrack.Count, corrected, requeued, unmatched);
     }
