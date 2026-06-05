@@ -73,8 +73,8 @@
     class="mx-4 my-2 border-primary/40 bg-primary/10"
   >
     <Sparkles class="size-4" />
-    <Alert.Title>MusicHoarder {info.latest} is available</Alert.Title>
-    <Alert.Description class="flex flex-col gap-2">
+    <Alert.Title class="min-w-0">MusicHoarder {info.latest} is available</Alert.Title>
+    <Alert.Description class="flex min-w-0 flex-col gap-2">
       <span class="text-muted-foreground">You're running {info.current}.</span>
       <div class="flex flex-wrap items-center gap-3">
         {#if info.releaseUrl}
