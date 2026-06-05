@@ -44,12 +44,55 @@ public static class ConsensusEvaluator
         bool IsNameBased,
         double Confidence);
 
+    /// <summary>Max time a song waits on a rate-limited provider before finalizing on the rest.</summary>
+    public static readonly TimeSpan DefaultRateLimitDeferral = TimeSpan.FromMinutes(30);
+
     public static ConsensusResult Evaluate(
         SongMetadata song,
         IReadOnlySet<EnrichmentProvider> enabledProviders,
         IdentityMatchOptions identityOptions,
         double corroborationFloor = DefaultCorroborationFloor,
-        bool preferOriginalRelease = true)
+        bool preferOriginalRelease = true,
+        DateTime? utcNow = null,
+        TimeSpan? maxRateLimitDeferral = null)
+    {
+        var now = utcNow ?? DateTime.UtcNow;
+        var deferralWindow = maxRateLimitDeferral ?? DefaultRateLimitDeferral;
+
+        var verdict = EvaluateInternal(
+            song, enabledProviders, identityOptions, corroborationFloor, preferOriginalRelease, now, deferralWindow);
+
+        // A confident verdict the answered providers already reached stands — never block a build
+        // waiting on a provider that may never recover (e.g. iTunes throttling a shared IP). A
+        // weaker (non-Matched) verdict keeps waiting, but only while the rate-limit is still within
+        // the deferral window; past it we finalize on whatever answered so a persistently throttled
+        // provider can't stall enrichment forever.
+        if (verdict.Status == EnrichmentStatus.Matched)
+            return verdict;
+
+        var hasFreshRateLimit = song.ProviderAttempts.Any(a =>
+            enabledProviders.Contains(a.Provider)
+            && a.Status == ProviderAttemptStatus.RateLimited
+            && IsRateLimitFresh(a, now, deferralWindow));
+
+        return hasFreshRateLimit
+            ? new ConsensusResult(EnrichmentStatus.Pending, null, 0, [])
+            : verdict;
+    }
+
+    /// <summary>True while a rate-limited attempt is still within the deferral window (or has no
+    /// recorded start, treated as just-begun). Stale rate-limits are ignored so consensus finalizes.</summary>
+    private static bool IsRateLimitFresh(SongProviderAttempt attempt, DateTime now, TimeSpan window)
+        => attempt.RateLimitedSinceUtc is null || now - attempt.RateLimitedSinceUtc.Value <= window;
+
+    private static ConsensusResult EvaluateInternal(
+        SongMetadata song,
+        IReadOnlySet<EnrichmentProvider> enabledProviders,
+        IdentityMatchOptions identityOptions,
+        double corroborationFloor,
+        bool preferOriginalRelease,
+        DateTime now,
+        TimeSpan deferralWindow)
     {
         if (enabledProviders.Count == 0)
             return new ConsensusResult(EnrichmentStatus.NeedsReview, null, 0, []);
@@ -70,10 +113,10 @@ public static class ConsensusEvaluator
         if (trackerWinner is not null)
             return trackerWinner;
 
-        // A rate-limited provider means the picture is incomplete — stay Pending.
-        if (attempts.Any(a => a.Status == ProviderAttemptStatus.RateLimited))
-            return new ConsensusResult(EnrichmentStatus.Pending, null, 0, []);
-
+        // A rate-limited provider leaves the picture incomplete, but that's handled by the caller
+        // (Evaluate) which defers a non-Matched verdict only while the rate-limit is fresh. Here we
+        // simply evaluate on whatever answered — a rate-limited attempt carries no MatchedDataJson,
+        // so it never forms a candidate below.
         var candidates = new List<Candidate>();
         foreach (var attempt in attempts)
         {
@@ -92,11 +135,15 @@ public static class ConsensusEvaluator
                 result.MatchConfidence));
         }
 
+        // A provider has "had its turn" once it reached a terminal status — or once its rate-limit
+        // has gone stale (waiting longer won't help), so the picture is treated as complete and a
+        // terminal verdict (NeedsReview/Failed) can be reached instead of deferring indefinitely.
         var allAttempted = enabledProviders.All(p =>
             attempts.Any(a => a.Provider == p &&
-                a.Status is ProviderAttemptStatus.Matched
+                (a.Status is ProviderAttemptStatus.Matched
                     or ProviderAttemptStatus.NoMatch
-                    or ProviderAttemptStatus.Failed));
+                    or ProviderAttemptStatus.Failed
+                || (a.Status == ProviderAttemptStatus.RateLimited && !IsRateLimitFresh(a, now, deferralWindow)))));
 
         if (candidates.Count == 0)
         {

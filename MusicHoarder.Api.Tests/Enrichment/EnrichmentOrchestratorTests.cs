@@ -98,6 +98,41 @@ public class EnrichmentOrchestratorTests
     }
 
     [Fact]
+    public async Task ProcessSong_ProviderRateLimited_ButOthersMatch_StillMatched_AndRecordsRateLimitedSince()
+    {
+        // A rate-limited provider must not stall a song two others already agree on, and the attempt
+        // records when the rate-limit began so the deferral window can later expire.
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Daft Punk", title: "One More Time");
+        await db.SaveChangesAsync();
+
+        var acoustId = new StubEnrichmentProvider("AcoustID", 100, canHandle: _ => true,
+            enrich: _ => Task.FromResult<ProviderOutcome>(new ProviderMatched(new EnrichmentProviderResult(
+                "Daft Punk", "Daft Punk", "One More Time", null, null, "mb-1", null, null, "acoust-1", null,
+                "AcoustID", 0.85, [], EnrichmentStatus.Matched))));
+        var musicBrainz = new StubEnrichmentProvider("MusicBrainzWeb", 200, canHandle: _ => true,
+            enrich: _ => Task.FromResult<ProviderOutcome>(new ProviderMatched(new EnrichmentProviderResult(
+                "Daft Punk", "Daft Punk", "One More Time", null, null, "mb-1", null, null, null, null,
+                "MusicBrainzWeb", 0.9, [], EnrichmentStatus.Matched))));
+        var appleMusic = new StubEnrichmentProvider("AppleMusic", 300, canHandle: _ => true,
+            enrich: _ => Task.FromResult<ProviderOutcome>(new ProviderRateLimited(TimeSpan.FromSeconds(60))));
+
+        var opts = CreateOptions();
+        opts.Value.EnableMusicBrainzWebProvider = true;
+        opts.Value.EnableAppleMusicProvider = true;
+        var orchestrator = CreateOrchestratorWithProviders(db, [acoustId, musicBrainz, appleMusic], opts);
+
+        var outcome = await orchestrator.ProcessSongAsync(song.Id);
+        var updated = await db.Songs.Include(s => s.ProviderAttempts).SingleAsync();
+
+        Assert.Equal(EnrichmentOutcome.Matched, outcome);
+        Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
+        var apple = updated.ProviderAttempts.Single(a => a.Provider == EnrichmentProvider.AppleMusic);
+        Assert.Equal(ProviderAttemptStatus.RateLimited, apple.Status);
+        Assert.NotNull(apple.RateLimitedSinceUtc);
+    }
+
+    [Fact]
     public async Task ProcessSong_NoMatch_SetsNeedsReviewOrFailed()
     {
         await using var db = CreateDb();
