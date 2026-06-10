@@ -138,7 +138,13 @@ public class DeezerEnrichmentProvider(
         EnrichmentStatus status)
     {
         var effectiveArtist = string.IsNullOrWhiteSpace(track.Artist) ? song.Artist : track.Artist;
-        var albumArtist = ArtistCreditNormalizer.GetPrimaryArtist(effectiveArtist) ?? effectiveArtist;
+        // Album-artist is an album-level field: never synthesize it from the *track* artist credit,
+        // which on compilations/collabs is a featured guest and for comma-names ("Tyler, The Creator")
+        // gets truncated by GetPrimaryArtist — both split one album into several. Preserve the song's
+        // curated album-artist; only fall back to the track's primary artist for genuinely untagged files.
+        var albumArtist = !string.IsNullOrWhiteSpace(song.AlbumArtist)
+            ? song.AlbumArtist
+            : ArtistCreditNormalizer.GetPrimaryArtist(effectiveArtist) ?? effectiveArtist;
 
         return new EnrichmentProviderResult(
             Artist: effectiveArtist,

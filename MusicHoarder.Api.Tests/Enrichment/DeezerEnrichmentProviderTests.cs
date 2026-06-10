@@ -154,6 +154,55 @@ public class DeezerEnrichmentProviderTests
     }
 
     [Fact]
+    public async Task TryEnrichAsync_GuestTrack_PreservesCuratedAlbumArtist_NotTrackArtist()
+    {
+        // A guest-performed track whose file is correctly tagged: track artist = the featured guest,
+        // album-artist = the album's artist. The result must keep the curated album-artist rather than
+        // synthesize one from the track credit — deriving "Big Sean" here would split the album.
+        var track = new DeezerCatalogTrack("d-1", "So Appalled", "Big Sean", "Get Well Soon", 2007, 1, 239_000, "USX10700001");
+        var catalog = new StubDeezerCatalog { OnSearch = _ => [track], OnLookupId = _ => track };
+        var provider = CreateProvider(catalog);
+        var song = Song(artist: "Big Sean", albumArtist: "Kanye West", title: "So Appalled", durationSec: 239);
+
+        var result = await provider.TryEnrichAsync(song);
+
+        var matched = Assert.IsType<ProviderMatched>(result);
+        Assert.Equal("Kanye West", matched.Result.AlbumArtist);
+    }
+
+    [Fact]
+    public async Task TryEnrichAsync_CommaInArtistName_AlbumArtistNotTruncated()
+    {
+        // "Tyler, The Creator" must not be truncated to "Tyler" for album-artist (GetPrimaryArtist
+        // splits on ", "), which used to split single-artist albums.
+        var track = new DeezerCatalogTrack("d-1", "Noid", "Tyler, The Creator", "CHROMAKOPIA", 2024, 1, 200_000, "USY10700001");
+        var catalog = new StubDeezerCatalog { OnSearch = _ => [track], OnLookupId = _ => track };
+        var provider = CreateProvider(catalog);
+        var song = Song(artist: "Tyler, The Creator", albumArtist: "Tyler, The Creator", title: "Noid", durationSec: 200);
+
+        var result = await provider.TryEnrichAsync(song);
+
+        var matched = Assert.IsType<ProviderMatched>(result);
+        Assert.Equal("Tyler, The Creator", matched.Result.AlbumArtist);
+    }
+
+    [Fact]
+    public async Task TryEnrichAsync_UntaggedAlbumArtist_StillFallsBackToTrackPrimary()
+    {
+        // When the file has no curated album-artist, the track-primary fallback still fills one so
+        // untagged files keep a usable destination folder (no regression).
+        var track = new DeezerCatalogTrack("d-1", "Lucid Dreams", "Juice WRLD", "Goodbye & Good Riddance", 2018, 3, 239_000, "USUM71807840");
+        var catalog = new StubDeezerCatalog { OnSearch = _ => [track], OnLookupId = _ => track };
+        var provider = CreateProvider(catalog);
+        var song = Song(artist: "Juice WRLD", title: "Lucid Dreams", durationSec: 239); // no albumArtist
+
+        var result = await provider.TryEnrichAsync(song);
+
+        var matched = Assert.IsType<ProviderMatched>(result);
+        Assert.Equal("Juice WRLD", matched.Result.AlbumArtist);
+    }
+
+    [Fact]
     public async Task TryEnrichAsync_RateLimited_ReturnsProviderRateLimited()
     {
         var catalog = new StubDeezerCatalog
@@ -178,7 +227,8 @@ public class DeezerEnrichmentProviderTests
 
     private static SongMetadata Song(
         string? artist, string? title, int durationSec, string? isrc = null,
-        string sourcePath = "/s/a.mp3", string fileName = "a.mp3", string? album = null) => new()
+        string sourcePath = "/s/a.mp3", string fileName = "a.mp3", string? album = null,
+        string? albumArtist = null) => new()
     {
         OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
         SourcePath = sourcePath,
@@ -188,6 +238,7 @@ public class DeezerEnrichmentProviderTests
         LastModifiedUtc = DateTime.UtcNow,
         IndexedAtUtc = DateTime.UtcNow,
         Artist = artist,
+        AlbumArtist = albumArtist,
         Title = title,
         Album = album,
         DurationSeconds = durationSec,
