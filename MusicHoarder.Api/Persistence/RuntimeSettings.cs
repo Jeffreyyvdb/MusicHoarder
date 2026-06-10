@@ -39,5 +39,13 @@ public class RuntimeSettings
     /// </summary>
     public DateTime? LibraryWriteBaselineCompletedAtUtc { get; set; }
 
+    /// <summary>
+    /// Set once by the one-time lyrics-embed backfill (see <c>LyricsEmbedBackfillBackgroundService</c>)
+    /// after it has re-queued every already-built track whose destination file is missing the lyrics that
+    /// MusicHoarder's DB holds — the legacy of the build racing ahead of the async LRCLIB fetch before the
+    /// lyrics-before-build gate shipped. Null until then; its presence stops the backfill from re-running.
+    /// </summary>
+    public DateTime? LyricsEmbedBackfillCompletedAtUtc { get; set; }
+
     public DateTime? UpdatedAtUtc { get; set; }
 }

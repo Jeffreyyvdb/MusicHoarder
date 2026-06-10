@@ -201,15 +201,11 @@ public class LibraryBuilderBackgroundService(
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-        return await db.Songs
-            .IgnoreQueryFilters()
-            .AsNoTracking()
-            .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
-            .Where(s => !s.IsDuplicate)
-            .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched)
-            .Where(s => s.LibraryBuildStatus != LibraryBuildStatus.Done
-                || s.DestinationPath == null
-                || s.PreviousDestinationPath != null)
+        // Same candidate set the batch query uses — including the lyrics-wait gate — so the poll never
+        // reports work the builder would skip (which would busy-loop the idle waiter).
+        return await LibraryBuildQuery.BuildCandidates(
+                db.Songs.IgnoreQueryFilters().AsNoTracking(),
+                LibraryBuildQuery.LyricsWaitCutoff(options.Value))
             .CountAsync(ct);
     }
 }
