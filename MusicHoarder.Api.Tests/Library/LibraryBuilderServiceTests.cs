@@ -9,6 +9,7 @@ using MusicHoarder.Api.Persistence;
 using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
 using System.Reflection;
+using System.Text.Json;
 
 namespace MusicHoarder.Api.Tests.Library;
 
@@ -531,6 +532,188 @@ public class LibraryBuilderServiceTests
         Assert.True(fileSystem.File.Exists(newPath));
         Assert.False(fileSystem.File.Exists(legacyCover));
         Assert.False(fileSystem.Directory.Exists("/dest/Artist A; Artist B/2026 - Album"));
+    }
+
+    // --- Destination-write history capture (LibraryWriteEvent) ---
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_RecordsWriteEvent_DiffedAgainstOriginal_OnFirstBuild()
+    {
+        var sourcePath = "/source/track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde")
+        });
+
+        await using var db = CreateDbContext();
+        var song = CreateMatchedSong(sourcePath, 5);
+        song.CaptureOriginalMetadata();   // originals = current (Album = "Album")
+        song.Album = "Greatest Hits";     // an enrichment correction the first build will write
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter());
+
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        var events = await db.LibraryWriteEvents.ToListAsync();
+        var albumChange = Assert.Single(events, e => e.FieldName == "Album");
+        Assert.Equal(LibraryWriteEventKind.TrackTagsWritten, albumChange.Kind);
+        Assert.Equal("Album", albumChange.OldValue);
+        Assert.Equal("Greatest Hits", albumChange.NewValue);
+        Assert.True(albumChange.IsAlbumIdentityField);
+        Assert.Equal(song.Id, albumChange.SongId);
+
+        var reloaded = await db.Songs.SingleAsync();
+        Assert.False(string.IsNullOrEmpty(reloaded.LastWrittenTagsJson));
+        Assert.NotNull(reloaded.LastWrittenAtUtc);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_RecordsNoWriteEvents_OnSameSizeSkip()
+    {
+        var sourcePath = "/source/track.mp3";
+        var destinationPath = "/dest/Artist/2026 - Album/01 - Track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("12345"),
+            [destinationPath] = new("12345")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourcePath, 5));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter());
+
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Empty(await db.LibraryWriteEvents.ToListAsync());
+        var song = await db.Songs.SingleAsync();
+        Assert.Null(song.LastWrittenTagsJson); // untouched — nothing was rewritten
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_RecordsNoNewWriteEvents_OnNoOpRetag()
+    {
+        var sourcePath = "/source/track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde")
+        });
+
+        await using var db = CreateDbContext();
+        var song = CreateMatchedSong(sourcePath, 5);
+        song.CaptureOriginalMetadata();
+        song.Album = "Greatest Hits";
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter());
+
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+        var afterFirst = await db.LibraryWriteEvents.CountAsync();
+
+        // Re-tag with nothing changed: the diff against the just-written snapshot is empty.
+        var built = await db.Songs.SingleAsync();
+        built.RequeueForRetag();
+        await db.SaveChangesAsync();
+
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Equal(afterFirst, await db.LibraryWriteEvents.CountAsync());
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_RecordsAlbumIdentityEvent_WhenRetagConsolidatesRelease()
+    {
+        // C was last written as the stray release; A and B (the majority) force reconciliation to elect
+        // "rel-keep" for the folder. C's forced re-tag must record the release id moving rel-stray→rel-keep.
+        var sourceA = "/source/a.mp3";
+        var sourceB = "/source/b.mp3";
+        var sourceC = "/source/c.mp3";
+        var destC = "/dest/Artist/2026 - Album/03 - T3.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourceA] = new("aaaaa"),
+            [sourceB] = new("bbbbb"),
+            [sourceC] = new("ccccc")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourceA, 5, title: "T1", trackNumber: 1, musicBrainzReleaseId: "rel-keep"));
+        db.Songs.Add(CreateMatchedSong(sourceB, 5, title: "T2", trackNumber: 2, musicBrainzReleaseId: "rel-keep"));
+
+        var c = CreateMatchedSong(sourceC, 5, title: "T3", trackNumber: 3, musicBrainzReleaseId: "rel-stray",
+            libraryBuildStatus: LibraryBuildStatus.Done);
+        c.DestinationPath = destC;
+        // Snapshot what C last wrote (its own stray identity), then force a re-tag.
+        c.LastWrittenTagsJson = JsonSerializer.Serialize(WrittenTagSet.From(c, AlbumIdentity.FromSong(c)));
+        c.RequeueForRetag();
+        db.Songs.Add(c);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter());
+
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        var releaseChange = Assert.Single(
+            await db.LibraryWriteEvents.Where(e => e.FieldName == "MusicBrainzReleaseId").ToListAsync());
+        Assert.Equal(c.Id, releaseChange.SongId);
+        Assert.Equal("rel-stray", releaseChange.OldValue);
+        Assert.Equal("rel-keep", releaseChange.NewValue);
+        Assert.True(releaseChange.IsAlbumIdentityField);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_RecordsCoverEvent_WhenCoverWritten()
+    {
+        var sourcePath = "/source/track.mp3";
+        var pngBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 1, 2, 3 };
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourcePath, 5));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(
+            db, fileSystem, new RecordingTagWriter(),
+            new StubEmbeddedPictureReader(new EmbeddedPicture(pngBytes, "image/png")));
+
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        var cover = Assert.Single(
+            await db.LibraryWriteEvents.Where(e => e.Kind == LibraryWriteEventKind.AlbumCoverWritten).ToListAsync());
+        Assert.Equal("Cover", cover.FieldName);
+        Assert.Equal("Album", cover.Album);
+        Assert.Equal("/dest/Artist/2026 - Album", cover.AlbumFolder);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_RecordsNoCoverEvent_WhenCoverAlreadyExists()
+    {
+        var sourcePath = "/source/track.mp3";
+        var existingCover = "/dest/Artist/2026 - Album/cover.jpg";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde"),
+            [existingCover] = new("user-provided")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourcePath, 5));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(
+            db, fileSystem, new RecordingTagWriter(),
+            new StubEmbeddedPictureReader(new EmbeddedPicture([0x89, 0x50, 0x4E, 0x47], "image/png")));
+
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Empty(await db.LibraryWriteEvents.Where(e => e.Kind == LibraryWriteEventKind.AlbumCoverWritten).ToListAsync());
     }
 
     private static LibraryBuilderService CreateService(

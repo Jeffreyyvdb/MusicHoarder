@@ -184,6 +184,9 @@ public static class ServiceCollectionExtensions
         // One-time backfill: populate HasCoverArt + write destination album covers for libraries that
         // were already scanned/built before the artwork feature shipped. Idempotent, marker-gated.
         services.AddHostedService<CoverArtBackfillBackgroundService>();
+        // One-time seed: record current tags as each already-built track's LastWrittenTagsJson so the
+        // destination-write History feed diffs correctly on the first re-tag after the feature shipped.
+        services.AddHostedService<LibraryWriteBaselineBackgroundService>();
         services.AddHostedService<IngestRunMonitor>();
         // Per-owner pipeline-quality snapshots, captured when a run finalizes (see IngestRunMonitor /
         // QualityGradingBackgroundService). Scoped — it reads/writes through the request DB scope.

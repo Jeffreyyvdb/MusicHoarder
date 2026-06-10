@@ -30,5 +30,14 @@ public class RuntimeSettings
     /// </summary>
     public DateTime? CoverArtBackfillCompletedAtUtc { get; set; }
 
+    /// <summary>
+    /// Set once by the one-time library-write baseline (see <c>LibraryWriteBaselineBackgroundService</c>)
+    /// after it has seeded <see cref="SongMetadata.LastWrittenTagsJson"/> for the pre-existing built
+    /// library, so the first re-tag after the History feature shipped diffs against the tracks' actual
+    /// current tags rather than the source-original baseline. Null until then; its presence stops the
+    /// seed from re-running.
+    /// </summary>
+    public DateTime? LibraryWriteBaselineCompletedAtUtc { get; set; }
+
     public DateTime? UpdatedAtUtc { get; set; }
 }

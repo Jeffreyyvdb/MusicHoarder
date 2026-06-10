@@ -1881,3 +1881,53 @@ export async function captureSnapshot(
     body: JSON.stringify({ label: label ?? null }),
   })
 }
+
+// --- Library history (destination-write change feed) ---
+
+export interface HistoryRawChange {
+  songId?: number | null
+  trackTitle?: string | null
+  field: string
+  oldValue?: string | null
+  newValue?: string | null
+  isAlbumIdentity: boolean
+  writtenAtUtc: string
+}
+
+export interface HistorySummary {
+  id: string
+  /** "consolidation" | "artist-rename" | "year-correction" | "cover" | "tags" */
+  kind: string
+  headline: string
+  albumArtist?: string | null
+  album?: string | null
+  trackCount: number
+  latestWrittenAtUtc: string
+  runId?: string | null
+  changes: HistoryRawChange[]
+}
+
+export interface HistoryFeedResponse {
+  summaries: HistorySummary[]
+  nextCursor?: string | null
+  totalEventsInWindow: number
+}
+
+export async function fetchHistory(params: {
+  from?: string
+  to?: string
+  artist?: string
+  album?: string
+  cursor?: string
+  take?: number
+} = {}): Promise<HistoryFeedResponse> {
+  const q = new URLSearchParams()
+  if (params.from) q.set("from", params.from)
+  if (params.to) q.set("to", params.to)
+  if (params.artist) q.set("artist", params.artist)
+  if (params.album) q.set("album", params.album)
+  if (params.cursor) q.set("cursor", params.cursor)
+  if (params.take != null) q.set("take", String(params.take))
+  const query = q.toString()
+  return requestJson<HistoryFeedResponse>(`/api/history${query ? `?${query}` : ""}`)
+}

@@ -46,6 +46,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<SpotifyTrackLibraryMatch> SpotifyTrackLibraryMatches { get; set; } = null!;
     public DbSet<RuntimeSettings> RuntimeSettings { get; set; } = null!;
     public DbSet<IngestRun> IngestRuns { get; set; } = null!;
+    public DbSet<LibraryWriteEvent> LibraryWriteEvents { get; set; } = null!;
     public DbSet<EnrichmentSnapshot> EnrichmentSnapshots { get; set; } = null!;
     public DbSet<EnrichmentSnapshotSong> EnrichmentSnapshotSongs { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
@@ -214,6 +215,26 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => new { e.OwnerUserId, e.StartedAtUtc });
 
             entity.HasQueryFilter(r => !hasUser || r.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<LibraryWriteEvent>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // Primary feed query: owner + date window, newest first.
+            entity.HasIndex(e => new { e.OwnerUserId, e.WrittenAtUtc });
+            // Per-album/artist filter within the feed.
+            entity.HasIndex(e => new { e.OwnerUserId, e.AlbumArtist, e.Album, e.WrittenAtUtc });
+
+            // SongId is optional (album-level cover events have none), so keep the events even if a
+            // song row is ever hard-deleted (songs are soft-deleted in practice; SetNull is defensive).
+            entity.HasOne(e => e.Song)
+                .WithMany()
+                .HasForeignKey(e => e.SongId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Filter on OwnerUserId directly (not via e.Song) because the relationship is optional —
+            // the stamped owner id is always present even for song-less cover events.
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
         });
 
         modelBuilder.Entity<EnrichmentSnapshot>(entity =>

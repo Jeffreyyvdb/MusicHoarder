@@ -1,5 +1,6 @@
 using System.IO.Abstractions;
 using System.Collections.Concurrent;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Artwork;
@@ -211,11 +212,20 @@ internal enum LibraryBuildOutcome
 
 // Carries what the post-batch album-cover pass needs from a successful build: the source file to
 // resolve art from and whether the track is unreleased (those folders mix unrelated singles, so we
-// don't drop a single shared cover into them).
+// don't drop a single shared cover into them). The owner/song/album fields let the cover pass stamp a
+// LibraryWriteEvent without re-loading the row.
 internal sealed record LibraryBuildTrackResult(
     LibraryBuildOutcome Outcome,
     string? SourcePath = null,
-    bool IsUnreleased = false);
+    bool IsUnreleased = false,
+    Guid OwnerUserId = default,
+    int SongId = 0,
+    string? Album = null,
+    string? AlbumArtist = null);
+
+// What the post-batch cover pass needs to write one cover.* per folder and record the write.
+internal sealed record CoverPassEntry(
+    string SourcePath, Guid OwnerUserId, int SongId, string? Album, string? AlbumArtist);
 
 public class LibraryBuilderService(
     IServiceScopeFactory scopeFactory,
@@ -295,10 +305,10 @@ public class LibraryBuilderService(
         var failed = 0;
         var semaphore = new SemaphoreSlim(opts.LibraryBuilderWorkerConcurrency, opts.LibraryBuilderWorkerConcurrency);
 
-        // Destination album folder -> a representative source file to lift the cover from. Populated
-        // by successful, non-unreleased builds; drained once after the track loop so each folder gets
-        // a single cover.* write with no intra-album races.
-        var coverDirectories = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+        // Destination album folder -> the cover-pass payload (representative source file + owner/album
+        // for the write event). Populated by successful, non-unreleased builds; drained once after the
+        // track loop so each folder gets a single cover.* write with no intra-album races.
+        var coverDirectories = new ConcurrentDictionary<string, CoverPassEntry>(StringComparer.Ordinal);
 
         await Parallel.ForEachAsync(
             candidates,
@@ -319,7 +329,7 @@ public class LibraryBuilderService(
                     identityByFolder.TryGetValue(candidate.AlbumFolderKey, out var albumIdentity);
                     using (await AcquireDestinationLockAsync(candidate.DestinationPath, token))
                     {
-                        result = await ProcessTrackAsync(candidate.SongId, candidate.DestinationPath, albumIdentity, token);
+                        result = await ProcessTrackAsync(candidate.SongId, candidate.DestinationPath, albumIdentity, runId, token);
                     }
 
                     switch (result.Outcome)
@@ -331,7 +341,8 @@ public class LibraryBuilderService(
                                 var directory = fileSystem.Path.GetDirectoryName(candidate.DestinationPath);
                                 if (!string.IsNullOrEmpty(directory))
                                 {
-                                    coverDirectories.TryAdd(directory, result.SourcePath);
+                                    coverDirectories.TryAdd(directory, new CoverPassEntry(
+                                        result.SourcePath, result.OwnerUserId, result.SongId, result.Album, result.AlbumArtist));
                                 }
                             }
                             break;
@@ -348,7 +359,7 @@ public class LibraryBuilderService(
                 }
             });
 
-        await WriteAlbumCoversAsync(coverDirectories, opts.LibraryBuilderWorkerConcurrency, ct);
+        await WriteAlbumCoversAsync(coverDirectories, runId, opts.LibraryBuilderWorkerConcurrency, ct);
 
         var duration = DateTime.UtcNow - startedAt;
         logger.LogInformation(
@@ -395,7 +406,7 @@ public class LibraryBuilderService(
     }
 
     private async Task<LibraryBuildTrackResult> ProcessTrackAsync(
-        int songId, string destinationPath, AlbumIdentity? albumIdentity, CancellationToken ct)
+        int songId, string destinationPath, AlbumIdentity? albumIdentity, Guid runId, CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
@@ -449,12 +460,16 @@ public class LibraryBuilderService(
                 var existingSize = fileSystem.FileInfo.New(destinationPath).Length;
                 if (existingSize == song.FileSizeBytes)
                 {
+                    // No tags were rewritten, so emit no LibraryWriteEvent and leave the written-tags
+                    // snapshot intact — the prior write's record stays accurate.
                     song.MarkBuildDone(destinationPath);
                     await db.SaveChangesAsync(ct);
                     logger.LogInformation(
                         "Skipping copy for {Track} (SongId={SongId}): destination already exists with same size ({Bytes} bytes)",
                         song.TrackLabel, songId, existingSize);
-                    return new LibraryBuildTrackResult(LibraryBuildOutcome.Done, song.SourcePath, song.IsUnreleased);
+                    return new LibraryBuildTrackResult(
+                        LibraryBuildOutcome.Done, song.SourcePath, song.IsUnreleased,
+                        song.OwnerUserId, song.Id, identity.Album, EffectiveAlbumArtist(song, identity));
                 }
             }
 
@@ -487,12 +502,20 @@ public class LibraryBuilderService(
                 destinationCleaner.DeleteManagedPathAndPrune(song.PreviousDestinationPath, options.Value.DestinationDirectory);
             }
 
+            // Record what actually landed on disk, diffed against the previous write (or the
+            // source-original baseline on first build), as the destination-side change history the
+            // History feed reads. Same transaction as MarkBuildDone below, so the build can't be marked
+            // Done without its events. A no-op re-tag (empty diff) adds nothing.
+            RecordTrackWrite(db, song, identity, destinationPath, runId);
+
             song.MarkBuildDone(destinationPath);
             await db.SaveChangesAsync(ct);
             logger.LogInformation("Library build complete for {Track} (SongId={SongId}): {DestinationPath}",
                 song.TrackLabel, songId, destinationPath);
 
-            return new LibraryBuildTrackResult(LibraryBuildOutcome.Done, song.SourcePath, song.IsUnreleased);
+            return new LibraryBuildTrackResult(
+                LibraryBuildOutcome.Done, song.SourcePath, song.IsUnreleased,
+                song.OwnerUserId, song.Id, identity.Album, EffectiveAlbumArtist(song, identity));
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -514,9 +537,11 @@ public class LibraryBuilderService(
     // Writes a cover.<ext> into each freshly-built album folder that doesn't already have a
     // cover/folder/front.* image, lifting art from a representative source track (folder image first,
     // else embedded — Navidrome's order). One task per directory, so no intra-album races. Best-effort:
-    // a cover failure never fails the build.
+    // a cover failure never fails the build. When a cover is actually written it records an
+    // AlbumCoverWritten event so the History feed can surface "Cover art added for <album>".
     private async Task WriteAlbumCoversAsync(
-        ConcurrentDictionary<string, string> directories,
+        ConcurrentDictionary<string, CoverPassEntry> directories,
+        Guid runId,
         int maxDegreeOfParallelism,
         CancellationToken ct)
     {
@@ -528,12 +553,95 @@ public class LibraryBuilderService(
         await Parallel.ForEachAsync(
             directories,
             new ParallelOptions { MaxDegreeOfParallelism = maxDegreeOfParallelism, CancellationToken = ct },
-            (entry, _) =>
+            async (entry, token) =>
             {
-                albumCoverWriter.WriteIfMissing(entry.Key, entry.Value);
-                return ValueTask.CompletedTask;
+                var payload = entry.Value;
+                if (!albumCoverWriter.WriteIfMissing(entry.Key, payload.SourcePath))
+                {
+                    return;
+                }
+
+                using var scope = scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+                db.LibraryWriteEvents.Add(new LibraryWriteEvent
+                {
+                    OwnerUserId = payload.OwnerUserId,
+                    RunId = runId,
+                    SongId = payload.SongId == 0 ? null : payload.SongId,
+                    Kind = LibraryWriteEventKind.AlbumCoverWritten,
+                    WrittenAtUtc = DateTime.UtcNow,
+                    AlbumFolder = entry.Key,
+                    AlbumArtist = payload.AlbumArtist,
+                    Album = payload.Album,
+                    FieldName = "Cover",
+                    NewValue = "written",
+                });
+                await db.SaveChangesAsync(token);
             });
     }
+
+    // Records one LibraryWriteEvent per tag field that differs from the previous write (or, on a first
+    // build, from the source-original baseline), then refreshes the written-tags snapshot. Adds the
+    // events to the SAME DbContext as the build completion so they commit atomically with MarkBuildDone.
+    private void RecordTrackWrite(
+        MusicHoarderDbContext db, SongMetadata song, AlbumIdentity identity, string destinationPath, Guid runId)
+    {
+        var current = WrittenTagSet.From(song, identity);
+        var previous = ResolvePreviousTagSet(song, current);
+        var diffs = WrittenTagSet.Diff(previous, current);
+
+        var now = DateTime.UtcNow;
+        if (diffs.Count > 0)
+        {
+            var albumFolder = fileSystem.Path.GetDirectoryName(destinationPath);
+            foreach (var (field, oldValue, newValue, isAlbumIdentity) in diffs)
+            {
+                db.LibraryWriteEvents.Add(new LibraryWriteEvent
+                {
+                    OwnerUserId = song.OwnerUserId,
+                    RunId = runId,
+                    SongId = song.Id,
+                    Kind = LibraryWriteEventKind.TrackTagsWritten,
+                    WrittenAtUtc = now,
+                    DestinationPath = destinationPath,
+                    AlbumFolder = albumFolder,
+                    AlbumArtist = current.AlbumArtist,
+                    Album = current.Album,
+                    FieldName = field,
+                    OldValue = oldValue,
+                    NewValue = newValue,
+                    IsAlbumIdentityField = isAlbumIdentity,
+                });
+            }
+        }
+
+        song.LastWrittenTagsJson = JsonSerializer.Serialize(current);
+        song.LastWrittenAtUtc = now;
+    }
+
+    private static WrittenTagSet ResolvePreviousTagSet(SongMetadata song, WrittenTagSet current)
+    {
+        if (!string.IsNullOrWhiteSpace(song.LastWrittenTagsJson))
+        {
+            try
+            {
+                var snapshot = JsonSerializer.Deserialize<WrittenTagSet>(song.LastWrittenTagsJson);
+                if (snapshot is not null)
+                {
+                    return snapshot;
+                }
+            }
+            catch (JsonException)
+            {
+                // Snapshot schema drift / corruption — fall back to the source-original baseline.
+            }
+        }
+
+        return WrittenTagSet.FromOriginal(song, current);
+    }
+
+    private static string? EffectiveAlbumArtist(SongMetadata song, AlbumIdentity identity)
+        => WrittenTagSet.From(song, identity).AlbumArtist;
 
     private async Task StreamCopyAsync(string sourcePath, string tempDestinationPath, CancellationToken ct)
     {
