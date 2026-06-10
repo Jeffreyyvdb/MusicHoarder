@@ -15,6 +15,11 @@ public class LibraryBuilderBackgroundService(
     IOptions<MusicEnricherOptions> options,
     ILogger<LibraryBuilderBackgroundService> logger) : BackgroundService
 {
+    // Last time the split-album self-heal ran (either at a run start or from the idle sweep).
+    // MinValue so the first idle poll after boot heals immediately — that's what picks up albums
+    // that were split by builds pre-dating the safeguard.
+    private DateTime _lastHealUtc = DateTime.MinValue;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var opts = options.Value;
@@ -69,6 +74,13 @@ public class LibraryBuilderBackgroundService(
 
                 if (pendingCount == 0)
                 {
+                    // Fully built, nothing pending — the run-start heal below would never be
+                    // reached, so legacy split albums (all rows Done) would persist forever.
+                    // Sweep for them here, at most once per interval; any re-queued rows make the
+                    // next pending poll non-zero and the normal auto-job flow builds them.
+                    if (await TryIdleHealAsync(opts, stoppingToken))
+                        continue;
+
                     // Idle: wait for a manual trigger or the idle delay, whichever comes first.
                     var triggerTask = jobManager.BuildTriggers.WaitToReadAsync(stoppingToken).AsTask();
                     var delayTask = Task.Delay(TimeSpan.FromSeconds(opts.LibraryBuilderIdleDelaySeconds), stoppingToken);
@@ -95,6 +107,11 @@ public class LibraryBuilderBackgroundService(
                 runStarted = true;
 
                 logger.LogInformation("Starting library build run {RunId}", jobId);
+
+                // Split-album safeguard: converge every logical album on one persisted identity
+                // BEFORE any batch elects per-folder, so cross-folder splits are pulled into one
+                // folder and stale Done siblings are re-queued into this very run.
+                await HealSplitAlbumsAsync(opts, ct);
 
                 while (!ct.IsCancellationRequested)
                 {
@@ -131,6 +148,52 @@ public class LibraryBuilderBackgroundService(
                 logger.LogError(ex, "Library builder run {RunId} failed", jobId);
                 await Task.Delay(TimeSpan.FromSeconds(opts.LibraryBuilderIdleDelaySeconds), stoppingToken);
             }
+        }
+    }
+
+    // Idle-time sweep wrapper: rate-limited by AlbumSplitHealIntervalMinutes. Returns true when it
+    // re-queued rows, so the caller can re-poll for pending work immediately instead of idling.
+    private async Task<bool> TryIdleHealAsync(MusicEnricherOptions opts, CancellationToken ct)
+    {
+        if (!opts.EnableAlbumIdentityReconciliation || !opts.EnableAlbumSplitSelfHeal)
+            return false;
+        if (DateTime.UtcNow - _lastHealUtc < TimeSpan.FromMinutes(opts.AlbumSplitHealIntervalMinutes))
+            return false;
+
+        var result = await HealSplitAlbumsAsync(opts, ct);
+        return result is { SongsRequeued: > 0 };
+    }
+
+    // A heal failure must never take down a build run (or the idle loop) — the per-folder
+    // reconciliation still tags whatever does build consistently; log and move on.
+    private async Task<AlbumSplitHealResult?> HealSplitAlbumsAsync(MusicEnricherOptions opts, CancellationToken ct)
+    {
+        if (!opts.EnableAlbumIdentityReconciliation || !opts.EnableAlbumSplitSelfHeal)
+            return null;
+
+        _lastHealUtc = DateTime.UtcNow;
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var healer = scope.ServiceProvider.GetRequiredService<IAlbumSplitHealer>();
+            var result = await healer.HealAsync(ct);
+            if (result.GroupsHealed > 0)
+            {
+                logger.LogInformation(
+                    "Split-album self-heal: {Groups} albums converged, {Corrected} songs corrected, {Requeued} re-queued for re-tag",
+                    result.GroupsHealed, result.SongsCorrected, result.SongsRequeued);
+            }
+
+            return result;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Split-album self-heal failed; continuing without it");
+            return null;
         }
     }
 

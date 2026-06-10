@@ -209,17 +209,23 @@ public static class EnrichmentEndpoints
 
                 // Plain re-tag: re-queue this album's already-built tracks so the next build re-copies
                 // and re-tags them in place with the current tag-writing logic (e.g. album-identity
-                // reconciliation). Enrichment is untouched. Match the album the same way the album view
-                // does: (AlbumArtist ?? Artist) + Album, case-insensitively. The per-user query filter
-                // scopes this to the caller's library.
-                var artistLower = artist.ToLowerInvariant();
-                var albumLower = album.ToLowerInvariant();
-                var songs = await db.Songs
+                // reconciliation). Enrichment is untouched. Match by logical-album key rather than the
+                // exact enriched strings: a split album's halves carry *different* Album/Year values,
+                // so an exact match on the clicked half would silently miss the others — the
+                // normalized key catches them all in one call. The per-user query filter scopes this
+                // to the caller's library.
+                var artistKey = AlbumGroupKey.ComputeArtistKey(artist);
+                var albumKey = AlbumGroupKey.ComputeAlbumKey(album);
+                var builtSongs = await db.Songs
                     .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic && !s.IsDuplicate)
                     .Where(s => s.LibraryBuildStatus == LibraryBuildStatus.Done)
-                    .Where(s => s.Album != null && s.Album.ToLower() == albumLower
-                        && ((s.AlbumArtist ?? s.Artist) ?? "").ToLower() == artistLower)
+                    .Where(s => s.Album != null)
                     .ToListAsync(ct);
+                var songs = builtSongs
+                    .Where(s => AlbumGroupKey.For(s) is { } key
+                        && key.ArtistKey == artistKey
+                        && key.AlbumKey == albumKey)
+                    .ToList();
 
                 foreach (var song in songs) song.RequeueForRetag();
                 await db.SaveChangesAsync(ct);
@@ -232,6 +238,15 @@ public static class EnrichmentEndpoints
             })
             .WithName("RebuildAlbum")
             .WithSummary("Consolidate an album against its canonical tracklist (fix split year-folders / duplicate track numbers) and re-queue it for re-tag; falls back to a plain in-place re-tag when no canonical album exists.")
+            .RequireOwner();
+
+        group.MapGet("/split-albums", async (IAlbumSplitHealer healer, CancellationToken ct) =>
+            {
+                var splitGroups = await healer.DetectAsync(ct);
+                return Results.Ok(new { count = splitGroups.Count, groups = splitGroups });
+            })
+            .WithName("ListSplitAlbums")
+            .WithSummary("Dry-run report of split albums: logical albums whose tracks disagree on identity (release id / album / year / album artist), with the identity a self-heal pass would elect. Empty when the self-heal safeguard has converged everything.")
             .RequireOwner();
 
         group.MapPost("/cancel", (JobManager jobManager, EnrichmentPipelineChannel channel) =>
