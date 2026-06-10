@@ -15,12 +15,15 @@ namespace MusicHoarder.Api.Auth.Middleware;
 /// </summary>
 public sealed class DemoReadOnlyMiddleware
 {
-    // The only non-safe requests a logged-in demo session legitimately makes: start a session and
-    // end it. Everything else that mutates state is off-limits for the demo.
+    // The only non-safe requests a logged-in demo session legitimately makes: start a session, end
+    // it, or begin/finish a passkey login to switch into a real owner account (the browser carries
+    // the stale demo cookie into the anonymous WebAuthn authenticate ceremony). The owner-only
+    // register/* routes are deliberately NOT here. Everything else that mutates state is off-limits.
     private static readonly string[] AllowlistedWritePaths =
     [
         "/api/auth/demo-login",
         "/api/auth/logout",
+        "/api/auth/webauthn/authenticate",
     ];
 
     private readonly RequestDelegate _next;
