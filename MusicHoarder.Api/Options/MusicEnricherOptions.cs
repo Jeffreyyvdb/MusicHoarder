@@ -414,6 +414,23 @@ public class MusicEnricherOptions
     public bool EnableAlbumIdentityReconciliation { get; set; } = true;
 
     /// <summary>
+    /// Self-heal split albums: group all buildable songs by logical album (normalized artist +
+    /// album title with an edition discriminator — year excluded, since a divergent year is the
+    /// most common split), persist the reconciler-elected identity to member rows that disagree,
+    /// and re-queue already-built ones for an in-place re-tag/relocate. This is the safeguard the
+    /// folder-keyed reconciliation can't provide: siblings whose divergent album/year/artist put
+    /// them in different destination folders, and Done rows tagged before the current election.
+    /// Runs at the start of every build run, plus periodically while idle when the auto pipeline
+    /// is on. Corrections are reversible (originals captured) and never bump EnrichedAtUtc.
+    /// Requires <see cref="EnableAlbumIdentityReconciliation"/>. Default on.
+    /// </summary>
+    public bool EnableAlbumSplitSelfHeal { get; set; } = true;
+
+    /// <summary>Minimum minutes between idle-time split-heal sweeps (auto pipeline only).</summary>
+    [Range(5, 10080)]
+    public int AlbumSplitHealIntervalMinutes { get; set; } = 360;
+
+    /// <summary>
     /// When re-tagging an album (POST /api/enrichment/rebuild/album), first consolidate it against the
     /// persisted multi-provider canonical tracklist: rewrite each owned song's album title/year and
     /// track/disc number from the canonical track it matches (by recording-MBID + fuzzy title, never by

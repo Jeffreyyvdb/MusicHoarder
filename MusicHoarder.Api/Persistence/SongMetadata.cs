@@ -293,6 +293,91 @@ public class SongMetadata
         return changes;
     }
 
+    /// <summary>
+    /// Persists a reconciler-elected <see cref="Library.AlbumIdentity"/> to this row so all tracks
+    /// of one logical album carry the same album-level fields — and therefore resolve to the same
+    /// destination folder and the same release id on disk (what keeps Navidrome from splitting the
+    /// album). Album-level fields only: track-level fields (title, track/disc number, recording id,
+    /// ISRC, artists) are never touched — the same guarantee <see cref="Library.AlbumIdentity"/>
+    /// encodes at compile time. Only sets a field when the elected value is present and differs, so
+    /// it never clears a member's value and repeated application converges to zero changes.
+    /// Reversible — captures originals first. Deliberately does NOT touch
+    /// <see cref="EnrichmentStatus"/>, <see cref="EnrichedAtUtc"/>, <see cref="MatchConfidence"/>
+    /// or any grade, so it never triggers re-enrichment or an auto-regrade (grade staleness stays
+    /// opt-in). Returns the field-level changes (empty when nothing changed) for the change log.
+    /// </summary>
+    public IReadOnlyList<(string Field, string? OldValue, string? NewValue)> ApplyIdentityCorrection(
+        Library.AlbumIdentity identity)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+
+        var changes = new List<(string, string?, string?)>();
+        CaptureOriginalMetadata();
+
+        if (!string.IsNullOrWhiteSpace(identity.Album) && !string.Equals(identity.Album, Album, StringComparison.Ordinal))
+        {
+            changes.Add((nameof(Album), Album, identity.Album));
+            Album = identity.Album;
+        }
+
+        if (!string.IsNullOrWhiteSpace(identity.AlbumArtist) && !string.Equals(identity.AlbumArtist, AlbumArtist, StringComparison.Ordinal))
+        {
+            changes.Add((nameof(AlbumArtist), AlbumArtist, identity.AlbumArtist));
+            AlbumArtist = identity.AlbumArtist;
+        }
+
+        if (identity.Year is > 0 && identity.Year != Year)
+        {
+            changes.Add((nameof(Year), Year?.ToString(), identity.Year.Value.ToString()));
+            Year = identity.Year;
+        }
+
+        // Compilation is additive in the election (any member true wins), so only ever flip false→true.
+        if (identity.IsCompilation && !IsCompilation)
+        {
+            changes.Add((nameof(IsCompilation), IsCompilation.ToString(), identity.IsCompilation.ToString()));
+            IsCompilation = true;
+        }
+
+        if (identity.TotalDiscs is > 0 && identity.TotalDiscs != TotalDiscs)
+        {
+            changes.Add((nameof(TotalDiscs), TotalDiscs?.ToString(), identity.TotalDiscs.Value.ToString()));
+            TotalDiscs = identity.TotalDiscs;
+        }
+
+        if (!string.IsNullOrWhiteSpace(identity.ReleaseTypePrimary) && !string.Equals(identity.ReleaseTypePrimary, ReleaseTypePrimary, StringComparison.Ordinal))
+        {
+            changes.Add((nameof(ReleaseTypePrimary), ReleaseTypePrimary, identity.ReleaseTypePrimary));
+            ReleaseTypePrimary = identity.ReleaseTypePrimary;
+        }
+
+        if (!string.IsNullOrWhiteSpace(identity.ReleaseTypes) && !string.Equals(identity.ReleaseTypes, ReleaseTypes, StringComparison.Ordinal))
+        {
+            changes.Add((nameof(ReleaseTypes), ReleaseTypes, identity.ReleaseTypes));
+            ReleaseTypes = identity.ReleaseTypes;
+        }
+
+        if (!string.IsNullOrWhiteSpace(identity.MusicBrainzReleaseId) && !string.Equals(identity.MusicBrainzReleaseId, MusicBrainzReleaseId, StringComparison.Ordinal))
+        {
+            changes.Add((nameof(MusicBrainzReleaseId), MusicBrainzReleaseId, identity.MusicBrainzReleaseId));
+            MusicBrainzReleaseId = identity.MusicBrainzReleaseId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(identity.MusicBrainzReleaseGroupId) && !string.Equals(identity.MusicBrainzReleaseGroupId, MusicBrainzReleaseGroupId, StringComparison.Ordinal))
+        {
+            changes.Add((nameof(MusicBrainzReleaseGroupId), MusicBrainzReleaseGroupId, identity.MusicBrainzReleaseGroupId));
+            MusicBrainzReleaseGroupId = identity.MusicBrainzReleaseGroupId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(identity.AlbumArtistMusicBrainzId) && !string.Equals(identity.AlbumArtistMusicBrainzId, AlbumArtistMusicBrainzId, StringComparison.Ordinal))
+        {
+            changes.Add((nameof(AlbumArtistMusicBrainzId), AlbumArtistMusicBrainzId, identity.AlbumArtistMusicBrainzId));
+            AlbumArtistMusicBrainzId = identity.AlbumArtistMusicBrainzId;
+        }
+
+        return changes;
+    }
+
     public void ApplyEnrichmentMatch(EnrichmentMatchData match)
     {
         CaptureOriginalMetadata();
