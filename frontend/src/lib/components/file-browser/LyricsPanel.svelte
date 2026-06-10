@@ -15,6 +15,7 @@
     Timer
   } from '@lucide/svelte';
   import { cn } from '$lib/utils';
+  import { parseLrc } from '$lib/lyrics/parse-lrc';
   import LyricsStatusBadge from './LyricsStatusBadge.svelte';
 
   type Props = {
@@ -43,22 +44,6 @@
     lrclibUrl
   }: Props = $props();
 
-  type LrcLine = { timeMs: number; text: string };
-
-  function parseLrc(lrc: string): LrcLine[] {
-    const lines: LrcLine[] = [];
-    for (const raw of lrc.split('\n')) {
-      const match = raw.match(/^\[(\d{2}):(\d{2})\.(\d{2,3})\]\s*(.*)$/);
-      if (!match) continue;
-      const mins = parseInt(match[1], 10);
-      const secs = parseInt(match[2], 10);
-      const cs = parseInt(match[3].padEnd(3, '0'), 10);
-      const timeMs = mins * 60000 + secs * 1000 + cs;
-      lines.push({ timeMs, text: match[4] ?? '' });
-    }
-    return lines;
-  }
-
   function formatLrcTime(ms: number): string {
     const totalSecs = Math.floor(ms / 1000);
     const mins = Math.floor(totalSecs / 60);
@@ -83,8 +68,6 @@
   });
 
   let containerEl: HTMLDivElement | undefined = $state();
-  let lineEls = $state<(HTMLDivElement | null)[]>([]);
-  let prevActiveIndex = -1;
 
   const hasSynced = $derived(Boolean(loadedSynced) || Boolean(hasSyncedFromProps));
   const hasPlain = $derived(Boolean(loadedPlain) || Boolean(hasPlainFromProps));
@@ -114,6 +97,18 @@
   const parsedLines = $derived(
     Boolean(loadedSynced) && showSynced ? parseLrc(loadedSynced!) : null
   );
+  // An empty array is truthy in JS, so guard on length: a non-empty synced string that
+  // carries no parseable timestamps must NOT render an empty timed list — it falls back
+  // to the raw/plain text below instead of a blank panel.
+  const hasParsedLines = $derived(parsedLines != null && parsedLines.length > 0);
+
+  // Text for the non-timed fallback view. When synced lyrics are present but un-timed
+  // (no parseable timestamps), prefer real plain lyrics, then the raw synced string so
+  // something is always visible.
+  const fallbackText = $derived.by(() => {
+    if (!showSynced) return loadedPlain ?? '';
+    return loadedPlain ?? loadedSynced ?? '';
+  });
 
   const activeLineIndex = $derived.by(() => {
     if (!parsedLines || currentTimeMs == null || currentTimeMs < 0) return -1;
@@ -125,21 +120,15 @@
     return active;
   });
 
-  const isTracking = $derived(parsedLines != null && currentTimeMs != null && currentTimeMs >= 0);
+  const isTracking = $derived(hasParsedLines && currentTimeMs != null && currentTimeMs >= 0);
 
   $effect(() => {
-    // Reset on new parsed lines (different song or toggle).
-    void parsedLines;
-    prevActiveIndex = -1;
-    lineEls = [];
-  });
-
-  $effect(() => {
-    if (activeLineIndex < 0 || activeLineIndex === prevActiveIndex) return;
-    prevActiveIndex = activeLineIndex;
-    const el = lineEls[activeLineIndex];
+    void parsedLines; // re-center when the track / lyric set changes
+    const idx = activeLineIndex;
     const container = containerEl;
-    if (!el || !container) return;
+    if (idx < 0 || !container) return;
+    const el = container.querySelector<HTMLElement>(`[data-lyric-line="${idx}"]`);
+    if (!el) return;
 
     const elRect = el.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
@@ -240,7 +229,7 @@
       bind:this={containerEl}
       class="bg-secondary/50 min-h-0 flex-1 overflow-y-auto rounded-lg p-4 pb-[calc(1rem_+_var(--mh-content-pad))] scroll-smooth"
     >
-      {#if parsedLines}
+      {#if hasParsedLines && parsedLines}
         <div class="font-sans text-sm leading-relaxed">
           {#each parsedLines as line, i (i)}
             {@const isActive = isTracking && i === activeLineIndex}
@@ -248,7 +237,7 @@
             {@const isFuture = isTracking && activeLineIndex >= 0 && i > activeLineIndex}
             <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
             <div
-              bind:this={lineEls[i]}
+              data-lyric-line={i}
               class={cn(
                 '-mx-1 flex gap-2 rounded-sm px-1 py-0.5 transition-all duration-300',
                 isActive && 'bg-primary/10 text-primary font-semibold',
@@ -284,9 +273,7 @@
           {/each}
         </div>
       {:else}
-        <pre class="font-sans text-sm leading-relaxed whitespace-pre-wrap">{showSynced
-            ? loadedSynced
-            : loadedPlain}</pre>
+        <pre class="font-sans text-sm leading-relaxed whitespace-pre-wrap">{fallbackText}</pre>
       {/if}
     </div>
 

@@ -1,3 +1,4 @@
+import { untrack } from 'svelte';
 import { browser } from '$app/environment';
 import { toast } from 'svelte-sonner';
 
@@ -248,10 +249,19 @@ function stop() {
   queueIndex = -1;
 }
 
+/**
+ * Mark the in-page/global detail panel as mounted so the MiniPlayer hides while
+ * it's open. Callers register from an `$effect` (SongDetailHost), so the
+ * increment/decrement are `untrack`ed: `panelMountedCount += 1` reads the state,
+ * and without untrack that read becomes a dependency of the caller's effect —
+ * the subsequent write then re-fires it forever (effect_update_depth_exceeded).
+ * Untracking the read keeps writes notifying subscribers (the MiniPlayer) while
+ * making this safe to call from any reactive context.
+ */
 function registerPanel(): () => void {
-  panelMountedCount += 1;
+  untrack(() => (panelMountedCount += 1));
   return () => {
-    panelMountedCount = Math.max(0, panelMountedCount - 1);
+    untrack(() => (panelMountedCount = Math.max(0, panelMountedCount - 1)));
   };
 }
 

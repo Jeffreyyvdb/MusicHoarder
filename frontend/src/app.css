@@ -169,3 +169,10 @@
 [data-mh-content] .cn-scroll-area-viewport {
   padding-bottom: var(--mh-content-pad, 0px);
 }
+
+/* Keep toasts inside the viewport on narrow screens. svelte-sonner's default
+   toast width (356px) plus its side offsets overflows a ~360px phone, adding an
+   app-wide horizontal scrollbar; clamp the width to the visible area. */
+.toaster.group {
+  --width: min(356px, calc(100vw - 2rem));
+}

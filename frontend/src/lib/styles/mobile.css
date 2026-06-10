@@ -145,6 +145,11 @@
   height: 1px;
   background: var(--border);
 }
+.mob-login-alts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 
 .mob-logo {
   display: grid;

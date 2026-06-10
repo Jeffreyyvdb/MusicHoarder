@@ -249,6 +249,135 @@ public class SongMetadata
         ReleaseTypes = OriginalReleaseTypes;
     }
 
+    /// <summary>
+    /// Applies build-time canonical-album corrections to this row so the app view and the on-disk tags
+    /// agree on one album: the unified album title/year and the canonical track/disc number. Used when
+    /// an album's tracks were each enriched against a different release and so carry inconsistent
+    /// years / track numbers; the canonical (multi-provider) tracklist is the source of truth.
+    /// Reversible — captures originals first, so <see cref="ResetEnrichment"/> with
+    /// <c>restoreOriginal</c> restores them. Deliberately does NOT touch <see cref="EnrichmentStatus"/>,
+    /// <see cref="EnrichedAtUtc"/>, <see cref="MatchConfidence"/> or any grade, so it never triggers
+    /// re-enrichment or an auto-regrade (grade staleness stays opt-in). Returns the field-level changes
+    /// it made (empty when nothing changed) so the caller can record them in the change log.
+    /// </summary>
+    public IReadOnlyList<(string Field, string? OldValue, string? NewValue)> ApplyCanonicalCorrection(
+        string? album, int? year, int? trackNumber, int? discNumber)
+    {
+        var changes = new List<(string, string?, string?)>();
+        CaptureOriginalMetadata();
+
+        if (!string.IsNullOrWhiteSpace(album) && !string.Equals(album, Album, StringComparison.Ordinal))
+        {
+            changes.Add((nameof(Album), Album, album));
+            Album = album;
+        }
+
+        if (year is > 0 && year != Year)
+        {
+            changes.Add((nameof(Year), Year?.ToString(), year.Value.ToString()));
+            Year = year;
+        }
+
+        if (trackNumber is > 0 && trackNumber != TrackNumber)
+        {
+            changes.Add((nameof(TrackNumber), TrackNumber?.ToString(), trackNumber.Value.ToString()));
+            TrackNumber = trackNumber;
+        }
+
+        if (discNumber is > 0 && discNumber != DiscNumber)
+        {
+            changes.Add((nameof(DiscNumber), DiscNumber?.ToString(), discNumber.Value.ToString()));
+            DiscNumber = discNumber;
+        }
+
+        return changes;
+    }
+
+    /// <summary>
+    /// Persists a reconciler-elected <see cref="Library.AlbumIdentity"/> to this row so all tracks
+    /// of one logical album carry the same album-level fields — and therefore resolve to the same
+    /// destination folder and the same release id on disk (what keeps Navidrome from splitting the
+    /// album). Album-level fields only: track-level fields (title, track/disc number, recording id,
+    /// ISRC, artists) are never touched — the same guarantee <see cref="Library.AlbumIdentity"/>
+    /// encodes at compile time. Only sets a field when the elected value is present and differs, so
+    /// it never clears a member's value and repeated application converges to zero changes.
+    /// Reversible — captures originals first. Deliberately does NOT touch
+    /// <see cref="EnrichmentStatus"/>, <see cref="EnrichedAtUtc"/>, <see cref="MatchConfidence"/>
+    /// or any grade, so it never triggers re-enrichment or an auto-regrade (grade staleness stays
+    /// opt-in). Returns the field-level changes (empty when nothing changed) for the change log.
+    /// </summary>
+    public IReadOnlyList<(string Field, string? OldValue, string? NewValue)> ApplyIdentityCorrection(
+        Library.AlbumIdentity identity)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+
+        var changes = new List<(string, string?, string?)>();
+        CaptureOriginalMetadata();
+
+        if (!string.IsNullOrWhiteSpace(identity.Album) && !string.Equals(identity.Album, Album, StringComparison.Ordinal))
+        {
+            changes.Add((nameof(Album), Album, identity.Album));
+            Album = identity.Album;
+        }
+
+        if (!string.IsNullOrWhiteSpace(identity.AlbumArtist) && !string.Equals(identity.AlbumArtist, AlbumArtist, StringComparison.Ordinal))
+        {
+            changes.Add((nameof(AlbumArtist), AlbumArtist, identity.AlbumArtist));
+            AlbumArtist = identity.AlbumArtist;
+        }
+
+        if (identity.Year is > 0 && identity.Year != Year)
+        {
+            changes.Add((nameof(Year), Year?.ToString(), identity.Year.Value.ToString()));
+            Year = identity.Year;
+        }
+
+        // Compilation is additive in the election (any member true wins), so only ever flip false→true.
+        if (identity.IsCompilation && !IsCompilation)
+        {
+            changes.Add((nameof(IsCompilation), IsCompilation.ToString(), identity.IsCompilation.ToString()));
+            IsCompilation = true;
+        }
+
+        if (identity.TotalDiscs is > 0 && identity.TotalDiscs != TotalDiscs)
+        {
+            changes.Add((nameof(TotalDiscs), TotalDiscs?.ToString(), identity.TotalDiscs.Value.ToString()));
+            TotalDiscs = identity.TotalDiscs;
+        }
+
+        if (!string.IsNullOrWhiteSpace(identity.ReleaseTypePrimary) && !string.Equals(identity.ReleaseTypePrimary, ReleaseTypePrimary, StringComparison.Ordinal))
+        {
+            changes.Add((nameof(ReleaseTypePrimary), ReleaseTypePrimary, identity.ReleaseTypePrimary));
+            ReleaseTypePrimary = identity.ReleaseTypePrimary;
+        }
+
+        if (!string.IsNullOrWhiteSpace(identity.ReleaseTypes) && !string.Equals(identity.ReleaseTypes, ReleaseTypes, StringComparison.Ordinal))
+        {
+            changes.Add((nameof(ReleaseTypes), ReleaseTypes, identity.ReleaseTypes));
+            ReleaseTypes = identity.ReleaseTypes;
+        }
+
+        if (!string.IsNullOrWhiteSpace(identity.MusicBrainzReleaseId) && !string.Equals(identity.MusicBrainzReleaseId, MusicBrainzReleaseId, StringComparison.Ordinal))
+        {
+            changes.Add((nameof(MusicBrainzReleaseId), MusicBrainzReleaseId, identity.MusicBrainzReleaseId));
+            MusicBrainzReleaseId = identity.MusicBrainzReleaseId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(identity.MusicBrainzReleaseGroupId) && !string.Equals(identity.MusicBrainzReleaseGroupId, MusicBrainzReleaseGroupId, StringComparison.Ordinal))
+        {
+            changes.Add((nameof(MusicBrainzReleaseGroupId), MusicBrainzReleaseGroupId, identity.MusicBrainzReleaseGroupId));
+            MusicBrainzReleaseGroupId = identity.MusicBrainzReleaseGroupId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(identity.AlbumArtistMusicBrainzId) && !string.Equals(identity.AlbumArtistMusicBrainzId, AlbumArtistMusicBrainzId, StringComparison.Ordinal))
+        {
+            changes.Add((nameof(AlbumArtistMusicBrainzId), AlbumArtistMusicBrainzId, identity.AlbumArtistMusicBrainzId));
+            AlbumArtistMusicBrainzId = identity.AlbumArtistMusicBrainzId;
+        }
+
+        return changes;
+    }
+
     public void ApplyEnrichmentMatch(EnrichmentMatchData match)
     {
         CaptureOriginalMetadata();
@@ -428,6 +557,24 @@ public class SongMetadata
         LibraryBuildError = null;
         PreviousDestinationPath = DestinationPath;
         DestinationPath = null;
+    }
+
+    /// <summary>
+    /// Re-queues an already-built track so the next build re-copies and re-tags its destination file
+    /// in place — WITHOUT touching enrichment. Keeps <see cref="DestinationPath"/> and points
+    /// <see cref="PreviousDestinationPath"/> at it: that's the signal the builder's skip-copy fast path
+    /// uses to force a real re-copy + re-tag instead of treating a same-size destination as "already
+    /// built". Crucial because re-tagging a FLAC leaves its size identical (padding block), so without
+    /// this the rewrite would be silently skipped. The previous == current path means no folder
+    /// move/prune is triggered. Used to apply new tag-writing logic to files that already built.
+    /// </summary>
+    public void RequeueForRetag()
+    {
+        LibraryBuildStatus = LibraryBuildStatus.Pending;
+        LibraryBuiltAtUtc = null;
+        LibraryBuildLastAttemptedAtUtc = null;
+        LibraryBuildError = null;
+        PreviousDestinationPath = DestinationPath;
     }
 
     public void ResetPostFingerprint()

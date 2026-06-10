@@ -3,33 +3,29 @@
   import { goto } from '$app/navigation';
   import { Search, X } from '@lucide/svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import * as Resizable from '$lib/components/ui/resizable';
-  import * as Sheet from '$lib/components/ui/sheet';
   import AlbumPage from '$lib/components/file-browser/AlbumPage.svelte';
   import TrackList from '$lib/components/file-browser/TrackList.svelte';
-  import TrackPanel from '$lib/components/file-browser/TrackPanel.svelte';
   import LibraryAlbumsGridV2 from '$lib/components/v2/LibraryAlbumsGridV2.svelte';
   import LibraryArtistsGridV2 from '$lib/components/v2/LibraryArtistsGridV2.svelte';
   import {
     buildAlbumsFromSongs,
     buildArtistGroups,
     fetchAlbumCanonicalStatuses,
-    fetchSongs,
-    openProgressStream,
     type AlbumStatusInfo,
     type AlbumSummary,
     type ApiSong,
-    type GroupSummary,
-    type ProgressSnapshot
+    type GroupSummary
   } from '$lib/api-client';
   import { isBuiltSong } from '$lib/album-sections';
   import { parseBrowseFilter, applyBrowseFilter, browseFilterLabel } from '$lib/browse-filter';
   import { breadcrumbStore } from '$lib/stores/breadcrumbs.svelte';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
+  import { songsStore } from '$lib/stores/songs.svelte';
+  import { songDetail } from '$lib/stores/song-detail.svelte';
 
-  // Behaviour-only: on mobile the album-drilldown / tracks-tab detail panel
-  // moves from a desktop resizable side-pane into a bottom Sheet.
-  const isMobile = new IsMobile();
+  // The song-detail panel is now the global SongDetailHost (mounted in the app
+  // shell), so Library no longer hosts its own resizable side-pane / bottom
+  // Sheet — track selection just drives the shared store. The desktop/mobile
+  // form-factor split lives in SongDetailHost.
 
   type LibraryTab = 'albums' | 'artists' | 'tracks';
   type Props = {
@@ -38,81 +34,14 @@
   };
   const { tab }: Props = $props();
 
-  // ── data layer (reuses the existing api-client + album-sections) ───────────
-  let songs = $state<ApiSong[]>([]);
-  let isLoading = $state(true);
-  let isMountedRef = true;
-
-  async function loadSongs(opts?: { silent?: boolean }) {
-    try {
-      if (!opts?.silent) isLoading = true;
-      const loaded = await fetchSongs();
-      if (!isMountedRef) return;
-      songs = loaded;
-    } finally {
-      if (isMountedRef && !opts?.silent) isLoading = false;
-    }
-  }
-
-  // ── Live refresh (mirror the v1 /library behaviour) ─────────────────────────
-  let liveCleanup: (() => void) | null = null;
-  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-  let lastBuilt = -1;
-  let sawActive = false;
-
-  function scheduleSongRefresh() {
-    if (refreshTimer) return;
-    refreshTimer = setTimeout(() => {
-      refreshTimer = null;
-      void loadSongs({ silent: true });
-    }, 3000);
-  }
-
-  function stopLive() {
-    if (refreshTimer) {
-      clearTimeout(refreshTimer);
-      refreshTimer = null;
-    }
-    if (liveCleanup) {
-      liveCleanup();
-      liveCleanup = null;
-    }
-  }
-
-  function startLive() {
-    if (liveCleanup) return;
-    lastBuilt = -1;
-    sawActive = false;
-    liveCleanup = openProgressStream(
-      (snap: ProgressSnapshot) => {
-        if (snap.built !== lastBuilt) {
-          lastBuilt = snap.built;
-          sawActive = true;
-          scheduleSongRefresh();
-        }
-        if (snap.isComplete && sawActive) {
-          sawActive = false;
-          scheduleSongRefresh();
-        }
-      },
-      () => {
-        liveCleanup = null;
-        if (sawActive) {
-          sawActive = false;
-          void loadSongs({ silent: true });
-        }
-      }
-    );
-  }
+  // ── data layer (shared songs store, also feeds the global detail panel) ─────
+  const songs = $derived(songsStore.songs);
+  const isLoading = $derived(songsStore.isLoading);
 
   $effect(() => {
-    isMountedRef = true;
-    void loadSongs();
-    startLive();
-    return () => {
-      isMountedRef = false;
-      stopLive();
-    };
+    void songsStore.loadSongs();
+    songsStore.startLive();
+    return () => songsStore.stopLive();
   });
 
   // ── URL state ───────────────────────────────────────────────────────────────
@@ -197,57 +126,34 @@
     return () => breadcrumbStore.clear();
   });
 
-  // Deep-link via ?song= — resolve the owning album and open both panels.
-  let appliedSongDeepLink: number | null = null;
+  // Deep-link entry via ?song= / ?track= — consumed ONCE on load: open the
+  // global detail store, then strip the param. The store's open state is the
+  // single source of truth thereafter (no ongoing URL<->store sync, which can
+  // cycle), so closing/reopening the panel never touches the URL.
+  let consumedDeepLink = false;
   $effect(() => {
-    if (isLoading) return;
-    if (!songParam) return;
-    const songId = Number.parseInt(songParam, 10);
-    if (!Number.isFinite(songId) || appliedSongDeepLink === songId) return;
-    const owningAlbum = allAlbums.find((a) => a.songs.some((s) => s.id === songId));
-    if (!owningAlbum) return;
-    appliedSongDeepLink = songId;
+    if (isLoading || consumedDeepLink) return;
+    const raw = songParam ?? trackParam;
+    if (!raw) return;
+    consumedDeepLink = true;
+    const id = Number.parseInt(raw, 10);
+    if (!Number.isFinite(id)) return;
+    const owningAlbum = allAlbums.find((a) => a.songs.some((s) => s.id === id));
+    songDetail.open(id, owningAlbum?.key);
     const url = new URL(page.url);
     url.searchParams.delete('song');
-    url.searchParams.set('album', owningAlbum.key);
-    url.searchParams.set('track', String(songId));
-    void goto(url.pathname + url.search, { replaceState: true, noScroll: true });
-  });
-
-  const selectedTrack = $derived.by(() => {
-    if (!openAlbum || !trackParam) return null;
-    const id = Number.parseInt(trackParam, 10);
-    if (!Number.isFinite(id)) return null;
-    const idx = openAlbum.songs.findIndex((s) => s.id === id);
-    if (idx < 0) return null;
-    return { song: openAlbum.songs[idx], index: idx };
-  });
-  const trackPanelOpen = $derived(!!selectedTrack && !!openAlbum);
-
-  function closeTrack() {
-    const url = new URL(page.url);
     url.searchParams.delete('track');
+    // Preserve the drilldown context for a ?song= link that carried no ?album=.
+    if (owningAlbum && tab === 'albums' && !albumKey) url.searchParams.set('album', owningAlbum.key);
     void goto(url.pathname + url.search, { replaceState: true, noScroll: true });
-  }
-
-  // Tracks tab selection (no album context) — open the standalone track panel.
-  const tracksSelectedId = $derived(trackParam ? Number.parseInt(trackParam, 10) : null);
-  const tracksSelected = $derived.by(() => {
-    if (tab !== 'tracks' || tracksSelectedId == null || !Number.isFinite(tracksSelectedId)) {
-      return null;
-    }
-    const album = allAlbums.find((a) => a.songs.some((s) => s.id === tracksSelectedId));
-    if (!album) return null;
-    const index = album.songs.findIndex((s) => s.id === tracksSelectedId);
-    return { album, song: album.songs[index], index };
   });
-  const tracksPanelOpen = $derived(!!tracksSelected);
+
+  // Highlighted row follows the open panel (the store is the source of truth).
+  const tracksSelectedId = $derived(songDetail.isOpen ? (songDetail.target?.songId ?? null) : null);
 
   function selectTrack(song: ApiSong) {
-    const url = new URL(page.url);
-    if (tracksSelectedId === song.id) url.searchParams.delete('track');
-    else url.searchParams.set('track', String(song.id));
-    void goto(url.pathname + url.search, { replaceState: true, noScroll: true });
+    if (songDetail.isOpen && songDetail.target?.songId === song.id) songDetail.close();
+    else songDetail.open(song.id, openAlbum?.key);
   }
 
   // ── hrefs (keep deep-linkable, reuse the v1 ?album= / ?artist= contract) ─────
@@ -270,51 +176,10 @@
 </script>
 
 {#if openAlbum && tab === 'albums'}
-  <!-- Album drilldown reuses the existing AlbumPage (+ TrackPanel). On mobile the
-       detail pane becomes a bottom Sheet; the side-pane and Sheet branches are
-       mutually exclusive so TrackPanel.registerPanel() mounts exactly once. -->
-  {#if isMobile.current}
-    <AlbumPage album={openAlbum} {isLoading} />
-    <Sheet.Root open={trackPanelOpen} onOpenChange={(open) => !open && closeTrack()}>
-      <Sheet.Content side="bottom" class="data-[side=bottom]:h-[88dvh] gap-0 p-0 [&>button]:hidden">
-        <Sheet.Title class="sr-only">Track details</Sheet.Title>
-        <Sheet.Description class="sr-only">
-          View track metadata, lyrics, fingerprint, and enrichment sources
-        </Sheet.Description>
-        {#if openAlbum && selectedTrack}
-          <TrackPanel
-            album={openAlbum}
-            song={selectedTrack.song}
-            trackIndex={selectedTrack.index}
-            onClose={closeTrack}
-            onResetEnrichment={() => void loadSongs()}
-            timelineHref={`/track/${selectedTrack.song.id}`}
-          />
-        {/if}
-      </Sheet.Content>
-    </Sheet.Root>
-  {:else if !trackPanelOpen}
-    <AlbumPage album={openAlbum} {isLoading} />
-  {:else}
-    <Resizable.PaneGroup id="library-v2-album-panels" direction="horizontal" class="min-h-0 flex-1">
-      <Resizable.Pane id="library-v2-album-main" order={1} defaultSize={68} class="flex min-h-0 flex-col">
-        <AlbumPage album={openAlbum} {isLoading} />
-      </Resizable.Pane>
-      <Resizable.Handle />
-      <Resizable.Pane id="library-v2-album-details" order={2} defaultSize={32} minSize={28} maxSize={45}>
-        {#if openAlbum && selectedTrack}
-          <TrackPanel
-            album={openAlbum}
-            song={selectedTrack.song}
-            trackIndex={selectedTrack.index}
-            onClose={closeTrack}
-            onResetEnrichment={() => void loadSongs()}
-            timelineHref={`/track/${selectedTrack.song.id}`}
-          />
-        {/if}
-      </Resizable.Pane>
-    </Resizable.PaneGroup>
-  {/if}
+  <!-- Album drilldown. Track selection drives the global SongDetailHost (mounted
+       in the app shell), which pushes this page on desktop and is a bottom Sheet
+       on mobile — so AlbumPage just renders full-width here. -->
+  <AlbumPage album={openAlbum} {isLoading} />
 {:else}
   <!-- Header -->
   <header
@@ -347,75 +212,19 @@
   </header>
 
   {#if tab === 'tracks'}
-    <!-- All tracks reuses the existing virtualized TrackList + TrackPanel. On
-         mobile the detail pane becomes a bottom Sheet; the side-pane and Sheet
-         branches are mutually exclusive so TrackPanel.registerPanel() mounts
-         exactly once. The mobile wrapper keeps the min-h-0 flex chain so
-         TrackList's scroll viewport stays bounded and virtualization works. -->
+    <!-- All tracks: the virtualized TrackList. Selecting a row drives the global
+         SongDetailHost (app-shell-mounted), which pushes this view on desktop and
+         is a bottom Sheet on mobile. The min-h-0 flex chain keeps TrackList's
+         scroll viewport bounded so virtualization works. -->
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      {#if isMobile.current}
-        <div class="flex min-h-0 flex-1 flex-col">
-          <TrackList
-            songs={tracksScoped}
-            searchQuery={query}
-            {isLoading}
-            selectedId={tracksSelectedId}
-            onSelect={selectTrack}
-            hideHeading
-          />
-        </div>
-        <Sheet.Root open={tracksPanelOpen} onOpenChange={(open) => !open && closeTrack()}>
-          <Sheet.Content side="bottom" class="data-[side=bottom]:h-[88dvh] gap-0 p-0 [&>button]:hidden">
-            <Sheet.Title class="sr-only">Track details</Sheet.Title>
-            <Sheet.Description class="sr-only">
-              View track metadata, lyrics, fingerprint, and enrichment sources
-            </Sheet.Description>
-            {#if tracksSelected}
-              <TrackPanel
-                album={tracksSelected.album}
-                song={tracksSelected.song}
-                trackIndex={tracksSelected.index}
-                onClose={closeTrack}
-                onResetEnrichment={() => void loadSongs()}
-                timelineHref={`/track/${tracksSelected.song.id}`}
-              />
-            {/if}
-          </Sheet.Content>
-        </Sheet.Root>
-      {:else}
-        <Resizable.PaneGroup id="library-v2-tracks-panels" direction="horizontal" class="min-h-0 flex-1">
-          <Resizable.Pane
-            id="library-v2-tracks-main"
-            order={1}
-            defaultSize={tracksPanelOpen ? 68 : 100}
-            class="flex min-h-0 flex-col"
-          >
-            <TrackList
-              songs={tracksScoped}
-              searchQuery={query}
-              {isLoading}
-              selectedId={tracksSelectedId}
-              onSelect={selectTrack}
-              hideHeading
-            />
-          </Resizable.Pane>
-          {#if tracksPanelOpen}
-            <Resizable.Handle />
-            <Resizable.Pane id="library-v2-tracks-details" order={2} defaultSize={32} minSize={28} maxSize={45}>
-              {#if tracksSelected}
-                <TrackPanel
-                  album={tracksSelected.album}
-                  song={tracksSelected.song}
-                  trackIndex={tracksSelected.index}
-                  onClose={closeTrack}
-                  onResetEnrichment={() => void loadSongs()}
-                  timelineHref={`/track/${tracksSelected.song.id}`}
-                />
-              {/if}
-            </Resizable.Pane>
-          {/if}
-        </Resizable.PaneGroup>
-      {/if}
+      <TrackList
+        songs={tracksScoped}
+        searchQuery={query}
+        {isLoading}
+        selectedId={tracksSelectedId}
+        onSelect={selectTrack}
+        hideHeading
+      />
     </div>
   {:else}
     <ScrollArea class="min-h-0 flex-1">

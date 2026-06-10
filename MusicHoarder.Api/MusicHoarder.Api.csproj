@@ -30,13 +30,13 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="13.3.5" />
+        <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="13.4.3" />
         <PackageReference Include="Fido2.AspNet" Version="4.0.1" />
         <PackageReference Include="FuzzySharp" Version="2.0.2" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
         <!-- Pinned directly (design-time only) to override a bad transitive resolution to
              EFCore.Design 8.0.0, which is ABI-incompatible with EFCore 10.x and breaks `dotnet ef`. -->
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.7">
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
@@ -45,7 +45,11 @@
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="Scalar.AspNetCore" Version="2.14.14" />
-        <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+        <PackageReference Include="SkiaSharp" Version="3.119.4" />
+        <!-- Headless image decode/resize/encode only (no text rendering), so the NoDependencies
+             native asset avoids needing libfontconfig in the Linux container. The base SkiaSharp
+             package already carries the macOS/Windows natives for local dev. -->
+        <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.4" />
         <PackageReference Include="System.IO.Abstractions" Version="22.1.1" />
         <PackageReference Include="System.IO.Abstractions.TestingHelpers" Version="22.1.1" />
         <PackageReference Include="TagLibSharp" Version="2.3.0" />

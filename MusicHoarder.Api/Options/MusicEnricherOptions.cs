@@ -56,6 +56,23 @@ public class MusicEnricherOptions
     [Range(1, 120)]
     public int DirectoryProbeTimeoutSeconds { get; set; } = 5;
 
+    /// <summary>
+    /// Enables the periodic GitHub Releases check that powers the in-app "update available" banner.
+    /// Safe to disable in air-gapped/offline deploys via <c>MusicEnricher__EnableUpdateCheck=false</c>;
+    /// when false the latest-version endpoint reports no update and GitHub is never contacted.
+    /// </summary>
+    public bool EnableUpdateCheck { get; set; } = true;
+
+    /// <summary><c>owner/repo</c> slug polled for the latest release.</summary>
+    public string UpdateCheckRepo { get; set; } = "Jeffreyyvdb/MusicHoarder";
+
+    /// <summary>
+    /// How often (hours) to poll GitHub for the latest release. Long by design — the result rarely
+    /// changes and a long interval keeps the process well under GitHub's 60/hr unauthenticated limit.
+    /// </summary>
+    [Range(1, 168)]
+    public int UpdateCheckIntervalHours { get; set; } = 8;
+
     /// <summary>Maximum concurrent file reads (tag reading + fpcalc) for SMB safety.</summary>
     [Range(1, 64)]
     public int SmbConcurrency { get; set; } = 8;
@@ -214,9 +231,10 @@ public class MusicEnricherOptions
     [Range(1, 20)]
     public int AppleMusicConcurrency { get; set; } = 1;
 
-    /// <summary>Max iTunes Search API requests per second. iTunes is throttled to ~20 req/min, so keep this at 1.</summary>
-    [Range(1, 20)]
-    public int AppleMusicApiRequestsPerSecond { get; set; } = 1;
+    /// <summary>Max iTunes Search API requests per minute. Apple documents ~20/min (approx,
+    /// subject to change), so stay conservatively under it.</summary>
+    [Range(1, 30)]
+    public int AppleMusicApiRequestsPerMinute { get; set; } = 15;
 
     /// <summary>Track candidates to request from iTunes search (1–50).</summary>
     [Range(1, 50)]
@@ -337,6 +355,16 @@ public class MusicEnricherOptions
     [Range(0.0, 1.0)]
     public double ConsensusCorroborationFloor { get; set; } = 0.5;
 
+    /// <summary>
+    /// How long a song will keep waiting on a rate-limited provider before the consensus is
+    /// finalized on the providers that did answer. A song two providers already agree on is matched
+    /// immediately regardless; this only bounds songs that still need the throttled provider, so a
+    /// persistently rate-limited provider (e.g. iTunes throttling a shared IP) can't stall
+    /// enrichment indefinitely — past this window such songs match on the rest or surface for review.
+    /// </summary>
+    [Range(0, 1440)]
+    public int RateLimitDeferralMinutes { get; set; } = 30;
+
     /// <summary>Fuzzy ratio (0–100) above which two candidate artist names are considered the same.</summary>
     [Range(0, 100)]
     public double IdentityArtistThreshold { get; set; } = 85;
@@ -385,6 +413,42 @@ public class MusicEnricherOptions
     /// <summary>Delay in seconds before retrying when no tracks are pending library build.</summary>
     [Range(1, 300)]
     public int LibraryBuilderIdleDelaySeconds { get; set; } = 20;
+
+    /// <summary>
+    /// Harmonize album-identity tags (release id, album name, year, disc count, compilation, release
+    /// types, album-artist mbids) across all tracks that build into the same destination album folder,
+    /// so a single on-disk album isn't split by a server's MusicBrainz-release grouping key (e.g.
+    /// Navidrome's default <c>PID.Album</c>). Election is non-persisted (DB rows keep their per-track
+    /// enrichment) and deterministic. Default on.
+    /// </summary>
+    public bool EnableAlbumIdentityReconciliation { get; set; } = true;
+
+    /// <summary>
+    /// Self-heal split albums: group all buildable songs by logical album (normalized artist +
+    /// album title with an edition discriminator — year excluded, since a divergent year is the
+    /// most common split), persist the reconciler-elected identity to member rows that disagree,
+    /// and re-queue already-built ones for an in-place re-tag/relocate. This is the safeguard the
+    /// folder-keyed reconciliation can't provide: siblings whose divergent album/year/artist put
+    /// them in different destination folders, and Done rows tagged before the current election.
+    /// Runs at the start of every build run, plus periodically while idle when the auto pipeline
+    /// is on. Corrections are reversible (originals captured) and never bump EnrichedAtUtc.
+    /// Requires <see cref="EnableAlbumIdentityReconciliation"/>. Default on.
+    /// </summary>
+    public bool EnableAlbumSplitSelfHeal { get; set; } = true;
+
+    /// <summary>Minimum minutes between idle-time split-heal sweeps (auto pipeline only).</summary>
+    [Range(5, 10080)]
+    public int AlbumSplitHealIntervalMinutes { get; set; } = 360;
+
+    /// <summary>
+    /// When re-tagging an album (POST /api/enrichment/rebuild/album), first consolidate it against the
+    /// persisted multi-provider canonical tracklist: rewrite each owned song's album title/year and
+    /// track/disc number from the canonical track it matches (by recording-MBID + fuzzy title, never by
+    /// the owned — possibly corrupt — position). This heals albums whose tracks were each enriched
+    /// against a different release (so they split across year folders and carry duplicate track
+    /// numbers). Falls back to a plain in-place re-tag when no canonical album exists. Default on.
+    /// </summary>
+    public bool EnableCanonicalDrivenBuild { get; set; } = true;
 
     /// <summary>
     /// Top-level folder name compilations (Various-Artists releases) are filed under, keyed by

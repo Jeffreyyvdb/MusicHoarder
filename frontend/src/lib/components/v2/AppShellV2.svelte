@@ -5,9 +5,11 @@
   import AppTopBarV2 from '$lib/components/v2/AppTopBarV2.svelte';
   import BottomNavV2 from '$lib/components/v2/BottomNavV2.svelte';
   import MiniPlayer from '$lib/components/MiniPlayer.svelte';
+  import SongDetailHost from '$lib/components/v2/SongDetailHost.svelte';
   import SectionSubNav from '$lib/components/v2/SectionSubNav.svelte';
   import LibraryOfflineBanner from '$lib/components/LibraryOfflineBanner.svelte';
   import QualityGradingErrorBanner from '$lib/components/QualityGradingErrorBanner.svelte';
+  import VersionUpdateBanner from '$lib/components/VersionUpdateBanner.svelte';
   import { playerStore } from '$lib/stores/player.svelte';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { cn } from '$lib/utils';
@@ -28,6 +30,7 @@
     <AppTopBarV2 />
     <LibraryOfflineBanner />
     <QualityGradingErrorBanner />
+    <VersionUpdateBanner />
     <!-- Page content scrolls *behind* the floating MiniPlayer / mobile bottom nav
          so the frosted glass reveals moving content. Rather than reserving dead
          space on the inset (which left the bar over blank background), we publish
@@ -40,8 +43,8 @@
         'flex min-h-0 flex-1 flex-col overflow-hidden',
         !drawerOpen && [
           playerPad
-            ? '[--mh-content-pad:calc(140px_+_env(safe-area-inset-bottom))] md:[--mh-content-pad:88px]'
-            : '[--mh-content-pad:calc(80px_+_env(safe-area-inset-bottom))] md:[--mh-content-pad:0px]'
+            ? '[--mh-content-pad:calc(140px_+_max(env(safe-area-inset-bottom),var(--mh-vv-bottom,0px)))] md:[--mh-content-pad:88px]'
+            : '[--mh-content-pad:calc(80px_+_max(env(safe-area-inset-bottom),var(--mh-vv-bottom,0px)))] md:[--mh-content-pad:0px]'
         ],
         drawerOpen && '[--mh-content-pad:0px]'
       )}
@@ -50,6 +53,11 @@
       {@render children()}
     </div>
   </Sidebar.Inset>
+  <!-- Global song-detail sidebar. On desktop it's a floating right-docked pane
+       that pushes the inset (a flex sibling shrinks the flex-1 Sidebar.Inset);
+       on mobile it's a bottom Sheet. Opened from the MiniPlayer, Library track
+       rows, deep-links, and Cmd/Ctrl+I — never via navigation. -->
+  <SongDetailHost />
   <BottomNavV2 />
   <!-- MiniPlayer is the global playback UI; it hides itself when the in-page
        TrackPanel is mounted. Its audio element is owned by the store (not the

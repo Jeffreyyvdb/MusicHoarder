@@ -13,8 +13,16 @@ public sealed record OwnedTrackInfo(int Id, string? MusicBrainzId, int? DiscNumb
 /// </summary>
 public static class AlbumOwnedTrackMatcher
 {
+    /// <param name="usePositionPhase">
+    /// When true (the default, used by the tracklist endpoint and quality dossier) the middle phase
+    /// matches by (disc, track) position. Callers that intend to <em>rewrite</em> track numbers from
+    /// the canonical tracklist must pass false: the owned positions may be exactly what's corrupt
+    /// (each track enriched against a different release), so position-matching would link the wrong
+    /// files. With it off, only recording-MBID then fuzzy-title are used.
+    /// </param>
     public static Dictionary<int, int> Match(
-        IReadOnlyList<CanonicalAlbumTrack> tracks, IReadOnlyList<OwnedTrackInfo> ownedSongs, double titleThreshold)
+        IReadOnlyList<CanonicalAlbumTrack> tracks, IReadOnlyList<OwnedTrackInfo> ownedSongs, double titleThreshold,
+        bool usePositionPhase = true)
     {
         var matched = new Dictionary<int, int>();
         var consumed = new HashSet<int>();
@@ -26,12 +34,15 @@ public static class AlbumOwnedTrackMatcher
             if (song is not null) { matched[t.Id] = song.Id; consumed.Add(song.Id); }
         }
 
-        foreach (var t in tracks)
+        if (usePositionPhase)
         {
-            if (matched.ContainsKey(t.Id)) continue;
-            var song = ownedSongs.FirstOrDefault(s =>
-                !consumed.Contains(s.Id) && (s.DiscNumber ?? 1) == t.DiscNumber && s.TrackNumber == t.TrackNumber);
-            if (song is not null) { matched[t.Id] = song.Id; consumed.Add(song.Id); }
+            foreach (var t in tracks)
+            {
+                if (matched.ContainsKey(t.Id)) continue;
+                var song = ownedSongs.FirstOrDefault(s =>
+                    !consumed.Contains(s.Id) && (s.DiscNumber ?? 1) == t.DiscNumber && s.TrackNumber == t.TrackNumber);
+                if (song is not null) { matched[t.Id] = song.Id; consumed.Add(song.Id); }
+            }
         }
 
         foreach (var t in tracks)

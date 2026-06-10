@@ -272,6 +272,133 @@ public class LibraryBuilderServiceTests
     }
 
     [Fact]
+    public async Task ProcessNextBatchAsync_RetagsInPlace_WhenDoneSongRequeuedForRetag()
+    {
+        // A Done song with a destination file is normally skipped by the build query. RequeueForRetag
+        // flips it back to Pending while KEEPING DestinationPath, so the builder re-copies and re-tags
+        // the file in place (same path). This is what the album-page "Re-tag" button drives.
+        //
+        // The destination here is the SAME size as the source — the realistic FLAC case, where padding
+        // keeps a re-tagged file's size identical. Without the PreviousDestinationPath force-signal the
+        // skip-copy fast path would mark it Done without re-tagging (the bug seen in production);
+        // RequeueForRetag sets that signal so the rewrite actually happens.
+        var sourcePath = "/source/track.mp3";
+        var destinationPath = "/dest/Artist/2026 - Album/01 - Track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde"),     // 5 bytes (source)
+            [destinationPath] = new("xxxxx") // same size -> skip-copy would fire without the force-signal
+        });
+
+        await using var db = CreateDbContext();
+        var song = CreateMatchedSong(sourcePath, 5, libraryBuildStatus: LibraryBuildStatus.Done);
+        song.DestinationPath = destinationPath;
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        song.RequeueForRetag();
+        await db.SaveChangesAsync();
+
+        var tagWriter = new RecordingTagWriter();
+        var service = CreateService(db, fileSystem, tagWriter);
+
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        var reloaded = await db.Songs.SingleAsync();
+
+        Assert.Equal(1, result.Done);
+        Assert.Single(tagWriter.Paths); // it actually re-tagged (not skipped)
+        Assert.Equal(LibraryBuildStatus.Done, reloaded.LibraryBuildStatus);
+        Assert.Equal(destinationPath, reloaded.DestinationPath); // same path — in place
+        Assert.Null(reloaded.PreviousDestinationPath);            // no folder move
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_HarmonizesAlbumIdentity_AcrossTracksOfOneFolder()
+    {
+        // Two tracks of one album (same artist/album/year -> same folder) that enriched to DIFFERENT
+        // MusicBrainz releases. Without reconciliation Navidrome would split the album; here both must
+        // be tagged with the single elected release id (the majority "rel-keep").
+        var sourceA = "/source/a.mp3";
+        var sourceB = "/source/b.mp3";
+        var sourceC = "/source/c.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourceA] = new("aaaaa"),
+            [sourceB] = new("bbbbb"),
+            [sourceC] = new("ccccc")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourceA, 5, title: "T1", trackNumber: 1, musicBrainzReleaseId: "rel-keep", totalTracks: 12));
+        db.Songs.Add(CreateMatchedSong(sourceB, 5, title: "T2", trackNumber: 2, musicBrainzReleaseId: "rel-keep", totalTracks: 12));
+        db.Songs.Add(CreateMatchedSong(sourceC, 5, title: "T3", trackNumber: 3, musicBrainzReleaseId: "rel-stray", totalTracks: 3));
+        await db.SaveChangesAsync();
+
+        var tagWriter = new RecordingTagWriter();
+        var service = CreateService(db, fileSystem, tagWriter);
+
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        var ids = tagWriter.IdentityBySource;
+        Assert.Equal(3, ids.Count);
+        Assert.All(ids.Values, identity => Assert.Equal("rel-keep", identity.MusicBrainzReleaseId));
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_KeepsPerSongIdentity_WhenReconciliationDisabled()
+    {
+        var sourceA = "/source/a.mp3";
+        var sourceB = "/source/b.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourceA] = new("aaaaa"),
+            [sourceB] = new("bbbbb")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourceA, 5, title: "T1", trackNumber: 1, musicBrainzReleaseId: "rel-aaa"));
+        db.Songs.Add(CreateMatchedSong(sourceB, 5, title: "T2", trackNumber: 2, musicBrainzReleaseId: "rel-bbb"));
+        await db.SaveChangesAsync();
+
+        var tagWriter = new RecordingTagWriter();
+        var service = CreateService(db, fileSystem, tagWriter, enableAlbumIdentityReconciliation: false);
+
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Equal("rel-aaa", tagWriter.IdentityBySource[sourceA].MusicBrainzReleaseId);
+        Assert.Equal("rel-bbb", tagWriter.IdentityBySource[sourceB].MusicBrainzReleaseId);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_ElectsFromFullMembership_AcrossBatchBoundaries()
+    {
+        // batchSize=1 splits the album across two cycles. Each cycle must elect from the FULL pair, so
+        // both tracks get the same identity even though they build in separate batches.
+        var sourceA = "/source/a.mp3";
+        var sourceB = "/source/b.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourceA] = new("aaaaa"),
+            [sourceB] = new("bbbbb")
+        });
+
+        await using var db = CreateDbContext();
+        // Two of "rel-keep" so the majority is unambiguous regardless of which one is in the slice.
+        db.Songs.Add(CreateMatchedSong(sourceA, 5, title: "T1", trackNumber: 1, musicBrainzReleaseId: "rel-keep"));
+        db.Songs.Add(CreateMatchedSong(sourceB, 5, title: "T2", trackNumber: 2, musicBrainzReleaseId: "rel-keep"));
+        await db.SaveChangesAsync();
+
+        var tagWriter = new RecordingTagWriter();
+        var service = CreateService(db, fileSystem, tagWriter, batchSize: 1);
+
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Equal(2, tagWriter.IdentityBySource.Count);
+        Assert.All(tagWriter.IdentityBySource.Values, identity => Assert.Equal("rel-keep", identity.MusicBrainzReleaseId));
+    }
+
+    [Fact]
     public async Task ProcessNextBatchAsync_WritesAlbumCover_FromEmbeddedArt()
     {
         var sourcePath = "/source/track.mp3";
@@ -410,15 +537,18 @@ public class LibraryBuilderServiceTests
         MusicHoarderDbContext db,
         IFileSystem fileSystem,
         ILibraryTagWriter tagWriter,
-        IEmbeddedPictureReader? embeddedReader = null)
+        IEmbeddedPictureReader? embeddedReader = null,
+        int batchSize = 100,
+        bool enableAlbumIdentityReconciliation = true)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
             SourceDirectory = "/source",
             DestinationDirectory = "/dest",
-            LibraryBuilderBatchSize = 100,
+            LibraryBuilderBatchSize = batchSize,
             LibraryBuilderWorkerConcurrency = 1,
-            LibraryBuilderIdleDelaySeconds = 20
+            LibraryBuilderIdleDelaySeconds = 20,
+            EnableAlbumIdentityReconciliation = enableAlbumIdentityReconciliation
         });
 
         var pathResolver = new DestinationPathResolver(options);
@@ -438,6 +568,7 @@ public class LibraryBuilderServiceTests
             cleaner,
             tagWriter,
             coverWriter,
+            new AlbumIdentityReconciler(),
             options,
             NullLogger<LibraryBuilderService>.Instance);
     }
@@ -449,7 +580,11 @@ public class LibraryBuilderServiceTests
         string artist = "Artist",
         string albumArtist = "Artist",
         LibraryBuildStatus libraryBuildStatus = LibraryBuildStatus.Pending,
-        bool isUnreleased = false)
+        bool isUnreleased = false,
+        int trackNumber = 1,
+        string? musicBrainzReleaseId = null,
+        int? totalTracks = null,
+        int? totalDiscs = null)
     {
         return new SongMetadata
         {
@@ -465,7 +600,10 @@ public class LibraryBuilderServiceTests
             Album = "Album",
             Title = title,
             Year = 2026,
-            TrackNumber = 1,
+            TrackNumber = trackNumber,
+            MusicBrainzReleaseId = musicBrainzReleaseId,
+            TotalTracks = totalTracks,
+            TotalDiscs = totalDiscs,
             IsUnreleased = isUnreleased,
             EnrichmentStatus = EnrichmentStatus.Matched,
             LibraryBuildStatus = libraryBuildStatus
@@ -483,11 +621,14 @@ public class LibraryBuilderServiceTests
     private sealed class RecordingTagWriter : ILibraryTagWriter
     {
         public List<string> Paths { get; } = [];
+        // The album identity each track was tagged with, keyed by source path (the temp path varies).
+        public Dictionary<string, AlbumIdentity> IdentityBySource { get; } = new(StringComparer.Ordinal);
 
-        public Task WriteTagsAsync(string path, SongMetadata song, CancellationToken ct = default)
+        public Task WriteTagsAsync(string path, SongMetadata song, AlbumIdentity albumIdentity, CancellationToken ct = default)
         {
             ct.ThrowIfCancellationRequested();
             Paths.Add(path);
+            IdentityBySource[song.SourcePath] = albumIdentity;
             return Task.CompletedTask;
         }
     }
@@ -504,7 +645,7 @@ public class LibraryBuilderServiceTests
     {
         public List<string> Paths { get; } = [];
 
-        public Task WriteTagsAsync(string path, SongMetadata song, CancellationToken ct = default)
+        public Task WriteTagsAsync(string path, SongMetadata song, AlbumIdentity albumIdentity, CancellationToken ct = default)
         {
             ct.ThrowIfCancellationRequested();
             Paths.Add(path);

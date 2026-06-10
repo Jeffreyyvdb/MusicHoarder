@@ -1,8 +1,7 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
-  import { page } from '$app/state';
   import {
     ArrowLeft,
+    Check,
     Clock,
     Disc3,
     Eye,
@@ -10,11 +9,14 @@
     Fingerprint,
     HardDrive,
     Image as ImageIcon,
+    Loader2,
     MoreHorizontal,
     Pause,
     Play,
+    RefreshCw,
     Search,
-    Tag
+    Tag,
+    TriangleAlert
   } from '@lucide/svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import * as Tooltip from '$lib/components/ui/tooltip';
@@ -31,6 +33,7 @@
     fetchAlbumTracklist,
     gradeAlbum,
     prettyProvider,
+    rebuildAlbum,
     toPlayerSong,
     type AlbumLinkStatus,
     type AlbumQualityGradeView,
@@ -40,6 +43,7 @@
   } from '$lib/api-client';
   import { VERDICT_DOT } from '$lib/quality-ui';
   import { playerStore } from '$lib/stores/player.svelte';
+  import { songDetail } from '$lib/stores/song-detail.svelte';
   import { cn } from '$lib/utils';
 
   type Props = {
@@ -141,6 +145,52 @@
       // clipboard/export best-effort
     }
   }
+
+  // Re-tag: re-queue this album's already-built tracks so the next build re-copies and re-tags their
+  // destination files in place with the current tag-writing logic (album-identity reconciliation).
+  // No re-enrichment. Feedback is local state with an auto-dismiss timer (no toast system here).
+  let retagState = $state<'idle' | 'loading' | 'done' | 'error'>('idle');
+  let retagMessage = $state<string | null>(null);
+  let retagTimer: ReturnType<typeof setTimeout> | null = null;
+
+  async function retagAlbum() {
+    if (!album || retagState === 'loading') return;
+    if (retagTimer) clearTimeout(retagTimer);
+    retagState = 'loading';
+    retagMessage = null;
+    try {
+      const res = await rebuildAlbum(album.artist, album.title);
+      if (res.ok) {
+        retagState = 'done';
+        retagMessage =
+          res.requeued > 0
+            ? `Re-tagging ${res.requeued} track${res.requeued === 1 ? '' : 's'}…`
+            : 'Nothing to re-tag yet';
+      } else {
+        retagState = 'error';
+        retagMessage = res.message;
+      }
+    } catch (err) {
+      retagState = 'error';
+      retagMessage = err instanceof Error ? err.message : 'Re-tag failed';
+    } finally {
+      retagTimer = setTimeout(() => {
+        retagState = 'idle';
+        retagMessage = null;
+      }, 4000);
+    }
+  }
+
+  // The icon-only button conveys all state through the tooltip (matching the sibling action buttons).
+  const retagTooltip = $derived(
+    retagState === 'loading'
+      ? 'Re-tagging…'
+      : retagState === 'done'
+        ? (retagMessage ?? 'Re-tag queued')
+        : retagState === 'error'
+          ? (retagMessage ?? 'Re-tag failed')
+          : 'Re-tag — re-copy & re-tag this album’s files in place. Fixes albums split across multiple entries; no re-enrichment.'
+  );
 
   type DisplayRow =
     | { kind: 'owned'; key: string; disc: number; n: number; song: ApiSong; durationSeconds: number | null }
@@ -261,8 +311,10 @@
     return `https://www.google.com/search?q=${encodeURIComponent(q)}`;
   }
 
-  const selectedTrack = $derived(page.url.searchParams.get('track'));
-  const selectedTrackId = $derived(selectedTrack ? Number.parseInt(selectedTrack, 10) : null);
+  // Selection drives the global song-detail store directly (its open state is the
+  // single source of truth — no URL round-trip), so the highlight always matches
+  // the open panel.
+  const selectedTrackId = $derived(songDetail.isOpen ? (songDetail.target?.songId ?? null) : null);
 
   const currentlyPlaying = $derived.by(() => {
     const playing = playerStore.currentSong;
@@ -271,13 +323,11 @@
   });
 
   function selectTrack(s: ApiSong) {
-    const url = new URL(page.url);
-    if (selectedTrackId === s.id) {
-      url.searchParams.delete('track');
+    if (songDetail.isOpen && songDetail.target?.songId === s.id) {
+      songDetail.close();
     } else {
-      url.searchParams.set('track', String(s.id));
+      songDetail.open(s.id, album?.key);
     }
-    void goto(url.pathname + url.search, { replaceState: true, noScroll: true });
   }
 
   function playFrom(target: ApiSong) {
@@ -479,8 +529,7 @@
         type="button"
         onclick={playAlbumStart}
         aria-label="Play album"
-        class="bg-primary text-primary-foreground grid size-13 place-items-center rounded-full shadow-[0_6px_16px_oklch(0.5_0.17_145_/_0.4)] transition-transform hover:scale-105"
-        style="width: 52px; height: 52px;"
+        class="bg-primary text-primary-foreground grid size-13 shrink-0 place-items-center rounded-full shadow-[0_6px_16px_oklch(0.5_0.17_145_/_0.4)] transition-transform hover:scale-105"
       >
         {#if playerStore.isPlaying && currentlyPlaying}
           <Pause class="size-5" />
@@ -488,6 +537,36 @@
           <Play class="size-5" />
         {/if}
       </button>
+
+      {#if destinationFolder}
+        <Tooltip.Provider delayDuration={300}>
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  onclick={retagAlbum}
+                  disabled={retagState === 'loading'}
+                  aria-label="Re-tag album"
+                  class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {#if retagState === 'loading'}
+                    <Loader2 class="size-4 animate-spin" />
+                  {:else if retagState === 'done'}
+                    <Check class="size-4 text-emerald-500" />
+                  {:else if retagState === 'error'}
+                    <TriangleAlert class="size-4 text-amber-500" />
+                  {:else}
+                    <RefreshCw class="size-4" />
+                  {/if}
+                </button>
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content>{retagTooltip}</Tooltip.Content>
+          </Tooltip.Root>
+        </Tooltip.Provider>
+      {/if}
 
       {#each [{ icon: Fingerprint, label: 'Re-fingerprint album' }, { icon: ImageIcon, label: 'Re-fetch artwork' }, { icon: Tag, label: 'Edit metadata' }, { icon: HardDrive, label: 'Reveal in destination' }, { icon: MoreHorizontal, label: 'More' }] as btn (btn.label)}
         <Tooltip.Provider delayDuration={300}>
@@ -498,7 +577,7 @@
                   {...props}
                   type="button"
                   aria-label={btn.label}
-                  class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-9 place-items-center rounded-full transition-colors"
+                  class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full transition-colors"
                 >
                   <btn.icon class="size-4" />
                 </button>

@@ -17,7 +17,7 @@ namespace MusicHoarder.Api.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.7")
+                .HasAnnotation("ProductVersion", "10.0.8")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -970,6 +970,9 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.Property<int>("Provider")
                         .HasColumnType("integer");
+
+                    b.Property<DateTime?>("RateLimitedSinceUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("RetryAfterUtc")
                         .HasColumnType("timestamp with time zone");

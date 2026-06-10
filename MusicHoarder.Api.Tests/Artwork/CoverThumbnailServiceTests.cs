@@ -1,9 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Artwork;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Png;
-using SixLabors.ImageSharp.Formats.Webp;
-using SixLabors.ImageSharp.PixelFormats;
+using SkiaSharp;
 
 namespace MusicHoarder.Api.Tests.Artwork;
 
@@ -25,8 +22,8 @@ public sealed class CoverThumbnailServiceTests : IDisposable
         Assert.NotNull(thumb.FilePath);
         Assert.True(File.Exists(thumb.FilePath));
 
-        var info = await Image.IdentifyAsync(thumb.FilePath!);
-        Assert.IsType<WebpFormat>(info.Metadata.DecodedImageFormat);
+        var info = Identify(thumb.FilePath!);
+        Assert.Equal(SKEncodedImageFormat.Webp, info.Format);
         Assert.True(info.Width <= 128 && info.Height <= 128, $"thumb {info.Width}x{info.Height} exceeds 128");
         // Aspect preserved (1000x800 → max edge 128).
         Assert.Equal(128, info.Width);
@@ -57,7 +54,7 @@ public sealed class CoverThumbnailServiceTests : IDisposable
 
         var thumb = await service.GetThumbnailAsync(FileCover(sourcePng), sourcePng, 128);
 
-        var info = await Image.IdentifyAsync(thumb!.FilePath!);
+        var info = Identify(thumb!.FilePath!);
         Assert.Equal(64, info.Width);
         Assert.Equal(64, info.Height);
     }
@@ -74,8 +71,8 @@ public sealed class CoverThumbnailServiceTests : IDisposable
             new ResolvedCover { Bytes = bytes, ContentType = "image/png" }, identity, 256);
 
         Assert.NotNull(thumb);
-        var info = await Image.IdentifyAsync(thumb!.FilePath!);
-        Assert.IsType<WebpFormat>(info.Metadata.DecodedImageFormat);
+        var info = Identify(thumb!.FilePath!);
+        Assert.Equal(SKEncodedImageFormat.Webp, info.Format);
         Assert.True(info.Width <= 256 && info.Height <= 256);
     }
 
@@ -100,12 +97,19 @@ public sealed class CoverThumbnailServiceTests : IDisposable
         return path;
     }
 
-    private static async Task<byte[]> PngBytesAsync(int w, int h)
+    private static Task<byte[]> PngBytesAsync(int w, int h)
     {
-        using var image = new Image<Rgba32>(w, h, new Rgba32(70, 130, 180));
-        using var ms = new MemoryStream();
-        await image.SaveAsync(ms, new PngEncoder());
-        return ms.ToArray();
+        using var bitmap = new SKBitmap(w, h);
+        bitmap.Erase(new SKColor(70, 130, 180));
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+        return Task.FromResult(data.ToArray());
+    }
+
+    private static (SKEncodedImageFormat Format, int Width, int Height) Identify(string path)
+    {
+        using var codec = SKCodec.Create(path);
+        return (codec.EncodedFormat, codec.Info.Width, codec.Info.Height);
     }
 
     public void Dispose()

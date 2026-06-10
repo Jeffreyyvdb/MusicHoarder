@@ -140,16 +140,18 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             }
         }
 
+        var now = DateTime.UtcNow;
+        var deferralWindow = TimeSpan.FromMinutes(_options.Value.RateLimitDeferralMinutes);
         var consensus = ConsensusEvaluator.Evaluate(
             song, enabledEnums, BuildIdentityOptions(), _options.Value.ConsensusCorroborationFloor,
-            _options.Value.PreferOriginalRelease);
+            _options.Value.PreferOriginalRelease, now, deferralWindow);
 
-        // Visibility safety net: a Pending verdict that isn't waiting on a rate-limited provider
-        // means no enabled provider can act on this song at all (e.g. no fingerprint and nothing
-        // searchable). Surface it for review so it stays visible in the library rather than
-        // dead-ending silently in Pending — we never force a terminal Failed for unmatched/leaked
-        // tracks (the user keeps them).
-        if (consensus.Status == EnrichmentStatus.Pending && !HasActiveRateLimit(song, enabledEnums))
+        // Visibility safety net: a Pending verdict that isn't waiting on a *fresh* rate-limited
+        // provider means no enabled provider can act on this song at all (e.g. no fingerprint and
+        // nothing searchable), or the rate-limit has gone stale. Surface it for review so it stays
+        // visible in the library rather than dead-ending silently in Pending — we never force a
+        // terminal Failed for unmatched/leaked tracks (the user keeps them).
+        if (consensus.Status == EnrichmentStatus.Pending && !HasFreshRateLimit(song, enabledEnums, now, deferralWindow))
             consensus = consensus with { Status = EnrichmentStatus.NeedsReview };
 
         // Nothing acted and the verdict is unchanged → no-op.
@@ -165,11 +167,15 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         return ToOutcome(song.EnrichmentStatus);
     }
 
-    private static bool HasActiveRateLimit(SongMetadata song, IReadOnlySet<EnrichmentProvider> enabled)
+    // A rate-limit only justifies keeping a song Pending while it's still within the deferral
+    // window. Once it's stale we let the song surface for review rather than waiting on a provider
+    // that may never recover.
+    private static bool HasFreshRateLimit(
+        SongMetadata song, IReadOnlySet<EnrichmentProvider> enabled, DateTime now, TimeSpan deferralWindow)
         => song.ProviderAttempts.Any(a =>
             enabled.Contains(a.Provider)
             && a.Status == ProviderAttemptStatus.RateLimited
-            && a.RetryAfterUtc > DateTime.UtcNow);
+            && (a.RateLimitedSinceUtc is null || now - a.RateLimitedSinceUtc.Value <= deferralWindow));
 
     private static EnrichmentOutcome ToOutcome(EnrichmentStatus status) => status switch
     {
@@ -357,12 +363,17 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         string? searchQuery = null,
         Dictionary<EnrichmentProvider, SongProviderAttempt>? existingAttempts = null)
     {
+        var now = DateTime.UtcNow;
         if (existingAttempts is not null && existingAttempts.TryGetValue(provider, out var existing))
         {
             existing.Status = status;
-            existing.AttemptedAtUtc = DateTime.UtcNow;
+            existing.AttemptedAtUtc = now;
             existing.RetryAfterUtc = retryAfterUtc;
             existing.NextRetryAfterUtc = nextRetryAfterUtc;
+            // Preserve the first-rate-limited time across repeats; clear it once the provider answers.
+            existing.RateLimitedSinceUtc = status == ProviderAttemptStatus.RateLimited
+                ? existing.RateLimitedSinceUtc ?? now
+                : null;
             existing.MatchedDataJson = matchedDataJson;
             existing.Error = error;
             existing.SearchQuery = searchQuery;
@@ -374,9 +385,10 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                 SongId = song.Id,
                 Provider = provider,
                 Status = status,
-                AttemptedAtUtc = DateTime.UtcNow,
+                AttemptedAtUtc = now,
                 RetryAfterUtc = retryAfterUtc,
                 NextRetryAfterUtc = nextRetryAfterUtc,
+                RateLimitedSinceUtc = status == ProviderAttemptStatus.RateLimited ? now : null,
                 MatchedDataJson = matchedDataJson,
                 Error = error,
                 SearchQuery = searchQuery,

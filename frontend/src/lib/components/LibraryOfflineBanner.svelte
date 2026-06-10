@@ -40,7 +40,7 @@
 {#if offline}
   <Alert.Root
     aria-live="polite"
-    class="mx-4 my-2 border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+    class="mx-4 my-2 w-auto border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
   >
     <TriangleAlert class="size-4" />
     <Alert.Description class="text-amber-700 dark:text-amber-400">

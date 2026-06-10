@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import {
     AlertCircle,
     Check,
@@ -58,8 +57,6 @@
     timelineHref?: string;
   };
   const { album, song, trackIndex, onClose, onResetEnrichment, timelineHref }: Props = $props();
-
-  onMount(() => playerStore.registerPanel());
 
   type TabId = 'metadata' | 'lyrics' | 'fingerprint' | 'enrichment';
   const TAB_DEFS: { value: TabId; label: string }[] = [
@@ -379,7 +376,7 @@
 </script>
 
 <aside
-  class="border-border bg-card flex h-full max-h-full min-h-0 flex-col overflow-hidden border-l mh-track-panel-enter"
+  class="flex h-full max-h-full min-h-0 flex-col overflow-hidden bg-transparent mh-track-panel-enter"
 >
   <!-- Header -->
   <div class="border-border flex items-start gap-3 border-b px-5 py-4">
