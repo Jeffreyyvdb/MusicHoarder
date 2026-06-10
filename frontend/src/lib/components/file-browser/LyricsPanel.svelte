@@ -56,15 +56,19 @@
   let loadedPlain = $state<string | null | undefined>(undefined);
   let loadState = $state<'idle' | 'loading' | 'error'>('idle');
 
-  // Re-sync from props whenever the parent passes new lyric content (e.g.
-  // switching tracks). The initial-only $state(prop) pattern would capture
-  // stale data after the first mount.
-  let syncedFromPropsApplied = false;
+  // Re-sync from props whenever the song changes. The detail panel reuses this
+  // one LyricsPanel instance across tracks (it isn't re-keyed per song), so a
+  // one-time guard would freeze the first song's lyrics and the auto-fetch
+  // below would never re-fire (loadedSynced stays truthy). Key the reset on
+  // songId — not on the lyric props — so an in-place fetch result for the same
+  // song doesn't clobber the text we just loaded.
+  let syncedForSongId: number | null = null;
   $effect(() => {
-    if (syncedFromPropsApplied) return;
+    if (syncedForSongId === songId) return;
+    syncedForSongId = songId;
     loadedSynced = syncedLyricsFromProps;
     loadedPlain = plainLyricsFromProps;
-    syncedFromPropsApplied = true;
+    loadState = 'idle';
   });
 
   let containerEl: HTMLDivElement | undefined = $state();
