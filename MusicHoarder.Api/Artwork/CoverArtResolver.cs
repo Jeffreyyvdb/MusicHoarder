@@ -167,6 +167,11 @@ public class CoverArtResolver(IFileSystem fileSystem, IEmbeddedPictureReader emb
             return "image/gif";
         }
 
+        if (data.Length >= 2 && data[0] == (byte)'B' && data[1] == (byte)'M')
+        {
+            return "image/bmp";
+        }
+
         return null;
     }
 }
