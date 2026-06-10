@@ -37,6 +37,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<SongMetadata> Songs { get; set; } = null!;
     public DbSet<SongProviderAttempt> SongProviderAttempts { get; set; } = null!;
     public DbSet<CanonicalAlbum> CanonicalAlbums { get; set; } = null!;
+    public DbSet<AlbumCoverFetchAttempt> AlbumCoverFetchAttempts { get; set; } = null!;
     public DbSet<CanonicalAlbumTrack> CanonicalAlbumTracks { get; set; } = null!;
     public DbSet<CanonicalAlbumQualityGrade> CanonicalAlbumQualityGrades { get; set; } = null!;
     public DbSet<SongMetadataChange> SongMetadataChanges { get; set; } = null!;
@@ -126,6 +127,14 @@ public class MusicHoarderDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.CanonicalAlbumId, e.DiscNumber, e.TrackNumber });
             entity.HasIndex(e => e.MusicBrainzRecordingId);
+        });
+
+        // External cover fetch cooldowns, keyed by destination album folder. Catalog-style (no
+        // per-user filter); the sweep deletes a folder's row once a cover lands on disk.
+        modelBuilder.Entity<AlbumCoverFetchAttempt>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.AlbumFolder).IsUnique();
         });
 
         // Owner-scoped AI grade of an album's reconciliation (judged against the owner's library).

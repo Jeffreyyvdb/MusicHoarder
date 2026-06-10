@@ -125,7 +125,6 @@ public class CoverArtBackfillBackgroundServiceTests
     private static async Task RunAsync(MusicHoarderDbContext db, IFileSystem fs, IEmbeddedPictureReader reader)
     {
         var resolver = new CoverArtResolver(fs, reader);
-        var writer = new AlbumCoverWriter(fs, resolver, NullLogger<AlbumCoverWriter>.Instance);
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
             SourceDirectory = "/source",
@@ -134,6 +133,8 @@ public class CoverArtBackfillBackgroundServiceTests
             LibraryBuilderWorkerConcurrency = 1,
             SmbConcurrency = 1
         });
+        var writer = new AlbumCoverWriter(
+            fs, resolver, new StubExternalCoverArtFetcher(), options, NullLogger<AlbumCoverWriter>.Instance);
 
         var service = new CoverArtBackfillBackgroundService(
             new FixedScopeFactory(db, fs, resolver, writer),

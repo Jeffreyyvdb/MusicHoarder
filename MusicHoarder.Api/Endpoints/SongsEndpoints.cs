@@ -371,6 +371,17 @@ public static class SongsEndpoints
             return Results.NotFound();
 
         var cover = coverArtResolver.Resolve(filePath);
+
+        // An artless source still gets a destination cover from the external fetch — serve that
+        // rather than 404ing just because the (preferred) source file resolved nothing.
+        if (cover is null
+            && filePath == song.SourcePath
+            && !string.IsNullOrEmpty(song.DestinationPath)
+            && File.Exists(song.DestinationPath))
+        {
+            cover = coverArtResolver.Resolve(song.DestinationPath);
+        }
+
         if (cover is null)
             return Results.NotFound();
 
