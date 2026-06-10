@@ -4,13 +4,13 @@
     Check,
     CheckCircle2,
     Copy,
-    FastForward,
     History,
     Loader2,
     Pause,
     Play,
-    Rewind,
     RotateCcw,
+    SkipBack,
+    SkipForward,
     Sparkles,
     X
   } from '@lucide/svelte';
@@ -182,14 +182,11 @@
     void playerStore.playSong(toPlayerSong(song, album.artist), queue, trackIndex);
   }
 
-  function skipBack() {
-    if (!isCurrentlyLoaded) return;
-    playerStore.seek(Math.max(0, playerStore.currentTime - 10));
-  }
-  function skipForward() {
-    if (!isCurrentlyLoaded) return;
-    playerStore.seek(Math.min(playerStore.duration, playerStore.currentTime + 10));
-  }
+  // Prev/next walk the active playback queue (the album/list the current song
+  // was started from), so they only act while this panel's track is the one
+  // loaded in the player; otherwise there's no queue position to move within.
+  const canGoPrevious = $derived(isCurrentlyLoaded && playerStore.hasPrevious);
+  const canGoNext = $derived(isCurrentlyLoaded && playerStore.hasNext);
 
   async function handleResetEnrichment() {
     resetState = 'loading';
@@ -709,8 +706,15 @@
         {isCurrentlyLoaded ? formatTime(playerStore.currentTime) : '0:00'}
       </span>
       <div class="mx-auto flex items-center gap-1">
-        <Button variant="ghost" size="icon" class="size-7" onclick={skipBack} aria-label="Skip back 10s">
-          <Rewind class="size-3.5" />
+        <Button
+          variant="ghost"
+          size="icon"
+          class="size-7 disabled:opacity-40"
+          onclick={() => playerStore.playPrevious()}
+          disabled={!canGoPrevious}
+          aria-label="Previous track"
+        >
+          <SkipBack class="size-3.5" />
         </Button>
         <Button
           variant="ghost"
@@ -730,8 +734,15 @@
             <Play class="size-4 translate-x-px" />
           {/if}
         </Button>
-        <Button variant="ghost" size="icon" class="size-7" onclick={skipForward} aria-label="Skip forward 10s">
-          <FastForward class="size-3.5" />
+        <Button
+          variant="ghost"
+          size="icon"
+          class="size-7 disabled:opacity-40"
+          onclick={() => playerStore.playNext()}
+          disabled={!canGoNext}
+          aria-label="Next track"
+        >
+          <SkipForward class="size-3.5" />
         </Button>
       </div>
       <span class="text-muted-foreground w-9 shrink-0 font-mono text-[10.5px] tabular-nums">
