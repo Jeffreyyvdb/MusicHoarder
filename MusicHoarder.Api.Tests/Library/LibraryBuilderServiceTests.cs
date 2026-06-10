@@ -6,6 +6,7 @@ using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Tests.Artwork;
 using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
 using System.Reflection;
@@ -693,6 +694,39 @@ public class LibraryBuilderServiceTests
     }
 
     [Fact]
+    public async Task ProcessNextBatchAsync_FetchesExternalCover_WhenSourceHasNoArt()
+    {
+        var sourcePath = "/source/track.mp3";
+        var pngBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 1, 2, 3 };
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourcePath, 5, musicBrainzReleaseId: "rel-1"));
+        await db.SaveChangesAsync();
+
+        var fetcher = new StubExternalCoverArtFetcher
+        {
+            Result = new ExternalCoverArtFetchResult(new FetchedCoverArt(pngBytes, "image/png", "coverartarchive"), false),
+        };
+        var service = CreateService(db, fileSystem, new RecordingTagWriter(), externalFetcher: fetcher);
+
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        // The fetch was keyed by the reconciled identity's release MBID and album/artist names.
+        var query = Assert.Single(fetcher.Calls);
+        Assert.Equal("rel-1", query.MusicBrainzReleaseId);
+        Assert.Equal("Album", query.Album);
+
+        Assert.Equal(pngBytes, fileSystem.File.ReadAllBytes("/dest/Artist/2026 - Album/cover.png"));
+        var cover = Assert.Single(
+            await db.LibraryWriteEvents.Where(e => e.Kind == LibraryWriteEventKind.AlbumCoverWritten).ToListAsync());
+        Assert.Equal("fetched:coverartarchive", cover.NewValue);
+    }
+
+    [Fact]
     public async Task ProcessNextBatchAsync_RecordsNoCoverEvent_WhenCoverAlreadyExists()
     {
         var sourcePath = "/source/track.mp3";
@@ -722,7 +756,8 @@ public class LibraryBuilderServiceTests
         ILibraryTagWriter tagWriter,
         IEmbeddedPictureReader? embeddedReader = null,
         int batchSize = 100,
-        bool enableAlbumIdentityReconciliation = true)
+        bool enableAlbumIdentityReconciliation = true,
+        IExternalCoverArtFetcher? externalFetcher = null)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
@@ -742,7 +777,9 @@ public class LibraryBuilderServiceTests
         // Use the real resolver/writer over the mock filesystem so folder-image detection/writing is
         // exercised end-to-end; the embedded-picture reader (which would touch TagLib) is faked.
         var coverResolver = new CoverArtResolver(fileSystem, embeddedReader ?? new StubEmbeddedPictureReader());
-        var coverWriter = new AlbumCoverWriter(fileSystem, coverResolver, NullLogger<AlbumCoverWriter>.Instance);
+        var coverWriter = new AlbumCoverWriter(
+            fileSystem, coverResolver, externalFetcher ?? new StubExternalCoverArtFetcher(), options,
+            NullLogger<AlbumCoverWriter>.Instance);
 
         return new LibraryBuilderService(
             scopeFactory,

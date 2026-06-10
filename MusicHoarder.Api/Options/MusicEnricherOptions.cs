@@ -293,6 +293,48 @@ public class MusicEnricherOptions
     [Range(1, 10080)]
     public int CanonicalAlbumFailedRetryMinutes { get; set; } = 60;
 
+    // --- External cover art (destination folder covers) ---
+
+    /// <summary>
+    /// Fetch a front cover from external providers (Cover Art Archive → Deezer → iTunes) when an
+    /// album's source files carry no art, and write it as the destination folder's <c>cover.&lt;ext&gt;</c>.
+    /// Master switch for both the build-time fallback and the periodic back-catalog sweep.
+    /// </summary>
+    public bool EnableExternalCoverArtFetch { get; set; } = true;
+
+    /// <summary>Try the Cover Art Archive (keyed by MusicBrainz release / release-group MBID) first.</summary>
+    public bool EnableCoverArtArchiveCovers { get; set; } = true;
+
+    /// <summary>Fall back to Deezer album search (<c>cover_xl</c>) when the Cover Art Archive has nothing.</summary>
+    public bool EnableDeezerCovers { get; set; } = true;
+
+    /// <summary>Fall back to iTunes album search (artwork upgraded to 3000x3000) as the last resort.</summary>
+    public bool EnableAppleMusicCovers { get; set; } = true;
+
+    /// <summary>Max Cover Art Archive requests per second (MusicBrainz policy is 1 req/s per app).</summary>
+    [Range(1, 5)]
+    public int CoverArtArchiveRequestsPerSecond { get; set; } = 1;
+
+    /// <summary>Minutes between periodic sweeps that fetch covers for built albums still missing one.</summary>
+    [Range(1, 10080)]
+    public int ExternalCoverArtSweepIntervalMinutes { get; set; } = 360;
+
+    /// <summary>Max album folders attempted per external cover sweep cycle.</summary>
+    [Range(1, 500)]
+    public int ExternalCoverArtSweepBatchSize { get; set; } = 25;
+
+    /// <summary>Days before an album with no cover on any provider is retried (catalogs grow). 0 = never.</summary>
+    [Range(0, 365)]
+    public int ExternalCoverArtNotFoundRetryDays { get; set; } = 7;
+
+    /// <summary>Hours to back off before retrying an album whose cover fetch failed transiently.</summary>
+    [Range(1, 720)]
+    public int ExternalCoverArtFailedRetryHours { get; set; } = 24;
+
+    /// <summary>Reject fetched images smaller than this (placeholder/error bodies, not real covers).</summary>
+    [Range(0, 1_000_000)]
+    public int ExternalCoverArtMinImageBytes { get; set; } = 4096;
+
     /// <summary>Days before a terminal NoMatch provider attempt is retried (catalogs grow). 0 = never.</summary>
     [Range(0, 3650)]
     public int EnrichmentNoMatchRetryDays { get; set; } = 30;

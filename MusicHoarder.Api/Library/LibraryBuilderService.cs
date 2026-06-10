@@ -221,11 +221,15 @@ internal sealed record LibraryBuildTrackResult(
     Guid OwnerUserId = default,
     int SongId = 0,
     string? Album = null,
-    string? AlbumArtist = null);
+    string? AlbumArtist = null,
+    string? MusicBrainzReleaseId = null,
+    string? MusicBrainzReleaseGroupId = null);
 
-// What the post-batch cover pass needs to write one cover.* per folder and record the write.
+// What the post-batch cover pass needs to write one cover.* per folder and record the write. The
+// MBIDs (from the reconciled album identity) key the external cover fetch when source art is absent.
 internal sealed record CoverPassEntry(
-    string SourcePath, Guid OwnerUserId, int SongId, string? Album, string? AlbumArtist);
+    string SourcePath, Guid OwnerUserId, int SongId, string? Album, string? AlbumArtist,
+    string? MusicBrainzReleaseId, string? MusicBrainzReleaseGroupId);
 
 public class LibraryBuilderService(
     IServiceScopeFactory scopeFactory,
@@ -337,7 +341,8 @@ public class LibraryBuilderService(
                                 if (!string.IsNullOrEmpty(directory))
                                 {
                                     coverDirectories.TryAdd(directory, new CoverPassEntry(
-                                        result.SourcePath, result.OwnerUserId, result.SongId, result.Album, result.AlbumArtist));
+                                        result.SourcePath, result.OwnerUserId, result.SongId, result.Album, result.AlbumArtist,
+                                        result.MusicBrainzReleaseId, result.MusicBrainzReleaseGroupId));
                                 }
                             }
                             break;
@@ -464,7 +469,8 @@ public class LibraryBuilderService(
                         song.TrackLabel, songId, existingSize);
                     return new LibraryBuildTrackResult(
                         LibraryBuildOutcome.Done, song.SourcePath, song.IsUnreleased,
-                        song.OwnerUserId, song.Id, identity.Album, EffectiveAlbumArtist(song, identity));
+                        song.OwnerUserId, song.Id, identity.Album, EffectiveAlbumArtist(song, identity),
+                        identity.MusicBrainzReleaseId, identity.MusicBrainzReleaseGroupId);
                 }
             }
 
@@ -510,7 +516,8 @@ public class LibraryBuilderService(
 
             return new LibraryBuildTrackResult(
                 LibraryBuildOutcome.Done, song.SourcePath, song.IsUnreleased,
-                song.OwnerUserId, song.Id, identity.Album, EffectiveAlbumArtist(song, identity));
+                song.OwnerUserId, song.Id, identity.Album, EffectiveAlbumArtist(song, identity),
+                identity.MusicBrainzReleaseId, identity.MusicBrainzReleaseGroupId);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -531,9 +538,10 @@ public class LibraryBuilderService(
 
     // Writes a cover.<ext> into each freshly-built album folder that doesn't already have a
     // cover/folder/front.* image, lifting art from a representative source track (folder image first,
-    // else embedded — Navidrome's order). One task per directory, so no intra-album races. Best-effort:
-    // a cover failure never fails the build. When a cover is actually written it records an
-    // AlbumCoverWritten event so the History feed can surface "Cover art added for <album>".
+    // else embedded — Navidrome's order), and falling back to external providers (Cover Art Archive →
+    // Deezer → iTunes) when the source has none. One task per directory, so no intra-album races.
+    // Best-effort: a cover failure never fails the build. When a cover is actually written it records
+    // an AlbumCoverWritten event so the History feed can surface "Cover art added for <album>".
     private async Task WriteAlbumCoversAsync(
         ConcurrentDictionary<string, CoverPassEntry> directories,
         Guid runId,
@@ -551,7 +559,12 @@ public class LibraryBuilderService(
             async (entry, token) =>
             {
                 var payload = entry.Value;
-                if (!albumCoverWriter.WriteIfMissing(entry.Key, payload.SourcePath))
+                var externalQuery = new ExternalCoverArtQuery(
+                    payload.MusicBrainzReleaseId, payload.MusicBrainzReleaseGroupId,
+                    payload.AlbumArtist, payload.Album);
+                var result = await albumCoverWriter.WriteIfMissingAsync(
+                    entry.Key, payload.SourcePath, externalQuery, token);
+                if (!result.Written)
                 {
                     return;
                 }
@@ -569,7 +582,7 @@ public class LibraryBuilderService(
                     AlbumArtist = payload.AlbumArtist,
                     Album = payload.Album,
                     FieldName = "Cover",
-                    NewValue = "written",
+                    NewValue = result.Source == "source" ? "written" : $"fetched:{result.Source}",
                 });
                 await db.SaveChangesAsync(token);
             });

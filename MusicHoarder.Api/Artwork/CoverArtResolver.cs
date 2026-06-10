@@ -144,7 +144,7 @@ public class CoverArtResolver(IFileSystem fileSystem, IEmbeddedPictureReader emb
         return SniffImageMime(data) ?? "image/jpeg";
     }
 
-    private static string? SniffImageMime(byte[] data)
+    internal static string? SniffImageMime(byte[] data)
     {
         if (data.Length >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF)
         {
@@ -165,6 +165,11 @@ public class CoverArtResolver(IFileSystem fileSystem, IEmbeddedPictureReader emb
         if (data.Length >= 6 && data[0] == (byte)'G' && data[1] == (byte)'I' && data[2] == (byte)'F')
         {
             return "image/gif";
+        }
+
+        if (data.Length >= 2 && data[0] == (byte)'B' && data[1] == (byte)'M')
+        {
+            return "image/bmp";
         }
 
         return null;
