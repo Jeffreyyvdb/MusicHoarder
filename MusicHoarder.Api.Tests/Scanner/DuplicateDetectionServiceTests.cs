@@ -262,8 +262,10 @@ public class DuplicateDetectionServiceTests
         await using var db = CreateDbContext();
         var flac = CreateSong(1, "/a/track.flac", ".flac", "FP_M", bitrate: null, size: 50_000_000);
         flac.EnrichmentStatus = EnrichmentStatus.Matched;
+        flac.LyricsStatus = LyricsStatus.Fetched;
         var mp3 = CreateSong(2, "/b/track.mp3", ".mp3", "FP_M", bitrate: 320, size: 10_000_000);
         mp3.EnrichmentStatus = EnrichmentStatus.Matched;
+        mp3.LyricsStatus = LyricsStatus.Fetched;
         db.Songs.AddRange(flac, mp3);
         await db.SaveChangesAsync();
 

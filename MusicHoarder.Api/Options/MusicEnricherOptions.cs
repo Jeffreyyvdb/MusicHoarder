@@ -415,6 +415,20 @@ public class MusicEnricherOptions
     public int LibraryBuilderIdleDelaySeconds { get; set; } = 20;
 
     /// <summary>
+    /// How long a freshly-matched track waits for its lyrics fetch to resolve before the builder tags it.
+    /// Enrichment commits <c>Matched</c> *before* the LRCLIB lyrics fetch returns (see
+    /// <c>EnrichmentOrchestrator</c>), so without this gate the build can copy+tag the destination file in
+    /// that window and Navidrome reads a file with no embedded lyrics even though MusicHoarder's DB has
+    /// them. The wait is bounded by <see cref="SongMetadata.EnrichedAtUtc"/>: once a match is older than
+    /// this many minutes the track builds regardless (lyrics normally resolve in seconds; a manual approval
+    /// never fetches lyrics, so an unbounded wait would stall it forever — the rebuild-on-lyrics-change
+    /// interceptor still re-tags if lyrics arrive late). Forced re-tags and tracks with no title/artist
+    /// (can't fetch lyrics) never wait. Set to 0 to disable the gate. Default 5.
+    /// </summary>
+    [Range(0, 1440)]
+    public int LyricsBeforeBuildWaitMinutes { get; set; } = 5;
+
+    /// <summary>
     /// Harmonize album-identity tags (release id, album name, year, disc count, compilation, release
     /// types, album-artist mbids) across all tracks that build into the same destination album folder,
     /// so a single on-disk album isn't split by a server's MusicBrainz-release grouping key (e.g.

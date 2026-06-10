@@ -255,16 +255,11 @@ public class LibraryBuilderService(
         {
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
             // Background service: bypass the per-user query filter. Skip synthetic (demo) rows —
-            // they have no real source file to copy and are pre-seeded as Done.
-            var rawCandidates = await db.Songs
-                .IgnoreQueryFilters()
-                .AsNoTracking()
-                .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
-                .Where(s => !s.IsDuplicate)
-                .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched)
-                .Where(s => s.LibraryBuildStatus != LibraryBuildStatus.Done
-                    || s.DestinationPath == null
-                    || s.PreviousDestinationPath != null)
+            // they have no real source file to copy and are pre-seeded as Done. A fresh build also
+            // waits (bounded) for the per-song lyrics fetch so the file lands with lyrics embedded.
+            var rawCandidates = await LibraryBuildQuery.BuildCandidates(
+                    db.Songs.IgnoreQueryFilters().AsNoTracking(),
+                    LibraryBuildQuery.LyricsWaitCutoff(opts))
                 .OrderBy(s => s.Id)
                 .Take(opts.LibraryBuilderBatchSize)
                 .ToListAsync(ct);

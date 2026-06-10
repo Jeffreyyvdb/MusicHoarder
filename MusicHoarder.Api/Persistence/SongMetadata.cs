@@ -193,7 +193,13 @@ public class SongMetadata
         !IsDeleted
         && !IsDuplicate
         && EnrichmentStatus == EnrichmentStatus.Matched
-        && LibraryBuildStatus != LibraryBuildStatus.Done;
+        && LibraryBuildStatus != LibraryBuildStatus.Done
+        // Hold a fresh build until the lyrics fetch has resolved, so the file is tagged with lyrics in
+        // one pass (enrichment commits Matched before the lyrics fetch returns). Tracks that can't be
+        // searched for lyrics (no title/artist) aren't held. The builder additionally bounds this wait
+        // by time (LyricsBeforeBuildWaitMinutes) so a never-fetched match — e.g. a manual approval —
+        // still builds; that time relaxation lives in LibraryBuildQuery, not this pure predicate.
+        && (LyricsStatus != LyricsStatus.NotFetched || !IsReadyForLyricsFetch);
 
     public string TrackLabel
     {
