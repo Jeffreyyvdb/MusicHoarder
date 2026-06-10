@@ -28,16 +28,18 @@ public class SongMetadataCanonicalCorrectionTests
     {
         var song = Song();
 
-        var changes = song.ApplyCanonicalCorrection("A Love Letter To You 4 (Deluxe)", 2019, 20, 1);
+        var changes = song.ApplyCanonicalCorrection("A Love Letter To You 4 (Deluxe)", "Trippie Redd", 2019, 20, 1);
 
         Assert.Equal("A Love Letter To You 4 (Deluxe)", song.Album);
+        Assert.Equal("Trippie Redd", song.AlbumArtist);
         Assert.Equal(2019, song.Year);
         Assert.Equal(20, song.TrackNumber);
         Assert.Equal(1, song.DiscNumber);
 
-        // Disc was already 1 -> not reported; the other three changed.
-        Assert.Equal(3, changes.Count);
+        // Disc was already 1 -> not reported; album, album-artist, year and track changed.
+        Assert.Equal(4, changes.Count);
         Assert.Contains(changes, c => c.Field == nameof(SongMetadata.Album) && c.OldValue == "A Love Letter to You 4");
+        Assert.Contains(changes, c => c.Field == nameof(SongMetadata.AlbumArtist) && c.NewValue == "Trippie Redd");
         Assert.Contains(changes, c => c.Field == nameof(SongMetadata.Year) && c.OldValue == "2020" && c.NewValue == "2019");
         Assert.Contains(changes, c => c.Field == nameof(SongMetadata.TrackNumber) && c.OldValue == "12" && c.NewValue == "20");
 
@@ -56,9 +58,9 @@ public class SongMetadataCanonicalCorrectionTests
     public void ApplyCanonicalCorrection_IsIdempotent()
     {
         var song = Song();
-        song.ApplyCanonicalCorrection("A Love Letter To You 4 (Deluxe)", 2019, 20, 1);
+        song.ApplyCanonicalCorrection("A Love Letter To You 4 (Deluxe)", "Trippie Redd", 2019, 20, 1);
 
-        var second = song.ApplyCanonicalCorrection("A Love Letter To You 4 (Deluxe)", 2019, 20, 1);
+        var second = song.ApplyCanonicalCorrection("A Love Letter To You 4 (Deluxe)", "Trippie Redd", 2019, 20, 1);
         Assert.Empty(second);
     }
 
@@ -66,7 +68,7 @@ public class SongMetadataCanonicalCorrectionTests
     public void ApplyCanonicalCorrection_RestoreOriginalMetadata_Reverts()
     {
         var song = Song();
-        song.ApplyCanonicalCorrection("A Love Letter To You 4 (Deluxe)", 2019, 20, 1);
+        song.ApplyCanonicalCorrection("A Love Letter To You 4 (Deluxe)", "Trippie Redd", 2019, 20, 1);
 
         song.RestoreOriginalMetadata();
 
@@ -79,7 +81,7 @@ public class SongMetadataCanonicalCorrectionTests
     public void ApplyCanonicalCorrection_IgnoresNullOrNonPositiveInputs()
     {
         var song = Song();
-        var changes = song.ApplyCanonicalCorrection(album: null, year: null, trackNumber: null, discNumber: null);
+        var changes = song.ApplyCanonicalCorrection(album: null, albumArtist: null, year: null, trackNumber: null, discNumber: null);
 
         Assert.Empty(changes);
         Assert.Equal("A Love Letter to You 4", song.Album);

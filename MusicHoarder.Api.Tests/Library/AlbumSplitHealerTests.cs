@@ -234,6 +234,112 @@ public class AlbumSplitHealerTests
         Assert.Empty(await db.SongMetadataChanges.ToListAsync());
     }
 
+    [Fact]
+    public async Task HealAsync_ProviderArtistSpellingSplit_ConvergesOnCanonicalDisplayArtist()
+    {
+        await using var db = NewContext();
+        // Same real album, but providers disagree on the artist spelling, so per-track enrichment
+        // tagged some "Lauryn Hill" and some "Ms. Lauryn Hill" — two artist keys, two destination
+        // folders, two artist cards. The folder-keyed build vote can't bridge them; the canonical
+        // album (both rows resolved by the album-enrichment pipeline to "Ms. Lauryn Hill") can.
+        SeedMiseducationCanonical(db);
+        for (var i = 1; i <= 3; i++)
+            db.Songs.Add(MiseducationSong($"/lh{i}.flac", $"Track {i}", i, "Lauryn Hill"));
+        db.Songs.Add(MiseducationSong("/mlh1.flac", "Track 4", 4, "Ms. Lauryn Hill"));
+        await db.SaveChangesAsync();
+
+        var result = await Healer(db).HealAsync();
+
+        Assert.Equal(1, result.GroupsHealed);   // only the "Lauryn Hill" group changes
+        Assert.Equal(3, result.SongsCorrected);
+        Assert.Equal(3, result.SongsRequeued);
+
+        var songs = await db.Songs.ToListAsync();
+        Assert.All(songs, s => Assert.Equal("Ms. Lauryn Hill", s.AlbumArtist));
+        // Grade-staleness guard: enrichment timestamp untouched.
+        Assert.All(songs, s => Assert.Equal(EnrichedAt, s.EnrichedAtUtc));
+    }
+
+    [Fact]
+    public async Task HealAsync_NoCanonicalAlbum_KeepsMajorityTagBehaviour()
+    {
+        await using var db = NewContext();
+        // No canonical rows seeded — each spelling group internally agrees, so nothing changes
+        // (the heal must not invent a winner from thin air).
+        for (var i = 1; i <= 3; i++)
+            db.Songs.Add(MiseducationSong($"/lh{i}.flac", $"Track {i}", i, "Lauryn Hill"));
+        db.Songs.Add(MiseducationSong("/mlh1.flac", "Track 4", 4, "Ms. Lauryn Hill"));
+        await db.SaveChangesAsync();
+
+        var result = await Healer(db).HealAsync();
+
+        Assert.Equal(new AlbumSplitHealResult(0, 0, 0), result);
+        var songs = await db.Songs.ToListAsync();
+        Assert.Equal(3, songs.Count(s => s.AlbumArtist == "Lauryn Hill"));
+        Assert.Equal(1, songs.Count(s => s.AlbumArtist == "Ms. Lauryn Hill"));
+    }
+
+    [Fact]
+    public async Task HealAsync_CanonicalDrivenBuildDisabled_SkipsCanonicalOverlay()
+    {
+        await using var db = NewContext();
+        SeedMiseducationCanonical(db);
+        for (var i = 1; i <= 3; i++)
+            db.Songs.Add(MiseducationSong($"/lh{i}.flac", $"Track {i}", i, "Lauryn Hill"));
+        db.Songs.Add(MiseducationSong("/mlh1.flac", "Track 4", 4, "Ms. Lauryn Hill"));
+        await db.SaveChangesAsync();
+
+        var result = await Healer(db, canonicalDrivenBuild: false).HealAsync();
+
+        Assert.Equal(new AlbumSplitHealResult(0, 0, 0), result);
+        Assert.Equal(3, await db.Songs.CountAsync(s => s.AlbumArtist == "Lauryn Hill"));
+    }
+
+    [Fact]
+    public async Task HealAsync_CanonicalArtistDiffersOnlyByCase_NoChurn()
+    {
+        await using var db = NewContext();
+        // Canonical DisplayArtist normalizes to the same key as the member tags — a cosmetic-only
+        // difference must not relocate the whole album.
+        db.CanonicalAlbums.Add(new CanonicalAlbum
+        {
+            ArtistKey = "lauryn hill",
+            AlbumKey = "the miseducation of lauryn hill",
+            DisplayTitle = "The Miseducation of Lauryn Hill",
+            DisplayArtist = "lauryn hill", // lowercase variant of the members' "Lauryn Hill"
+            Year = 1998,
+            Status = CanonicalAlbumStatus.Fetched,
+        });
+        db.Songs.Add(MiseducationSong("/lh1.flac", "Track 1", 1, "Lauryn Hill"));
+        db.Songs.Add(MiseducationSong("/lh2.flac", "Track 2", 2, "Lauryn Hill"));
+        await db.SaveChangesAsync();
+
+        var result = await Healer(db).HealAsync();
+
+        Assert.Equal(new AlbumSplitHealResult(0, 0, 0), result);
+        Assert.Equal(2, await db.Songs.CountAsync(s => s.AlbumArtist == "Lauryn Hill"));
+    }
+
+    // Both canonical rows the album-enrichment pipeline fetches for this album (one per artist-spelling
+    // key) resolve to the same authoritative DisplayArtist — mirroring the observed prod data.
+    private static void SeedMiseducationCanonical(MusicHoarderDbContext db)
+    {
+        foreach (var artistKey in new[] { "lauryn hill", "ms lauryn hill" })
+            db.CanonicalAlbums.Add(new CanonicalAlbum
+            {
+                ArtistKey = artistKey,
+                AlbumKey = "the miseducation of lauryn hill",
+                DisplayTitle = "The Miseducation of Lauryn Hill",
+                DisplayArtist = "Ms. Lauryn Hill",
+                Year = 1998,
+                Status = CanonicalAlbumStatus.Fetched,
+            });
+    }
+
+    private static SongMetadata MiseducationSong(string path, string title, int trackNumber, string albumArtist) =>
+        Song(path, title, trackNumber, year: 1998, album: "The Miseducation of Lauryn Hill",
+            artist: albumArtist, albumArtist: albumArtist);
+
     private static MusicHoarderDbContext NewContext()
     {
         var options = new DbContextOptionsBuilder<MusicHoarderDbContext>()
@@ -242,11 +348,17 @@ public class AlbumSplitHealerTests
         return new MusicHoarderDbContext(options);
     }
 
-    private static IAlbumSplitHealer Healer(MusicHoarderDbContext db) => new AlbumSplitHealer(
+    private static IAlbumSplitHealer Healer(MusicHoarderDbContext db, bool canonicalDrivenBuild = true) => new AlbumSplitHealer(
         db,
         new AlbumIdentityReconciler(),
         new DestinationPathResolver(Microsoft.Extensions.Options.Options.Create(
             new MusicEnricherOptions { SourceDirectory = "/source", DestinationDirectory = "/dest" })),
+        Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
+        {
+            SourceDirectory = "/source",
+            DestinationDirectory = "/dest",
+            EnableCanonicalDrivenBuild = canonicalDrivenBuild,
+        }),
         NullLogger<AlbumSplitHealer>.Instance);
 
     private static SongMetadata Song(
@@ -257,7 +369,9 @@ public class AlbumSplitHealerTests
         string album = "Graduation",
         string? releaseId = null,
         LibraryBuildStatus buildStatus = LibraryBuildStatus.Done,
-        string? destinationPath = "unset") => new()
+        string? destinationPath = "unset",
+        string artist = "Kanye West",
+        string albumArtist = "Kanye West") => new()
     {
         OwnerUserId = WellKnownUsers.OwnerId,
         SourcePath = sourcePath,
@@ -269,8 +383,8 @@ public class AlbumSplitHealerTests
         EnrichmentStatus = EnrichmentStatus.Matched,
         EnrichedAtUtc = EnrichedAt,
         OriginalMetadataCaptured = true,
-        Artist = "Kanye West",
-        AlbumArtist = "Kanye West",
+        Artist = artist,
+        AlbumArtist = albumArtist,
         Album = album,
         Title = title,
         TrackNumber = trackNumber,
@@ -278,7 +392,7 @@ public class AlbumSplitHealerTests
         MusicBrainzReleaseId = releaseId,
         LibraryBuildStatus = buildStatus,
         DestinationPath = destinationPath == "unset"
-            ? $"/dest/Kanye West/{year} - {album}/{trackNumber:00} - {title}.flac"
+            ? $"/dest/{albumArtist}/{year} - {album}/{trackNumber:00} - {title}.flac"
             : destinationPath,
     };
 }
