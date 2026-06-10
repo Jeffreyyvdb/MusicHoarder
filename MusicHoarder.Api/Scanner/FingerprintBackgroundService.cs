@@ -176,7 +176,7 @@ public class FingerprintBackgroundService(
         if (batch.Count == 0) return 0;
 
         var semaphore = new SemaphoreSlim(opts.FingerprintConcurrency, opts.FingerprintConcurrency);
-        var results = new List<(int Id, FpcalcResult? Result)>();
+        var results = new List<(int Id, FpcalcOutcome Outcome)>();
         var resultsLock = new object();
 
         await Parallel.ForEachAsync(
@@ -191,10 +191,10 @@ public class FingerprintBackgroundService(
                 await semaphore.WaitAsync(token);
                 try
                 {
-                    var result = await fpcalcService.GetFingerprintAsync(item.SourcePath, token);
+                    var outcome = await fpcalcService.GetFingerprintAsync(item.SourcePath, token);
                     lock (resultsLock)
                     {
-                        results.Add((item.Id, result));
+                        results.Add((item.Id, outcome));
                     }
                 }
                 finally
@@ -211,11 +211,11 @@ public class FingerprintBackgroundService(
             .Where(s => ids.Contains(s.Id))
             .ToDictionaryAsync(s => s.Id, ct);
 
-        foreach (var (id, result) in results)
+        foreach (var (id, outcome) in results)
         {
             if (!songs.TryGetValue(id, out var song)) continue;
 
-            if (result is not null)
+            if (outcome.Result is { } result)
             {
                 song.Fingerprint = result.Fingerprint;
                 song.DurationSeconds = result.DurationSeconds;
@@ -225,14 +225,15 @@ public class FingerprintBackgroundService(
             {
                 _permanentlyFailed.Add(id);
                 progressTracker.IncrementFailed();
-                logger.LogWarning("fpcalc returned null for song {Id} ({Path})", id, song.SourcePath);
+                logger.LogWarning("fpcalc failed for song {Id} ({Path}): {Reason}",
+                    id, song.SourcePath, outcome.FailureReason);
             }
         }
 
         await db2.SaveChangesAsync(ct);
 
         var fingerprintedIds = results
-            .Where(r => r.Result is not null)
+            .Where(r => r.Outcome.Result is not null)
             .Select(r => r.Id)
             .ToList();
         if (fingerprintedIds.Count > 0)

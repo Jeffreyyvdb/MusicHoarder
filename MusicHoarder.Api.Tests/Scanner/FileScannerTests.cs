@@ -72,7 +72,7 @@ public class FileScannerTests : IDisposable
     // tagsOnly scans never call fpcalc; this just satisfies the dependency.
     private sealed class NullFpcalcService : IFpcalcService
     {
-        public Task<FpcalcResult?> GetFingerprintAsync(string filePath, CancellationToken ct = default) =>
-            Task.FromResult<FpcalcResult?>(null);
+        public Task<FpcalcOutcome> GetFingerprintAsync(string filePath, CancellationToken ct = default) =>
+            Task.FromResult(FpcalcOutcome.Failure("test"));
     }
 }
