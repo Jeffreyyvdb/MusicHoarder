@@ -293,7 +293,14 @@
   {/if}
 {/snippet}
 
-<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+<!--
+  @container: column visibility is driven by the table's own width, not the
+  viewport — the nav sidebar and the global song-detail panel can shrink this
+  area well below viewport breakpoints. Tiers: @xl adds artist+format, @3xl
+  adds album+year, @5xl adds size+match(+bitrate). Header and row grid
+  templates below must stay identical per tier.
+-->
+<div class="@container flex min-h-0 flex-1 flex-col overflow-hidden">
   {#if !hideHeading}
     <!-- Header band -->
     <div class="border-border bg-card/30 flex items-start justify-between gap-4 border-b px-4 py-5 md:px-6">
@@ -367,18 +374,21 @@
   <div
     class={cn(
       'border-border text-muted-foreground grid shrink-0 items-center gap-3 border-b px-5 py-2.5',
-      'grid-cols-[40px_40px_minmax(0,1fr)_52px] sm:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.9fr)_52px_104px_72px_128px_52px]'
+      'grid-cols-[40px_40px_minmax(0,1fr)_52px]',
+      '@xl:grid-cols-[40px_40px_minmax(0,1.5fr)_minmax(0,1fr)_56px_52px]',
+      '@3xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_44px_56px_52px]',
+      '@5xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.9fr)_52px_104px_72px_128px_52px]'
     )}
   >
     <span class="text-right text-[10px] font-semibold tracking-wider uppercase">#</span>
     <span></span>
     {@render sortHead('title', 'Title')}
-    <span class="hidden sm:block">{@render sortHead('artist', 'Artist')}</span>
-    <span class="hidden sm:block">{@render sortHead('album', 'Album')}</span>
-    <span class="hidden sm:block">{@render sortHead('year', 'Year')}</span>
-    <span class="hidden text-[10px] font-semibold tracking-wider uppercase sm:block">Format</span>
-    <span class="hidden sm:block">{@render sortHead('size', 'Size')}</span>
-    <span class="hidden sm:block">{@render sortHead('match', 'Match')}</span>
+    <span class="hidden @xl:block">{@render sortHead('artist', 'Artist')}</span>
+    <span class="hidden @3xl:block">{@render sortHead('album', 'Album')}</span>
+    <span class="hidden @3xl:block">{@render sortHead('year', 'Year')}</span>
+    <span class="hidden text-[10px] font-semibold tracking-wider uppercase @xl:block">Format</span>
+    <span class="hidden @5xl:block">{@render sortHead('size', 'Size')}</span>
+    <span class="hidden @5xl:block">{@render sortHead('match', 'Match')}</span>
     <button
       type="button"
       onclick={() => toggleSort('dur')}
@@ -427,7 +437,10 @@
             onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && onSelect(song)}
             class={cn(
               'group absolute right-0 left-0 grid cursor-pointer items-center gap-3 rounded-md px-3',
-              'grid-cols-[40px_40px_minmax(0,1fr)_52px] sm:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.9fr)_52px_104px_72px_128px_52px]',
+              'grid-cols-[40px_40px_minmax(0,1fr)_52px]',
+              '@xl:grid-cols-[40px_40px_minmax(0,1.5fr)_minmax(0,1fr)_56px_52px]',
+              '@3xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_44px_56px_52px]',
+              '@5xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.9fr)_52px_104px_72px_128px_52px]',
               'hover:bg-accent/50',
               isSelected && 'bg-primary/10',
               isLoaded && 'text-primary'
@@ -485,16 +498,16 @@
                     LRC
                   </span>
                 {/if}
-                <!-- artist inline on mobile (its own column is hidden there) -->
+                <!-- artist inline when narrow (its own column is hidden there) -->
                 <a
                   href={artistHref(song)}
                   onclick={(e) => e.stopPropagation()}
-                  class="truncate hover:underline sm:hidden"
+                  class="truncate hover:underline @xl:hidden"
                 >
                   {artistOf(song)}
                 </a>
                 {#if song.fingerprint}
-                  <span class="hidden truncate font-mono text-[9.5px] opacity-65 sm:inline">
+                  <span class="hidden truncate font-mono text-[9.5px] opacity-65 @xl:inline">
                     {song.fingerprint.slice(0, 12)}…
                   </span>
                 {/if}
@@ -505,7 +518,7 @@
             <a
               href={artistHref(song)}
               onclick={(e) => e.stopPropagation()}
-              class="text-muted-foreground hover:text-foreground hidden truncate text-[12px] hover:underline sm:block"
+              class="text-muted-foreground hover:text-foreground hidden truncate text-[12px] hover:underline @xl:block"
             >
               {artistOf(song)}
             </a>
@@ -514,19 +527,19 @@
               <a
                 href={albumHref(song)}
                 onclick={(e) => e.stopPropagation()}
-                class="text-muted-foreground hover:text-foreground hidden truncate text-[12px] hover:underline sm:block"
+                class="text-muted-foreground hover:text-foreground hidden truncate text-[12px] hover:underline @3xl:block"
               >
                 {song.album}
               </a>
             {:else}
-              <span class="text-muted-foreground hidden truncate text-[12px] sm:block">—</span>
+              <span class="text-muted-foreground hidden truncate text-[12px] @3xl:block">—</span>
             {/if}
             <!-- year -->
-            <span class="text-muted-foreground hidden font-mono text-[11px] sm:block">
+            <span class="text-muted-foreground hidden font-mono text-[11px] @3xl:block">
               {song.year ?? '—'}
             </span>
             <!-- format -->
-            <span class="hidden items-center gap-1.5 sm:flex">
+            <span class="hidden items-center gap-1.5 @xl:flex">
               {#if family === 'OTHER'}
                 <span class="text-muted-foreground font-mono text-[10px]">{(song.extension ?? '').replace(/^\./, '').toUpperCase() || '—'}</span>
               {:else}
@@ -535,15 +548,15 @@
                 </span>
               {/if}
               {#if song.bitRate && song.bitRate > 0}
-                <span class="text-muted-foreground hidden font-mono text-[9.5px] lg:inline">{song.bitRate}kbps</span>
+                <span class="text-muted-foreground hidden font-mono text-[9.5px] @5xl:inline">{song.bitRate}kbps</span>
               {/if}
             </span>
             <!-- size -->
-            <span class="text-muted-foreground hidden font-mono text-[11px] sm:block">
+            <span class="text-muted-foreground hidden font-mono text-[11px] @5xl:block">
               {formatFileSize(song.fileSizeBytes)}
             </span>
             <!-- match -->
-            <span class="hidden items-center gap-2 sm:flex">
+            <span class="hidden items-center gap-2 @5xl:flex">
               <span class="bg-border h-1 flex-1 overflow-hidden rounded-full">
                 <span class="bg-primary block h-full rounded-full" style="width: {mv * 100}%;"></span>
               </span>
