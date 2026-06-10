@@ -81,7 +81,7 @@ jobs:
           echo "frontend_image=${base}/frontend:pr-${pr}" >>"$GITHUB_OUTPUT"
 
       # For pull_request this checks out the merge ref; for workflow_dispatch grab the PR head.
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v6.0.3
         if: steps.pre.outputs.configured == 'true'
         with:
           ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', steps.vars.outputs.pr) }}
@@ -239,7 +239,7 @@ jobs:
             echo "::notice::Dokploy preview secrets not set — nothing to tear down."
           fi
 
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v6.0.3
         if: steps.pre.outputs.configured == 'true'
 
       - name: Destroy Dokploy preview stack

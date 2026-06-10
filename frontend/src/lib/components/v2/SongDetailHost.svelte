@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { Loader2 } from '@lucide/svelte';
   import * as Sheet from '$lib/components/ui/sheet';
   import TrackPanel from '$lib/components/file-browser/TrackPanel.svelte';
@@ -29,6 +30,26 @@
   $effect(() => {
     if (!songDetail.isOpen) return;
     return playerStore.registerPanel();
+  });
+
+  // Follow playback: when a new song starts while the panel is showing the song
+  // that was playing, re-target the panel to it (manual play or queue
+  // auto-advance). A panel opened for a different (browsed) song stays put.
+  // Plain `let` — only a between-runs memo, must not be a dependency.
+  let lastPlayingId: number | null = null;
+  $effect(() => {
+    const playingId = playerStore.currentSong?.id ?? null;
+    if (playingId === null) return; // stop/clear: keep the last real song as the anchor
+    const prev = lastPlayingId;
+    lastPlayingId = playingId;
+    if (playingId === prev) return;
+    // untrack: open() writes songDetail.target; tracked reads of it here would
+    // make this effect re-fire on its own write (effect_update_depth_exceeded).
+    untrack(() => {
+      if (songDetail.isOpen && songDetail.target?.songId === prev) {
+        songDetail.open(playingId);
+      }
+    });
   });
 
   function onResetEnrichment() {
