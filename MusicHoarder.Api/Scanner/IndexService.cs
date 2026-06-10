@@ -35,7 +35,8 @@ public class IndexService(
     IOptions<MusicEnricherOptions> options,
     ILogger<IndexService> logger) : IIndexService
 {
-    private static readonly HashSet<string> SupportedExtensions =
+    // Internal so other indexing-adjacent paths (e.g. the demo media seeder) share the same set.
+    internal static readonly HashSet<string> SupportedExtensions =
     [
         ".mp3", ".flac", ".wav", ".m4a", ".ogg", ".wma", ".aac", ".opus", ".aiff"
     ];

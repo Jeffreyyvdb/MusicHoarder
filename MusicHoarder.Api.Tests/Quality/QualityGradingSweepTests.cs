@@ -55,6 +55,32 @@ public class QualityGradingSweepTests
         Assert.DoesNotContain(oldModel.Id, enqueued);   // model-only staleness is NOT auto-regraded
     }
 
+    [Fact]
+    public async Task EnqueueUngraded_ExcludesDemoTenant()
+    {
+        using var db = NewContext();
+        var enriched = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc);
+        var ownerSong = AddSong(db, 1, enrichedAt: enriched);
+        var demoSong = AddSong(db, 2, enrichedAt: enriched);
+        demoSong.OwnerUserId = WellKnownUsers.DemoId; // read-only demo library is never auto-graded
+        db.SaveChanges();
+
+        var channel = new QualityGradingChannel(new QualityGradingProgressTracker());
+        var sut = new QualityGradingBackgroundService(
+            new SimpleScopeFactory(db), channel, new QualityGradingProgressTracker(),
+            gradingService: null!, runtimeSettings: null!, ownerLookup: null!,
+            new TestOptionsMonitor(new QualityGradingOptions { Model = CurrentModel }),
+            NullLogger<QualityGradingBackgroundService>.Instance);
+
+        await sut.EnqueueUngradedAsync(new QualityGradingOptions { Model = CurrentModel }, CancellationToken.None);
+
+        var enqueued = new List<int>();
+        while (channel.Reader.TryRead(out var item)) enqueued.Add(item.SongId);
+
+        Assert.Contains(ownerSong.Id, enqueued);
+        Assert.DoesNotContain(demoSong.Id, enqueued);
+    }
+
     private static SongMetadata AddSong(MusicHoarderDbContext db, int n, DateTime enrichedAt)
     {
         var song = new SongMetadata

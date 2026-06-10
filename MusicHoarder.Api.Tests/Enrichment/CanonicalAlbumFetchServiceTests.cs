@@ -111,6 +111,28 @@ public class CanonicalAlbumFetchServiceTests
         Assert.False(called);
     }
 
+    [Fact]
+    public async Task Sweep_ExcludesDemoTenant()
+    {
+        await using var db = NewContext();
+        var demoSong = MatchedSong("/demo/a.mp3", "Daft Punk", "Discovery");
+        demoSong.OwnerUserId = WellKnownUsers.DemoId; // read-only demo library must never spawn fetches
+        db.Songs.Add(demoSong);
+        await db.SaveChangesAsync();
+
+        var called = false;
+        var providers = new IAlbumTracklistProvider[]
+        {
+            new StubProvider(EnrichmentProvider.Deezer, _ => { called = true; return null; }),
+        };
+
+        var fetched = await CreateService(db, providers).RunSweepAsync(CancellationToken.None);
+
+        Assert.Equal(0, fetched);
+        Assert.False(called);
+        Assert.Empty(db.CanonicalAlbums);
+    }
+
     private static AlbumTracklistCandidate Candidate(EnrichmentProvider source, string title)
         => new(source, $"id-{source}", title, "Daft Punk", 2001, null,
             [
