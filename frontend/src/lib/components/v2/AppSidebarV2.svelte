@@ -8,6 +8,7 @@
     Disc3,
     FolderTree,
     Gauge,
+    History,
     Inbox,
     Library,
     ListMusic,
@@ -69,7 +70,7 @@
     count?: () => number | string | null;
   };
 
-  type SectionId = 'pipeline' | 'inbox' | 'library' | 'settings';
+  type SectionId = 'pipeline' | 'inbox' | 'library' | 'history' | 'settings';
 
   type Section = {
     id: SectionId;
@@ -178,6 +179,14 @@
         { id: 'tracks', label: 'All tracks', href: '/tracks', icon: ListMusic, count: () => totalTracks },
         { id: 'spotify', label: 'Spotify', href: '/spotify', icon: Music2 }
       ]
+    },
+    {
+      // Single entry — a global feed of changes MusicHoarder wrote to the destination library.
+      id: 'history',
+      label: 'History',
+      href: '/history',
+      icon: History,
+      sub: []
     },
     {
       // Single entry — settings lives entirely on /settings, no sidebar sub-pages.

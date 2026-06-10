@@ -155,6 +155,15 @@ public class SongMetadata
     public string? DestinationPath { get; set; }
     public string? PreviousDestinationPath { get; set; }
 
+    /// <summary>
+    /// JSON snapshot of the tag set last physically written to the destination file (a serialized
+    /// <see cref="Library.WrittenTagSet"/>). Each successful build diffs the about-to-be-written tags
+    /// against this to emit <see cref="LibraryWriteEvent"/>s with accurate "since last time" old values,
+    /// then overwrites it. Null until the first write; a re-fingerprint clears it.
+    /// </summary>
+    public string? LastWrittenTagsJson { get; set; }
+    public DateTime? LastWrittenAtUtc { get; set; }
+
     public DateTime? DeletedAtUtc { get; set; }
 
     // --- Provider attempts ---
@@ -585,6 +594,10 @@ public class SongMetadata
         IsDuplicate = false;
         DuplicateOfId = null;
         IsUnreleased = false;
+        // A re-fingerprint invalidates everything we knew about prior writes; drop the snapshot so the
+        // next build diffs from the source-original baseline rather than a stale written state.
+        LastWrittenTagsJson = null;
+        LastWrittenAtUtc = null;
     }
 
     // --- Lyrics lifecycle ---
