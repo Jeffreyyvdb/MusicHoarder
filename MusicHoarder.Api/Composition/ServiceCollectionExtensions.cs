@@ -5,6 +5,7 @@ using MusicHoarder.Api.AppleMusic;
 using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
+using MusicHoarder.Api.CoverArtArchive;
 using MusicHoarder.Api.Deezer;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Enrichment.AlbumTracklist;
@@ -184,6 +185,7 @@ public static class ServiceCollectionExtensions
         // One-time backfill: populate HasCoverArt + write destination album covers for libraries that
         // were already scanned/built before the artwork feature shipped. Idempotent, marker-gated.
         services.AddHostedService<CoverArtBackfillBackgroundService>();
+        services.AddHostedService<ExternalCoverArtSweepBackgroundService>();
         // One-time seed: record current tags as each already-built track's LastWrittenTagsJson so the
         // destination-write History feed diffs correctly on the first re-tag after the feature shipped.
         services.AddHostedService<LibraryWriteBaselineBackgroundService>();
@@ -303,6 +305,29 @@ public static class ServiceCollectionExtensions
             var options = sp.GetRequiredService<IOptions<MusicEnricherOptions>>();
             var logger = sp.GetRequiredService<ILogger<AppleMusicCatalogService>>();
             return new AppleMusicCatalogService(httpClient, cache, options, logger);
+        });
+
+        services.AddSingleton<ICoverArtArchiveClient>(sp =>
+        {
+            var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            var options = sp.GetRequiredService<IOptions<MusicEnricherOptions>>();
+            var logger = sp.GetRequiredService<ILogger<CoverArtArchiveClient>>();
+            return new CoverArtArchiveClient(httpClient, options, logger);
+        });
+
+        services.AddSingleton<IExternalCoverArtFetcher>(sp =>
+        {
+            // Plain image-CDN downloads (Deezer/iTunes cover URLs) — no per-provider base address.
+            var imageHttpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            imageHttpClient.DefaultRequestHeaders.TryAddWithoutValidation(
+                "User-Agent", "MusicHoarder/1.0 (https://github.com/Jeffreyyvdb/MusicHoarder)");
+            return new ExternalCoverArtFetcher(
+                sp.GetRequiredService<ICoverArtArchiveClient>(),
+                sp.GetRequiredService<IDeezerCatalogService>(),
+                sp.GetRequiredService<IAppleMusicCatalogService>(),
+                imageHttpClient,
+                sp.GetRequiredService<IOptions<MusicEnricherOptions>>(),
+                sp.GetRequiredService<ILogger<ExternalCoverArtFetcher>>());
         });
 
         services.AddSingleton<ISpotifyOAuthService>(sp =>
