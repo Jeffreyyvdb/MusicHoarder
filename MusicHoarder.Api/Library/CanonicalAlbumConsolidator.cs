@@ -87,7 +87,7 @@ public sealed class CanonicalAlbumConsolidator(
                 continue;
 
             var changes = song.ApplyCanonicalCorrection(
-                canonical.DisplayTitle, canonical.Year, track.TrackNumber, track.DiscNumber);
+                canonical.DisplayTitle, canonical.DisplayArtist, canonical.Year, track.TrackNumber, track.DiscNumber);
 
             if (changes.Count > 0)
             {

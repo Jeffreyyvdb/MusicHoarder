@@ -113,6 +113,37 @@ public class CanonicalAlbumConsolidatorTests
         Assert.Equal(LibraryBuildStatus.Done, bonus.LibraryBuildStatus); // not re-queued
     }
 
+    [Fact]
+    public async Task ConsolidateAsync_UnifiesAlbumArtist_FromCanonicalDisplayArtist()
+    {
+        await using var db = NewContext();
+        db.CanonicalAlbums.Add(new CanonicalAlbum
+        {
+            ArtistKey = "lauryn hill",
+            AlbumKey = "the miseducation of lauryn hill",
+            DisplayTitle = "The Miseducation of Lauryn Hill",
+            DisplayArtist = "Ms. Lauryn Hill", // canonical, authoritative spelling
+            Year = 1998,
+            Status = CanonicalAlbumStatus.Fetched,
+            Tracks = [new CanonicalAlbumTrack { DiscNumber = 1, TrackNumber = 1, Title = "Lost Ones" }],
+        });
+        var song = OwnedSong("/lost-ones.flac", title: "Lost Ones", trackNumber: 1, year: 1998);
+        song.Artist = "Lauryn Hill";
+        song.AlbumArtist = "Lauryn Hill"; // divergent per-track spelling
+        song.Album = "The Miseducation of Lauryn Hill";
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var result = await Consolidator().ConsolidateAsync(db, "Lauryn Hill", "The Miseducation of Lauryn Hill", CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        Assert.Equal(1, result.Matched);
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal("Ms. Lauryn Hill", updated.AlbumArtist);
+        Assert.Contains(await db.SongMetadataChanges.ToListAsync(),
+            c => c.FieldName == nameof(SongMetadata.AlbumArtist) && c.NewValue == "Ms. Lauryn Hill");
+    }
+
     private static void SeedCanonical(MusicHoarderDbContext db) => db.CanonicalAlbums.Add(new CanonicalAlbum
     {
         ArtistKey = "trippie redd",
