@@ -90,7 +90,9 @@ public class QualityGradingBackgroundService(
         var candidates = await db.Songs
             .IgnoreQueryFilters()
             .AsNoTracking()
-            .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic && !s.IsDuplicate)
+            // Exclude demo rows: the read-only demo library is never auto-graded.
+            .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic && !s.IsDuplicate
+                && s.OwnerUserId != WellKnownUsers.DemoId)
             .Where(s => GradeableStatuses.Contains(s.EnrichmentStatus))
             .OrderByDescending(s => s.EnrichedAtUtc)
             .Take(opts.BatchSize)

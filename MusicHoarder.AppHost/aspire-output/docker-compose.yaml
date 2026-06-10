@@ -64,6 +64,7 @@ services:
       MUSICHOARDERDB_DATABASENAME: "musichoarderdb"
       MusicEnricher__SourceDirectory: "${SOURCE_DIRECTORY}"
       MusicEnricher__DestinationDirectory: "${DESTINATION_DIRECTORY}"
+      MusicEnricher__DemoMediaDirectory: "${DEMO_MEDIA_DIRECTORY:-/srv/demo-media}"
       MusicEnricher__AcoustIdApiKey: "${ACOUSTID_API_KEY}"
       Spotify__ClientId: "${SPOTIFY_CLIENT_ID}"
       Spotify__ClientSecret: "${SPOTIFY_CLIENT_SECRET}"
@@ -94,6 +95,10 @@ services:
       - type: "bind"
         target: "${DESTINATION_DIRECTORY}"
         source: "${DESTINATION_DIRECTORY}"
+      - type: "bind"
+        target: "${DEMO_MEDIA_DIRECTORY:-/srv/demo-media}"
+        source: "${DEMO_MEDIA_DIRECTORY:-/srv/demo-media}"
+        read_only: true
     networks:
       - "aspire"
     deploy:

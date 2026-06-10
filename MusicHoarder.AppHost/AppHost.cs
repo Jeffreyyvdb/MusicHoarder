@@ -17,6 +17,10 @@ var sourceDirectory = builder.AddParameter("source-directory")
     .WithDescription("Source music directory the scanner crawls (absolute path).");
 var destinationDirectory = builder.AddParameter("destination-directory")
     .WithDescription("Destination library directory the LibraryBuilder writes into (absolute path).");
+// Optional: a folder of real audio that seeds the demo account with playable songs (hosted demo only).
+// Blank by default → the demo keeps its synthetic seed. Point at a small local folder to test locally.
+var demoMediaDirectory = builder.AddParameter("demo-media-directory", builder.Configuration["Parameters:demo-media-directory"] ?? "")
+    .WithDescription("Optional directory of real audio used to seed the demo account with playable songs. Blank keeps the synthetic demo seed.");
 // These secrets are optional: the app degrades gracefully when blank. Default a missing value to
 // empty so the AppHost boots without prompting (a configured user-secret / env value still wins).
 var acoustIdApiKey = builder.AddParameter("acoustid-api-key", builder.Configuration["Parameters:acoustid-api-key"] ?? "", secret: true)
@@ -89,6 +93,7 @@ var api = builder.AddProject<Projects.MusicHoarder_Api>("api")
     .WithReference(postgresdb)
     .WithEnvironment("MusicEnricher__SourceDirectory", sourceDirectory)
     .WithEnvironment("MusicEnricher__DestinationDirectory", destinationDirectory)
+    .WithEnvironment("MusicEnricher__DemoMediaDirectory", demoMediaDirectory)
     .WithEnvironment("MusicEnricher__AcoustIdApiKey", acoustIdApiKey)
     .WithEnvironment("Spotify__ClientId", spotifyClientId)
     .WithEnvironment("Spotify__ClientSecret", spotifyClientSecret)

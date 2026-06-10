@@ -919,9 +919,10 @@
             <div
               class="border-border bg-secondary/40 text-foreground/80 rounded-lg border px-4 py-3 text-xs"
             >
-              You're signed in as the demo account. You can browse the seeded library but mutating
-              actions (scan, enrich, settings PUT, purge) return
-              <span class="bg-secondary rounded px-1 font-mono">403 owner_required</span>.
+              You're signed in as the demo account. It's strictly read-only: you can browse and play
+              the seeded library, but every mutating action (scan, enrich, build, approve, edit,
+              delete, settings, purge…) returns
+              <span class="bg-secondary rounded px-1 font-mono">403 demo_read_only</span>.
             </div>
           {/if}
 

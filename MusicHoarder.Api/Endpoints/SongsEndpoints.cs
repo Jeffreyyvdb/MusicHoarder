@@ -302,7 +302,7 @@ public static class SongsEndpoints
         }
     }
 
-    private static async Task<IResult> StreamSong(int id, MusicHoarderDbContext db)
+    internal static async Task<IResult> StreamSong(int id, MusicHoarderDbContext db)
     {
         var song = await db.Songs.AsNoTracking()
             .FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null);
@@ -347,7 +347,7 @@ public static class SongsEndpoints
         return Results.Stream(stream, contentType: mimeType, enableRangeProcessing: true);
     }
 
-    private static async Task<IResult> GetSongCover(
+    internal static async Task<IResult> GetSongCover(
         int id,
         MusicHoarderDbContext db,
         ICoverArtResolver coverArtResolver,

@@ -3,8 +3,11 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Scanner;
 
 namespace MusicHoarder.Api.Auth;
 
@@ -24,15 +27,18 @@ public sealed class DemoSeederHostedService : IHostedService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IOptionsMonitor<AuthOptions> _authOptions;
+    private readonly IOptionsMonitor<MusicEnricherOptions> _enricherOptions;
     private readonly ILogger<DemoSeederHostedService> _logger;
 
     public DemoSeederHostedService(
         IServiceScopeFactory scopeFactory,
         IOptionsMonitor<AuthOptions> authOptions,
+        IOptionsMonitor<MusicEnricherOptions> enricherOptions,
         ILogger<DemoSeederHostedService> logger)
     {
         _scopeFactory = scopeFactory;
         _authOptions = authOptions;
+        _enricherOptions = enricherOptions;
         _logger = logger;
     }
 
@@ -46,8 +52,20 @@ public sealed class DemoSeederHostedService : IHostedService
 
             await UpdateUserEmailsAsync(db, opts, ct);
             await SeedOwnerCredentialIfConfiguredAsync(db, opts, ct);
-            await SeedDemoSongsIfEmptyAsync(db, ct);
-            await SeedDemoReviewSongsIfEmptyAsync(db, ct);
+
+            // Hosted demo: when a real media directory is configured (and has audio), seed the demo
+            // user with real, playable songs instead of the synthetic placeholders. Self-host / PR
+            // previews leave DemoMediaDirectory unset and keep the synthetic seed below.
+            var demoMediaDir = _enricherOptions.CurrentValue.DemoMediaDirectory;
+            var seededRealSongs = false;
+            if (!string.IsNullOrWhiteSpace(demoMediaDir) && Directory.Exists(demoMediaDir))
+                seededRealSongs = await SeedRealDemoSongsIfEmptyAsync(scope, db, demoMediaDir, ct);
+
+            if (!seededRealSongs)
+            {
+                await SeedDemoSongsIfEmptyAsync(db, ct);
+                await SeedDemoReviewSongsIfEmptyAsync(db, ct);
+            }
         }
         catch (Exception ex)
         {
@@ -144,6 +162,140 @@ public sealed class DemoSeederHostedService : IHostedService
         });
         await db.SaveChangesAsync(ct);
         _logger.LogInformation("Seeded owner passkey from Auth:OwnerSeedCredentialJson.");
+    }
+
+    /// <summary>
+    /// Seed the demo user with real, playable songs read from <paramref name="mediaDir"/> (a read-only
+    /// mount on the hosted demo). Each file becomes a terminal <c>Matched</c> + <c>Done</c> row that no
+    /// background sweep will touch (placeholder fingerprint keeps it out of fingerprint/duplicate sweeps;
+    /// <c>LyricsStatus.NotFound</c> keeps it out of the lyrics sweep; the demo tenant is excluded from
+    /// the remaining all-tenant sweeps). Reuses the scanner's tag reader so metadata + embedded art come
+    /// from the files themselves. Returns true once real demo songs exist (already-seeded or freshly
+    /// seeded); false when there's nothing to seed, so the caller falls back to the synthetic seed.
+    /// </summary>
+    private async Task<bool> SeedRealDemoSongsIfEmptyAsync(
+        IServiceScope scope, MusicHoarderDbContext db, string mediaDir, CancellationToken ct)
+    {
+        // Already have real demo songs? Idempotent — nothing to do.
+        var hasRealDemoSongs = await db.Songs
+            .IgnoreQueryFilters()
+            .AnyAsync(s => s.OwnerUserId == WellKnownUsers.DemoId && !s.IsSynthetic, ct);
+        if (hasRealDemoSongs) return true;
+
+        var files = Directory
+            .EnumerateFiles(mediaDir, "*.*", new EnumerationOptions
+            {
+                IgnoreInaccessible = true,
+                RecurseSubdirectories = true,
+            })
+            .Where(f => IndexService.SupportedExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()))
+            .OrderBy(f => f, StringComparer.Ordinal)
+            .ToList();
+
+        if (files.Count == 0)
+        {
+            _logger.LogWarning(
+                "DemoMediaDirectory '{Dir}' has no supported audio files; falling back to the synthetic demo seed.",
+                mediaDir);
+            return false;
+        }
+
+        var scanner = scope.ServiceProvider.GetRequiredService<IFileScanner>();
+        var coverResolver = scope.ServiceProvider.GetRequiredService<ICoverArtResolver>();
+        var now = DateTime.UtcNow;
+        var folderCoverCache = new Dictionary<string, bool>(StringComparer.Ordinal);
+        var batch = new List<SongMetadata>(files.Count);
+
+        foreach (var path in files)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var meta = await scanner.ScanFileAsync(path, tagsOnly: true, ct);
+            if (meta is null)
+            {
+                _logger.LogWarning("Demo seed: scanner returned null for {Path}; skipping.", path);
+                continue;
+            }
+
+            meta.OwnerUserId = WellKnownUsers.DemoId;
+            meta.IsSynthetic = false;
+
+            // HasCoverArt already reflects embedded art; OR in a sibling cover/folder/front.* image
+            // (mirrors IndexService so the grid shows art whether it's embedded or in the directory).
+            if (!meta.HasCoverArt)
+            {
+                var dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    if (!folderCoverCache.TryGetValue(dir, out var hasCover))
+                    {
+                        hasCover = coverResolver.DirectoryHasCoverImage(dir);
+                        folderCoverCache[dir] = hasCover;
+                    }
+                    meta.HasCoverArt = hasCover;
+                }
+            }
+
+            // Fallbacks so an untagged file is still labelled + playable. Folder convention: <artist>/<album>/<file>.
+            if (string.IsNullOrWhiteSpace(meta.Title))
+                meta.Title = Path.GetFileNameWithoutExtension(path);
+            if (string.IsNullOrWhiteSpace(meta.Artist) || string.IsNullOrWhiteSpace(meta.Album))
+            {
+                var (folderArtist, folderAlbum) = DeriveArtistAlbumFromPath(mediaDir, path);
+                meta.Artist ??= folderArtist;
+                meta.AlbumArtist ??= meta.Artist;
+                meta.Album ??= folderAlbum;
+            }
+
+            // Terminal, playable state — inert to every background sweep.
+            meta.Fingerprint = "demo-fingerprint-" + Guid.NewGuid().ToString("N")[..12];
+            meta.EnrichmentStatus = EnrichmentStatus.Matched;
+            meta.MatchedBy = "Demo";
+            meta.MatchConfidence = 0.99;
+            meta.EnrichedAtUtc = now;
+            meta.LibraryBuildStatus = LibraryBuildStatus.Done;
+            meta.LibraryBuiltAtUtc = now;
+            meta.DestinationPath = meta.SourcePath; // streamed via the source fallback; surfaces in the Destination view
+            meta.LyricsStatus = LyricsStatus.NotFound;
+
+            batch.Add(meta);
+        }
+
+        if (batch.Count == 0)
+        {
+            _logger.LogWarning(
+                "DemoMediaDirectory '{Dir}': no files could be read; falling back to the synthetic demo seed.",
+                mediaDir);
+            return false;
+        }
+
+        // Replace any synthetic placeholder rows (from a prior boot before media was configured) so the
+        // demo library is purely the real curated set. These are disposable seed rows, not user data.
+        var synthetic = await db.Songs
+            .IgnoreQueryFilters()
+            .Include(s => s.ProviderAttempts)
+            .Where(s => s.OwnerUserId == WellKnownUsers.DemoId && s.IsSynthetic)
+            .ToListAsync(ct);
+        if (synthetic.Count > 0)
+            db.Songs.RemoveRange(synthetic);
+
+        db.Songs.AddRange(batch);
+        await db.SaveChangesAsync(ct);
+        _logger.LogInformation(
+            "Seeded {Count} real demo songs from {Dir} (removed {Removed} synthetic placeholders).",
+            batch.Count, mediaDir, synthetic.Count);
+        return true;
+    }
+
+    private static (string Artist, string Album) DeriveArtistAlbumFromPath(string root, string path)
+    {
+        var rel = Path.GetRelativePath(root, path);
+        var parts = rel.Split(
+            new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+            StringSplitOptions.RemoveEmptyEntries);
+        var artist = parts.Length >= 3 ? parts[0] : "Demo Artist";
+        var album = parts.Length >= 2 ? parts[^2] : "Demo Album";
+        return (artist, album);
     }
 
     private async Task SeedDemoSongsIfEmptyAsync(MusicHoarderDbContext db, CancellationToken ct)

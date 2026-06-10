@@ -51,6 +51,7 @@ internal static class ComposeFileExtensions
 
         file.PersistDataProtectionKeys(api);
         MountMusicLibrary(api);
+        MountDemoMedia(api);
 
         // ── Zero-downtime deploys ──────────────────────────────────────────────────────────────
         // Dokploy "Compose" deploys (`docker compose up`) stop the old container before the new one
@@ -173,5 +174,19 @@ internal static class ComposeFileExtensions
     {
         api.AddVolume(new Volume { Name = "music-source", Type = "bind", Source = "${SOURCE_DIRECTORY}", Target = "${SOURCE_DIRECTORY}", ReadOnly = true });
         api.AddVolume(new Volume { Name = "music-destination", Type = "bind", Source = "${DESTINATION_DIRECTORY}", Target = "${DESTINATION_DIRECTORY}" });
+    }
+
+    /// <summary>
+    /// Read-only bind mount that supplies the <em>hosted demo</em> with real, playable songs. Only the
+    /// hosted deploy populates <c>${DEMO_MEDIA_DIRECTORY}</c> (the owner rsyncs a few curated albums
+    /// there); the env var and mount default to <c>/srv/demo-media</c>, so an empty/absent directory
+    /// makes the seeder fall back to the synthetic demo seed (see <c>DemoSeederHostedService</c>). No
+    /// copyrighted audio enters the repo — the files live only on the demo host. Self-hosters use the
+    /// separate committed <c>docker-compose.yml</c>, which has no demo mount at all.
+    /// </summary>
+    private static void MountDemoMedia(Service api)
+    {
+        api.AddVolume(new Volume { Name = "demo-media", Type = "bind", Source = "${DEMO_MEDIA_DIRECTORY:-/srv/demo-media}", Target = "${DEMO_MEDIA_DIRECTORY:-/srv/demo-media}", ReadOnly = true });
+        api.Environment["MusicEnricher__DemoMediaDirectory"] = "${DEMO_MEDIA_DIRECTORY:-/srv/demo-media}";
     }
 }

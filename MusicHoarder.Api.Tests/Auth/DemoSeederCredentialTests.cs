@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Tests.Auth;
@@ -112,6 +113,7 @@ public class DemoSeederCredentialTests
         var svc = new DemoSeederHostedService(
             sp.GetRequiredService<IServiceScopeFactory>(),
             new TestOptionsMonitor<AuthOptions>(opts),
+            new TestOptionsMonitor<MusicEnricherOptions>(new MusicEnricherOptions()),
             NullLogger<DemoSeederHostedService>.Instance);
 
         return (svc, () => new MusicHoarderDbContext(options));
