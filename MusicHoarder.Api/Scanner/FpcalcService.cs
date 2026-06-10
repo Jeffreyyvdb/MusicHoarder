@@ -8,9 +8,20 @@ namespace MusicHoarder.Api.Scanner;
 
 public record FpcalcResult(int DurationSeconds, string Fingerprint);
 
+/// <summary>
+/// Result of an fpcalc invocation: a successful <see cref="FpcalcResult"/>, or a
+/// <see cref="FailureReason"/> describing why fingerprinting failed for this file
+/// (so the caller can surface it instead of a bare null).
+/// </summary>
+public readonly record struct FpcalcOutcome(FpcalcResult? Result, string? FailureReason)
+{
+    public static FpcalcOutcome Success(FpcalcResult result) => new(result, null);
+    public static FpcalcOutcome Failure(string reason) => new(null, reason);
+}
+
 public interface IFpcalcService
 {
-    Task<FpcalcResult?> GetFingerprintAsync(string filePath, CancellationToken ct = default);
+    Task<FpcalcOutcome> GetFingerprintAsync(string filePath, CancellationToken ct = default);
 }
 
 public class FpcalcService(
@@ -19,7 +30,7 @@ public class FpcalcService(
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public async Task<FpcalcResult?> GetFingerprintAsync(string filePath, CancellationToken ct = default)
+    public async Task<FpcalcOutcome> GetFingerprintAsync(string filePath, CancellationToken ct = default)
     {
         try
         {
@@ -43,24 +54,25 @@ public class FpcalcService(
 
             if (process.ExitCode != 0)
             {
+                var stderr = errorTask.Result.Trim();
                 logger.LogDebug("fpcalc exited {Code} for {File}: {Error}",
-                    process.ExitCode, Path.GetFileName(filePath), errorTask.Result.Trim());
-                return null;
+                    process.ExitCode, Path.GetFileName(filePath), stderr);
+                return FpcalcOutcome.Failure($"exited {process.ExitCode}: {stderr}");
             }
 
             var parsed = JsonSerializer.Deserialize<FpcalcOutput>(outputTask.Result, JsonOptions);
             if (parsed?.Fingerprint is null)
             {
                 logger.LogDebug("fpcalc returned empty fingerprint for {File}", Path.GetFileName(filePath));
-                return null;
+                return FpcalcOutcome.Failure("ran but produced no fingerprint (undecodable/too short)");
             }
 
-            return new FpcalcResult((int)parsed.Duration, parsed.Fingerprint);
+            return FpcalcOutcome.Success(new FpcalcResult((int)parsed.Duration, parsed.Fingerprint));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogDebug("fpcalc error for {File}: {Message}", Path.GetFileName(filePath), ex.Message);
-            return null;
+            return FpcalcOutcome.Failure(ex.Message);
         }
     }
 

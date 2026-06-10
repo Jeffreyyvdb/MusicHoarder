@@ -178,8 +178,8 @@ public class DemoSeederRealMediaTests : IDisposable
 
     private sealed class NullFpcalcService : IFpcalcService
     {
-        public Task<FpcalcResult?> GetFingerprintAsync(string filePath, CancellationToken ct = default) =>
-            Task.FromResult<FpcalcResult?>(null);
+        public Task<FpcalcOutcome> GetFingerprintAsync(string filePath, CancellationToken ct = default) =>
+            Task.FromResult(FpcalcOutcome.Failure("test"));
     }
 
     private sealed class StubCoverResolver : ICoverArtResolver
