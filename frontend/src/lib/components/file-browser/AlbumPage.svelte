@@ -42,6 +42,7 @@
     type ApiSong
   } from '$lib/api-client';
   import { VERDICT_DOT } from '$lib/quality-ui';
+  import { albumViewPrefs } from '$lib/stores/album-view-prefs.svelte';
   import { playerStore } from '$lib/stores/player.svelte';
   import { songDetail } from '$lib/stores/song-detail.svelte';
   import { cn } from '$lib/utils';
@@ -64,7 +65,9 @@
   let linkStatus = $state<AlbumLinkStatus>('pending');
   // When true, collapse the tracklist to just the songs the user owns, hiding the greyed-out
   // canonical tracks they're missing. Toggle with the button in the track-list header or the `H` key.
-  let hideMissing = $state(false);
+  // Backed by `albumViewPrefs` so the choice persists across albums (and reloads) instead of
+  // resetting every time the user opens a different album.
+  const hideMissing = $derived(albumViewPrefs.hideMissing);
   // The ScrollArea viewport, so we can clamp scrollTop after the list shrinks (see below).
   let scrollViewport = $state<HTMLElement | null>(null);
   $effect(() => {
@@ -72,7 +75,6 @@
     const title = album?.title ?? null;
     tracklist = null;
     linkStatus = 'pending';
-    hideMissing = false;
     if (!artist || !title) return;
     let cancelled = false;
     void fetchAlbumTracklist(artist, title)
@@ -301,7 +303,7 @@
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.key.toLowerCase() === 'h' && missingCount > 0) {
       e.preventDefault();
-      hideMissing = !hideMissing;
+      albumViewPrefs.toggleHideMissing();
     }
   }
 
@@ -605,7 +607,7 @@
         <div class="flex justify-end pb-1">
           <button
             type="button"
-            onclick={() => (hideMissing = !hideMissing)}
+            onclick={() => albumViewPrefs.toggleHideMissing()}
             title={hideMissing ? 'Show missing tracks (H)' : 'Hide missing tracks (H)'}
             class="text-muted-foreground hover:bg-accent hover:text-foreground inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors"
           >
