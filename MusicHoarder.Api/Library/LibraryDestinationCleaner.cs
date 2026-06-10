@@ -7,12 +7,26 @@ public interface ILibraryDestinationCleaner
     void DeleteManagedPathAndPrune(string path, string destinationRoot);
 }
 
-public class LibraryDestinationCleaner(IFileSystem fileSystem) : ILibraryDestinationCleaner
+public class LibraryDestinationCleaner(
+    IFileSystem fileSystem,
+    ILogger<LibraryDestinationCleaner>? logger = null) : ILibraryDestinationCleaner
 {
     private static readonly string[] CoverImageExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"];
 
     public void DeleteManagedPathAndPrune(string path, string destinationRoot)
     {
+        // Hard guard: this only ever deletes files the library builder *manages* (under the
+        // destination root). A path outside it is a source file (the non-destructive invariant) or a
+        // bug upstream — never delete it. Without this, a polluted PreviousDestinationPath (e.g. a demo
+        // row whose DestinationPath == SourcePath) would delete the source.
+        if (!IsWithinRoot(path, fileSystem.Path.GetFullPath(destinationRoot)))
+        {
+            logger?.LogWarning(
+                "Refusing to delete {Path}: outside the managed destination root {Root}. This path is not library-managed.",
+                path, destinationRoot);
+            return;
+        }
+
         try
         {
             if (!fileSystem.File.Exists(path)) return;
