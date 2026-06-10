@@ -172,6 +172,29 @@ public class AlbumSplitHealerTests
     }
 
     [Fact]
+    public async Task HealAsync_DemoRows_NeverTouched()
+    {
+        await using var db = NewContext();
+        // The demo library is seeded terminal with DestinationPath == SourcePath (read-only mount).
+        // A split here must NOT be healed/re-queued, or the builder would try to delete the source.
+        var demo1 = Song("/demo/d1.flac", title: "One", trackNumber: 1, year: 2012, destinationPath: "/demo/d1.flac");
+        demo1.OwnerUserId = WellKnownUsers.DemoId;
+        var demo2 = Song("/demo/d2.flac", title: "Two", trackNumber: 2, year: 2013, destinationPath: "/demo/d2.flac");
+        demo2.OwnerUserId = WellKnownUsers.DemoId;
+        db.Songs.AddRange(demo1, demo2);
+        await db.SaveChangesAsync();
+
+        var result = await Healer(db).HealAsync();
+
+        Assert.Equal(new AlbumSplitHealResult(0, 0, 0), result);
+        var demos = await db.Songs.IgnoreQueryFilters()
+            .Where(s => s.OwnerUserId == WellKnownUsers.DemoId).ToListAsync();
+        Assert.All(demos, s => Assert.Equal(LibraryBuildStatus.Done, s.LibraryBuildStatus));
+        Assert.All(demos, s => Assert.Null(s.PreviousDestinationPath));
+        Assert.All(demos, s => Assert.Equal(s.SourcePath, s.DestinationPath));
+    }
+
+    [Fact]
     public async Task HealAsync_DeluxeEdition_NotMergedIntoStandard()
     {
         await using var db = NewContext();

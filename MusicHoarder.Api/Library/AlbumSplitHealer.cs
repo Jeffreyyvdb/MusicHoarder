@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Library;
@@ -162,9 +163,15 @@ public sealed class AlbumSplitHealer(
     // Mirrors the builder's reconciliation predicate (LibraryBuilderService.BuildAlbumIdentityMapAsync):
     // every buildable, non-unreleased song, across users (background work bypasses the per-user filter
     // — AlbumGroupKey carries OwnerUserId so groups never cross users).
+    //
+    // Demo rows are excluded: the read-only demo library is seeded terminal (Done) with
+    // DestinationPath == SourcePath (it streams straight from the read-only mount). Re-queuing one for
+    // a re-tag would set PreviousDestinationPath to that source path and the builder would try to delete
+    // it — which fails on the read-only mount, and would destroy the source if it were ever writable.
     private IQueryable<SongMetadata> QueryEligible() => db.Songs
         .IgnoreQueryFilters()
         .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
+        .Where(s => s.OwnerUserId != WellKnownUsers.DemoId)
         .Where(s => !s.IsDuplicate && !s.IsUnreleased)
         .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched);
 
