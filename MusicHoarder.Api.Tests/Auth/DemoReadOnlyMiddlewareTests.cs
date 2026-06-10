@@ -45,11 +45,25 @@ public class DemoReadOnlyMiddlewareTests
     [Theory]
     [InlineData("/api/auth/logout")]
     [InlineData("/api/auth/demo-login")]
+    [InlineData("/api/auth/webauthn/authenticate/begin")]
+    [InlineData("/api/auth/webauthn/authenticate/complete")]
     public async Task demo_may_post_to_allowlisted_auth_endpoints(string path)
     {
         var (_, nextCalled) = await InvokeAsync(Demo(), "POST", path);
 
         Assert.True(nextCalled());
+    }
+
+    [Theory]
+    [InlineData("/api/auth/webauthn/register/begin")]
+    [InlineData("/api/auth/webauthn/register/complete")]
+    public async Task demo_may_not_post_to_owner_only_passkey_enrollment(string path)
+    {
+        var (ctx, nextCalled) = await InvokeAsync(Demo(), "POST", path);
+
+        Assert.False(nextCalled());
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+        Assert.Equal("demo_read_only", await ReadErrorAsync(ctx));
     }
 
     [Fact]
