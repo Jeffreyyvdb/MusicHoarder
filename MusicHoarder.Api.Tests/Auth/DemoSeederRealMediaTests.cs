@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Scanner;
@@ -55,6 +56,39 @@ public class DemoSeederRealMediaTests : IDisposable
         Assert.Equal("Demo Song", song.Title);
         Assert.False(string.IsNullOrEmpty(song.Fingerprint));            // keeps it out of the fingerprint sweep
         Assert.Equal(LyricsStatus.NotFound, song.LyricsStatus);          // keeps it out of the lyrics sweep
+    }
+
+    [Fact]
+    public async Task inconsistent_album_artist_tags_unify_to_folder_artist()
+    {
+        // Two tracks in one album folder tagged with different album-artists ("Lauryn Hill" vs
+        // "Ms. Lauryn Hill") must both adopt the folder's artist so the Albums page shows one album.
+        var mediaDir = NewTempDir();
+        var albumDir = Path.Combine(mediaDir, "Lauryn Hill", "1998 - The Miseducation of Lauryn Hill");
+        Directory.CreateDirectory(albumDir);
+        foreach (var (n, performer) in new[] { (1, "Lauryn Hill"), (2, "Ms. Lauryn Hill, D'Angelo") })
+        {
+            var f = Path.Combine(albumDir, $"0{n} Track.mp3");
+            File.Copy(Path.Combine(FixtureDir, "silence.mp3"), f);
+            using var tag = TagLib.File.Create(f);
+            tag.Tag.Performers = [performer];
+            tag.Tag.AlbumArtists = [performer];           // intentionally inconsistent across the album
+            tag.Tag.Album = "The Miseducation of Lauryn Hill";
+            tag.Tag.Title = $"Track {n}";
+            tag.Tag.Track = (uint)n;
+            tag.Save();
+        }
+
+        var (svc, ctx) = MakeSeeder(mediaDir);
+        await svc.StartAsync(default);
+
+        await using var db = ctx();
+        var songs = await db.Songs.IgnoreQueryFilters()
+            .Where(s => s.OwnerUserId == WellKnownUsers.DemoId).ToListAsync();
+        Assert.Equal(2, songs.Count);
+        Assert.All(songs, s => Assert.Equal("Lauryn Hill", s.AlbumArtist)); // unified → one album group
+        // Per-track artist (incl. the feature) is preserved.
+        Assert.Contains(songs, s => s.Artist == "Ms. Lauryn Hill, D'Angelo");
     }
 
     [Fact]
@@ -114,7 +148,8 @@ public class DemoSeederRealMediaTests : IDisposable
         var scopeFactory = new StubScopeFactory(
             () => new MusicHoarderDbContext(options),
             new FileScanner(new FileSystem(), new NullFpcalcService(), NullLogger<FileScanner>.Instance),
-            new StubCoverResolver());
+            new StubCoverResolver(),
+            new StubLrcLibService());
 
         var svc = new DemoSeederHostedService(
             scopeFactory,
@@ -154,6 +189,13 @@ public class DemoSeederRealMediaTests : IDisposable
         public bool HasArtwork(string audioFilePath) => false;
     }
 
+    // No network in tests — return no lyrics so the seeder marks tracks NotFound (best-effort path).
+    private sealed class StubLrcLibService : ILrcLibService
+    {
+        public Task<LyricsResult?> FetchLyricsAsync(SongMetadata song, CancellationToken ct = default) =>
+            Task.FromResult<LyricsResult?>(null);
+    }
+
     private sealed class TestOptionsMonitor<T>(T value) : IOptionsMonitor<T> where T : class
     {
         public T CurrentValue { get; } = value;
@@ -163,9 +205,10 @@ public class DemoSeederRealMediaTests : IDisposable
 
     // A scope whose provider hands back a fresh DbContext plus the scanner/resolver the real seeder needs.
     private sealed class StubScopeFactory(
-        Func<MusicHoarderDbContext> dbFactory, IFileScanner scanner, ICoverArtResolver resolver) : IServiceScopeFactory
+        Func<MusicHoarderDbContext> dbFactory, IFileScanner scanner, ICoverArtResolver resolver,
+        ILrcLibService lrcLib) : IServiceScopeFactory
     {
-        public IServiceScope CreateScope() => new Scope(new Provider(dbFactory(), scanner, resolver));
+        public IServiceScope CreateScope() => new Scope(new Provider(dbFactory(), scanner, resolver, lrcLib));
 
         private sealed class Scope(IServiceProvider provider) : IServiceScope
         {
@@ -173,7 +216,8 @@ public class DemoSeederRealMediaTests : IDisposable
             public void Dispose() { }
         }
 
-        private sealed class Provider(MusicHoarderDbContext db, IFileScanner scanner, ICoverArtResolver resolver)
+        private sealed class Provider(
+            MusicHoarderDbContext db, IFileScanner scanner, ICoverArtResolver resolver, ILrcLibService lrcLib)
             : IServiceProvider
         {
             public object? GetService(Type serviceType)
@@ -181,6 +225,7 @@ public class DemoSeederRealMediaTests : IDisposable
                 if (serviceType == typeof(MusicHoarderDbContext)) return db;
                 if (serviceType == typeof(IFileScanner)) return scanner;
                 if (serviceType == typeof(ICoverArtResolver)) return resolver;
+                if (serviceType == typeof(ILrcLibService)) return lrcLib;
                 return null;
             }
         }

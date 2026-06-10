@@ -202,6 +202,7 @@ public sealed class DemoSeederHostedService : IHostedService
 
         var scanner = scope.ServiceProvider.GetRequiredService<IFileScanner>();
         var coverResolver = scope.ServiceProvider.GetRequiredService<ICoverArtResolver>();
+        var lrcLib = scope.ServiceProvider.GetRequiredService<ILrcLibService>();
         var now = DateTime.UtcNow;
         var folderCoverCache = new Dictionary<string, bool>(StringComparer.Ordinal);
         var batch = new List<SongMetadata>(files.Count);
@@ -236,6 +237,16 @@ public sealed class DemoSeederHostedService : IHostedService
                 }
             }
 
+            // Demo media is curated as <artist>/<album>/<file>, so the top-level folder is the album's
+            // canonical artist. Force AlbumArtist to it for every track so inconsistently-tagged embedded
+            // album-artists (e.g. some tracks "Ms. Lauryn Hill", others "Lauryn Hill") don't split one
+            // album into two on the Albums page. The per-track Artist (incl. features) is preserved.
+            var relParts = Path.GetRelativePath(mediaDir, path).Split(
+                new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                StringSplitOptions.RemoveEmptyEntries);
+            if (relParts.Length >= 3 && !string.IsNullOrWhiteSpace(relParts[0]))
+                meta.AlbumArtist = relParts[0];
+
             // Fallbacks so an untagged file is still labelled + playable. Folder convention: <artist>/<album>/<file>.
             if (string.IsNullOrWhiteSpace(meta.Title))
                 meta.Title = Path.GetFileNameWithoutExtension(path);
@@ -256,7 +267,22 @@ public sealed class DemoSeederHostedService : IHostedService
             meta.LibraryBuildStatus = LibraryBuildStatus.Done;
             meta.LibraryBuiltAtUtc = now;
             meta.DestinationPath = meta.SourcePath; // streamed via the source fallback; surfaces in the Destination view
-            meta.LyricsStatus = LyricsStatus.NotFound;
+
+            // Real lyrics for the demo via LRCLIB (free, keyless). Best-effort: a miss or network error
+            // just leaves the track without lyrics and never blocks seeding. Title/Artist are set above.
+            try
+            {
+                var lyrics = await lrcLib.FetchLyricsAsync(meta, ct);
+                if (lyrics is null)
+                    meta.MarkLyricsNotFound();
+                else
+                    meta.ApplyLyricsResult(lyrics.SyncedLyrics, lyrics.PlainLyrics, lyrics.IsInstrumental, lyrics.LrclibId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Demo seed: lyrics fetch failed for {Path}; leaving without lyrics.", path);
+                meta.MarkLyricsNotFound();
+            }
 
             batch.Add(meta);
         }

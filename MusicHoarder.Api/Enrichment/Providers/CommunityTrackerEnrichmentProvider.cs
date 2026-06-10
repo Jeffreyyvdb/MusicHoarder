@@ -130,7 +130,12 @@ public abstract class CommunityTrackerEnrichmentProvider(
         var artist = string.IsNullOrWhiteSpace(song.Artist)
             ? ArtistCreditNormalizer.NormalizeDisplayCredit(track.CreditedArtists)
             : song.Artist;
-        var albumArtist = ArtistCreditNormalizer.GetPrimaryArtist(artist) ?? artist;
+        // Album-artist is album-level — don't derive it from the track credit (a featured guest on
+        // compilations/collabs, and comma-names get truncated). Keep the song's curated album-artist;
+        // fall back to the track's primary artist only for genuinely untagged files.
+        var albumArtist = !string.IsNullOrWhiteSpace(song.AlbumArtist)
+            ? song.AlbumArtist
+            : ArtistCreditNormalizer.GetPrimaryArtist(artist) ?? artist;
 
         var resultWarnings = new List<string>(warnings);
         if (!string.IsNullOrWhiteSpace(track.Category))

@@ -37,9 +37,13 @@ public class AcoustIdEnrichmentProvider(
         var validation = matchValidator.Validate(match, song);
 
         var effectiveArtist = string.IsNullOrWhiteSpace(match.Artist) ? song.Artist : match.Artist;
-        var resolvedAlbumArtist = string.IsNullOrWhiteSpace(match.AlbumArtist)
-            ? ArtistCreditNormalizer.GetPrimaryArtist(effectiveArtist)
-            : match.AlbumArtist;
+        // Prefer the match's album-artist. Never fall back to the *track* artist credit — on
+        // compilations/collabs it's a featured guest and comma-names ("Tyler, The Creator") get
+        // truncated, both of which split one album into several. Keep the song's curated album-artist
+        // otherwise; only resort to the track's primary artist for genuinely untagged files.
+        var resolvedAlbumArtist = !string.IsNullOrWhiteSpace(match.AlbumArtist) ? match.AlbumArtist
+            : !string.IsNullOrWhiteSpace(song.AlbumArtist) ? song.AlbumArtist
+            : ArtistCreditNormalizer.GetPrimaryArtist(effectiveArtist);
 
         return new ProviderMatched(new EnrichmentProviderResult(
             Artist: match.Artist,

@@ -128,7 +128,13 @@ public class MusicBrainzWebEnrichmentProvider(
         var artist = string.IsNullOrWhiteSpace(rec.Artist) ? song.Artist : rec.Artist;
         return new EnrichmentProviderResult(
             Artist: artist,
-            AlbumArtist: string.IsNullOrWhiteSpace(rec.AlbumArtist) ? ArtistCreditNormalizer.GetPrimaryArtist(artist) : rec.AlbumArtist,
+            // Prefer the release-level album-artist. Never fall back to the *track* artist credit —
+            // on compilations/collabs it's a featured guest and comma-names ("Tyler, The Creator") get
+            // truncated, both of which split one album into several. Keep the song's curated album-artist
+            // otherwise; only resort to the track's primary artist for genuinely untagged files.
+            AlbumArtist: !string.IsNullOrWhiteSpace(rec.AlbumArtist) ? rec.AlbumArtist
+                : !string.IsNullOrWhiteSpace(song.AlbumArtist) ? song.AlbumArtist
+                : ArtistCreditNormalizer.GetPrimaryArtist(artist),
             Title: string.IsNullOrWhiteSpace(rec.Title) ? song.Title : rec.Title,
             Year: rec.Year,
             TrackNumber: null,
