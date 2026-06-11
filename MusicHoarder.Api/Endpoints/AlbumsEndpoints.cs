@@ -12,11 +12,14 @@ public static class AlbumsEndpoints
 {
     public static IEndpointRouteBuilder MapAlbumsEndpoints(this IEndpointRouteBuilder app)
     {
+        // The read-only album GETs deliberately have no RequireOwner: the demo account (UserRole.Demo)
+        // must be able to browse album data too. Auth is still mandatory (RequireAuthMiddleware) and
+        // every owner-scoped table is filtered by the EF global query filter — same posture as the
+        // songs GETs.
         app.MapGet("/api/albums/tracklist", GetAlbumTracklist)
             .WithName("GetAlbumTracklist")
             .WithSummary("Reconciled multi-provider canonical tracklist for an album, each track annotated with the owned song (if any).")
-            .WithTags("Library")
-            .RequireOwner();
+            .WithTags("Library");
 
         app.MapPost("/api/albums/canonical-status", GetCanonicalStatuses)
             .WithName("GetAlbumCanonicalStatuses")
@@ -27,8 +30,7 @@ public static class AlbumsEndpoints
         app.MapGet("/api/albums/timeline", GetAlbumTimeline)
             .WithName("GetAlbumTimeline")
             .WithSummary("Chronological provenance timeline for an album: discovery, per-provider enrichment rollups, canonical resolution, AI grades, and destination writes.")
-            .WithTags("Library")
-            .RequireOwner();
+            .WithTags("Library");
 
         return app;
     }
