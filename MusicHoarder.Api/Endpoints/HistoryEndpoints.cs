@@ -81,7 +81,8 @@ public static class HistoryEndpoints
     // Groups raw write events into the layered summaries the feed shows. Cover writes are their own
     // album-level summary; track-tag writes are split per album folder into consolidation / artist-rename
     // / year-correction / tag-rewrite buckets, each carrying its underlying field changes for the expand.
-    private static List<HistorySummary> RollUp(
+    // Internal so the album timeline endpoint reuses the exact same rollup semantics.
+    internal static List<HistorySummary> RollUp(
         IReadOnlyList<LibraryWriteEvent> events, IReadOnlyDictionary<int, string?> titleById)
     {
         var summaries = new List<HistorySummary>();

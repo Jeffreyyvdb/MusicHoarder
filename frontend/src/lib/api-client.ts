@@ -644,6 +644,40 @@ export async function fetchAlbumCanonicalStatuses(
   return map
 }
 
+// ── Album provenance timeline ────────────────────────────────────────────────────
+
+/** One server-assembled event on the album provenance timeline. */
+export interface AlbumTimelineApiEvent {
+  key: string
+  timeUtc: string
+  /** SCAN | METADATA | CANONICAL | AI GRADE | WRITE | CONSOLIDATE | RENAME | YEAR FIX | COVER | APPROVED */
+  stage: string
+  /** ok | warn | err | info | neutral — matches the track timeline's TimelineTint. */
+  tint: string
+  /** EnrichmentProvider enum name, or the grading model name for AI GRADE events. */
+  provider?: string | null
+  /** Confidence / grade score chip (0–100). */
+  pct?: number | null
+  description: string
+  /** Rollup counts: e.g. tracks matched / total tracks in the album. */
+  matchedCount?: number | null
+  totalCount?: number | null
+  /** Rollup span — first/last underlying per-track timestamp. */
+  firstAtUtc?: string | null
+  lastAtUtc?: string | null
+}
+
+export interface AlbumTimelineResponse {
+  trackCount: number
+  events: AlbumTimelineApiEvent[]
+}
+
+/** Chronological provenance timeline for an album (discovery → providers → canonical → writes). */
+export async function fetchAlbumTimeline(artist: string, album: string): Promise<AlbumTimelineResponse> {
+  const qs = new URLSearchParams({ artist, album }).toString()
+  return requestJson<AlbumTimelineResponse>(`/api/albums/timeline?${qs}`)
+}
+
 // ── Album reconciliation grading (AI: is the linked album the correct one?) ─────
 
 /** Latest reconciliation grade for one album. */
