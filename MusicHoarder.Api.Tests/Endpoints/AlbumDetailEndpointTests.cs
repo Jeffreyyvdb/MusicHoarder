@@ -7,18 +7,22 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Quality;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
 
-public class AlbumTracklistEndpointTests
+public class AlbumDetailEndpointTests
 {
+    private const string CurrentModel = "openai/gpt-4o-mini";
+
     [Fact]
-    public async Task GetAlbumTracklist_MatchesOwned_GreysMissing_AndReturnsSources()
+    public async Task GetAlbumDetail_Linked_ReturnsTracklistAndGrade()
     {
         await using var db = NewContext();
 
         db.CanonicalAlbums.Add(new CanonicalAlbum
         {
+            Id = 1,
             ArtistKey = "daft punk",
             AlbumKey = "discovery",
             DisplayTitle = "Discovery",
@@ -41,38 +45,98 @@ public class AlbumTracklistEndpointTests
         db.Songs.Add(OwnedSong("/1.mp3", "Daft Punk", "Discovery", mbid: "rec-1", trackNumber: 99, title: "Different"));
         db.Songs.Add(OwnedSong("/2.mp3", "Daft Punk", "Discovery", trackNumber: 2, title: "Aerodynamic"));
         db.Songs.Add(OwnedSong("/3.mp3", "Daft Punk", "Discovery", title: "Night Vision"));
+        db.CanonicalAlbumQualityGrades.Add(Grade(1, SongQualityVerdict.Questionable, 55));
         await db.SaveChangesAsync();
 
-        var result = await AlbumsEndpoints.GetAlbumTracklist("Daft Punk", "Discovery", db, Opts(), CancellationToken.None);
+        var result = await AlbumsEndpoints.GetAlbumDetail("Daft Punk", "Discovery", db, EnrichOpts(), GradeOpts(), CancellationToken.None);
 
         var value = Value(result);
         Assert.Equal("linked", GetProperty<string>(value, "status"));
-        Assert.Equal(3, GetProperty<int>(value, "ownedCount"));
-        Assert.Equal(4, GetProperty<int>(value, "totalCount"));
-        Assert.True(GetProperty<bool>(value, "trackCountContested"));
 
-        var tracks = ((IEnumerable)GetProperty<object>(value, "tracks")!).Cast<object>().ToList();
+        var tracklist = GetProperty<object>(value, "tracklist")!;
+        Assert.Equal(3, GetProperty<int>(tracklist, "ownedCount"));
+        Assert.Equal(4, GetProperty<int>(tracklist, "totalCount"));
+        Assert.True(GetProperty<bool>(tracklist, "trackCountContested"));
+
+        var tracks = ((IEnumerable)GetProperty<object>(tracklist, "tracks")!).Cast<object>().ToList();
         Assert.NotNull(GetProperty<int?>(tracks[0], "ownedSongId"));
         Assert.NotNull(GetProperty<int?>(tracks[1], "ownedSongId"));
         Assert.NotNull(GetProperty<int?>(tracks[2], "ownedSongId"));
         Assert.Null(GetProperty<int?>(tracks[3], "ownedSongId"));
         Assert.True(GetProperty<bool>(tracks[3], "isContested"));
 
-        var sources = ((IEnumerable)GetProperty<object>(value, "sources")!).Cast<object>().ToList();
+        var sources = ((IEnumerable)GetProperty<object>(tracklist, "sources")!).Cast<object>().ToList();
         Assert.Equal(2, sources.Count);
         Assert.Equal("MusicBrainzWeb", GetProperty<string>(sources[0], "provider"));
+
+        var grade = GetProperty<object>(value, "grade")!;
+        Assert.True(GetProperty<bool>(grade, "graded"));
+        Assert.Equal("Questionable", GetProperty<string>(grade, "verdict"));
+        Assert.False(GetProperty<bool>(grade, "isOutdated"));
     }
 
     [Fact]
-    public async Task GetAlbumTracklist_NoRow_ReturnsPendingStatus()
+    public async Task GetAlbumDetail_LinkedButUngraded_ReturnsTracklistAndGradedFalse()
     {
         await using var db = NewContext();
-        var result = await AlbumsEndpoints.GetAlbumTracklist("Nobody", "Nothing", db, Opts(), CancellationToken.None);
-        Assert.Equal("pending", GetProperty<string>(Value(result), "status"));
+        db.CanonicalAlbums.Add(new CanonicalAlbum
+        {
+            Id = 1,
+            ArtistKey = "daft punk",
+            AlbumKey = "discovery",
+            DisplayTitle = "Discovery",
+            DisplayArtist = "Daft Punk",
+            Status = CanonicalAlbumStatus.Fetched,
+            Tracks = [new CanonicalAlbumTrack { DiscNumber = 1, TrackNumber = 1, Title = "One More Time" }],
+        });
+        await db.SaveChangesAsync();
+
+        var result = await AlbumsEndpoints.GetAlbumDetail("Daft Punk", "Discovery", db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+
+        var value = Value(result);
+        Assert.Equal("linked", GetProperty<string>(value, "status"));
+        Assert.NotNull(GetProperty<object>(value, "tracklist"));
+        Assert.False(GetProperty<bool>(GetProperty<object>(value, "grade")!, "graded"));
     }
 
     [Fact]
-    public async Task GetAlbumTracklist_NotFoundRow_ReturnsLocalOnlyStatus()
+    public async Task GetAlbumDetail_OutdatedGrade_FlagsIsOutdated()
+    {
+        await using var db = NewContext();
+        db.CanonicalAlbums.Add(new CanonicalAlbum
+        {
+            Id = 1,
+            ArtistKey = "daft punk",
+            AlbumKey = "discovery",
+            DisplayTitle = "Discovery",
+            DisplayArtist = "Daft Punk",
+            Status = CanonicalAlbumStatus.Fetched,
+            Tracks = [new CanonicalAlbumTrack { DiscNumber = 1, TrackNumber = 1, Title = "One More Time" }],
+        });
+        db.CanonicalAlbumQualityGrades.Add(Grade(1, SongQualityVerdict.Good, 80, model: "old/model"));
+        await db.SaveChangesAsync();
+
+        var result = await AlbumsEndpoints.GetAlbumDetail("Daft Punk", "Discovery", db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+
+        var grade = GetProperty<object>(Value(result), "grade")!;
+        Assert.True(GetProperty<bool>(grade, "graded"));
+        Assert.True(GetProperty<bool>(grade, "isOutdated"));
+    }
+
+    [Fact]
+    public async Task GetAlbumDetail_NoRow_ReturnsPending_NullTracklist_Ungraded()
+    {
+        await using var db = NewContext();
+        var result = await AlbumsEndpoints.GetAlbumDetail("Nobody", "Nothing", db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+
+        var value = Value(result);
+        Assert.Equal("pending", GetProperty<string>(value, "status"));
+        Assert.Null(GetProperty<object>(value, "tracklist"));
+        Assert.False(GetProperty<bool>(GetProperty<object>(value, "grade")!, "graded"));
+    }
+
+    [Fact]
+    public async Task GetAlbumDetail_NotFoundRow_ReturnsLocalOnly_NullTracklist()
     {
         await using var db = NewContext();
         db.CanonicalAlbums.Add(new CanonicalAlbum
@@ -81,15 +145,19 @@ public class AlbumTracklistEndpointTests
         });
         await db.SaveChangesAsync();
 
-        var result = await AlbumsEndpoints.GetAlbumTracklist("Nobody", "Phantom Album", db, Opts(), CancellationToken.None);
-        Assert.Equal("localOnly", GetProperty<string>(Value(result), "status"));
+        var result = await AlbumsEndpoints.GetAlbumDetail("Nobody", "Phantom Album", db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+
+        var value = Value(result);
+        Assert.Equal("localOnly", GetProperty<string>(value, "status"));
+        Assert.Null(GetProperty<object>(value, "tracklist"));
+        Assert.False(GetProperty<bool>(GetProperty<object>(value, "grade")!, "graded"));
     }
 
     [Fact]
-    public async Task GetAlbumTracklist_BlankParams_Returns404()
+    public async Task GetAlbumDetail_BlankParams_Returns404()
     {
         await using var db = NewContext();
-        var result = await AlbumsEndpoints.GetAlbumTracklist("", "", db, Opts(), CancellationToken.None);
+        var result = await AlbumsEndpoints.GetAlbumDetail("", "", db, EnrichOpts(), GradeOpts(), CancellationToken.None);
         Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)result).StatusCode);
     }
 
@@ -138,11 +206,34 @@ public class AlbumTracklistEndpointTests
         return (T)prop.GetValue(obj)!;
     }
 
-    private static IOptions<MusicEnricherOptions> Opts() => Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
+    private static IOptions<MusicEnricherOptions> EnrichOpts() => Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
     {
         SourceDirectory = "/source",
         DestinationDirectory = "/dest",
     });
+
+    private static IOptionsMonitor<QualityGradingOptions> GradeOpts(string model = CurrentModel) =>
+        new TestOptionsMonitor(new QualityGradingOptions { Model = model });
+
+    private sealed class TestOptionsMonitor(QualityGradingOptions value) : IOptionsMonitor<QualityGradingOptions>
+    {
+        public QualityGradingOptions CurrentValue { get; } = value;
+        public QualityGradingOptions Get(string? name) => CurrentValue;
+        public IDisposable? OnChange(Action<QualityGradingOptions, string?> listener) => null;
+    }
+
+    private static CanonicalAlbumQualityGrade Grade(
+        int albumId, SongQualityVerdict verdict, int score, DateTime? at = null,
+        int? promptVersion = null, string? model = CurrentModel) => new()
+    {
+        CanonicalAlbumId = albumId,
+        OwnerUserId = WellKnownUsers.OwnerId,
+        Verdict = verdict,
+        Score = score,
+        PromptVersion = promptVersion ?? AlbumGradingPrompt.Version,
+        Model = model,
+        GradedAtUtc = at ?? DateTime.UtcNow,
+    };
 
     private static SongMetadata OwnedSong(
         string sourcePath, string albumArtist, string album, string? mbid = null, int? trackNumber = null, string? title = null) => new()

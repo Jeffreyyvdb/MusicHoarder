@@ -67,39 +67,6 @@ public class AlbumQualityEndpointsTests
     }
 
     [Fact]
-    public async Task GetAlbumGrade_ByArtistAlbum_ReturnsLatest()
-    {
-        await using var db = NewContext();
-        var album = Album(1, "Discovery", CanonicalAlbumStatus.Fetched);
-        album.ArtistKey = "daft punk";
-        album.AlbumKey = "discovery";
-        album.DisplayArtist = "Daft Punk";
-        db.CanonicalAlbums.Add(album);
-        db.CanonicalAlbumQualityGrades.Add(Grade(1, SongQualityVerdict.Questionable, 55));
-        await db.SaveChangesAsync();
-
-        var result = await AlbumQualityEndpoints.GetAlbumGrade("Daft Punk", "Discovery", db, Opts(), CancellationToken.None);
-
-        var value = Value(result);
-        Assert.True(GetProperty<bool>(value, "graded"));
-        Assert.Equal("Questionable", GetProperty<string>(value, "verdict"));
-    }
-
-    [Fact]
-    public async Task GetAlbumGrade_Ungraded_ReturnsGradedFalse()
-    {
-        await using var db = NewContext();
-        var album = Album(1, "Discovery", CanonicalAlbumStatus.Fetched);
-        album.ArtistKey = "daft punk";
-        album.AlbumKey = "discovery";
-        db.CanonicalAlbums.Add(album);
-        await db.SaveChangesAsync();
-
-        var result = await AlbumQualityEndpoints.GetAlbumGrade("Daft Punk", "Discovery", db, Opts(), CancellationToken.None);
-        Assert.False(GetProperty<bool>(Value(result), "graded"));
-    }
-
-    [Fact]
     public async Task GetOverview_CountsOutdatedGrades()
     {
         await using var db = NewContext();

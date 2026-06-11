@@ -26,11 +26,6 @@ public static class AlbumQualityEndpoints
             .WithSummary("Library-wide album-reconciliation grade rollup: verdict counts, average score, worst-offender albums.")
             .WithTags("Quality").RequireOwner();
 
-        app.MapGet("/api/albums/quality", GetAlbumGrade)
-            .WithName("GetAlbumQualityGrade")
-            .WithSummary("Latest reconciliation grade for one album (by artist+album).")
-            .WithTags("Quality").RequireOwner();
-
         app.MapPost("/api/albums/quality/grade", GradeAlbum)
             .WithName("GradeAlbumQuality")
             .WithSummary("Grade one album now (forces a fresh LLM call).")
@@ -141,43 +136,6 @@ public static class AlbumQualityEndpoints
             },
             wrongCount = agg.Verdicts.Wrong,
             worstOffenders = worst,
-        });
-    }
-
-    internal static async Task<IResult> GetAlbumGrade(
-        string artist, string album, MusicHoarderDbContext db,
-        IOptionsMonitor<QualityGradingOptions> options, CancellationToken ct)
-    {
-        var albumId = await ResolveAlbumIdAsync(artist, album, db, ct);
-        if (albumId is null)
-            return Results.Ok(new { graded = false });
-
-        var grade = await db.CanonicalAlbumQualityGrades
-            .Where(g => g.CanonicalAlbumId == albumId)
-            .OrderByDescending(g => g.GradedAtUtc)
-            .FirstOrDefaultAsync(ct);
-
-        if (grade is null)
-            return Results.Ok(new { graded = false });
-
-        var historyCount = await db.CanonicalAlbumQualityGrades.CountAsync(g => g.CanonicalAlbumId == albumId, ct);
-
-        return Results.Ok(new
-        {
-            graded = true,
-            canonicalAlbumId = albumId,
-            score = grade.Score,
-            verdict = grade.Verdict.ToString(),
-            summary = grade.Summary,
-            issues = ParseIssues(grade.IssuesJson),
-            model = grade.Model,
-            promptVersion = grade.PromptVersion,
-            ownedTrackCount = grade.OwnedTrackCount,
-            canonicalTrackCount = grade.CanonicalTrackCount,
-            durationMs = grade.DurationMs,
-            gradedAtUtc = grade.GradedAtUtc,
-            isOutdated = IsGradeOutdated(grade.PromptVersion, grade.Model, options.CurrentValue.Model),
-            historyCount,
         });
     }
 

@@ -5,20 +5,24 @@ using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Quality;
+using MusicHoarder.Api.Settings;
 
 namespace MusicHoarder.Api.Endpoints;
 
 public static class AlbumsEndpoints
 {
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
     public static IEndpointRouteBuilder MapAlbumsEndpoints(this IEndpointRouteBuilder app)
     {
         // The read-only album GETs deliberately have no RequireOwner: the demo account (UserRole.Demo)
         // must be able to browse album data too. Auth is still mandatory (RequireAuthMiddleware) and
         // every owner-scoped table is filtered by the EF global query filter — same posture as the
         // songs GETs.
-        app.MapGet("/api/albums/tracklist", GetAlbumTracklist)
-            .WithName("GetAlbumTracklist")
-            .WithSummary("Reconciled multi-provider canonical tracklist for an album, each track annotated with the owned song (if any).")
+        app.MapGet("/api/albums/detail", GetAlbumDetail)
+            .WithName("GetAlbumDetail")
+            .WithSummary("Combined per-album payload: reconciled canonical tracklist (owned-annotated) plus the latest reconciliation grade, resolved in one request.")
             .WithTags("Library");
 
         app.MapPost("/api/albums/canonical-status", GetCanonicalStatuses)
@@ -35,11 +39,18 @@ public static class AlbumsEndpoints
         return app;
     }
 
-    internal static async Task<IResult> GetAlbumTracklist(
+    /// <summary>
+    /// Everything the album detail page needs in one shot: the album's link status, its reconciled
+    /// canonical tracklist (owned-annotated, so the UI can grey out missing tracks), and the latest
+    /// AI reconciliation grade. The frontend fetches this once on navigation so the grade and
+    /// missing-track info land together instead of popping in as two deferred requests.
+    /// </summary>
+    internal static async Task<IResult> GetAlbumDetail(
         string artist,
         string album,
         MusicHoarderDbContext db,
         IOptions<MusicEnricherOptions> options,
+        IOptionsMonitor<QualityGradingOptions> gradingOptions,
         CancellationToken ct)
     {
         var artistKey = TitleNormalizer.NormalizeForSearch(artist);
@@ -47,16 +58,19 @@ public static class AlbumsEndpoints
         if (artistKey.Length == 0 || albumKey.Length == 0)
             return Results.NotFound(new { message = "Album not specified." });
 
+        // Resolve the canonical album once (with its tracks) — both the tracklist and the grade hang
+        // off this single lookup, so there's no duplicate resolve.
         var canonical = await db.CanonicalAlbums
             .AsNoTracking()
             .Include(a => a.Tracks)
             .FirstOrDefaultAsync(a => a.ArtistKey == artistKey && a.AlbumKey == albumKey, ct);
 
-        // Not linked yet: report the state (localOnly vs still-pending) so the UI can be explicit
-        // instead of silently falling back. The frontend renders its owned-only view either way.
+        // Not linked yet: no canonical album means no tracklist and no grade. Report the state
+        // (localOnly vs still-pending) so the UI can render its owned-only view explicitly.
         if (canonical is null || canonical.Status != CanonicalAlbumStatus.Fetched)
-            return Results.Ok(new { status = DeriveStatus(canonical), providers = Array.Empty<string>() });
+            return Results.Ok(new { status = DeriveStatus(canonical), tracklist = (object?)null, grade = new { graded = false } });
 
+        // ── Reconciled tracklist, each canonical track annotated with the owned song (if any) ──
         // Owned songs in this album group, mirroring the frontend's (albumArtist ?? artist, album) grouping.
         var artistLower = artist.ToLowerInvariant();
         var albumLower = album.ToLowerInvariant();
@@ -90,7 +104,7 @@ public static class AlbumsEndpoints
             })
             .ToList();
 
-        return Results.Ok(new
+        var tracklist = new
         {
             status = "linked",
             artist = canonical.DisplayArtist,
@@ -103,7 +117,42 @@ public static class AlbumsEndpoints
             totalCount = tracks.Count,
             sources = ParseSources(canonical.SourcesJson),
             tracks,
-        });
+        };
+
+        // ── Latest reconciliation grade for this album (read-only; never triggers an LLM call) ──
+        var grade = await db.CanonicalAlbumQualityGrades
+            .Where(g => g.CanonicalAlbumId == canonical.Id)
+            .OrderByDescending(g => g.GradedAtUtc)
+            .FirstOrDefaultAsync(ct);
+
+        object gradePayload;
+        if (grade is null)
+        {
+            gradePayload = new { graded = false };
+        }
+        else
+        {
+            var historyCount = await db.CanonicalAlbumQualityGrades.CountAsync(g => g.CanonicalAlbumId == canonical.Id, ct);
+            gradePayload = new
+            {
+                graded = true,
+                canonicalAlbumId = canonical.Id,
+                score = grade.Score,
+                verdict = grade.Verdict.ToString(),
+                summary = grade.Summary,
+                issues = ParseIssues(grade.IssuesJson),
+                model = grade.Model,
+                promptVersion = grade.PromptVersion,
+                ownedTrackCount = grade.OwnedTrackCount,
+                canonicalTrackCount = grade.CanonicalTrackCount,
+                durationMs = grade.DurationMs,
+                gradedAtUtc = grade.GradedAtUtc,
+                isOutdated = IsGradeOutdated(grade.PromptVersion, grade.Model, gradingOptions.CurrentValue.Model),
+                historyCount,
+            };
+        }
+
+        return Results.Ok(new { status = "linked", tracklist, grade = gradePayload });
     }
 
     internal static async Task<IResult> GetCanonicalStatuses(
@@ -448,6 +497,20 @@ public static class AlbumsEndpoints
             return [];
         }
     }
+
+    /// <summary>Parses the stored grading-issue JSON; empty/garbage → no issues.</summary>
+    private static List<GradingIssue> ParseIssues(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<List<GradingIssue>>(json, Json) ?? []; }
+        catch { return []; }
+    }
+
+    /// <summary>A grade is "outdated" when the album-grading prompt version or the configured model has
+    /// changed since the grade was produced — surfaced (not auto-regraded) for an explicit refresh.</summary>
+    private static bool IsGradeOutdated(int promptVersion, string? model, string currentModel) =>
+        promptVersion != AlbumGradingPrompt.Version
+        || !string.Equals(model, currentModel, StringComparison.Ordinal);
 
     public sealed record CanonicalStatusRequest(List<AlbumIdentity>? Albums);
     public sealed record AlbumIdentity(string Artist, string Album);
