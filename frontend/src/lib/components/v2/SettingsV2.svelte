@@ -20,7 +20,6 @@
     purgeAll,
     purgePostFingerprint,
     fetchPurgeStatus,
-    signOut,
     registerPasskey,
     listPasskeys,
     deletePasskey,
@@ -33,6 +32,7 @@
     type SpotifyCredentialsResponse,
     type SpotifyStatusResponse
   } from '$lib/api-client';
+  import { signOutAndReset } from '$lib/auth/sign-out';
   import {
     Loader2,
     CheckCircle2,
@@ -81,8 +81,7 @@
   const initials = $derived((user?.displayName ?? user?.email ?? '?').slice(0, 2).toUpperCase());
 
   async function handleSignOut(allSessions = false) {
-    await signOut(allSessions);
-    await goto('/login', { invalidateAll: true });
+    await signOutAndReset(allSessions);
   }
 
   // ── passkeys (owner-only) ──────────────────────────────────────────────────────
