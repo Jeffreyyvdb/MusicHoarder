@@ -101,6 +101,45 @@ public class EnrichmentRetrySweepTests
     }
 
     [Fact]
+    public async Task Refresh_SkipsDemoSong_EvenWithZeroAttempts()
+    {
+        // Real-file demo rows are seeded terminal-Matched with NO provider attempts, so without the
+        // demo exclusion the refresh sweep would see them as "missing every provider", flip them to
+        // Pending and re-enrich them — overwriting the curated demo metadata on every boot.
+        await using var db = CreateDb();
+        var song = AddSong(db, EnrichmentStatus.Matched, owner: MusicHoarder.Api.Auth.WellKnownUsers.DemoId);
+        await db.SaveChangesAsync();
+
+        var channel = new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker());
+        var service = CreateService(
+            db, channel,
+            enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.AcoustID, EnrichmentProvider.SpotifyAPI });
+
+        await service.RefreshStaleStatusesAsync(CancellationToken.None);
+
+        var updated = await db.Songs.IgnoreQueryFilters().AsNoTracking().SingleAsync();
+        Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
+        Assert.False(channel.Reader.TryRead(out _));
+    }
+
+    [Fact]
+    public async Task EnqueueMissing_SkipsDemoSong()
+    {
+        await using var db = CreateDb();
+        AddSong(db, EnrichmentStatus.Matched, owner: MusicHoarder.Api.Auth.WellKnownUsers.DemoId);
+        await db.SaveChangesAsync();
+
+        var channel = new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker());
+        var service = CreateService(
+            db, channel,
+            enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.SpotifyAPI, EnrichmentProvider.YeTracker });
+
+        await service.EnqueueSongsMissingProvidersAsync(CancellationToken.None);
+
+        Assert.False(channel.Reader.TryRead(out _));
+    }
+
+    [Fact]
     public async Task Retry_ResetsNeedsReview_WhenFlagSet_PreservesCurrentMetadata()
     {
         await using var db = CreateDb();
@@ -284,11 +323,11 @@ public class EnrichmentRetrySweepTests
         Assert.False(channel.Reader.TryRead(out _));
     }
 
-    private static SongMetadata AddSong(MusicHoarderDbContext db, EnrichmentStatus status)
+    private static SongMetadata AddSong(MusicHoarderDbContext db, EnrichmentStatus status, Guid? owner = null)
     {
         var song = new SongMetadata
         {
-            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
+            OwnerUserId = owner ?? MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = $"/source/{Guid.NewGuid():N}.mp3",
             FileName = "song.mp3",
             Extension = ".mp3",

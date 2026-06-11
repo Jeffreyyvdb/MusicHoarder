@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Scanner;
@@ -167,20 +168,30 @@ public sealed class DemoSeederHostedService : IHostedService
     /// <summary>
     /// Seed the demo user with real, playable songs read from <paramref name="mediaDir"/> (a read-only
     /// mount on the hosted demo). Each file becomes a terminal <c>Matched</c> + <c>Done</c> row that no
-    /// background sweep will touch (placeholder fingerprint keeps it out of fingerprint/duplicate sweeps;
-    /// <c>LyricsStatus.NotFound</c> keeps it out of the lyrics sweep; the demo tenant is excluded from
-    /// the remaining all-tenant sweeps). Reuses the scanner's tag reader so metadata + embedded art come
-    /// from the files themselves. Returns true once real demo songs exist (already-seeded or freshly
-    /// seeded); false when there's nothing to seed, so the caller falls back to the synthetic seed.
+    /// background sweep will touch (placeholder fingerprint keeps it out of the fingerprint sweep;
+    /// <c>LyricsStatus.NotFound</c> keeps it out of the lyrics sweep; every all-tenant sweep and the
+    /// builder/dedup queries carry an explicit <see cref="WellKnownUsers.DemoId"/> exclusion). Reuses
+    /// the scanner's tag reader so metadata + embedded art come from the files themselves. Returns true
+    /// once real demo songs exist (already-seeded or freshly seeded); false when there's nothing to
+    /// seed, so the caller falls back to the synthetic seed.
     /// </summary>
     private async Task<bool> SeedRealDemoSongsIfEmptyAsync(
         IServiceScope scope, MusicHoarderDbContext db, string mediaDir, CancellationToken ct)
     {
-        // Already have real demo songs? Idempotent — nothing to do.
-        var hasRealDemoSongs = await db.Songs
+        // Already have real demo songs? Idempotent — nothing to do, UNLESS a past all-tenant sweep
+        // got to them before the DemoId exclusions existed (provider attempts, a flipped status, or
+        // a builder run that re-pointed DestinationPath into the owner's library). Then heal: wipe
+        // and re-seed — demo rows are disposable seed data, never user data.
+        var existingDemoSongs = await db.Songs
             .IgnoreQueryFilters()
-            .AnyAsync(s => s.OwnerUserId == WellKnownUsers.DemoId && !s.IsSynthetic, ct);
-        if (hasRealDemoSongs) return true;
+            .Include(s => s.ProviderAttempts)
+            .Where(s => s.OwnerUserId == WellKnownUsers.DemoId && !s.IsSynthetic)
+            .ToListAsync(ct);
+        if (existingDemoSongs.Count > 0)
+        {
+            if (!existingDemoSongs.Any(IsPollutedDemoRow)) return true;
+            await HealPollutedDemoRowsAsync(scope, db, existingDemoSongs, ct);
+        }
 
         var files = Directory
             .EnumerateFiles(mediaDir, "*.*", new EnumerationOptions
@@ -311,6 +322,69 @@ public sealed class DemoSeederHostedService : IHostedService
             "Seeded {Count} real demo songs from {Dir} (removed {Removed} synthetic placeholders).",
             batch.Count, mediaDir, synthetic.Count);
         return true;
+    }
+
+    // A seeded demo row is terminal and inert: Matched + Done, no provider attempts, streaming
+    // straight off its source path. Anything else means an all-tenant sweep touched it.
+    private static bool IsPollutedDemoRow(SongMetadata s) =>
+        s.ProviderAttempts.Count > 0
+        || s.EnrichmentStatus != EnrichmentStatus.Matched
+        || s.LibraryBuildStatus != LibraryBuildStatus.Done
+        || s.PreviousDestinationPath is not null
+        || !string.Equals(s.DestinationPath, s.SourcePath, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Undoes what a pre-exclusion all-tenant sweep did to the demo library: deletes any file the
+    /// builder copied into the owner's destination for a demo row (guarded — never a path a non-demo
+    /// row also claims, and the cleaner itself refuses anything outside the destination root), then
+    /// wipes all demo rows so the caller re-seeds them fresh from the demo media. Dependents cascade
+    /// (provider attempts, metadata changes, grades); LibraryWriteEvent/DuplicateOf references set-null.
+    /// </summary>
+    private async Task HealPollutedDemoRowsAsync(
+        IServiceScope scope, MusicHoarderDbContext db, List<SongMetadata> demoRows, CancellationToken ct)
+    {
+        var strayPaths = demoRows
+            .Where(s => s.DestinationPath is not null
+                && !string.Equals(s.DestinationPath, s.SourcePath, StringComparison.Ordinal))
+            .Select(s => s.DestinationPath!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        var deleted = 0;
+        var skipped = 0;
+        if (strayPaths.Count > 0)
+        {
+            // A same-artist/album collision means the file at that path is (also) the owner's build
+            // output — leave it for the owner's row.
+            var claimedByOthers = (await db.Songs
+                    .IgnoreQueryFilters()
+                    .Where(s => s.OwnerUserId != WellKnownUsers.DemoId
+                        && s.DestinationPath != null
+                        && strayPaths.Contains(s.DestinationPath))
+                    .Select(s => s.DestinationPath!)
+                    .ToListAsync(ct))
+                .ToHashSet(StringComparer.Ordinal);
+
+            var cleaner = scope.ServiceProvider.GetRequiredService<ILibraryDestinationCleaner>();
+            var destinationRoot = _enricherOptions.CurrentValue.DestinationDirectory;
+            foreach (var path in strayPaths)
+            {
+                if (claimedByOthers.Contains(path))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                cleaner.DeleteManagedPathAndPrune(path, destinationRoot);
+                deleted++;
+            }
+        }
+
+        db.Songs.RemoveRange(demoRows);
+        await db.SaveChangesAsync(ct);
+        _logger.LogWarning(
+            "Healed polluted demo library: wiped {Rows} demo songs, deleted {Deleted} stray destination files ({Skipped} skipped as owner-claimed); re-seeding from demo media.",
+            demoRows.Count, deleted, skipped);
     }
 
     private static (string Artist, string Album) DeriveArtistAlbumFromPath(string root, string path)

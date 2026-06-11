@@ -26,7 +26,11 @@ public class LyricsEmbedBackfillBackgroundServiceTests
             // Not yet built → not a candidate even with lyrics.
             Song(5, dest: null, LibraryBuildStatus.Pending, synced: "[00:01] hi"),
             // Done, DB has lyrics, file missing them, but deleted → skipped.
-            Song(6, dest: "/dest/deleted.flac", LibraryBuildStatus.Done, plain: "y", deleted: true));
+            Song(6, dest: "/dest/deleted.flac", LibraryBuildStatus.Done, plain: "y", deleted: true),
+            // Demo-owned real row (NOT synthetic): Done, DB lyrics, read-only file without them —
+            // must never be re-queued, or the builder would copy it into the owner's library.
+            Song(7, dest: "/demo/media/demo.flac", LibraryBuildStatus.Done, synced: "[00:01] demo",
+                owner: MusicHoarder.Api.Auth.WellKnownUsers.DemoId));
         await db.SaveChangesAsync();
 
         var reader = new MapLyricsReader
@@ -55,6 +59,11 @@ public class LyricsEmbedBackfillBackgroundServiceTests
         Assert.Equal(LibraryBuildStatus.Pending, songs[4].LibraryBuildStatus);
         Assert.Null(songs[4].PreviousDestinationPath);
         Assert.Equal(LibraryBuildStatus.Done, songs[5].LibraryBuildStatus);
+
+        // #7 (demo tenant): untouched, and never even read off its mount.
+        Assert.Equal(LibraryBuildStatus.Done, songs[6].LibraryBuildStatus);
+        Assert.Null(songs[6].PreviousDestinationPath);
+        Assert.DoesNotContain("/demo/media/demo.flac", reader.RequestedPaths);
 
         // #3 (no DB lyrics) is not even a candidate, so its file is never read.
         Assert.DoesNotContain("/dest/instrumental.flac", reader.RequestedPaths);
@@ -125,10 +134,11 @@ public class LyricsEmbedBackfillBackgroundServiceTests
         string? synced = null,
         string? plain = null,
         bool isSynthetic = false,
-        bool deleted = false) => new()
+        bool deleted = false,
+        Guid? owner = null) => new()
     {
         Id = id,
-        OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
+        OwnerUserId = owner ?? MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
         SourcePath = $"/source/{id}.flac",
         FileName = $"{id}.flac",
         Extension = ".flac",

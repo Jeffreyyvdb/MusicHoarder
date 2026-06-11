@@ -61,7 +61,12 @@ public class LibraryBuildQueryTests
             Song(2, LyricsStatus.Fetched, enrichedAtUtc: Now, isDuplicate: true),
             Song(3, LyricsStatus.Fetched, enrichedAtUtc: Now, isSynthetic: true),
             Song(4, LyricsStatus.Fetched, enrichedAtUtc: Now, deleted: true),
-            Song(5, LyricsStatus.Fetched, enrichedAtUtc: Now, enrichment: EnrichmentStatus.NeedsReview));
+            Song(5, LyricsStatus.Fetched, enrichedAtUtc: Now, enrichment: EnrichmentStatus.NeedsReview),
+            // Demo rows stream off a read-only mount — never buildable, even when force-flagged
+            // for a re-tag (the exact state a pre-exclusion sweep left them in).
+            Song(6, LyricsStatus.Fetched, enrichedAtUtc: Now,
+                owner: MusicHoarder.Api.Auth.WellKnownUsers.DemoId,
+                status: LibraryBuildStatus.Pending, dest: "/demo/6.flac", previousDest: "/demo/6.flac"));
         await db.SaveChangesAsync();
 
         var eligible = await LibraryBuildQuery
@@ -82,10 +87,11 @@ public class LibraryBuildQueryTests
         EnrichmentStatus enrichment = EnrichmentStatus.Matched,
         bool isDuplicate = false,
         bool isSynthetic = false,
-        bool deleted = false) => new()
+        bool deleted = false,
+        Guid? owner = null) => new()
     {
         Id = id,
-        OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
+        OwnerUserId = owner ?? MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
         SourcePath = $"/source/{id}.flac",
         FileName = $"{id}.flac",
         Extension = ".flac",
