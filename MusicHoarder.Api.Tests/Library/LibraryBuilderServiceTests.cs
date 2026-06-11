@@ -347,6 +347,52 @@ public class LibraryBuilderServiceTests
     }
 
     [Fact]
+    public async Task ProcessNextBatchAsync_ExcludesDemoRows_FromBuildAndIdentityElection()
+    {
+        // Destination folder keys carry no owner segment, so a demo album with the same artist/album
+        // resolves to the same folder as the owner's. The demo rows must neither build nor vote in
+        // the folder's identity election (here they hold the majority release id and would win).
+        var sourceA = "/source/a.mp3";
+        var sourceB = "/source/b.mp3";
+        var demoC = "/demo/c.mp3";
+        var demoD = "/demo/d.mp3";
+        var demoE = "/demo/e.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourceA] = new("aaaaa"),
+            [sourceB] = new("bbbbb"),
+            [demoC] = new("ccccc"),
+            [demoD] = new("ddddd"),
+            [demoE] = new("eeeee")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourceA, 5, title: "T1", trackNumber: 1, musicBrainzReleaseId: "rel-owner"));
+        db.Songs.Add(CreateMatchedSong(sourceB, 5, title: "T2", trackNumber: 2, musicBrainzReleaseId: "rel-owner"));
+        db.Songs.Add(CreateMatchedSong(demoC, 5, title: "T3", trackNumber: 3, musicBrainzReleaseId: "rel-demo",
+            owner: MusicHoarder.Api.Auth.WellKnownUsers.DemoId));
+        db.Songs.Add(CreateMatchedSong(demoD, 5, title: "T4", trackNumber: 4, musicBrainzReleaseId: "rel-demo",
+            owner: MusicHoarder.Api.Auth.WellKnownUsers.DemoId));
+        db.Songs.Add(CreateMatchedSong(demoE, 5, title: "T5", trackNumber: 5, musicBrainzReleaseId: "rel-demo",
+            owner: MusicHoarder.Api.Auth.WellKnownUsers.DemoId));
+        await db.SaveChangesAsync();
+
+        var tagWriter = new RecordingTagWriter();
+        var service = CreateService(db, fileSystem, tagWriter);
+
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        // Only the owner's tracks were built, and their identity ignored the demo majority.
+        Assert.Equal(new[] { sourceA, sourceB }, tagWriter.IdentityBySource.Keys.OrderBy(k => k).ToArray());
+        Assert.All(tagWriter.IdentityBySource.Values, identity => Assert.Equal("rel-owner", identity.MusicBrainzReleaseId));
+
+        var demoRows = await db.Songs.IgnoreQueryFilters().AsNoTracking()
+            .Where(s => s.OwnerUserId == MusicHoarder.Api.Auth.WellKnownUsers.DemoId)
+            .ToListAsync();
+        Assert.All(demoRows, s => Assert.Equal(LibraryBuildStatus.Pending, s.LibraryBuildStatus));
+    }
+
+    [Fact]
     public async Task ProcessNextBatchAsync_KeepsPerSongIdentity_WhenReconciliationDisabled()
     {
         var sourceA = "/source/a.mp3";
@@ -804,11 +850,12 @@ public class LibraryBuilderServiceTests
         int trackNumber = 1,
         string? musicBrainzReleaseId = null,
         int? totalTracks = null,
-        int? totalDiscs = null)
+        int? totalDiscs = null,
+        Guid? owner = null)
     {
         return new SongMetadata
         {
-            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
+            OwnerUserId = owner ?? MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = sourcePath,
             FileName = Path.GetFileName(sourcePath),
             Extension = ".mp3",

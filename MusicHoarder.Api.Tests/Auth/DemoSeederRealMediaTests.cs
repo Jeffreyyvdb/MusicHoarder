@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Scanner;
@@ -111,6 +112,121 @@ public class DemoSeederRealMediaTests : IDisposable
     }
 
     [Fact]
+    public async Task reboot_heals_polluted_demo_rows_and_deletes_stray_destination_files()
+    {
+        // Simulates what the pre-exclusion all-tenant sweeps did to the demo library: provider
+        // attempts + a flipped status on one row, a builder-re-pointed DestinationPath on another.
+        // The next boot must wipe + re-seed and remove the stray copy from the owner's library.
+        var mediaDir = NewTempDir();
+        AddMediaFile(mediaDir, "Demo Band", "Demo LP", 1, "Song One");
+        AddMediaFile(mediaDir, "Demo Band", "Demo LP", 2, "Song Two");
+
+        var cleaner = new RecordingCleaner();
+        var (svc, ctx) = MakeSeeder(mediaDir, cleaner);
+        await svc.StartAsync(default);
+
+        const string strayPath = "/dest/Demo Band/Demo LP/01 Song One.mp3";
+        await using (var db = ctx())
+        {
+            var rows = await db.Songs.IgnoreQueryFilters().Include(s => s.ProviderAttempts)
+                .Where(s => s.OwnerUserId == WellKnownUsers.DemoId).OrderBy(s => s.Id).ToListAsync();
+            rows[0].ProviderAttempts.Add(new SongProviderAttempt
+            {
+                SongId = rows[0].Id,
+                Provider = EnrichmentProvider.AcoustID,
+                Status = ProviderAttemptStatus.Matched,
+                AttemptedAtUtc = DateTime.UtcNow,
+            });
+            rows[0].EnrichmentStatus = EnrichmentStatus.NeedsReview;
+            rows[1].PreviousDestinationPath = rows[1].DestinationPath;
+            rows[1].DestinationPath = strayPath;
+            await db.SaveChangesAsync();
+        }
+
+        await svc.StartAsync(default); // next boot: heal + re-seed
+
+        await using var db2 = ctx();
+        var healed = await db2.Songs.IgnoreQueryFilters().Include(s => s.ProviderAttempts)
+            .Where(s => s.OwnerUserId == WellKnownUsers.DemoId).ToListAsync();
+        Assert.Equal(2, healed.Count);
+        Assert.All(healed, s =>
+        {
+            Assert.Equal(EnrichmentStatus.Matched, s.EnrichmentStatus);
+            Assert.Equal(LibraryBuildStatus.Done, s.LibraryBuildStatus);
+            Assert.Equal(s.SourcePath, s.DestinationPath);
+            Assert.Null(s.PreviousDestinationPath);
+            Assert.Empty(s.ProviderAttempts);
+        });
+        Assert.Equal(new[] { strayPath }, cleaner.Deleted);
+    }
+
+    [Fact]
+    public async Task heal_keeps_destination_file_claimed_by_a_non_demo_row()
+    {
+        var mediaDir = NewTempDir();
+        AddMediaFile(mediaDir, "Demo Band", "Demo LP", 1, "Song One");
+
+        var cleaner = new RecordingCleaner();
+        var (svc, ctx) = MakeSeeder(mediaDir, cleaner);
+        await svc.StartAsync(default);
+
+        const string sharedPath = "/dest/Demo Band/Demo LP/01 Song One.mp3";
+        await using (var db = ctx())
+        {
+            var demoRow = await db.Songs.IgnoreQueryFilters()
+                .SingleAsync(s => s.OwnerUserId == WellKnownUsers.DemoId);
+            demoRow.DestinationPath = sharedPath;
+            // The owner's own build output landed at the same path — the heal must not delete it.
+            db.Songs.Add(new SongMetadata
+            {
+                OwnerUserId = WellKnownUsers.OwnerId,
+                SourcePath = "/source/owner.mp3",
+                FileName = "owner.mp3",
+                Extension = ".mp3",
+                FileSizeBytes = 1,
+                LastModifiedUtc = DateTime.UtcNow,
+                IndexedAtUtc = DateTime.UtcNow,
+                LibraryBuildStatus = LibraryBuildStatus.Done,
+                DestinationPath = sharedPath,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await svc.StartAsync(default);
+
+        Assert.Empty(cleaner.Deleted);
+        await using var db2 = ctx();
+        var healed = await db2.Songs.IgnoreQueryFilters()
+            .Where(s => s.OwnerUserId == WellKnownUsers.DemoId).ToListAsync();
+        var song = Assert.Single(healed);
+        Assert.Equal(song.SourcePath, song.DestinationPath); // re-seeded fresh all the same
+    }
+
+    [Fact]
+    public async Task clean_demo_rows_are_left_untouched_on_reboot()
+    {
+        var mediaDir = NewTempDir();
+        AddMediaFile(mediaDir, "Demo Band", "Demo LP", 1, "Song One");
+
+        var cleaner = new RecordingCleaner();
+        var (svc, ctx) = MakeSeeder(mediaDir, cleaner);
+        await svc.StartAsync(default);
+
+        int seededId;
+        await using (var db = ctx())
+            seededId = (await db.Songs.IgnoreQueryFilters()
+                .SingleAsync(s => s.OwnerUserId == WellKnownUsers.DemoId)).Id;
+
+        await svc.StartAsync(default);
+
+        await using var db2 = ctx();
+        var song = await db2.Songs.IgnoreQueryFilters()
+            .SingleAsync(s => s.OwnerUserId == WellKnownUsers.DemoId);
+        Assert.Equal(seededId, song.Id); // no wipe/re-seed happened
+        Assert.Empty(cleaner.Deleted);
+    }
+
+    [Fact]
     public async Task empty_media_directory_falls_back_to_synthetic_seed()
     {
         var mediaDir = NewTempDir(); // exists but has no audio
@@ -138,18 +254,20 @@ public class DemoSeederRealMediaTests : IDisposable
         Assert.All(demoSongs, s => Assert.True(s.IsSynthetic));
     }
 
-    private (DemoSeederHostedService Service, Func<MusicHoarderDbContext> CreateCtx) MakeSeeder(string? demoMediaDir)
+    private (DemoSeederHostedService Service, Func<MusicHoarderDbContext> CreateCtx) MakeSeeder(
+        string? demoMediaDir, ILibraryDestinationCleaner? cleaner = null)
     {
         var options = new DbContextOptionsBuilder<MusicHoarderDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
 
-        var enricher = new MusicEnricherOptions { DemoMediaDirectory = demoMediaDir };
+        var enricher = new MusicEnricherOptions { DemoMediaDirectory = demoMediaDir, DestinationDirectory = "/dest" };
         var scopeFactory = new StubScopeFactory(
             () => new MusicHoarderDbContext(options),
             new FileScanner(new FileSystem(), new NullFpcalcService(), NullLogger<FileScanner>.Instance),
             new StubCoverResolver(),
-            new StubLrcLibService());
+            new StubLrcLibService(),
+            cleaner ?? new RecordingCleaner());
 
         var svc = new DemoSeederHostedService(
             scopeFactory,
@@ -166,6 +284,19 @@ public class DemoSeederRealMediaTests : IDisposable
         Directory.CreateDirectory(dir);
         _tempDirs.Add(dir);
         return dir;
+    }
+
+    private static void AddMediaFile(string mediaDir, string artist, string album, int track, string title)
+    {
+        var file = Path.Combine(mediaDir, artist, album, $"{track:00} {title}.mp3");
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.Copy(Path.Combine(FixtureDir, "silence.mp3"), file);
+        using var tag = TagLib.File.Create(file);
+        tag.Tag.Performers = [artist];
+        tag.Tag.Album = album;
+        tag.Tag.Title = title;
+        tag.Tag.Track = (uint)track;
+        tag.Save();
     }
 
     public void Dispose()
@@ -203,12 +334,20 @@ public class DemoSeederRealMediaTests : IDisposable
         public IDisposable? OnChange(Action<T, string?> listener) => null;
     }
 
-    // A scope whose provider hands back a fresh DbContext plus the scanner/resolver the real seeder needs.
+    // Records what the heal asked the destination cleaner to delete; never touches the disk.
+    private sealed class RecordingCleaner : ILibraryDestinationCleaner
+    {
+        public List<string> Deleted { get; } = [];
+        public void DeleteManagedPathAndPrune(string path, string destinationRoot) => Deleted.Add(path);
+    }
+
+    // A scope whose provider hands back a fresh DbContext plus the scanner/resolver/cleaner the real
+    // seeder needs.
     private sealed class StubScopeFactory(
         Func<MusicHoarderDbContext> dbFactory, IFileScanner scanner, ICoverArtResolver resolver,
-        ILrcLibService lrcLib) : IServiceScopeFactory
+        ILrcLibService lrcLib, ILibraryDestinationCleaner cleaner) : IServiceScopeFactory
     {
-        public IServiceScope CreateScope() => new Scope(new Provider(dbFactory(), scanner, resolver, lrcLib));
+        public IServiceScope CreateScope() => new Scope(new Provider(dbFactory(), scanner, resolver, lrcLib, cleaner));
 
         private sealed class Scope(IServiceProvider provider) : IServiceScope
         {
@@ -217,7 +356,8 @@ public class DemoSeederRealMediaTests : IDisposable
         }
 
         private sealed class Provider(
-            MusicHoarderDbContext db, IFileScanner scanner, ICoverArtResolver resolver, ILrcLibService lrcLib)
+            MusicHoarderDbContext db, IFileScanner scanner, ICoverArtResolver resolver, ILrcLibService lrcLib,
+            ILibraryDestinationCleaner cleaner)
             : IServiceProvider
         {
             public object? GetService(Type serviceType)
@@ -226,6 +366,7 @@ public class DemoSeederRealMediaTests : IDisposable
                 if (serviceType == typeof(IFileScanner)) return scanner;
                 if (serviceType == typeof(ICoverArtResolver)) return resolver;
                 if (serviceType == typeof(ILrcLibService)) return lrcLib;
+                if (serviceType == typeof(ILibraryDestinationCleaner)) return cleaner;
                 return null;
             }
         }

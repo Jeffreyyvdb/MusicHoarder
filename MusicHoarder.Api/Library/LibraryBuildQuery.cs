@@ -1,3 +1,4 @@
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -27,6 +28,9 @@ public static class LibraryBuildQuery
     {
         var query = songs
             .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
+            // Demo songs stream straight off their read-only mount (DestinationPath == SourcePath);
+            // building one would copy it into the owner's library and try to prune the mount path.
+            .Where(s => s.OwnerUserId != WellKnownUsers.DemoId)
             .Where(s => !s.IsDuplicate)
             .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched)
             .Where(s => s.LibraryBuildStatus != LibraryBuildStatus.Done

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Pipeline;
@@ -70,6 +71,9 @@ public sealed class LyricsEmbedBackfillBackgroundService(
                     .IgnoreQueryFilters()
                     .AsNoTracking()
                     .Where(s => !s.IsSynthetic
+                        // Demo files live on a read-only mount with no embedded lyrics by design —
+                        // re-queuing them would make the builder copy them into the owner's library.
+                        && s.OwnerUserId != WellKnownUsers.DemoId
                         && s.DeletedAtUtc == null
                         && s.LibraryBuildStatus == LibraryBuildStatus.Done
                         && s.DestinationPath != null
