@@ -29,8 +29,7 @@
   } from '$lib/formatters';
   import {
     copyAlbumDossier,
-    fetchAlbumQualityGrade,
-    fetchAlbumTracklist,
+    fetchAlbumDetail,
     gradeAlbum,
     prettyProvider,
     rebuildAlbum,
@@ -63,6 +62,12 @@
   // owned-only list below.
   let tracklist = $state<AlbumTracklist | null>(null);
   let linkStatus = $state<AlbumLinkStatus>('pending');
+  // AI grade of whether this album was linked to the *correct* provider album.
+  let albumGrade = $state<AlbumQualityGradeView | null>(null);
+  let grading = $state(false);
+  // True while the combined album-detail request is in flight, so the hero can reserve space for the
+  // status pill, completeness bar, and AI summary (skeletons) instead of letting them pop in.
+  let loadingDetail = $state(false);
   // When true, collapse the tracklist to just the songs the user owns, hiding the greyed-out
   // canonical tracks they're missing. Toggle with the button in the track-list header or the `H` key.
   // Backed by `albumViewPrefs` so the choice persists across albums (and reloads) instead of
@@ -70,21 +75,33 @@
   const hideMissing = $derived(albumViewPrefs.hideMissing);
   // The ScrollArea viewport, so we can clamp scrollTop after the list shrinks (see below).
   let scrollViewport = $state<HTMLElement | null>(null);
+  // One request on navigation fetches the tracklist + grade together, so link status and grade land
+  // in the same tick (no two-step pop-in). Resets all three pieces up front so the next album starts
+  // clean, and the cleanup guard drops a stale in-flight response.
   $effect(() => {
     const artist = album?.artist ?? null;
     const title = album?.title ?? null;
     tracklist = null;
     linkStatus = 'pending';
-    if (!artist || !title) return;
+    albumGrade = null;
+    if (!artist || !title) {
+      loadingDetail = false;
+      return;
+    }
     let cancelled = false;
-    void fetchAlbumTracklist(artist, title)
-      .then((result) => {
+    loadingDetail = true;
+    void fetchAlbumDetail(artist, title)
+      .then((d) => {
         if (cancelled) return;
-        tracklist = result.tracklist;
-        linkStatus = result.status;
+        tracklist = d.tracklist;
+        linkStatus = d.status;
+        albumGrade = d.grade;
       })
       .catch(() => {
-        // Tracklist is best-effort; on error keep the owned-only fallback.
+        // Best-effort: on error keep the owned-only fallback and unset grade.
+      })
+      .finally(() => {
+        if (!cancelled) loadingDetail = false;
       });
     return () => {
       cancelled = true;
@@ -97,27 +114,6 @@
       ? tracklist.sources.filter((s) => s.inWinningCluster).map((s) => prettyProvider(s.provider))
       : []
   );
-
-  // AI grade of whether this album was linked to the *correct* provider album.
-  let albumGrade = $state<AlbumQualityGradeView | null>(null);
-  let grading = $state(false);
-  $effect(() => {
-    const artist = album?.artist ?? null;
-    const title = album?.title ?? null;
-    albumGrade = null;
-    if (!artist || !title) return;
-    let cancelled = false;
-    void fetchAlbumQualityGrade(artist, title)
-      .then((g) => {
-        if (!cancelled) albumGrade = g;
-      })
-      .catch(() => {
-        // Grade is best-effort (grading may be unconfigured/disabled).
-      });
-    return () => {
-      cancelled = true;
-    };
-  });
 
   async function gradeNow() {
     if (!album || grading) return;
@@ -451,11 +447,20 @@
               >
                 {completeness.owned}/{completeness.total} · {completeness.pct}%
               </span>
+            {:else if loadingDetail}
+              <span class="opacity-50">·</span>
+              <span class="inline-block h-3 w-16 animate-pulse rounded bg-white/25 align-middle"></span>
             {/if}
           </div>
-          {#if completeness}
+          <!-- Completeness bar: reserve its slot while loading (skeleton) so the linked-album case
+               doesn't shift when the percentage lands; collapses only for resolved local-only albums. -->
+          {#if completeness || loadingDetail}
             <div class="mt-3 h-1 w-full max-w-[280px] overflow-hidden rounded-full bg-white/25">
-              <span class="block h-full rounded-full bg-white/90" style="width: {completeness.pct}%;"></span>
+              {#if completeness}
+                <span class="block h-full rounded-full bg-white/90" style="width: {completeness.pct}%;"></span>
+              {:else}
+                <span class="block h-full w-1/3 animate-pulse rounded-full bg-white/40"></span>
+              {/if}
             </div>
           {/if}
           <div class="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
@@ -518,6 +523,8 @@
           </div>
           {#if albumGrade?.graded && albumGrade.summary}
             <p class="mt-1.5 max-w-xl text-[11px] leading-snug opacity-75">{albumGrade.summary}</p>
+          {:else if loadingDetail}
+            <div class="mt-1.5 h-3 w-64 max-w-xl animate-pulse rounded bg-white/15"></div>
           {/if}
         </div>
       </div>

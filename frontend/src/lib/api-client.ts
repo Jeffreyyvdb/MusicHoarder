@@ -592,26 +592,34 @@ export function prettyProvider(provider: string): string {
   return PROVIDER_LABELS[provider] ?? provider
 }
 
-/** Result of looking up an album: its link status plus the tracklist when `linked`. */
-export interface AlbumTracklistResult {
+/**
+ * Everything the album detail page renders, in one payload: the album's link status, its reconciled
+ * canonical tracklist (when linked), and the latest AI reconciliation grade. Fetched once on
+ * navigation so the grade and missing-track info reveal together instead of popping in separately.
+ */
+export interface AlbumDetailResult {
   status: AlbumLinkStatus
   /** Present only when `status === "linked"`. */
   tracklist: AlbumTracklist | null
+  /** Latest reconciliation grade; `{ graded: false }` when unlinked or never graded. */
+  grade: AlbumQualityGradeView
 }
 
 /**
- * Fetches an album's link status and (when linked) its reconciled canonical tracklist by artist +
- * album. A non-`linked` status means the owned-only view should be shown.
+ * Fetches the combined album detail (link status + tracklist + grade) by artist + album. A
+ * non-`linked` status means the owned-only view should be shown.
  */
-export async function fetchAlbumTracklist(artist: string, album: string): Promise<AlbumTracklistResult> {
+export async function fetchAlbumDetail(artist: string, album: string): Promise<AlbumDetailResult> {
   const qs = new URLSearchParams({ artist, album }).toString()
-  const response = await fetch(`${API_PREFIX}/api/albums/tracklist?${qs}`, { cache: "no-store" })
-  if (response.status === 404) return { status: "pending", tracklist: null }
-  if (!response.ok) throw new Error(`album tracklist failed: ${response.status}`)
-  const body = (await response.json()) as AlbumTracklist & { status: AlbumLinkStatus }
-  return body.status === "linked"
-    ? { status: "linked", tracklist: body }
-    : { status: body.status, tracklist: null }
+  const response = await fetch(`${API_PREFIX}/api/albums/detail?${qs}`, { cache: "no-store" })
+  if (response.status === 404) return { status: "pending", tracklist: null, grade: { graded: false } }
+  if (!response.ok) throw new Error(`album detail failed: ${response.status}`)
+  const body = (await response.json()) as {
+    status: AlbumLinkStatus
+    tracklist: AlbumTracklist | null
+    grade: AlbumQualityGradeView | null
+  }
+  return { status: body.status, tracklist: body.tracklist ?? null, grade: body.grade ?? { graded: false } }
 }
 
 /** Per-album link status for the library grid badges. */
@@ -683,11 +691,6 @@ export interface AlbumQualityOverview {
   wrongCount: number
   outdatedCount: number
   worstOffenders: AlbumQualityRow[]
-}
-
-export async function fetchAlbumQualityGrade(artist: string, album: string): Promise<AlbumQualityGradeView> {
-  const qs = new URLSearchParams({ artist, album }).toString()
-  return requestJson<AlbumQualityGradeView>(`/api/albums/quality?${qs}`)
 }
 
 export interface AlbumGradeResult {
