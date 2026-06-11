@@ -91,6 +91,29 @@ function stopLive(): void {
   }
 }
 
+/**
+ * Drop all cached data and tear down the live stream. The `(app)` group runs
+ * SSR-off, so this module is a singleton that survives a logout → login in the
+ * same tab; without this the next user briefly sees the previous session's
+ * songs/albums until a refetch lands. Call on sign-out (see `signOutAndReset`).
+ */
+function reset(): void {
+  songs = [];
+  isLoading = false;
+  hasLoaded = false;
+  liveRefCount = 0;
+  lastBuilt = -1;
+  sawActive = false;
+  if (refreshTimer) {
+    clearTimeout(refreshTimer);
+    refreshTimer = null;
+  }
+  if (liveCleanup) {
+    liveCleanup();
+    liveCleanup = null;
+  }
+}
+
 export const songsStore = {
   get songs() {
     return songs;
@@ -101,5 +124,6 @@ export const songsStore = {
   loadSongs,
   ensureLoaded,
   startLive,
-  stopLive
+  stopLive,
+  reset
 };

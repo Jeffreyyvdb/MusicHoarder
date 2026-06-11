@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { afterNavigate, goto } from '$app/navigation';
+  import { afterNavigate } from '$app/navigation';
   import { page } from '$app/state';
   import {
     Activity,
@@ -30,11 +30,11 @@
     fetchSongs,
     fetchStats,
     mapEnrichmentStatus,
-    signOut,
     type ApiOverview,
     type ApiSong,
     type ApiStats
   } from '$lib/api-client';
+  import { signOutAndReset } from '$lib/auth/sign-out';
   import { isBuiltSong } from '$lib/album-sections';
   import { cn } from '$lib/utils';
 
@@ -422,10 +422,7 @@
           type="button"
           aria-label="Sign out"
           class="text-muted-foreground hover:bg-sidebar-accent hover:text-foreground grid size-[26px] shrink-0 place-items-center rounded-md transition-colors"
-          onclick={async () => {
-            await signOut();
-            await goto('/login', { invalidateAll: true });
-          }}
+          onclick={() => signOutAndReset()}
         >
           <LogOut class="size-3.5" />
         </button>
