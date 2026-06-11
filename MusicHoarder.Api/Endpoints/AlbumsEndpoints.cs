@@ -24,6 +24,12 @@ public static class AlbumsEndpoints
             .WithTags("Library")
             .RequireOwner();
 
+        app.MapGet("/api/albums/timeline", GetAlbumTimeline)
+            .WithName("GetAlbumTimeline")
+            .WithSummary("Chronological provenance timeline for an album: discovery, per-provider enrichment rollups, canonical resolution, AI grades, and destination writes.")
+            .WithTags("Library")
+            .RequireOwner();
+
         return app;
     }
 
@@ -156,6 +162,265 @@ public static class AlbumsEndpoints
         return Results.Ok(results);
     }
 
+    /// <summary>
+    /// Assembles the album's provenance timeline server-side (the inputs span five tables none of
+    /// which the album page fetches raw). Per-track noise is rolled up: one event per enrichment
+    /// provider ("matched x of y tracks"), one per write-event summary (via the History feed's
+    /// <see cref="HistoryEndpoints.RollUp"/>), one per AI grade row. All grouping happens in memory
+    /// after materializing (keeps the EF InMemory test provider happy and the queries trivial).
+    /// </summary>
+    internal static async Task<IResult> GetAlbumTimeline(
+        string artist,
+        string album,
+        MusicHoarderDbContext db,
+        CancellationToken ct)
+    {
+        var artistKey = TitleNormalizer.NormalizeForSearch(artist);
+        var albumKey = TitleNormalizer.NormalizeForSearch(album);
+        if (artistKey.Length == 0 || albumKey.Length == 0)
+            return Results.NotFound(new { message = "Album not specified." });
+
+        // Member songs resolved exactly like the tracklist endpoint: the frontend's
+        // (albumArtist ?? artist, album) grouping. Owner-scoped via the EF global query filter.
+        var artistLower = artist.ToLowerInvariant();
+        var albumLower = album.ToLowerInvariant();
+        var members = await db.Songs
+            .AsNoTracking()
+            .Where(s => s.DeletedAtUtc == null
+                && s.Album != null && s.Album.ToLower() == albumLower
+                && ((s.AlbumArtist ?? s.Artist) ?? "").ToLower() == artistLower)
+            .Select(s => new MemberSong(s.Id, s.Title, s.IndexedAtUtc, s.LibraryBuiltAtUtc, s.ManuallyApprovedAtUtc, s.DestinationPath))
+            .ToListAsync(ct);
+
+        if (members.Count == 0)
+            return Results.NotFound(new { message = "Album not found." });
+
+        var memberIds = members.Select(m => m.Id).ToList();
+        var trackCount = members.Count;
+        var events = new List<AlbumTimelineEvent>
+        {
+            new(
+                Key: "discovered",
+                TimeUtc: members.Min(m => m.IndexedAtUtc),
+                Stage: "SCAN",
+                Tint: "neutral",
+                Provider: null,
+                Pct: null,
+                Description: $"Discovered {Plural(trackCount, "track")} in source",
+                MatchedCount: null,
+                TotalCount: trackCount,
+                FirstAtUtc: members.Min(m => m.IndexedAtUtc),
+                LastAtUtc: members.Max(m => m.IndexedAtUtc)),
+        };
+
+        // One rollup event per enrichment provider that touched any member track.
+        var attempts = await db.SongProviderAttempts
+            .AsNoTracking()
+            .Where(a => memberIds.Contains(a.SongId))
+            .Select(a => new { a.SongId, a.Provider, a.Status, a.AttemptedAtUtc })
+            .ToListAsync(ct);
+        foreach (var group in attempts.GroupBy(a => a.Provider))
+        {
+            var matched = group.Where(a => a.Status == ProviderAttemptStatus.Matched)
+                .Select(a => a.SongId).Distinct().Count();
+            events.Add(new AlbumTimelineEvent(
+                Key: $"provider:{group.Key}",
+                TimeUtc: group.Max(a => a.AttemptedAtUtc),
+                Stage: "METADATA",
+                Tint: matched == trackCount ? "ok" : matched > 0 ? "warn" : "neutral",
+                Provider: group.Key.ToString(),
+                Pct: null,
+                Description: $"Matched {matched} of {Plural(trackCount, "track")}",
+                MatchedCount: matched,
+                TotalCount: trackCount,
+                FirstAtUtc: group.Min(a => a.AttemptedAtUtc),
+                LastAtUtc: group.Max(a => a.AttemptedAtUtc)));
+        }
+
+        // Canonical album resolution — NotFound/Failed are provenance too, so no Fetched filter.
+        var canonical = await db.CanonicalAlbums
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.ArtistKey == artistKey && a.AlbumKey == albumKey, ct);
+        if (canonical?.FetchedAtUtc is { } fetchedAt)
+        {
+            events.Add(canonical.Status switch
+            {
+                CanonicalAlbumStatus.Fetched => new AlbumTimelineEvent(
+                    Key: "canonical",
+                    TimeUtc: fetchedAt,
+                    Stage: "CANONICAL",
+                    Tint: canonical.TrackCountContested ? "warn" : "ok",
+                    Provider: null,
+                    Pct: null,
+                    Description: DescribeCanonical(canonical),
+                    MatchedCount: null,
+                    TotalCount: canonical.ResolvedTrackCount,
+                    FirstAtUtc: null,
+                    LastAtUtc: null),
+                CanonicalAlbumStatus.Failed => new AlbumTimelineEvent(
+                    "canonical", fetchedAt, "CANONICAL", "err", null, null,
+                    "Canonical album fetch failed", null, null, null, null),
+                _ => new AlbumTimelineEvent(
+                    "canonical", fetchedAt, "CANONICAL", "neutral", null, null,
+                    "No matching album found on any provider", null, null, null, null),
+            });
+
+            // Every grade row is one event (re-grades insert new rows, so this is the grade history).
+            var grades = await db.CanonicalAlbumQualityGrades
+                .AsNoTracking()
+                .Where(g => g.CanonicalAlbumId == canonical.Id)
+                .ToListAsync(ct);
+            foreach (var grade in grades.OrderBy(g => g.GradedAtUtc))
+            {
+                events.Add(new AlbumTimelineEvent(
+                    Key: $"grade:{grade.Id}",
+                    TimeUtc: grade.GradedAtUtc,
+                    Stage: "AI GRADE",
+                    Tint: grade.Verdict switch
+                    {
+                        SongQualityVerdict.Wrong => "err",
+                        SongQualityVerdict.Questionable => "warn",
+                        SongQualityVerdict.Ungradeable => "neutral",
+                        _ => "ok",
+                    },
+                    Provider: grade.Model,
+                    Pct: grade.Score,
+                    Description: string.IsNullOrWhiteSpace(grade.Summary)
+                        ? $"Match graded {grade.Verdict}"
+                        : $"Match graded {grade.Verdict} — {grade.Summary}",
+                    MatchedCount: null,
+                    TotalCount: null,
+                    FirstAtUtc: null,
+                    LastAtUtc: null));
+            }
+        }
+
+        // Manual approvals, aggregated.
+        var approved = members.Where(m => m.ManuallyApprovedAtUtc is not null).ToList();
+        if (approved.Count > 0)
+        {
+            events.Add(new AlbumTimelineEvent(
+                Key: "approved",
+                TimeUtc: approved.Max(m => m.ManuallyApprovedAtUtc!.Value),
+                Stage: "APPROVED",
+                Tint: "ok",
+                Provider: null,
+                Pct: null,
+                Description: $"{approved.Count} of {Plural(trackCount, "track")} manually approved",
+                MatchedCount: approved.Count,
+                TotalCount: trackCount,
+                FirstAtUtc: approved.Min(m => m.ManuallyApprovedAtUtc!.Value),
+                LastAtUtc: approved.Max(m => m.ManuallyApprovedAtUtc!.Value)));
+        }
+
+        // First build. Write events only capture changed fields, so a clean first build can have
+        // few/no LibraryWriteEvent rows — this synthetic event marks the album landing on disk.
+        var built = members.Where(m => m.LibraryBuiltAtUtc is not null).ToList();
+        if (built.Count > 0)
+        {
+            events.Add(new AlbumTimelineEvent(
+                Key: "built",
+                TimeUtc: built.Min(m => m.LibraryBuiltAtUtc!.Value),
+                Stage: "WRITE",
+                Tint: "ok",
+                Provider: null,
+                Pct: null,
+                Description: $"{built.Count} of {Plural(trackCount, "track")} written to destination",
+                MatchedCount: built.Count,
+                TotalCount: trackCount,
+                FirstAtUtc: built.Min(m => m.LibraryBuiltAtUtc!.Value),
+                LastAtUtc: built.Max(m => m.LibraryBuiltAtUtc!.Value)));
+        }
+
+        // Destination writes (re-tags, consolidations, renames, covers), filtered by member ids +
+        // destination folders rather than name equality so events survive album/artist renames.
+        var albumFolders = members
+            .Select(m => m.DestinationPath is null ? null : Path.GetDirectoryName(m.DestinationPath))
+            .Where(f => !string.IsNullOrEmpty(f))
+            .Distinct()
+            .ToList();
+        var writeEvents = await db.LibraryWriteEvents
+            .AsNoTracking()
+            .Where(e => (e.SongId != null && memberIds.Contains(e.SongId.Value))
+                || (e.Kind == LibraryWriteEventKind.AlbumCoverWritten && e.AlbumFolder != null && albumFolders.Contains(e.AlbumFolder)))
+            .ToListAsync(ct);
+        if (writeEvents.Count > 0)
+        {
+            var titleById = members.ToDictionary(m => m.Id, m => m.Title);
+            foreach (var summary in HistoryEndpoints.RollUp(writeEvents, titleById))
+            {
+                var (stage, tint) = summary.Kind switch
+                {
+                    "consolidation" => ("CONSOLIDATE", "ok"),
+                    "artist-rename" => ("RENAME", "ok"),
+                    "year-correction" => ("YEAR FIX", "ok"),
+                    "cover" => ("COVER", "info"),
+                    _ => ("WRITE", "ok"),
+                };
+                events.Add(new AlbumTimelineEvent(
+                    Key: $"write:{summary.Id}",
+                    TimeUtc: summary.LatestWrittenAtUtc,
+                    Stage: stage,
+                    Tint: tint,
+                    Provider: null,
+                    Pct: null,
+                    Description: summary.Headline,
+                    MatchedCount: summary.TrackCount,
+                    TotalCount: trackCount,
+                    FirstAtUtc: summary.Changes.Min(c => c.WrittenAtUtc),
+                    LastAtUtc: summary.LatestWrittenAtUtc));
+            }
+        }
+
+        // External cover fetch failures (success leaves no row — the cover.* file is the marker).
+        var coverFailures = await db.AlbumCoverFetchAttempts
+            .AsNoTracking()
+            .Where(a => albumFolders.Contains(a.AlbumFolder))
+            .ToListAsync(ct);
+        foreach (var failure in coverFailures)
+        {
+            events.Add(new AlbumTimelineEvent(
+                Key: $"cover-fetch:{failure.Id}",
+                TimeUtc: failure.LastAttemptAtUtc,
+                Stage: "COVER",
+                Tint: "warn",
+                Provider: null,
+                Pct: null,
+                Description: failure.Status == AlbumCoverFetchStatus.NotFound
+                    ? $"No external cover art found after {Plural(failure.AttemptCount, "attempt")}"
+                    : $"External cover art fetch failed after {Plural(failure.AttemptCount, "attempt")}",
+                MatchedCount: null,
+                TotalCount: null,
+                FirstAtUtc: null,
+                LastAtUtc: null));
+        }
+
+        return Results.Ok(new AlbumTimelineResponse(
+            trackCount,
+            events.OrderBy(e => e.TimeUtc).ThenBy(e => e.Key).ToList()));
+    }
+
+    private static string DescribeCanonical(CanonicalAlbum canonical)
+    {
+        var winners = WinningProviderNames(canonical.SourcesJson);
+        var description = $"Canonical album resolved · {Plural(canonical.ResolvedTrackCount, "track")}";
+        if (winners.Length > 0)
+            description += $" · from {string.Join(", ", winners)}";
+        if (canonical.TrackCountContested)
+            description += " · track count contested";
+        return description;
+    }
+
+    private static string Plural(int count, string noun) => $"{count} {noun}{(count == 1 ? "" : "s")}";
+
+    private sealed record MemberSong(
+        int Id,
+        string? Title,
+        DateTime IndexedAtUtc,
+        DateTime? LibraryBuiltAtUtc,
+        DateTime? ManuallyApprovedAtUtc,
+        string? DestinationPath);
+
     /// <summary>linked = Fetched, localOnly = NotFound, pending = no row / Pending / Failed.</summary>
     private static string DeriveStatus(CanonicalAlbum? row) => row?.Status switch
     {
@@ -213,3 +478,23 @@ public static class AlbumsEndpoints
 
     private sealed record StoredSource(EnrichmentProvider Provider, string? AlbumId, int TrackCount, bool InWinningCluster);
 }
+
+/// <summary>
+/// One event on the album provenance timeline. <see cref="Stage"/>/<see cref="Tint"/> mirror the
+/// track timeline's vocabulary so the frontend reuses the same rendering; rollup events carry the
+/// x/y counts and first/last span instead of per-track detail.
+/// </summary>
+public record AlbumTimelineEvent(
+    string Key,
+    DateTime TimeUtc,
+    string Stage,
+    string Tint,
+    string? Provider,
+    int? Pct,
+    string Description,
+    int? MatchedCount,
+    int? TotalCount,
+    DateTime? FirstAtUtc,
+    DateTime? LastAtUtc);
+
+public record AlbumTimelineResponse(int TrackCount, IReadOnlyList<AlbumTimelineEvent> Events);

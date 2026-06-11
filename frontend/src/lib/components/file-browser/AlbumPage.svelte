@@ -8,6 +8,7 @@
     EyeOff,
     Fingerprint,
     HardDrive,
+    History,
     Image as ImageIcon,
     Loader2,
     MoreHorizontal,
@@ -19,8 +20,10 @@
     TriangleAlert
   } from '@lucide/svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
+  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import * as Tooltip from '$lib/components/ui/tooltip';
   import Cover from '$lib/components/file-browser/Cover.svelte';
+  import AlbumTimelineDialog from '$lib/components/file-browser/AlbumTimelineDialog.svelte';
   import { albumTint } from '$lib/album-tint';
   import {
     formatDuration,
@@ -101,6 +104,9 @@
   // AI grade of whether this album was linked to the *correct* provider album.
   let albumGrade = $state<AlbumQualityGradeView | null>(null);
   let grading = $state(false);
+
+  // Album provenance timeline popup, opened from the ⋯ menu in the action bar.
+  let timelineOpen = $state(false);
   $effect(() => {
     const artist = album?.artist ?? null;
     const title = album?.title ?? null;
@@ -570,7 +576,7 @@
         </Tooltip.Provider>
       {/if}
 
-      {#each [{ icon: Fingerprint, label: 'Re-fingerprint album' }, { icon: ImageIcon, label: 'Re-fetch artwork' }, { icon: Tag, label: 'Edit metadata' }, { icon: HardDrive, label: 'Reveal in destination' }, { icon: MoreHorizontal, label: 'More' }] as btn (btn.label)}
+      {#each [{ icon: Fingerprint, label: 'Re-fingerprint album' }, { icon: ImageIcon, label: 'Re-fetch artwork' }, { icon: Tag, label: 'Edit metadata' }, { icon: HardDrive, label: 'Reveal in destination' }] as btn (btn.label)}
         <Tooltip.Provider delayDuration={300}>
           <Tooltip.Root>
             <Tooltip.Trigger>
@@ -589,6 +595,27 @@
           </Tooltip.Root>
         </Tooltip.Provider>
       {/each}
+
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger>
+          {#snippet child({ props })}
+            <button
+              {...props}
+              type="button"
+              aria-label="More"
+              class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full transition-colors"
+            >
+              <MoreHorizontal class="size-4" />
+            </button>
+          {/snippet}
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Content align="start" class="min-w-44">
+          <DropdownMenu.Item onSelect={() => (timelineOpen = true)}>
+            <History class="size-4" />
+            Show details
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Root>
 
       {#if destinationFolder}
         <div
@@ -789,4 +816,6 @@
       </div>
     </div>
   </ScrollArea>
+
+  <AlbumTimelineDialog bind:open={timelineOpen} artist={album.artist} album={album.title} />
 {/if}
