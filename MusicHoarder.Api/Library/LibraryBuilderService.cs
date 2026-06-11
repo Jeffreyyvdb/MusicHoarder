@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Artwork;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -390,6 +391,9 @@ public class LibraryBuilderService(
             .IgnoreQueryFilters()
             .AsNoTracking()
             .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
+            // Destination folder keys carry no owner segment, so without this a demo album with the
+            // same artist/album as an owner album would vote in the owner's identity election.
+            .Where(s => s.OwnerUserId != WellKnownUsers.DemoId)
             .Where(s => !s.IsDuplicate && !s.IsUnreleased)
             .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched)
             .ToListAsync(ct);
