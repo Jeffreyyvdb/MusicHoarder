@@ -278,17 +278,38 @@ public class DuplicateDetectionServiceTests
         Assert.False(songs[1].IsReadyForBuild);
     }
 
+    [Fact]
+    public async Task DetectDuplicates_IgnoresDemoSongs()
+    {
+        // The demo tenant's real-file rows (IsSynthetic == false) must stay out of the cross-owner
+        // fingerprint grouping entirely — a shared fingerprint must not flag either side.
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            CreateSong(1, "/a/track.flac", ".flac", "FP_N", bitrate: null, size: 50_000_000),
+            CreateSong(2, "/demo/track.mp3", ".mp3", "FP_N", bitrate: 320, size: 10_000_000,
+                owner: MusicHoarder.Api.Auth.WellKnownUsers.DemoId));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var result = await service.DetectDuplicatesAsync();
+
+        Assert.Equal(0, result.GroupsFound);
+        var songs = await db.Songs.IgnoreQueryFilters().ToListAsync();
+        Assert.All(songs, s => Assert.False(s.IsDuplicate));
+    }
+
     private static SongMetadata CreateSong(
         int id,
         string sourcePath,
         string extension,
         string? fingerprint,
         int? bitrate,
-        long size)
+        long size,
+        Guid? owner = null)
     {
         return new SongMetadata
         {
-            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
+            OwnerUserId = owner ?? MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
             SourcePath = sourcePath,
             FileName = Path.GetFileName(sourcePath),
             Extension = extension,

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Scanner;
@@ -51,6 +52,8 @@ public class DuplicateDetectionService(
         var songsWithFingerprint = await db.Songs
             .IgnoreQueryFilters()
             .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
+            // Grouping is by fingerprint across owners; keep the demo tenant out of it entirely.
+            .Where(s => s.OwnerUserId != WellKnownUsers.DemoId)
             .Where(s => s.Fingerprint != null && s.Fingerprint != "")
             .OrderBy(s => s.Id)
             .ToListAsync(ct);
