@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { Search, X } from '@lucide/svelte';
@@ -34,6 +35,23 @@
   };
   const { tab }: Props = $props();
 
+  // Defensive sessionStorage wrappers — the (app) group is ssr=false, but guard
+  // against private-mode/quota errors so view state never breaks rendering.
+  function sessionGet(key: string): string | null {
+    try {
+      return typeof window === 'undefined' ? null : sessionStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+  function sessionSet(key: string, value: string): void {
+    try {
+      if (typeof window !== 'undefined') sessionStorage.setItem(key, value);
+    } catch {
+      // best-effort; ignore quota / disabled-storage errors
+    }
+  }
+
   // ── data layer (shared songs store, also feeds the global detail panel) ─────
   const songs = $derived(songsStore.songs);
   const isLoading = $derived(songsStore.isLoading);
@@ -51,8 +69,44 @@
   const browse = $derived(parseBrowseFilter(page.url.searchParams));
 
   // Local search box (matches the prototype's header search, not a URL param so
-  // the v1 routes stay untouched).
-  let query = $state('');
+  // the v1 routes stay untouched). Persisted per-tab in sessionStorage so the
+  // typed text survives drilling into an item and navigating back (the artist
+  // grid remounts on a real route change, which would otherwise wipe it).
+  const searchKey = $derived(`mh-lib-search:${tab}`);
+  // `tab` is fixed per route mount; capture the initial stored value once.
+  let query = $state(untrack(() => sessionGet(`mh-lib-search:${tab}`)) ?? '');
+  $effect(() => {
+    sessionSet(searchKey, query);
+  });
+
+  // ── scroll restoration for the grid scroller ────────────────────────────────
+  // The album/artist grid lives inside an {#if} that is destroyed when an album
+  // drilldown opens (and the whole component remounts on the artist route
+  // change), so a fresh <ScrollArea> always starts at scrollTop 0. We persist the
+  // viewport's scrollTop per route (ignoring the drill-in params) and restore it
+  // once the grid has laid out.
+  let gridViewport = $state<HTMLElement | null>(null);
+  const scrollKey = $derived.by(() => {
+    const u = new URL(page.url);
+    for (const p of ['album', 'song', 'track']) u.searchParams.delete(p);
+    return `mh-lib-scroll:${u.pathname}${u.search}`;
+  });
+  $effect(() => {
+    const vp = gridViewport;
+    if (!vp) return;
+    const key = scrollKey;
+    const saved = Number(sessionGet(key) ?? '');
+    if (saved > 0) {
+      requestAnimationFrame(() => {
+        // Only restore once the content is tall enough; otherwise the position
+        // would clamp to 0 before the grid finishes laying out.
+        if (vp.scrollHeight > vp.clientHeight) vp.scrollTop = saved;
+      });
+    }
+    const onScroll = () => sessionSet(key, String(Math.round(vp.scrollTop)));
+    vp.addEventListener('scroll', onScroll, { passive: true });
+    return () => vp.removeEventListener('scroll', onScroll);
+  });
 
   // ── derivations (only clean/built songs make up the library) ────────────────
   const builtSongs = $derived(songs.filter(isBuiltSong));
@@ -227,7 +281,7 @@
       />
     </div>
   {:else}
-    <ScrollArea class="min-h-0 flex-1">
+    <ScrollArea bind:viewportRef={gridViewport} class="min-h-0 flex-1">
       <div class="flex flex-col gap-4 px-4 py-4 sm:px-7 sm:py-6">
         {#if browse?.artist && (tab === 'albums' || tab === 'artists')}
           <div class="flex items-center gap-2">
