@@ -75,6 +75,8 @@ export interface ApiSong {
   extension?: string | null
   fileSizeBytes: number
   artist?: string | null
+  /** Discrete credited artist names, ';'-joined (e.g. "21 Savage; Travis Scott; Metro Boomin"). */
+  artists?: string | null
   albumArtist?: string | null
   album?: string | null
   title?: string | null
@@ -372,6 +374,20 @@ export function artistLabelForSong(song: ApiSong): string {
   return nonEmpty(song.albumArtist) ?? nonEmpty(song.artist) ?? UNKNOWN_ARTIST
 }
 
+/**
+ * The artist names a song should be listed under in the Artists view: its discrete credited
+ * artists (`artists`, ';'-joined by the enrichment pipeline) when known, else the single
+ * `albumArtist ?? artist` label. A multi-artist track ("21 Savage; Travis Scott; Metro Boomin")
+ * appears under each individual artist instead of one combined pseudo-artist.
+ */
+export function discreteArtistsForSong(song: ApiSong): string[] {
+  const discrete = (song.artists ?? "")
+    .split(";")
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0)
+  return discrete.length > 0 ? discrete : [artistLabelForSong(song)]
+}
+
 function albumKeyOf(song: ApiSong): string {
   return albumKeyForSong(song)
 }
@@ -387,33 +403,37 @@ function finalizeGroups(map: Map<string, GroupAccumulator>): GroupSummary[] {
   }))
 }
 
-/** Group songs by `(albumArtist ?? artist ?? "Unknown Artist")`, sorted alphabetically. */
+/**
+ * Group songs by individual artist ({@link discreteArtistsForSong}), sorted alphabetically.
+ * A multi-artist track contributes to each of its credited artists' groups.
+ */
 export function buildArtistGroups(songs: ApiSong[]): GroupSummary[] {
   const map = new Map<string, GroupAccumulator>()
   for (const song of songs) {
-    const label = artistLabelForSong(song)
-    const key = label.toLowerCase()
-    let entry = map.get(key)
-    if (!entry) {
-      entry = {
-        key: label,
-        label,
-        albumCount: 0,
-        trackCount: 0,
-        byteSize: 0,
-        durationSeconds: 0,
-        coverArtist: label,
-        coverTitle: nonEmpty(song.album) ?? label,
-        coverUrl: null,
-        albumKeys: new Set(),
+    for (const label of discreteArtistsForSong(song)) {
+      const key = label.toLowerCase()
+      let entry = map.get(key)
+      if (!entry) {
+        entry = {
+          key: label,
+          label,
+          albumCount: 0,
+          trackCount: 0,
+          byteSize: 0,
+          durationSeconds: 0,
+          coverArtist: label,
+          coverTitle: nonEmpty(song.album) ?? label,
+          coverUrl: null,
+          albumKeys: new Set(),
+        }
+        map.set(key, entry)
       }
-      map.set(key, entry)
+      entry.trackCount += 1
+      entry.byteSize += song.fileSizeBytes ?? 0
+      entry.durationSeconds += song.durationSeconds ?? 0
+      entry.albumKeys.add(albumKeyOf(song))
+      if (!entry.coverUrl) entry.coverUrl = coverUrlForSong(song)
     }
-    entry.trackCount += 1
-    entry.byteSize += song.fileSizeBytes ?? 0
-    entry.durationSeconds += song.durationSeconds ?? 0
-    entry.albumKeys.add(albumKeyOf(song))
-    if (!entry.coverUrl) entry.coverUrl = coverUrlForSong(song)
   }
   return finalizeGroups(map).sort((a, b) => a.label.localeCompare(b.label))
 }

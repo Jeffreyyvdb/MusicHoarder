@@ -85,6 +85,7 @@ public static class SongsEndpoints
                 s.IndexedAtUtc,
                 s.DeletedAtUtc,
                 s.Artist,
+                s.Artists,
                 s.AlbumArtist,
                 s.Album,
                 s.Title,
@@ -137,7 +138,7 @@ public static class SongsEndpoints
         {
             s.Id, s.SourcePath, s.FileName, s.Extension, s.FileSizeBytes,
             s.LastModifiedUtc, s.IndexedAtUtc, s.DeletedAtUtc,
-            s.Artist, s.AlbumArtist, s.Album, s.Title, s.Year, s.TrackNumber,
+            s.Artist, s.Artists, s.AlbumArtist, s.Album, s.Title, s.Year, s.TrackNumber,
             s.DurationSeconds, s.DurationMs,
             s.Bitrate,
             s.HasCoverArt,
