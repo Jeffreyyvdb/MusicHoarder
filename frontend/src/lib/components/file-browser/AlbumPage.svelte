@@ -3,6 +3,7 @@
     ArrowLeft,
     Check,
     Clock,
+    Copy,
     Disc3,
     Eye,
     EyeOff,
@@ -44,6 +45,7 @@
     type ApiSong
   } from '$lib/api-client';
   import { VERDICT_DOT } from '$lib/quality-ui';
+  import { toast } from 'svelte-sonner';
   import { albumViewPrefs } from '$lib/stores/album-view-prefs.svelte';
   import { playerStore } from '$lib/stores/player.svelte';
   import { songDetail } from '$lib/stores/song-detail.svelte';
@@ -145,8 +147,9 @@
     if (!album) return;
     try {
       await copyAlbumDossier(album.artist, album.title);
-    } catch {
-      // clipboard/export best-effort
+      toast.success('Copied album dossier to clipboard — paste into Claude Code');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Copy failed');
     }
   }
 
@@ -499,9 +502,6 @@
                   <span class="inline-block size-1.5 rounded-full {VERDICT_DOT[albumGrade.verdict]}"></span>
                   Match: {albumGrade.verdict}{albumGrade.score != null ? ` · ${albumGrade.score}` : ''}
                 </button>
-                <button type="button" onclick={copyDossier} class="opacity-70 underline-offset-2 hover:underline">
-                  copy dossier
-                </button>
               {:else}
                 <button
                   type="button"
@@ -579,6 +579,27 @@
               {/snippet}
             </Tooltip.Trigger>
             <Tooltip.Content>{retagTooltip}</Tooltip.Content>
+          </Tooltip.Root>
+        </Tooltip.Provider>
+      {/if}
+
+      {#if linkStatus === 'linked'}
+        <Tooltip.Provider delayDuration={300}>
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  onclick={copyDossier}
+                  aria-label="Copy dossier"
+                  class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full transition-colors"
+                >
+                  <Copy class="size-4" />
+                </button>
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content>Copy dossier — paste into Claude Code</Tooltip.Content>
           </Tooltip.Root>
         </Tooltip.Provider>
       {/if}
