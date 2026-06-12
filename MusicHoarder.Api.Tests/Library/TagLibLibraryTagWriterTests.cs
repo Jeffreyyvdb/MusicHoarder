@@ -51,6 +51,99 @@ public class TagLibLibraryTagWriterTests : IDisposable
     }
 
     [Fact]
+    public async Task WriteTags_CombinedCreditWithoutDiscreteArtists_WritesNoArtistsFrame()
+    {
+        // A combined display credit must NEVER land in ARTISTS as one value — that cements a fake
+        // merged artist ("21 Savage, Travis Scott & Metro Boomin") in Navidrome and defeats its own
+        // separator heuristics on the singular ARTIST. No discrete data → no ARTISTS frame.
+        var path = CopyFixture("silence.mp3");
+        var song = BasicSong();
+        song.Artist = "21 Savage, Travis Scott & Metro Boomin";
+        song.Artists = null;
+
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song, Identity(song));
+
+        using var file = TagLib.File.Create(path);
+        var id3 = (TagLib.Id3v2.Tag)file.GetTag(TagLib.TagTypes.Id3v2);
+        Assert.Null(TagLib.Id3v2.UserTextInformationFrame.Get(id3, "ARTISTS", false));
+        // The display credit still goes out, as a single value.
+        Assert.Equal(["21 Savage, Travis Scott & Metro Boomin"], file.Tag.Performers);
+    }
+
+    [Fact]
+    public async Task WriteTags_SemicolonCreditWithoutDiscreteArtists_SplitsArtistsAndHumanizesDisplay()
+    {
+        // ';' is the one safe fallback delimiter (AcoustID-style join). The discrete values feed
+        // ARTISTS; the singular ARTIST becomes a single humanized display credit, not a
+        // multi-valued TPE1.
+        var path = CopyFixture("silence.mp3");
+        var song = BasicSong();
+        song.Artist = "Alice; Bob; Carol";
+        song.Artists = null;
+
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song, Identity(song));
+
+        using var file = TagLib.File.Create(path);
+        var id3 = (TagLib.Id3v2.Tag)file.GetTag(TagLib.TagTypes.Id3v2);
+        var artists = TagLib.Id3v2.UserTextInformationFrame.Get(id3, "ARTISTS", false);
+        Assert.NotNull(artists);
+        Assert.Equal(["Alice", "Bob", "Carol"], artists!.Text);
+        Assert.Equal(["Alice, Bob & Carol"], file.Tag.Performers);
+    }
+
+    [Fact]
+    public async Task WriteTags_AlignedArtistMbids_WrittenMultiValued()
+    {
+        var path = CopyFixture("silence.mp3");
+        var song = BasicSong();
+        song.Artist = "Alice & Bob";
+        song.Artists = "Alice; Bob";
+        song.ArtistMusicBrainzIds = "mbid-a; mbid-b";
+
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song, Identity(song));
+
+        using var file = TagLib.File.Create(path);
+        var id3 = (TagLib.Id3v2.Tag)file.GetTag(TagLib.TagTypes.Id3v2);
+        var ids = TagLib.Id3v2.UserTextInformationFrame.Get(id3, "MusicBrainz Artist Id", false);
+        Assert.NotNull(ids);
+        Assert.Equal(["mbid-a", "mbid-b"], ids!.Text);
+    }
+
+    [Fact]
+    public async Task WriteTags_Flac_AlignedArtistMbids_WrittenMultiValued()
+    {
+        var path = CopyFixture("silence.flac");
+        var song = BasicSong();
+        song.Artists = "Alice; Bob";
+        song.ArtistMusicBrainzIds = "mbid-a; mbid-b";
+
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song, Identity(song));
+
+        using var file = TagLib.File.Create(path);
+        var xiph = (TagLib.Ogg.XiphComment)file.GetTag(TagLib.TagTypes.Xiph);
+        Assert.Equal(["mbid-a", "mbid-b"], xiph.GetField("MUSICBRAINZ_ARTISTID"));
+    }
+
+    [Fact]
+    public async Task WriteTags_MisalignedArtistMbids_FallBackToFirstIdOnly()
+    {
+        // Three ids against two artists can't be paired up — a misaligned plural is worse than a
+        // partial single, so only the first id (the generic Picard slot) goes out.
+        var path = CopyFixture("silence.mp3");
+        var song = BasicSong();
+        song.Artists = "Alice; Bob";
+        song.ArtistMusicBrainzIds = "mbid-a; mbid-b; mbid-c";
+
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song, Identity(song));
+
+        using var file = TagLib.File.Create(path);
+        var id3 = (TagLib.Id3v2.Tag)file.GetTag(TagLib.TagTypes.Id3v2);
+        var ids = TagLib.Id3v2.UserTextInformationFrame.Get(id3, "MusicBrainz Artist Id", false);
+        Assert.NotNull(ids);
+        Assert.Equal(["mbid-a"], ids!.Text);
+    }
+
+    [Fact]
     public async Task WriteTags_Mp3_WritesMusicBrainzIdsInCorrectSlots()
     {
         var path = CopyFixture("silence.mp3");
