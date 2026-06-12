@@ -335,10 +335,11 @@ public sealed class DeezerCatalogService(
             albumEl.TryGetProperty("title", out var albumTitle) && albumTitle.ValueKind == JsonValueKind.String)
             albumName = albumTitle.GetString() ?? "";
 
-        // ISRC, release date and track position are only present on full track detail.
+        // ISRC, release date, track position and contributors are only present on full track detail.
         string? isrc = null;
         int? releaseYear = null;
         int? trackNumber = null;
+        string? artists = null;
         if (fullDetail)
         {
             if (track.TryGetProperty("isrc", out var isrcProp) && isrcProp.ValueKind == JsonValueKind.String)
@@ -349,9 +350,39 @@ public sealed class DeezerCatalogService(
 
             if (track.TryGetProperty("track_position", out var tp) && tp.ValueKind == JsonValueKind.Number)
                 trackNumber = tp.GetInt32();
+
+            artists = ParseContributors(track);
         }
 
-        return new DeezerCatalogTrack(id, title, artist, albumName, releaseYear, trackNumber, durationSec * 1000, isrc);
+        return new DeezerCatalogTrack(id, title, artist, albumName, releaseYear, trackNumber, durationSec * 1000, isrc,
+            Artists: artists);
+    }
+
+    /// <summary>
+    /// Discrete credited artists from the full track detail's <c>contributors</c> array (the search
+    /// payload only carries the single primary <c>artist</c>). Featured guests are listed with
+    /// <c>role: "Featured"</c> and still belong in the per-artist credit, so every named contributor
+    /// is kept (deduped, in payload order).
+    /// </summary>
+    private static string? ParseContributors(JsonElement track)
+    {
+        if (!track.TryGetProperty("contributors", out var contributors) || contributors.ValueKind != JsonValueKind.Array)
+            return null;
+
+        var names = new List<string>();
+        foreach (var contributor in contributors.EnumerateArray())
+        {
+            if (contributor.ValueKind == JsonValueKind.Object
+                && contributor.TryGetProperty("name", out var name)
+                && name.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(name.GetString())
+                && !names.Contains(name.GetString()!.Trim(), StringComparer.OrdinalIgnoreCase))
+            {
+                names.Add(name.GetString()!.Trim());
+            }
+        }
+
+        return MusicHoarder.Api.Metadata.MultiValue.Join(names);
     }
 
     private static int? ParseReleaseYear(string? releaseDate)
