@@ -215,6 +215,5 @@ public class AlbumCoverWriterAsyncTests
     private sealed class FixedEmbeddedPictureReader(EmbeddedPicture? picture = null) : IEmbeddedPictureReader
     {
         public EmbeddedPicture? ReadFront(string filePath) => picture;
-        public bool HasPicture(string filePath) => picture is not null;
     }
 }

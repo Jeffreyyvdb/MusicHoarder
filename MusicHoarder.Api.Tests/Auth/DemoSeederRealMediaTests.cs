@@ -317,7 +317,6 @@ public class DemoSeederRealMediaTests : IDisposable
     {
         public ResolvedCover? Resolve(string audioFilePath) => null;
         public bool DirectoryHasCoverImage(string? directory) => false;
-        public bool HasArtwork(string audioFilePath) => false;
     }
 
     // No network in tests — return no lyrics so the seeder marks tracks NotFound (best-effort path).

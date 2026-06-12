@@ -20,7 +20,7 @@ public sealed class ExternalCoverArtSweepBackgroundService(
     IOptions<MusicEnricherOptions> options,
     ILogger<ExternalCoverArtSweepBackgroundService> logger) : BackgroundService
 {
-    // Let startup work (migrations, the one-time cover backfill, demo seeding) settle first.
+    // Let startup work (migrations, demo seeding) settle first.
     private static readonly TimeSpan InitialDelay = TimeSpan.FromMinutes(5);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -86,6 +86,11 @@ public sealed class ExternalCoverArtSweepBackgroundService(
         var coverWriter = scope.ServiceProvider.GetRequiredService<IAlbumCoverWriter>();
         var fileSystem = scope.ServiceProvider.GetRequiredService<System.IO.Abstractions.IFileSystem>();
 
+        // Reflect covers already on disk (e.g. fetched on a previous run, before this flag existed) back
+        // into HasCoverArt so the grid/hero request them. Runs unconditionally — even when every folder
+        // already has a cover and there's nothing left to fetch.
+        await HealDestinationCoverFlagsAsync(db, coverArtResolver, fileSystem, ct);
+
         // Built, real, non-demo tracks (background service bypasses the per-user filter). Unreleased
         // folders mix unrelated singles, so a single album cover would be wrong there. Demo rows must
         // never be swept: their destination is a read-only mount.
@@ -147,6 +152,11 @@ public sealed class ExternalCoverArtSweepBackgroundService(
             if (result.Written)
             {
                 written++;
+
+                // The folder was a fetch candidate (it had no cover at heal time), so the heal pass
+                // above didn't flag it — do it now so the freshly written cover surfaces immediately.
+                await DestinationCoverFlagger.FlagFolderAsync(db, folder, fileSystem.Path.DirectorySeparatorChar, ct);
+
                 if (cooldowns.TryGetValue(folder, out var resolved))
                 {
                     db.AlbumCoverFetchAttempts.Remove(resolved);
@@ -190,6 +200,57 @@ public sealed class ExternalCoverArtSweepBackgroundService(
         }
 
         return written;
+    }
+
+    /// <summary>
+    /// Sets <c>HasCoverArt = true</c> for built tracks whose destination album folder already has a
+    /// cover image on disk but whose flag is still <c>false</c> — i.e. covers written before the flag
+    /// was populated (or by a prior run). Loads only the still-unflagged tracks, probes each distinct
+    /// folder once, and saves a single batch; in steady state it loads nothing.
+    /// </summary>
+    private static async Task HealDestinationCoverFlagsAsync(
+        MusicHoarderDbContext db,
+        ICoverArtResolver coverArtResolver,
+        System.IO.Abstractions.IFileSystem fileSystem,
+        CancellationToken ct)
+    {
+        var unflagged = await db.Songs
+            .IgnoreQueryFilters()
+            .Where(s => !s.HasCoverArt
+                && s.DeletedAtUtc == null
+                && !s.IsSynthetic
+                && s.OwnerUserId != WellKnownUsers.DemoId
+                && !s.IsUnreleased
+                && s.LibraryBuildStatus == LibraryBuildStatus.Done
+                && s.DestinationPath != null)
+            .ToListAsync(ct);
+
+        if (unflagged.Count == 0)
+            return;
+
+        var coverByFolder = new Dictionary<string, bool>(StringComparer.Ordinal);
+        var flagged = 0;
+        foreach (var song in unflagged)
+        {
+            var folder = fileSystem.Path.GetDirectoryName(song.DestinationPath!);
+            if (string.IsNullOrEmpty(folder))
+                continue;
+
+            if (!coverByFolder.TryGetValue(folder, out var hasCover))
+            {
+                hasCover = fileSystem.Directory.Exists(folder) && coverArtResolver.DirectoryHasCoverImage(folder);
+                coverByFolder[folder] = hasCover;
+            }
+
+            if (hasCover)
+            {
+                song.HasCoverArt = true;
+                flagged++;
+            }
+        }
+
+        if (flagged > 0)
+            await db.SaveChangesAsync(ct);
     }
 
     private sealed record SweepRow(

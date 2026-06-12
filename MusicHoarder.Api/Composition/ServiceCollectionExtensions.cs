@@ -164,7 +164,6 @@ public static class ServiceCollectionExtensions
             return new CoverThumbnailService(dir.FullName, sp.GetRequiredService<ILogger<CoverThumbnailService>>());
         });
         services.AddScoped<ILibraryTagWriter, TagLibLibraryTagWriter>();
-        services.AddSingleton<IEmbeddedLyricsReader, TagLibEmbeddedLyricsReader>();
         services.AddScoped<ILibraryDestinationCleaner, LibraryDestinationCleaner>();
         services.AddScoped<ILibraryBuilderService, LibraryBuilderService>();
         services.AddScoped<IPipelinePurgeService, PipelinePurgeService>();
@@ -184,17 +183,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAlbumTracklistProvider, AppleMusicAlbumTracklistProvider>();
         services.AddHostedService<CanonicalAlbumFetchService>();
 
-        // One-time backfill: populate HasCoverArt + write destination album covers for libraries that
-        // were already scanned/built before the artwork feature shipped. Idempotent, marker-gated.
-        services.AddHostedService<CoverArtBackfillBackgroundService>();
         services.AddHostedService<ExternalCoverArtSweepBackgroundService>();
-        // One-time seed: record current tags as each already-built track's LastWrittenTagsJson so the
-        // destination-write History feed diffs correctly on the first re-tag after the feature shipped.
-        services.AddHostedService<LibraryWriteBaselineBackgroundService>();
-        // One-time heal: re-queue already-built tracks whose destination file is missing the lyrics the
-        // DB holds (legacy of the build racing the async lyrics fetch before the lyrics-before-build
-        // gate shipped). Reads the real file as ground truth; idempotent, marker-gated.
-        services.AddHostedService<LyricsEmbedBackfillBackgroundService>();
         services.AddHostedService<IngestRunMonitor>();
         // Per-owner pipeline-quality snapshots, captured when a run finalizes (see IngestRunMonitor /
         // QualityGradingBackgroundService). Scoped — it reads/writes through the request DB scope.

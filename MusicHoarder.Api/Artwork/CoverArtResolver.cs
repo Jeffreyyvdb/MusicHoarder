@@ -24,13 +24,6 @@ public interface ICoverArtResolver
 
     /// <summary>True when <paramref name="directory"/> contains a <c>cover/folder/front.*</c> image.</summary>
     bool DirectoryHasCoverImage(string? directory);
-
-    /// <summary>
-    /// Cheaply reports whether the file has resolvable artwork (a directory cover image or an
-    /// embedded picture) without extracting the image bytes. Mirrors <see cref="Resolve"/>'s
-    /// priority, so it agrees with what the cover endpoint would serve.
-    /// </summary>
-    bool HasArtwork(string audioFilePath);
 }
 
 public class CoverArtResolver(IFileSystem fileSystem, IEmbeddedPictureReader embeddedReader) : ICoverArtResolver
@@ -67,10 +60,6 @@ public class CoverArtResolver(IFileSystem fileSystem, IEmbeddedPictureReader emb
     }
 
     public bool DirectoryHasCoverImage(string? directory) => FindCoverImage(directory) is not null;
-
-    public bool HasArtwork(string audioFilePath)
-        => DirectoryHasCoverImage(fileSystem.Path.GetDirectoryName(audioFilePath))
-            || embeddedReader.HasPicture(audioFilePath);
 
     private string? FindCoverImage(string? directory)
     {
