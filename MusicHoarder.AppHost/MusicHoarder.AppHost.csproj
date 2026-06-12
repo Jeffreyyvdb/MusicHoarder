@@ -16,6 +16,7 @@
       <PackageReference Include="Aspire.Hosting.Docker" Version="13.4.3" />
       <PackageReference Include="Aspire.Hosting.JavaScript" Version="13.4.3" />
       <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.4.3" />
+      <PackageReference Include="MessagePack" Version="2.5.301" />
     </ItemGroup>
 
 </Project>
