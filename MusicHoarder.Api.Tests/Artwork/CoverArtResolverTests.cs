@@ -117,6 +117,5 @@ public class CoverArtResolverTests
     private sealed class StubReader(EmbeddedPicture? picture) : IEmbeddedPictureReader
     {
         public EmbeddedPicture? ReadFront(string filePath) => picture;
-        public bool HasPicture(string filePath) => picture is not null;
     }
 }
