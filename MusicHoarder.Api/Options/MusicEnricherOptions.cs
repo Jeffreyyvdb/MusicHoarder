@@ -497,6 +497,18 @@ public class MusicEnricherOptions
     public int AlbumSplitHealIntervalMinutes { get; set; } = 360;
 
     /// <summary>
+    /// Self-heal missing discrete artist credits: matched songs whose <c>Artists</c> list was never
+    /// populated (they predate discrete-artist enrichment, or were matched by a provider without a
+    /// per-artist credit) get it backfilled from the matched MusicBrainz/Spotify attempt already
+    /// stored on the row — no provider calls — and already-built files are re-queued for an in-place
+    /// re-tag. Without the discrete list the tag writer emits no per-artist ARTISTS frames and the
+    /// combined display credit becomes one merged "artist" in Navidrome. Runs with the same cadence
+    /// as the split-album heal (build-run start + idle sweeps). Reversible, never bumps
+    /// EnrichedAtUtc. Default on.
+    /// </summary>
+    public bool EnableArtistCreditSelfHeal { get; set; } = true;
+
+    /// <summary>
     /// When re-tagging an album (POST /api/enrichment/rebuild/album), first consolidate it against the
     /// persisted multi-provider canonical tracklist: rewrite each owned song's album title/year and
     /// track/disc number from the canonical track it matches (by recording-MBID + fuzzy title, never by
