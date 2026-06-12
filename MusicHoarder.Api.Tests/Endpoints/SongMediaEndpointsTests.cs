@@ -56,7 +56,6 @@ public class SongMediaEndpointsTests : IDisposable
         }
 
         public bool DirectoryHasCoverImage(string? directory) => false;
-        public bool HasArtwork(string audioFilePath) => cover is not null;
     }
 
     private sealed class FakeThumbnailService(ResolvedCover? thumb) : ICoverThumbnailService

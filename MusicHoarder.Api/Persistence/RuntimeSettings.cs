@@ -23,29 +23,5 @@ public class RuntimeSettings
     /// <summary>Overlays <see cref="Options.QualityGradingOptions.Enabled"/> — the AI quality grader master switch.</summary>
     public bool? QualityGradingEnabled { get; set; }
 
-    /// <summary>
-    /// Set once by the one-time cover-art backfill (see <c>CoverArtBackfillBackgroundService</c>) after it
-    /// has populated <c>HasCoverArt</c> and written destination album covers for the pre-existing library.
-    /// Null until then; its presence is the marker that stops the backfill from re-running.
-    /// </summary>
-    public DateTime? CoverArtBackfillCompletedAtUtc { get; set; }
-
-    /// <summary>
-    /// Set once by the one-time library-write baseline (see <c>LibraryWriteBaselineBackgroundService</c>)
-    /// after it has seeded <see cref="SongMetadata.LastWrittenTagsJson"/> for the pre-existing built
-    /// library, so the first re-tag after the History feature shipped diffs against the tracks' actual
-    /// current tags rather than the source-original baseline. Null until then; its presence stops the
-    /// seed from re-running.
-    /// </summary>
-    public DateTime? LibraryWriteBaselineCompletedAtUtc { get; set; }
-
-    /// <summary>
-    /// Set once by the one-time lyrics-embed backfill (see <c>LyricsEmbedBackfillBackgroundService</c>)
-    /// after it has re-queued every already-built track whose destination file is missing the lyrics that
-    /// MusicHoarder's DB holds — the legacy of the build racing ahead of the async LRCLIB fetch before the
-    /// lyrics-before-build gate shipped. Null until then; its presence stops the backfill from re-running.
-    /// </summary>
-    public DateTime? LyricsEmbedBackfillCompletedAtUtc { get; set; }
-
     public DateTime? UpdatedAtUtc { get; set; }
 }

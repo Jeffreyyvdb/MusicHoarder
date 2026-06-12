@@ -20,7 +20,7 @@ public sealed class ExternalCoverArtSweepBackgroundService(
     IOptions<MusicEnricherOptions> options,
     ILogger<ExternalCoverArtSweepBackgroundService> logger) : BackgroundService
 {
-    // Let startup work (migrations, the one-time cover backfill, demo seeding) settle first.
+    // Let startup work (migrations, demo seeding) settle first.
     private static readonly TimeSpan InitialDelay = TimeSpan.FromMinutes(5);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

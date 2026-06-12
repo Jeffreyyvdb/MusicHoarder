@@ -261,7 +261,6 @@ public class ExternalCoverArtSweepBackgroundServiceTests
     private sealed class NoEmbeddedPictureReader : IEmbeddedPictureReader
     {
         public EmbeddedPicture? ReadFront(string filePath) => null;
-        public bool HasPicture(string filePath) => false;
     }
 
     private sealed class ScriptedCoverWriter : IAlbumCoverWriter

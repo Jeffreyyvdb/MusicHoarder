@@ -912,7 +912,6 @@ public class LibraryBuilderServiceTests
     private sealed class StubEmbeddedPictureReader(EmbeddedPicture? picture = null) : IEmbeddedPictureReader
     {
         public EmbeddedPicture? ReadFront(string filePath) => picture;
-        public bool HasPicture(string filePath) => picture is not null;
     }
 
     private sealed class RecordingThrowingTagWriter : ILibraryTagWriter
