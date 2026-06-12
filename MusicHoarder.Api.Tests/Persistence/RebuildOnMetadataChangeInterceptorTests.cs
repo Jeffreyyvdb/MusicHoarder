@@ -26,6 +26,7 @@ public class RebuildOnMetadataChangeInterceptorTests
 
     [Theory]
     [InlineData(nameof(SongMetadata.PlainLyrics))]
+    [InlineData(nameof(SongMetadata.SyncedLyrics))]
     [InlineData(nameof(SongMetadata.Title))]
     [InlineData(nameof(SongMetadata.IsCompilation))]
     public async Task TagRelevantChangeOnBuiltSong_ResetsBuild(string field)
@@ -36,6 +37,7 @@ public class RebuildOnMetadataChangeInterceptorTests
         switch (field)
         {
             case nameof(SongMetadata.PlainLyrics): song.PlainLyrics = "new lyrics"; break;
+            case nameof(SongMetadata.SyncedLyrics): song.SyncedLyrics = "[00:01.00] late line"; break;
             case nameof(SongMetadata.Title): song.Title = "Renamed Title"; break;
             case nameof(SongMetadata.IsCompilation): song.IsCompilation = true; break;
         }

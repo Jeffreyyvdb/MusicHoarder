@@ -710,6 +710,13 @@ public class LibraryBuilderServiceTests
         Assert.Equal("rel-stray", releaseChange.OldValue);
         Assert.Equal("rel-keep", releaseChange.NewValue);
         Assert.True(releaseChange.IsAlbumIdentityField);
+
+        // The re-tag must refresh the snapshot too: the next diff baselines against what was just
+        // written (rel-keep), not the stale pre-consolidation tags.
+        var reloadedC = await db.Songs.SingleAsync(s => s.Id == c.Id);
+        Assert.NotNull(reloadedC.LastWrittenTagsJson);
+        Assert.Contains("rel-keep", reloadedC.LastWrittenTagsJson);
+        Assert.DoesNotContain("rel-stray", reloadedC.LastWrittenTagsJson);
     }
 
     [Fact]

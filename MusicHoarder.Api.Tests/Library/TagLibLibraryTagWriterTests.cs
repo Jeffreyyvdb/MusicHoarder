@@ -113,6 +113,36 @@ public class TagLibLibraryTagWriterTests : IDisposable
     }
 
     [Fact]
+    public async Task WriteTags_EmbedsSyncedLyrics_PreferredOverPlain()
+    {
+        // Lyrics present on the row at build time must land in the file — together with the
+        // lyrics-wait build gate and the rebuild-on-lyrics-change interceptor, this closes the
+        // "built file missing the lyrics the DB holds" race for good.
+        var path = CopyFixture("silence.mp3");
+        var song = BasicSong();
+        song.SyncedLyrics = "[00:01.00] first line";
+        song.PlainLyrics = "first line";
+
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song, Identity(song));
+
+        using var file = TagLib.File.Create(path);
+        Assert.Equal("[00:01.00] first line", file.Tag.Lyrics);
+    }
+
+    [Fact]
+    public async Task WriteTags_EmbedsPlainLyrics_WhenNoSyncedLyrics()
+    {
+        var path = CopyFixture("silence.mp3");
+        var song = BasicSong();
+        song.PlainLyrics = "just the plain text";
+
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song, Identity(song));
+
+        using var file = TagLib.File.Create(path);
+        Assert.Equal("just the plain text", file.Tag.Lyrics);
+    }
+
+    [Fact]
     public async Task WriteTags_Flac_WritesMultiValueArtistsAndReleaseType()
     {
         var path = CopyFixture("silence.flac");
