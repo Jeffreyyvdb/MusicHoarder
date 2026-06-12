@@ -1,13 +1,14 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Check, X, ChevronLeft, ChevronRight, Loader2, RefreshCw, History } from '@lucide/svelte';
+  import { Check, X, ChevronLeft, ChevronRight, Loader2, RefreshCw, History, Copy } from '@lucide/svelte';
   import { page } from '$app/state';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import type { ApiSong, EnrichmentDetail } from '$lib/api-client';
   import {
     fetchReviewQueue,
     fetchEnrichmentDetail,
-    submitManualReview
+    submitManualReview,
+    copyQualitySongDossier
   } from '$lib/api-client';
   import {
     reasonFor,
@@ -26,6 +27,7 @@
   import CandidateGrid from '$lib/components/review/CandidateGrid.svelte';
   import BeforeAfterView from '$lib/components/review/BeforeAfterView.svelte';
   import { Button } from '$lib/components/ui/button';
+  import { toast } from 'svelte-sonner';
   import { cn } from '$lib/utils';
 
   // Reports its live remaining count up to the Inbox header (for the subtab pill).
@@ -251,6 +253,15 @@
     advanceToNextUndecided(track.id);
   }
 
+  async function onCopyDossier(songId: number) {
+    try {
+      await copyQualitySongDossier(songId);
+      toast.success('Copied dossier to clipboard — paste into Claude Code');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Copy failed');
+    }
+  }
+
   function selectAt(delta: number) {
     if (tracks.length === 0) return;
     const idx = tracks.findIndex((t) => t.id === selectedId);
@@ -413,12 +424,21 @@
               </div>
             {/if}
           </div>
-          <a
-            href={`/track/${selectedTrack.id}`}
-            class="border-border bg-card hover:bg-muted text-foreground inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] font-medium transition-colors"
-          >
-            <History class="size-3.5" /> View timeline
-          </a>
+          <div class="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onclick={() => onCopyDossier(selectedTrack.id)}
+              class="border-border bg-card hover:bg-muted text-foreground inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] font-medium transition-colors"
+            >
+              <Copy class="size-3.5" /> Copy dossier
+            </button>
+            <a
+              href={`/track/${selectedTrack.id}`}
+              class="border-border bg-card hover:bg-muted text-foreground inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] font-medium transition-colors"
+            >
+              <History class="size-3.5" /> View timeline
+            </a>
+          </div>
         </div>
 
         {#if error}
