@@ -14,7 +14,12 @@ public record AcoustIdMatch(
     string AlbumArtist,
     float Score,
     int? RecordingDurationMs = null,
-    int CandidateCount = 1);
+    int CandidateCount = 1,
+    /// <summary>Discrete credited artist names, ';'-joined (<see cref="Metadata.MultiValue"/>).</summary>
+    string? Artists = null,
+    /// <summary>Per-artist MusicBrainz ids (AcoustID artist ids ARE MBIDs), ';'-joined and
+    /// positionally aligned with <see cref="Artists"/>; null when any artist lacks an id.</summary>
+    string? ArtistMusicBrainzIds = null);
 
 public interface IAcoustIdService
 {
@@ -100,6 +105,16 @@ public sealed class AcoustIdService(
             var albumArtist = ArtistCreditNormalizer.GetPrimaryArtist(displayArtist) ?? string.Empty;
             var recordingDurationMs = recording.Duration > 0 ? (int)(recording.Duration * 1000) : (int?)null;
 
+            // Keep the discrete artist list (and ids — AcoustID artist ids are MusicBrainz artist
+            // ids) instead of flattening to the display join only; the tag writer needs per-artist
+            // values for the multi-valued ARTISTS / MUSICBRAINZ_ARTISTID frames. Ids only when every
+            // artist has one, so the two lists stay positionally aligned.
+            var discreteArtists = MultiValue.Join(recording.Artists?.Select(a => a.Name));
+            var artistMbids = recording.Artists is { Count: > 0 } all
+                && all.All(a => !string.IsNullOrWhiteSpace(a.Id))
+                ? MultiValue.Join(all.Select(a => a.Id))
+                : null;
+
             return new AcoustIdMatch(
                 MusicBrainzRecordingId: recording.Id,
                 AcoustIdTrackId: best.Id,
@@ -108,7 +123,9 @@ public sealed class AcoustIdService(
                 AlbumArtist: albumArtist,
                 Score: best.Score,
                 RecordingDurationMs: recordingDurationMs,
-                CandidateCount: candidateCount
+                CandidateCount: candidateCount,
+                Artists: discreteArtists,
+                ArtistMusicBrainzIds: artistMbids
             );
         }
         catch (HttpRequestException ex)

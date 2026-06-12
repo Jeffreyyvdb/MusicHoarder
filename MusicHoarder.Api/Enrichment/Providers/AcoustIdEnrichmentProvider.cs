@@ -60,6 +60,8 @@ public class AcoustIdEnrichmentProvider(
             MatchConfidence: validation.AdjustedScore,
             MatchWarnings: validation.Warnings,
             RecommendedStatus: validation.RecommendedStatus,
+            Artists: match.Artists,
+            ArtistMusicBrainzIds: match.ArtistMusicBrainzIds,
             DurationSeconds: match.RecordingDurationMs is int ms && ms > 0 ? ms / 1000 : null));
     }
 }

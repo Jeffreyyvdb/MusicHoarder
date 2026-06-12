@@ -162,6 +162,7 @@ public class DeezerEnrichmentProvider(
             MatchWarnings: warnings,
             RecommendedStatus: status,
             Album: string.IsNullOrWhiteSpace(track.AlbumName) ? null : track.AlbumName,
+            Artists: track.Artists,
             DurationSeconds: track.DurationMs > 0 ? track.DurationMs / 1000 : null);
     }
 

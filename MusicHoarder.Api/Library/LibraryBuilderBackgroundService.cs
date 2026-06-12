@@ -113,6 +113,10 @@ public class LibraryBuilderBackgroundService(
                 // folder and stale Done siblings are re-queued into this very run.
                 await HealSplitAlbumsAsync(opts, ct);
 
+                // Discrete-artist safeguard: backfill missing Artists credits BEFORE the batch so
+                // this run's tag writes already carry the per-artist ARTISTS frames.
+                await HealArtistCreditsAsync(opts, ct);
+
                 while (!ct.IsCancellationRequested)
                 {
                     using var scope = scopeFactory.CreateScope();
@@ -155,13 +159,15 @@ public class LibraryBuilderBackgroundService(
     // re-queued rows, so the caller can re-poll for pending work immediately instead of idling.
     private async Task<bool> TryIdleHealAsync(MusicEnricherOptions opts, CancellationToken ct)
     {
-        if (!opts.EnableAlbumIdentityReconciliation || !opts.EnableAlbumSplitSelfHeal)
+        var splitHealEnabled = opts.EnableAlbumIdentityReconciliation && opts.EnableAlbumSplitSelfHeal;
+        if (!splitHealEnabled && !opts.EnableArtistCreditSelfHeal)
             return false;
         if (DateTime.UtcNow - _lastHealUtc < TimeSpan.FromMinutes(opts.AlbumSplitHealIntervalMinutes))
             return false;
 
         var result = await HealSplitAlbumsAsync(opts, ct);
-        return result is { SongsRequeued: > 0 };
+        var creditResult = await HealArtistCreditsAsync(opts, ct);
+        return result is { SongsRequeued: > 0 } || creditResult is { SongsRequeued: > 0 };
     }
 
     // A heal failure must never take down a build run (or the idle loop) — the per-folder
@@ -193,6 +199,31 @@ public class LibraryBuilderBackgroundService(
         catch (Exception ex)
         {
             logger.LogError(ex, "Split-album self-heal failed; continuing without it");
+            return null;
+        }
+    }
+
+    // Same failure isolation as the split-album heal: a missing discrete credit only costs the
+    // per-artist ARTISTS frames on that file — never block the build over it.
+    private async Task<ArtistCreditHealResult?> HealArtistCreditsAsync(MusicEnricherOptions opts, CancellationToken ct)
+    {
+        if (!opts.EnableArtistCreditSelfHeal)
+            return null;
+
+        _lastHealUtc = DateTime.UtcNow;
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var healer = scope.ServiceProvider.GetRequiredService<IArtistCreditHealer>();
+            return await healer.HealAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Artist-credit self-heal failed; continuing without it");
             return null;
         }
     }

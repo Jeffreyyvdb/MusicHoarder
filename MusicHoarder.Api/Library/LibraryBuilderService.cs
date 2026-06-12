@@ -56,7 +56,10 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
 
         tag.Title = NullIfEmpty(song.Title);
         tag.Album = NullIfEmpty(albumIdentity.Album);
-        tag.Performers = BuildPerformerArray(song.Artist);
+        // Singular ARTIST is the DISPLAY credit (Navidrome uses it as the display name when the
+        // plural ARTISTS frames are present) — always a single value, never a multi-valued frame.
+        var displayArtist = BuildDisplayArtist(song.Artist);
+        tag.Performers = displayArtist is null ? [] : [displayArtist];
         // ALBUMARTIST stays the main artist only (or "Various Artists" for compilations) so albums
         // never fragment by per-track featured artist.
         tag.AlbumArtists = albumArtists;
@@ -100,13 +103,28 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
     private static void WriteExtendedTags(
         TagLib.File file, SongMetadata song, AlbumIdentity albumIdentity, string[] albumArtists, bool compilation)
     {
+        // Discrete per-artist values. When the enrichment didn't produce a discrete list, the only
+        // safe fallback is the ';' join (AcoustID-style) — every other delimiter (',', '&', '/')
+        // occurs in legitimate artist names ("Tyler, The Creator"). With no discrete data we write
+        // NO ARTISTS frame at all: a combined credit as a single ARTISTS value would cement a fake
+        // merged artist in Navidrome and defeat its own separator heuristics on the singular ARTIST.
         var artists = MusicHoarder.Api.Metadata.MultiValue.Split(song.Artists);
-        if (artists.Length == 0)
+        if (artists.Length == 0 && song.Artist?.Contains(';') == true)
         {
-            artists = BuildPerformerArray(song.Artist);
+            artists = SplitOnSemicolon(song.Artist);
         }
 
         var releaseTypes = MusicHoarder.Api.Metadata.MultiValue.Split(albumIdentity.ReleaseTypes);
+
+        // Per-artist MusicBrainz ids, multi-valued and positionally aligned with ARTISTS (Picard's
+        // frame names — Navidrome reads them). The generic single-id write above stays as the
+        // fallback: when the id list can't be aligned with the artist list we leave that first id
+        // in place rather than write a misaligned plural (worse than a partial one). Empty when
+        // absent/misaligned so the per-format writes below are skipped, never removed.
+        var artistIds = MusicHoarder.Api.Metadata.MultiValue.Split(song.ArtistMusicBrainzIds);
+        var alignedArtistIds = artistIds.Length > 1 && artistIds.Length != artists.Length
+            ? []
+            : artistIds;
 
         if (file.GetTag(TagLib.TagTypes.Id3v2, false) is TagLib.Id3v2.Tag id3)
         {
@@ -114,6 +132,7 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
             SetId3UserText(id3, "ALBUMARTISTS", albumArtists);
             SetId3UserText(id3, "MusicBrainz Album Type", releaseTypes);
             SetId3Text(id3, "TCMP", compilation ? ["1"] : []);
+            if (alignedArtistIds.Length > 0) SetId3UserText(id3, "MusicBrainz Artist Id", alignedArtistIds);
         }
 
         if (file.GetTag(TagLib.TagTypes.Xiph, false) is TagLib.Ogg.XiphComment xiph)
@@ -122,6 +141,7 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
             SetXiph(xiph, "ALBUMARTISTS", albumArtists);
             SetXiph(xiph, "RELEASETYPE", releaseTypes);
             SetXiph(xiph, "COMPILATION", compilation ? ["1"] : []);
+            if (alignedArtistIds.Length > 0) SetXiph(xiph, "MUSICBRAINZ_ARTISTID", alignedArtistIds);
         }
 
         if (file.GetTag(TagLib.TagTypes.Apple, false) is TagLib.Mpeg4.AppleTag apple)
@@ -130,6 +150,7 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
             apple.SetDashBoxes("com.apple.iTunes", "ALBUMARTISTS", albumArtists);
             apple.SetDashBoxes("com.apple.iTunes", "MusicBrainz Album Type", releaseTypes);
             apple.IsCompilation = compilation;
+            if (alignedArtistIds.Length > 0) apple.SetDashBoxes("com.apple.iTunes", "MusicBrainz Artist Id", alignedArtistIds);
         }
     }
 
@@ -168,7 +189,23 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
         xiph.SetField(key, values);
     }
 
-    private static string[] BuildPerformerArray(string? artist)
+    /// <summary>
+    /// The single-value display credit for the ARTIST tag. A ';'-joined credit (AcoustID's join)
+    /// is humanized to the conventional "A, B &amp; C" form; anything else (including a provider's
+    /// own join-phrase credit like "21 Savage, Travis Scott &amp; Metro Boomin") passes through.
+    /// </summary>
+    internal static string? BuildDisplayArtist(string? artist)
+    {
+        var parts = SplitOnSemicolon(artist);
+        return parts.Length switch
+        {
+            0 => null,
+            1 => parts[0],
+            _ => string.Join(", ", parts[..^1]) + " & " + parts[^1],
+        };
+    }
+
+    private static string[] SplitOnSemicolon(string? artist)
     {
         var normalized = NullIfEmpty(artist);
         if (normalized is null)

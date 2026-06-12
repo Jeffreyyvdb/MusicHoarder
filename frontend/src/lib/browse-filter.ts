@@ -6,13 +6,17 @@
  * the URL with `parseBrowseFilter` and narrows `fetchSongs()` with `applyBrowseFilter`
  * before its usual album grouping.
  */
-import { UNKNOWN_GROUP, type ApiSong } from '$lib/api-client';
+import { discreteArtistsForSong, UNKNOWN_GROUP, type ApiSong } from '$lib/api-client';
 
 const UNKNOWN_ARTIST = 'Unknown Artist';
 const UNKNOWN_YEAR_PARAM = UNKNOWN_GROUP.toLowerCase(); // "unknown"
 
 export interface BrowseFilter {
-  /** Match on `(albumArtist ?? artist ?? "Unknown Artist")`, case-insensitive. */
+  /**
+   * Match on `(albumArtist ?? artist ?? "Unknown Artist")` or any discrete credited artist,
+   * case-insensitive — so a multi-artist track is reachable from each artist the Artists grid
+   * lists it under, while old combined-label links keep working.
+   */
   artist?: string;
   /** Match on `song.year`. Use the sentinel below for the no-year bucket. */
   year?: number;
@@ -44,7 +48,11 @@ export function applyBrowseFilter(songs: ApiSong[], filter: BrowseFilter | null)
   if (!filter) return songs;
   if (filter.artist != null) {
     const target = filter.artist.toLowerCase();
-    return songs.filter((s) => songArtist(s).toLowerCase() === target);
+    return songs.filter(
+      (s) =>
+        songArtist(s).toLowerCase() === target ||
+        discreteArtistsForSong(s).some((name) => name.toLowerCase() === target),
+    );
   }
   if (filter.yearUnknown) {
     return songs.filter((s) => typeof s.year !== 'number' || !Number.isFinite(s.year));

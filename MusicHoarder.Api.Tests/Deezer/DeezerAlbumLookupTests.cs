@@ -50,6 +50,53 @@ public class DeezerAlbumLookupTests
         Assert.Equal("302127", id);
     }
 
+    [Fact]
+    public async Task LookupById_ParsesContributorsIntoDiscreteArtists()
+    {
+        // The full track detail carries the per-artist credit ("contributors"); the search payload
+        // only has the single primary artist. Names are deduped (Deezer repeats the primary).
+        var handler = new StubHandler("""
+            {
+              "id": 1,
+              "title": "née-nah",
+              "duration": 220,
+              "isrc": "USUM72316851",
+              "artist": { "name": "21 Savage" },
+              "album": { "title": "american dream" },
+              "contributors": [
+                { "name": "21 Savage", "role": "Main" },
+                { "name": "Travis Scott", "role": "Featured" },
+                { "name": "Metro Boomin", "role": "Featured" },
+                { "name": "21 savage", "role": "Main" }
+              ]
+            }
+            """);
+
+        var track = await CreateService(handler).LookupByIdAsync("1");
+
+        Assert.NotNull(track);
+        Assert.Equal("21 Savage; Travis Scott; Metro Boomin", track!.Artists);
+    }
+
+    [Fact]
+    public async Task LookupById_NoContributors_LeavesArtistsNull()
+    {
+        var handler = new StubHandler("""
+            {
+              "id": 1,
+              "title": "Solo Song",
+              "duration": 200,
+              "artist": { "name": "Alice" },
+              "album": { "title": "Album" }
+            }
+            """);
+
+        var track = await CreateService(handler).LookupByIdAsync("1");
+
+        Assert.NotNull(track);
+        Assert.Null(track!.Artists);
+    }
+
     private static DeezerCatalogService CreateService(StubHandler handler)
     {
         var httpClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };

@@ -249,6 +249,15 @@ public static class EnrichmentEndpoints
             .WithSummary("Dry-run report of split albums: logical albums whose tracks disagree on identity (release id / album / year / album artist), with the identity a self-heal pass would elect. Empty when the self-heal safeguard has converged everything.")
             .RequireOwner();
 
+        group.MapGet("/missing-artist-credits", async (IArtistCreditHealer healer, CancellationToken ct) =>
+            {
+                var gaps = await healer.DetectAsync(ct);
+                return Results.Ok(new { count = gaps.Count, songs = gaps });
+            })
+            .WithName("ListMissingArtistCredits")
+            .WithSummary("Dry-run report of matched songs missing their discrete artist credit (Artists), with the credit the artist-credit self-heal would backfill from the stored MusicBrainz/Spotify attempt. Empty when the self-heal has converged everything.")
+            .RequireOwner();
+
         group.MapPost("/cancel", (JobManager jobManager, EnrichmentPipelineChannel channel) =>
             {
                 var cancelled = jobManager.Cancel();

@@ -18,6 +18,8 @@ namespace MusicHoarder.Api.Library;
 public sealed record WrittenTagSet(
     string? Title,
     string? Artist,
+    string? Artists,
+    string? ArtistMusicBrainzIds,
     string? AlbumArtist,
     string? Album,
     string? Year,
@@ -40,6 +42,8 @@ public sealed record WrittenTagSet(
     [
         (nameof(Title), false, s => s.Title),
         (nameof(Artist), false, s => s.Artist),
+        (nameof(Artists), false, s => s.Artists),
+        (nameof(ArtistMusicBrainzIds), false, s => s.ArtistMusicBrainzIds),
         (nameof(AlbumArtist), true, s => s.AlbumArtist),
         (nameof(Album), true, s => s.Album),
         (nameof(Year), true, s => s.Year),
@@ -66,7 +70,12 @@ public sealed record WrittenTagSet(
 
         return new WrittenTagSet(
             Title: NullIfEmpty(song.Title),
-            Artist: NullIfEmpty(song.Artist),
+            // Mirror the writer: ARTIST is the single-value display credit.
+            Artist: TagLibLibraryTagWriter.BuildDisplayArtist(song.Artist),
+            // Mirror the writer's ARTISTS resolution: the discrete list, else the ';'-join fallback
+            // (a credit without ';' yields NO ARTISTS frame, hence null here).
+            Artists: NullIfEmpty(song.Artists) ?? (song.Artist?.Contains(';') == true ? NullIfEmpty(song.Artist) : null),
+            ArtistMusicBrainzIds: NullIfEmpty(song.ArtistMusicBrainzIds),
             AlbumArtist: albumArtist,
             Album: NullIfEmpty(identity.Album),
             Year: PositiveOrNull(identity.Year),
@@ -108,6 +117,7 @@ public sealed record WrittenTagSet(
         {
             Title = NullIfEmpty(song.OriginalTitle),
             Artist = NullIfEmpty(song.OriginalArtist),
+            Artists = NullIfEmpty(song.OriginalArtists),
             AlbumArtist = albumArtist,
             Album = NullIfEmpty(song.OriginalAlbum),
             Year = PositiveOrNull(song.OriginalYear),
@@ -118,8 +128,9 @@ public sealed record WrittenTagSet(
             MusicBrainzRecordingId = NullIfEmpty(song.OriginalMusicBrainzId),
             ReleaseTypes = NullIfEmpty(song.OriginalReleaseTypes),
             IsCompilation = song.OriginalIsCompilation ? "true" : "false",
-            // MusicBrainzReleaseId / ReleaseGroupId / AlbumArtistMusicBrainzId / Lyrics: no captured
-            // original — left equal to `current` so they don't report a change on first build.
+            // MusicBrainzReleaseId / ReleaseGroupId / AlbumArtistMusicBrainzId / ArtistMusicBrainzIds /
+            // Lyrics: no captured original — left equal to `current` so they don't report a change on
+            // first build.
         };
     }
 

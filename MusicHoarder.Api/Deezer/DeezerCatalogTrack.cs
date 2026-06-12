@@ -13,7 +13,10 @@ public record DeezerCatalogTrack(
     int? ReleaseYear,
     int? TrackNumber,
     int DurationMs,
-    string? Isrc);
+    string? Isrc,
+    /// <summary>Discrete contributor names (';'-joined), from the full track detail's
+    /// <c>contributors</c> array; null on search results and single-artist payloads.</summary>
+    string? Artists = null);
 
 /// <summary>A Deezer album with its full tracklist (from <c>GET /album/{id}</c>).</summary>
 public record DeezerAlbumDetail(

@@ -573,6 +573,72 @@ public class ConsensusEvaluatorTests
 
     // --- helpers ---
 
+    [Fact]
+    public void Cluster_WinnerWithoutDiscreteArtists_BorrowsThemFromAgreeingDonor()
+    {
+        // The identity winner (here Deezer, highest-confidence name-based) carries only the combined
+        // display credit; the agreeing MusicBrainz member has the discrete list + aligned ids. The
+        // final winner must carry both — otherwise the tag writer can't emit per-artist ARTISTS.
+        var song = Song();
+        Add(song, EnrichmentProvider.Deezer, ProviderAttemptStatus.Matched,
+            Result("Alice & Bob", "Duet", isrc: "ISRC1", conf: 0.95, recommend: EnrichmentStatus.Matched));
+        Add(song, EnrichmentProvider.MusicBrainzWeb, ProviderAttemptStatus.Matched,
+            Result("Alice & Bob", "Duet", mbid: "mb-1", isrc: "ISRC1", conf: 0.8, recommend: EnrichmentStatus.Matched)
+                with { Artists = "Alice; Bob", ArtistMusicBrainzIds = "mbid-a; mbid-b" });
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.Deezer, EnrichmentProvider.MusicBrainzWeb), Opts);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+        Assert.Equal("Alice; Bob", r.Winner!.Artists);
+        Assert.Equal("mbid-a; mbid-b", r.Winner.ArtistMusicBrainzIds);
+    }
+
+    [Fact]
+    public void Cluster_DiscreteArtistDonor_PrefersMusicBrainzOverSpotify()
+    {
+        var song = Song();
+        Add(song, EnrichmentProvider.Deezer, ProviderAttemptStatus.Matched,
+            Result("Alice & Bob", "Duet", isrc: "ISRC1", conf: 0.95, recommend: EnrichmentStatus.Matched));
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Alice & Bob", "Duet", spotifyId: "spot-1", isrc: "ISRC1", conf: 0.9, recommend: EnrichmentStatus.Matched)
+                with { Artists = "Alice; Bob (spotify spelling)" });
+        Add(song, EnrichmentProvider.MusicBrainzWeb, ProviderAttemptStatus.Matched,
+            Result("Alice & Bob", "Duet", mbid: "mb-1", isrc: "ISRC1", conf: 0.7, recommend: EnrichmentStatus.Matched)
+                with { Artists = "Alice; Bob", ArtistMusicBrainzIds = "mbid-a; mbid-b" });
+
+        var r = ConsensusEvaluator.Evaluate(
+            song,
+            Enabled(EnrichmentProvider.Deezer, EnrichmentProvider.SpotifyAPI, EnrichmentProvider.MusicBrainzWeb),
+            Opts);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+        Assert.Equal("Alice; Bob", r.Winner!.Artists);
+        Assert.Equal("mbid-a; mbid-b", r.Winner.ArtistMusicBrainzIds);
+    }
+
+    [Fact]
+    public void Cluster_WinnerWithOwnArtists_OnlyBorrowsIdsFromMatchingList()
+    {
+        // The winner already names its artists; a donor whose list differs (count/order) must not
+        // donate ids — Artists and ArtistMusicBrainzIds are positionally aligned and never mixed
+        // across sources.
+        var song = Song();
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Alice & Bob", "Duet", spotifyId: "spot-1", isrc: "ISRC1", conf: 0.95, recommend: EnrichmentStatus.Matched)
+                with { Artists = "Alice; Bob" });
+        Add(song, EnrichmentProvider.MusicBrainzWeb, ProviderAttemptStatus.Matched,
+            Result("Alice & Bob", "Duet", mbid: "mb-1", isrc: "ISRC1", conf: 0.8, recommend: EnrichmentStatus.Matched)
+                with { Artists = "Alice", ArtistMusicBrainzIds = "mbid-a" });
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.SpotifyAPI, EnrichmentProvider.MusicBrainzWeb), Opts);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+        Assert.Equal("Alice; Bob", r.Winner!.Artists);
+        Assert.Null(r.Winner.ArtistMusicBrainzIds);
+    }
+
     private static SongMetadata Song() => new()
     {
         OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,

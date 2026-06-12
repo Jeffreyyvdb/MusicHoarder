@@ -204,7 +204,7 @@ public static class ConsensusEvaluator
                 // actually backed (so a good embedded album/year isn't overwritten on a lone vote).
                 var release = ReleaseSelector.Select(
                     bestCluster.Select(c => c.Result).ToList(), song.Album, song.Year, preferOriginalRelease);
-                var finalWinner = ApplyRelease(winner.Result, release);
+                var finalWinner = OverlayDiscreteArtists(ApplyRelease(winner.Result, release), bestCluster);
 
                 return new ConsensusResult(
                     EnrichmentStatus.Matched, finalWinner, CombineConfidence(bestCluster),
@@ -362,6 +362,62 @@ public static class ConsensusEvaluator
             ReleaseTypes = release.ReleaseTypes ?? winner.ReleaseTypes,
             IsCompilation = release.IsCompilation ?? winner.IsCompilation,
         };
+
+    /// <summary>
+    /// Borrows the discrete per-artist credit (Artists + aligned MusicBrainz artist ids) from an
+    /// agreeing cluster member when the identity winner doesn't carry one — e.g. an AcoustID or
+    /// Deezer winner corroborated by MusicBrainz. The cluster already agreed on the recording, so
+    /// the donor's credit describes the same track; without this, the song keeps a combined
+    /// display-credit only and the tag writer can't emit per-artist ARTISTS values.
+    /// Artists and ArtistMusicBrainzIds always travel together from the SAME donor (they're
+    /// positionally aligned); ids alone are only borrowed when the donor's artist list matches the
+    /// winner's, so we never pair one provider's names with another's ids.
+    /// </summary>
+    private static EnrichmentProviderResult OverlayDiscreteArtists(
+        EnrichmentProviderResult winner, List<Candidate> cluster)
+    {
+        var donors = cluster
+            .Where(c => !string.IsNullOrWhiteSpace(c.Result.Artists))
+            .OrderBy(c => c.Provider switch
+            {
+                EnrichmentProvider.MusicBrainzWeb => 0,
+                EnrichmentProvider.SpotifyAPI => 1,
+                EnrichmentProvider.Deezer => 2,
+                _ => 3,
+            })
+            .Select(c => c.Result)
+            .ToList();
+
+        if (string.IsNullOrWhiteSpace(winner.Artists))
+        {
+            var donor = donors.FirstOrDefault();
+            return donor is null
+                ? winner
+                : winner with { Artists = donor.Artists, ArtistMusicBrainzIds = donor.ArtistMusicBrainzIds };
+        }
+
+        if (string.IsNullOrWhiteSpace(winner.ArtistMusicBrainzIds))
+        {
+            var idDonor = donors.FirstOrDefault(r =>
+                !string.IsNullOrWhiteSpace(r.ArtistMusicBrainzIds)
+                && SameArtistList(winner.Artists, r.Artists));
+            if (idDonor is not null)
+                return winner with { ArtistMusicBrainzIds = idDonor.ArtistMusicBrainzIds };
+        }
+
+        return winner;
+    }
+
+    private static bool SameArtistList(string? a, string? b)
+    {
+        var left = Metadata.MultiValue.Split(a);
+        var right = Metadata.MultiValue.Split(b);
+        return left.Length == right.Length
+            && left.Zip(right).All(pair => string.Equals(
+                TitleNormalizer.NormalizeForSearch(pair.First),
+                TitleNormalizer.NormalizeForSearch(pair.Second),
+                StringComparison.Ordinal));
+    }
 
     private static double CombineConfidence(IEnumerable<Candidate> cluster)
     {

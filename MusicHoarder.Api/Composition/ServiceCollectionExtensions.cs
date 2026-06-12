@@ -148,6 +148,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDestinationPathResolver, DestinationPathResolver>();
         services.AddSingleton<IAlbumIdentityReconciler, AlbumIdentityReconciler>();
         services.AddScoped<IAlbumSplitHealer, AlbumSplitHealer>();
+        services.AddScoped<IArtistCreditHealer, ArtistCreditHealer>();
         services.AddSingleton<ICanonicalAlbumConsolidator, CanonicalAlbumConsolidator>();
         services.AddSingleton<IDuplicateDetectionService, DuplicateDetectionService>();
         services.AddSingleton<IEmbeddedPictureReader, TagLibEmbeddedPictureReader>();

@@ -81,6 +81,22 @@ public class DeezerEnrichmentProviderTests
     }
 
     [Fact]
+    public async Task TryEnrichAsync_TrackWithContributors_CarriesDiscreteArtists()
+    {
+        var isrcTrack = new DeezerCatalogTrack(
+            "deezer-1", "née-nah", "21 Savage", "american dream", 2024, 9, 220_000, "USUM72316851",
+            Artists: "21 Savage; Travis Scott; Metro Boomin");
+        var catalog = new StubDeezerCatalog { OnIsrc = _ => isrcTrack };
+        var provider = CreateProvider(catalog);
+        var song = Song(artist: "21 Savage", title: "née-nah", durationSec: 220, isrc: "USUM72316851");
+
+        var result = await provider.TryEnrichAsync(song);
+
+        var matched = Assert.IsType<ProviderMatched>(result);
+        Assert.Equal("21 Savage; Travis Scott; Metro Boomin", matched.Result.Artists);
+    }
+
+    [Fact]
     public async Task TryEnrichAsync_SymbolOnlyArtist_WrongCandidate_NotCleanMatch()
     {
         // "¥$" normalizes to empty; the raw fallback must keep an unrelated artist from scoring 100%.
