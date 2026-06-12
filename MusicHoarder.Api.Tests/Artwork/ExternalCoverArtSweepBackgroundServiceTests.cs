@@ -190,6 +190,71 @@ public class ExternalCoverArtSweepBackgroundServiceTests
         Assert.Single(writer.Calls);
     }
 
+    [Fact]
+    public async Task HealsHasCoverArtForFoldersWithACoverOnDisk()
+    {
+        // A cover written on a prior run (before the flag was populated) leaves the song with a cover
+        // on disk but HasCoverArt = false. The sweep's heal pass reflects it back into the flag.
+        var fs = Fs("/dest/Artist/Album A");
+        fs.AddFile("/dest/Artist/Album A/cover.jpg", new MockFileData("art"));
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            Song(1, "/dest/Artist/Album A/01.mp3"),
+            Song(2, "/dest/Artist/Album A/02.mp3"));
+        await db.SaveChangesAsync();
+
+        var writer = new ScriptedCoverWriter();
+        await RunSweepAsync(db, fs, writer);
+
+        // Folder already has a cover, so nothing is fetched — but both tracks get flagged.
+        Assert.Empty(writer.Calls);
+        Assert.All(await db.Songs.ToListAsync(), s => Assert.True(s.HasCoverArt));
+    }
+
+    [Fact]
+    public async Task FlagsHasCoverArtWhenACoverIsFetched()
+    {
+        var fs = Fs("/dest/Artist/Album A");
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            Song(1, "/dest/Artist/Album A/01.mp3"),
+            Song(2, "/dest/Artist/Album A/02.mp3"));
+        await db.SaveChangesAsync();
+
+        var writer = new ScriptedCoverWriter
+        {
+            OnWrite = _ => new AlbumCoverWriteResult(true, "coverartarchive"),
+        };
+        var written = await RunSweepAsync(db, fs, writer);
+
+        Assert.Equal(1, written);
+        Assert.All(await db.Songs.ToListAsync(), s => Assert.True(s.HasCoverArt));
+    }
+
+    [Fact]
+    public async Task HealDoesNotFlagDemoSyntheticUnreleasedDeletedOrUnbuiltRows()
+    {
+        var fs = Fs(
+            "/dest/A/Demo", "/dest/A/Synthetic", "/dest/A/Unreleased", "/dest/A/Deleted", "/dest/A/Pending");
+        foreach (var dir in new[] { "Demo", "Synthetic", "Unreleased", "Deleted", "Pending" })
+        {
+            fs.AddFile($"/dest/A/{dir}/cover.jpg", new MockFileData("art"));
+        }
+
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            Song(1, "/dest/A/Demo/01.mp3", owner: WellKnownUsers.DemoId),
+            Song(2, "/dest/A/Synthetic/01.mp3", isSynthetic: true),
+            Song(3, "/dest/A/Unreleased/01.mp3", isUnreleased: true),
+            Song(4, "/dest/A/Deleted/01.mp3", deleted: true),
+            Song(5, "/dest/A/Pending/01.mp3", status: LibraryBuildStatus.Pending));
+        await db.SaveChangesAsync();
+
+        await RunSweepAsync(db, fs, new ScriptedCoverWriter());
+
+        Assert.All(await db.Songs.IgnoreQueryFilters().ToListAsync(), s => Assert.False(s.HasCoverArt));
+    }
+
     private static async Task<int> RunSweepAsync(
         MusicHoarderDbContext db,
         MockFileSystem fs,

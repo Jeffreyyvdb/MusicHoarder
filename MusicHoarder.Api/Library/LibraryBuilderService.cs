@@ -589,6 +589,11 @@ public class LibraryBuilderService(
                     NewValue = result.Source == "source" ? "written" : $"fetched:{result.Source}",
                 });
                 await db.SaveChangesAsync(token);
+
+                // Reflect the just-written cover into HasCoverArt so the grid/hero request it; an
+                // art-less source leaves the flag false otherwise (it's only set from the source side).
+                await DestinationCoverFlagger.FlagFolderAsync(
+                    db, entry.Key, fileSystem.Path.DirectorySeparatorChar, token);
             });
     }
 
