@@ -323,6 +323,91 @@ public class EnrichmentRetrySweepTests
         Assert.False(channel.Reader.TryRead(out _));
     }
 
+    [Fact]
+    public async Task AlgorithmStale_ResetsReviewRow_BelowCurrentVersion_AndEnqueues()
+    {
+        await using var db = CreateDb();
+        var song = AddSong(db, EnrichmentStatus.NeedsReview);
+        song.LastEnrichmentAlgorithmVersion = EnrichmentAlgorithm.CurrentVersion - 1;
+        song.ProviderAttempts.Add(new SongProviderAttempt
+        {
+            SongId = song.Id,
+            Provider = EnrichmentProvider.AcoustID,
+            Status = ProviderAttemptStatus.NoMatch,
+            AttemptedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var channel = new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker());
+        var service = CreateService(db, channel, enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.AcoustID });
+
+        await service.EnqueueAlgorithmStaleSongsAsync(CancellationToken.None);
+
+        var updated = await db.Songs.Include(s => s.ProviderAttempts).AsNoTracking().SingleAsync();
+        Assert.Equal(EnrichmentStatus.Pending, updated.EnrichmentStatus);
+        Assert.Empty(updated.ProviderAttempts);
+        Assert.True(channel.Reader.TryRead(out var enqueued));
+        Assert.Equal(song.Id, enqueued);
+    }
+
+    [Fact]
+    public async Task AlgorithmStale_SkipsMatchedRow()
+    {
+        await using var db = CreateDb();
+        var song = AddSong(db, EnrichmentStatus.Matched);
+        song.LastEnrichmentAlgorithmVersion = EnrichmentAlgorithm.CurrentVersion - 1;
+        await db.SaveChangesAsync();
+
+        var channel = new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker());
+        var service = CreateService(db, channel, enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.AcoustID });
+
+        await service.EnqueueAlgorithmStaleSongsAsync(CancellationToken.None);
+
+        var updated = await db.Songs.AsNoTracking().SingleAsync();
+        Assert.Equal(EnrichmentStatus.Matched, updated.EnrichmentStatus);
+        Assert.False(channel.Reader.TryRead(out _));
+    }
+
+    [Fact]
+    public async Task AlgorithmStale_SkipsRowAlreadyAtCurrentVersion()
+    {
+        await using var db = CreateDb();
+        var song = AddSong(db, EnrichmentStatus.NeedsReview);
+        song.LastEnrichmentAlgorithmVersion = EnrichmentAlgorithm.CurrentVersion;
+        await db.SaveChangesAsync();
+
+        var channel = new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker());
+        var service = CreateService(db, channel, enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.AcoustID });
+
+        await service.EnqueueAlgorithmStaleSongsAsync(CancellationToken.None);
+
+        var updated = await db.Songs.AsNoTracking().SingleAsync();
+        Assert.Equal(EnrichmentStatus.NeedsReview, updated.EnrichmentStatus);
+        Assert.False(channel.Reader.TryRead(out _));
+    }
+
+    [Theory]
+    [InlineData(true, false)]  // demo owner
+    [InlineData(false, true)]  // manually approved
+    public async Task AlgorithmStale_SkipsDemoAndManuallyApprovedRows(bool demo, bool manuallyApproved)
+    {
+        await using var db = CreateDb();
+        var song = AddSong(db, EnrichmentStatus.NeedsReview,
+            owner: demo ? MusicHoarder.Api.Auth.WellKnownUsers.DemoId : null);
+        song.LastEnrichmentAlgorithmVersion = EnrichmentAlgorithm.CurrentVersion - 1;
+        song.IsManuallyApproved = manuallyApproved;
+        await db.SaveChangesAsync();
+
+        var channel = new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker());
+        var service = CreateService(db, channel, enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.AcoustID });
+
+        await service.EnqueueAlgorithmStaleSongsAsync(CancellationToken.None);
+
+        var updated = await db.Songs.IgnoreQueryFilters().AsNoTracking().SingleAsync();
+        Assert.Equal(EnrichmentStatus.NeedsReview, updated.EnrichmentStatus);
+        Assert.False(channel.Reader.TryRead(out _));
+    }
+
     private static SongMetadata AddSong(MusicHoarderDbContext db, EnrichmentStatus status, Guid? owner = null)
     {
         var song = new SongMetadata

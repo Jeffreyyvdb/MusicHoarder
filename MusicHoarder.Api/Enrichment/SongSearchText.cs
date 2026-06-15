@@ -21,7 +21,68 @@ namespace MusicHoarder.Api.Enrichment;
 public static partial class SongSearchText
 {
     /// <summary>Effective search signal for a song: embedded tags, falling back to the file path.</summary>
-    public readonly record struct Resolved(string? Artist, string? Album, string? Title, int? TrackNumber);
+    /// <remarks>
+    /// The four positional fields keep their original arity (and <c>Deconstruct</c>) so existing
+    /// consumers are unaffected. The <c>*FromPath</c> flags record <b>provenance</b>: when a field was
+    /// guessed from the file path rather than read from an embedded tag, a provider must not treat a
+    /// disagreement as the file contradicting its own identity (no blocking warning) — see
+    /// <see cref="Matching.MatchWarnings"/> and the scorers. <see cref="RawSearchText"/> is the cleaned
+    /// filename free-text the providers query on when the identity is path-derived, so a messy
+    /// "20-luie_mannen-hef_(prod_by_dj_mp).mp3" still searches as "luie mannen hef".
+    /// </remarks>
+    public readonly record struct Resolved(string? Artist, string? Album, string? Title, int? TrackNumber)
+    {
+        /// <summary>True when <see cref="Artist"/> was derived from the path, not an embedded tag.</summary>
+        public bool ArtistFromPath { get; init; }
+        /// <summary>True when <see cref="Title"/> was derived from the path, not an embedded tag.</summary>
+        public bool TitleFromPath { get; init; }
+        /// <summary>True when <see cref="Album"/> was derived from the path, not an embedded tag.</summary>
+        public bool AlbumFromPath { get; init; }
+        /// <summary>Cleaned free-text query built from the filename (track #, underscores and
+        /// "(prod …)"/"(feat …)" credits stripped, dashes folded to spaces); null when the path
+        /// yields nothing usable. Providers query on this when artist/title are path-derived.</summary>
+        public string? RawSearchText { get; init; }
+
+        /// <summary>Whether the artist or title came from the path rather than an embedded tag.</summary>
+        public bool IdentityFromPath => ArtistFromPath || TitleFromPath;
+
+        /// <summary>
+        /// True when the filename itself encodes the artist ("Artist - Title"). In that case the
+        /// containing folder is a download-tool/bucket name ("slskd", an A–Z bucket), not the performer,
+        /// so it must be kept OUT of the search query — a junk token like "slskd" measurably degrades a
+        /// real search engine's ranking.
+        /// </summary>
+        public bool FilenameCarriesArtist { get; init; }
+
+        /// <summary>Artist parsed from an "Artist - Title" filename (set with <see cref="FilenameCarriesArtist"/>).
+        /// Lets a fielded-search provider (MusicBrainz) query precise artist/title instead of free-text —
+        /// MusicBrainz ranks a bare free-text query poorly. Distinct from the positional <see cref="Artist"/>,
+        /// which on a bucket layout is the junk folder.</summary>
+        public string? SplitArtist { get; init; }
+        /// <summary>Title parsed from an "Artist - Title" filename (see <see cref="SplitArtist"/>).</summary>
+        public string? SplitTitle { get; init; }
+
+        /// <summary>
+        /// The free-text query a provider should use when the identity is path-derived. When the filename
+        /// carries the artist ("Artist - Title", the loose-download convention) we query on the cleaned
+        /// filename ALONE — never the junk bucket folder. Only a structured
+        /// "&lt;Artist&gt;/&lt;Album&gt;/NN Title" file (bare-title filename) prepends its folder-artist so
+        /// the artist isn't lost. Falls back to <see cref="Artist"/> when there's no filename text.
+        /// </summary>
+        public string? PathQuery
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(RawSearchText))
+                    return Artist;
+                if (!FilenameCarriesArtist
+                    && !string.IsNullOrWhiteSpace(Artist)
+                    && Matching.CandidateTextMatch.Containment(Artist, RawSearchText) < 1.0)
+                    return $"{Artist} {RawSearchText}";
+                return RawSearchText;
+            }
+        }
+    }
 
     /// <param name="sourceRoot">
     /// The configured library source directory. When supplied, the first path segment beneath it
@@ -45,7 +106,17 @@ public static partial class SongSearchText
             artist ?? fromPath.Artist,
             album ?? fromPath.Album,
             title ?? fromPath.Title,
-            trackNumber ?? fromPath.TrackNumber);
+            trackNumber ?? fromPath.TrackNumber)
+        {
+            // Provenance: a field is "from path" only when the tag was missing and the path supplied it.
+            ArtistFromPath = artist is null && fromPath.Artist is not null,
+            TitleFromPath = title is null && fromPath.Title is not null,
+            AlbumFromPath = album is null && fromPath.Album is not null,
+            RawSearchText = fromPath.RawSearchText,
+            FilenameCarriesArtist = fromPath.FilenameCarriesArtist,
+            SplitArtist = fromPath.SplitArtist,
+            SplitTitle = fromPath.SplitTitle,
+        };
     }
 
     /// <summary>Artist/title the name-based providers query on (tags win, else path-derived).</summary>
@@ -72,7 +143,20 @@ public static partial class SongSearchText
         if (segments.Length == 0)
             return default;
 
-        var (title, trackNumber) = ParseTrackName(StripExtension(segments[^1]));
+        var stem = StripExtension(segments[^1]);
+        var (title, trackNumber) = ParseTrackName(stem);
+
+        // Free-text query the providers fall back to when the identity is path-derived: the filename
+        // is the most deliberately-encoded signal, so we clean it (track #, underscores, "(prod …)"
+        // credits, dashes) and let the search engine parse it rather than committing to a positional
+        // artist/title split that breaks on "20-luie_mannen-hef_(prod_by_dj_mp).mp3".
+        var rawSearchText = CleanFilenameForSearch(stem);
+
+        // "Artist - Title" filename → the artist is in the filename, so the containing folder is a
+        // download-tool/bucket name to keep out of the query. Detected on the track-stripped stem; the
+        // split also feeds MusicBrainz a fielded artist/title query (free-text ranks poorly there).
+        var fileSplit = SplitArtistTitle(title);
+        var filenameCarriesArtist = fileSplit is not null;
 
         // The first directory under the source root is the artist, the one directly containing the
         // file is the album (<Artist>/<Album?>/<track>). Each only exists when the path is deep
@@ -90,12 +174,43 @@ public static partial class SongSearchText
         // folder is a download-tool/category name ("slskd", "Soulseek", "Leaks"), not the performer.
         // Structured libraries instead encode the artist as a folder (<Artist>/<Album>/NN Title) and
         // number their tracks, so this never fires for them.
-        if (trackNumber is null && segments.Length == 2 && SplitArtistTitle(title) is { } split)
-            return new Resolved(split.Artist, album, split.Title, trackNumber);
+        if (trackNumber is null && segments.Length == 2 && fileSplit is { } split)
+            return new Resolved(split.Artist, album, split.Title, trackNumber)
+            {
+                RawSearchText = rawSearchText,
+                FilenameCarriesArtist = true,
+                SplitArtist = split.Artist,
+                SplitTitle = split.Title,
+            };
 
         title = StripArtistPrefix(title, artist);
 
-        return new Resolved(artist, album, string.IsNullOrWhiteSpace(title) ? null : title, trackNumber);
+        return new Resolved(artist, album, string.IsNullOrWhiteSpace(title) ? null : title, trackNumber)
+        {
+            RawSearchText = rawSearchText,
+            FilenameCarriesArtist = filenameCarriesArtist,
+            SplitArtist = fileSplit?.Artist,
+            SplitTitle = fileSplit?.Title,
+        };
+    }
+
+    /// <summary>
+    /// Cleans a filename stem into a free-text search query: underscores to spaces, leading
+    /// track-number prefix removed ("20-", "05 ", "01."), parenthetical production credits
+    /// ("(prod by …)", "(produced by …)") dropped, and every dash folded to a space so multi-dash
+    /// names ("luie_mannen-hef") tokenise cleanly. Returns null when nothing usable remains.
+    /// </summary>
+    private static string? CleanFilenameForSearch(string? stem)
+    {
+        if (string.IsNullOrWhiteSpace(stem))
+            return null;
+
+        var text = stem.Replace('_', ' ');
+        text = LeadingTrackNumber().Replace(text, "");
+        text = ProductionCredit().Replace(text, " ");
+        text = AnyDash().Replace(text, " ");
+        text = WhitespacePattern().Replace(text, " ").Trim();
+        return text.Length == 0 ? null : text;
     }
 
     private static string? Clean(string? value)
@@ -219,4 +334,19 @@ public static partial class SongSearchText
 
     [GeneratedRegex(@"\s+", RegexOptions.Compiled)]
     private static partial Regex WhitespacePattern();
+
+    // A leading track-number on a free-text query stem: 1–3 digits followed by a dash/dot/space
+    // separator ("20-", "05 ", "01. "). Bounded to 3 digits so a year/number title ("1979") survives.
+    [GeneratedRegex(@"^\s*\d{1,3}\s*[-.\s]\s*", RegexOptions.Compiled)]
+    private static partial Regex LeadingTrackNumber();
+
+    // A parenthetical production credit ("(prod by …)", "(produced by …)", "(prod. …)") — pure search
+    // noise. Featuring credits are intentionally kept; they sharpen the search.
+    [GeneratedRegex(@"\((?:prod|produced|directed|dir)\b[^)]*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase)]
+    private static partial Regex ProductionCredit();
+
+    // Any dash variant, folded to a space for free-text querying/tokenising (unlike DashSeparator this
+    // does not require surrounding whitespace, so "mannen-hef" becomes "mannen hef").
+    [GeneratedRegex(@"[-‐-―−]", RegexOptions.Compiled)]
+    private static partial Regex AnyDash();
 }

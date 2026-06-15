@@ -60,6 +60,12 @@ public interface IMusicBrainzWebService
     Task<MusicBrainzRecording?> LookupByIsrcAsync(string isrc, CancellationToken ct = default);
     Task<IReadOnlyList<MusicBrainzRecording>> SearchAsync(string artist, string title, int limit, string? album = null, CancellationToken ct = default);
 
+    /// <summary>
+    /// Free-text recording search (no field qualifiers) for untagged files where a positional
+    /// artist/title split is unreliable — lets MusicBrainz's own relevance parse the cleaned filename.
+    /// </summary>
+    Task<IReadOnlyList<MusicBrainzRecording>> SearchFreeTextAsync(string query, int limit, CancellationToken ct = default);
+
     /// <summary>Fetches a release's full canonical tracklist by release MBID. Null if not found.</summary>
     Task<MusicBrainzRelease?> LookupReleaseAsync(string releaseId, CancellationToken ct = default);
 
@@ -107,6 +113,20 @@ public sealed class MusicBrainzWebService(
             query += $" AND release:\"{EscapeLucene(album)}\"";
         var dto = await GetAsync<SearchDto>(
             $"recording?query={Uri.EscapeDataString(query)}&fmt=json&limit={limit}", ct);
+        if (dto?.Recordings is null or { Count: 0 })
+            return [];
+
+        return dto.Recordings.Select(MapRecording).ToList();
+    }
+
+    public async Task<IReadOnlyList<MusicBrainzRecording>> SearchFreeTextAsync(
+        string query, int limit, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+            return [];
+
+        var dto = await GetAsync<SearchDto>(
+            $"recording?query={Uri.EscapeDataString(EscapeLucene(query))}&fmt=json&limit={limit}", ct);
         if (dto?.Recordings is null or { Count: 0 })
             return [];
 

@@ -50,7 +50,11 @@ public class SpotifyApiEnrichmentProvider(
             return new ProviderNoMatch();
         }
 
-        var query = BuildSearchQuery(effectiveArtist!, effectiveTitle!, effectiveAlbum);
+        // Untagged files: let the search engine parse the cleaned filename free-text rather than a
+        // positional artist/title guess (which on loose downloads is the download-tool/bucket folder).
+        var query = resolved.IdentityFromPath && !string.IsNullOrWhiteSpace(resolved.PathQuery)
+            ? SpotifyLibraryComparisonService.Normalize(resolved.PathQuery!)
+            : BuildSearchQuery(effectiveArtist!, effectiveTitle!, effectiveAlbum);
         if (string.IsNullOrWhiteSpace(query))
         {
             logger.LogDebug("Spotify API enrichment: empty query after normalize (SongId={SongId})", song.Id);
@@ -173,34 +177,10 @@ public class SpotifyApiEnrichmentProvider(
         MusicEnricherOptions opts)
     {
         var warnings = new List<string>();
-        var sourceArtist = source.Artist;
-        var sourceTitle = source.Title;
 
-        // Raw-fallback aware: a symbol-only artist like "¥$" no longer scores as a free 100%.
-        var artistRatio = FuzzyTextMatch.Ratio(sourceArtist, track.Artist);
-        var titleRatio = FuzzyTextMatch.Ratio(sourceTitle, track.Title);
-
-        if (artistRatio is double ar && ar < FuzzyThreshold)
-            warnings.Add("artist_mismatch");
-        if (titleRatio is double tr && tr < FuzzyThreshold)
-            warnings.Add("title_mismatch");
-
-        double score;
-        if (artistRatio is double a && titleRatio is double t)
-        {
-            score = (a / 100.0 + t / 100.0) / 2.0;
-        }
-        else if (titleRatio is double tOnly)
-        {
-            // No usable artist signal — a title-only agreement isn't enough to auto-match,
-            // so surface it for review (blocking warning) instead of trusting it blindly.
-            score = tOnly / 100.0;
-            warnings.Add("artist_unknown");
-        }
-        else
-        {
-            score = 0;
-        }
+        // Embedded tags score (and block) as before; a path-derived identity is corroborated by
+        // token-presence against the filename free-text and flagged identity_unverified (non-blocking).
+        var score = SourceIdentityScorer.Score(source, track.Artist, track.Title, FuzzyThreshold, warnings);
 
         var fileIsrc = NormalizeIsrc(song.Isrc);
         var trackIsrc = NormalizeIsrc(track.Isrc);
@@ -248,7 +228,9 @@ public class SpotifyApiEnrichmentProvider(
         // boosts are left un-capped (the final confidence is clamped in BuildResult) so they still break
         // a tie when artist+title already saturate the score at 1.0 — exactly the original-album-vs-
         // "Greatest Hits"-reissue case where both releases otherwise score identically.
-        if (FuzzyTextMatch.Ratio(source.Album, track.AlbumName) is double albumRatio)
+        // Skip album scoring when the album is itself a path guess (e.g. an "A" bucket folder) — it
+        // would otherwise emit a spurious album_mismatch and never legitimately corroborate.
+        if (!source.AlbumFromPath && FuzzyTextMatch.Ratio(source.Album, track.AlbumName) is double albumRatio)
         {
             if (albumRatio >= FuzzyThreshold)
                 score += opts.AlbumAgreementConfidenceBoost;

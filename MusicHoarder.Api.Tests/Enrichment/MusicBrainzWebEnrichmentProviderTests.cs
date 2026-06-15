@@ -92,11 +92,13 @@ public class MusicBrainzWebEnrichmentProviderTests
     }
 
     [Fact]
-    public async Task NameSearch_PassesPathDerivedAlbumHintToSearch()
+    public async Task NameSearch_UntaggedFile_UsesFreeTextSearch()
     {
+        // Untagged files now query MusicBrainz via free-text (the cleaned path) instead of a structured
+        // artist/title/album search, since a positional split is unreliable for loose downloads.
         var svc = new StubMb
         {
-            Search = (a, t) =>
+            FreeTextSearch = _ =>
             [
                 new MusicBrainzRecording("mb-3", "Lucid Dreams", "Juice WRLD", "Juice WRLD", "rel-3", "Goodbye & Good Riddance", 2018, null, 239_000, Score: 100),
             ],
@@ -108,7 +110,10 @@ public class MusicBrainzWebEnrichmentProviderTests
         var outcome = await provider.TryEnrichAsync(song);
 
         Assert.IsType<ProviderMatched>(outcome);
-        Assert.Equal("Goodbye & Good Riddance", svc.LastSearchAlbum);
+        Assert.Equal(1, svc.FreeTextSearchCalls);
+        Assert.Equal(0, svc.SearchCalls);
+        Assert.Contains("Lucid Dreams", svc.LastFreeTextQuery);
+        Assert.Contains("Juice WRLD", svc.LastFreeTextQuery);
     }
 
     [Fact]
@@ -186,10 +191,13 @@ public class MusicBrainzWebEnrichmentProviderTests
         public Func<string, MusicBrainzRecording?>? ByMbid { get; set; }
         public Func<string, MusicBrainzRecording?>? ByIsrc { get; set; }
         public Func<string, string, IReadOnlyList<MusicBrainzRecording>>? Search { get; set; }
+        public Func<string, IReadOnlyList<MusicBrainzRecording>>? FreeTextSearch { get; set; }
 
         public int MbidCalls { get; private set; }
         public int IsrcCalls { get; private set; }
         public int SearchCalls { get; private set; }
+        public int FreeTextSearchCalls { get; private set; }
+        public string? LastFreeTextQuery { get; private set; }
 
         public Task<MusicBrainzRecording?> LookupByRecordingIdAsync(string mbid, CancellationToken ct = default)
         {
@@ -210,6 +218,13 @@ public class MusicBrainzWebEnrichmentProviderTests
             SearchCalls++;
             LastSearchAlbum = album;
             return Task.FromResult(Search?.Invoke(artist, title) ?? []);
+        }
+
+        public Task<IReadOnlyList<MusicBrainzRecording>> SearchFreeTextAsync(string query, int limit, CancellationToken ct = default)
+        {
+            FreeTextSearchCalls++;
+            LastFreeTextQuery = query;
+            return Task.FromResult(FreeTextSearch?.Invoke(query) ?? []);
         }
 
         public Task<MusicBrainzRelease?> LookupReleaseAsync(string releaseId, CancellationToken ct = default)

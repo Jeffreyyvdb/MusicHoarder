@@ -30,6 +30,7 @@ public class EnrichmentBackgroundService(
         {
             await RefreshStaleStatusesAsync(stoppingToken);
             await RetryStaleStatusesAsync(stoppingToken);
+            await EnqueueAlgorithmStaleSongsAsync(stoppingToken);
             await EnqueueSongsMissingProvidersAsync(stoppingToken);
             await BackfillPendingSongsAsync(stoppingToken);
             sweepTask = RunRetrySweepLoopAsync(stoppingToken);
@@ -182,6 +183,55 @@ public class EnrichmentBackgroundService(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(ex, "Failed to retry stale enrichment statuses on startup");
+        }
+    }
+
+    /// <summary>
+    /// Generic re-process-on-algorithm-change: when <see cref="EnrichmentAlgorithm.CurrentVersion"/> is
+    /// bumped, re-enrich the rows left in <see cref="EnrichmentStatus.NeedsReview"/> or
+    /// <see cref="EnrichmentStatus.Failed"/> under an older version so a matching/scoring improvement
+    /// automatically heals the stuck backlog. Resets them (clearing ProviderAttempts so every enabled
+    /// provider re-runs under the new logic) and enqueues them; the orchestrator stamps the new version
+    /// on the terminal verdict, so this fires <b>once per bump</b>, not on every restart.
+    /// <para>
+    /// Excludes synthetic, manually-approved (locked), and demo rows — the demo tenant's curated data
+    /// must never be re-enriched (see WellKnownUsers.DemoId). Matched/Done rows are left untouched
+    /// (no churn); a "wrong" Matched row is surfaced separately by the LLM grade-outdated flow.
+    /// </para>
+    /// </summary>
+    internal async Task EnqueueAlgorithmStaleSongsAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+
+            var candidates = await db.Songs
+                .IgnoreQueryFilters()
+                .Include(s => s.ProviderAttempts)
+                .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
+                .Where(s => s.OwnerUserId != Auth.WellKnownUsers.DemoId)
+                .Where(s => !s.IsManuallyApproved)
+                .Where(s => s.EnrichmentStatus == EnrichmentStatus.NeedsReview
+                    || s.EnrichmentStatus == EnrichmentStatus.Failed)
+                .Where(s => s.LastEnrichmentAlgorithmVersion < EnrichmentAlgorithm.CurrentVersion)
+                .ToListAsync(ct);
+
+            if (candidates.Count == 0)
+                return;
+
+            foreach (var song in candidates)
+                song.ResetEnrichment(restoreOriginal: false);
+
+            await db.SaveChangesAsync(ct);
+            pipelineChannel.EnqueueRange(candidates.Select(s => s.Id));
+            logger.LogInformation(
+                "Algorithm-version sweep reset {Count} review/failed songs to Pending for re-enrichment (algorithm v{Version})",
+                candidates.Count, EnrichmentAlgorithm.CurrentVersion);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to enqueue algorithm-stale songs on startup");
         }
     }
 
