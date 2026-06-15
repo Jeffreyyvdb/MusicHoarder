@@ -243,7 +243,7 @@
     <div
       bind:this={containerEl}
       class={cn(
-        'min-h-0 flex-1 overflow-y-auto pb-[calc(1rem_+_var(--mh-content-pad))] scroll-smooth',
+        'no-scrollbar min-h-0 flex-1 overflow-y-auto pb-[calc(1rem_+_var(--mh-content-pad))] scroll-smooth',
         theater ? 'px-1 sm:px-6' : 'bg-secondary/50 rounded-lg p-4'
       )}
     >
