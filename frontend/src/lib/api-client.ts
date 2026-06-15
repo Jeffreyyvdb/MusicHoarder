@@ -406,12 +406,25 @@ function finalizeGroups(map: Map<string, GroupAccumulator>): GroupSummary[] {
 /**
  * Group songs by individual artist ({@link discreteArtistsForSong}), sorted alphabetically.
  * A multi-artist track contributes to each of its credited artists' groups.
+ *
+ * With `primaryOnly`, only *lead* artists are surfaced: a credited artist is kept only if
+ * they are the lead ({@link artistLabelForSong} — `albumArtist ?? artist`) on at least one
+ * song. Featured-/guest-only artists who never lead a release are dropped, so the grid
+ * shows album artists rather than every performer. A lead artist's card still aggregates
+ * the tracks where they only feature.
  */
-export function buildArtistGroups(songs: ApiSong[]): GroupSummary[] {
+export function buildArtistGroups(
+  songs: ApiSong[],
+  opts?: { primaryOnly?: boolean },
+): GroupSummary[] {
+  const leadKeys = opts?.primaryOnly
+    ? new Set(songs.map((s) => artistLabelForSong(s).toLowerCase()))
+    : null
   const map = new Map<string, GroupAccumulator>()
   for (const song of songs) {
     for (const label of discreteArtistsForSong(song)) {
       const key = label.toLowerCase()
+      if (leadKeys && !leadKeys.has(key)) continue
       let entry = map.get(key)
       if (!entry) {
         entry = {

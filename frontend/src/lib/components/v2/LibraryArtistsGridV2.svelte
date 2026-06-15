@@ -9,8 +9,10 @@
     /** href builder for an artist card (links into `/library?artist=…`). */
     hrefFor: (group: GroupSummary) => string;
     isLoading?: boolean;
+    /** `primary` shows lead/album artists only; `all` shows every credited artist. */
+    mode?: 'primary' | 'all';
   };
-  const { groups, hrefFor, isLoading = false }: Props = $props();
+  let { groups, hrefFor, isLoading = false, mode = $bindable('primary') }: Props = $props();
 
   const ALL_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
@@ -61,6 +63,27 @@
       {L}
     </button>
   {/each}
+
+  <div
+    class="border-border ml-auto flex items-center gap-0 self-center rounded border p-[2px]"
+    title="Primary shows lead/album artists only; All shows every credited artist (incl. features)"
+  >
+    {#each [{ value: 'primary', text: 'Primary' }, { value: 'all', text: 'All' }] as opt (opt.value)}
+      <button
+        type="button"
+        onclick={() => (mode = opt.value as 'primary' | 'all')}
+        aria-pressed={mode === opt.value}
+        class={cn(
+          'rounded-[3px] px-2 py-[2px] transition-colors',
+          mode === opt.value
+            ? 'bg-primary/10 text-primary font-semibold'
+            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+        )}
+      >
+        {opt.text}
+      </button>
+    {/each}
+  </div>
 </div>
 
 {#if filtered.length === 0}
