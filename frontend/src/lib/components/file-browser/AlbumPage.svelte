@@ -86,6 +86,7 @@
   $effect(() => {
     const artist = album?.artist ?? null;
     const title = album?.title ?? null;
+    const year = album?.year ?? null;
     tracklist = null;
     linkStatus = 'pending';
     albumGrade = null;
@@ -95,7 +96,7 @@
     }
     let cancelled = false;
     loadingDetail = true;
-    void fetchAlbumDetail(artist, title)
+    void fetchAlbumDetail(artist, title, year)
       .then((d) => {
         if (cancelled) return;
         tracklist = d.tracklist;

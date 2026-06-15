@@ -235,7 +235,13 @@ const UNKNOWN_ARTIST = "Unknown Artist"
 
 /** Aggregated view of all songs sharing an `(albumArtist, album)` pair. */
 export interface AlbumSummary {
-  /** Stable key — `${artistLower}::${titleLower}`. Matches the `?album=` URL param the existing UI emits. */
+  /**
+   * Stable key. For built songs this is the **destination folder directory** — the same unit
+   * Navidrome groups on (one reconciled MUSICBRAINZ_ALBUMID is written per folder), so a single
+   * album name that was split across releases/folders shows as the same separate cards the player
+   * does. Songs without a destination path fall back to `${artistLower}::${titleLower}`.
+   * Used as the `?album=` URL param and for client-side album lookup.
+   */
   key: string
   title: string
   artist: string
@@ -262,6 +268,18 @@ function nonEmpty(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
+/**
+ * Destination folder directory of a built song — the album folder the music server reads, where
+ * the library builder elects one reconciled release identity. Null when the song isn't built yet.
+ * Mirrors the derivation in AlbumPage.svelte.
+ */
+function destinationFolderOf(song: ApiSong): string | null {
+  const path = nonEmpty(song.destinationPath)
+  if (!path) return null
+  const idx = path.lastIndexOf("/")
+  return idx > 0 ? path.slice(0, idx) : path
+}
+
 /** Effective "added to library" time for a song: build time, falling back to index time. */
 export function songAddedTime(s: ApiSong): number {
   const t = s.libraryBuiltAtUtc ?? s.indexedAtUtc
@@ -278,15 +296,16 @@ export function sortAlbumsByRecency(albums: AlbumSummary[]): AlbumSummary[] {
 
 /**
  * Group raw songs into album summaries used by Gallery / AlbumPage.
- * Same key shape as the previous AlbumGridView (artistLower::titleLower) so
- * existing `?album=` URLs keep working across the migration.
+ * Built songs group by their destination folder (the unit the music server reads, so the app
+ * mirrors how the player splits one album name across releases); unbuilt songs fall back to
+ * `artistLower::titleLower` so search/command-palette call sites keep working.
  */
 export function buildAlbumsFromSongs(songs: ApiSong[]): AlbumSummary[] {
   const map = new Map<string, AlbumSummary>()
   for (const song of songs) {
     const title = nonEmpty(song.album) ?? UNKNOWN_ALBUM
     const artist = nonEmpty(song.albumArtist) ?? nonEmpty(song.artist) ?? UNKNOWN_ARTIST
-    const key = `${artist.toLowerCase()}::${title.toLowerCase()}`
+    const key = destinationFolderOf(song) ?? `${artist.toLowerCase()}::${title.toLowerCase()}`
     let entry = map.get(key)
     if (!entry) {
       entry = {
@@ -629,9 +648,16 @@ export interface AlbumDetailResult {
  * Fetches the combined album detail (link status + tracklist + grade) by artist + album. A
  * non-`linked` status means the owned-only view should be shown.
  */
-export async function fetchAlbumDetail(artist: string, album: string): Promise<AlbumDetailResult> {
-  const qs = new URLSearchParams({ artist, album }).toString()
-  const response = await fetch(`${API_PREFIX}/api/albums/detail?${qs}`, { cache: "no-store" })
+export async function fetchAlbumDetail(
+  artist: string,
+  album: string,
+  year?: number | null,
+): Promise<AlbumDetailResult> {
+  const params = new URLSearchParams({ artist, album })
+  // Scope to one destination folder so an album name split across releases shows only this card's
+  // release (e.g. a bootleg sharing the name reads as local-only instead of "missing 14 tracks").
+  if (year != null) params.set("year", String(year))
+  const response = await fetch(`${API_PREFIX}/api/albums/detail?${params.toString()}`, { cache: "no-store" })
   if (response.status === 404) return { status: "pending", tracklist: null, grade: { graded: false } }
   if (!response.ok) throw new Error(`album detail failed: ${response.status}`)
   const body = (await response.json()) as {
