@@ -147,7 +147,19 @@
     return scopedAlbums.filter((a) => albumMatchesQuery(a, q));
   });
 
-  const artistGroups = $derived(buildArtistGroups(builtSongs));
+  // Artists view: default to lead/album artists only (the discrete multi-artist
+  // tagging would otherwise flood the grid with featured/guest performers).
+  // Persisted across sessions-of-this-tab like the search box.
+  let artistMode = $state<'primary' | 'all'>(
+    untrack(() => sessionGet('mh-lib-artist-mode')) === 'all' ? 'all' : 'primary'
+  );
+  $effect(() => {
+    sessionSet('mh-lib-artist-mode', artistMode);
+  });
+
+  const artistGroups = $derived(
+    buildArtistGroups(builtSongs, { primaryOnly: artistMode === 'primary' })
+  );
   const filteredArtists = $derived.by(() => {
     const q = query.trim().toLowerCase();
     if (!q) return artistGroups;
@@ -309,7 +321,7 @@
             </div>
           {/if}
         {:else if tab === 'artists'}
-          <LibraryArtistsGridV2 groups={filteredArtists} hrefFor={artistHref} {isLoading} />
+          <LibraryArtistsGridV2 groups={filteredArtists} hrefFor={artistHref} {isLoading} bind:mode={artistMode} />
         {/if}
       </div>
     </ScrollArea>
