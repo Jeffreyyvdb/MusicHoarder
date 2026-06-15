@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Check, X, ChevronLeft, ChevronRight, Loader2, RefreshCw, History, Copy } from '@lucide/svelte';
+  import { Check, X, ChevronLeft, ChevronRight, Loader2, RefreshCw, History, Copy, CheckCheck } from '@lucide/svelte';
   import { page } from '$app/state';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import type { ApiSong, EnrichmentDetail } from '$lib/api-client';
@@ -8,10 +8,12 @@
     fetchReviewQueue,
     fetchEnrichmentDetail,
     submitManualReview,
-    copyQualitySongDossier
+    copyQualitySongDossier,
+    bulkApprove
   } from '$lib/api-client';
   import {
     reasonFor,
+    confidencePercent,
     candidatesFromDetail,
     buildDestinationPath,
     bestGuess,
@@ -27,6 +29,7 @@
   import CandidateGrid from '$lib/components/review/CandidateGrid.svelte';
   import BeforeAfterView from '$lib/components/review/BeforeAfterView.svelte';
   import { Button } from '$lib/components/ui/button';
+  import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import { toast } from 'svelte-sonner';
   import { cn } from '$lib/utils';
 
@@ -60,6 +63,14 @@
   let actionLoading = $state(false);
   let error = $state<string | null>(null);
 
+  // Bulk-approve: approves every NeedsReview row at/above the chosen confidence.
+  let bulkOpen = $state(false);
+  let bulkThreshold = $state(0.9);
+  const BULK_THRESHOLDS = [0.95, 0.9, 0.85, 0.8, 0.75] as const;
+  const bulkAffectedCount = $derived(
+    tracks.filter((t) => t.matchConfidence != null && t.matchConfidence >= bulkThreshold).length
+  );
+
   // Report the live count up to the parent Inbox tab strip. The callback is
   // invoked via untrack() so the effect depends only on `loading`/`tracks` — not
   // on the `oncount` prop's identity. The parent passes a fresh inline arrow on
@@ -87,7 +98,10 @@
         Number.isFinite(deepLinkId) && tracks.some((t) => t.id === deepLinkId)
           ? deepLinkId
           : (tracks[0]?.id ?? null);
-      for (const t of tracks) void loadDetail(t.id);
+      // Prefetch just the first few rows so the detail pane feels instant; the rest
+      // load lazily on selection (see the selectedId effect). Eagerly fetching every
+      // row would fire one request per queue item — a fetch storm at scale.
+      for (const t of tracks.slice(0, 5)) void loadDetail(t.id);
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to load review queue';
     } finally {
@@ -102,6 +116,22 @@
   const selectedTrack = $derived(tracks.find((t) => t.id === selectedId) ?? null);
   const selectedDetail = $derived(selectedTrack ? (details[selectedTrack.id] ?? null) : null);
   const candidates = $derived(candidatesFromDetail(selectedDetail));
+
+  // Render-only grouping of the flat queue by album (artist + album), biggest group
+  // first so the largest batches surface at the top. Pure $derived — writes no state.
+  type AlbumGroup = { key: string; album: string; artist: string; items: ApiSong[] };
+  const grouped = $derived.by<AlbumGroup[]>(() => {
+    const map = new Map<string, AlbumGroup>();
+    for (const t of tracks) {
+      const artist = (t.albumArtist ?? t.artist ?? 'Unknown artist').trim();
+      const album = (t.album ?? 'Unknown album').trim();
+      const key = `${artist.toLowerCase()}::${album.toLowerCase()}`;
+      const g = map.get(key) ?? { key, album, artist, items: [] };
+      g.items.push(t);
+      map.set(key, g);
+    }
+    return [...map.values()].sort((a, b) => b.items.length - a.items.length);
+  });
 
   function seedFields(track: ApiSong, top: ReviewCandidate | undefined, detail: EnrichmentDetail | null): MetadataEdits {
     const cur = detail?.current;
@@ -135,7 +165,16 @@
   }
 
   $effect(() => {
-    if (selectedId != null) void loadDetail(selectedId);
+    const id = selectedId;
+    if (id == null) return;
+    void loadDetail(id);
+    // Prefetch the next track so advancing feels instant. Read `tracks` via untrack
+    // so this effect tracks only `selectedId` (not every queue mutation).
+    untrack(() => {
+      const idx = tracks.findIndex((t) => t.id === id);
+      const next = idx >= 0 ? tracks[idx + 1] : undefined;
+      if (next) void loadDetail(next.id);
+    });
   });
 
   function pickCandidate(c: ReviewCandidate) {
@@ -262,6 +301,26 @@
     }
   }
 
+  async function handleBulkApprove() {
+    if (actionLoading) return;
+    try {
+      actionLoading = true;
+      error = null;
+      const res = await bulkApprove(bulkThreshold);
+      bulkOpen = false;
+      toast.success(
+        `Approved ${res.approvedCount} track${res.approvedCount === 1 ? '' : 's'}` +
+          (res.skippedCount > 0 ? ` · ${res.skippedCount} skipped` : '')
+      );
+      await loadQueue();
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to bulk approve';
+      toast.error(error);
+    } finally {
+      actionLoading = false;
+    }
+  }
+
   function selectAt(delta: number) {
     if (tracks.length === 0) return;
     const idx = tracks.findIndex((t) => t.id === selectedId);
@@ -335,34 +394,106 @@
     >
       <div class="border-border flex items-center justify-between gap-2 border-b px-4 py-2.5">
         <span class="text-muted-foreground text-[11px]">{tracks.length} awaiting review</span>
-        <button
-          type="button"
-          onclick={loadQueue}
-          title="Refresh"
-          class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-7 place-items-center rounded-md transition-colors"
-        >
-          <RefreshCw class="size-3.5" />
-        </button>
-      </div>
-      <div class="min-h-0 flex-1 overflow-y-auto p-1.5 pb-[calc(0.375rem_+_var(--mh-content-pad))]">
-        {#each tracks as track (track.id)}
-          {@const r = reasonFor(track)}
-          {@const info = rowOriginal(track)}
+        <div class="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            class="h-7 gap-1.5 px-2 text-[11px]"
+            disabled={actionLoading || tracks.length === 0}
+            onclick={() => (bulkOpen = true)}
+          >
+            <CheckCheck class="size-3.5" /> Bulk approve
+          </Button>
           <button
             type="button"
-            onclick={() => (selectedId = track.id)}
-            class={cn(
-              'mb-0.5 flex w-full items-center gap-2.5 rounded-md border-l-2 border-transparent py-2 pr-2.5 pl-2 text-left transition-colors',
-              selectedId === track.id ? 'border-l-primary bg-card' : 'hover:bg-accent'
-            )}
+            onclick={loadQueue}
+            title="Refresh"
+            class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-7 place-items-center rounded-md transition-colors"
           >
-            <Cover artist={track.artist ?? 'Unknown'} title={info.title} size={40} corner={6} caption={false} />
-            <div class="min-w-0 flex-1">
-              <div class={cn('truncate text-[13px] font-medium', info.titleFromFilename && 'font-mono text-[12px]')}>{info.title}</div>
-              <div class="text-muted-foreground truncate text-[11.5px]">{info.subtitle || '—'}</div>
-            </div>
-            <span class={cn('shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-wide uppercase', PILL_TINT[r.tint])}>{r.label}</span>
+            <RefreshCw class="size-3.5" />
           </button>
+        </div>
+      </div>
+      <AlertDialog.Root bind:open={bulkOpen}>
+        <AlertDialog.Content>
+          <AlertDialog.Header>
+            <AlertDialog.Title>Bulk approve high-confidence matches</AlertDialog.Title>
+            <AlertDialog.Description>
+              Approves every track whose top match is at or above the chosen confidence,
+              applying its winning candidate. This writes to the library and can't be undone in bulk.
+            </AlertDialog.Description>
+          </AlertDialog.Header>
+          <div class="space-y-3 py-1">
+            <div class="flex flex-wrap gap-1.5">
+              {#each BULK_THRESHOLDS as t (t)}
+                <button
+                  type="button"
+                  onclick={() => (bulkThreshold = t)}
+                  class={cn(
+                    'rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors',
+                    bulkThreshold === t
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border hover:bg-accent'
+                  )}
+                >
+                  {Math.round(t * 100)}%
+                </button>
+              {/each}
+            </div>
+            <p class="text-muted-foreground text-[12.5px]">
+              Approves <b class="text-foreground">{bulkAffectedCount}</b> of {tracks.length} tracks
+              at ≥{Math.round(bulkThreshold * 100)}% confidence.
+            </p>
+          </div>
+          <AlertDialog.Footer>
+            <AlertDialog.Cancel disabled={actionLoading}>Cancel</AlertDialog.Cancel>
+            <AlertDialog.Action
+              disabled={actionLoading || bulkAffectedCount === 0}
+              onclick={(e) => {
+                e.preventDefault();
+                void handleBulkApprove();
+              }}
+            >
+              {#if actionLoading}<Loader2 class="mr-1.5 size-3.5 animate-spin" />{/if}
+              Approve {bulkAffectedCount}
+            </AlertDialog.Action>
+          </AlertDialog.Footer>
+        </AlertDialog.Content>
+      </AlertDialog.Root>
+      <div class="min-h-0 flex-1 overflow-y-auto p-1.5 pb-[calc(0.375rem_+_var(--mh-content-pad))]">
+        {#each grouped as group (group.key)}
+          <div
+            class="bg-surface-sunken text-muted-foreground sticky top-0 z-10 flex items-center gap-2 px-2 py-1.5"
+          >
+            <div class="min-w-0 flex-1">
+              <div class="text-foreground truncate text-[12px] font-semibold">{group.album}</div>
+              <div class="truncate text-[11px]">{group.artist}</div>
+            </div>
+            <span class="bg-accent text-muted-foreground shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium">
+              {group.items.length}
+            </span>
+          </div>
+          {#each group.items as track (track.id)}
+            {@const r = reasonFor(track)}
+            {@const info = rowOriginal(track)}
+            {@const pct = confidencePercent(track)}
+            <button
+              type="button"
+              onclick={() => (selectedId = track.id)}
+              class={cn(
+                'mb-0.5 flex w-full items-center gap-2.5 rounded-md border-l-2 border-transparent py-2 pr-2.5 pl-2 text-left transition-colors',
+                selectedId === track.id ? 'border-l-primary bg-card' : 'hover:bg-accent'
+              )}
+            >
+              <Cover artist={track.artist ?? 'Unknown'} title={info.title} size={40} corner={6} caption={false} />
+              <div class="min-w-0 flex-1">
+                <div class={cn('truncate text-[13px] font-medium', info.titleFromFilename && 'font-mono text-[12px]')}>{info.title}</div>
+                <div class="text-muted-foreground truncate text-[11.5px]">{info.subtitle || '—'}</div>
+              </div>
+              {#if pct}<span class="text-muted-foreground shrink-0 font-mono text-[10px]">{pct}</span>{/if}
+              <span class={cn('shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-wide uppercase', PILL_TINT[r.tint])}>{r.label}</span>
+            </button>
+          {/each}
         {/each}
       </div>
     </aside>
