@@ -84,12 +84,15 @@
     detailLoading = true;
     detailError = null;
     try {
-      enrichmentDetail = await fetchEnrichmentDetail(id);
+      const detail = await fetchEnrichmentDetail(id);
+      if (id !== song.id) return; // song changed while in flight — discard
+      enrichmentDetail = detail;
       loadedSongId = id;
     } catch (err) {
+      if (id !== song.id) return; // stale failure for a song we navigated away from
       detailError = err instanceof Error ? err.message : 'Failed to load provider attempts';
     } finally {
-      detailLoading = false;
+      detailLoading = false; // ALWAYS clear — gating this on id === song.id deadlocks the effect
     }
   }
 
@@ -120,7 +123,9 @@
     const id = song.id;
     void (async () => {
       try {
-        quality = await fetchSongQualityGrade(id);
+        const grade = await fetchSongQualityGrade(id);
+        if (id !== song.id) return; // song changed while in flight — discard
+        quality = grade;
         qualityLoadedId = id;
       } catch {
         // grade is optional UI; ignore load failures
