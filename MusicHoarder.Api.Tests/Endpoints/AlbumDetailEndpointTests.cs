@@ -48,7 +48,7 @@ public class AlbumDetailEndpointTests
         db.CanonicalAlbumQualityGrades.Add(Grade(1, SongQualityVerdict.Questionable, 55));
         await db.SaveChangesAsync();
 
-        var result = await AlbumsEndpoints.GetAlbumDetail("Daft Punk", "Discovery", db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+        var result = await AlbumsEndpoints.GetAlbumDetail("Daft Punk", "Discovery", year: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
 
         var value = Value(result);
         Assert.Equal("linked", GetProperty<string>(value, "status"));
@@ -91,7 +91,7 @@ public class AlbumDetailEndpointTests
         });
         await db.SaveChangesAsync();
 
-        var result = await AlbumsEndpoints.GetAlbumDetail("Daft Punk", "Discovery", db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+        var result = await AlbumsEndpoints.GetAlbumDetail("Daft Punk", "Discovery", year: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
 
         var value = Value(result);
         Assert.Equal("linked", GetProperty<string>(value, "status"));
@@ -116,7 +116,7 @@ public class AlbumDetailEndpointTests
         db.CanonicalAlbumQualityGrades.Add(Grade(1, SongQualityVerdict.Good, 80, model: "old/model"));
         await db.SaveChangesAsync();
 
-        var result = await AlbumsEndpoints.GetAlbumDetail("Daft Punk", "Discovery", db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+        var result = await AlbumsEndpoints.GetAlbumDetail("Daft Punk", "Discovery", year: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
 
         var grade = GetProperty<object>(Value(result), "grade")!;
         Assert.True(GetProperty<bool>(grade, "graded"));
@@ -127,7 +127,7 @@ public class AlbumDetailEndpointTests
     public async Task GetAlbumDetail_NoRow_ReturnsPending_NullTracklist_Ungraded()
     {
         await using var db = NewContext();
-        var result = await AlbumsEndpoints.GetAlbumDetail("Nobody", "Nothing", db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+        var result = await AlbumsEndpoints.GetAlbumDetail("Nobody", "Nothing", year: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
 
         var value = Value(result);
         Assert.Equal("pending", GetProperty<string>(value, "status"));
@@ -145,7 +145,74 @@ public class AlbumDetailEndpointTests
         });
         await db.SaveChangesAsync();
 
-        var result = await AlbumsEndpoints.GetAlbumDetail("Nobody", "Phantom Album", db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+        var result = await AlbumsEndpoints.GetAlbumDetail("Nobody", "Phantom Album", year: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+
+        var value = Value(result);
+        Assert.Equal("localOnly", GetProperty<string>(value, "status"));
+        Assert.Null(GetProperty<object>(value, "tracklist"));
+        Assert.False(GetProperty<bool>(GetProperty<object>(value, "grade")!, "graded"));
+    }
+
+    [Fact]
+    public async Task GetAlbumDetail_YearScoped_OnlyCountsThatFoldersOwnedTracks()
+    {
+        await using var db = NewContext();
+        db.CanonicalAlbums.Add(new CanonicalAlbum
+        {
+            Id = 1,
+            ArtistKey = "kanye west",
+            AlbumKey = "my beautiful dark twisted fantasy",
+            DisplayTitle = "My Beautiful Dark Twisted Fantasy",
+            DisplayArtist = "Kanye West",
+            Year = 2010,
+            Status = CanonicalAlbumStatus.Fetched,
+            Tracks =
+            [
+                new CanonicalAlbumTrack { DiscNumber = 1, TrackNumber = 1, Title = "Dark Fantasy" },
+                new CanonicalAlbumTrack { DiscNumber = 1, TrackNumber = 2, Title = "Gorgeous" },
+            ],
+        });
+        // The real 2010 release folder owns both canonical tracks.
+        db.Songs.Add(OwnedSong("/a.mp3", "Kanye West", "My Beautiful Dark Twisted Fantasy", year: 2010, trackNumber: 1, title: "Dark Fantasy"));
+        db.Songs.Add(OwnedSong("/b.mp3", "Kanye West", "My Beautiful Dark Twisted Fantasy", year: 2010, trackNumber: 2, title: "Gorgeous"));
+        // A different-release folder (same album name, different year) owns only an off-album bootleg.
+        db.Songs.Add(OwnedSong("/c.mp3", "Kanye West", "My Beautiful Dark Twisted Fantasy", year: 2013, trackNumber: 1, title: "Mama's Boy"));
+        await db.SaveChangesAsync();
+
+        var result = await AlbumsEndpoints.GetAlbumDetail("Kanye West", "My Beautiful Dark Twisted Fantasy", year: 2010, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+
+        var value = Value(result);
+        Assert.Equal("linked", GetProperty<string>(value, "status"));
+        // Scoped to 2010: both canonical tracks owned — the 2013 bootleg doesn't inflate the count.
+        Assert.Equal(2, GetProperty<int>(GetProperty<object>(value, "tracklist")!, "ownedCount"));
+    }
+
+    [Fact]
+    public async Task GetAlbumDetail_YearScopedToOffAlbumRelease_ReturnsLocalOnly()
+    {
+        await using var db = NewContext();
+        db.CanonicalAlbums.Add(new CanonicalAlbum
+        {
+            Id = 1,
+            ArtistKey = "kanye west",
+            AlbumKey = "my beautiful dark twisted fantasy",
+            DisplayTitle = "My Beautiful Dark Twisted Fantasy",
+            DisplayArtist = "Kanye West",
+            Year = 2010,
+            Status = CanonicalAlbumStatus.Fetched,
+            Tracks =
+            [
+                new CanonicalAlbumTrack { DiscNumber = 1, TrackNumber = 1, Title = "Dark Fantasy" },
+                new CanonicalAlbumTrack { DiscNumber = 1, TrackNumber = 2, Title = "Gorgeous" },
+            ],
+        });
+        db.Songs.Add(OwnedSong("/a.mp3", "Kanye West", "My Beautiful Dark Twisted Fantasy", year: 2010, trackNumber: 1, title: "Dark Fantasy"));
+        // The split-off bootleg folder: a track that's on neither by title nor position (track 14 of a
+        // 2-track canonical) — so it matches nothing on the canonical album.
+        db.Songs.Add(OwnedSong("/c.mp3", "Kanye West", "My Beautiful Dark Twisted Fantasy", year: 2013, trackNumber: 14, title: "Mama's Boy"));
+        await db.SaveChangesAsync();
+
+        var result = await AlbumsEndpoints.GetAlbumDetail("Kanye West", "My Beautiful Dark Twisted Fantasy", year: 2013, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
 
         var value = Value(result);
         Assert.Equal("localOnly", GetProperty<string>(value, "status"));
@@ -157,7 +224,7 @@ public class AlbumDetailEndpointTests
     public async Task GetAlbumDetail_BlankParams_Returns404()
     {
         await using var db = NewContext();
-        var result = await AlbumsEndpoints.GetAlbumDetail("", "", db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+        var result = await AlbumsEndpoints.GetAlbumDetail("", "", year: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
         Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)result).StatusCode);
     }
 
@@ -236,7 +303,7 @@ public class AlbumDetailEndpointTests
     };
 
     private static SongMetadata OwnedSong(
-        string sourcePath, string albumArtist, string album, string? mbid = null, int? trackNumber = null, string? title = null) => new()
+        string sourcePath, string albumArtist, string album, string? mbid = null, int? trackNumber = null, string? title = null, int? year = null) => new()
     {
         OwnerUserId = WellKnownUsers.OwnerId,
         SourcePath = sourcePath,
@@ -249,6 +316,7 @@ public class AlbumDetailEndpointTests
         AlbumArtist = albumArtist,
         Artist = albumArtist,
         Album = album,
+        Year = year,
         MusicBrainzId = mbid,
         TrackNumber = trackNumber,
         Title = title,

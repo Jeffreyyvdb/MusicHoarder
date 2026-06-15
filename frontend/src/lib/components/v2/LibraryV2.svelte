@@ -176,9 +176,19 @@
   // ── album drilldown (reuses AlbumPage + TrackPanel) ─────────────────────────
   const openAlbum = $derived.by(() => {
     if (!albumKey) return null;
+    // Album keys are now destination-folder paths, but legacy/cross-page links (e.g. the
+    // album-quality page) still emit the older `artistLower::albumLower` shape. Fall back to
+    // matching by display artist+title, preferring the largest card (the canonical album rather
+    // than a split-off bootleg) when one name maps to several folders.
+    const byName = (list: AlbumSummary[]) =>
+      list
+        .filter((a) => `${a.artist.toLowerCase()}::${a.title.toLowerCase()}` === albumKey)
+        .sort((a, b) => b.trackCount - a.trackCount)[0] ?? null;
     return (
       filteredAlbums.find((a) => a.key === albumKey) ??
       allAlbums.find((a) => a.key === albumKey) ??
+      byName(filteredAlbums) ??
+      byName(allAlbums) ??
       null
     );
   });

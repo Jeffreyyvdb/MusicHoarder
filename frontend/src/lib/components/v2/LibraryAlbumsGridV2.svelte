@@ -10,14 +10,16 @@
     hrefFor: (album: AlbumSummary) => string;
     /** Whether the underlying songs are still loading (controls the empty/skeleton copy). */
     isLoading?: boolean;
-    /** Per-album provider-link status (keyed by `album.key`) for the corner badge. */
+    /** Per-album provider-link status (keyed by `artistLower::titleLower`) for the corner badge. */
     statuses?: Map<string, AlbumStatusInfo>;
   };
   const { albums, hrefFor, isLoading = false, statuses }: Props = $props();
 
   /** Corner-badge appearance for an album's link status, or null to show nothing. */
   function badgeFor(album: AlbumSummary): { dotClass: string; label: string } | null {
-    const info = statuses?.get(album.key);
+    // Canonical link-status is keyed by album name (artist+title), not the folder-based album.key —
+    // cards split across releases share the same name-based status badge.
+    const info = statuses?.get(`${album.artist.toLowerCase()}::${album.title.toLowerCase()}`);
     if (!info) return null;
     // A confirmed mis-match dominates the badge regardless of link state.
     if (info.verdict === 'Wrong') {

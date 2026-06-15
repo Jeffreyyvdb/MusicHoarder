@@ -48,6 +48,7 @@ public static class AlbumsEndpoints
     internal static async Task<IResult> GetAlbumDetail(
         string artist,
         string album,
+        int? year,
         MusicHoarderDbContext db,
         IOptions<MusicEnricherOptions> options,
         IOptionsMonitor<QualityGradingOptions> gradingOptions,
@@ -72,13 +73,18 @@ public static class AlbumsEndpoints
 
         // ── Reconciled tracklist, each canonical track annotated with the owned song (if any) ──
         // Owned songs in this album group, mirroring the frontend's (albumArtist ?? artist, album) grouping.
+        // A single album name can split across destination folders (different releases keyed by year);
+        // when the caller passes the folder's year we scope to it so the card reflects exactly one release.
         var artistLower = artist.ToLowerInvariant();
         var albumLower = album.ToLowerInvariant();
-        var ownedSongs = await db.Songs
+        var ownedQuery = db.Songs
             .AsNoTracking()
             .Where(s => s.DeletedAtUtc == null
                 && s.Album != null && s.Album.ToLower() == albumLower
-                && ((s.AlbumArtist ?? s.Artist) ?? "").ToLower() == artistLower)
+                && ((s.AlbumArtist ?? s.Artist) ?? "").ToLower() == artistLower);
+        if (year is not null)
+            ownedQuery = ownedQuery.Where(s => s.Year == year);
+        var ownedSongs = await ownedQuery
             .Select(s => new OwnedTrackInfo(s.Id, s.MusicBrainzId, s.DiscNumber, s.TrackNumber, s.Title))
             .ToListAsync(ct);
 
@@ -88,6 +94,12 @@ public static class AlbumsEndpoints
             .ToList();
 
         var matches = AlbumOwnedTrackMatcher.Match(orderedTracks, ownedSongs, options.Value.IdentityTitleThreshold);
+
+        // Scoped to one folder but none of its owned tracks appear on the canonical album → this folder
+        // is a different release that merely shares the album name (e.g. a bootleg). Report local-only so
+        // the UI renders the owned tracks alone instead of greying in a canonical tracklist it isn't part of.
+        if (year is not null && ownedSongs.Count > 0 && matches.Count == 0)
+            return Results.Ok(new { status = "localOnly", tracklist = (object?)null, grade = new { graded = false } });
 
         var tracks = orderedTracks
             .Select(t => new
