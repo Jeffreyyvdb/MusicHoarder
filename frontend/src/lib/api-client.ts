@@ -1191,6 +1191,8 @@ export interface BulkApproveResponse {
   minConfidence: number
   approvedCount: number
   approvedIds: number[]
+  skippedCount: number
+  skippedIds: number[]
 }
 
 export async function bulkApprove(
