@@ -639,6 +639,59 @@ public class ConsensusEvaluatorTests
         Assert.Null(r.Winner.ArtistMusicBrainzIds);
     }
 
+    [Fact]
+    public void SoloNameBased_PathDerivedIdentityUnverified_NeedsReview()
+    {
+        // A lone name-based provider that matched against a path guess (identity_unverified) must NOT
+        // auto-match — it needs a second provider to corroborate.
+        var song = Song();
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Amy Macdonald", "This Is the Life", spotifyId: "spot-1", conf: 0.95,
+                recommend: EnrichmentStatus.Matched, warnings: [MatchWarnings.IdentityUnverified]));
+
+        var r = ConsensusEvaluator.Evaluate(song, Enabled(EnrichmentProvider.SpotifyAPI), Opts);
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
+    }
+
+    [Fact]
+    public void PathDerivedNameBased_CorroboratedByAcoustId_Matched()
+    {
+        // The Amy Macdonald case: AcoustID's clean fingerprint corroborates the path-derived Spotify
+        // match on the same identity → the cluster (identity_unverified is non-blocking) promotes.
+        var song = Song();
+        Add(song, EnrichmentProvider.AcoustID, ProviderAttemptStatus.Matched,
+            Result("Amy Macdonald", "This Is the Life", mbid: "mb-1", conf: 0.98, recommend: EnrichmentStatus.Matched));
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Amy Macdonald", "This Is the Life", spotifyId: "spot-1", conf: 0.95,
+                recommend: EnrichmentStatus.Matched, warnings: [MatchWarnings.IdentityUnverified]));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.AcoustID, EnrichmentProvider.SpotifyAPI), Opts);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+        Assert.Equal(2, r.AgreeingProviders.Count);
+    }
+
+    [Fact]
+    public void WrongFingerprint_PlusCorrectPathDerivedNameBased_NoCluster_NeedsReview()
+    {
+        // The Birdy case: AcoustID matched the WRONG recording (a fingerprint collision), while the
+        // path-derived Spotify found the correct one. They don't agree, so there's no corroboration —
+        // the lone path-derived match can't stand, and the wrong fingerprint is contradicted → review.
+        var song = Song();
+        Add(song, EnrichmentProvider.AcoustID, ProviderAttemptStatus.Matched,
+            Result("Lionel Richie", "Penny Lover", mbid: "mb-wrong", conf: 0.98, recommend: EnrichmentStatus.Matched));
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Birdy", "People Help the People", spotifyId: "spot-1", conf: 0.9,
+                recommend: EnrichmentStatus.Matched, warnings: [MatchWarnings.IdentityUnverified]));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.AcoustID, EnrichmentProvider.SpotifyAPI), Opts);
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
+    }
+
     private static SongMetadata Song() => new()
     {
         OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,

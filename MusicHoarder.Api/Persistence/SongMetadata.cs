@@ -122,6 +122,14 @@ public class SongMetadata
     public string? EnrichmentError { get; set; }
 
     /// <summary>
+    /// The <see cref="Enrichment.EnrichmentAlgorithm.CurrentVersion"/> this row was last processed under.
+    /// Stamped by the orchestrator on every terminal verdict; rows in NeedsReview/Failed whose value is
+    /// behind the current version are auto-re-enriched by the startup sweep when the algorithm changes.
+    /// Defaults to 0 so pre-versioning rows are picked up on the first bump.
+    /// </summary>
+    public int LastEnrichmentAlgorithmVersion { get; set; }
+
+    /// <summary>
     /// When set, the user has explicitly approved/locked this song's match. The enrichment
     /// pipeline skips it and <see cref="ResetEnrichment"/> is a no-op unless forced, so a
     /// re-scan can never silently undo a curated decision.

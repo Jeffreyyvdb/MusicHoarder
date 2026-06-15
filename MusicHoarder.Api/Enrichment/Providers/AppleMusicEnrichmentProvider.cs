@@ -42,13 +42,17 @@ public class AppleMusicEnrichmentProvider(
         IReadOnlyList<AppleMusicCatalogTrack> tracks;
         try
         {
-            // Album, when known, sharpens the search so the original pressing surfaces ahead of a
-            // compilation; fall back to artist+title so recall never drops when it returns nothing.
-            var baseQuery = $"{effectiveArtist} {effectiveTitle}".Trim();
-            tracks = string.IsNullOrWhiteSpace(effectiveAlbum)
+            // Untagged files query on the cleaned filename free-text; tagged files keep the discrete
+            // artist+title (+album) search. Album sharpens the search so the original pressing surfaces
+            // ahead of a compilation; fall back to artist+title so recall never drops.
+            var pathQuery = resolved.IdentityFromPath ? resolved.PathQuery : null;
+            var baseQuery = string.IsNullOrWhiteSpace(pathQuery)
+                ? $"{effectiveArtist} {effectiveTitle}".Trim()
+                : pathQuery!.Trim();
+            tracks = string.IsNullOrWhiteSpace(effectiveAlbum) || !string.IsNullOrWhiteSpace(pathQuery)
                 ? await catalog.SearchTracksAsync(baseQuery, ct)
                 : await catalog.SearchTracksAsync($"{baseQuery} {effectiveAlbum}".Trim(), ct);
-            if (tracks.Count == 0 && !string.IsNullOrWhiteSpace(effectiveAlbum))
+            if (tracks.Count == 0 && string.IsNullOrWhiteSpace(pathQuery) && !string.IsNullOrWhiteSpace(effectiveAlbum))
                 tracks = await catalog.SearchTracksAsync(baseQuery, ct);
         }
         catch (ProviderRateLimitedException ex)
@@ -71,7 +75,7 @@ public class AppleMusicEnrichmentProvider(
 
         foreach (var track in tracks)
         {
-            var (score, warnings) = ScoreCandidate(song, effectiveArtist, effectiveTitle, track, opts);
+            var (score, warnings) = ScoreCandidate(song, resolved, track, opts);
             if (score > bestScore)
             {
                 bestScore = score;
@@ -131,35 +135,15 @@ public class AppleMusicEnrichmentProvider(
 
     private static (double Score, List<string> Warnings) ScoreCandidate(
         SongMetadata song,
-        string? sourceArtist,
-        string? sourceTitle,
+        SongSearchText.Resolved source,
         AppleMusicCatalogTrack track,
         MusicEnricherOptions opts)
     {
         var warnings = new List<string>();
 
-        var artistRatio = FuzzyTextMatch.Ratio(sourceArtist, track.Artist);
-        var titleRatio = FuzzyTextMatch.Ratio(sourceTitle, track.Title);
-
-        if (artistRatio is double ar && ar < FuzzyThreshold)
-            warnings.Add("artist_mismatch");
-        if (titleRatio is double tr && tr < FuzzyThreshold)
-            warnings.Add("title_mismatch");
-
-        double score;
-        if (artistRatio is double a && titleRatio is double t)
-        {
-            score = (a / 100.0 + t / 100.0) / 2.0;
-        }
-        else if (titleRatio is double tOnly)
-        {
-            score = tOnly / 100.0;
-            warnings.Add("artist_unknown");
-        }
-        else
-        {
-            score = 0;
-        }
+        // Embedded tags score (and block) as before; a path-derived identity is corroborated by
+        // token-presence against the filename free-text and flagged identity_unverified (non-blocking).
+        var score = SourceIdentityScorer.Score(source, track.Artist, track.Title, FuzzyThreshold, warnings);
 
         var songDurationSec = song.DurationSeconds
             ?? (song.DurationMs is int ms ? ms / 1000.0 : (double?)null);

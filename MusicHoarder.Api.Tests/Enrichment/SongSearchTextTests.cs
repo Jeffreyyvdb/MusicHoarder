@@ -258,6 +258,71 @@ public class SongSearchTextTests
         Assert.Equal("Some Hit", resolved.Title);
     }
 
+    [Fact]
+    public void Untagged_SlskdBucketFolder_FlagsPathProvenanceAndCleansRawSearchText()
+    {
+        // A loose download two folders deep under an alphabetical bucket: the positional artist is the
+        // junk "slskd" folder, but the filename free-text still carries the real artist + title.
+        var song = Song("/root/music/slskd/A/Amy Macdonald - This Is the Life.flac");
+
+        var resolved = SongSearchText.ResolveDetailed(song, "/root/music");
+
+        Assert.True(resolved.IdentityFromPath);
+        Assert.True(resolved.ArtistFromPath);
+        Assert.Equal("Amy Macdonald This Is the Life", resolved.RawSearchText);
+    }
+
+    [Fact]
+    public void Untagged_MessyFilename_StripsTrackNumberUnderscoresAndProdCredit()
+    {
+        // Track-number prefix with no trailing space, underscores-as-spaces, two dashes, and a
+        // "(prod by …)" production credit — a positional split can't parse this, but the free-text can.
+        var song = Song("/root/music/slskd/H/20-luie_mannen-hef_(prod_by_dj_mp).mp3");
+
+        var resolved = SongSearchText.ResolveDetailed(song, "/root/music");
+
+        Assert.Equal("luie mannen hef", resolved.RawSearchText);
+    }
+
+    [Fact]
+    public void TaggedArtistTitle_IsNotPathDerived()
+    {
+        var song = Song("/root/music/slskd/A/Amy Macdonald - This Is the Life.flac",
+            artist: "Amy Macdonald", title: "This Is the Life");
+
+        var resolved = SongSearchText.ResolveDetailed(song, "/root/music");
+
+        Assert.False(resolved.IdentityFromPath);
+        Assert.False(resolved.ArtistFromPath);
+        Assert.False(resolved.TitleFromPath);
+    }
+
+    [Fact]
+    public void PathQuery_DropsBucketFolder_WhenFilenameCarriesArtist()
+    {
+        var song = Song("/root/music/slskd/A/Amy Macdonald - This Is the Life.flac");
+
+        var resolved = SongSearchText.ResolveDetailed(song, "/root/music");
+
+        // The filename carries the artist ("Artist - Title"), so the junk "slskd"/"A" bucket folders are
+        // kept OUT of the query — prepending them measurably degrades a real search engine's ranking.
+        Assert.True(resolved.FilenameCarriesArtist);
+        Assert.Equal("Amy Macdonald This Is the Life", resolved.PathQuery);
+    }
+
+    [Fact]
+    public void PathQuery_PrependsFolderArtist_ForStructuredUntaggedFile()
+    {
+        // Structured "<Artist>/<Album>/NN Title" with no tags: the artist lives in the folder, not the
+        // bare-title filename, so it IS prepended so the search engine keeps the artist.
+        var song = Song("/root/music/Juice WRLD/Goodbye & Good Riddance/05 Lucid Dreams.mp3");
+
+        var resolved = SongSearchText.ResolveDetailed(song, "/root/music");
+
+        Assert.False(resolved.FilenameCarriesArtist);
+        Assert.Equal("Juice WRLD Lucid Dreams", resolved.PathQuery);
+    }
+
     private static SongMetadata Song(
         string sourcePath, string? artist = null, string? title = null,
         string? album = null, int? trackNumber = null) => new()

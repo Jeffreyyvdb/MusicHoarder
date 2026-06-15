@@ -39,7 +39,7 @@ public class MusicBrainzWebEnrichmentProvider(
             {
                 var byId = await service.LookupByRecordingIdAsync(song.MusicBrainzId!, ct);
                 if (byId is not null)
-                    return BuildOutcome(song, effectiveArtist, effectiveTitle, effectiveAlbum, byId, opts, exactIdentifier: true);
+                    return BuildOutcome(song, resolved, byId, opts, exactIdentifier: true);
             }
 
             // 2) Exact lookup by the file's ISRC tag.
@@ -47,13 +47,32 @@ public class MusicBrainzWebEnrichmentProvider(
             {
                 var byIsrc = await service.LookupByIsrcAsync(song.Isrc!, ct);
                 if (byIsrc is not null)
-                    return BuildOutcome(song, effectiveArtist, effectiveTitle, effectiveAlbum, byIsrc, opts, exactIdentifier: true);
+                    return BuildOutcome(song, resolved, byIsrc, opts, exactIdentifier: true);
             }
 
-            // 3) Fall back to a name search (tags, or path-derived for untagged files).
+            // 3) Fall back to a name search. MusicBrainz ranks a bare free-text query poorly (it can't
+            //    tell artist tokens from title tokens), so for untagged files prefer a FIELDED query
+            //    from the "Artist - Title" filename split when we have one; only fall back to free-text
+            //    when the filename doesn't cleanly carry the artist.
+            var pathQuery = resolved.IdentityFromPath ? resolved.PathQuery : null;
             if (!string.IsNullOrWhiteSpace(effectiveArtist) && !string.IsNullOrWhiteSpace(effectiveTitle))
             {
-                var results = await service.SearchAsync(effectiveArtist!, effectiveTitle!, 5, effectiveAlbum, ct);
+                IReadOnlyList<MusicBrainzRecording> results;
+                if (resolved.IdentityFromPath
+                    && resolved.FilenameCarriesArtist
+                    && !string.IsNullOrWhiteSpace(resolved.SplitArtist)
+                    && !string.IsNullOrWhiteSpace(resolved.SplitTitle))
+                {
+                    results = await service.SearchAsync(resolved.SplitArtist!, resolved.SplitTitle!, 5, null, ct);
+                }
+                else if (!string.IsNullOrWhiteSpace(pathQuery))
+                {
+                    results = await service.SearchFreeTextAsync(pathQuery!, 5, ct);
+                }
+                else
+                {
+                    results = await service.SearchAsync(effectiveArtist!, effectiveTitle!, 5, effectiveAlbum, ct);
+                }
                 if (results.Count == 0)
                     return new ProviderNoMatch();
 
@@ -62,7 +81,7 @@ public class MusicBrainzWebEnrichmentProvider(
                 List<string> bestWarnings = [];
                 foreach (var candidate in results)
                 {
-                    var (score, warnings) = Score(song, effectiveArtist, effectiveTitle, effectiveAlbum, candidate, opts);
+                    var (score, warnings) = Score(song, resolved, candidate, opts);
                     if (score > bestScore)
                     {
                         bestScore = score;
@@ -88,12 +107,12 @@ public class MusicBrainzWebEnrichmentProvider(
     }
 
     private static ProviderOutcome BuildOutcome(
-        SongMetadata song, string? sourceArtist, string? sourceTitle, string? sourceAlbum,
+        SongMetadata song, SongSearchText.Resolved source,
         MusicBrainzRecording rec, MusicEnricherOptions opts, bool exactIdentifier)
     {
         // An exact-identifier hit is high-confidence, but still verify the returned recording
         // is consistent with the file's existing tags so a stale/wrong tag can't sail through.
-        var (score, warnings) = Score(song, sourceArtist, sourceTitle, sourceAlbum, rec, opts);
+        var (score, warnings) = Score(song, source, rec, opts);
         var confidence = exactIdentifier ? Math.Max(score, 0.9) : score;
 
         if (rec.CandidateCount > 1)
@@ -161,40 +180,22 @@ public class MusicBrainzWebEnrichmentProvider(
     }
 
     private static (double Score, List<string> Warnings) Score(
-        SongMetadata song, string? sourceArtist, string? sourceTitle, string? sourceAlbum,
+        SongMetadata song, SongSearchText.Resolved source,
         MusicBrainzRecording rec, MusicEnricherOptions opts)
     {
         var warnings = new List<string>();
 
-        // Raw-fallback aware: a symbol-only artist no longer scores as a free 100%.
-        var artistRatio = FuzzyTextMatch.Ratio(sourceArtist, rec.Artist);
-        var titleRatio = FuzzyTextMatch.Ratio(sourceTitle, rec.Title);
-
-        if (artistRatio is double ar && ar < 85) warnings.Add("artist_mismatch");
-        if (titleRatio is double tr && tr < 85) warnings.Add("title_mismatch");
-
-        double local;
-        if (artistRatio is double a && titleRatio is double t)
-        {
-            local = (a / 100.0 + t / 100.0) / 2.0;
-        }
-        else if (titleRatio is double tOnly)
-        {
-            // No usable artist signal — keep the candidate as a review-only suggestion.
-            local = tOnly / 100.0;
-            warnings.Add("artist_unknown");
-        }
-        else
-        {
-            local = 0;
-        }
+        // Embedded tags score (and block) as before; a path-derived identity is corroborated by
+        // token-presence against the filename free-text and flagged identity_unverified (non-blocking).
+        var local = SourceIdentityScorer.Score(source, rec.Artist, rec.Title, 85, warnings);
 
         // Blend MusicBrainz's own Lucene relevance (40%) with local fuzzy agreement (60%).
         var score = 0.6 * local + 0.4 * (Math.Clamp(rec.Score, 0, 100) / 100.0);
 
         // Album is a confirmation signal only (a track can appear on many releases, so absence is
         // never penalized): nudge up when the release title agrees, flag a soft mismatch otherwise.
-        if (FuzzyTextMatch.Ratio(sourceAlbum, rec.ReleaseTitle) is double albumRatio)
+        // Skipped when the album is itself a path guess (no real signal to confirm against).
+        if (!source.AlbumFromPath && FuzzyTextMatch.Ratio(source.Album, rec.ReleaseTitle) is double albumRatio)
         {
             if (albumRatio >= 85)
                 score = Math.Min(1.0, score + 0.05);

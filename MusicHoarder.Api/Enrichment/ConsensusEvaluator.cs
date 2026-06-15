@@ -218,8 +218,13 @@ public static class ConsensusEvaluator
         //    an auto-match to whichever happened to score higher. (Candidates that agree would already
         //    have been promoted as a multi-provider cluster in step 1, so any other strong candidate
         //    reaching here necessarily contradicts.) Mirrors the fingerprint branch's guard below.
+        //    A candidate whose identity was only guessed from the file path (identity_unverified) is
+        //    excluded here: it must be corroborated by a second provider (the step-1 cluster) before
+        //    it can match, never auto-match on a lone path guess.
         var soloNameBased = strong
-            .Where(c => c.IsNameBased && c.Result.RecommendedStatus == EnrichmentStatus.Matched)
+            .Where(c => c.IsNameBased
+                && c.Result.RecommendedStatus == EnrichmentStatus.Matched
+                && !c.Result.MatchWarnings.Contains(MatchWarnings.IdentityUnverified))
             .OrderByDescending(c => c.Confidence)
             .FirstOrDefault();
         if (soloNameBased is not null)

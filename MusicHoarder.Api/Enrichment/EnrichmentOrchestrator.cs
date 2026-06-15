@@ -158,6 +158,12 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         if (!anyProviderActed && consensus.Status == song.EnrichmentStatus)
             return ToOutcome(song.EnrichmentStatus);
 
+        // Stamp the algorithm version on every terminal verdict so an algorithm bump re-processes this
+        // row exactly once (the startup sweep selects rows whose stamp is behind CurrentVersion). Pending
+        // (incomplete) verdicts are left unstamped so they re-run until they terminalize.
+        if (consensus.Status is EnrichmentStatus.Matched or EnrichmentStatus.NeedsReview or EnrichmentStatus.Failed)
+            song.LastEnrichmentAlgorithmVersion = EnrichmentAlgorithm.CurrentVersion;
+
         var matched = ApplyConsensus(song, consensus, dbContext);
         await dbContext.SaveChangesAsync(ct);
 

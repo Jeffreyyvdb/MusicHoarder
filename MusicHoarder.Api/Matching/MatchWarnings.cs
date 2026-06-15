@@ -14,6 +14,15 @@ namespace MusicHoarder.Api.Matching;
 /// </summary>
 public static class MatchWarnings
 {
+    /// <summary>
+    /// Non-blocking marker: the candidate was validated against an identity <b>guessed from the file
+    /// path</b> (folder/filename), not an embedded tag. A path guess can corroborate or boost a match
+    /// but never <i>contradict</i> the file's identity, so this is deliberately not in
+    /// <see cref="IsBlocking"/>. The <see cref="Enrichment.ConsensusEvaluator"/> treats it as "needs a
+    /// second provider to agree before this can auto-match" — see its solo decision paths.
+    /// </summary>
+    public const string IdentityUnverified = "identity_unverified";
+
     /// <summary>Warnings that contradict the file's identity and must keep a candidate out of Matched.</summary>
     public static bool IsBlocking(string warning) => warning is
         "artist_mismatch"
