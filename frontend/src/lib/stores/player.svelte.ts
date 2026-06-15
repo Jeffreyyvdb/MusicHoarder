@@ -30,6 +30,7 @@ let queueIndex = $state(-1);
 let panelMountedCount = $state(0);
 
 let audioEl: HTMLAudioElement | null = null;
+let loadGeneration = 0;
 let rafHandle: number | null = null;
 let lastTimeWrite = 0;
 
@@ -133,29 +134,22 @@ function attemptPlay() {
 async function loadAndPlay(song: PlayerSong) {
   if (!ensureAudioEl() || !audioEl) return;
 
+  const gen = ++loadGeneration;
+
   try {
-    const controller = new AbortController();
-    const res = await fetch(song.streamUrl, { signal: controller.signal });
+    const res = await fetch(song.streamUrl, { headers: { Range: 'bytes=0-0' } });
     if (!res.ok) {
-      let description = 'The audio file could not be found on the server.';
-      try {
-        const data = (await res.json()) as { message?: string };
-        if (data.message) description = data.message;
-      } catch {
-        // ignore JSON parse errors
-      }
-      toast.error('Unable to play track', { description });
+      toast.error('Unable to play track', {
+        description: 'The audio file could not be found on the server.'
+      });
       return;
     }
-    controller.abort();
-  } catch (err: unknown) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      // expected — we aborted the pre-check after confirming availability
-    } else {
-      toast.error('Unable to play track', { description: 'Could not connect to the server.' });
-      return;
-    }
+  } catch {
+    toast.error('Unable to play track', { description: 'Could not connect to the server.' });
+    return;
   }
+
+  if (gen !== loadGeneration) return;
 
   currentSong = song;
   currentTime = 0;

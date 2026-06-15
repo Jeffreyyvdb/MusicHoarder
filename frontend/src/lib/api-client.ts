@@ -1012,11 +1012,18 @@ export function openProgressStream(
 ): () => void {
   const es = new EventSource(`${API_PREFIX}/api/enrichment/progress`)
 
+  let parseFailures = 0
   es.onmessage = (event) => {
     try {
       onSnapshot(JSON.parse(event.data as string) as ProgressSnapshot)
+      parseFailures = 0
     } catch {
-      // Ignore parse errors
+      parseFailures += 1
+      console.warn(`progress stream: dropped malformed snapshot (${parseFailures})`)
+      if (parseFailures >= 3) {
+        es.close()
+        onClose?.() // callers already treat onClose as "stream ended" and refetch status
+      }
     }
   }
 
