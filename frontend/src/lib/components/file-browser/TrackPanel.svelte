@@ -20,7 +20,9 @@
   import LyricsPanel from '$lib/components/file-browser/LyricsPanel.svelte';
   import SourceRow from '$lib/components/file-browser/SourceRow.svelte';
   import Waveform from '$lib/components/file-browser/Waveform.svelte';
+  import Cover from '$lib/components/file-browser/Cover.svelte';
   import {
+    coverUrlForSong,
     enrichSong,
     fetchEnrichmentDetail,
     toPlayerSong,
@@ -169,6 +171,21 @@
   const trackTitle = $derived((song.title ?? song.fileName).trim() || song.fileName);
   const trackArtist = $derived((song.artist ?? album.artist).trim() || album.artist);
   const lyricsStatus = $derived((song.lyricsStatus ?? 'NotFetched') as LyricsStatus);
+  const coverUrl = $derived(coverUrlForSong(song) ?? album.coverUrl ?? null);
+
+  // Smart default tab (Apple-Music style): open on Lyrics when the track has any
+  // lyrics, otherwise Metadata. Re-applied only when the *song id* changes — so
+  // follow-playback re-targeting picks a sensible tab while a manual tab switch
+  // on the same song is never clobbered (e.g. when lyrics arrive via SSE).
+  const hasLyrics = $derived(
+    Boolean(song.hasSyncedLyrics) || Boolean(song.hasPlainLyrics) || lyricsStatus === 'Fetched'
+  );
+  let smartTabForSongId: number | null = null;
+  $effect(() => {
+    if (smartTabForSongId === song.id) return;
+    smartTabForSongId = song.id;
+    activeTab = hasLyrics ? 'lyrics' : 'metadata';
+  });
 
   function bitrateLabel(): string {
     const ext = (song.extension ?? '').replace(/^\./, '').toUpperCase();
@@ -377,55 +394,160 @@
   }
 </script>
 
-<aside
-  class="flex h-full max-h-full min-h-0 flex-col overflow-hidden bg-transparent mh-track-panel-enter"
->
-  <!-- Header -->
-  <div class="border-border flex items-start gap-3 border-b px-5 py-4">
-    <div class="min-w-0 flex-1">
-      <div class="text-muted-foreground font-mono text-[9.5px] tracking-[0.1em]">
-        TRACK · {String(trackN).padStart(2, '0')} of {totalTracks}
-      </div>
-      <h2 class="mt-1.5 text-lg leading-tight font-semibold tracking-[-0.02em]">{trackTitle}</h2>
-      <p class="text-muted-foreground mt-0.5 truncate text-[12.5px]">
-        {trackArtist} · <span class="text-muted-foreground/70">{album.title}</span>
-      </p>
-      <div class="text-muted-foreground mt-2.5 flex flex-wrap items-center gap-2 text-[11px]">
-        <span class="bg-primary/15 text-primary rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wider">
-          {bitrateLabel().split(' ')[0] || 'FILE'}
-        </span>
-        <span class="font-mono">{formatDuration(song.durationSeconds)}</span>
-        <span class="font-mono">{formatFileSize(song.fileSizeBytes)}</span>
-        {#if song.hasSyncedLyrics || song.lrclibId}
-          <span class="bg-primary/15 text-primary rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wider">
-            LRC
-          </span>
-        {/if}
-      </div>
-    </div>
-    <Button variant="ghost" size="icon" onclick={onClose} class="size-8 shrink-0">
-      <X class="size-3.5" />
-    </Button>
-  </div>
-
-  <!-- Tabs -->
-  <Tabs.Root bind:value={activeTab} class="flex min-h-0 flex-1 flex-col">
-    <Tabs.List
-      class="border-border bg-transparent h-auto justify-start gap-1 rounded-none border-b px-5 py-0"
-    >
-      {#each TAB_DEFS as tab (tab.value)}
-        <Tabs.Trigger
-          value={tab.value}
-          class="text-muted-foreground hover:text-foreground data-[state=active]:border-b-primary data-[state=active]:text-foreground rounded-none border-0 border-b-2 border-transparent bg-transparent px-2.5 py-2 text-xs font-medium shadow-none transition-colors data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+{#snippet transport()}
+  <div class="mx-auto w-full max-w-[340px]">
+    <Waveform
+      seed={song.id}
+      isActive={isCurrentlyLoaded}
+      fallbackDuration={song.durationSeconds ?? 0}
+    />
+    <div class="mt-1.5 flex items-center gap-3">
+      <span class="text-muted-foreground w-9 shrink-0 text-right font-mono text-[10.5px] tabular-nums">
+        {isCurrentlyLoaded ? formatTime(playerStore.currentTime) : '0:00'}
+      </span>
+      <div class="mx-auto flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="icon"
+          class="size-7 disabled:opacity-40"
+          onclick={() => playerStore.playPrevious()}
+          disabled={!canGoPrevious}
+          aria-label="Previous track"
         >
-          {tab.label}
-        </Tabs.Trigger>
-      {/each}
-    </Tabs.List>
+          <SkipBack class="size-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          class={cn(
+            'size-10 rounded-full',
+            isCurrentlyLoaded
+              ? 'bg-foreground text-background hover:bg-foreground/90'
+              : 'bg-primary text-primary-foreground hover:bg-primary/90'
+          )}
+          onclick={handlePlayToggle}
+          aria-label={isCurrentlyPlaying ? 'Pause' : 'Play'}
+        >
+          {#if isCurrentlyPlaying}
+            <Pause class="size-4" />
+          {:else}
+            <Play class="size-4 translate-x-px" />
+          {/if}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          class="size-7 disabled:opacity-40"
+          onclick={() => playerStore.playNext()}
+          disabled={!canGoNext}
+          aria-label="Next track"
+        >
+          <SkipForward class="size-3.5" />
+        </Button>
+      </div>
+      <span class="text-muted-foreground w-9 shrink-0 font-mono text-[10.5px] tabular-nums">
+        {formatDuration(song.durationSeconds)}
+      </span>
+    </div>
+  </div>
+{/snippet}
+
+<div class="flex h-full max-h-full min-h-0 flex-col bg-transparent text-foreground mh-track-panel-enter">
+  <!-- Tabs span the full overlay: a top segmented tab bar; a compact header on
+       mobile (art + title) / a persistent left rail on desktop (art + transport),
+       beside the active tab's content; transport pinned at the bottom on mobile. -->
+  <Tabs.Root bind:value={activeTab} class="flex min-h-0 flex-1 flex-col">
+    <!-- Top bar: close (left) + centered segmented tabs -->
+    <div class="relative flex shrink-0 items-center justify-center px-3 py-3 sm:px-5">
+      <Button
+        variant="ghost"
+        size="icon"
+        onclick={onClose}
+        class="bg-foreground/5 hover:bg-foreground/10 absolute left-3 size-9 rounded-full sm:left-5"
+        aria-label="Close"
+      >
+        <X class="size-4" />
+      </Button>
+      <Tabs.List class="bg-foreground/5 h-auto gap-1 rounded-full p-1">
+        {#each TAB_DEFS as tab (tab.value)}
+          <Tabs.Trigger
+            value={tab.value}
+            class="text-muted-foreground hover:text-foreground data-[state=active]:bg-background data-[state=active]:text-foreground rounded-full border-0 bg-transparent px-3 py-1.5 text-xs font-medium shadow-none transition-colors data-[state=active]:shadow-sm sm:px-4 sm:text-[13px]"
+          >
+            {tab.label}
+          </Tabs.Trigger>
+        {/each}
+      </Tabs.List>
+    </div>
+
+    <!-- Body: compact header (mobile) / left rail (desktop) + tab content + transport -->
+    <div
+      class="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-4 pb-4 sm:px-6 lg:flex-row lg:gap-10 lg:px-12 lg:pb-10"
+    >
+      <!-- Desktop left rail: big album art, title/artist, badges, transport -->
+      <div
+        class="hidden shrink-0 flex-col gap-4 lg:flex lg:w-[340px] lg:items-stretch lg:justify-center"
+      >
+        <Cover
+          artist={trackArtist}
+          title={album.title}
+          {coverUrl}
+          size={340}
+          corner={12}
+          caption={false}
+          class="aspect-square !h-auto !w-full !shadow-[0_24px_48px_rgba(0,0,0,0.45)]"
+        />
+        <div class="min-w-0 text-left">
+          <h2 class="truncate text-2xl font-bold tracking-[-0.02em]">{trackTitle}</h2>
+          <p class="text-muted-foreground mt-1 truncate text-sm">
+            {trackArtist} · <span class="text-muted-foreground/70">{album.title}</span>
+          </p>
+          <div
+            class="text-muted-foreground mt-2.5 flex flex-wrap items-center gap-2 text-[11px]"
+          >
+            <span class="bg-primary/15 text-primary rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wider">
+              {bitrateLabel().split(' ')[0] || 'FILE'}
+            </span>
+            <span class="font-mono">{formatDuration(song.durationSeconds)}</span>
+            <span class="font-mono">{formatFileSize(song.fileSizeBytes)}</span>
+            {#if song.hasSyncedLyrics || song.lrclibId}
+              <span class="bg-primary/15 text-primary rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wider">
+                LRC
+              </span>
+            {/if}
+          </div>
+        </div>
+
+        {@render transport()}
+      </div>
+
+      <!-- Mobile compact header: small art + title/artist -->
+      <div class="flex shrink-0 items-center gap-3 lg:hidden">
+        <Cover
+          artist={trackArtist}
+          title={album.title}
+          {coverUrl}
+          size={56}
+          corner={8}
+          caption={false}
+          class="shrink-0 !shadow-md"
+        />
+        <div class="min-w-0 flex-1">
+          <h2 class="truncate text-base leading-tight font-semibold tracking-[-0.01em]">
+            {trackTitle}
+          </h2>
+          <p class="text-muted-foreground truncate text-xs">
+            {trackArtist} · <span class="text-muted-foreground/70">{album.title}</span>
+          </p>
+        </div>
+      </div>
+
+      <!-- Active tab content (maximized middle on mobile, right column on desktop) -->
+      <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
 
     <Tabs.Content value="metadata" class="flex min-h-0 flex-1 flex-col">
       <ScrollArea class="min-h-0 flex-1">
-        <div class="px-6 py-4">
+        <div class="mx-auto w-full max-w-2xl py-2">
           <div class="grid grid-cols-[140px_minmax(0,1fr)] gap-x-3 gap-y-0.5">
             {#each metadataRows as [k, v] (k)}
               <div class="text-muted-foreground py-1.5 text-[11.5px]">{k}</div>
@@ -453,8 +575,9 @@
     </Tabs.Content>
 
     <Tabs.Content value="lyrics" class="flex min-h-0 flex-1 flex-col">
-      <div class="flex min-h-0 flex-1 flex-col px-5 py-3">
+      <div class="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col">
         <LyricsPanel
+          variant="theater"
           songId={song.id}
           syncedLyrics={song.syncedLyrics ?? undefined}
           plainLyrics={song.plainLyrics ?? undefined}
@@ -471,7 +594,7 @@
 
     <Tabs.Content value="fingerprint" class="flex min-h-0 flex-1 flex-col">
       <ScrollArea class="min-h-0 flex-1">
-        <div class="px-6 py-4">
+        <div class="mx-auto w-full max-w-2xl py-2">
           <div class="border-border flex items-end justify-between border-b pb-3">
             <div>
               <div class="text-muted-foreground font-mono text-[10px] tracking-wider">
@@ -566,7 +689,7 @@
 
     <Tabs.Content value="enrichment" class="flex min-h-0 flex-1 flex-col">
       <ScrollArea class="min-h-0 flex-1">
-        <div class="space-y-3 px-5 py-4 text-xs">
+        <div class="mx-auto w-full max-w-2xl space-y-3 py-2 text-xs">
           {#if timelineHref}
             <Button href={timelineHref} variant="outline" size="sm" class="w-full">
               <History class="mr-1.5 size-3.5" />
@@ -697,78 +820,33 @@
         </div>
       </ScrollArea>
     </Tabs.Content>
-  </Tabs.Root>
-
-  <!-- Mini waveform player -->
-  <div class="border-border bg-surface-sunken/60 border-t px-5 pt-3 pb-3.5">
-    <Waveform
-      seed={song.id}
-      isActive={isCurrentlyLoaded}
-      fallbackDuration={song.durationSeconds ?? 0}
-    />
-    <div class="mt-1.5 flex items-center gap-3">
-      <span class="text-muted-foreground w-9 shrink-0 text-right font-mono text-[10.5px] tabular-nums">
-        {isCurrentlyLoaded ? formatTime(playerStore.currentTime) : '0:00'}
-      </span>
-      <div class="mx-auto flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          class="size-7 disabled:opacity-40"
-          onclick={() => playerStore.playPrevious()}
-          disabled={!canGoPrevious}
-          aria-label="Previous track"
-        >
-          <SkipBack class="size-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          class={cn(
-            'size-9 rounded-full',
-            isCurrentlyLoaded
-              ? 'bg-foreground text-background hover:bg-foreground/90'
-              : 'bg-primary text-primary-foreground hover:bg-primary/90'
-          )}
-          onclick={handlePlayToggle}
-          aria-label={isCurrentlyPlaying ? 'Pause' : 'Play'}
-        >
-          {#if isCurrentlyPlaying}
-            <Pause class="size-4" />
-          {:else}
-            <Play class="size-4 translate-x-px" />
-          {/if}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          class="size-7 disabled:opacity-40"
-          onclick={() => playerStore.playNext()}
-          disabled={!canGoNext}
-          aria-label="Next track"
-        >
-          <SkipForward class="size-3.5" />
-        </Button>
       </div>
-      <span class="text-muted-foreground w-9 shrink-0 font-mono text-[10.5px] tabular-nums">
-        {formatDuration(song.durationSeconds)}
-      </span>
+
+      <!-- Mobile transport pinned at the bottom -->
+      <div class="shrink-0 lg:hidden">
+        {@render transport()}
+      </div>
     </div>
-  </div>
-</aside>
+  </Tabs.Root>
+</div>
 
 <style>
   .mh-track-panel-enter {
-    animation: mh-tp-slide 0.2s ease-out both;
+    animation: mh-tp-rise 0.25s ease-out both;
   }
-  @keyframes mh-tp-slide {
+  @keyframes mh-tp-rise {
     from {
-      transform: translateX(20px);
+      transform: translateY(12px);
       opacity: 0;
     }
     to {
-      transform: translateX(0);
+      transform: translateY(0);
       opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .mh-track-panel-enter {
+      animation: none;
     }
   }
 </style>

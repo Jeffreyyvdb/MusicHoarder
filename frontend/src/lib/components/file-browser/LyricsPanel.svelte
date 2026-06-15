@@ -29,6 +29,12 @@
     currentTimeMs?: number | null;
     onSeek?: (timeMs: number) => void;
     lrclibUrl?: string;
+    /**
+     * 'panel' is the compact docked-tab look (timestamp gutter, boxed, status
+     * chrome). 'theater' is the Apple-Music full-screen look: big bold lines,
+     * no gutter, transparent over an ambient backdrop, minimal chrome.
+     */
+    variant?: 'panel' | 'theater';
   };
 
   const {
@@ -41,8 +47,11 @@
     isInstrumental,
     currentTimeMs,
     onSeek,
-    lrclibUrl
+    lrclibUrl,
+    variant = 'panel'
   }: Props = $props();
+
+  const theater = $derived(variant === 'theater');
 
   function formatLrcTime(ms: number): string {
     const totalSecs = Math.floor(ms / 1000);
@@ -180,6 +189,7 @@
   </div>
 {:else}
   <div class="flex min-h-0 flex-1 flex-col gap-3">
+    {#if !theater}
     <div class="flex flex-wrap items-center justify-between gap-2">
       <div class="flex min-w-0 items-center gap-2">
         <LyricsStatusBadge status={lyricsStatus} />
@@ -228,13 +238,17 @@
         </Badge>
       {/if}
     </div>
+    {/if}
 
     <div
       bind:this={containerEl}
-      class="bg-secondary/50 min-h-0 flex-1 overflow-y-auto rounded-lg p-4 pb-[calc(1rem_+_var(--mh-content-pad))] scroll-smooth"
+      class={cn(
+        'min-h-0 flex-1 overflow-y-auto pb-[calc(1rem_+_var(--mh-content-pad))] scroll-smooth',
+        theater ? 'px-1 sm:px-6' : 'bg-secondary/50 rounded-lg p-4'
+      )}
     >
       {#if hasParsedLines && parsedLines}
-        <div class="font-sans text-sm leading-relaxed">
+        <div class={cn('font-sans leading-relaxed', !theater && 'text-sm')}>
           {#each parsedLines as line, i (i)}
             {@const isActive = isTracking && i === activeLineIndex}
             {@const isPast = isTracking && activeLineIndex >= 0 && i < activeLineIndex}
@@ -243,12 +257,20 @@
             <div
               data-lyric-line={i}
               class={cn(
-                '-mx-1 flex gap-2 rounded-sm px-1 py-0.5 transition-all duration-300',
-                isActive && 'bg-primary/10 text-primary font-semibold',
-                isPast && 'text-muted-foreground',
-                isFuture && 'text-muted-foreground/50',
-                !isTracking && 'text-foreground',
-                onSeek && 'hover:bg-primary/5 cursor-pointer'
+                '-mx-1 flex gap-2 rounded-sm px-1 transition-all duration-300',
+                theater
+                  ? 'py-1.5 text-2xl leading-snug font-bold tracking-[-0.01em] sm:text-[28px] sm:py-2'
+                  : 'py-0.5',
+                // panel highlight
+                !theater && isActive && 'bg-primary/10 text-primary font-semibold',
+                !theater && isPast && 'text-muted-foreground',
+                !theater && isFuture && 'text-muted-foreground/50',
+                !theater && !isTracking && 'text-foreground',
+                // theater highlight: active bright, others dimmed
+                theater && isActive && 'text-foreground',
+                theater && (isPast || isFuture) && 'text-foreground/30',
+                theater && !isTracking && 'text-foreground/80',
+                onSeek && (theater ? 'cursor-pointer hover:text-foreground/60' : 'hover:bg-primary/5 cursor-pointer')
               )}
               role={onSeek ? 'button' : undefined}
               tabindex={onSeek ? 0 : undefined}
@@ -262,14 +284,16 @@
                   }
                 : undefined}
             >
-              <span
-                class={cn(
-                  'w-12 shrink-0 pt-0.5 font-mono text-xs',
-                  isActive ? 'text-primary/70' : 'text-muted-foreground/60'
-                )}
-              >
-                {formatLrcTime(line.timeMs)}
-              </span>
+              {#if !theater}
+                <span
+                  class={cn(
+                    'w-12 shrink-0 pt-0.5 font-mono text-xs',
+                    isActive ? 'text-primary/70' : 'text-muted-foreground/60'
+                  )}
+                >
+                  {formatLrcTime(line.timeMs)}
+                </span>
+              {/if}
               <span class={cn('flex-1', !line.text && 'select-none opacity-0')}>
                 {line.text || '·'}
               </span>
@@ -277,11 +301,15 @@
           {/each}
         </div>
       {:else}
-        <pre class="font-sans text-sm leading-relaxed whitespace-pre-wrap">{fallbackText}</pre>
+        <pre
+          class={cn(
+            'font-sans leading-relaxed whitespace-pre-wrap',
+            theater ? 'text-2xl font-bold text-foreground/80 sm:text-[28px]' : 'text-sm'
+          )}>{fallbackText}</pre>
       {/if}
     </div>
 
-    {#if lrclibUrl}
+    {#if lrclibUrl && !theater}
       <div class="text-muted-foreground flex items-center gap-1.5 text-xs">
         <span>Source:</span>
         <a
