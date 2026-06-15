@@ -7,7 +7,7 @@ import type {
   ProviderAttempt
 } from '$lib/api-client';
 
-export type ReviewReasonKey = 'low_confidence' | 'multiple_matches' | 'no_fingerprint';
+export type ReviewReasonKey = 'low_confidence' | 'multiple_matches' | 'no_fingerprint' | 'below_threshold';
 
 export interface ReviewReason {
   key: ReviewReasonKey;
@@ -27,7 +27,12 @@ export function reasonFor(track: Pick<ApiSong, 'fingerprint' | 'matchWarnings' |
     return { key: 'multiple_matches', label: 'Multiple matches', tint: 'info' };
   if (track.matchConfidence != null && track.matchConfidence < 0.7)
     return { key: 'low_confidence', label: 'Low confidence', tint: 'warn' };
-  return { key: 'low_confidence', label: 'Low confidence', tint: 'warn' };
+  return { key: 'below_threshold', label: 'Needs review', tint: 'info' };
+}
+
+/** "82%" for 0.82; null when confidence is unknown. */
+export function confidencePercent(track: Pick<ApiSong, 'matchConfidence'>): string | null {
+  return track.matchConfidence != null ? `${Math.round(track.matchConfidence * 100)}%` : null;
 }
 
 /** Friendly source label for a provider name (handles backend enum + demo names). */
