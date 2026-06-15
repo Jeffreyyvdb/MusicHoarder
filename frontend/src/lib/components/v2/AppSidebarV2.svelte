@@ -352,7 +352,7 @@
               {#if count != null}
                 <span
                   class={cn(
-                    'font-mono text-[10px] tabular-nums',
+                    'text-[10.5px] tabular-nums',
                     active ? 'text-sidebar-foreground/70' : 'text-muted-foreground/70'
                   )}
                 >{fmtCount(count)}</span>
@@ -370,7 +370,7 @@
       <div class="flex items-center gap-2 text-[11px]">
         <span class="bg-primary mh-v2-pulse size-[7px] shrink-0 rounded-full"></span>
         <span class="text-muted-foreground flex-1 whitespace-nowrap">Indexing</span>
-        <span class="text-foreground/80 font-mono text-[10.5px] whitespace-nowrap">
+        <span class="text-foreground/80 text-[10.5px] tabular-nums whitespace-nowrap">
           {queueRemaining.toLocaleString()} active
         </span>
       </div>
@@ -378,7 +378,7 @@
     {#if totalBytes != null}
       <div class="flex items-center gap-2 text-[11px]">
         <span class="text-muted-foreground flex-1 whitespace-nowrap">Storage</span>
-        <span class="text-foreground/80 font-mono text-[10.5px] whitespace-nowrap">
+        <span class="text-foreground/80 text-[10.5px] tabular-nums whitespace-nowrap">
           {fmtSize(totalBytes)} / 2 TB
         </span>
       </div>

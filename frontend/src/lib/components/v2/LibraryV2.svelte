@@ -262,13 +262,13 @@
     class="border-border flex shrink-0 flex-col gap-3 border-b px-4 py-4 sm:flex-row sm:items-end sm:justify-between sm:gap-4 sm:px-7 sm:py-5"
   >
     <div class="min-w-0">
-      <div class="text-muted-foreground font-mono text-[10px] tracking-[0.12em] uppercase">
+      <h1 class="text-3xl font-bold tracking-tight sm:text-4xl">Library</h1>
+      <div class="text-muted-foreground mt-1.5 text-xs">
         {totalTracks.toLocaleString()} tracks · {artistCount.toLocaleString()} artists{enrichedPct !=
         null
           ? ` · ${enrichedPct.toFixed(1)}% enriched`
           : ''}
       </div>
-      <h1 class="mt-1 text-2xl font-semibold tracking-tight">Library</h1>
       <p class="text-muted-foreground mt-1 hidden max-w-2xl text-xs sm:block">
         The clean output. Click any album to drill in — every track has its own enrichment timeline
         showing which provider supplied each field.

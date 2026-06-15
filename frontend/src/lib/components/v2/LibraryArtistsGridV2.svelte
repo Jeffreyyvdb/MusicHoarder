@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChevronRight, Users } from '@lucide/svelte';
+  import { Users } from '@lucide/svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import { cn } from '$lib/utils';
   import type { GroupSummary } from '$lib/api-client';
@@ -41,7 +41,7 @@
     onclick={() => (letter = 'all')}
     class={cn(
       'hover:bg-muted hover:text-foreground min-w-[22px] rounded px-2 py-[3px] transition-colors',
-      letter === 'all' ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground'
+      letter === 'all' ? 'bg-muted text-foreground font-semibold' : 'text-muted-foreground'
     )}
   >
     All
@@ -54,7 +54,7 @@
       onclick={() => present && (letter = L)}
       class={cn(
         'min-w-[22px] rounded px-2 py-[3px] transition-colors',
-        letter === L && 'bg-primary/10 text-primary font-semibold',
+        letter === L && 'bg-muted text-foreground font-semibold',
         present
           ? 'text-muted-foreground hover:bg-muted hover:text-foreground'
           : 'text-muted-foreground/40 cursor-default'
@@ -76,7 +76,7 @@
         class={cn(
           'rounded-[3px] px-2 py-[2px] transition-colors',
           mode === opt.value
-            ? 'bg-primary/10 text-primary font-semibold'
+            ? 'bg-muted text-foreground font-semibold'
             : 'text-muted-foreground hover:bg-muted hover:text-foreground'
         )}
       >
@@ -92,36 +92,34 @@
     <p class="text-sm">{isLoading ? 'Loading artists…' : 'No artists in this range.'}</p>
   </div>
 {:else}
-  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+  <div
+    class="grid grid-cols-3 gap-x-4 gap-y-6 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7"
+  >
     {#each filtered as group (group.key)}
       <a
         href={hrefFor(group)}
-        class="border-border bg-card hover:border-border/80 group grid grid-cols-[56px_1fr_auto] items-center gap-3 rounded-[10px] border px-3.5 py-3 transition-all [content-visibility:auto] [contain-intrinsic-size:auto_5rem] hover:-translate-y-px hover:shadow-sm"
+        class="group focus-visible:ring-ring outline-hidden flex flex-col items-center gap-2 rounded-lg p-1 transition-transform [content-visibility:auto] [contain-intrinsic-size:auto_11rem] hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-offset-2"
         aria-label={`Browse ${group.label}`}
       >
         <Cover
           artist={group.coverArtist}
           title={group.coverTitle}
           coverUrl={group.coverUrl}
-          size={56}
-          corner={28}
+          size={160}
+          corner={80}
           caption={false}
-          class="!size-14 shrink-0 !rounded-full"
+          interactive
+          class="!h-auto !w-full aspect-square !rounded-full"
         />
-        <span class="min-w-0">
-          <span class="block truncate text-[13.5px] font-semibold">{group.label}</span>
-          <span class="text-muted-foreground mt-0.5 block font-mono text-[11px] tabular-nums">
-            <b class="text-foreground/80 font-medium">{group.albumCount}</b> album{group.albumCount ===
-            1
-              ? ''
-              : 's'} ·
-            <b class="text-foreground/80 font-medium">{group.trackCount}</b> track{group.trackCount ===
+        <div class="min-w-0 w-full px-0.5 text-center">
+          <p class="truncate text-[12.5px] font-medium">{group.label}</p>
+          <p class="text-muted-foreground truncate text-[11.5px] tabular-nums">
+            {group.albumCount} album{group.albumCount === 1 ? '' : 's'} · {group.trackCount} track{group.trackCount ===
             1
               ? ''
               : 's'}
-          </span>
-        </span>
-        <ChevronRight class="text-muted-foreground/50 size-4 shrink-0" />
+          </p>
+        </div>
       </a>
     {/each}
   </div>
