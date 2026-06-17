@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Logging;
 using MusicHoarder.Api.Options;
 
 namespace MusicHoarder.Api.Download;
@@ -76,11 +77,11 @@ public class YtDlpDownloadProvider(
             // No file came out. Distinguish "nothing matched" from a real failure.
             if (process.ExitCode == 0 || LooksLikeNoResults(stderr))
             {
-                logger.LogInformation("yt-dlp found no result for '{Query}': {Error}", query, Truncate(stderr));
+                logger.LogInformation("yt-dlp found no result for '{Query}': {Error}", LogSanitizer.ForLog(query), LogSanitizer.ForLog(Truncate(stderr)));
                 return DownloadResult.Missing(stderr.Length == 0 ? "no results" : Truncate(stderr));
             }
 
-            logger.LogWarning("yt-dlp exited {Code} for '{Query}': {Error}", process.ExitCode, query, Truncate(stderr));
+            logger.LogWarning("yt-dlp exited {Code} for '{Query}': {Error}", process.ExitCode, LogSanitizer.ForLog(query), LogSanitizer.ForLog(Truncate(stderr)));
             return DownloadResult.Failed($"exited {process.ExitCode}: {Truncate(stderr)}");
         }
         catch (OperationCanceledException)
@@ -90,7 +91,7 @@ public class YtDlpDownloadProvider(
         catch (Exception ex)
         {
             // Missing binary (Win32Exception / file-not-found) lands here — degrade gracefully.
-            logger.LogWarning(ex, "yt-dlp download failed for '{Artist} - {Title}'", req.Artist, req.Title);
+            logger.LogWarning(ex, "yt-dlp download failed for '{Artist} - {Title}'", LogSanitizer.ForLog(req.Artist), LogSanitizer.ForLog(req.Title));
             return DownloadResult.Failed(ex.Message);
         }
     }

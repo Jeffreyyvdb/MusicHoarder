@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MusicHoarder.Api.Logging;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Spotify;
 
@@ -126,7 +127,7 @@ public class WishlistService(
         await db.SaveChangesAsync(ct);
 
         if (added > 0)
-            logger.LogInformation("Wishlist source {SourceId} ({Name}): added {Added} new items", source.Id, source.Name, added);
+            logger.LogInformation("Wishlist source {SourceId} ({Name}): added {Added} new items", source.Id, LogSanitizer.ForLog(source.Name), added);
 
         return new WishlistSyncResult(source.Id, added, alreadyPresent);
     }

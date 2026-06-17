@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.Logging;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Spotify;
@@ -103,7 +104,7 @@ public class WishlistSyncBackgroundService(
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                logger.LogWarning(ex, "Wishlist sync failed for source {SourceId} ({Name})", source.Id, source.Name);
+                logger.LogWarning(ex, "Wishlist sync failed for source {SourceId} ({Name})", source.Id, LogSanitizer.ForLog(source.Name));
             }
         }
     }
