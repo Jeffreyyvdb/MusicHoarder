@@ -186,7 +186,7 @@ public class WishlistDownloadProcessorTests
         {
             SourceDirectory = "/src",
             DestinationDirectory = "/dest",
-            DownloadSubdirectory = "wishlist",
+            DownloadDirectory = "/downloads",
             DownloadProvider = "fake",
             DownloadConcurrency = 2,
         });

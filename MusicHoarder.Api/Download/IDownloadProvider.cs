@@ -2,7 +2,8 @@ namespace MusicHoarder.Api.Download;
 
 /// <summary>
 /// A single track to acquire. <paramref name="DestinationDirectory"/> is the absolute directory the
-/// file must be written into (the wishlist subdir under the source root, so the scanner ingests it).
+/// file must be written into (the writable download staging dir, which the scanner indexes so the file
+/// is ingested by the normal pipeline).
 /// </summary>
 public record DownloadRequest(
     string Artist,

@@ -1,9 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Jobs;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
-using MusicHoarder.Api.Pipeline;
 using MusicHoarder.Api.Spotify;
 using MusicHoarder.Api.Wishlist;
 
@@ -183,10 +184,13 @@ public static class WishlistEndpoints
             .WithName("DeleteWishlistItem")
             .WithSummary("Remove a wishlist item.");
 
-        group.MapPost("/download", (JobManager jobManager, IDirectoryAvailability availability) =>
+        group.MapPost("/download", (JobManager jobManager, IOptions<MusicEnricherOptions> options) =>
             {
-                if (!availability.Current.SourceAvailable)
-                    return Results.Conflict(new { message = "Source directory is offline. Reconnect before downloading." });
+                var opts = options.Value;
+                if (!opts.EnableWishlistDownloads)
+                    return Results.Conflict(new { message = "Wishlist downloads are disabled (MusicEnricher:EnableWishlistDownloads)." });
+                if (string.IsNullOrWhiteSpace(opts.DownloadDirectory))
+                    return Results.Conflict(new { message = "No download directory is configured (MusicEnricher:DownloadDirectory)." });
 
                 if (!jobManager.TryStartJob(JobType.Download, out var jobId, out _))
                     return Results.Conflict(new { message = "A download job is already running." });

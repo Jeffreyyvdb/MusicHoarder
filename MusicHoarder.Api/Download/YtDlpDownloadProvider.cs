@@ -7,7 +7,7 @@ namespace MusicHoarder.Api.Download;
 
 /// <summary>
 /// Downloads a track's audio from YouTube via yt-dlp, keeping YouTube's native Opus where possible
-/// (no lossy-to-lossy re-encode). Writes into the wishlist subdir under the source root and embeds
+/// (no lossy-to-lossy re-encode). Writes into the configured download staging directory and embeds
 /// metadata + thumbnail so the scanner reads artist/title/cover as seed tags for enrichment.
 /// Degrades gracefully (returns a failure result) when the yt-dlp binary is missing, mirroring the
 /// fpcalc-absent handling.

@@ -44,6 +44,45 @@ public class IndexServiceTests : IDisposable
         Assert.False(row.HasCoverArt);
     }
 
+    [Fact]
+    public async Task Index_ScopesDeletionToScannedRoot_LeavingOtherRootsUntouched()
+    {
+        // Two source roots: the read-only library (rootA) and the writable download dir (rootB).
+        // Scanning rootB must reconcile deletions only within rootB — songs under rootA must survive
+        // even though they aren't discovered by this scan (otherwise an offline source root, or a
+        // download-only scan, would wipe the whole library).
+        var rootA = Directory.CreateDirectory(Path.Combine(tempDir, "rootA")).FullName;
+        var rootB = Directory.CreateDirectory(Path.Combine(tempDir, "rootB")).FullName;
+        await File.WriteAllBytesAsync(Path.Combine(rootB, "present.mp3"), [1, 2, 3]);
+
+        await using var db = NewContext();
+        // A library song under rootA (not part of this scan) and a now-missing song under rootB.
+        db.Songs.Add(Seed(Path.Combine(rootA, "library.mp3").Replace('\\', '/')));
+        db.Songs.Add(Seed(Path.Combine(rootB, "gone.mp3").Replace('\\', '/')));
+        await db.SaveChangesAsync();
+
+        await CreateService(db).IndexAsync(Guid.NewGuid(), rootB);
+
+        var rows = await db.Songs.IgnoreQueryFilters().ToListAsync();
+        var libraryRow = rows.Single(r => r.SourcePath.EndsWith("library.mp3"));
+        var goneRow = rows.Single(r => r.SourcePath.EndsWith("gone.mp3"));
+
+        Assert.Null(libraryRow.DeletedAtUtc);       // different root — untouched
+        Assert.NotNull(goneRow.DeletedAtUtc);        // scanned root, missing on disk — soft-deleted
+        Assert.Contains(rows, r => r.SourcePath.EndsWith("present.mp3")); // newly discovered
+    }
+
+    private static SongMetadata Seed(string sourcePath) => new()
+    {
+        OwnerUserId = WellKnownUsers.OwnerId,
+        SourcePath = sourcePath,
+        FileName = Path.GetFileName(sourcePath),
+        Extension = Path.GetExtension(sourcePath),
+        FileSizeBytes = 3,
+        LastModifiedUtc = DateTime.UtcNow,
+        IndexedAtUtc = DateTime.UtcNow,
+    };
+
     private static IndexService CreateService(MusicHoarderDbContext db) => new(
         new StubFileScanner(),
         db,

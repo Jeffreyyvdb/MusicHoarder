@@ -4,23 +4,22 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
-using MusicHoarder.Api.Pipeline;
 
 namespace MusicHoarder.Api.Download;
 
 /// <summary>
 /// Pipeline stage that fetches Pending <see cref="WishlistItem"/>s via the configured
-/// <see cref="IDownloadProvider"/> into the wishlist subdir under the source root, then auto-triggers a
-/// scan so the existing scan→fingerprint→enrich→build pipeline ingests the files. Items already in the
-/// local library (an exact <c>InLibrary</c> match in the Spotify match cache) are skipped, not downloaded.
-/// Runs trigger-first then auto-sweeps, mirroring <see cref="Scanner.FingerprintBackgroundService"/>. The
-/// batch logic lives in <see cref="WishlistDownloadProcessor"/> (testable in isolation).
+/// <see cref="IDownloadProvider"/> into the writable <see cref="MusicEnricherOptions.DownloadDirectory"/>
+/// staging dir, then auto-triggers a scan so the existing scan→fingerprint→enrich→build pipeline ingests
+/// the files. Items already in the local library (an exact <c>InLibrary</c> match in the Spotify match
+/// cache) are skipped, not downloaded. Runs trigger-first then auto-sweeps, mirroring
+/// <see cref="Scanner.FingerprintBackgroundService"/>. The batch logic lives in
+/// <see cref="WishlistDownloadProcessor"/> (testable in isolation).
 /// </summary>
 public class DownloadBackgroundService(
     IServiceScopeFactory scopeFactory,
     JobManager jobManager,
     DownloadProgressTracker progressTracker,
-    IDirectoryAvailability directoryAvailability,
     IOwnerLookupService ownerLookup,
     IOptions<MusicEnricherOptions> options,
     ILogger<DownloadBackgroundService> logger) : BackgroundService
@@ -50,17 +49,21 @@ public class DownloadBackgroundService(
             CancellationToken jobToken;
             int pendingCount;
 
-            var sourceAvailable = directoryAvailability.Current.SourceAvailable;
+            // Downloads land in the dedicated writable staging dir (not the read-only source mount).
+            // Ready = feature on + a directory configured that we can create.
+            var ready = opts.EnableWishlistDownloads && EnsureDownloadDirectory(opts.DownloadDirectory);
 
             if (jobManager.DownloadTriggers.TryRead(out var manualJobId))
             {
                 jobId = manualJobId;
                 jobToken = jobManager.GetCurrentCancellationToken();
-                if (!opts.EnableWishlistDownloads || !sourceAvailable)
+                if (!ready)
                 {
                     logger.LogInformation(
                         "Download {JobId} skipped — {Reason}", jobId,
-                        !opts.EnableWishlistDownloads ? "wishlist downloads are disabled" : "source directory is offline");
+                        !opts.EnableWishlistDownloads
+                            ? "wishlist downloads are disabled"
+                            : "no writable download directory is configured");
                     jobManager.SignalComplete(jobId, cancelled: true);
                     continue;
                 }
@@ -68,7 +71,7 @@ public class DownloadBackgroundService(
             }
             else
             {
-                if (!opts.EnableWishlistDownloads || !sourceAvailable)
+                if (!ready)
                 {
                     if (!await DelayIdleAsync(opts.DownloadIdleDelaySeconds, stoppingToken)) break;
                     continue;
@@ -159,6 +162,22 @@ public class DownloadBackgroundService(
             .Where(w => w.OwnerUserId == ownerId && w.OwnerUserId != WellKnownUsers.DemoId)
             .Where(w => w.Status == WishlistItemStatus.Pending)
             .CountAsync(ct);
+    }
+
+    /// <summary>Returns true if a download directory is configured and exists (creating it if needed).</summary>
+    private bool EnsureDownloadDirectory(string? directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory)) return false;
+        try
+        {
+            Directory.CreateDirectory(directory);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Wishlist download directory {Directory} is not writable", directory);
+            return false;
+        }
     }
 
     private static async Task<bool> DelayIdleAsync(int seconds, CancellationToken stoppingToken)

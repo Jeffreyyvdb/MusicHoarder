@@ -29,7 +29,7 @@ public class WishlistDownloadProcessor(
         MusicHoarderDbContext db, Guid ownerId, CancellationToken ct)
     {
         var opts = options.Value;
-        var destinationDir = Path.Combine(opts.SourceDirectory, opts.DownloadSubdirectory);
+        var destinationDir = opts.DownloadDirectory;
 
         var batch = await db.WishlistItems
             .IgnoreQueryFilters()

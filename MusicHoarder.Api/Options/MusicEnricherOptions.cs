@@ -551,10 +551,13 @@ public class MusicEnricherOptions
     public int DownloadIdleDelaySeconds { get; set; } = 20;
 
     /// <summary>
-    /// Subdirectory under <see cref="SourceDirectory"/> that downloads are written into (so they're
-    /// picked up by the scanner like any other source file). Created on demand.
+    /// Absolute path to a writable staging directory that wishlist downloads are written into. Kept
+    /// separate from <see cref="SourceDirectory"/> because the source library is usually a read-only
+    /// mount. The scanner indexes this directory as an additional source root, so downloaded files flow
+    /// through the normal scan → fingerprint → enrich → build pipeline. Required when
+    /// <see cref="EnableWishlistDownloads"/> is on; the downloader idles if it's unset.
     /// </summary>
-    public string DownloadSubdirectory { get; set; } = "wishlist";
+    public string DownloadDirectory { get; set; } = string.Empty;
 
     /// <summary>Target audio format/codec for the download (yt-dlp <c>--audio-format</c>). Default "opus" (YouTube native, no re-encode).</summary>
     public string DownloadAudioFormat { get; set; } = "opus";
