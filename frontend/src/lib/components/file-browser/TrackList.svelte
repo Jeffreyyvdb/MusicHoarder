@@ -85,11 +85,6 @@
     if (f === 'OTHER') return 'background: var(--muted-foreground);';
     return `background: oklch(0.62 0.14 ${FAMILY_HUE[f]});`;
   }
-  function familyPill(f: FormatFamily): string {
-    if (f === 'OTHER') return '';
-    const h = FAMILY_HUE[f];
-    return `color: oklch(0.62 0.15 ${h}); background: oklch(0.62 0.15 ${h} / 0.16);`;
-  }
 
   const filtered = $derived.by(() => {
     let r = songs;
@@ -201,7 +196,7 @@
   // Cover). Render only the rows in (or near) the viewport, absolutely
   // positioned inside a full-height spacer so the scrollbar still reflects the
   // whole list.
-  const ROW_H = 52;
+  const ROW_H = 56;
   const OVERSCAN = 8;
   let scrollEl = $state<HTMLDivElement>();
   let scrollTop = $state(0);
@@ -257,7 +252,7 @@
     type="button"
     onclick={() => toggleSort(k)}
     class={cn(
-      'flex items-center gap-1 text-[10px] font-semibold tracking-wider uppercase transition-colors',
+      'flex items-center gap-1 text-[11px] font-medium transition-colors',
       sortKey === k ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
     )}
   >
@@ -285,7 +280,7 @@
     <button
       type="button"
       onclick={shuffleTracks}
-      class="border-primary/40 text-primary hover:bg-primary/10 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors"
+      class="border-border text-foreground hover:bg-muted inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors"
     >
       <Shuffle class="size-3.5" />
       Shuffle
@@ -305,8 +300,8 @@
     <!-- Header band -->
     <div class="border-border bg-card/30 flex items-start justify-between gap-4 border-b px-4 py-5 md:px-6">
       <div class="min-w-0">
-        <h1 class="text-2xl font-bold tracking-[-0.02em]">All Tracks</h1>
-        <p class="text-muted-foreground mt-1 text-sm">
+        <h1 class="text-3xl font-bold tracking-tight sm:text-4xl">All Tracks</h1>
+        <p class="text-muted-foreground mt-1.5 text-sm">
           {stats.count.toLocaleString()} track{stats.count === 1 ? '' : 's'}
           {#if searchQuery.trim()}
             · matching <span class="font-mono">"{searchQuery.trim()}"</span>
@@ -332,7 +327,7 @@
         class={cn(
           'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors',
           fmt === chip.id
-            ? 'border-primary bg-primary/10 text-primary'
+            ? 'border-foreground/15 bg-muted text-foreground'
             : 'border-border text-muted-foreground hover:text-foreground'
         )}
       >
@@ -350,7 +345,7 @@
       class={cn(
         'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors',
         lyricsOnly
-          ? 'border-primary bg-primary/10 text-primary'
+          ? 'border-foreground/15 bg-muted text-foreground'
           : 'border-border text-muted-foreground hover:text-foreground'
       )}
     >
@@ -358,7 +353,7 @@
       With lyrics
     </button>
 
-    <span class="text-muted-foreground ml-auto font-mono text-[10.5px]">
+    <span class="text-muted-foreground ml-auto text-[11px]">
       Showing {sorted.length.toLocaleString()} of {songs.length.toLocaleString()} ·
       {formatFileSize(stats.totalBytes)} · {formatTotalDuration(stats.totalSec)} · sorted by {sortKey}
       {sortDir === 'asc' ? '↑' : '↓'}
@@ -380,13 +375,13 @@
       '@5xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.9fr)_52px_104px_72px_128px_52px]'
     )}
   >
-    <span class="text-right text-[10px] font-semibold tracking-wider uppercase">#</span>
+    <span class="text-right text-[11px] font-medium">#</span>
     <span></span>
     {@render sortHead('title', 'Title')}
     <span class="hidden @xl:block">{@render sortHead('artist', 'Artist')}</span>
     <span class="hidden @3xl:block">{@render sortHead('album', 'Album')}</span>
     <span class="hidden @3xl:block">{@render sortHead('year', 'Year')}</span>
-    <span class="hidden text-[10px] font-semibold tracking-wider uppercase @xl:block">Format</span>
+    <span class="text-muted-foreground hidden text-[11px] font-medium @xl:block">Format</span>
     <span class="hidden @5xl:block">{@render sortHead('size', 'Size')}</span>
     <span class="hidden @5xl:block">{@render sortHead('match', 'Match')}</span>
     <button
@@ -436,7 +431,7 @@
             onclick={() => onSelect(song)}
             onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && onSelect(song)}
             class={cn(
-              'group absolute right-0 left-0 grid cursor-pointer items-center gap-3 rounded-md px-3',
+              'group border-border/40 absolute right-0 left-0 grid cursor-pointer items-center gap-3 border-b px-3',
               'grid-cols-[40px_40px_minmax(0,1fr)_52px]',
               '@xl:grid-cols-[40px_40px_minmax(0,1.5fr)_minmax(0,1fr)_56px_52px]',
               '@3xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_44px_56px_52px]',
@@ -449,14 +444,20 @@
           >
             <!-- # / play -->
             <span class="text-muted-foreground relative grid place-items-center text-right">
-              <span
-                class={cn(
-                  'font-mono text-[11px] tabular-nums transition-opacity group-hover:opacity-0',
-                  isCurrentlyPlaying && 'opacity-0'
-                )}
-              >
-                {String(i + 1).padStart(3, '0')}
-              </span>
+              {#if isLoaded}
+                <span
+                  class={cn('mh-eq text-primary group-hover:opacity-0', isCurrentlyPlaying && 'is-playing')}
+                  aria-hidden="true"
+                >
+                  <i></i><i></i><i></i>
+                </span>
+              {:else}
+                <span
+                  class="font-mono text-[11px] tabular-nums transition-opacity group-hover:opacity-0"
+                >
+                  {String(i + 1).padStart(3, '0')}
+                </span>
+              {/if}
               <button
                 type="button"
                 onclick={(e) => {
@@ -466,7 +467,7 @@
                 aria-label={isCurrentlyPlaying ? 'Pause track' : 'Play track'}
                 class={cn(
                   'text-primary absolute inset-0 grid place-items-center opacity-0 transition-opacity group-hover:opacity-100',
-                  isCurrentlyPlaying && 'opacity-100'
+                  isCurrentlyPlaying && 'group-hover:opacity-100'
                 )}
               >
                 {#if isCurrentlyPlaying}
@@ -494,7 +495,7 @@
               </div>
               <div class="text-muted-foreground mt-0.5 flex items-center gap-2 text-[11px]">
                 {#if hasLyrics(song)}
-                  <span class="bg-primary/15 text-primary rounded px-1 py-0.5 font-mono text-[9px] font-semibold tracking-wider">
+                  <span class="bg-muted text-muted-foreground rounded px-1 py-0.5 font-mono text-[9px] font-semibold tracking-wider">
                     LRC
                   </span>
                 {/if}
@@ -506,11 +507,6 @@
                 >
                   {artistOf(song)}
                 </a>
-                {#if song.fingerprint}
-                  <span class="hidden truncate font-mono text-[9.5px] opacity-65 @xl:inline">
-                    {song.fingerprint.slice(0, 12)}…
-                  </span>
-                {/if}
               </div>
             </div>
 
@@ -539,13 +535,11 @@
               {song.year ?? '—'}
             </span>
             <!-- format -->
-            <span class="hidden items-center gap-1.5 @xl:flex">
+            <span class="text-muted-foreground hidden items-center gap-1.5 font-mono text-[10px] @xl:flex">
               {#if family === 'OTHER'}
-                <span class="text-muted-foreground font-mono text-[10px]">{(song.extension ?? '').replace(/^\./, '').toUpperCase() || '—'}</span>
+                <span>{(song.extension ?? '').replace(/^\./, '').toUpperCase() || '—'}</span>
               {:else}
-                <span class="rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold" style={familyPill(family)}>
-                  {family}
-                </span>
+                <span class="text-foreground/70 font-medium">{family}</span>
               {/if}
               {#if song.bitRate && song.bitRate > 0}
                 <span class="text-muted-foreground hidden font-mono text-[9.5px] @5xl:inline">{song.bitRate}kbps</span>
@@ -557,8 +551,8 @@
             </span>
             <!-- match -->
             <span class="hidden items-center gap-2 @5xl:flex">
-              <span class="bg-border h-1 flex-1 overflow-hidden rounded-full">
-                <span class="bg-primary block h-full rounded-full" style="width: {mv * 100}%;"></span>
+              <span class="bg-foreground/10 h-1 flex-1 overflow-hidden rounded-full">
+                <span class="bg-foreground/35 block h-full rounded-full" style="width: {mv * 100}%;"></span>
               </span>
               <span class="text-muted-foreground min-w-[28px] text-right font-mono text-[10.5px]">{mv.toFixed(2)}</span>
             </span>
@@ -572,3 +566,42 @@
     </div>
   {/if}
 </div>
+
+<style>
+  /* Apple-style now-playing equalizer: three bars, animated only while playing. */
+  .mh-eq {
+    display: inline-flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 2px;
+    height: 13px;
+    transition: opacity 150ms;
+  }
+  .mh-eq > :global(i) {
+    width: 2.5px;
+    height: 35%;
+    border-radius: 1px;
+    background: currentColor;
+  }
+  .mh-eq.is-playing > :global(i) {
+    animation: mh-eq 0.9s ease-in-out infinite;
+  }
+  .mh-eq > :global(i:nth-child(1)) {
+    animation-delay: -0.5s;
+  }
+  .mh-eq > :global(i:nth-child(2)) {
+    animation-delay: -0.2s;
+  }
+  .mh-eq > :global(i:nth-child(3)) {
+    animation-delay: -0.7s;
+  }
+  @keyframes mh-eq {
+    0%,
+    100% {
+      height: 30%;
+    }
+    50% {
+      height: 100%;
+    }
+  }
+</style>

@@ -17,6 +17,7 @@
     Play,
     RefreshCw,
     Search,
+    Shuffle,
     Tag,
     TriangleAlert
   } from '@lucide/svelte';
@@ -49,7 +50,7 @@
   import { albumViewPrefs } from '$lib/stores/album-view-prefs.svelte';
   import { playerStore } from '$lib/stores/player.svelte';
   import { songDetail } from '$lib/stores/song-detail.svelte';
-  import { cn } from '$lib/utils';
+  import { cn, shuffle } from '$lib/utils';
 
   type Props = {
     album: AlbumSummary | null;
@@ -350,6 +351,12 @@
     playFrom(currentlyPlaying ?? tracks[0]);
   }
 
+  function playAlbumShuffle() {
+    if (!album || tracks.length === 0) return;
+    const queue = shuffle(tracks.map((t) => toPlayerSong(t, album.artist)));
+    void playerStore.playSong(queue[0], queue, 0);
+  }
+
   function playTrack(s: ApiSong, e: MouseEvent) {
     e.stopPropagation();
     playFrom(s);
@@ -554,6 +561,16 @@
         {/if}
       </button>
 
+      <button
+        type="button"
+        onclick={playAlbumShuffle}
+        aria-label="Shuffle album"
+        class="border-border text-foreground hover:bg-muted inline-flex h-10 shrink-0 items-center gap-2 rounded-full border px-4 text-sm font-medium transition-colors"
+      >
+        <Shuffle class="size-4" />
+        Shuffle
+      </button>
+
       {#if destinationFolder}
         <Tooltip.Provider delayDuration={300}>
           <Tooltip.Root>
@@ -706,23 +723,32 @@
             onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectTrack(song)}
             class={cn(
               'group grid cursor-pointer items-center gap-4 rounded-md px-3.5 py-2 transition-colors',
-              'grid-cols-[44px_minmax(0,1fr)_60px] sm:grid-cols-[44px_minmax(0,1fr)_110px_80px_140px_60px]',
+              'grid-cols-[44px_minmax(0,1fr)_60px_28px] sm:grid-cols-[44px_minmax(0,1fr)_110px_80px_140px_60px_28px]',
               'hover:bg-accent/50',
               isSelected && 'bg-primary/10',
               isCurrentlyLoaded && 'text-primary'
             )}
           >
             <span class="text-muted-foreground relative grid place-items-center text-right">
-              <span class={cn('font-mono text-sm tabular-nums transition-opacity group-hover:opacity-0', isCurrentlyPlaying && 'opacity-0')}>
-                {numLabel}
-              </span>
+              {#if isCurrentlyLoaded}
+                <span
+                  class={cn('mh-eq text-primary group-hover:opacity-0', isCurrentlyPlaying && 'is-playing')}
+                  aria-hidden="true"
+                >
+                  <i></i><i></i><i></i>
+                </span>
+              {:else}
+                <span class="font-mono text-sm tabular-nums transition-opacity group-hover:opacity-0">
+                  {numLabel}
+                </span>
+              {/if}
               <button
                 type="button"
                 onclick={(e) => playTrack(song, e)}
                 aria-label={isCurrentlyPlaying ? 'Pause track' : 'Play track'}
                 class={cn(
                   'text-primary absolute inset-0 grid place-items-center opacity-0 transition-opacity group-hover:opacity-100',
-                  isCurrentlyPlaying && 'opacity-100'
+                  isCurrentlyPlaying && 'group-hover:opacity-100'
                 )}
               >
                 {#if isCurrentlyPlaying}
@@ -740,7 +766,7 @@
               <div class="text-muted-foreground mt-0.5 flex items-center gap-2 text-[11.5px]">
                 <span class="truncate">{(song.artist ?? album.artist).trim() || album.artist}</span>
                 {#if song.hasSyncedLyrics || song.lrclibId}
-                  <span class="bg-primary/15 text-primary rounded px-1 py-0.5 font-mono text-[9px] font-semibold tracking-wider">
+                  <span class="bg-muted text-muted-foreground rounded px-1 py-0.5 font-mono text-[9px] font-semibold tracking-wider">
                     LRC
                   </span>
                 {/if}
@@ -754,8 +780,8 @@
               {formatFileSize(song.fileSizeBytes)}
             </span>
             <span class="hidden items-center gap-2 sm:flex">
-              <span class="bg-border h-1 flex-1 overflow-hidden rounded-full">
-                <span class="bg-primary block h-full rounded-full" style="width: {matchValue * 100}%;"></span>
+              <span class="bg-foreground/10 h-1 flex-1 overflow-hidden rounded-full">
+                <span class="bg-foreground/35 block h-full rounded-full" style="width: {matchValue * 100}%;"></span>
               </span>
               <span class="text-muted-foreground min-w-[28px] text-right font-mono text-[11px]">
                 {matchValue.toFixed(2)}
@@ -764,13 +790,44 @@
             <span class="text-muted-foreground text-right font-mono text-[11px]">
               {formatDuration(row.durationSeconds)}
             </span>
+
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger>
+                {#snippet child({ props })}
+                  <button
+                    {...props}
+                    type="button"
+                    onclick={(e) => {
+                      // Stop the row's selectTrack from firing, but still let
+                      // bits-ui's own trigger handler open the menu.
+                      e.stopPropagation();
+                      (props.onclick as ((ev: MouseEvent) => void) | undefined)?.(e);
+                    }}
+                    aria-label="Track actions"
+                    class="text-muted-foreground hover:text-foreground grid size-7 place-items-center rounded-md opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+                  >
+                    <MoreHorizontal class="size-4" />
+                  </button>
+                {/snippet}
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Content align="end" class="min-w-44">
+                <DropdownMenu.Item onSelect={() => playFrom(song)}>
+                  <Play class="size-4" />
+                  Play
+                </DropdownMenu.Item>
+                <DropdownMenu.Item onSelect={() => songDetail.open(song.id, album.key)}>
+                  <History class="size-4" />
+                  Show details
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Root>
           </div>
         {:else}
           <!-- Canonical track the user is missing — greyed out, with a way to go find it. -->
           <div
             class={cn(
               'grid items-center gap-4 rounded-md px-3.5 py-2',
-              'grid-cols-[44px_minmax(0,1fr)_60px] sm:grid-cols-[44px_minmax(0,1fr)_110px_80px_140px_60px]'
+              'grid-cols-[44px_minmax(0,1fr)_60px_28px] sm:grid-cols-[44px_minmax(0,1fr)_110px_80px_140px_60px_28px]'
             )}
           >
             <span class="text-muted-foreground/50 text-right font-mono text-sm tabular-nums">
@@ -802,6 +859,7 @@
             <span class="text-muted-foreground/50 text-right font-mono text-[11px]">
               {formatDuration(row.durationSeconds)}
             </span>
+            <span></span>
           </div>
         {/if}
       {/each}
@@ -848,3 +906,42 @@
 
   <AlbumTimelineDialog bind:open={timelineOpen} artist={album.artist} album={album.title} />
 {/if}
+
+<style>
+  /* Apple-style now-playing equalizer: three bars, animated only while playing. */
+  .mh-eq {
+    display: inline-flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 2px;
+    height: 14px;
+    transition: opacity 150ms;
+  }
+  .mh-eq > :global(i) {
+    width: 3px;
+    height: 35%;
+    border-radius: 1px;
+    background: currentColor;
+  }
+  .mh-eq.is-playing > :global(i) {
+    animation: mh-eq 0.9s ease-in-out infinite;
+  }
+  .mh-eq > :global(i:nth-child(1)) {
+    animation-delay: -0.5s;
+  }
+  .mh-eq > :global(i:nth-child(2)) {
+    animation-delay: -0.2s;
+  }
+  .mh-eq > :global(i:nth-child(3)) {
+    animation-delay: -0.7s;
+  }
+  @keyframes mh-eq {
+    0%,
+    100% {
+      height: 30%;
+    }
+    50% {
+      height: 100%;
+    }
+  }
+</style>
