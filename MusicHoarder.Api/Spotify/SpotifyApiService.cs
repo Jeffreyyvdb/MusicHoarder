@@ -71,7 +71,7 @@ public class SpotifyApiService(
         limit = Math.Clamp(limit, 1, 50);
         offset = Math.Max(offset, 0);
 
-        var fields = "total,items(added_at,track(id,name,duration_ms,artists(name),album(name,images)))";
+        var fields = "total,items(added_at,track(id,name,duration_ms,external_ids(isrc),artists(name),album(name,images)))";
         var url = $"{BaseUrl}/playlists/{Uri.EscapeDataString(playlistId)}/tracks?offset={offset}&limit={limit}&fields={Uri.EscapeDataString(fields)}";
         var json = await SendAuthenticatedRequestAsync(url, ct);
         using var doc = JsonDocument.Parse(json);
@@ -228,7 +228,12 @@ public class SpotifyApiService(
             }
         }
 
-        return new SpotifyTrackItem(id, name, artist, album, albumArt, durationMs, addedAt);
+        string? isrc = null;
+        if (track.TryGetProperty("external_ids", out var externalIds) && externalIds.ValueKind == JsonValueKind.Object
+            && externalIds.TryGetProperty("isrc", out var isrcProp) && isrcProp.ValueKind == JsonValueKind.String)
+            isrc = isrcProp.GetString();
+
+        return new SpotifyTrackItem(id, name, artist, album, albumArt, durationMs, addedAt, isrc);
     }
 
     private static SpotifyPlaylistItem ParsePlaylist(JsonElement item)

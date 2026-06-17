@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
+using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Library;
@@ -303,10 +304,11 @@ public static class EnrichmentEndpoints
                 ScanProgressTracker scanTracker,
                 FingerprintProgressTracker fingerprintTracker,
                 EnrichmentProgressTracker enrichmentTracker,
-                LibraryBuilderProgressTracker buildTracker) =>
+                LibraryBuilderProgressTracker buildTracker,
+                DownloadProgressTracker downloadTracker) =>
             {
                 var snapshot = ProgressSnapshotFactory.Create(
-                    jobManager, scanTracker, fingerprintTracker, enrichmentTracker, buildTracker);
+                    jobManager, scanTracker, fingerprintTracker, enrichmentTracker, buildTracker, downloadTracker);
                 return Results.Ok(new { Progress = snapshot });
             })
             .WithName("GetEnrichmentStatus")
@@ -464,7 +466,8 @@ public static class EnrichmentEndpoints
         ScanProgressTracker scanTracker,
         FingerprintProgressTracker fingerprintTracker,
         EnrichmentProgressTracker enrichmentTracker,
-        LibraryBuilderProgressTracker buildTracker)
+        LibraryBuilderProgressTracker buildTracker,
+        DownloadProgressTracker downloadTracker)
     {
         context.Response.Headers.ContentType = "text/event-stream";
         context.Response.Headers.CacheControl = "no-cache";
@@ -479,7 +482,7 @@ public static class EnrichmentEndpoints
             while (!cancellationToken.IsCancellationRequested)
             {
                 var snapshot = ProgressSnapshotFactory.Create(
-                    jobManager, scanTracker, fingerprintTracker, enrichmentTracker, buildTracker);
+                    jobManager, scanTracker, fingerprintTracker, enrichmentTracker, buildTracker, downloadTracker);
                 yield return JsonSerializer.Serialize(snapshot, SseJsonOptions);
 
                 if (snapshot.IsComplete && wasRunning)

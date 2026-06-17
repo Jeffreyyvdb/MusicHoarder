@@ -23,6 +23,7 @@ public record SpotifyTrackItem(
     string? AlbumArt,
     int DurationMs,
     DateTime AddedAt,
+    string? Isrc = null,
     SpotifyLibraryMatchInfo? LibraryMatch = null);
 
 public record SpotifyLikedSongsResponse(

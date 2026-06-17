@@ -6,10 +6,16 @@
 #
 # Contents beyond the stock aspnet runtime:
 #   - libchromaprint-tools  → provides `fpcalc` for acoustic fingerprinting (AcoustID).
-#   - curl                  → used by container healthchecks.
+#   - ffmpeg                → audio extraction/remux for the wishlist yt-dlp downloader.
+#   - yt-dlp (self-contained PyInstaller build) → fetches wishlist tracks from YouTube.
+#   - curl                  → used by container healthchecks and to fetch the yt-dlp binary.
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libchromaprint-tools \
+    ffmpeg \
     curl \
+    ca-certificates \
+    && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -o /usr/local/bin/yt-dlp \
+    && chmod a+rx /usr/local/bin/yt-dlp \
     && rm -rf /var/lib/apt/lists/*

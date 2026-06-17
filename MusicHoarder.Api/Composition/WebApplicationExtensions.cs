@@ -30,6 +30,7 @@ public static class WebApplicationExtensions
         app.MapAlbumQualityEndpoints();
         app.MapSnapshotsEndpoints();
         app.MapSpotifyEndpoints();
+        app.MapWishlistEndpoints();
         app.MapSettingsEndpoints();
         app.MapAuthEndpoints();
         app.MapWebAuthnEndpoints();

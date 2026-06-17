@@ -524,4 +524,42 @@ public class MusicEnricherOptions
     /// "Various Artists" — the literal album-artist string every music server recognizes.
     /// </summary>
     public string CompilationFolderName { get; set; } = "Various Artists";
+
+    // --- Wishlist downloads (Spotify wishlist → downloader → source directory) ---
+
+    /// <summary>
+    /// Master switch for the wishlist downloader. When false the download worker idles and the API
+    /// download trigger is a no-op (wishlist items are still tracked and synced, just never fetched).
+    /// </summary>
+    public bool EnableWishlistDownloads { get; set; } = false;
+
+    /// <summary>Name of the <c>IDownloadProvider</c> to use, resolved by <c>IDownloadProvider.Name</c>. Default "yt-dlp".</summary>
+    public string DownloadProvider { get; set; } = "yt-dlp";
+
+    /// <summary>Path to the yt-dlp binary. Must be on PATH or an absolute path.</summary>
+    public string YtDlpPath { get; set; } = "yt-dlp";
+
+    /// <summary>Path to the ffmpeg binary yt-dlp uses for extraction/remux. Empty lets yt-dlp find it on PATH.</summary>
+    public string FfmpegPath { get; set; } = string.Empty;
+
+    /// <summary>Number of concurrent downloads.</summary>
+    [Range(1, 16)]
+    public int DownloadConcurrency { get; set; } = 2;
+
+    /// <summary>Delay in seconds before the download worker re-checks for pending wishlist items.</summary>
+    [Range(1, 300)]
+    public int DownloadIdleDelaySeconds { get; set; } = 20;
+
+    /// <summary>
+    /// Subdirectory under <see cref="SourceDirectory"/> that downloads are written into (so they're
+    /// picked up by the scanner like any other source file). Created on demand.
+    /// </summary>
+    public string DownloadSubdirectory { get; set; } = "wishlist";
+
+    /// <summary>Target audio format/codec for the download (yt-dlp <c>--audio-format</c>). Default "opus" (YouTube native, no re-encode).</summary>
+    public string DownloadAudioFormat { get; set; } = "opus";
+
+    /// <summary>Maximum download attempts per wishlist item before it stays Failed.</summary>
+    [Range(1, 10)]
+    public int DownloadMaxAttempts { get; set; } = 3;
 }

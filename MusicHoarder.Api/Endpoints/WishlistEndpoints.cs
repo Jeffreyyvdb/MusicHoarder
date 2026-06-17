@@ -1,0 +1,243 @@
+using Microsoft.EntityFrameworkCore;
+using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.Auth.EndpointFilters;
+using MusicHoarder.Api.Jobs;
+using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Pipeline;
+using MusicHoarder.Api.Spotify;
+using MusicHoarder.Api.Wishlist;
+
+namespace MusicHoarder.Api.Endpoints;
+
+public static class WishlistEndpoints
+{
+    public static IEndpointRouteBuilder MapWishlistEndpoints(this IEndpointRouteBuilder app)
+    {
+        var group = app.MapGroup("/api/wishlist").WithTags("Wishlist").RequireOwner();
+
+        group.MapGet("/", async (
+                string? status,
+                int? offset,
+                int? limit,
+                MusicHoarderDbContext db,
+                CancellationToken ct) =>
+            {
+                WishlistItemStatus? statusFilter = null;
+                if (!string.IsNullOrWhiteSpace(status))
+                {
+                    if (!Enum.TryParse(status, ignoreCase: true, out WishlistItemStatus parsed))
+                        return Results.BadRequest(new { message = $"Invalid status '{status}'." });
+                    statusFilter = parsed;
+                }
+
+                var take = Math.Clamp(limit ?? 50, 1, 200);
+                var skip = Math.Max(offset ?? 0, 0);
+
+                var query = db.WishlistItems.AsNoTracking().AsQueryable();
+                if (statusFilter is { } s)
+                    query = query.Where(w => w.Status == s);
+
+                var total = await query.CountAsync(ct);
+                var items = await query
+                    .OrderByDescending(w => w.SpotifyAddedAtUtc)
+                    .ThenByDescending(w => w.Id)
+                    .Skip(skip)
+                    .Take(take)
+                    .Select(w => new WishlistItemDto(
+                        w.Id,
+                        w.SpotifyTrackId,
+                        w.Title,
+                        w.Artist,
+                        w.Album,
+                        w.Isrc,
+                        w.DurationMs,
+                        w.AlbumArt,
+                        w.SpotifyAddedAtUtc,
+                        w.Status.ToString(),
+                        w.DownloadProvider,
+                        w.DownloadedFilePath,
+                        w.DownloadedSongId,
+                        w.AttemptCount,
+                        w.LastError,
+                        w.DownloadedSong != null ? w.DownloadedSong.EnrichmentStatus.ToString() : null,
+                        w.DownloadedSong != null ? w.DownloadedSong.LibraryBuildStatus.ToString() : null,
+                        w.CreatedAtUtc,
+                        w.UpdatedAtUtc))
+                    .ToListAsync(ct);
+
+                return Results.Ok(new WishlistItemsResponse(total, skip, take, items));
+            })
+            .WithName("GetWishlist")
+            .WithSummary("Paginated wishlist items, optionally filtered by status.");
+
+        group.MapGet("/sources", async (MusicHoarderDbContext db, CancellationToken ct) =>
+            {
+                var sources = await db.WishlistSources
+                    .AsNoTracking()
+                    .OrderBy(s => s.SourceType)
+                    .ThenBy(s => s.Name)
+                    .Select(s => new WishlistSourceDto(
+                        s.Id,
+                        s.SourceType.ToString(),
+                        s.SpotifyPlaylistId,
+                        s.Name,
+                        s.ImageUrl,
+                        s.AutoSync,
+                        s.LastSyncedAtUtc,
+                        s.CreatedAtUtc,
+                        db.WishlistItems.Count(w => w.WishlistSourceId == s.Id)))
+                    .ToListAsync(ct);
+
+                return Results.Ok(new { sources });
+            })
+            .WithName("GetWishlistSources")
+            .WithSummary("Lists the owner's wishlist sources.");
+
+        group.MapPost("/sources", async (
+                AddWishlistSourceRequest body,
+                IWishlistService wishlist,
+                ICurrentUserAccessor currentUser,
+                CancellationToken ct) =>
+            {
+                if (!Enum.TryParse(body.Type, ignoreCase: true, out WishlistSourceType type))
+                    return Results.BadRequest(new { message = "type must be 'LikedSongs' or 'Playlist'." });
+
+                try
+                {
+                    var result = await wishlist.AddSourceAsync(currentUser.UserId, type, body.PlaylistId, body.AutoSync ?? false, ct);
+                    return Results.Ok(new { sourceId = result.SourceId, added = result.Added, alreadyPresent = result.AlreadyPresent });
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return Results.BadRequest(new { message = ex.Message });
+                }
+                catch (SpotifyNotConnectedException)
+                {
+                    return Results.Json(new { error = "spotify_not_connected" }, statusCode: 401);
+                }
+                catch (SpotifyRateLimitException)
+                {
+                    return Results.Json(new { error = "rate_limit_exceeded" }, statusCode: 429);
+                }
+            })
+            .WithName("AddWishlistSource")
+            .WithSummary("Add Liked Songs or a playlist as a wishlist source and snapshot its tracks now.");
+
+        group.MapPatch("/sources/{id:int}", async (
+                int id,
+                PatchWishlistSourceRequest body,
+                MusicHoarderDbContext db,
+                CancellationToken ct) =>
+            {
+                var source = await db.WishlistSources.FirstOrDefaultAsync(s => s.Id == id, ct);
+                if (source is null)
+                    return Results.NotFound(new { message = $"Wishlist source {id} not found." });
+
+                if (body.AutoSync is { } autoSync)
+                    source.AutoSync = autoSync;
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(new { source.Id, source.AutoSync });
+            })
+            .WithName("UpdateWishlistSource")
+            .WithSummary("Toggle a wishlist source's auto-sync.");
+
+        group.MapDelete("/sources/{id:int}", async (int id, MusicHoarderDbContext db, CancellationToken ct) =>
+            {
+                var source = await db.WishlistSources.FirstOrDefaultAsync(s => s.Id == id, ct);
+                if (source is null)
+                    return Results.NotFound(new { message = $"Wishlist source {id} not found." });
+
+                // Items survive (their FK nulls out via OnDelete.SetNull) so already-acquired tracks remain.
+                db.WishlistSources.Remove(source);
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(new { message = "Source removed." });
+            })
+            .WithName("DeleteWishlistSource")
+            .WithSummary("Remove a wishlist source (keeps already-acquired items).");
+
+        group.MapPost("/items/{id:int}/retry", async (int id, MusicHoarderDbContext db, CancellationToken ct) =>
+            {
+                var item = await db.WishlistItems.FirstOrDefaultAsync(w => w.Id == id, ct);
+                if (item is null)
+                    return Results.NotFound(new { message = $"Wishlist item {id} not found." });
+
+                item.Status = WishlistItemStatus.Pending;
+                item.LastError = null;
+                item.UpdatedAtUtc = DateTime.UtcNow;
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(new { item.Id, status = item.Status.ToString() });
+            })
+            .WithName("RetryWishlistItem")
+            .WithSummary("Reset a wishlist item to Pending so the download worker retries it.");
+
+        group.MapDelete("/items/{id:int}", async (int id, MusicHoarderDbContext db, CancellationToken ct) =>
+            {
+                var item = await db.WishlistItems.FirstOrDefaultAsync(w => w.Id == id, ct);
+                if (item is null)
+                    return Results.NotFound(new { message = $"Wishlist item {id} not found." });
+
+                db.WishlistItems.Remove(item);
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(new { message = "Item removed." });
+            })
+            .WithName("DeleteWishlistItem")
+            .WithSummary("Remove a wishlist item.");
+
+        group.MapPost("/download", (JobManager jobManager, IDirectoryAvailability availability) =>
+            {
+                if (!availability.Current.SourceAvailable)
+                    return Results.Conflict(new { message = "Source directory is offline. Reconnect before downloading." });
+
+                if (!jobManager.TryStartJob(JobType.Download, out var jobId, out _))
+                    return Results.Conflict(new { message = "A download job is already running." });
+
+                return Results.Accepted("/api/enrichment/status", new { jobId });
+            })
+            .WithName("TriggerWishlistDownload")
+            .WithSummary("Kick off a download sweep of Pending wishlist items.");
+
+        return app;
+    }
+}
+
+public sealed record WishlistItemDto(
+    int Id,
+    string SpotifyTrackId,
+    string Title,
+    string Artist,
+    string? Album,
+    string? Isrc,
+    int DurationMs,
+    string? AlbumArt,
+    DateTime? SpotifyAddedAtUtc,
+    string Status,
+    string? DownloadProvider,
+    string? DownloadedFilePath,
+    int? DownloadedSongId,
+    int AttemptCount,
+    string? LastError,
+    string? LibraryEnrichmentStatus,
+    string? LibraryBuildStatus,
+    DateTime CreatedAtUtc,
+    DateTime UpdatedAtUtc);
+
+public sealed record WishlistItemsResponse(
+    int Total,
+    int Offset,
+    int Limit,
+    IReadOnlyList<WishlistItemDto> Items);
+
+public sealed record WishlistSourceDto(
+    int Id,
+    string SourceType,
+    string? SpotifyPlaylistId,
+    string Name,
+    string? ImageUrl,
+    bool AutoSync,
+    DateTime? LastSyncedAtUtc,
+    DateTime CreatedAtUtc,
+    int ItemCount);
+
+public sealed record AddWishlistSourceRequest(string Type, string? PlaylistId, bool? AutoSync);
+
+public sealed record PatchWishlistSourceRequest(bool? AutoSync);

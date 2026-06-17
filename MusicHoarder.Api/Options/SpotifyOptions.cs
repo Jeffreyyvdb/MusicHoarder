@@ -73,4 +73,10 @@ public class SpotifyOptions
     /// How often to refresh Spotify liked-song ↔ local library match cache in the background (0 = disabled).
     /// </summary>
     public int LibraryMatchSyncIntervalMinutes { get; set; } = 120;
+
+    /// <summary>
+    /// How often the wishlist sync polls auto-synced sources (Liked Songs / playlists) for newly
+    /// added tracks and appends them as Pending wishlist items (0 = disabled).
+    /// </summary>
+    public int WishlistSyncIntervalMinutes { get; set; } = 30;
 }

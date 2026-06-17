@@ -7,6 +7,7 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.CoverArtArchive;
 using MusicHoarder.Api.Deezer;
+using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Enrichment.AlbumTracklist;
 using MusicHoarder.Api.Enrichment.AlbumTracklist.Providers;
@@ -22,6 +23,7 @@ using MusicHoarder.Api.Settings;
 using MusicHoarder.Api.Snapshots;
 using MusicHoarder.Api.Spotify;
 using MusicHoarder.Api.Version;
+using MusicHoarder.Api.Wishlist;
 
 namespace MusicHoarder.Api.Composition;
 
@@ -131,6 +133,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<FingerprintProgressTracker>();
         services.AddSingleton<EnrichmentProgressTracker>();
         services.AddSingleton<LibraryBuilderProgressTracker>();
+        services.AddSingleton<DownloadProgressTracker>();
         services.AddSingleton<PurgeStatusTracker>();
         services.AddSingleton<IFpcalcService, FpcalcService>();
         services.AddSingleton<IAcoustIdMatchValidator, AcoustIdMatchValidator>();
@@ -175,6 +178,12 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<FingerprintBackgroundService>();
         services.AddHostedService<EnrichmentBackgroundService>();
         services.AddHostedService<LibraryBuilderBackgroundService>();
+
+        // Wishlist downloader: fetches Pending wishlist items into the source tree, then the scanner
+        // ingests them like any other file. Pluggable provider (yt-dlp first).
+        services.AddSingleton<IDownloadProvider, YtDlpDownloadProvider>();
+        services.AddScoped<WishlistDownloadProcessor>();
+        services.AddHostedService<DownloadBackgroundService>();
 
         // Multi-provider canonical album tracklists (full-album view, missing tracks greyed out).
         services.AddSingleton<IAlbumTracklistProvider, MusicBrainzAlbumTracklistProvider>();
@@ -336,6 +345,8 @@ public static class ServiceCollectionExtensions
         });
         services.AddHostedService<SpotifyTokenRefreshService>();
         services.AddHostedService<SpotifyLibraryMatchBackgroundService>();
+        services.AddScoped<IWishlistService, WishlistService>();
+        services.AddHostedService<WishlistSyncBackgroundService>();
 
         services.AddMemoryCache();
         services.AddSingleton<ISpotifyApiService>(sp =>

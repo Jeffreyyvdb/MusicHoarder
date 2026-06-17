@@ -45,6 +45,8 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<DirectoryPreference> DirectoryPreferences { get; set; } = null!;
     public DbSet<SpotifySettings> SpotifySettings { get; set; } = null!;
     public DbSet<SpotifyTrackLibraryMatch> SpotifyTrackLibraryMatches { get; set; } = null!;
+    public DbSet<WishlistSource> WishlistSources { get; set; } = null!;
+    public DbSet<WishlistItem> WishlistItems { get; set; } = null!;
     public DbSet<RuntimeSettings> RuntimeSettings { get; set; } = null!;
     public DbSet<IngestRun> IngestRuns { get; set; } = null!;
     public DbSet<LibraryWriteEvent> LibraryWriteEvents { get; set; } = null!;
@@ -211,6 +213,39 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => e.MatchStatus);
 
             entity.HasQueryFilter(m => !hasUser || m.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<WishlistSource>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // One source row per (user, kind, playlist). LikedSongs has a null playlist id, so a user
+            // can only register their Liked Songs once; playlists are keyed by their Spotify id.
+            entity.HasIndex(e => new { e.OwnerUserId, e.SourceType, e.SpotifyPlaylistId }).IsUnique();
+
+            entity.HasQueryFilter(s => !hasUser || s.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<WishlistItem>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // Natural cross-source dedupe: one wishlist row per (user, spotify track).
+            entity.HasIndex(e => new { e.OwnerUserId, e.SpotifyTrackId }).IsUnique();
+            // The download worker sweeps by owner + status.
+            entity.HasIndex(e => new { e.OwnerUserId, e.Status });
+
+            // Removing a source keeps already-acquired tracks (the FK just nulls out).
+            entity.HasOne(e => e.WishlistSource)
+                .WithMany()
+                .HasForeignKey(e => e.WishlistSourceId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Songs are soft-deleted in practice; SetNull is defensive against a hard delete.
+            entity.HasOne(e => e.DownloadedSong)
+                .WithMany()
+                .HasForeignKey(e => e.DownloadedSongId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
         });
 
         modelBuilder.Entity<RuntimeSettings>(entity =>

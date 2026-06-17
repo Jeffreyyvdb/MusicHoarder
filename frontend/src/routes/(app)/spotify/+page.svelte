@@ -13,6 +13,7 @@
     fetchSpotifyLikedSongs,
     fetchSpotifyPlaylists,
     fetchSpotifyCredentials,
+    addWishlistSource,
     type SpotifyStatusResponse,
     type SpotifyApiTrack,
     type SpotifyApiPlaylist,
@@ -62,6 +63,55 @@
   let playlistSearchQuery = $state('');
 
   let expandedLikedMatchIds = $state(new Set<string>());
+
+  // ── Wishlist actions ──────────────────────────────────────────────────────
+  let wishlistAutoSync = $state(true);
+  let addingLiked = $state(false);
+  let addingPlaylistId = $state<string | null>(null);
+  let wishlistBanner = $state<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  async function addLikedToWishlist() {
+    addingLiked = true;
+    wishlistBanner = null;
+    try {
+      const result = await addWishlistSource('LikedSongs', { autoSync: wishlistAutoSync });
+      wishlistBanner = {
+        type: 'success',
+        message: `Added ${result.added} track${result.added === 1 ? '' : 's'} to your wishlist${
+          wishlistAutoSync ? ' (auto-sync on)' : ''
+        }.`
+      };
+    } catch (err) {
+      wishlistBanner = {
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Failed to add to wishlist'
+      };
+    } finally {
+      addingLiked = false;
+    }
+  }
+
+  async function addPlaylistToWishlist(playlist: SpotifyApiPlaylist) {
+    addingPlaylistId = playlist.spotifyId;
+    wishlistBanner = null;
+    try {
+      const result = await addWishlistSource('Playlist', {
+        playlistId: playlist.spotifyId,
+        autoSync: wishlistAutoSync
+      });
+      wishlistBanner = {
+        type: 'success',
+        message: `Added ${result.added} track${result.added === 1 ? '' : 's'} from "${playlist.name}" to your wishlist.`
+      };
+    } catch (err) {
+      wishlistBanner = {
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Failed to add playlist to wishlist'
+      };
+    } finally {
+      addingPlaylistId = null;
+    }
+  }
 
   const likedLimit = 50;
 
@@ -435,12 +485,36 @@
               <Play class="size-5 fill-current" />
             </button>
 
+            <Button size="sm" onclick={addLikedToWishlist} disabled={addingLiked}>
+              {#if addingLiked}
+                <Loader2 class="size-4 animate-spin" />
+              {:else}
+                <Heart class="size-4" />
+              {/if}
+              Add to wishlist
+            </Button>
+            <label class="text-muted-foreground flex cursor-pointer items-center gap-1.5 text-xs">
+              <input type="checkbox" bind:checked={wishlistAutoSync} class="accent-[#1DB954]" />
+              Auto-sync new likes
+            </label>
+
             <div class="text-muted-foreground ml-auto flex items-center gap-3 text-xs">
               <span class="bg-[#1DB954]/15 text-[#1DB954] rounded px-2.5 py-1 font-mono">
                 SPOTIFY
               </span>
             </div>
           </div>
+
+          {#if wishlistBanner}
+            <div
+              class="mx-6 mt-3 rounded-md border px-3 py-2 text-sm sm:mx-9 {wishlistBanner.type ===
+              'success'
+                ? 'border-[#1DB954]/30 bg-[#1DB954]/10 text-[#1DB954]'
+                : 'border-destructive/30 bg-destructive/10 text-destructive'}"
+            >
+              {wishlistBanner.message}
+            </div>
+          {/if}
 
           <!-- Filter -->
           <div class="border-border flex items-center gap-3 border-b px-4 py-3 md:px-6">
@@ -541,7 +615,12 @@
               class="grid grid-cols-2 gap-4 p-4 sm:grid-cols-3 md:grid-cols-4 md:p-6 lg:grid-cols-5"
             >
               {#each filteredPlaylists as playlist (playlist.spotifyId)}
-                <PlaylistCard {playlist} onClick={() => (selectedPlaylist = playlist)} />
+                <PlaylistCard
+                  {playlist}
+                  onClick={() => (selectedPlaylist = playlist)}
+                  onAddToWishlist={() => addPlaylistToWishlist(playlist)}
+                  isAdding={addingPlaylistId === playlist.spotifyId}
+                />
               {/each}
             </div>
             {#if filteredPlaylists.length === 0 && !isLoadingPlaylists}

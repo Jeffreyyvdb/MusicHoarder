@@ -2,7 +2,7 @@ using System.Threading.Channels;
 
 namespace MusicHoarder.Api.Jobs;
 
-public enum JobType { None, Scan, Fingerprint, Enrich, Build, Purge }
+public enum JobType { None, Scan, Fingerprint, Enrich, Build, Purge, Download }
 
 public enum JobRunStatus { Idle, Running, Completed, Cancelled, Failed }
 
@@ -24,7 +24,9 @@ public record ProgressSnapshot(
     StepSnapshot Scan,
     StepSnapshot Fingerprint,
     StepSnapshot Enrich,
-    StepSnapshot Build);
+    StepSnapshot Build,
+    int Downloaded = 0,
+    StepSnapshot? Download = null);
 
 /// <summary>
 /// Thread-safe singleton that provides per-step job orchestration.
@@ -52,6 +54,7 @@ public class JobManager
         [JobType.Enrich] = new(),
         [JobType.Build] = new(),
         [JobType.Purge] = new(),
+        [JobType.Download] = new(),
     };
 
     private readonly Channel<Guid> _scanChannel =
@@ -78,10 +81,17 @@ public class JobManager
             FullMode = BoundedChannelFullMode.DropOldest
         });
 
+    private readonly Channel<Guid> _downloadChannel =
+        Channel.CreateBounded<Guid>(new BoundedChannelOptions(1)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest
+        });
+
     public ChannelReader<Guid> ScanTriggers => _scanChannel.Reader;
     public ChannelReader<Guid> FingerprintTriggers => _fingerprintChannel.Reader;
     public ChannelReader<Guid> EnrichTriggers => _enrichChannel.Reader;
     public ChannelReader<Guid> BuildTriggers => _buildChannel.Reader;
+    public ChannelReader<Guid> DownloadTriggers => _downloadChannel.Reader;
 
     /// <summary>
     /// Start a job for the given step. Returns false if that step is already running.
@@ -311,6 +321,7 @@ public class JobManager
         JobType.Fingerprint => _fingerprintChannel,
         JobType.Enrich => _enrichChannel,
         JobType.Build => _buildChannel,
+        JobType.Download => _downloadChannel,
         _ => throw new ArgumentOutOfRangeException(nameof(type))
     };
 }
