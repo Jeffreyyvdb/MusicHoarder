@@ -17,8 +17,6 @@ public class SpotifyApiEnrichmentProvider(
     IOptions<SpotifyOptions> spotifyOptions,
     ILogger<SpotifyApiEnrichmentProvider> logger) : IEnrichmentProvider
 {
-    private const double FuzzyThreshold = 85.0;
-
     public string Name => "SpotifyAPI";
     public int Priority => 300;
 
@@ -66,7 +64,7 @@ public class SpotifyApiEnrichmentProvider(
         {
             // Identifier-first: if the file already carries an ISRC, ask Spotify for that exact
             // recording before falling back to a fuzzy artist+title search.
-            var fileIsrc = NormalizeIsrc(song.Isrc);
+            var fileIsrc = ProviderIdentity.NormalizeIsrc(song.Isrc);
             tracks = [];
             if (!string.IsNullOrEmpty(fileIsrc))
             {
@@ -113,7 +111,7 @@ public class SpotifyApiEnrichmentProvider(
         if (bestScore < opts.SpotifyApiMinConfidence - 1e-9)
             return new ProviderNoMatch(BuildResult(song, bestTrack, bestScore, bestWarnings, EnrichmentStatus.NeedsReview));
 
-        var blocking = HasBlockingWarning(bestWarnings);
+        var blocking = MatchWarnings.AnyBlocking(bestWarnings);
         var status = bestScore >= opts.SpotifyApiMatchedThreshold - 1e-9 && !blocking
             ? EnrichmentStatus.Matched
             : EnrichmentStatus.NeedsReview;
@@ -147,7 +145,7 @@ public class SpotifyApiEnrichmentProvider(
             MusicBrainzReleaseId: null,
             SpotifyId: track.Id,
             AcoustIdTrackId: null,
-            Isrc: string.IsNullOrWhiteSpace(track.Isrc) ? null : NormalizeIsrc(track.Isrc),
+            Isrc: string.IsNullOrWhiteSpace(track.Isrc) ? null : ProviderIdentity.NormalizeIsrc(track.Isrc),
             MatchedBy: Name,
             MatchConfidence: Math.Clamp(score, 0, 1),
             MatchWarnings: warnings,
@@ -170,86 +168,29 @@ public class SpotifyApiEnrichmentProvider(
         return SpotifyLibraryComparisonService.Normalize(combined);
     }
 
+    // Spotify is the reference tuning the other catalog providers mirror; the shared scorer applies
+    // the signals in the common order (identity → ISRC → duration → version → album → track-number).
+    // The album-agreement step compares the file's own album (song.Album), which a path-derived hint
+    // leaves null — equivalent to the previous explicit AlbumFromPath guard, since an album guessed
+    // from the path is only ever set when the embedded album tag was missing.
     private static (double Score, List<string> Warnings) ScoreCandidate(
         SongMetadata song,
         SongSearchText.Resolved source,
         SpotifyCatalogTrack track,
         MusicEnricherOptions opts)
-    {
-        var warnings = new List<string>();
-
-        // Embedded tags score (and block) as before; a path-derived identity is corroborated by
-        // token-presence against the filename free-text and flagged identity_unverified (non-blocking).
-        var score = SourceIdentityScorer.Score(source, track.Artist, track.Title, FuzzyThreshold, warnings);
-
-        var fileIsrc = NormalizeIsrc(song.Isrc);
-        var trackIsrc = NormalizeIsrc(track.Isrc);
-        if (!string.IsNullOrEmpty(fileIsrc))
-        {
-            if (!string.IsNullOrEmpty(trackIsrc))
-            {
-                if (string.Equals(fileIsrc, trackIsrc, StringComparison.Ordinal))
-                    score = Math.Min(1.0, score + opts.SpotifyApiIsrcConfidenceBoost);
-                else
-                {
-                    warnings.Add("isrc_mismatch");
-                    score *= 0.65;
-                }
-            }
-            else
-            {
-                warnings.Add("isrc_not_on_spotify_track");
-            }
-        }
-
-        var songDurationSec = song.DurationSeconds
-            ?? (song.DurationMs is int ms ? ms / 1000.0 : (double?)null);
-        if (songDurationSec is not null && track.DurationMs > 0)
-        {
-            var delta = Math.Abs(songDurationSec.Value - track.DurationMs / 1000.0);
-            if (delta > opts.SpotifyApiDurationDeltaThresholdSeconds)
-            {
-                warnings.Add("duration_mismatch");
-                score *= opts.SpotifyApiDurationMismatchPenalty;
-            }
-        }
-
-        // Keep a "Live"/"Remix"/"Acoustic" candidate from satisfying a studio request (and vice-versa).
-        var sourceQual = VersionQualifier.Detect(song.Title, song.Album);
-        var candQual = VersionQualifier.Detect(track.Title, track.AlbumName);
-        if (!VersionQualifier.Compare(sourceQual, candQual))
-        {
-            warnings.Add("version_mismatch");
-            score *= 0.6;
-        }
-
-        // Album/track-number are confirmation signals only — a track legitimately appears on many
-        // releases, so we reward agreement but never penalize a difference (no blocking warning). The
-        // boosts are left un-capped (the final confidence is clamped in BuildResult) so they still break
-        // a tie when artist+title already saturate the score at 1.0 — exactly the original-album-vs-
-        // "Greatest Hits"-reissue case where both releases otherwise score identically.
-        // Skip album scoring when the album is itself a path guess (e.g. an "A" bucket folder) — it
-        // would otherwise emit a spurious album_mismatch and never legitimately corroborate.
-        if (!source.AlbumFromPath && FuzzyTextMatch.Ratio(source.Album, track.AlbumName) is double albumRatio)
-        {
-            if (albumRatio >= FuzzyThreshold)
-                score += opts.AlbumAgreementConfidenceBoost;
-            else
-                warnings.Add("album_mismatch");
-        }
-
-        if (source.TrackNumber is int sourceTrack && track.TrackNumber == sourceTrack)
-            score += 0.02;
-
-        return (Math.Max(0.0, score), warnings);
-    }
-
-    private static bool HasBlockingWarning(List<string> warnings) => MatchWarnings.AnyBlocking(warnings);
-
-    private static string NormalizeIsrc(string? isrc)
-    {
-        if (string.IsNullOrWhiteSpace(isrc))
-            return string.Empty;
-        return isrc.Trim().ToUpperInvariant().Replace("-", "", StringComparison.Ordinal);
-    }
+        => CatalogCandidateScorer.Score(
+            song,
+            source,
+            new CatalogCandidateScorer.CatalogCandidate(
+                track.Artist, track.Title, track.AlbumName, track.Isrc, track.DurationMs, track.TrackNumber),
+            new CatalogCandidateScorer.ScoringTuning(
+                DurationDeltaThresholdSeconds: opts.SpotifyApiDurationDeltaThresholdSeconds,
+                DurationMismatchPenalty: opts.SpotifyApiDurationMismatchPenalty,
+                VersionMismatchPenalty: 0.6,
+                AlbumAgreementConfidenceBoost: opts.AlbumAgreementConfidenceBoost,
+                Isrc: new CatalogCandidateScorer.IsrcScoring(
+                    ConfidenceBoost: opts.SpotifyApiIsrcConfidenceBoost,
+                    MismatchPenalty: 0.65,
+                    NotOnCandidateWarning: "isrc_not_on_spotify_track"),
+                TrackNumberBoost: 0.02));
 }

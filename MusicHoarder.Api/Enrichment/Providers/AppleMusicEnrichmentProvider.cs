@@ -17,12 +17,6 @@ public class AppleMusicEnrichmentProvider(
     IOptions<MusicEnricherOptions> options,
     ILogger<AppleMusicEnrichmentProvider> logger) : IEnrichmentProvider
 {
-    private const double FuzzyThreshold = 85.0;
-
-    // Shared scoring constants (mirror SpotifyApiEnrichmentProvider's tuned values).
-    private const double DurationMismatchPenalty = 0.7;
-    private const double VersionMismatchPenalty = 0.6;
-
     public string Name => "AppleMusic";
     public int Priority => 350;
 
@@ -90,7 +84,7 @@ public class AppleMusicEnrichmentProvider(
         if (bestScore < opts.AppleMusicApiMinConfidence - 1e-9)
             return new ProviderNoMatch(BuildResult(song, bestTrack, bestScore, bestWarnings, EnrichmentStatus.NeedsReview));
 
-        var blocking = HasBlockingWarning(bestWarnings);
+        var blocking = MatchWarnings.AnyBlocking(bestWarnings);
         var status = bestScore >= opts.AppleMusicApiMatchedThreshold - 1e-9 && !blocking
             ? EnrichmentStatus.Matched
             : EnrichmentStatus.NeedsReview;
@@ -133,53 +127,22 @@ public class AppleMusicEnrichmentProvider(
             DurationSeconds: track.DurationMs > 0 ? track.DurationMs / 1000 : null);
     }
 
+    // iTunes carries no ISRC, so Apple Music omits the ISRC step (Isrc tuning left null) and otherwise
+    // mirrors the shared scoring pipeline with the same penalties as Spotify/Deezer.
     private static (double Score, List<string> Warnings) ScoreCandidate(
         SongMetadata song,
         SongSearchText.Resolved source,
         AppleMusicCatalogTrack track,
         MusicEnricherOptions opts)
-    {
-        var warnings = new List<string>();
-
-        // Embedded tags score (and block) as before; a path-derived identity is corroborated by
-        // token-presence against the filename free-text and flagged identity_unverified (non-blocking).
-        var score = SourceIdentityScorer.Score(source, track.Artist, track.Title, FuzzyThreshold, warnings);
-
-        var songDurationSec = song.DurationSeconds
-            ?? (song.DurationMs is int ms ? ms / 1000.0 : (double?)null);
-        if (songDurationSec is not null && track.DurationMs > 0)
-        {
-            var delta = Math.Abs(songDurationSec.Value - track.DurationMs / 1000.0);
-            if (delta > opts.AppleMusicApiDurationDeltaThresholdSeconds)
-            {
-                warnings.Add("duration_mismatch");
-                score *= DurationMismatchPenalty;
-            }
-        }
-
-        var sourceQual = VersionQualifier.Detect(song.Title, song.Album);
-        var candQual = VersionQualifier.Detect(track.Title, track.AlbumName);
-        if (!VersionQualifier.Compare(sourceQual, candQual))
-        {
-            warnings.Add("version_mismatch");
-            score *= VersionMismatchPenalty;
-        }
-
-        // Album is a confirmation signal only: a track legitimately appears on many releases, so we
-        // reward agreement with the file's album (the original pressing) but never penalize a
-        // difference. The boost is left un-capped here (the final confidence is clamped in BuildResult)
-        // so it still breaks a tie when artist+title already saturate the score at 1.0 — that's exactly
-        // the original-album-vs-"Greatest Hits"-reissue case where both otherwise score identically.
-        if (FuzzyTextMatch.Ratio(song.Album, track.AlbumName) is double albumRatio)
-        {
-            if (albumRatio >= FuzzyThreshold)
-                score += opts.AlbumAgreementConfidenceBoost;
-            else
-                warnings.Add("album_mismatch");
-        }
-
-        return (Math.Max(0.0, score), warnings);
-    }
-
-    private static bool HasBlockingWarning(List<string> warnings) => MatchWarnings.AnyBlocking(warnings);
+        => CatalogCandidateScorer.Score(
+            song,
+            source,
+            new CatalogCandidateScorer.CatalogCandidate(
+                track.Artist, track.Title, track.AlbumName, Isrc: null, track.DurationMs, track.TrackNumber),
+            new CatalogCandidateScorer.ScoringTuning(
+                DurationDeltaThresholdSeconds: opts.AppleMusicApiDurationDeltaThresholdSeconds,
+                DurationMismatchPenalty: 0.7,
+                VersionMismatchPenalty: 0.6,
+                AlbumAgreementConfidenceBoost: opts.AlbumAgreementConfidenceBoost,
+                Isrc: null));
 }

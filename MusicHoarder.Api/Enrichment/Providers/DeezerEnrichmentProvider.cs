@@ -18,14 +18,6 @@ public class DeezerEnrichmentProvider(
     IOptions<MusicEnricherOptions> options,
     ILogger<DeezerEnrichmentProvider> logger) : IEnrichmentProvider
 {
-    private const double FuzzyThreshold = 85.0;
-
-    // Shared scoring constants (mirror SpotifyApiEnrichmentProvider's tuned values).
-    private const double IsrcConfidenceBoost = 0.12;
-    private const double IsrcMismatchPenalty = 0.65;
-    private const double DurationMismatchPenalty = 0.7;
-    private const double VersionMismatchPenalty = 0.6;
-
     public string Name => "Deezer";
     public int Priority => 250;
 
@@ -51,7 +43,7 @@ public class DeezerEnrichmentProvider(
         {
             // Identifier-first: if the file already carries an ISRC, ask Deezer for that exact
             // recording (full detail) before falling back to a fuzzy artist+title search.
-            var fileIsrc = NormalizeIsrc(song.Isrc);
+            var fileIsrc = ProviderIdentity.NormalizeIsrc(song.Isrc);
             if (!string.IsNullOrEmpty(fileIsrc))
             {
                 var isrcTrack = await catalog.LookupByIsrcAsync(fileIsrc, ct);
@@ -126,7 +118,7 @@ public class DeezerEnrichmentProvider(
         if (score < opts.DeezerApiMinConfidence - 1e-9)
             return new ProviderNoMatch(BuildResult(song, track, score, warnings, EnrichmentStatus.NeedsReview));
 
-        var blocking = HasBlockingWarning(warnings);
+        var blocking = MatchWarnings.AnyBlocking(warnings);
         var status = score >= opts.DeezerApiMatchedThreshold - 1e-9 && !blocking
             ? EnrichmentStatus.Matched
             : EnrichmentStatus.NeedsReview;
@@ -160,7 +152,7 @@ public class DeezerEnrichmentProvider(
             MusicBrainzReleaseId: null,
             SpotifyId: null,
             AcoustIdTrackId: null,
-            Isrc: string.IsNullOrWhiteSpace(track.Isrc) ? null : NormalizeIsrc(track.Isrc),
+            Isrc: string.IsNullOrWhiteSpace(track.Isrc) ? null : ProviderIdentity.NormalizeIsrc(track.Isrc),
             MatchedBy: Name,
             MatchConfidence: Math.Clamp(score, 0, 1),
             MatchWarnings: warnings,
@@ -170,80 +162,23 @@ public class DeezerEnrichmentProvider(
             DurationSeconds: track.DurationMs > 0 ? track.DurationMs / 1000 : null);
     }
 
+    // Deezer's tuned values mirror Spotify's; only the threshold knobs differ. The shared scorer
+    // applies them in the common order (identity → ISRC → duration → version → album).
     private static (double Score, List<string> Warnings) ScoreCandidate(
         SongMetadata song,
         SongSearchText.Resolved source,
         DeezerCatalogTrack track,
         MusicEnricherOptions opts)
-    {
-        var warnings = new List<string>();
-
-        // Embedded tags score (and block) as before; a path-derived identity is corroborated by
-        // token-presence against the filename free-text and flagged identity_unverified (non-blocking).
-        var score = SourceIdentityScorer.Score(source, track.Artist, track.Title, FuzzyThreshold, warnings);
-
-        var fileIsrc = NormalizeIsrc(song.Isrc);
-        var trackIsrc = NormalizeIsrc(track.Isrc);
-        if (!string.IsNullOrEmpty(fileIsrc))
-        {
-            if (!string.IsNullOrEmpty(trackIsrc))
-            {
-                if (string.Equals(fileIsrc, trackIsrc, StringComparison.Ordinal))
-                    score = Math.Min(1.0, score + IsrcConfidenceBoost);
-                else
-                {
-                    warnings.Add("isrc_mismatch");
-                    score *= IsrcMismatchPenalty;
-                }
-            }
-            else
-            {
-                warnings.Add("isrc_not_on_deezer_track");
-            }
-        }
-
-        var songDurationSec = song.DurationSeconds
-            ?? (song.DurationMs is int ms ? ms / 1000.0 : (double?)null);
-        if (songDurationSec is not null && track.DurationMs > 0)
-        {
-            var delta = Math.Abs(songDurationSec.Value - track.DurationMs / 1000.0);
-            if (delta > opts.DeezerApiDurationDeltaThresholdSeconds)
-            {
-                warnings.Add("duration_mismatch");
-                score *= DurationMismatchPenalty;
-            }
-        }
-
-        var sourceQual = VersionQualifier.Detect(song.Title, song.Album);
-        var candQual = VersionQualifier.Detect(track.Title, track.AlbumName);
-        if (!VersionQualifier.Compare(sourceQual, candQual))
-        {
-            warnings.Add("version_mismatch");
-            score *= VersionMismatchPenalty;
-        }
-
-        // Album is a confirmation signal only: a track legitimately appears on many releases, so we
-        // reward agreement with the file's album (the original pressing) but never penalize a
-        // difference. The boost is left un-capped here (the final confidence is clamped in BuildResult)
-        // so it still breaks a tie when artist+title already saturate the score at 1.0 — that's exactly
-        // the original-album-vs-"Greatest Hits"-reissue case where both otherwise score identically.
-        if (FuzzyTextMatch.Ratio(song.Album, track.AlbumName) is double albumRatio)
-        {
-            if (albumRatio >= FuzzyThreshold)
-                score += opts.AlbumAgreementConfidenceBoost;
-            else
-                warnings.Add("album_mismatch");
-        }
-
-        return (Math.Max(0.0, score), warnings);
-    }
-
-    private static bool HasBlockingWarning(List<string> warnings) => MatchWarnings.AnyBlocking(warnings);
-
-    private static string NormalizeIsrc(string? isrc)
-    {
-        if (string.IsNullOrWhiteSpace(isrc))
-            return string.Empty;
-        return isrc.Trim().ToUpperInvariant().Replace("-", "", StringComparison.Ordinal);
-    }
+        => CatalogCandidateScorer.Score(
+            song,
+            source,
+            new CatalogCandidateScorer.CatalogCandidate(
+                track.Artist, track.Title, track.AlbumName, track.Isrc, track.DurationMs, track.TrackNumber),
+            new CatalogCandidateScorer.ScoringTuning(
+                DurationDeltaThresholdSeconds: opts.DeezerApiDurationDeltaThresholdSeconds,
+                DurationMismatchPenalty: 0.7,
+                VersionMismatchPenalty: 0.6,
+                AlbumAgreementConfidenceBoost: opts.AlbumAgreementConfidenceBoost,
+                Isrc: new CatalogCandidateScorer.IsrcScoring(
+                    ConfidenceBoost: 0.12, MismatchPenalty: 0.65, NotOnCandidateWarning: "isrc_not_on_deezer_track")));
 }
