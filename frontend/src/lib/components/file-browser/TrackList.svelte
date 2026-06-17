@@ -444,14 +444,20 @@
           >
             <!-- # / play -->
             <span class="text-muted-foreground relative grid place-items-center text-right">
-              <span
-                class={cn(
-                  'font-mono text-[11px] tabular-nums transition-opacity group-hover:opacity-0',
-                  isCurrentlyPlaying && 'opacity-0'
-                )}
-              >
-                {String(i + 1).padStart(3, '0')}
-              </span>
+              {#if isLoaded}
+                <span
+                  class={cn('mh-eq text-primary group-hover:opacity-0', isCurrentlyPlaying && 'is-playing')}
+                  aria-hidden="true"
+                >
+                  <i></i><i></i><i></i>
+                </span>
+              {:else}
+                <span
+                  class="font-mono text-[11px] tabular-nums transition-opacity group-hover:opacity-0"
+                >
+                  {String(i + 1).padStart(3, '0')}
+                </span>
+              {/if}
               <button
                 type="button"
                 onclick={(e) => {
@@ -461,7 +467,7 @@
                 aria-label={isCurrentlyPlaying ? 'Pause track' : 'Play track'}
                 class={cn(
                   'text-primary absolute inset-0 grid place-items-center opacity-0 transition-opacity group-hover:opacity-100',
-                  isCurrentlyPlaying && 'opacity-100'
+                  isCurrentlyPlaying && 'group-hover:opacity-100'
                 )}
               >
                 {#if isCurrentlyPlaying}
@@ -560,3 +566,42 @@
     </div>
   {/if}
 </div>
+
+<style>
+  /* Apple-style now-playing equalizer: three bars, animated only while playing. */
+  .mh-eq {
+    display: inline-flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 2px;
+    height: 13px;
+    transition: opacity 150ms;
+  }
+  .mh-eq > :global(i) {
+    width: 2.5px;
+    height: 35%;
+    border-radius: 1px;
+    background: currentColor;
+  }
+  .mh-eq.is-playing > :global(i) {
+    animation: mh-eq 0.9s ease-in-out infinite;
+  }
+  .mh-eq > :global(i:nth-child(1)) {
+    animation-delay: -0.5s;
+  }
+  .mh-eq > :global(i:nth-child(2)) {
+    animation-delay: -0.2s;
+  }
+  .mh-eq > :global(i:nth-child(3)) {
+    animation-delay: -0.7s;
+  }
+  @keyframes mh-eq {
+    0%,
+    100% {
+      height: 30%;
+    }
+    50% {
+      height: 100%;
+    }
+  }
+</style>

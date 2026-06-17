@@ -295,6 +295,7 @@
   <Sidebar.Content class="gap-3.5 px-2 py-1.5">
     {#each NAV as section (section.id)}
       {@const secActive = sectionActive(section)}
+      {@const leafActive = secActive && section.sub.length === 0}
       {@const badge = section.badge?.()}
       <Sidebar.Group class="p-0">
         <a
@@ -308,10 +309,14 @@
           <section.icon
             class={cn(
               'size-4 shrink-0',
-              secActive ? 'text-sidebar-foreground' : 'text-muted-foreground'
+              leafActive ? 'text-primary' : secActive ? 'text-sidebar-foreground' : 'text-muted-foreground'
             )}
           />
-          <span class="flex-1 text-[13px] font-semibold tracking-[-0.005em]">{section.label}</span>
+          <span
+            class={cn(
+              'flex-1 text-[13px] font-semibold tracking-[-0.005em]',
+              leafActive && 'text-primary'
+            )}>{section.label}</span>
           {#if section.live && indexing}
             <span class="bg-primary mh-v2-pulse size-[7px] shrink-0 rounded-full"></span>
           {/if}
@@ -332,7 +337,7 @@
               class={cn(
                 'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 transition-colors',
                 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground',
-                'data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-foreground data-[active=true]:font-medium'
+                'data-[active=true]:text-primary data-[active=true]:font-medium'
               )}
             >
               <item.icon
@@ -341,7 +346,7 @@
                   item.live && indexing
                     ? 'text-primary'
                     : active
-                      ? 'text-sidebar-foreground/80'
+                      ? 'text-primary'
                       : 'text-muted-foreground/70'
                 )}
               />

@@ -1176,6 +1176,7 @@ export function toPlayerSong(song: ApiSong, fallbackArtist: string): PlayerSong 
     title: (song.title ?? song.fileName).trim() || song.fileName,
     artist: (song.artist ?? fallbackArtist).trim() || fallbackArtist,
     streamUrl: getSongStreamUrl(song.id),
+    coverUrl: coverUrlForSong(song),
   }
 }
 

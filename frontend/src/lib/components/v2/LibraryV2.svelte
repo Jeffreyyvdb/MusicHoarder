@@ -257,33 +257,25 @@
        on mobile — so AlbumPage just renders full-width here. -->
   <AlbumPage album={openAlbum} {isLoading} />
 {:else}
-  <!-- Header -->
+  <!-- Slim toolbar: section identity comes from the tab row above; just a quiet
+       stat line + a compact search pill so covers start near the top (Apple). -->
   <header
-    class="border-border flex shrink-0 flex-col gap-3 border-b px-4 py-4 sm:flex-row sm:items-end sm:justify-between sm:gap-4 sm:px-7 sm:py-5"
+    class="border-border flex shrink-0 items-center gap-3 border-b px-4 py-2.5 sm:px-7"
   >
-    <div class="min-w-0">
-      <h1 class="text-3xl font-bold tracking-tight sm:text-4xl">Library</h1>
-      <div class="text-muted-foreground mt-1.5 text-xs">
-        {totalTracks.toLocaleString()} tracks · {artistCount.toLocaleString()} artists{enrichedPct !=
-        null
-          ? ` · ${enrichedPct.toFixed(1)}% enriched`
-          : ''}
-      </div>
-      <p class="text-muted-foreground mt-1 hidden max-w-2xl text-xs sm:block">
-        The clean output. Click any album to drill in — every track has its own enrichment timeline
-        showing which provider supplied each field.
-      </p>
+    <div class="text-muted-foreground min-w-0 truncate text-xs">
+      {totalTracks.toLocaleString()} tracks · {artistCount.toLocaleString()} artists{enrichedPct !=
+      null
+        ? ` · ${enrichedPct.toFixed(1)}% enriched`
+        : ''}
     </div>
-    <div class="flex shrink-0 items-center gap-2">
-      <div class="relative w-full sm:w-[clamp(180px,28vw,280px)]">
-        <Search class="text-muted-foreground absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
-        <input
-          type="search"
-          placeholder="Search artists, albums, tracks…"
-          bind:value={query}
-          class="border-border bg-card focus-visible:ring-ring h-8 w-full rounded-md border pr-2.5 pl-8 text-[12.5px] outline-none focus-visible:ring-2"
-        />
-      </div>
+    <div class="relative ml-auto w-[clamp(160px,32vw,280px)] shrink-0">
+      <Search class="text-muted-foreground absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
+      <input
+        type="search"
+        placeholder="Search artists, albums, tracks…"
+        bind:value={query}
+        class="border-border bg-card focus-visible:ring-ring h-8 w-full rounded-full border pr-2.5 pl-8 text-[12.5px] outline-none focus-visible:ring-2"
+      />
     </div>
   </header>
 
