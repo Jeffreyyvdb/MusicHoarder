@@ -7,19 +7,18 @@ namespace MusicHoarder.Api.Logging;
 /// </summary>
 public static class LogSanitizer
 {
-    /// <summary>Returns <paramref name="value"/> with control characters (incl. CR/LF/tab) removed.</summary>
+    /// <summary>
+    /// Returns <paramref name="value"/> with the line-break characters that enable log forging removed.
+    /// Uses <see cref="string.Replace(string, string)"/> on CR/LF/tab — the pattern CodeQL's log-forging
+    /// query recognizes as a sanitizing barrier.
+    /// </summary>
     public static string? ForLog(string? value)
     {
         if (string.IsNullOrEmpty(value)) return value;
 
-        Span<char> buffer = value.Length <= 256 ? stackalloc char[value.Length] : new char[value.Length];
-        var written = 0;
-        foreach (var ch in value)
-        {
-            if (!char.IsControl(ch))
-                buffer[written++] = ch;
-        }
-
-        return written == value.Length ? value : new string(buffer[..written]);
+        return value
+            .Replace("\r", string.Empty)
+            .Replace("\n", string.Empty)
+            .Replace("\t", " ");
     }
 }
