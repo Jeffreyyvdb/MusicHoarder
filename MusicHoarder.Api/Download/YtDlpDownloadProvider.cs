@@ -51,6 +51,19 @@ public class YtDlpDownloadProvider(
             psi.ArgumentList.Add(format);
             psi.ArgumentList.Add("--embed-metadata");
             psi.ArgumentList.Add("--embed-thumbnail");
+            // Built-in throttle: a short (optionally randomized) pause before each fetch so a bulk
+            // wishlist run doesn't machine-gun YouTube — rapid back-to-back requests are a strong
+            // bot-detection signal. Power users can still override via YtDlpExtraArgs.
+            if (opts.DownloadSleepSeconds > 0)
+            {
+                psi.ArgumentList.Add("--sleep-interval");
+                psi.ArgumentList.Add(opts.DownloadSleepSeconds.ToString());
+                if (opts.DownloadMaxSleepSeconds > opts.DownloadSleepSeconds)
+                {
+                    psi.ArgumentList.Add("--max-sleep-interval");
+                    psi.ArgumentList.Add(opts.DownloadMaxSleepSeconds.ToString());
+                }
+            }
             if (!string.IsNullOrWhiteSpace(opts.FfmpegPath))
             {
                 psi.ArgumentList.Add("--ffmpeg-location");

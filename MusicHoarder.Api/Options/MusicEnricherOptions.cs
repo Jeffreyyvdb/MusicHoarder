@@ -588,6 +588,22 @@ public class MusicEnricherOptions
     public int DownloadMaxAttempts { get; set; } = 3;
 
     /// <summary>
+    /// Minimum seconds yt-dlp waits before each download (<c>--sleep-interval</c>). A small built-in
+    /// throttle so bulk wishlist runs don't hammer YouTube back-to-back, which is itself a strong
+    /// bot-detection signal. 0 disables the wait.
+    /// </summary>
+    [Range(0, 60)]
+    public int DownloadSleepSeconds { get; set; } = 2;
+
+    /// <summary>
+    /// Upper bound for the randomized pre-download wait (<c>--max-sleep-interval</c>); yt-dlp picks a
+    /// random delay in [<see cref="DownloadSleepSeconds"/>, this]. Only applied when greater than the
+    /// minimum — a randomized cadence looks less automated than a fixed one.
+    /// </summary>
+    [Range(0, 120)]
+    public int DownloadMaxSleepSeconds { get; set; } = 6;
+
+    /// <summary>
     /// Path to a Netscape-format cookies file passed to yt-dlp via <c>--cookies</c>. From a
     /// datacenter IP (preview/prod hosts) YouTube triggers a "Sign in to confirm you're not a bot"
     /// challenge; authenticated cookies from a logged-in account get past it. Empty → no cookies
