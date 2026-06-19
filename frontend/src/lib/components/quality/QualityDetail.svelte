@@ -278,7 +278,7 @@
           </div>
 
           {#if candidates.length > 0}
-            <CandidateGrid {candidates} pickedKey={null} onpick={() => {}} />
+            <CandidateGrid {candidates} pickedKey={null} onpick={() => {}} readonly />
           {/if}
 
           {#if view === 'before'}
