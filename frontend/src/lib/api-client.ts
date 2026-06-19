@@ -1291,6 +1291,8 @@ export interface SpotifyApiTrack {
   durationMs: number
   addedAt: string
   libraryMatch?: SpotifyLibraryMatchInfo | null
+  /** True when this Spotify track is already on the owner's wishlist (any status). */
+  isInWishlist?: boolean
 }
 
 export interface SpotifyLikedSongsApiResponse {

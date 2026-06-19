@@ -26,6 +26,7 @@
     type WishlistItemStatus,
     type ProgressSnapshot
   } from '$lib/api-client';
+  import { songDetail } from '$lib/stores/song-detail.svelte';
 
   type Filter = WishlistItemStatus | 'All';
 
@@ -334,13 +335,25 @@
               {/if}
             </div>
 
-            {#if item.libraryEnrichmentStatus}
-              <Badge variant="outline" class="hidden shrink-0 sm:inline-flex">
+            {#if item.downloadedSongId != null}
+              <Button
+                variant="outline"
+                size="sm"
+                class={`hidden h-8 shrink-0 px-2.5 text-xs font-medium sm:inline-flex ${
+                  item.libraryBuildStatus === 'Done'
+                    ? 'border-primary/40 bg-primary/15 text-primary hover:bg-primary/25'
+                    : ''
+                }`}
+                title="Open this song in your library"
+                onclick={() => songDetail.open(item.downloadedSongId!)}
+              >
                 {#if item.libraryBuildStatus === 'Done'}
-                  <CheckCircle2 class="mr-1 size-3" />
+                  <CheckCircle2 class="mr-1 size-3.5 shrink-0" />
+                  In library
+                {:else}
+                  {item.libraryEnrichmentStatus ?? 'Processing'}
                 {/if}
-                {item.libraryBuildStatus === 'Done' ? 'In library' : item.libraryEnrichmentStatus}
-              </Badge>
+              </Button>
             {/if}
 
             <span class="text-muted-foreground hidden w-12 shrink-0 text-right text-xs sm:inline">
