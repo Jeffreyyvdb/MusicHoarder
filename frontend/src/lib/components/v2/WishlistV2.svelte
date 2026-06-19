@@ -63,17 +63,19 @@
     }
   }
 
-  async function loadItems() {
-    loading = true;
+  async function loadItems(quiet = false) {
+    // Quiet reloads (live polling during a download) skip the spinner + error banner so the list
+    // updates in place without flicker; only an explicit load surfaces those.
+    if (!quiet) loading = true;
     error = null;
     try {
       const result = await fetchWishlist(statusFilter === 'All' ? undefined : statusFilter, 0, 200);
       items = result.items;
       total = result.total;
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to load wishlist';
+      if (!quiet) error = err instanceof Error ? err.message : 'Failed to load wishlist';
     } finally {
-      loading = false;
+      if (!quiet) loading = false;
     }
   }
 
@@ -101,6 +103,14 @@
       }
     });
     return () => close();
+  });
+
+  // While a download run is active, poll the list so rows move Pending → Downloading → Downloaded
+  // live instead of only refreshing once the run completes. Quiet reload = no spinner flicker.
+  $effect(() => {
+    if (!downloadingNow) return;
+    const id = setInterval(() => void loadItems(true), 3000);
+    return () => clearInterval(id);
   });
 
   async function onTriggerDownload() {
@@ -332,7 +342,7 @@
       <div class="flex flex-col items-center justify-center py-12 text-center">
         <AlertCircle class="text-destructive mb-3 size-10" />
         <p class="text-muted-foreground">{error}</p>
-        <Button variant="outline" size="sm" class="mt-4" onclick={loadItems}>Retry</Button>
+        <Button variant="outline" size="sm" class="mt-4" onclick={() => loadItems()}>Retry</Button>
       </div>
     {:else if loading}
       <div class="flex items-center justify-center py-12">
