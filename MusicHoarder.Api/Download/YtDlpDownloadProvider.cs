@@ -118,13 +118,15 @@ public class YtDlpDownloadProvider(
                 && !f.EndsWith(".temp", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        // Prefer a real audio output over a leftover thumbnail (.jpg/.webp/.png).
-        var audio = matches.FirstOrDefault(f =>
+        // Only a real audio output counts as success. A leftover thumbnail (.jpg/.webp/.png) means
+        // audio extraction produced nothing — returning it would mark the item Downloaded pointing at
+        // an image the scanner then ignores (a silent failure). Return null so the caller reports
+        // Missing/Failed and the item can be retried instead.
+        return matches.FirstOrDefault(f =>
         {
             var ext = Path.GetExtension(f).ToLowerInvariant();
             return ext is not (".jpg" or ".jpeg" or ".png" or ".webp");
         });
-        return audio ?? matches.FirstOrDefault();
     }
 
     private static bool LooksLikeNoResults(string stderr) =>
