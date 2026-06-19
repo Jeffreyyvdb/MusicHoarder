@@ -74,10 +74,10 @@
     addingLiked = true;
     wishlistBanner = null;
     try {
-      const result = await addWishlistSource('LikedSongs', { autoSync: wishlistAutoSync });
+      await addWishlistSource('LikedSongs', { autoSync: wishlistAutoSync });
       wishlistBanner = {
         type: 'success',
-        message: `Added ${result.added} track${result.added === 1 ? '' : 's'} to your wishlist${
+        message: `Adding your Liked Songs to the wishlist — tracks will appear shortly${
           wishlistAutoSync ? ' (auto-sync on)' : ''
         }.`
       };
@@ -95,13 +95,13 @@
     addingPlaylistId = playlist.spotifyId;
     wishlistBanner = null;
     try {
-      const result = await addWishlistSource('Playlist', {
+      await addWishlistSource('Playlist', {
         playlistId: playlist.spotifyId,
         autoSync: wishlistAutoSync
       });
       wishlistBanner = {
         type: 'success',
-        message: `Added ${result.added} track${result.added === 1 ? '' : 's'} from "${playlist.name}" to your wishlist.`
+        message: `Adding "${playlist.name}" to your wishlist — tracks will appear shortly.`
       };
     } catch (err) {
       wishlistBanner = {

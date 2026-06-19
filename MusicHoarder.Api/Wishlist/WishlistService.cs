@@ -14,9 +14,17 @@ public interface IWishlistService
 {
     /// <summary>
     /// Creates (or updates) a wishlist source for the owner and snapshots its current Spotify tracks
-    /// into Pending wishlist items now.
+    /// into Pending wishlist items now. Snapshotting a large library is long-running — prefer
+    /// <see cref="CreateOrUpdateSourceAsync"/> + a background <see cref="SyncSourceAsync"/> off the request path.
     /// </summary>
     Task<WishlistSyncResult> AddSourceAsync(
+        Guid ownerId, WishlistSourceType type, string? playlistId, bool autoSync, CancellationToken ct);
+
+    /// <summary>
+    /// Creates or updates just the source row (fast: one optional Spotify metadata lookup, no track
+    /// snapshot) and returns it. Callers then run <see cref="SyncSourceAsync"/> in the background.
+    /// </summary>
+    Task<WishlistSource> CreateOrUpdateSourceAsync(
         Guid ownerId, WishlistSourceType type, string? playlistId, bool autoSync, CancellationToken ct);
 
     /// <summary>
@@ -35,6 +43,13 @@ public class WishlistService(
     private const int Page = 50;
 
     public async Task<WishlistSyncResult> AddSourceAsync(
+        Guid ownerId, WishlistSourceType type, string? playlistId, bool autoSync, CancellationToken ct)
+    {
+        var source = await CreateOrUpdateSourceAsync(ownerId, type, playlistId, autoSync, ct);
+        return await SyncSourceAsync(ownerId, source, ct);
+    }
+
+    public async Task<WishlistSource> CreateOrUpdateSourceAsync(
         Guid ownerId, WishlistSourceType type, string? playlistId, bool autoSync, CancellationToken ct)
     {
         if (type == WishlistSourceType.Playlist && string.IsNullOrWhiteSpace(playlistId))
@@ -73,57 +88,69 @@ public class WishlistService(
         }
 
         await db.SaveChangesAsync(ct);
-
-        return await SyncSourceAsync(ownerId, source, ct);
+        return source;
     }
 
     public async Task<WishlistSyncResult> SyncSourceAsync(Guid ownerId, WishlistSource source, CancellationToken ct)
     {
-        var tracks = await FetchAllTracksAsync(source, ct);
-
-        // Dedupe against everything already on the owner's wishlist (any source).
+        // Dedupe against everything already on the owner's wishlist (any source). The set is also
+        // seeded as we insert, so a track that recurs within the same fetch counts as already-present.
         var existingIds = await db.WishlistItems
             .IgnoreQueryFilters()
             .Where(w => w.OwnerUserId == ownerId)
             .Select(w => w.SpotifyTrackId)
             .ToListAsync(ct);
-        var existing = new HashSet<string>(existingIds, StringComparer.Ordinal);
+        var seen = new HashSet<string>(existingIds, StringComparer.Ordinal);
 
         var added = 0;
         var alreadyPresent = 0;
-        var now = DateTime.UtcNow;
-        var seenThisRun = new HashSet<string>(StringComparer.Ordinal);
+        var offset = 0;
 
-        foreach (var track in tracks)
+        // Page through Spotify and persist each page as we go. A large library (thousands of liked
+        // songs) is dozens of sequential Spotify calls — far longer than an HTTP request should run,
+        // so callers snapshot in the background. Per-page SaveChanges makes items appear progressively
+        // and survive a cancellation mid-snapshot instead of rolling the whole batch back.
+        while (true)
         {
-            if (string.IsNullOrEmpty(track.SpotifyId)) continue;
-            if (!seenThisRun.Add(track.SpotifyId)) continue; // duplicate within the same fetch
-            if (existing.Contains(track.SpotifyId))
+            var (items, total) = await FetchPageAsync(source, offset, ct);
+            if (items.Count == 0) break;
+
+            var now = DateTime.UtcNow;
+            foreach (var track in items)
             {
-                alreadyPresent++;
-                continue;
+                if (string.IsNullOrEmpty(track.SpotifyId)) continue;
+                if (!seen.Add(track.SpotifyId))
+                {
+                    alreadyPresent++;
+                    continue;
+                }
+
+                db.WishlistItems.Add(new WishlistItem
+                {
+                    OwnerUserId = ownerId,
+                    WishlistSourceId = source.Id,
+                    SpotifyTrackId = track.SpotifyId,
+                    Title = track.Title,
+                    Artist = track.Artist,
+                    Album = track.Album,
+                    Isrc = track.Isrc,
+                    DurationMs = track.DurationMs,
+                    AlbumArt = track.AlbumArt,
+                    SpotifyAddedAtUtc = track.AddedAt == default ? null : track.AddedAt,
+                    Status = WishlistItemStatus.Pending,
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now,
+                });
+                added++;
             }
 
-            db.WishlistItems.Add(new WishlistItem
-            {
-                OwnerUserId = ownerId,
-                WishlistSourceId = source.Id,
-                SpotifyTrackId = track.SpotifyId,
-                Title = track.Title,
-                Artist = track.Artist,
-                Album = track.Album,
-                Isrc = track.Isrc,
-                DurationMs = track.DurationMs,
-                AlbumArt = track.AlbumArt,
-                SpotifyAddedAtUtc = track.AddedAt == default ? null : track.AddedAt,
-                Status = WishlistItemStatus.Pending,
-                CreatedAtUtc = now,
-                UpdatedAtUtc = now,
-            });
-            added++;
+            await db.SaveChangesAsync(ct);
+
+            offset += items.Count;
+            if (offset >= total) break;
         }
 
-        source.LastSyncedAtUtc = now;
+        source.LastSyncedAtUtc = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
 
         if (added > 0)
@@ -132,34 +159,22 @@ public class WishlistService(
         return new WishlistSyncResult(source.Id, added, alreadyPresent);
     }
 
-    private async Task<List<SpotifyTrackItem>> FetchAllTracksAsync(WishlistSource source, CancellationToken ct)
+    private async Task<(IReadOnlyList<SpotifyTrackItem> Items, int Total)> FetchPageAsync(
+        WishlistSource source, int offset, CancellationToken ct)
     {
-        var all = new List<SpotifyTrackItem>();
-
         if (source.SourceType == WishlistSourceType.LikedSongs)
         {
-            var first = await spotifyApi.GetLikedSongsAsync(0, Page, ct);
-            all.AddRange(first.Items);
-            for (var offset = Page; offset < first.Total; offset += Page)
-            {
-                var page = await spotifyApi.GetLikedSongsAsync(offset, Page, ct);
-                if (page.Items.Count == 0) break;
-                all.AddRange(page.Items);
-            }
-        }
-        else if (!string.IsNullOrWhiteSpace(source.SpotifyPlaylistId))
-        {
-            var first = await spotifyApi.GetPlaylistTracksAsync(source.SpotifyPlaylistId, 0, Page, ct);
-            all.AddRange(first.Items);
-            for (var offset = Page; offset < first.Total; offset += Page)
-            {
-                var page = await spotifyApi.GetPlaylistTracksAsync(source.SpotifyPlaylistId, offset, Page, ct);
-                if (page.Items.Count == 0) break;
-                all.AddRange(page.Items);
-            }
+            var page = await spotifyApi.GetLikedSongsAsync(offset, Page, ct);
+            return (page.Items, page.Total);
         }
 
-        return all;
+        if (!string.IsNullOrWhiteSpace(source.SpotifyPlaylistId))
+        {
+            var page = await spotifyApi.GetPlaylistTracksAsync(source.SpotifyPlaylistId, offset, Page, ct);
+            return (page.Items, page.Total);
+        }
+
+        return (Array.Empty<SpotifyTrackItem>(), 0);
     }
 
     private async Task<(string Name, string? ImageUrl)> ResolveSourceMetadataAsync(

@@ -1412,8 +1412,8 @@ export interface WishlistSource {
 
 export interface AddWishlistSourceResult {
   sourceId: number
-  added: number
-  alreadyPresent: number
+  /** The snapshot runs in the background; tracks appear on the wishlist progressively. */
+  queued: boolean
 }
 
 export async function fetchWishlist(status?: WishlistItemStatus, offset = 0, limit = 50): Promise<WishlistItemsResponse> {

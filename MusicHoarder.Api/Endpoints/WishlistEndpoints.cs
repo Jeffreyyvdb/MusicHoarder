@@ -97,7 +97,9 @@ public static class WishlistEndpoints
         group.MapPost("/sources", async (
                 AddWishlistSourceRequest body,
                 IWishlistService wishlist,
+                IServiceScopeFactory scopeFactory,
                 ICurrentUserAccessor currentUser,
+                ILoggerFactory loggerFactory,
                 CancellationToken ct) =>
             {
                 if (!Enum.TryParse(body.Type, ignoreCase: true, out WishlistSourceType type))
@@ -105,8 +107,36 @@ public static class WishlistEndpoints
 
                 try
                 {
-                    var result = await wishlist.AddSourceAsync(currentUser.UserId, type, body.PlaylistId, body.AutoSync ?? false, ct);
-                    return Results.Ok(new { sourceId = result.SourceId, added = result.Added, alreadyPresent = result.AlreadyPresent });
+                    // Create the source row synchronously (fast), then snapshot its tracks off the
+                    // request path: a large library is dozens of sequential Spotify calls and would
+                    // blow past the gateway timeout (504). The snapshot persists per page, so items
+                    // appear on the wishlist progressively; auto-synced sources also self-heal on the
+                    // periodic WishlistSyncBackgroundService tick if this run is interrupted.
+                    var ownerId = currentUser.UserId;
+                    var source = await wishlist.CreateOrUpdateSourceAsync(ownerId, type, body.PlaylistId, body.AutoSync ?? false, ct);
+
+                    var sourceId = source.Id;
+                    _ = Task.Run(async () =>
+                    {
+                        using var scope = scopeFactory.CreateScope();
+                        var logger = loggerFactory.CreateLogger("WishlistSourceSnapshot");
+                        try
+                        {
+                            var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+                            var svc = scope.ServiceProvider.GetRequiredService<IWishlistService>();
+                            var src = await db.WishlistSources
+                                .IgnoreQueryFilters()
+                                .FirstOrDefaultAsync(s => s.Id == sourceId, CancellationToken.None);
+                            if (src is not null)
+                                await svc.SyncSourceAsync(ownerId, src, CancellationToken.None);
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.LogWarning(ex, "Background wishlist snapshot failed for source {SourceId} (auto-sync will retry)", sourceId);
+                        }
+                    });
+
+                    return Results.Json(new { sourceId, queued = true }, statusCode: StatusCodes.Status202Accepted);
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -122,7 +152,7 @@ public static class WishlistEndpoints
                 }
             })
             .WithName("AddWishlistSource")
-            .WithSummary("Add Liked Songs or a playlist as a wishlist source and snapshot its tracks now.");
+            .WithSummary("Add Liked Songs or a playlist as a wishlist source; tracks snapshot in the background.");
 
         group.MapPatch("/sources/{id:int}", async (
                 int id,
