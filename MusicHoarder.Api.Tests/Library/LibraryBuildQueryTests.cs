@@ -8,6 +8,7 @@ public class LibraryBuildQueryTests
 {
     private static readonly DateTime Now = new(2026, 6, 10, 12, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime Cutoff = Now.AddMinutes(-5);
+    private const int MaxAttempts = 5;
 
     [Fact]
     public async Task FreshMatch_WaitingOnLyrics_IsExcludedUntilLyricsResolveOrWaitElapses()
@@ -29,7 +30,7 @@ public class LibraryBuildQueryTests
         await db.SaveChangesAsync();
 
         var eligible = await LibraryBuildQuery
-            .BuildCandidates(db.Songs.IgnoreQueryFilters(), Cutoff)
+            .BuildCandidates(db.Songs.IgnoreQueryFilters(), Cutoff, MaxAttempts)
             .Select(s => s.Id)
             .OrderBy(id => id)
             .ToListAsync();
@@ -45,7 +46,7 @@ public class LibraryBuildQueryTests
         await db.SaveChangesAsync();
 
         var eligible = await LibraryBuildQuery
-            .BuildCandidates(db.Songs.IgnoreQueryFilters(), lyricsWaitCutoff: null)
+            .BuildCandidates(db.Songs.IgnoreQueryFilters(), lyricsWaitCutoff: null, MaxAttempts)
             .Select(s => s.Id)
             .ToListAsync();
 
@@ -70,10 +71,31 @@ public class LibraryBuildQueryTests
         await db.SaveChangesAsync();
 
         var eligible = await LibraryBuildQuery
-            .BuildCandidates(db.Songs.IgnoreQueryFilters(), Cutoff)
+            .BuildCandidates(db.Songs.IgnoreQueryFilters(), Cutoff, MaxAttempts)
             .ToListAsync();
 
         Assert.Empty(eligible);
+    }
+
+    [Fact]
+    public async Task FailedTrack_IsRetriedUntilAttemptCapThenQuarantined()
+    {
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            // Failed but under the cap → still eligible for another attempt.
+            Song(1, LyricsStatus.Fetched, enrichedAtUtc: Now,
+                status: LibraryBuildStatus.Failed, failedAttempts: MaxAttempts - 1),
+            // Failed and at the cap → quarantined out of the queue.
+            Song(2, LyricsStatus.Fetched, enrichedAtUtc: Now,
+                status: LibraryBuildStatus.Failed, failedAttempts: MaxAttempts));
+        await db.SaveChangesAsync();
+
+        var eligible = await LibraryBuildQuery
+            .BuildCandidates(db.Songs.IgnoreQueryFilters(), Cutoff, MaxAttempts)
+            .Select(s => s.Id)
+            .ToListAsync();
+
+        Assert.Equal(new[] { 1 }, eligible);
     }
 
     private static SongMetadata Song(
@@ -88,6 +110,7 @@ public class LibraryBuildQueryTests
         bool isDuplicate = false,
         bool isSynthetic = false,
         bool deleted = false,
+        int failedAttempts = 0,
         Guid? owner = null) => new()
     {
         Id = id,
@@ -105,6 +128,7 @@ public class LibraryBuildQueryTests
         EnrichedAtUtc = enrichedAtUtc,
         LyricsStatus = lyricsStatus,
         LibraryBuildStatus = status,
+        LibraryBuildAttempts = failedAttempts,
         DestinationPath = dest,
         PreviousDestinationPath = previousDest,
         IsDuplicate = isDuplicate,

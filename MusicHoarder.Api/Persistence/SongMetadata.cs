@@ -159,6 +159,13 @@ public class SongMetadata
     public LibraryBuildStatus LibraryBuildStatus { get; set; } = LibraryBuildStatus.Pending;
     public DateTime? LibraryBuiltAtUtc { get; set; }
     public DateTime? LibraryBuildLastAttemptedAtUtc { get; set; }
+    /// <summary>
+    /// Consecutive failed library-build attempts. Incremented by <see cref="MarkBuildFailed"/> and
+    /// reset to zero on a successful build or any reset/requeue. Once it reaches
+    /// <c>MaxLibraryBuildAttempts</c> the build query quarantines the row so a persistently
+    /// un-writable file can't loop the builder forever (issue #239).
+    /// </summary>
+    public int LibraryBuildAttempts { get; set; }
     public string? LibraryBuildError { get; set; }
     public string? DestinationPath { get; set; }
     public string? PreviousDestinationPath { get; set; }
@@ -569,6 +576,7 @@ public class SongMetadata
         LibraryBuildStatus = LibraryBuildStatus.Done;
         LibraryBuiltAtUtc = DateTime.UtcNow;
         LibraryBuildError = null;
+        LibraryBuildAttempts = 0;
         DestinationPath = destinationPath;
         PreviousDestinationPath = null;
     }
@@ -579,6 +587,7 @@ public class SongMetadata
         LibraryBuildError = Truncate(error, MaxErrorLength);
         LibraryBuiltAtUtc = null;
         LibraryBuildLastAttemptedAtUtc = DateTime.UtcNow;
+        LibraryBuildAttempts++;
     }
 
     public void ResetLibraryBuild()
@@ -586,6 +595,7 @@ public class SongMetadata
         LibraryBuildStatus = LibraryBuildStatus.Pending;
         LibraryBuiltAtUtc = null;
         LibraryBuildLastAttemptedAtUtc = null;
+        LibraryBuildAttempts = 0;
         LibraryBuildError = null;
         PreviousDestinationPath = DestinationPath;
         DestinationPath = null;
@@ -605,6 +615,7 @@ public class SongMetadata
         LibraryBuildStatus = LibraryBuildStatus.Pending;
         LibraryBuiltAtUtc = null;
         LibraryBuildLastAttemptedAtUtc = null;
+        LibraryBuildAttempts = 0;
         LibraryBuildError = null;
         PreviousDestinationPath = DestinationPath;
     }

@@ -457,6 +457,16 @@ public class MusicEnricherOptions
     public int LibraryBuilderIdleDelaySeconds { get; set; } = 20;
 
     /// <summary>
+    /// How many times a track may fail its library build before it's quarantined out of the build
+    /// queue. Without this, a track whose copy/tag throws is re-selected on every pass forever (the
+    /// build query picks anything not yet <c>Done</c>), so a handful of un-writable files keep the
+    /// builder in a permanent hot loop (issue #239). A quarantined track stays put until a manual
+    /// re-build/re-enrich resets its counter.
+    /// </summary>
+    [Range(1, 100)]
+    public int MaxLibraryBuildAttempts { get; set; } = 5;
+
+    /// <summary>
     /// How long a freshly-matched track waits for its lyrics fetch to resolve before the builder tags it.
     /// Enrichment commits <c>Matched</c> *before* the LRCLIB lyrics fetch returns (see
     /// <c>EnrichmentOrchestrator</c>), so without this gate the build can copy+tag the destination file in
