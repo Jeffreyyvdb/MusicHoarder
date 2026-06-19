@@ -7,6 +7,8 @@ export interface PlayerSong {
   title: string;
   artist: string;
   streamUrl: string;
+  /** Album-art URL (or null to fall back to the tinted Cover placeholder). */
+  coverUrl?: string | null;
 }
 
 let currentSong = $state<PlayerSong | null>(null);

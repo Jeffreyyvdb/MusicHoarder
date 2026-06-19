@@ -66,7 +66,7 @@
             coverUrl={album.coverUrl}
             size={176}
             interactive
-            class="!h-auto !w-full aspect-square"
+            class="!h-auto !w-full aspect-square shadow-[0_2px_10px_rgba(0,0,0,0.12)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.18)] dark:shadow-[0_4px_14px_rgba(0,0,0,0.5)] dark:hover:shadow-[0_10px_28px_rgba(0,0,0,0.6)]"
           />
           {#if badgeFor(album)}
             {@const badge = badgeFor(album)}
