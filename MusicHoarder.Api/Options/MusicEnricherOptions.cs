@@ -586,4 +586,20 @@ public class MusicEnricherOptions
     /// <summary>Maximum download attempts per wishlist item before it stays Failed.</summary>
     [Range(1, 10)]
     public int DownloadMaxAttempts { get; set; } = 3;
+
+    /// <summary>
+    /// Path to a Netscape-format cookies file passed to yt-dlp via <c>--cookies</c>. From a
+    /// datacenter IP (preview/prod hosts) YouTube triggers a "Sign in to confirm you're not a bot"
+    /// challenge; authenticated cookies from a logged-in account get past it. Empty → no cookies
+    /// (works from residential IPs like local dev). The file is sensitive — mount it as a secret/volume,
+    /// never commit it. See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp
+    /// </summary>
+    public string YtDlpCookiesPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Extra command-line arguments appended verbatim to every yt-dlp invocation (space-separated,
+    /// e.g. <c>--extractor-args youtube:player_client=tv --proxy http://...</c>). An escape hatch for
+    /// anti-bot workarounds and proxies without a code change. Empty → none.
+    /// </summary>
+    public string YtDlpExtraArgs { get; set; } = string.Empty;
 }

@@ -36,6 +36,10 @@ services:
       # Writable staging dir for wishlist downloads (the source mount is read-only). The scanner
       # indexes it as an extra source root, so downloads flow through the normal pipeline.
       - musichoarder-downloads:/data/downloads
+      # Optional: a YouTube cookies file to defeat the datacenter-IP bot check. Export it from a
+      # logged-in browser (Netscape format), set YTDLP_COOKIES_HOST_PATH to its host path and
+      # YTDLP_COOKIES_PATH=/data/cookies/youtube.txt. Keep it private — never commit it.
+      - ${YTDLP_COOKIES_HOST_PATH:-/dev/null}:/data/cookies/youtube.txt:ro
       # Persist DataProtection keys across container restarts so existing session cookies stay
       # valid. Without this, every redeploy logs everyone out.
       - musichoarder-dpkeys:/data/dpkeys
@@ -51,6 +55,12 @@ services:
       - MusicEnricher__EnableWishlistDownloads=${ENABLE_WISHLIST_DOWNLOADS:-false}
       - MusicEnricher__AutoDownloadWishlist=${AUTO_DOWNLOAD_WISHLIST:-false}
       - MusicEnricher__DownloadDirectory=/data/downloads
+      # From a datacenter IP, YouTube throws "Sign in to confirm you're not a bot". Point
+      # YTDLP_COOKIES_PATH at a Netscape-format cookies file from a logged-in account (mounted via
+      # the optional bind below) to get past it; YTDLP_EXTRA_ARGS appends raw yt-dlp flags (e.g.
+      # `--extractor-args youtube:player_client=tv` or a `--proxy`). Both empty → plain yt-dlp.
+      - MusicEnricher__YtDlpCookiesPath=${YTDLP_COOKIES_PATH:-}
+      - MusicEnricher__YtDlpExtraArgs=${YTDLP_EXTRA_ARGS:-}
       - MusicEnricher__AcoustIdApiKey=${ACOUSTID_API_KEY:-}
       - Spotify__ClientId=${SPOTIFY_CLIENT_ID:-}
       - Spotify__ClientSecret=${SPOTIFY_CLIENT_SECRET:-}

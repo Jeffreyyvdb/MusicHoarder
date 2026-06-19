@@ -144,6 +144,9 @@ SPOTIFY_OAUTH_STATE_KEY=${PREVIEW_SPOTIFY_OAUTH_STATE_KEY:-}
 ENABLE_WISHLIST_DOWNLOADS=true
 AUTO_DOWNLOAD_WISHLIST=false
 WISHLIST_SYNC_INTERVAL_MINUTES=0
+# YouTube bot-check workaround for the preview datacenter IP (repo variable, optional). Pass raw
+# yt-dlp flags here, e.g. --extractor-args youtube:player_client=tv -- empty means plain yt-dlp.
+YTDLP_EXTRA_ARGS=${PREVIEW_YTDLP_EXTRA_ARGS:-}
 QUALITY_GRADING_API_KEY=${PREVIEW_QUALITY_GRADING_API_KEY:-}
 QUALITY_GRADING_MODEL=${PREVIEW_QUALITY_GRADING_MODEL:-deepseek/deepseek-v4-flash}
 QUALITY_GRADING_BASE_URL=${PREVIEW_QUALITY_GRADING_BASE_URL:-https://openrouter.ai/api/v1}

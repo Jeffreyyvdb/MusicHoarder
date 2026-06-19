@@ -56,6 +56,24 @@ public class YtDlpDownloadProvider(
                 psi.ArgumentList.Add("--ffmpeg-location");
                 psi.ArgumentList.Add(opts.FfmpegPath);
             }
+            // Authenticated cookies get past YouTube's datacenter-IP bot check ("Sign in to confirm
+            // you're not a bot"). Only pass it when the file actually exists — a dangling path makes
+            // yt-dlp hard-fail every download.
+            if (!string.IsNullOrWhiteSpace(opts.YtDlpCookiesPath))
+            {
+                if (File.Exists(opts.YtDlpCookiesPath))
+                {
+                    psi.ArgumentList.Add("--cookies");
+                    psi.ArgumentList.Add(opts.YtDlpCookiesPath);
+                }
+                else
+                {
+                    logger.LogWarning("YtDlpCookiesPath is set but the file does not exist: {Path}", LogSanitizer.ForLog(opts.YtDlpCookiesPath));
+                }
+            }
+            // Power-user escape hatch: extra extractor-args / proxy flags without a code change.
+            foreach (var extra in SplitArgs(opts.YtDlpExtraArgs))
+                psi.ArgumentList.Add(extra);
             psi.ArgumentList.Add("-o");
             psi.ArgumentList.Add(outputTemplate);
             psi.ArgumentList.Add(query);
@@ -127,6 +145,33 @@ public class YtDlpDownloadProvider(
             var ext = Path.GetExtension(f).ToLowerInvariant();
             return ext is not (".jpg" or ".jpeg" or ".png" or ".webp");
         });
+    }
+
+    /// <summary>
+    /// Splits a configured extra-args string into individual tokens on whitespace. Quoted segments
+    /// ("...") are kept whole so a value containing spaces survives. Good enough for the handful of
+    /// flags this is meant to carry; anything more exotic should be a first-class option.
+    /// </summary>
+    private static IEnumerable<string> SplitArgs(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            yield break;
+
+        var current = new System.Text.StringBuilder();
+        var inQuotes = false;
+        foreach (var c in raw)
+        {
+            if (c == '"')
+                inQuotes = !inQuotes;
+            else if (char.IsWhiteSpace(c) && !inQuotes)
+            {
+                if (current.Length > 0) { yield return current.ToString(); current.Clear(); }
+            }
+            else
+                current.Append(c);
+        }
+        if (current.Length > 0)
+            yield return current.ToString();
     }
 
     private static bool LooksLikeNoResults(string stderr) =>

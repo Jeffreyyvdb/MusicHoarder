@@ -59,6 +59,11 @@ services:
       - MusicEnricher__EnableWishlistDownloads=${ENABLE_WISHLIST_DOWNLOADS:-false}
       - MusicEnricher__AutoDownloadWishlist=${AUTO_DOWNLOAD_WISHLIST:-false}
       - MusicEnricher__DownloadDirectory=/data/downloads
+      # YouTube throws a bot check from the preview host's datacenter IP. YTDLP_EXTRA_ARGS lets a
+      # tester pass anti-bot flags (e.g. `--extractor-args youtube:player_client=tv`) with no file
+      # mount; YTDLP_COOKIES_PATH points at a cookies file if one is mounted. Both default empty.
+      - MusicEnricher__YtDlpExtraArgs=${YTDLP_EXTRA_ARGS:-}
+      - MusicEnricher__YtDlpCookiesPath=${YTDLP_COOKIES_PATH:-}
       - Spotify__WishlistSyncIntervalMinutes=${WISHLIST_SYNC_INTERVAL_MINUTES:-0}
       - MusicEnricher__AcoustIdApiKey=${ACOUSTID_API_KEY:-}
       - Spotify__ClientId=${SPOTIFY_CLIENT_ID:-}
