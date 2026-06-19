@@ -118,6 +118,15 @@ provision() {
   local host="${NAME}.${PREVIEW_BASE_DOMAIN}"
   local public_url="https://${host}"
 
+  # Optional YouTube cookies for the wishlist downloader: when a host cookies file is configured,
+  # bind it in and tell the API to use it; otherwise leave both blank so the compose binds /dev/null
+  # and the API runs cookie-less. Keeps cookies out of the repo (host file, like the sample source).
+  local cookies_host="${PREVIEW_YTDLP_COOKIES_HOST_PATH:-}"
+  local cookies_path=""
+  if [[ -n "$cookies_host" ]]; then
+    cookies_path="/data/cookies/youtube.txt"
+  fi
+
   local compose_file
   compose_file="$(cat "${SCRIPT_DIR}/../docker-compose.preview.yaml")"
 
@@ -147,6 +156,10 @@ WISHLIST_SYNC_INTERVAL_MINUTES=0
 # YouTube bot-check workaround for the preview datacenter IP (repo variable, optional). Pass raw
 # yt-dlp flags here, e.g. --extractor-args youtube:player_client=tv -- empty means plain yt-dlp.
 YTDLP_EXTRA_ARGS=${PREVIEW_YTDLP_EXTRA_ARGS:-}
+# YouTube cookies: host file path bound into the container + the in-container path the API reads.
+# Both blank unless PREVIEW_YTDLP_COOKIES_HOST_PATH is set (then cookies_path is the mount target).
+YTDLP_COOKIES_HOST_PATH=${cookies_host}
+YTDLP_COOKIES_PATH=${cookies_path}
 QUALITY_GRADING_API_KEY=${PREVIEW_QUALITY_GRADING_API_KEY:-}
 QUALITY_GRADING_MODEL=${PREVIEW_QUALITY_GRADING_MODEL:-deepseek/deepseek-v4-flash}
 QUALITY_GRADING_BASE_URL=${PREVIEW_QUALITY_GRADING_BASE_URL:-https://openrouter.ai/api/v1}

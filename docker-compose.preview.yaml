@@ -44,6 +44,11 @@ services:
       - musichoarder-dest:/music/destination
       # Writable staging dir for wishlist downloads (managed volume, reaped on teardown).
       - musichoarder-downloads:/data/downloads
+      # Optional YouTube cookies file (Netscape format) to clear YouTube's datacenter-IP bot check on
+      # the preview host. Place it once on the Dokploy host and point PREVIEW_YTDLP_COOKIES_HOST_PATH
+      # (repo variable) at it; the script then also sets YTDLP_COOKIES_PATH so the API uses it. When
+      # unset, this binds /dev/null (a harmless empty file the API never reads).
+      - ${YTDLP_COOKIES_HOST_PATH:-/dev/null}:/data/cookies/youtube.txt:ro
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ConnectionStrings__musichoarderdb=Host=postgres;Database=musichoarderdb;Username=musichoarder;Password=${POSTGRES_PASSWORD}
