@@ -11,9 +11,12 @@
     onpick: (c: ReviewCandidate) => void;
     /** Single-column layout (mobile / narrow). Defaults to a responsive 2-col grid. */
     single?: boolean;
+    /** Audit/overview mode: cards are non-interactive and the header drops the "pick one" CTA. */
+    readonly?: boolean;
   };
 
-  const { candidates, pickedKey, loading = false, onpick, single = false }: Props = $props();
+  const { candidates, pickedKey, loading = false, onpick, single = false, readonly = false }: Props =
+    $props();
 </script>
 
 <div
@@ -23,7 +26,7 @@
   <div
     class="text-muted-foreground mb-2.5 flex items-center justify-between text-[10.5px] font-semibold tracking-[0.06em] uppercase"
   >
-    <span>Candidate matches · <span class="normal-case">pick one to project into the final values</span></span>
+    <span>Candidate matches · <span class="normal-case">{readonly ? 'ranked by match confidence' : 'pick one to project into the final values'}</span></span>
     <span class="font-mono">{candidates.length}</span>
   </div>
 
@@ -43,9 +46,14 @@
         <button
           type="button"
           onclick={() => onpick(c)}
+          disabled={readonly}
           class={cn(
             'flex items-start gap-3 rounded-md border p-3 text-left transition-colors',
-            picked ? 'border-primary bg-primary/10' : 'border-border bg-background hover:bg-accent'
+            picked
+              ? 'border-primary bg-primary/10'
+              : readonly
+                ? 'border-border bg-background cursor-default'
+                : 'border-border bg-background hover:bg-accent'
           )}
         >
           <div class="w-12 shrink-0">

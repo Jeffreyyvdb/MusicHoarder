@@ -236,7 +236,8 @@ public class LibraryBuilderBackgroundService(
         // reports work the builder would skip (which would busy-loop the idle waiter).
         return await LibraryBuildQuery.BuildCandidates(
                 db.Songs.IgnoreQueryFilters().AsNoTracking(),
-                LibraryBuildQuery.LyricsWaitCutoff(options.Value))
+                LibraryBuildQuery.LyricsWaitCutoff(options.Value),
+                options.Value.MaxLibraryBuildAttempts)
             .CountAsync(ct);
     }
 }

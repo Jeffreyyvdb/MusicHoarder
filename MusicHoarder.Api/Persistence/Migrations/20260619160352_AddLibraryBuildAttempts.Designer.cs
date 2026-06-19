@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MusicHoarder.Api.Persistence;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MusicHoarder.Api.Persistence.Migrations
 {
     [DbContext(typeof(MusicHoarderDbContext))]
-    partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260619160352_AddLibraryBuildAttempts")]
+    partial class AddLibraryBuildAttempts
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1280,138 +1283,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.ToTable("SpotifyTrackLibraryMatches");
                 });
 
-            modelBuilder.Entity("MusicHoarder.Api.Persistence.WishlistItem", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Album")
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<string>("AlbumArt")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
-                    b.Property<string>("Artist")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<int>("AttemptCount")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("DownloadProvider")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("DownloadedFilePath")
-                        .HasMaxLength(2048)
-                        .HasColumnType("character varying(2048)");
-
-                    b.Property<int?>("DownloadedSongId")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("DurationMs")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Isrc")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("LastError")
-                        .HasMaxLength(2048)
-                        .HasColumnType("character varying(2048)");
-
-                    b.Property<Guid>("OwnerUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("SpotifyAddedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("SpotifyTrackId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<DateTime>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int?>("WishlistSourceId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DownloadedSongId");
-
-                    b.HasIndex("WishlistSourceId");
-
-                    b.HasIndex("OwnerUserId", "SpotifyTrackId")
-                        .IsUnique();
-
-                    b.HasIndex("OwnerUserId", "Status");
-
-                    b.ToTable("WishlistItems");
-                });
-
-            modelBuilder.Entity("MusicHoarder.Api.Persistence.WishlistSource", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<bool>("AutoSync")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ImageUrl")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
-                    b.Property<DateTime?>("LastSyncedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<Guid>("OwnerUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("SourceType")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("SpotifyPlaylistId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OwnerUserId", "SourceType", "SpotifyPlaylistId")
-                        .IsUnique();
-
-                    b.ToTable("WishlistSources");
-                });
-
             modelBuilder.Entity("MusicHoarder.Api.Auth.MagicLinkToken", b =>
                 {
                     b.HasOne("MusicHoarder.Api.Auth.User", "User")
@@ -1529,23 +1400,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Song");
-                });
-
-            modelBuilder.Entity("MusicHoarder.Api.Persistence.WishlistItem", b =>
-                {
-                    b.HasOne("MusicHoarder.Api.Persistence.SongMetadata", "DownloadedSong")
-                        .WithMany()
-                        .HasForeignKey("DownloadedSongId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("MusicHoarder.Api.Persistence.WishlistSource", "WishlistSource")
-                        .WithMany()
-                        .HasForeignKey("WishlistSourceId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("DownloadedSong");
-
-                    b.Navigation("WishlistSource");
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.CanonicalAlbum", b =>

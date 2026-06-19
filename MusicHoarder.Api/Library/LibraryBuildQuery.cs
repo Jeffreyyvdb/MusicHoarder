@@ -24,7 +24,7 @@ public static class LibraryBuildQuery
     /// can't be searched (no title/artist) never wait.
     /// </summary>
     public static IQueryable<SongMetadata> BuildCandidates(
-        IQueryable<SongMetadata> songs, DateTime? lyricsWaitCutoff)
+        IQueryable<SongMetadata> songs, DateTime? lyricsWaitCutoff, int maxBuildAttempts)
     {
         var query = songs
             .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
@@ -35,7 +35,12 @@ public static class LibraryBuildQuery
             .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched)
             .Where(s => s.LibraryBuildStatus != LibraryBuildStatus.Done
                 || s.DestinationPath == null
-                || s.PreviousDestinationPath != null);
+                || s.PreviousDestinationPath != null)
+            // Quarantine a track that's failed too many times so a persistently un-writable file can't
+            // loop the builder forever (issue #239). Only Failed rows carry a non-zero counter; success
+            // and any reset/requeue zero it, so a manual re-build always gets another run.
+            .Where(s => s.LibraryBuildStatus != LibraryBuildStatus.Failed
+                || s.LibraryBuildAttempts < maxBuildAttempts);
 
         if (lyricsWaitCutoff is { } cutoff)
         {
