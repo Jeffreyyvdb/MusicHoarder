@@ -8,14 +8,22 @@
 #   - libchromaprint-tools  → provides `fpcalc` for acoustic fingerprinting (AcoustID).
 #   - ffmpeg                → audio extraction/remux for the wishlist yt-dlp downloader.
 #   - yt-dlp (self-contained PyInstaller build) → fetches wishlist tracks from YouTube.
-#   - curl                  → used by container healthchecks and to fetch the yt-dlp binary.
+#   - deno                  → JS runtime yt-dlp REQUIRES to solve YouTube's player challenge
+#                             ("No supported JavaScript runtime could be found" → ERROR otherwise).
+#                             yt-dlp auto-detects it on PATH. Keep in sync with ./Dockerfile (preview).
+#   - curl / unzip          → container healthchecks + fetching the yt-dlp & deno binaries.
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libchromaprint-tools \
     ffmpeg \
     curl \
+    unzip \
     ca-certificates \
     && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp \
+    && curl -fsSL https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip -o /tmp/deno.zip \
+    && unzip -o /tmp/deno.zip -d /usr/local/bin \
+    && chmod a+rx /usr/local/bin/deno \
+    && rm -f /tmp/deno.zip \
     && rm -rf /var/lib/apt/lists/*
