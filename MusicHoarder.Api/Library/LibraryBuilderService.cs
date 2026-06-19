@@ -146,12 +146,38 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
 
         if (file.GetTag(TagLib.TagTypes.Apple, false) is TagLib.Mpeg4.AppleTag apple)
         {
-            apple.SetDashBoxes("com.apple.iTunes", "ARTISTS", artists);
-            apple.SetDashBoxes("com.apple.iTunes", "ALBUMARTISTS", albumArtists);
-            apple.SetDashBoxes("com.apple.iTunes", "MusicBrainz Album Type", releaseTypes);
+            SetDash(apple, "ARTISTS", artists);
+            SetDash(apple, "ALBUMARTISTS", albumArtists);
+            SetDash(apple, "MusicBrainz Album Type", releaseTypes);
             apple.IsCompilation = compilation;
-            if (alignedArtistIds.Length > 0) apple.SetDashBoxes("com.apple.iTunes", "MusicBrainz Artist Id", alignedArtistIds);
+            if (alignedArtistIds.Length > 0) SetDash(apple, "MusicBrainz Artist Id", alignedArtistIds);
         }
+    }
+
+    /// <summary>
+    /// Writes (or clears) an iTunes freeform dash atom, mirroring the empty-array handling of the
+    /// ID3/Xiph helpers above. TagLibSharp's <c>SetDashBoxes</c> dereferences <c>datastring[0]</c>
+    /// whenever the atom already exists, so calling it with an empty array on a re-tag throws
+    /// <see cref="IndexOutOfRangeException"/> — and the AppleTag branch, unlike ID3/Xiph, has no
+    /// guard of its own (issue #239). So: with no values, remove any existing atom instead of
+    /// writing; only call <c>SetDashBoxes</c> with a non-empty array.
+    /// </summary>
+    private static void SetDash(TagLib.Mpeg4.AppleTag apple, string name, string[] values)
+    {
+        const string mean = "com.apple.iTunes";
+        if (values.Length == 0)
+        {
+            // GetDashBoxes returns null when the atom is absent. TagLibSharp stores a multi-value dash
+            // atom as one DASH box per value, and SetDashBox("") removes only a single box, so clear
+            // them one at a time until none remain (bounded so a non-progressing remove can't spin).
+            for (var guard = 0; apple.GetDashBoxes(mean, name)?.Length > 0 && guard < 64; guard++)
+            {
+                apple.SetDashBox(mean, name, string.Empty);
+            }
+            return;
+        }
+
+        apple.SetDashBoxes(mean, name, values);
     }
 
     private static void SetId3UserText(TagLib.Id3v2.Tag id3, string description, string[] values)
@@ -301,7 +327,8 @@ public class LibraryBuilderService(
             // waits (bounded) for the per-song lyrics fetch so the file lands with lyrics embedded.
             var rawCandidates = await LibraryBuildQuery.BuildCandidates(
                     db.Songs.IgnoreQueryFilters().AsNoTracking(),
-                    LibraryBuildQuery.LyricsWaitCutoff(opts))
+                    LibraryBuildQuery.LyricsWaitCutoff(opts),
+                    opts.MaxLibraryBuildAttempts)
                 .OrderBy(s => s.Id)
                 .Take(opts.LibraryBuilderBatchSize)
                 .ToListAsync(ct);
@@ -573,6 +600,15 @@ public class LibraryBuilderService(
                 song.TrackLabel, songId, song.SourcePath, tempPath, destinationPath);
             song.MarkBuildFailed(ex.Message);
             await db.SaveChangesAsync(ct);
+            if (song.LibraryBuildAttempts >= options.Value.MaxLibraryBuildAttempts)
+            {
+                // Quarantined: the build query stops selecting this row until a manual re-build/re-enrich
+                // resets the counter, so one un-writable file can't loop the builder forever (issue #239).
+                logger.LogError(
+                    "Quarantining {Track} (SongId={SongId}) after {Attempts} failed build attempts; "
+                    + "excluded from the build queue until reset. Last error: {Error}",
+                    song.TrackLabel, songId, song.LibraryBuildAttempts, ex.Message);
+            }
             return new LibraryBuildTrackResult(LibraryBuildOutcome.Failed);
         }
     }

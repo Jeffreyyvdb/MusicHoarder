@@ -361,6 +361,51 @@ public class TagLibLibraryTagWriterTests : IDisposable
         Assert.Equal(["1"], tcmp!.Text);
     }
 
+    [Fact]
+    public async Task WriteTags_M4a_WritesMultiValueArtistsDashAtom()
+    {
+        var path = CopyFixture("silence.m4a");
+        var song = BasicSong();
+        song.Extension = ".m4a";
+        song.Artists = "Alice; Bob";
+
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song, Identity(song));
+
+        using var file = TagLib.File.Create(path);
+        var apple = (TagLib.Mpeg4.AppleTag)file.GetTag(TagLib.TagTypes.Apple);
+        Assert.Equal(["Alice", "Bob"], apple.GetDashBoxes("com.apple.iTunes", "ARTISTS"));
+    }
+
+    [Fact]
+    public async Task WriteTags_M4a_Retag_EmptyArtists_DoesNotThrowAndClearsAtom()
+    {
+        // Regression for #239: TagLibSharp's AppleTag.SetDashBoxes indexes datastring[0] when the
+        // ARTISTS dash atom already exists, so re-tagging an M4A with an empty artists[] (a combined
+        // display credit with no discrete list) threw IndexOutOfRangeException and aborted the build.
+        var path = CopyFixture("silence.m4a");
+        var writer = new TagLibLibraryTagWriter();
+
+        var first = BasicSong();
+        first.Extension = ".m4a";
+        first.Artist = "Alice & Bob";
+        first.Artists = "Alice; Bob";
+        await writer.WriteTagsAsync(path, first, Identity(first));
+
+        var second = BasicSong();
+        second.Extension = ".m4a";
+        second.Artist = "21 Savage, Travis Scott & Metro Boomin"; // combined credit, no discrete list
+        second.Artists = null;
+
+        await writer.WriteTagsAsync(path, second, Identity(second)); // must not throw
+
+        using var file = TagLib.File.Create(path);
+        var apple = (TagLib.Mpeg4.AppleTag)file.GetTag(TagLib.TagTypes.Apple);
+        // Empty values clear the stale atom, mirroring the ID3/Xiph branches.
+        Assert.Null(apple.GetDashBoxes("com.apple.iTunes", "ARTISTS"));
+        // The single display credit still lands.
+        Assert.Equal(["21 Savage, Travis Scott & Metro Boomin"], file.Tag.Performers);
+    }
+
     // The identity that mirrors a song's own album fields — what reconciliation produces for a
     // single-member album, so existing per-song assertions hold unchanged.
     private static AlbumIdentity Identity(SongMetadata song) => AlbumIdentity.FromSong(song);
