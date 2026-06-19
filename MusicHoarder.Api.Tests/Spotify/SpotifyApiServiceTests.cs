@@ -343,6 +343,25 @@ public class SpotifyApiServiceTests
     }
 
     [Fact]
+    public async Task SendAuthenticatedRequest_RetriesTransient5xx()
+    {
+        await using var db = CreateDb();
+        SeedConnectedSettings(db);
+
+        var success = JsonSerializer.Serialize(new { total = 0, items = Array.Empty<object>() });
+        // A single 502 (Spotify gateway hiccup) must not abort the request — it retries and succeeds.
+        var handler = new SequentialResponseHandler(new[]
+        {
+            (HttpStatusCode.BadGateway, "{}"),
+            (HttpStatusCode.OK, success),
+        });
+        var service = CreateService(db, handler);
+
+        var result = await service.GetLikedSongsAsync();
+        Assert.Equal(0, result.Total);
+    }
+
+    [Fact]
     public async Task SendAuthenticatedRequest_Handles401WithTokenRefresh()
     {
         await using var db = CreateDb();
