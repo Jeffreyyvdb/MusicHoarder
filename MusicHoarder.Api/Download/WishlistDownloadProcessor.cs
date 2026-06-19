@@ -71,6 +71,20 @@ public class WishlistDownloadProcessor(
             progressTracker.IncrementSkipped();
         }
 
+        // Surface in-flight work: persist Downloading before the (slow) fetch so the UI's Downloading
+        // tab/badge reflects what's actually running, instead of items jumping straight to a terminal
+        // state. Unresolved items (run cancelled mid-batch) are reverted to Pending below, and a crash
+        // leaves them Downloading until ResetStaleDownloadingAsync reclaims them on the next run.
+        if (toDownload.Count > 0)
+        {
+            foreach (var item in toDownload)
+            {
+                item.Status = WishlistItemStatus.Downloading;
+                item.UpdatedAtUtc = now;
+            }
+            await db.SaveChangesAsync(ct);
+        }
+
         // Downloads hit the network/disk only — no DB access — so the parallel section is EF-safe.
         var results = new Dictionary<int, DownloadResult>();
         var resultsLock = new object();
@@ -100,7 +114,13 @@ public class WishlistDownloadProcessor(
         foreach (var item in toDownload)
         {
             if (!results.TryGetValue(item.Id, out var result))
-                continue; // cancelled before this item ran — leave it Pending
+            {
+                // Cancelled before this item ran — revert the optimistic Downloading mark to Pending
+                // so the next run retries it (without inflating AttemptCount).
+                item.Status = WishlistItemStatus.Pending;
+                item.UpdatedAtUtc = now;
+                continue;
+            }
 
             item.DownloadProvider = provider.Name;
             item.AttemptCount += 1;
@@ -177,6 +197,31 @@ public class WishlistDownloadProcessor(
             logger.LogInformation("Linked {Count} downloaded wishlist items to library songs", linked);
         }
         return linked;
+    }
+
+    /// <summary>
+    /// Reverts items stuck in <see cref="WishlistItemStatus.Downloading"/> back to Pending. Items are
+    /// only transiently Downloading during an active batch, so any found between runs are leftovers
+    /// from a crash/restart mid-fetch — reclaim them so they retry. Returns how many were reset.
+    /// </summary>
+    public async Task<int> ResetStaleDownloadingAsync(MusicHoarderDbContext db, Guid ownerId, CancellationToken ct)
+    {
+        var stale = await db.WishlistItems
+            .IgnoreQueryFilters()
+            .Where(w => w.OwnerUserId == ownerId && w.Status == WishlistItemStatus.Downloading)
+            .ToListAsync(ct);
+
+        if (stale.Count == 0) return 0;
+
+        var now = DateTime.UtcNow;
+        foreach (var item in stale)
+        {
+            item.Status = WishlistItemStatus.Pending;
+            item.UpdatedAtUtc = now;
+        }
+        await db.SaveChangesAsync(ct);
+        logger.LogInformation("Reset {Count} stale Downloading wishlist items to Pending", stale.Count);
+        return stale.Count;
     }
 
     public IDownloadProvider ResolveProvider()

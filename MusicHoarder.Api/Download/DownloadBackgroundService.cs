@@ -33,15 +33,19 @@ public class DownloadBackgroundService(
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            // Link any already-downloaded items the scanner has since ingested, regardless of new work.
+            // Link any already-downloaded items the scanner has since ingested, regardless of new work,
+            // and reclaim any items left Downloading by a crash/restart mid-fetch (we're between runs
+            // here, so a Downloading item can only be stale).
             try
             {
                 await RunInScopeAsync((db, processor, ownerId) =>
                     processor.LinkDownloadedItemsAsync(db, ownerId, stoppingToken), stoppingToken);
+                await RunInScopeAsync((db, processor, ownerId) =>
+                    processor.ResetStaleDownloadingAsync(db, ownerId, stoppingToken), stoppingToken);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                logger.LogWarning(ex, "Wishlist download linker pass failed");
+                logger.LogWarning(ex, "Wishlist download linker/recovery pass failed");
             }
 
             opts = options.Value;

@@ -208,7 +208,9 @@ public static class WishlistEndpoints
                 // dependency) where retrying thousands of rows one by one is impractical.
                 var now = DateTime.UtcNow;
                 var reset = await db.WishlistItems
-                    .Where(w => w.Status == WishlistItemStatus.Failed || w.Status == WishlistItemStatus.NotFound)
+                    .Where(w => w.Status == WishlistItemStatus.Failed
+                        || w.Status == WishlistItemStatus.NotFound
+                        || w.Status == WishlistItemStatus.Downloading)
                     .ExecuteUpdateAsync(s => s
                         .SetProperty(w => w.Status, WishlistItemStatus.Pending)
                         .SetProperty(w => w.LastError, (string?)null)
