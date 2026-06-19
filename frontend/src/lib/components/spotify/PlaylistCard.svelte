@@ -47,7 +47,10 @@
       aria-label="Add playlist to wishlist"
       title="Add to wishlist"
       disabled={isAdding}
-      onclick={onAddToWishlist}
+      onclick={(e) => {
+        e.stopPropagation();
+        onAddToWishlist?.();
+      }}
       class="bg-background/90 hover:bg-background text-foreground absolute top-2 right-2 grid size-8 place-items-center rounded-full border shadow-sm transition-colors disabled:opacity-60"
     >
       {#if isAdding}

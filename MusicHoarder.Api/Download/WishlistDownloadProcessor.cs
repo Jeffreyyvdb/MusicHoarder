@@ -86,30 +86,26 @@ public class WishlistDownloadProcessor(
         }
 
         // Downloads hit the network/disk only — no DB access — so the parallel section is EF-safe.
+        // Parallel.ForEachAsync already bounds in-flight bodies to MaxDegreeOfParallelism, so no extra
+        // semaphore is needed.
         var results = new Dictionary<int, DownloadResult>();
         var resultsLock = new object();
         if (toDownload.Count > 0)
         {
-            var semaphore = new SemaphoreSlim(opts.DownloadConcurrency, opts.DownloadConcurrency);
             await Parallel.ForEachAsync(
                 toDownload,
                 new ParallelOptions { MaxDegreeOfParallelism = opts.DownloadConcurrency, CancellationToken = ct },
                 async (item, token) =>
                 {
-                    await semaphore.WaitAsync(token);
-                    try
-                    {
-                        var req = new DownloadRequest(item.Artist, item.Title, item.Album, item.Isrc, item.DurationMs, destinationDir);
-                        var result = await provider.DownloadAsync(req, token);
-                        lock (resultsLock) results[item.Id] = result;
-                    }
-                    finally
-                    {
-                        semaphore.Release();
-                    }
+                    var req = new DownloadRequest(item.Artist, item.Title, item.Album, item.Isrc, item.DurationMs, destinationDir);
+                    var result = await provider.DownloadAsync(req, token);
+                    lock (resultsLock) results[item.Id] = result;
                 });
         }
 
+        // Re-read the clock after the (potentially minutes-long, throttled) fetch so terminal
+        // UpdatedAtUtc stamps reflect when each item actually finished, not when the batch started.
+        var finishedAt = DateTime.UtcNow;
         var downloadedCount = 0;
         foreach (var item in toDownload)
         {
@@ -118,13 +114,13 @@ public class WishlistDownloadProcessor(
                 // Cancelled before this item ran — revert the optimistic Downloading mark to Pending
                 // so the next run retries it (without inflating AttemptCount).
                 item.Status = WishlistItemStatus.Pending;
-                item.UpdatedAtUtc = now;
+                item.UpdatedAtUtc = finishedAt;
                 continue;
             }
 
             item.DownloadProvider = provider.Name;
             item.AttemptCount += 1;
-            item.UpdatedAtUtc = now;
+            item.UpdatedAtUtc = finishedAt;
 
             if (result.Success && result.FilePath is not null)
             {
@@ -154,8 +150,11 @@ public class WishlistDownloadProcessor(
 
     /// <summary>
     /// Links Downloaded items to the library song the scanner created for their file (matching
-    /// <see cref="SongMetadata.SourcePath"/> to <see cref="WishlistItem.DownloadedFilePath"/>). Returns
-    /// how many were linked.
+    /// <see cref="SongMetadata.SourcePath"/> to <see cref="WishlistItem.DownloadedFilePath"/>). Also
+    /// heals items whose previously-linked song was soft-deleted: re-links to a live song if the file
+    /// was re-scanned, otherwise clears the now-dangling link (a soft-delete leaves the FK intact since
+    /// the row isn't physically removed, so this is the only place the stale reference gets cleaned up).
+    /// Returns how many were newly linked.
     /// </summary>
     public async Task<int> LinkDownloadedItemsAsync(MusicHoarderDbContext db, Guid ownerId, CancellationToken ct)
     {
@@ -163,8 +162,9 @@ public class WishlistDownloadProcessor(
             .IgnoreQueryFilters()
             .Where(w => w.OwnerUserId == ownerId
                 && w.Status == WishlistItemStatus.Downloaded
-                && w.DownloadedSongId == null
-                && w.DownloadedFilePath != null)
+                && w.DownloadedFilePath != null
+                && (w.DownloadedSongId == null
+                    || (w.DownloadedSong != null && w.DownloadedSong.DeletedAtUtc != null)))
             .ToListAsync(ct);
 
         if (unlinked.Count == 0) return 0;
@@ -180,21 +180,34 @@ public class WishlistDownloadProcessor(
             .ToDictionary(g => g.Key, g => g.First().Id);
 
         var linked = 0;
+        var changed = false;
         var now = DateTime.UtcNow;
         foreach (var item in unlinked)
         {
             if (item.DownloadedFilePath is { } p && byPath.TryGetValue(p, out var songId))
             {
+                if (item.DownloadedSongId == songId) continue; // already linked to the live song
                 item.DownloadedSongId = songId;
                 item.UpdatedAtUtc = now;
                 linked++;
+                changed = true;
+            }
+            else if (item.DownloadedSongId != null)
+            {
+                // Was linked to a since-soft-deleted song and no live song exists at the path anymore —
+                // drop the dangling link so the row reads "downloaded, not in library" instead of
+                // pointing at an invisible song (and so it re-links if the file is re-scanned later).
+                item.DownloadedSongId = null;
+                item.UpdatedAtUtc = now;
+                changed = true;
             }
         }
 
-        if (linked > 0)
+        if (changed)
         {
             await db.SaveChangesAsync(ct);
-            logger.LogInformation("Linked {Count} downloaded wishlist items to library songs", linked);
+            if (linked > 0)
+                logger.LogInformation("Linked {Count} downloaded wishlist items to library songs", linked);
         }
         return linked;
     }

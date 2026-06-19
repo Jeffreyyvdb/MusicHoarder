@@ -106,7 +106,9 @@
   </span>
 
   <div class="flex min-w-[120px] max-w-[230px] shrink-0 items-center justify-end gap-1">
-    {#if inWishlist}
+    {#if inWishlist && status !== 'InLibrary'}
+      <!-- Once the track is in the library the green "In library" affordance is primary; the wishlist
+           pill is redundant there and crowds the narrow container, so only show it otherwise. -->
       <span
         class="inline-flex h-8 items-center gap-1 rounded-md border border-violet-500/40 bg-violet-500/15 px-2 text-[11px] font-medium text-violet-700 dark:text-violet-300"
         title="On your wishlist"

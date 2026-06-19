@@ -583,10 +583,6 @@ public class MusicEnricherOptions
     /// <summary>Target audio format/codec for the download (yt-dlp <c>--audio-format</c>). Default "opus" (YouTube native, no re-encode).</summary>
     public string DownloadAudioFormat { get; set; } = "opus";
 
-    /// <summary>Maximum download attempts per wishlist item before it stays Failed.</summary>
-    [Range(1, 10)]
-    public int DownloadMaxAttempts { get; set; } = 3;
-
     /// <summary>
     /// Minimum seconds yt-dlp waits before each download (<c>--sleep-interval</c>). A small built-in
     /// throttle so bulk wishlist runs don't hammer YouTube back-to-back, which is itself a strong

@@ -127,7 +127,7 @@ public class YtDlpDownloadProvider(
         }
     }
 
-    private static string BuildSearchQuery(DownloadRequest req)
+    internal static string BuildSearchQuery(DownloadRequest req)
     {
         var terms = string.IsNullOrWhiteSpace(req.Artist)
             ? req.Title
@@ -140,7 +140,7 @@ public class YtDlpDownloadProvider(
     /// <c>&lt;stem&gt;.&lt;format&gt;</c>; fall back to any <c>&lt;stem&gt;.*</c> that isn't an
     /// intermediate part file.
     /// </summary>
-    private static string? LocateProducedFile(string directory, string stem)
+    internal static string? LocateProducedFile(string directory, string stem)
     {
         var matches = Directory
             .EnumerateFiles(directory, stem + ".*")
@@ -165,7 +165,7 @@ public class YtDlpDownloadProvider(
     /// ("...") are kept whole so a value containing spaces survives. Good enough for the handful of
     /// flags this is meant to carry; anything more exotic should be a first-class option.
     /// </summary>
-    private static IEnumerable<string> SplitArgs(string? raw)
+    internal static IEnumerable<string> SplitArgs(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw))
             yield break;
@@ -187,7 +187,7 @@ public class YtDlpDownloadProvider(
             yield return current.ToString();
     }
 
-    private static bool LooksLikeNoResults(string stderr) =>
+    internal static bool LooksLikeNoResults(string stderr) =>
         stderr.Contains("no results", StringComparison.OrdinalIgnoreCase)
         || stderr.Contains("Unable to download webpage", StringComparison.OrdinalIgnoreCase)
         || stderr.Contains("no video", StringComparison.OrdinalIgnoreCase);

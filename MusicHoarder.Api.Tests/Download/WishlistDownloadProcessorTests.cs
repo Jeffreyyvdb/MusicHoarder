@@ -167,6 +167,105 @@ public class WishlistDownloadProcessorTests
         Assert.Equal(song.Id, reloaded.DownloadedSongId);
     }
 
+    [Fact]
+    public async Task ResetStaleDownloading_RevertsDownloadingItemsToPending()
+    {
+        await using var db = CreateDbContext();
+        var stuck = MakePending("track-stuck");
+        stuck.Status = WishlistItemStatus.Downloading; // leftover from a crash/restart mid-fetch
+        var pending = MakePending("track-pending");
+        var downloaded = MakePending("track-done");
+        downloaded.Status = WishlistItemStatus.Downloaded;
+        db.WishlistItems.AddRange(stuck, pending, downloaded);
+        await db.SaveChangesAsync();
+
+        var processor = CreateProcessor(new FakeDownloadProvider(_ => DownloadResult.Ok("x")));
+        var reset = await processor.ResetStaleDownloadingAsync(db, Owner, default);
+
+        Assert.Equal(1, reset);
+        var byTrack = await db.WishlistItems.IgnoreQueryFilters()
+            .ToDictionaryAsync(w => w.SpotifyTrackId, w => w.Status);
+        Assert.Equal(WishlistItemStatus.Pending, byTrack["track-stuck"]);   // reclaimed
+        Assert.Equal(WishlistItemStatus.Pending, byTrack["track-pending"]); // untouched
+        Assert.Equal(WishlistItemStatus.Downloaded, byTrack["track-done"]); // untouched
+    }
+
+    [Fact]
+    public async Task LinkDownloadedItems_ReLinksWhenPreviousSongSoftDeletedAndFileReScanned()
+    {
+        await using var db = CreateDbContext();
+        var deadSong = new SongMetadata
+        {
+            OwnerUserId = Owner,
+            SourcePath = "/src/wishlist/song.opus",
+            FileName = "song.opus",
+            Extension = ".opus",
+            FileSizeBytes = 1,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            DeletedAtUtc = DateTime.UtcNow, // soft-deleted
+        };
+        var liveSong = new SongMetadata
+        {
+            OwnerUserId = Owner,
+            SourcePath = "/src/wishlist/song.opus", // same path, re-scanned
+            FileName = "song.opus",
+            Extension = ".opus",
+            FileSizeBytes = 1,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+        };
+        db.Songs.AddRange(deadSong, liveSong);
+        await db.SaveChangesAsync();
+
+        var item = MakePending("track-1");
+        item.Status = WishlistItemStatus.Downloaded;
+        item.DownloadedFilePath = "/src/wishlist/song.opus";
+        item.DownloadedSongId = deadSong.Id; // linked to the now-soft-deleted song
+        db.WishlistItems.Add(item);
+        await db.SaveChangesAsync();
+
+        var processor = CreateProcessor(new FakeDownloadProvider(_ => DownloadResult.Ok("x")));
+        var linked = await processor.LinkDownloadedItemsAsync(db, Owner, default);
+
+        Assert.Equal(1, linked);
+        var reloaded = await db.WishlistItems.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(liveSong.Id, reloaded.DownloadedSongId); // healed to the live song
+    }
+
+    [Fact]
+    public async Task LinkDownloadedItems_ClearsDanglingLinkWhenSongSoftDeletedAndNoLiveSong()
+    {
+        await using var db = CreateDbContext();
+        var deadSong = new SongMetadata
+        {
+            OwnerUserId = Owner,
+            SourcePath = "/src/wishlist/gone.opus",
+            FileName = "gone.opus",
+            Extension = ".opus",
+            FileSizeBytes = 1,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            DeletedAtUtc = DateTime.UtcNow,
+        };
+        db.Songs.Add(deadSong);
+        await db.SaveChangesAsync();
+
+        var item = MakePending("track-1");
+        item.Status = WishlistItemStatus.Downloaded;
+        item.DownloadedFilePath = "/src/wishlist/gone.opus";
+        item.DownloadedSongId = deadSong.Id;
+        db.WishlistItems.Add(item);
+        await db.SaveChangesAsync();
+
+        var processor = CreateProcessor(new FakeDownloadProvider(_ => DownloadResult.Ok("x")));
+        var linked = await processor.LinkDownloadedItemsAsync(db, Owner, default);
+
+        Assert.Equal(0, linked);
+        var reloaded = await db.WishlistItems.IgnoreQueryFilters().SingleAsync();
+        Assert.Null(reloaded.DownloadedSongId); // dangling link cleared
+    }
+
     private static WishlistItem MakePending(string trackId) => new()
     {
         OwnerUserId = Owner,
