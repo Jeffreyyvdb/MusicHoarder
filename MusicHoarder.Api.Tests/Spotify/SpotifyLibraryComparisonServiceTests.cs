@@ -308,6 +308,62 @@ public class SpotifyLibraryComparisonServiceTests
         Assert.Equal(1, paged.Limit);
     }
 
+    [Fact]
+    public async Task CompareAsync_FlagsTracksOnTheWishlist()
+    {
+        await using var db = CreateDb();
+        SeedTracks(db, ("spotify:1", "Artist 1", "Title 1")); // one track is also in the library
+        SeedWishlist(db, "spotify:1", "spotify:wish");          // both wishlisted; spotify:wish isn't in library
+
+        var likedSongs = new SpotifyLikedSongsResponse(3, 0, 50, new[]
+        {
+            MakeLikedSong("spotify:1", "Artist 1", "Title 1"),
+            MakeLikedSong("spotify:wish", "Wishlist Artist", "Wishlist Title"),
+            MakeLikedSong("spotify:none", "Other Artist", "Other Title"),
+        });
+
+        var service = CreateService(db, new StubSpotifyApiService(likedSongs));
+
+        var result = await service.CompareAsync(0, 50);
+        var byId = result.Items.ToDictionary(i => i.SpotifyId);
+
+        Assert.True(byId["spotify:1"].IsInWishlist);     // in library AND on the wishlist
+        Assert.True(byId["spotify:wish"].IsInWishlist);  // not in library but on the wishlist
+        Assert.False(byId["spotify:none"].IsInWishlist); // neither
+    }
+
+    [Fact]
+    public async Task CompareAsync_WithMatchStatusFilter_FlagsWishlistedTracks()
+    {
+        await using var db = CreateDb();
+        var t0 = DateTime.UtcNow;
+        db.SpotifyTrackLibraryMatches.Add(new SpotifyTrackLibraryMatch
+        {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
+            SpotifyTrackId = "spotify:1",
+            MatchStatus = (int)ComparisonMatchStatus.InLibrary,
+            MatchedSongId = 1,
+            MatchConfidence = 1,
+            MatchedTitle = "Title 1",
+            MatchedArtist = "Artist 1",
+            MatchedEnrichmentStatus = "Matched",
+            UpdatedAtUtc = t0,
+            Source = SpotifyLibraryComparisonService.SourceLikedSync,
+            SpotifyTitle = "Title 1",
+            SpotifyArtist = "Artist 1",
+            SpotifyAlbum = "Album",
+            SpotifyDurationMs = 200000,
+            SpotifyAddedAtUtc = t0,
+        });
+        SeedWishlist(db, "spotify:1");
+
+        var service = CreateService(db, new StubSpotifyApiService(new SpotifyLikedSongsResponse(0, 0, 50, [])));
+
+        var page = await service.CompareAsync(0, 50, ComparisonMatchStatus.InLibrary);
+
+        Assert.True(page.Items.Single().IsInWishlist);
+    }
+
     #endregion
 
     #region GetSummaryAsync integration tests
@@ -436,6 +492,25 @@ public class SpotifyLibraryComparisonServiceTests
                 SpotifyId = spotifyId,
                 Artist = artist,
                 Title = title,
+            });
+        }
+        db.SaveChanges();
+    }
+
+    private static void SeedWishlist(MusicHoarderDbContext db, params string[] spotifyTrackIds)
+    {
+        foreach (var id in spotifyTrackIds)
+        {
+            db.WishlistItems.Add(new WishlistItem
+            {
+                OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
+                SpotifyTrackId = id,
+                Title = "Wishlisted",
+                Artist = "Wishlisted",
+                DurationMs = 200000,
+                Status = WishlistItemStatus.Pending,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow,
             });
         }
         db.SaveChanges();

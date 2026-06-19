@@ -2,6 +2,7 @@
   import type { SpotifyApiTrack, SpotifyLibraryMatchStatus } from '$lib/api-client';
   import { Button } from '$lib/components/ui/button';
   import * as Tooltip from '$lib/components/ui/tooltip';
+  import { songDetail } from '$lib/stores/song-detail.svelte';
   import {
     Music,
     CheckCircle2,
@@ -9,7 +10,8 @@
     ChevronDown,
     ChevronUp,
     Columns2,
-    Download
+    Download,
+    Heart
   } from '@lucide/svelte';
 
   type Props = {
@@ -48,6 +50,12 @@
   const songId = $derived(m?.matchedSongId);
   const isPossible = $derived(status === 'PossibleMatch');
   const hasMatchInfo = $derived(Boolean(m && status));
+  const inWishlist = $derived(track.isInWishlist === true);
+
+  function openInLibrary(e: MouseEvent) {
+    e.stopPropagation();
+    if (songId != null) songDetail.open(songId);
+  }
 
   function handleKeyDown(e: KeyboardEvent) {
     if (!isPossible) return;
@@ -97,8 +105,19 @@
     {formatDuration(track.durationMs)}
   </span>
 
-  <div class="flex min-w-[120px] max-w-[168px] shrink-0 items-center justify-end gap-1">
-    {#if !hasMatchInfo}
+  <div class="flex min-w-[120px] max-w-[230px] shrink-0 items-center justify-end gap-1">
+    {#if inWishlist && status !== 'InLibrary'}
+      <!-- Once the track is in the library the green "In library" affordance is primary; the wishlist
+           pill is redundant there and crowds the narrow container, so only show it otherwise. -->
+      <span
+        class="inline-flex h-8 items-center gap-1 rounded-md border border-violet-500/40 bg-violet-500/15 px-2 text-[11px] font-medium text-violet-700 dark:text-violet-300"
+        title="On your wishlist"
+      >
+        <Heart class="size-3.5 shrink-0 fill-current" />
+        Wishlist
+      </span>
+    {/if}
+    {#if !hasMatchInfo && !inWishlist}
       <span
         class="text-muted-foreground hidden text-[10px] whitespace-nowrap sm:inline"
         title="Match pending"
@@ -111,8 +130,8 @@
         size="sm"
         variant="outline"
         class="border-primary/40 bg-primary/15 text-primary hover:bg-primary/25 h-8 px-2.5 text-xs font-medium"
-        href={`/library?song=${songId}`}
-        onclick={(e: MouseEvent) => e.stopPropagation()}
+        title="Open this song in your library"
+        onclick={openInLibrary}
       >
         <CheckCircle2 class="size-3.5 shrink-0" />
         In library
@@ -125,8 +144,7 @@
           variant="outline"
           class="h-8 border-amber-500/45 bg-amber-500/15 px-2.5 text-xs font-medium text-amber-900 hover:bg-amber-500/25 dark:text-amber-200"
           title="Open best-guess local track"
-          href={`/library?song=${songId}`}
-          onclick={(e: MouseEvent) => e.stopPropagation()}
+          onclick={openInLibrary}
         >
           ~{formatMatchConfidence(m?.matchConfidence)}
           <Link2 class="size-3.5 shrink-0" />
@@ -138,7 +156,7 @@
         {/if}
       </div>
     {/if}
-    {#if status === 'NotInLibrary'}
+    {#if status === 'NotInLibrary' && !inWishlist}
       <Tooltip.Root>
         <Tooltip.Trigger>
           {#snippet child({ props })}
@@ -200,13 +218,14 @@
         <div class="border-border bg-card/50 space-y-1 rounded-lg border p-2.5">
           <div class="flex items-center justify-between gap-2">
             <p class="text-muted-foreground text-[10px] tracking-wide uppercase">MusicHoarder</p>
-            <a
-              href={`/library?song=${songId}`}
+            <button
+              type="button"
+              onclick={openInLibrary}
               class="text-primary inline-flex items-center gap-1 text-xs hover:underline"
             >
               Open
               <Link2 class="size-3" />
-            </a>
+            </button>
           </div>
           <p class="text-sm font-medium">{m?.matchedTitle ?? '—'}</p>
           <p class="text-muted-foreground text-xs">{m?.matchedArtist ?? '—'}</p>

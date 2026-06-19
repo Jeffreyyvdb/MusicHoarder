@@ -1,3 +1,4 @@
+using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Scanner;
@@ -11,16 +12,19 @@ public static class ProgressSnapshotFactory
         ScanProgressTracker scanTracker,
         FingerprintProgressTracker fingerprintTracker,
         EnrichmentProgressTracker enrichmentTracker,
-        LibraryBuilderProgressTracker buildTracker)
+        LibraryBuilderProgressTracker buildTracker,
+        DownloadProgressTracker downloadTracker)
     {
         var scanStep = jobManager.GetStepSnapshot(JobType.Scan);
         var fpStep = jobManager.GetStepSnapshot(JobType.Fingerprint);
         var enrichStep = jobManager.GetStepSnapshot(JobType.Enrich);
         var buildStep = jobManager.GetStepSnapshot(JobType.Build);
+        var downloadStep = jobManager.GetStepSnapshot(JobType.Download);
 
         var anyRunning = jobManager.IsAnyRunning();
 
         var runningLabels = new List<string>();
+        if (downloadStep.Status == "Running") runningLabels.Add("Downloading");
         if (scanStep.Status == "Running") runningLabels.Add("Scanning");
         if (fpStep.Status == "Running") runningLabels.Add("Fingerprinting");
         if (enrichStep.Status == "Running") runningLabels.Add("Enriching");
@@ -34,6 +38,7 @@ public static class ProgressSnapshotFactory
         var fpState = fingerprintTracker.GetCurrent();
         var enrichState = enrichmentTracker.GetCurrent();
         var buildState = buildTracker.GetCurrent();
+        var downloadState = downloadTracker.GetCurrent();
 
         var discovered = scanState?.TotalFiles ?? 0;
         var scanned = (scanState?.Processed ?? 0) + (scanState?.SkippedFiles ?? 0);
@@ -41,10 +46,12 @@ public static class ProgressSnapshotFactory
         var enriched = enrichState?.Enriched ?? 0;
         var needsReview = enrichState?.NeedsReview ?? 0;
         var built = buildState?.Built ?? 0;
+        var downloaded = downloadState?.Downloaded ?? 0;
         var failed = (scanState?.FailedFiles ?? 0)
             + (fpState?.Failed ?? 0)
             + (enrichState?.Failed ?? 0)
-            + (buildState?.Failed ?? 0);
+            + (buildState?.Failed ?? 0)
+            + (downloadState?.Failed ?? 0);
 
         return new ProgressSnapshot(
             statusLabel,
@@ -62,7 +69,9 @@ public static class ProgressSnapshotFactory
             scanStep,
             fpStep,
             enrichStep,
-            buildStep);
+            buildStep,
+            downloaded,
+            downloadStep);
     }
 
     public static bool TryParseJobType(string step, out JobType jobType)
@@ -73,6 +82,7 @@ public static class ProgressSnapshotFactory
             "fingerprint" => JobType.Fingerprint,
             "enrich" => JobType.Enrich,
             "build" => JobType.Build,
+            "download" => JobType.Download,
             _ => JobType.None
         };
         return jobType != JobType.None;

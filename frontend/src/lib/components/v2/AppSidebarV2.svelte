@@ -8,6 +8,7 @@
     Disc3,
     FolderTree,
     Gauge,
+    Heart,
     History,
     Inbox,
     Library,
@@ -57,7 +58,8 @@
     | 'albums'
     | 'artists'
     | 'tracks'
-    | 'spotify';
+    | 'spotify'
+    | 'wishlist';
 
   type SubItem = {
     id: SubKey;
@@ -177,7 +179,8 @@
         { id: 'albums', label: 'Albums', href: '/library', icon: Disc3, count: () => albumCount },
         { id: 'artists', label: 'Artists', href: '/artists', icon: Users, count: () => artistCount },
         { id: 'tracks', label: 'All tracks', href: '/tracks', icon: ListMusic, count: () => totalTracks },
-        { id: 'spotify', label: 'Spotify', href: '/spotify', icon: Music2 }
+        { id: 'spotify', label: 'Spotify', href: '/spotify', icon: Music2 },
+        { id: 'wishlist', label: 'Wishlist', href: '/wishlist', icon: Heart }
       ]
     },
     {
@@ -231,6 +234,8 @@
         return pathname === '/tracks';
       case 'spotify':
         return pathname.startsWith('/spotify');
+      case 'wishlist':
+        return pathname.startsWith('/wishlist');
       default:
         return false;
     }

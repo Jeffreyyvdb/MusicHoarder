@@ -534,4 +534,84 @@ public class MusicEnricherOptions
     /// "Various Artists" — the literal album-artist string every music server recognizes.
     /// </summary>
     public string CompilationFolderName { get; set; } = "Various Artists";
+
+    // --- Wishlist downloads (Spotify wishlist → downloader → source directory) ---
+
+    /// <summary>
+    /// Master switch for the wishlist downloader. When false the download worker idles and the API
+    /// download trigger is a no-op (wishlist items are still tracked and synced, just never fetched).
+    /// Enables the explicit <c>POST /api/wishlist/download</c> trigger; background auto-sweeping is
+    /// additionally gated by <see cref="AutoDownloadWishlist"/>.
+    /// </summary>
+    public bool EnableWishlistDownloads { get; set; } = false;
+
+    /// <summary>
+    /// When true the download worker auto-sweeps Pending wishlist items in the background (no user action
+    /// needed). When false, downloads only run on the explicit <c>POST /api/wishlist/download</c> trigger.
+    /// Kept separate from <see cref="EnableWishlistDownloads"/> so an environment can expose the feature
+    /// (manual, opt-in) without every instance auto-fetching on its own — e.g. PR previews stay manual,
+    /// production auto-downloads for the owner. Requires <see cref="EnableWishlistDownloads"/>.
+    /// </summary>
+    public bool AutoDownloadWishlist { get; set; } = false;
+
+    /// <summary>Name of the <c>IDownloadProvider</c> to use, resolved by <c>IDownloadProvider.Name</c>. Default "yt-dlp".</summary>
+    public string DownloadProvider { get; set; } = "yt-dlp";
+
+    /// <summary>Path to the yt-dlp binary. Must be on PATH or an absolute path.</summary>
+    public string YtDlpPath { get; set; } = "yt-dlp";
+
+    /// <summary>Path to the ffmpeg binary yt-dlp uses for extraction/remux. Empty lets yt-dlp find it on PATH.</summary>
+    public string FfmpegPath { get; set; } = string.Empty;
+
+    /// <summary>Number of concurrent downloads.</summary>
+    [Range(1, 16)]
+    public int DownloadConcurrency { get; set; } = 2;
+
+    /// <summary>Delay in seconds before the download worker re-checks for pending wishlist items.</summary>
+    [Range(1, 300)]
+    public int DownloadIdleDelaySeconds { get; set; } = 20;
+
+    /// <summary>
+    /// Absolute path to a writable staging directory that wishlist downloads are written into. Kept
+    /// separate from <see cref="SourceDirectory"/> because the source library is usually a read-only
+    /// mount. The scanner indexes this directory as an additional source root, so downloaded files flow
+    /// through the normal scan → fingerprint → enrich → build pipeline. Required when
+    /// <see cref="EnableWishlistDownloads"/> is on; the downloader idles if it's unset.
+    /// </summary>
+    public string DownloadDirectory { get; set; } = string.Empty;
+
+    /// <summary>Target audio format/codec for the download (yt-dlp <c>--audio-format</c>). Default "opus" (YouTube native, no re-encode).</summary>
+    public string DownloadAudioFormat { get; set; } = "opus";
+
+    /// <summary>
+    /// Minimum seconds yt-dlp waits before each download (<c>--sleep-interval</c>). A small built-in
+    /// throttle so bulk wishlist runs don't hammer YouTube back-to-back, which is itself a strong
+    /// bot-detection signal. 0 disables the wait.
+    /// </summary>
+    [Range(0, 60)]
+    public int DownloadSleepSeconds { get; set; } = 2;
+
+    /// <summary>
+    /// Upper bound for the randomized pre-download wait (<c>--max-sleep-interval</c>); yt-dlp picks a
+    /// random delay in [<see cref="DownloadSleepSeconds"/>, this]. Only applied when greater than the
+    /// minimum — a randomized cadence looks less automated than a fixed one.
+    /// </summary>
+    [Range(0, 120)]
+    public int DownloadMaxSleepSeconds { get; set; } = 6;
+
+    /// <summary>
+    /// Path to a Netscape-format cookies file passed to yt-dlp via <c>--cookies</c>. From a
+    /// datacenter IP (preview/prod hosts) YouTube triggers a "Sign in to confirm you're not a bot"
+    /// challenge; authenticated cookies from a logged-in account get past it. Empty → no cookies
+    /// (works from residential IPs like local dev). The file is sensitive — mount it as a secret/volume,
+    /// never commit it. See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp
+    /// </summary>
+    public string YtDlpCookiesPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Extra command-line arguments appended verbatim to every yt-dlp invocation (space-separated,
+    /// e.g. <c>--extractor-args youtube:player_client=tv --proxy http://...</c>). An escape hatch for
+    /// anti-bot workarounds and proxies without a code change. Empty → none.
+    /// </summary>
+    public string YtDlpExtraArgs { get; set; } = string.Empty;
 }

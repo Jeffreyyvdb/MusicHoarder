@@ -147,6 +147,12 @@ jobs:
           PREVIEW_SPOTIFY_CLIENT_SECRET: ${{ secrets.PREVIEW_SPOTIFY_CLIENT_SECRET }}
           PREVIEW_SPOTIFY_OAUTH_RELAY_URL: ${{ vars.PREVIEW_SPOTIFY_OAUTH_RELAY_URL }}
           PREVIEW_SPOTIFY_OAUTH_STATE_KEY: ${{ secrets.PREVIEW_SPOTIFY_OAUTH_STATE_KEY }}
+          # Optional raw yt-dlp flags to dodge YouTube's datacenter-IP bot check (repo variable),
+          # e.g. "--extractor-args youtube:player_client=tv". Empty → plain yt-dlp.
+          PREVIEW_YTDLP_EXTRA_ARGS: ${{ vars.PREVIEW_YTDLP_EXTRA_ARGS }}
+          # Optional host path to a YouTube cookies.txt (Netscape format) on the Dokploy host, bound
+          # into the API so the wishlist downloader can clear YouTube's datacenter-IP bot check.
+          PREVIEW_YTDLP_COOKIES_HOST_PATH: ${{ vars.PREVIEW_YTDLP_COOKIES_HOST_PATH }}
           # AI quality grading. Key empty → grading stays a no-op in the preview. Model/base URL
           # default in the script (deepseek/deepseek-v4-flash on OpenRouter); override via repo vars.
           PREVIEW_QUALITY_GRADING_API_KEY: ${{ secrets.PREVIEW_QUALITY_GRADING_API_KEY }}

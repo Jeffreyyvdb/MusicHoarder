@@ -1,3 +1,4 @@
+using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Library;
@@ -21,7 +22,8 @@ public class ProgressSnapshotFactoryTests
             scanTracker,
             fingerprintTracker,
             enrichmentTracker,
-            buildTracker);
+            buildTracker,
+            new DownloadProgressTracker());
 
         Assert.Equal("Idle", snapshot.Status);
         Assert.True(snapshot.IsComplete);
@@ -56,7 +58,8 @@ public class ProgressSnapshotFactoryTests
             scanTracker,
             fingerprintTracker,
             enrichmentTracker,
-            buildTracker);
+            buildTracker,
+            new DownloadProgressTracker());
 
         Assert.Equal("Idle", snapshot.Status);
         Assert.True(snapshot.IsComplete);
@@ -76,7 +79,7 @@ public class ProgressSnapshotFactoryTests
         manager.PauseStep(JobType.Build);
 
         var snapshot = ProgressSnapshotFactory.Create(
-            manager, scanTracker, fpTracker, enrichmentTracker, buildTracker);
+            manager, scanTracker, fpTracker, enrichmentTracker, buildTracker, new DownloadProgressTracker());
 
         Assert.Equal("Idle", snapshot.Status);
         Assert.True(snapshot.IsComplete);
@@ -96,7 +99,8 @@ public class ProgressSnapshotFactoryTests
             new ScanProgressTracker(),
             new FingerprintProgressTracker(),
             new EnrichmentProgressTracker(),
-            new LibraryBuilderProgressTracker());
+            new LibraryBuilderProgressTracker(),
+            new DownloadProgressTracker());
 
         Assert.Equal("Scanning, Building", snapshot.Status);
         Assert.False(snapshot.IsComplete);
@@ -137,7 +141,8 @@ public class ProgressSnapshotFactoryTests
             scanTracker,
             fingerprintTracker,
             enrichmentTracker,
-            buildTracker);
+            buildTracker,
+            new DownloadProgressTracker());
 
         Assert.Equal("Scanning, Enriching", snapshot.Status);
         Assert.False(snapshot.IsComplete);
@@ -193,7 +198,8 @@ public class ProgressSnapshotFactoryTests
             scanTracker,
             fingerprintTracker,
             enrichmentTracker,
-            buildTracker);
+            buildTracker,
+            new DownloadProgressTracker());
 
         Assert.Equal(10, snapshot.Discovered);
         Assert.Equal(6, snapshot.Scanned); // processed (3) + skipped (3)
@@ -209,6 +215,7 @@ public class ProgressSnapshotFactoryTests
     [InlineData("fingerprint", JobType.Fingerprint)]
     [InlineData(" EnRiCh ", JobType.Enrich)]
     [InlineData("BUILD", JobType.Build)]
+    [InlineData("download", JobType.Download)]
     public void TryParseJobType_ValidInput_ReturnsExpectedType(string input, JobType expected)
     {
         var parsed = ProgressSnapshotFactory.TryParseJobType(input, out var jobType);

@@ -23,7 +23,9 @@ public record SpotifyTrackItem(
     string? AlbumArt,
     int DurationMs,
     DateTime AddedAt,
-    SpotifyLibraryMatchInfo? LibraryMatch = null);
+    string? Isrc = null,
+    SpotifyLibraryMatchInfo? LibraryMatch = null,
+    bool IsInWishlist = false);
 
 public record SpotifyLikedSongsResponse(
     int Total,

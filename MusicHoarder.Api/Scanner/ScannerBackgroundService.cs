@@ -24,36 +24,47 @@ public class ScannerBackgroundService(
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, jobToken);
             var ct = linkedCts.Token;
 
-            if (!directoryAvailability.Current.SourceAvailable)
+            // Scan roots: the (read-only) source library when reachable, plus the writable wishlist
+            // download staging dir when configured & present. Each root reconciles deletions only
+            // within its own path prefix, so an offline source root never wipes downloaded tracks.
+            var roots = new List<string>();
+            if (directoryAvailability.Current.SourceAvailable)
+                roots.Add(options.Value.SourceDirectory);
+            var downloadDir = options.Value.DownloadDirectory;
+            if (!string.IsNullOrWhiteSpace(downloadDir) && Directory.Exists(downloadDir))
+                roots.Add(downloadDir);
+
+            if (roots.Count == 0)
             {
                 logger.LogInformation(
-                    "Scan {JobId} skipped — source directory {SourceDirectory} is offline",
-                    jobId, options.Value.SourceDirectory);
+                    "Scan {JobId} skipped — no scan roots available (source offline, no download dir)", jobId);
                 jobManager.SignalComplete(jobId, cancelled: true);
                 continue;
             }
 
             try
             {
-                logger.LogInformation("Starting scan job {JobId}", jobId);
+                logger.LogInformation("Starting scan job {JobId} over {RootCount} root(s)", jobId, roots.Count);
 
                 using var scope = scopeFactory.CreateScope();
                 var indexService = scope.ServiceProvider.GetRequiredService<IIndexService>();
 
-                var result = await indexService.IndexAsync(
-                    jobId,
-                    options.Value.SourceDirectory,
-                    ct);
+                var newOrChanged = 0;
+                foreach (var root in roots)
+                {
+                    var result = await indexService.IndexAsync(jobId, root, ct);
+                    newOrChanged += result.NewFiles + result.ChangedFiles;
 
-                logger.LogInformation(
-                    "Scan {JobId} complete — Total: {Total}, New: {New}, Changed: {Changed}, Deleted: {Deleted}, Skipped: {Skipped}, Failed: {Failed}, Duration: {Duration:F1}s",
-                    jobId, result.TotalFiles, result.NewFiles, result.ChangedFiles,
-                    result.DeletedFiles, result.SkippedFiles, result.FailedFiles, result.Duration.TotalSeconds);
+                    logger.LogInformation(
+                        "Scan {JobId} root {Root} — Total: {Total}, New: {New}, Changed: {Changed}, Deleted: {Deleted}, Skipped: {Skipped}, Failed: {Failed}, Duration: {Duration:F1}s",
+                        jobId, root, result.TotalFiles, result.NewFiles, result.ChangedFiles,
+                        result.DeletedFiles, result.SkippedFiles, result.FailedFiles, result.Duration.TotalSeconds);
+                }
 
                 jobManager.SignalComplete(jobId);
 
                 if (options.Value.AutoStartPipeline
-                    && result.NewFiles + result.ChangedFiles > 0
+                    && newOrChanged > 0
                     && jobManager.TryStartJob(JobType.Fingerprint, out var fpJobId, out _))
                 {
                     logger.LogInformation(

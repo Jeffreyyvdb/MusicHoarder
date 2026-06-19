@@ -859,6 +859,8 @@ export interface ProgressSnapshot {
   fingerprint: StepSnapshot
   enrich: StepSnapshot
   build: StepSnapshot
+  downloaded?: number
+  download?: StepSnapshot | null
 }
 
 export interface JobStatusResponse {
@@ -1290,6 +1292,8 @@ export interface SpotifyApiTrack {
   durationMs: number
   addedAt: string
   libraryMatch?: SpotifyLibraryMatchInfo | null
+  /** True when this Spotify track is already on the owner's wishlist (any status). */
+  isInWishlist?: boolean
 }
 
 export interface SpotifyLikedSongsApiResponse {
@@ -1354,6 +1358,112 @@ export async function fetchSpotifyPlaylistTracks(playlistId: string, offset = 0,
   return requestJson<SpotifyPlaylistTracksApiResponse>(
     `/api/spotify/playlists/${playlistId}/tracks?offset=${offset}&limit=${limit}`
   )
+}
+
+// ── Wishlist API ──────────────────────────────────────────────────────────────
+
+export type WishlistItemStatus =
+  | "Pending"
+  | "SkippedOwned"
+  | "Downloading"
+  | "Downloaded"
+  | "Failed"
+  | "NotFound"
+
+export type WishlistSourceType = "LikedSongs" | "Playlist"
+
+export interface WishlistItem {
+  id: number
+  spotifyTrackId: string
+  title: string
+  artist: string
+  album?: string | null
+  isrc?: string | null
+  durationMs: number
+  albumArt?: string | null
+  spotifyAddedAtUtc?: string | null
+  status: WishlistItemStatus
+  downloadProvider?: string | null
+  downloadedFilePath?: string | null
+  downloadedSongId?: number | null
+  attemptCount: number
+  lastError?: string | null
+  libraryEnrichmentStatus?: string | null
+  libraryBuildStatus?: string | null
+  createdAtUtc: string
+  updatedAtUtc: string
+}
+
+export interface WishlistItemsResponse {
+  total: number
+  offset: number
+  limit: number
+  items: WishlistItem[]
+}
+
+export interface WishlistSource {
+  id: number
+  sourceType: WishlistSourceType
+  spotifyPlaylistId?: string | null
+  name: string
+  imageUrl?: string | null
+  autoSync: boolean
+  lastSyncedAtUtc?: string | null
+  createdAtUtc: string
+  itemCount: number
+}
+
+export interface AddWishlistSourceResult {
+  sourceId: number
+  /** The snapshot runs in the background; tracks appear on the wishlist progressively. */
+  queued: boolean
+}
+
+export async function fetchWishlist(status?: WishlistItemStatus, offset = 0, limit = 50): Promise<WishlistItemsResponse> {
+  const params = new URLSearchParams({ offset: String(offset), limit: String(limit) })
+  if (status) params.set("status", status)
+  return requestJson<WishlistItemsResponse>(`/api/wishlist?${params.toString()}`)
+}
+
+export async function fetchWishlistSources(): Promise<{ sources: WishlistSource[] }> {
+  return requestJson<{ sources: WishlistSource[] }>("/api/wishlist/sources")
+}
+
+export async function addWishlistSource(
+  type: WishlistSourceType,
+  options: { playlistId?: string; autoSync?: boolean } = {}
+): Promise<AddWishlistSourceResult> {
+  return requestJson<AddWishlistSourceResult>("/api/wishlist/sources", {
+    method: "POST",
+    body: JSON.stringify({ type, playlistId: options.playlistId, autoSync: options.autoSync ?? false }),
+  })
+}
+
+export async function setWishlistSourceAutoSync(id: number, autoSync: boolean): Promise<{ id: number; autoSync: boolean }> {
+  return requestJson<{ id: number; autoSync: boolean }>(`/api/wishlist/sources/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ autoSync }),
+  })
+}
+
+export async function removeWishlistSource(id: number): Promise<{ message: string }> {
+  return requestJson<{ message: string }>(`/api/wishlist/sources/${id}`, { method: "DELETE" })
+}
+
+export async function retryWishlistItem(id: number): Promise<{ id: number; status: WishlistItemStatus }> {
+  return requestJson<{ id: number; status: WishlistItemStatus }>(`/api/wishlist/items/${id}/retry`, { method: "POST" })
+}
+
+export async function removeWishlistItem(id: number): Promise<{ message: string }> {
+  return requestJson<{ message: string }>(`/api/wishlist/items/${id}`, { method: "DELETE" })
+}
+
+export async function retryFailedWishlistItems(): Promise<{ reset: number }> {
+  return requestJson<{ reset: number }>("/api/wishlist/items/retry-failed", { method: "POST" })
+}
+
+export async function triggerWishlistDownload(): Promise<{ jobId: string }> {
+  return requestJson<{ jobId: string }>("/api/wishlist/download", { method: "POST" })
 }
 
 // ---------------------------------------------------------------------------

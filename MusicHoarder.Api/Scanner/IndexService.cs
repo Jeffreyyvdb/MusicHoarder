@@ -53,6 +53,18 @@ public class IndexService(
 
         var ownerId = ownerLookup.OwnerUserId;
 
+        // A scan can cover more than one source root (the read-only music library + the writable
+        // wishlist download staging dir). Scope change-detection AND deletion reconciliation to the
+        // root being scanned, by its path prefix, so scanning one root never soft-deletes songs that
+        // live under another (or wipes the library when a root is temporarily unscanned).
+        if (!Directory.Exists(directoryPath))
+        {
+            logger.LogInformation("Index {ScanId} skipped — directory {Directory} does not exist", scanId, directoryPath);
+            return new IndexResult(0, 0, 0, 0, 0, 0, DateTime.UtcNow - startTime);
+        }
+
+        var rootPrefix = NormalizeRootPrefix(directoryPath);
+
         // ── Phase 1: Load DB state for change detection ──────────────────────
         //
         // Background-service queries bypass the per-user query filter via
@@ -61,6 +73,7 @@ public class IndexService(
         var existingSongs = await dbContext.Songs
             .IgnoreQueryFilters()
             .Where(s => s.OwnerUserId == ownerId && !s.IsSynthetic && !s.DeletedAtUtc.HasValue)
+            .Where(s => s.SourcePath.StartsWith(rootPrefix))
             .Select(s => new { s.SourcePath, s.LastModifiedUtc, s.FileSizeBytes })
             .ToDictionaryAsync(s => s.SourcePath, cancellationToken);
 
@@ -315,6 +328,14 @@ public class IndexService(
 
         await dbContext.SaveChangesAsync(ct);
     }
+
+    /// <summary>
+    /// Normalizes a scan root to a forward-slash prefix ending in a separator, so a prefix match on
+    /// <see cref="SongMetadata.SourcePath"/> selects only files beneath it (and not a sibling root that
+    /// merely shares a name prefix, e.g. <c>/music</c> vs <c>/music-downloads</c>).
+    /// </summary>
+    internal static string NormalizeRootPrefix(string directoryPath)
+        => directoryPath.Replace('\\', '/').TrimEnd('/') + "/";
 
     internal static bool DateTimeIsEqualMicroseconds(DateTime a, DateTime b)
         => Math.Abs((a - b).TotalMicroseconds) < 1;

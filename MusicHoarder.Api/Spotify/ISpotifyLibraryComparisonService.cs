@@ -54,7 +54,8 @@ public record SpotifyComparisonItem(
     DateTime AddedAt,
     ComparisonMatchStatus MatchStatus,
     ComparisonMatchedTrack? MatchedTrack,
-    double? MatchConfidence);
+    double? MatchConfidence,
+    bool IsInWishlist = false);
 
 public record SpotifyComparisonResponse(
     int Total,

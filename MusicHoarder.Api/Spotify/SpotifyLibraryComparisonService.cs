@@ -100,16 +100,40 @@ public partial class SpotifyLibraryComparisonService(
         if (missingTracks.Count > 0)
             computed = await UpsertMatchesForTracksAsync(missingTracks, SourceApiPage, ct);
 
+        // Which of these tracks the owner has already wishlisted — independent of library match
+        // (a NotInLibrary track can still be on the wishlist), so the overview can flag both states.
+        var wishlisted = await LoadWishlistedIdsAsync(db, ids, ct);
+
         return tracks.Select(t =>
         {
             if (string.IsNullOrWhiteSpace(t.SpotifyId))
                 return t;
+            var inWishlist = wishlisted.Contains(t.SpotifyId);
             if (byId.TryGetValue(t.SpotifyId, out var row))
-                return t with { LibraryMatch = RowToMatchInfo(row) };
+                return t with { LibraryMatch = RowToMatchInfo(row), IsInWishlist = inWishlist };
             if (computed?.TryGetValue(t.SpotifyId, out var info) == true)
-                return t with { LibraryMatch = info };
-            return t;
+                return t with { LibraryMatch = info, IsInWishlist = inWishlist };
+            return t with { IsInWishlist = inWishlist };
         }).ToList();
+    }
+
+    /// <summary>
+    /// Returns the subset of <paramref name="spotifyIds"/> that are on the owner's wishlist (any source/status).
+    /// </summary>
+    private async Task<HashSet<string>> LoadWishlistedIdsAsync(
+        MusicHoarderDbContext db, IReadOnlyList<string> spotifyIds, CancellationToken ct)
+    {
+        if (spotifyIds.Count == 0)
+            return new HashSet<string>(StringComparer.Ordinal);
+
+        var ownerId = ownerLookup.OwnerUserId;
+        var ids = await db.WishlistItems
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(w => w.OwnerUserId == ownerId && spotifyIds.Contains(w.SpotifyTrackId))
+            .Select(w => w.SpotifyTrackId)
+            .ToListAsync(ct);
+        return new HashSet<string>(ids, StringComparer.Ordinal);
     }
 
     private static SpotifyLibraryMatchInfo RowToMatchInfo(SpotifyTrackLibraryMatch row) =>
@@ -237,7 +261,8 @@ public partial class SpotifyLibraryComparisonService(
             .Take(limit)
             .ToListAsync(ct);
 
-        var itemsFromDb = rows.Select(ToComparisonItemFromRow).ToList();
+        var wishlisted = await LoadWishlistedIdsAsync(db, rows.Select(r => r.SpotifyTrackId).ToList(), ct);
+        var itemsFromDb = rows.Select(r => ToComparisonItemFromRow(r, wishlisted.Contains(r.SpotifyTrackId))).ToList();
         return new SpotifyComparisonResponse(totalFiltered, offset, limit, itemsFromDb);
     }
 
@@ -288,10 +313,11 @@ public partial class SpotifyLibraryComparisonService(
             t.AddedAt,
             status,
             mt,
-            conf);
+            conf,
+            t.IsInWishlist);
     }
 
-    private static SpotifyComparisonItem ToComparisonItemFromRow(SpotifyTrackLibraryMatch m)
+    private static SpotifyComparisonItem ToComparisonItemFromRow(SpotifyTrackLibraryMatch m, bool isInWishlist)
     {
         var status = (ComparisonMatchStatus)m.MatchStatus;
         ComparisonMatchedTrack? mt = null;
@@ -314,7 +340,8 @@ public partial class SpotifyLibraryComparisonService(
             m.SpotifyAddedAtUtc ?? m.UpdatedAtUtc,
             status,
             mt,
-            m.MatchConfidence);
+            m.MatchConfidence,
+            isInWishlist);
     }
 
     private static ComparisonMatchStatus? ParseStatus(string? s)
