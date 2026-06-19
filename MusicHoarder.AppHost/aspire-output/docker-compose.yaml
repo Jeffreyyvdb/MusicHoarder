@@ -82,6 +82,10 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://compose-dashboard:18889"
       OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"
       OTEL_SERVICE_NAME: "api"
+      MusicEnricher__EnableWishlistDownloads: "${ENABLE_WISHLIST_DOWNLOADS:-false}"
+      MusicEnricher__AutoDownloadWishlist: "${AUTO_DOWNLOAD_WISHLIST:-false}"
+      MusicEnricher__DownloadDirectory: "/data/downloads"
+      MusicEnricher__YtDlpCookiesPath: "${YTDLP_COOKIES_PATH:-}"
     ports:
       - "${API_PORT}"
     volumes:
@@ -98,6 +102,13 @@ services:
       - type: "bind"
         target: "${DEMO_MEDIA_DIRECTORY:-/srv/demo-media}"
         source: "${DEMO_MEDIA_DIRECTORY:-/srv/demo-media}"
+        read_only: true
+      - type: "volume"
+        target: "/data/downloads"
+        source: "musichoarder-downloads"
+      - type: "bind"
+        target: "/data/cookies/youtube.txt"
+        source: "${YTDLP_COOKIES_HOST_PATH:-/dev/null}"
         read_only: true
     networks:
       - "aspire"
@@ -173,4 +184,6 @@ volumes:
   musichoarder-volume:
     driver: "local"
   musichoarder-dpkeys:
+    driver: "local"
+  musichoarder-downloads:
     driver: "local"
