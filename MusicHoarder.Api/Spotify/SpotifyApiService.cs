@@ -123,6 +123,18 @@ public class SpotifyApiService(
                 throw new SpotifyNotConnectedException();
             }
 
+            // Transient upstream errors (502/503/504 — Spotify gateway hiccups, and 500s) abort a
+            // paged operation on a single blip otherwise. Retry with exponential backoff so a long
+            // liked-songs/playlist snapshot survives one bad response instead of failing the whole run.
+            if ((int)response.StatusCode >= 500 && attempt < MaxRetries)
+            {
+                var backoff = TimeSpan.FromSeconds(Math.Pow(2, attempt)); // 1s, 2s, 4s
+                logger.LogWarning("Spotify returned {Status}. Retrying after {Delay}s (attempt {Attempt}/{Max})",
+                    (int)response.StatusCode, backoff.TotalSeconds, attempt + 1, MaxRetries);
+                await Task.Delay(backoff, ct);
+                continue;
+            }
+
             response.EnsureSuccessStatusCode();
             return await response.Content.ReadAsStringAsync(ct);
         }
