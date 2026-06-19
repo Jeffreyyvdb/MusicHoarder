@@ -201,6 +201,24 @@ public static class WishlistEndpoints
             .WithName("RetryWishlistItem")
             .WithSummary("Reset a wishlist item to Pending so the download worker retries it.");
 
+        group.MapPost("/items/retry-failed", async (MusicHoarderDbContext db, CancellationToken ct) =>
+            {
+                // Bulk-requeue every Failed/NotFound item to Pending so the next download sweep
+                // re-attempts them — used after fixing a systemic cause (e.g. a missing downloader
+                // dependency) where retrying thousands of rows one by one is impractical.
+                var now = DateTime.UtcNow;
+                var reset = await db.WishlistItems
+                    .Where(w => w.Status == WishlistItemStatus.Failed || w.Status == WishlistItemStatus.NotFound)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(w => w.Status, WishlistItemStatus.Pending)
+                        .SetProperty(w => w.LastError, (string?)null)
+                        .SetProperty(w => w.UpdatedAtUtc, now), ct);
+
+                return Results.Ok(new { reset });
+            })
+            .WithName("RetryFailedWishlistItems")
+            .WithSummary("Reset all Failed/NotFound items to Pending so the next download sweep retries them.");
+
         group.MapDelete("/items/{id:int}", async (int id, MusicHoarderDbContext db, CancellationToken ct) =>
             {
                 var item = await db.WishlistItems.FirstOrDefaultAsync(w => w.Id == id, ct);

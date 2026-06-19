@@ -1458,6 +1458,10 @@ export async function removeWishlistItem(id: number): Promise<{ message: string 
   return requestJson<{ message: string }>(`/api/wishlist/items/${id}`, { method: "DELETE" })
 }
 
+export async function retryFailedWishlistItems(): Promise<{ reset: number }> {
+  return requestJson<{ reset: number }>("/api/wishlist/items/retry-failed", { method: "POST" })
+}
+
 export async function triggerWishlistDownload(): Promise<{ jobId: string }> {
   return requestJson<{ jobId: string }>("/api/wishlist/download", { method: "POST" })
 }

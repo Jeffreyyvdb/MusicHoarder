@@ -18,6 +18,7 @@
     setWishlistSourceAutoSync,
     removeWishlistSource,
     retryWishlistItem,
+    retryFailedWishlistItems,
     removeWishlistItem,
     triggerWishlistDownload,
     openProgressStream,
@@ -47,6 +48,7 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let triggering = $state(false);
+  let retryingFailed = $state(false);
   let banner = $state<{ type: 'success' | 'error'; message: string } | null>(null);
   let busyItems = $state(new Set<number>());
   let busySources = $state(new Set<number>());
@@ -111,6 +113,20 @@
       banner = { type: 'error', message: err instanceof Error ? err.message : 'Failed to start download' };
     } finally {
       triggering = false;
+    }
+  }
+
+  async function onRetryAllFailed() {
+    retryingFailed = true;
+    banner = null;
+    try {
+      const { reset } = await retryFailedWishlistItems();
+      banner = { type: 'success', message: `Requeued ${reset} item${reset === 1 ? '' : 's'} — click “Download now” to retry.` };
+      await loadItems();
+    } catch (err) {
+      banner = { type: 'error', message: err instanceof Error ? err.message : 'Failed to requeue items' };
+    } finally {
+      retryingFailed = false;
     }
   }
 
@@ -218,14 +234,29 @@
           <a href="/spotify" class="underline">Spotify</a> page.
         </p>
       </div>
-      <Button onclick={onTriggerDownload} disabled={triggering || downloadingNow}>
-        {#if triggering || downloadingNow}
-          <Loader2 class="size-4 animate-spin" />
-        {:else}
-          <Download class="size-4" />
-        {/if}
-        {downloadingNow ? `Downloading ${progress?.downloaded ?? 0}…` : 'Download now'}
-      </Button>
+      <div class="flex items-center gap-2">
+        <Button
+          variant="outline"
+          onclick={onRetryAllFailed}
+          disabled={retryingFailed || downloadingNow}
+          title="Reset all Failed/NotFound items to Pending so the next download retries them"
+        >
+          {#if retryingFailed}
+            <Loader2 class="size-4 animate-spin" />
+          {:else}
+            <RefreshCw class="size-4" />
+          {/if}
+          Retry failed
+        </Button>
+        <Button onclick={onTriggerDownload} disabled={triggering || downloadingNow}>
+          {#if triggering || downloadingNow}
+            <Loader2 class="size-4 animate-spin" />
+          {:else}
+            <Download class="size-4" />
+          {/if}
+          {downloadingNow ? `Downloading ${progress?.downloaded ?? 0}…` : 'Download now'}
+        </Button>
+      </div>
     </div>
   </div>
 
