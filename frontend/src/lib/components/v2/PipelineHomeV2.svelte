@@ -162,11 +162,10 @@
 
   // Consensus "Decide" count — files that reached a terminal enrichment verdict
   // (matched or sent to review). Live from the SSE snapshot while enriching,
-  // otherwise from the whole-library DB counts.
+  // otherwise from the DB-backed overview (tracksEnriched = Matched || NeedsReview).
   const decidedCount = $derived.by(() => {
     if (anyRunning && snap) return (snap.enriched ?? 0) + (snap.needsReview ?? 0);
-    if (matchedCount == null && tagReviewCount == null) return null;
-    return (matchedCount ?? 0) + (tagReviewCount ?? 0);
+    return overview?.job.tracksEnriched ?? null;
   });
 
   // Errors — failed enrichment in the current dataset (not a fabricated 24h window).
@@ -196,16 +195,31 @@
 
   let activeStage = $state<StageId>('match');
 
+  /** A conveyor stage's count: the live per-run figure while the stage is actively
+   *  running (so the bar climbs in real time), otherwise the stable library-wide total
+   *  from the DB-backed overview poll — which survives restarts and stays coherent. The
+   *  live snapshot value is 0 (not null) for stages that didn't run this session, so a
+   *  plain `?? total` fallback would never fire; this picks deliberately. */
+  function stageCount(
+    live: number | null | undefined,
+    total: number | null | undefined,
+    running: boolean
+  ): number | null {
+    if (running && live != null) return live;
+    return total ?? live ?? null;
+  }
+
   const stages = $derived.by<Stage[]>(() => {
     const s = snap;
     const running = anyRunning;
+    const job = overview?.job;
     return [
       {
         id: 'scan',
         label: 'Scan',
         icon: ScanLine,
         real: true,
-        count: s?.scanned ?? null,
+        count: stageCount(s?.scanned, job?.tracksProcessed, running && s?.scan?.status === 'Running'),
         sub: running && rates.scan > 0 ? `${rates.scan.toFixed(0)}/s` : 'index',
         live: running && s?.scan?.status === 'Running'
       },
@@ -214,7 +228,11 @@
         label: 'Fingerprint',
         icon: Disc3,
         real: true,
-        count: s?.fingerprinted ?? null,
+        count: stageCount(
+          s?.fingerprinted,
+          job?.tracksFingerprinted,
+          running && s?.fingerprint?.status === 'Running'
+        ),
         sub: 'Chromaprint',
         live: running && s?.fingerprint?.status === 'Running'
       },
@@ -223,7 +241,7 @@
         label: 'Match',
         icon: Tag,
         real: true,
-        count: s?.enriched ?? null,
+        count: stageCount(s?.enriched, job?.tracksBuildEligible, running && s?.enrich?.status === 'Running'),
         sub: 'providers',
         live: running && s?.enrich?.status === 'Running'
       },
@@ -260,7 +278,7 @@
         label: 'Library',
         icon: PackageCheck,
         real: true,
-        count: s?.built ?? inLibrary,
+        count: stageCount(s?.built, job?.tracksCopied ?? inLibrary, running && s?.build?.status === 'Running'),
         sub: 'destination',
         live: running && s?.build?.status === 'Running'
       }
