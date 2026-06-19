@@ -52,6 +52,7 @@ internal static class ComposeFileExtensions
         file.PersistDataProtectionKeys(api);
         MountMusicLibrary(api);
         MountDemoMedia(api);
+        file.ConfigureWishlistDownloads(api);
 
         // ── Zero-downtime deploys ──────────────────────────────────────────────────────────────
         // Dokploy "Compose" deploys (`docker compose up`) stop the old container before the new one
@@ -188,5 +189,34 @@ internal static class ComposeFileExtensions
     {
         api.AddVolume(new Volume { Name = "demo-media", Type = "bind", Source = "${DEMO_MEDIA_DIRECTORY:-/srv/demo-media}", Target = "${DEMO_MEDIA_DIRECTORY:-/srv/demo-media}", ReadOnly = true });
         api.Environment["MusicEnricher__DemoMediaDirectory"] = "${DEMO_MEDIA_DIRECTORY:-/srv/demo-media}";
+    }
+
+    /// <summary>
+    /// Wires the owner-only wishlist downloader for prod. Everything defaults OFF/empty so adding this
+    /// is inert until the deploy env opts in (set <c>ENABLE_WISHLIST_DOWNLOADS=true</c> in Dokploy):
+    /// <list type="bullet">
+    /// <item><c>DownloadDirectory</c> is a managed named volume (the source mount is read-only), indexed
+    /// by the scanner as an extra source root so downloads flow through the normal pipeline.</item>
+    /// <item><c>EnableWishlistDownloads</c> gates the feature + manual trigger; <c>AutoDownloadWishlist</c>
+    /// additionally lets the worker auto-fetch the owner's Pending items in the background.</item>
+    /// <item>An optional YouTube cookies file (Netscape format) on the host clears YouTube's
+    /// datacenter-IP bot check — point <c>YTDLP_COOKIES_HOST_PATH</c> at it and set
+    /// <c>YTDLP_COOKIES_PATH=/data/cookies/youtube.txt</c>. Unset → binds <c>/dev/null</c> (the API
+    /// only passes <c>--cookies</c> when the file exists), so it's harmless.</item>
+    /// </list>
+    /// yt-dlp + ffmpeg + deno are baked into the API image (Dockerfile.api-base).
+    /// </summary>
+    private static void ConfigureWishlistDownloads(this ComposeFile file, Service api)
+    {
+        api.Environment["MusicEnricher__EnableWishlistDownloads"] = "${ENABLE_WISHLIST_DOWNLOADS:-false}";
+        api.Environment["MusicEnricher__AutoDownloadWishlist"] = "${AUTO_DOWNLOAD_WISHLIST:-false}";
+        api.Environment["MusicEnricher__DownloadDirectory"] = "/data/downloads";
+        api.Environment["MusicEnricher__YtDlpCookiesPath"] = "${YTDLP_COOKIES_PATH:-}";
+
+        api.AddVolume(new Volume { Name = "musichoarder-downloads", Type = "volume", Source = "musichoarder-downloads", Target = "/data/downloads" });
+        file.Volumes["musichoarder-downloads"] = new Volume { Name = "musichoarder-downloads", Driver = "local" };
+
+        // Optional cookies bind: harmless /dev/null when YTDLP_COOKIES_HOST_PATH is unset.
+        api.AddVolume(new Volume { Name = "youtube-cookies", Type = "bind", Source = "${YTDLP_COOKIES_HOST_PATH:-/dev/null}", Target = "/data/cookies/youtube.txt", ReadOnly = true });
     }
 }
