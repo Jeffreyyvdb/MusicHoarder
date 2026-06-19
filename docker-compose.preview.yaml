@@ -42,6 +42,8 @@ services:
       # Per-PR built library lives in a managed named volume (not a host bind mount) so that
       # compose.delete with deleteVolumes:true reaps it on teardown — see scripts/dokploy-preview.sh.
       - musichoarder-dest:/music/destination
+      # Writable staging dir for wishlist downloads (managed volume, reaped on teardown).
+      - musichoarder-downloads:/data/downloads
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ConnectionStrings__musichoarderdb=Host=postgres;Database=musichoarderdb;Username=musichoarder;Password=${POSTGRES_PASSWORD}
@@ -50,6 +52,14 @@ services:
       # Previews are resource-constrained: discovery still runs (library populates), but the heavy
       # processing (fingerprint/enrich/build) is driven manually from the UI.
       - MusicEnricher__AutoStartPipeline=false
+      # Wishlist downloads are EXPLICIT-only on previews: the feature works (the manual "Download"
+      # trigger downloads via yt-dlp, baked into the image), but nothing runs on its own — no
+      # background auto-download sweep (AutoDownloadWishlist=false) and no auto like-sync
+      # (WishlistSyncIntervalMinutes=0). So a PR preview never starts fetching/syncing by itself.
+      - MusicEnricher__EnableWishlistDownloads=${ENABLE_WISHLIST_DOWNLOADS:-false}
+      - MusicEnricher__AutoDownloadWishlist=${AUTO_DOWNLOAD_WISHLIST:-false}
+      - MusicEnricher__DownloadDirectory=/data/downloads
+      - Spotify__WishlistSyncIntervalMinutes=${WISHLIST_SYNC_INTERVAL_MINUTES:-0}
       - MusicEnricher__AcoustIdApiKey=${ACOUSTID_API_KEY:-}
       - Spotify__ClientId=${SPOTIFY_CLIENT_ID:-}
       - Spotify__ClientSecret=${SPOTIFY_CLIENT_SECRET:-}
@@ -117,3 +127,4 @@ volumes:
   postgres-data:
   musichoarder-dpkeys:
   musichoarder-dest:
+  musichoarder-downloads:

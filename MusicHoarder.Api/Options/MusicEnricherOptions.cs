@@ -540,8 +540,19 @@ public class MusicEnricherOptions
     /// <summary>
     /// Master switch for the wishlist downloader. When false the download worker idles and the API
     /// download trigger is a no-op (wishlist items are still tracked and synced, just never fetched).
+    /// Enables the explicit <c>POST /api/wishlist/download</c> trigger; background auto-sweeping is
+    /// additionally gated by <see cref="AutoDownloadWishlist"/>.
     /// </summary>
     public bool EnableWishlistDownloads { get; set; } = false;
+
+    /// <summary>
+    /// When true the download worker auto-sweeps Pending wishlist items in the background (no user action
+    /// needed). When false, downloads only run on the explicit <c>POST /api/wishlist/download</c> trigger.
+    /// Kept separate from <see cref="EnableWishlistDownloads"/> so an environment can expose the feature
+    /// (manual, opt-in) without every instance auto-fetching on its own — e.g. PR previews stay manual,
+    /// production auto-downloads for the owner. Requires <see cref="EnableWishlistDownloads"/>.
+    /// </summary>
+    public bool AutoDownloadWishlist { get; set; } = false;
 
     /// <summary>Name of the <c>IDownloadProvider</c> to use, resolved by <c>IDownloadProvider.Name</c>. Default "yt-dlp".</summary>
     public string DownloadProvider { get; set; } = "yt-dlp";

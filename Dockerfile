@@ -20,10 +20,17 @@ RUN dotnet publish MusicHoarder.Api/MusicHoarder.Api.csproj \
 # Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 
-# Install fpcalc (Chromaprint) for acoustic fingerprinting; curl for healthcheck
+# Runtime deps:
+#   - libchromaprint-tools → fpcalc for acoustic fingerprinting (AcoustID)
+#   - ffmpeg               → audio extraction/remux for the wishlist yt-dlp downloader
+#   - yt-dlp (self-contained PyInstaller build) → fetches wishlist tracks from YouTube
+#   - curl                 → container healthcheck + fetching the yt-dlp binary
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libchromaprint-tools \
+    ffmpeg \
     curl \
+    && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -o /usr/local/bin/yt-dlp \
+    && chmod a+rx /usr/local/bin/yt-dlp \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -33,6 +33,9 @@ services:
     volumes:
       - ${MUSIC_SOURCE_PATH}:/music/source:ro
       - ${MUSIC_DESTINATION_PATH}:/music/destination
+      # Writable staging dir for wishlist downloads (the source mount is read-only). The scanner
+      # indexes it as an extra source root, so downloads flow through the normal pipeline.
+      - musichoarder-downloads:/data/downloads
       # Persist DataProtection keys across container restarts so existing session cookies stay
       # valid. Without this, every redeploy logs everyone out.
       - musichoarder-dpkeys:/data/dpkeys
@@ -41,6 +44,13 @@ services:
       - ConnectionStrings__musichoarderdb=Host=postgres;Database=musichoarderdb;Username=musichoarder;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       - MusicEnricher__SourceDirectory=/music/source
       - MusicEnricher__DestinationDirectory=/music/destination
+      # Wishlist downloader (yt-dlp + ffmpeg are baked into the API image). Off by default; the owner
+      # opts in via the Dokploy env. EnableWishlistDownloads gates the feature + the manual trigger;
+      # AutoDownloadWishlist additionally lets the worker auto-fetch the owner's Pending items in the
+      # background. The feature is owner-only (RequireOwner + owner-scoped workers).
+      - MusicEnricher__EnableWishlistDownloads=${ENABLE_WISHLIST_DOWNLOADS:-false}
+      - MusicEnricher__AutoDownloadWishlist=${AUTO_DOWNLOAD_WISHLIST:-false}
+      - MusicEnricher__DownloadDirectory=/data/downloads
       - MusicEnricher__AcoustIdApiKey=${ACOUSTID_API_KEY:-}
       - Spotify__ClientId=${SPOTIFY_CLIENT_ID:-}
       - Spotify__ClientSecret=${SPOTIFY_CLIENT_SECRET:-}
@@ -95,3 +105,4 @@ services:
 volumes:
   postgres-data:
   musichoarder-dpkeys:
+  musichoarder-downloads:

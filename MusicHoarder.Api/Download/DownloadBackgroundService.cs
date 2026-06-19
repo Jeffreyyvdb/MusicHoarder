@@ -71,15 +71,14 @@ public class DownloadBackgroundService(
             }
             else
             {
-                if (!ready)
-                {
-                    if (!await DelayIdleAsync(opts.DownloadIdleDelaySeconds, stoppingToken)) break;
-                    continue;
-                }
+                // No explicit trigger queued. Only auto-sweep Pending items in the background when the
+                // feature is ready AND auto-download is enabled; otherwise wait for an explicit trigger
+                // so the instance never fetches on its own (e.g. PR previews stay manual/opt-in, while
+                // production auto-downloads for the owner).
+                var autoSweep = ready && opts.AutoDownloadWishlist;
+                pendingCount = autoSweep ? await CountPendingAsync(stoppingToken) : 0;
 
-                pendingCount = await CountPendingAsync(stoppingToken);
-
-                if (pendingCount == 0)
+                if (!autoSweep || pendingCount == 0)
                 {
                     var triggerTask = jobManager.DownloadTriggers.WaitToReadAsync(stoppingToken).AsTask();
                     var delayTask = Task.Delay(TimeSpan.FromSeconds(opts.DownloadIdleDelaySeconds), stoppingToken);
@@ -176,19 +175,6 @@ public class DownloadBackgroundService(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Wishlist download directory {Directory} is not writable", directory);
-            return false;
-        }
-    }
-
-    private static async Task<bool> DelayIdleAsync(int seconds, CancellationToken stoppingToken)
-    {
-        try
-        {
-            await Task.Delay(TimeSpan.FromSeconds(seconds), stoppingToken);
-            return true;
-        }
-        catch (OperationCanceledException)
-        {
             return false;
         }
     }
