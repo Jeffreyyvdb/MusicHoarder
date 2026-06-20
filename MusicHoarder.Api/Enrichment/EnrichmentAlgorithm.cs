@@ -26,7 +26,11 @@ public static class EnrichmentAlgorithm
     /// <item>1 — provenance-aware, free-text untagged matching: path-derived identities no longer emit
     /// blocking warnings; untagged files query on the cleaned filename free-text and are corroborated by
     /// token-presence (identity_unverified) requiring a second provider to auto-match.</item>
+    /// <item>2 — download-origin duration relaxation: a lone <c>duration_mismatch</c> no longer blocks a
+    /// strongly-corroborated wishlist / Spotify-Like download (AcoustID fingerprint or ≥2 providers
+    /// sharing an ISRC). Heals the YouTube-rip backlog that piled up in NeedsReview despite a correct,
+    /// multi-provider match — see <see cref="Options.MusicEnricherOptions.RelaxDownloadDurationMismatch"/>.</item>
     /// </list>
     /// </summary>
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 }

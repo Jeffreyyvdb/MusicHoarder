@@ -23,12 +23,21 @@ public static class MatchWarnings
     /// </summary>
     public const string IdentityUnverified = "identity_unverified";
 
+    /// <summary>
+    /// The candidate's recording duration differs materially from the file's. Blocking by default — a
+    /// large delta is the classic wrong-recording signal — but the
+    /// <see cref="Enrichment.ConsensusEvaluator"/> downgrades it to advisory for strongly-corroborated
+    /// download-origin files (wishlist / Spotify-Like rips) whose audio came from a different source
+    /// than the canonical master.
+    /// </summary>
+    public const string DurationMismatch = "duration_mismatch";
+
     /// <summary>Warnings that contradict the file's identity and must keep a candidate out of Matched.</summary>
     public static bool IsBlocking(string warning) => warning is
         "artist_mismatch"
         or "title_mismatch"
         or "version_mismatch"
-        or "duration_mismatch"
+        or DurationMismatch
         or "isrc_mismatch"
         or "artist_unknown";
 

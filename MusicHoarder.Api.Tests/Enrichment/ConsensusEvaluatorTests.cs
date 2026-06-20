@@ -692,6 +692,109 @@ public class ConsensusEvaluatorTests
         Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
     }
 
+    [Fact]
+    public void DownloadOrigin_DurationMismatchOnly_IsrcConsensus_Matched()
+    {
+        // Wishlist / Spotify-Like download: the YouTube rip is longer than the canonical master, so
+        // every provider flags duration_mismatch. Spotify and Deezer independently carry the same ISRC,
+        // so the identity is corroborated — with the download relaxation on, the lone duration delta is
+        // advisory and the song auto-matches instead of piling up in review.
+        var song = Song();
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Adele", "Easy On Me", isrc: "GBBKS2100270", spotifyId: "sp1", conf: 0.75,
+                recommend: EnrichmentStatus.NeedsReview, warnings: ["duration_mismatch"]));
+        Add(song, EnrichmentProvider.Deezer, ProviderAttemptStatus.Matched,
+            Result("Adele", "Easy On Me", isrc: "GBBKS2100270", conf: 0.75,
+                recommend: EnrichmentStatus.NeedsReview, warnings: ["duration_mismatch"]));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.SpotifyAPI, EnrichmentProvider.Deezer), Opts,
+            relaxDownloadDurationMismatch: true);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+    }
+
+    [Fact]
+    public void DownloadOrigin_DurationMismatchOnly_AcoustIdFingerprint_Matched()
+    {
+        // No shared ISRC, but AcoustID fingerprinted the file's own audio to the same recording the
+        // name-based provider matched (they cluster via the shared MBID) — so the duration delta is
+        // padding on the YouTube rip, not a wrong match.
+        var song = Song();
+        Add(song, EnrichmentProvider.AcoustID, ProviderAttemptStatus.Matched,
+            Result("Akon", "Lonely", mbid: "mb-lonely", conf: 0.68, recommend: EnrichmentStatus.NeedsReview));
+        Add(song, EnrichmentProvider.Deezer, ProviderAttemptStatus.Matched,
+            Result("Akon", "Lonely", mbid: "mb-lonely", isrc: "USUR10400234", conf: 0.75,
+                recommend: EnrichmentStatus.NeedsReview, warnings: ["duration_mismatch"]));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.AcoustID, EnrichmentProvider.Deezer), Opts,
+            relaxDownloadDurationMismatch: true);
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+    }
+
+    [Fact]
+    public void DownloadOrigin_DurationMismatch_RelaxationOff_NeedsReview()
+    {
+        // Same corroborated download, but the relaxation flag is off (the source-library default):
+        // duration_mismatch stays blocking, so the song goes to review.
+        var song = Song();
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Adele", "Easy On Me", isrc: "GBBKS2100270", spotifyId: "sp1", conf: 0.75,
+                recommend: EnrichmentStatus.NeedsReview, warnings: ["duration_mismatch"]));
+        Add(song, EnrichmentProvider.Deezer, ProviderAttemptStatus.Matched,
+            Result("Adele", "Easy On Me", isrc: "GBBKS2100270", conf: 0.75,
+                recommend: EnrichmentStatus.NeedsReview, warnings: ["duration_mismatch"]));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.SpotifyAPI, EnrichmentProvider.Deezer), Opts,
+            relaxDownloadDurationMismatch: false);
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
+    }
+
+    [Fact]
+    public void DownloadOrigin_DurationMismatch_NoStrongCorroboration_NeedsReview()
+    {
+        // Two name-based providers agree only by name+duration (no shared ISRC, no AcoustID). Name
+        // agreement isn't strong enough to dismiss the duration gap — the relaxation requires an ISRC
+        // consensus or a fingerprint, so this still goes to review even with the flag on.
+        var song = Song();
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Adele", "Easy On Me", spotifyId: "sp1", conf: 0.75, durationSeconds: 224,
+                recommend: EnrichmentStatus.NeedsReview, warnings: ["duration_mismatch"]));
+        Add(song, EnrichmentProvider.Deezer, ProviderAttemptStatus.Matched,
+            Result("Adele", "Easy On Me", conf: 0.75, durationSeconds: 224,
+                recommend: EnrichmentStatus.NeedsReview, warnings: ["duration_mismatch"]));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.SpotifyAPI, EnrichmentProvider.Deezer), Opts,
+            relaxDownloadDurationMismatch: true);
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
+    }
+
+    [Fact]
+    public void DownloadOrigin_DurationPlusOtherBlockingWarning_NeedsReview()
+    {
+        // The relaxation only forgives a *lone* duration_mismatch. A co-occurring artist_mismatch is a
+        // real identity contradiction, so the song still goes to review despite ISRC corroboration.
+        var song = Song();
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched,
+            Result("Adele", "Easy On Me", isrc: "GBBKS2100270", spotifyId: "sp1", conf: 0.75,
+                recommend: EnrichmentStatus.NeedsReview, warnings: ["duration_mismatch", "artist_mismatch"]));
+        Add(song, EnrichmentProvider.Deezer, ProviderAttemptStatus.Matched,
+            Result("Adele", "Easy On Me", isrc: "GBBKS2100270", conf: 0.75,
+                recommend: EnrichmentStatus.NeedsReview, warnings: ["duration_mismatch", "artist_mismatch"]));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.SpotifyAPI, EnrichmentProvider.Deezer), Opts,
+            relaxDownloadDurationMismatch: true);
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
+    }
+
     private static SongMetadata Song() => new()
     {
         OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
