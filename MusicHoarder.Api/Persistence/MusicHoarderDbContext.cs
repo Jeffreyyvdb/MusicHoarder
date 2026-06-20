@@ -47,6 +47,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<SpotifyTrackLibraryMatch> SpotifyTrackLibraryMatches { get; set; } = null!;
     public DbSet<WishlistSource> WishlistSources { get; set; } = null!;
     public DbSet<WishlistItem> WishlistItems { get; set; } = null!;
+    public DbSet<ExportedPlaylist> ExportedPlaylists { get; set; } = null!;
     public DbSet<RuntimeSettings> RuntimeSettings { get; set; } = null!;
     public DbSet<IngestRun> IngestRuns { get; set; } = null!;
     public DbSet<LibraryWriteEvent> LibraryWriteEvents { get; set; } = null!;
@@ -244,6 +245,17 @@ public class MusicHoarderDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.DownloadedSongId)
                 .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<ExportedPlaylist>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // One export row per (user, kind, playlist). LikedSongs has a null playlist id, so the
+            // owner's Liked Songs export is a singleton; playlists are keyed by their Spotify id, so a
+            // rename keeps the same row (and the old .m3u8 is deleted when the computed path changes).
+            entity.HasIndex(e => new { e.OwnerUserId, e.Kind, e.SpotifyPlaylistId }).IsUnique();
 
             entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
         });

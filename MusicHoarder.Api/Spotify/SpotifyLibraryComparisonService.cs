@@ -15,6 +15,7 @@ public partial class SpotifyLibraryComparisonService(
     private const double FuzzyThreshold = 85.0;
     public const string SourceLikedSync = "liked_sync";
     public const string SourceApiPage = "api_page";
+    public const string SourcePlaylistExport = "playlist_export";
 
     public async Task<IReadOnlyDictionary<string, SpotifyLibraryMatchInfo>> UpsertMatchesForTracksAsync(
         IReadOnlyList<SpotifyTrackItem> tracks,
