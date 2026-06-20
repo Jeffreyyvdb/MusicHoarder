@@ -61,7 +61,7 @@ public class RestampWishlistDownloadsTests : IDisposable
 
         var enqueued = new List<int>();
         var (requeued, fileStamped) = await EnrichmentEndpoints.RestampWishlistDownloadsAsync(
-            db, ids => enqueued.AddRange(ids), NullLogger.Instance, default);
+            db, Owner, ids => enqueued.AddRange(ids), NullLogger.Instance, default);
 
         Assert.Equal(1, requeued);
         Assert.Equal(1, fileStamped);
@@ -108,7 +108,7 @@ public class RestampWishlistDownloadsTests : IDisposable
 
         var enqueued = new List<int>();
         var (requeued, fileStamped) = await EnrichmentEndpoints.RestampWishlistDownloadsAsync(
-            db, ids => enqueued.AddRange(ids), NullLogger.Instance, default);
+            db, Owner, ids => enqueued.AddRange(ids), NullLogger.Instance, default);
 
         Assert.Equal(1, requeued);
         Assert.Equal(0, fileStamped); // file write skipped, DB still fixed
@@ -142,7 +142,7 @@ public class RestampWishlistDownloadsTests : IDisposable
 
         var enqueued = new List<int>();
         var (requeued, _) = await EnrichmentEndpoints.RestampWishlistDownloadsAsync(
-            db, ids => enqueued.AddRange(ids), NullLogger.Instance, default);
+            db, Owner, ids => enqueued.AddRange(ids), NullLogger.Instance, default);
 
         Assert.Equal(0, requeued);
         Assert.Empty(enqueued);
