@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { page } from '$app/state';
   import ImportPipelineDrawer from '$lib/components/pipeline/ImportPipelineDrawer.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
   import AppShellV2 from '$lib/components/v2/AppShellV2.svelte';
@@ -10,6 +11,31 @@
 
   type Props = { children: Snippet };
   const { children }: Props = $props();
+
+  // The (app) group is ssr=false and the pages render their content through shared
+  // components, so set the browser-tab title here in one place rather than in every
+  // +page.svelte. Labels mirror the sidebar nav so the tab matches the active item.
+  const PAGE_TITLES: Record<string, string> = {
+    '/pipeline': 'Pipeline',
+    '/directories': 'By folder',
+    '/quality': 'AI quality',
+    '/album-quality': 'Album quality',
+    '/performance': 'Performance',
+    '/inbox': 'Inbox',
+    '/library': 'Library',
+    '/artists': 'Artists',
+    '/tracks': 'Tracks',
+    '/spotify': 'Spotify',
+    '/wishlist': 'Wishlist',
+    '/history': 'History',
+    '/settings': 'Settings'
+  };
+
+  const pageTitle = $derived.by(() => {
+    const path = page.url.pathname;
+    const label = path.startsWith('/track/') ? 'Track' : PAGE_TITLES[path];
+    return label ? `${label} · MusicHoarder` : 'MusicHoarder';
+  });
 
   // Global Cmd/Ctrl+K opens the "search everywhere" command palette; Cmd/Ctrl+I
   // toggles the song-detail sidebar for the now-playing track (mirrors the nav
@@ -41,6 +67,10 @@
 
   const drawerOpen = $derived(pipelineOverlay.isOpen);
 </script>
+
+<svelte:head>
+  <title>{pageTitle}</title>
+</svelte:head>
 
 <AppShellV2>
   {@render children()}
