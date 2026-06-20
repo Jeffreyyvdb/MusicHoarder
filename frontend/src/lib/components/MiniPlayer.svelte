@@ -3,7 +3,6 @@
   import { playerStore } from '$lib/stores/player.svelte';
   import { songDetail } from '$lib/stores/song-detail.svelte';
   import { Button } from '$lib/components/ui/button';
-  import { Slider } from '$lib/components/ui/slider';
   import Cover from '$lib/components/file-browser/Cover.svelte';
 
   function formatTime(seconds: number): string {
@@ -75,6 +74,54 @@
     if (next === null) return;
     e.preventDefault();
     playerStore.seek(Math.max(0, Math.min(d, next)));
+  }
+
+  // Volume uses the same lightweight pointer-driven track as the seek bar (a
+  // bits-ui Slider here looked inconsistent and shipped extra reflow), so they
+  // share visual language and behaviour.
+  let volumeEl: HTMLDivElement | null = $state(null);
+
+  function setVolumeFromClientX(clientX: number) {
+    if (!volumeEl) return;
+    const rect = volumeEl.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    playerStore.setVolume(ratio);
+  }
+
+  function onVolumePointerDown(e: PointerEvent) {
+    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+    setVolumeFromClientX(e.clientX);
+  }
+
+  function onVolumePointerMove(e: PointerEvent) {
+    const el = e.currentTarget as HTMLDivElement;
+    if (!el.hasPointerCapture(e.pointerId)) return;
+    setVolumeFromClientX(e.clientX);
+  }
+
+  function onVolumeKeyDown(e: KeyboardEvent) {
+    const v = playerStore.volume;
+    let next: number | null = null;
+    switch (e.key) {
+      case 'ArrowLeft':
+      case 'ArrowDown':
+        next = v - 0.05;
+        break;
+      case 'ArrowRight':
+      case 'ArrowUp':
+        next = v + 0.05;
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = 1;
+        break;
+    }
+    if (next === null) return;
+    e.preventDefault();
+    playerStore.setVolume(Math.max(0, Math.min(1, next)));
   }
 </script>
 
@@ -198,12 +245,12 @@
           <Quote class="size-4" />
         </Button>
 
-        <div class="hidden items-center gap-1 sm:flex">
+        <div class="hidden items-center gap-1.5 sm:flex">
           <Button
             variant="ghost"
             size="icon"
-            class="text-muted-foreground hover:text-foreground size-8"
-            onclick={() => playerStore.setVolume(playerStore.volume === 0 ? 0.8 : 0)}
+            class="text-muted-foreground hover:text-foreground size-8 shrink-0"
+            onclick={() => playerStore.toggleMute()}
             aria-label={playerStore.volume === 0 ? 'Unmute' : 'Mute'}
           >
             {#if playerStore.volume === 0}
@@ -212,18 +259,30 @@
               <Volume2 class="size-4" />
             {/if}
           </Button>
-          <Slider
-            type="single"
-            value={playerStore.volume}
-            max={1}
-            min={0}
-            step={0.02}
-            class="w-16 shrink-0 cursor-pointer [&_[data-slot=slider-track]]:bg-foreground/15"
-            onValueChange={(val) => {
-              if (typeof val === 'number') playerStore.setVolume(val);
-            }}
+          <div
+            bind:this={volumeEl}
+            role="slider"
+            tabindex="0"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(playerStore.volume * 100)}
             aria-label="Volume"
-          />
+            class="group relative flex h-3 w-16 shrink-0 cursor-pointer touch-none items-center select-none"
+            onpointerdown={onVolumePointerDown}
+            onpointermove={onVolumePointerMove}
+            onkeydown={onVolumeKeyDown}
+          >
+            <div class="bg-foreground/15 relative h-1 w-full overflow-hidden rounded-full">
+              <div
+                class="bg-foreground/40 group-hover:bg-primary absolute inset-0 origin-left rounded-full transition-colors"
+                style="transform: scaleX({playerStore.volume})"
+              ></div>
+            </div>
+            <div
+              class="border-ring pointer-events-none absolute size-3 -translate-x-1/2 rounded-full border bg-white opacity-0 transition-opacity group-hover:opacity-100"
+              style="left: {playerStore.volume * 100}%"
+            ></div>
+          </div>
         </div>
 
         <Button
