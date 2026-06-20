@@ -22,6 +22,7 @@
   import Waveform from '$lib/components/file-browser/Waveform.svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import {
+    artistLabelForSong,
     coverUrlForSong,
     enrichSong,
     fetchEnrichmentDetail,
@@ -170,6 +171,13 @@
 
   const trackTitle = $derived((song.title ?? song.fileName).trim() || song.fileName);
   const trackArtist = $derived((song.artist ?? album.artist).trim() || album.artist);
+  // Deep-links into the Library, filtered to this track's artist / album. Match
+  // the grouping keys used by the Library views (artist = albumArtist ?? artist,
+  // album = the canonical AlbumSummary key) so the target page is populated.
+  const artistHref = $derived(
+    `/library?artist=${encodeURIComponent(artistLabelForSong(song))}`
+  );
+  const albumHref = $derived(`/library?album=${encodeURIComponent(album.key)}`);
   const lyricsStatus = $derived((song.lyricsStatus ?? 'NotFetched') as LyricsStatus);
   const coverUrl = $derived(coverUrlForSong(song) ?? album.coverUrl ?? null);
 
@@ -368,10 +376,10 @@
     return sources;
   });
 
-  const metadataRows = $derived([
+  const metadataRows = $derived<[string, string, string?][]>([
     ['Title', trackTitle],
-    ['Artist', trackArtist],
-    ['Album', album.title],
+    ['Artist', trackArtist, artistHref],
+    ['Album', album.title, albumHref],
     ['Track', `${trackN} / ${totalTracks}`],
     ['Year', album.year != null ? String(album.year) : '—'],
     ['Genre', album.genre ?? '—'],
@@ -500,7 +508,17 @@
         <div class="min-w-0 text-left">
           <h2 class="truncate text-2xl font-bold tracking-[-0.02em]">{trackTitle}</h2>
           <p class="text-muted-foreground mt-1 truncate text-sm">
-            {trackArtist} · <span class="text-muted-foreground/70">{album.title}</span>
+            <a href={artistHref} onclick={onClose} class="hover:text-foreground hover:underline">
+              {trackArtist}
+            </a>
+            ·
+            <a
+              href={albumHref}
+              onclick={onClose}
+              class="text-muted-foreground/70 hover:text-foreground hover:underline"
+            >
+              {album.title}
+            </a>
           </p>
           <div
             class="text-muted-foreground mt-2.5 flex flex-wrap items-center gap-2 text-[11px]"
@@ -537,7 +555,17 @@
             {trackTitle}
           </h2>
           <p class="text-muted-foreground truncate text-xs">
-            {trackArtist} · <span class="text-muted-foreground/70">{album.title}</span>
+            <a href={artistHref} onclick={onClose} class="hover:text-foreground hover:underline">
+              {trackArtist}
+            </a>
+            ·
+            <a
+              href={albumHref}
+              onclick={onClose}
+              class="text-muted-foreground/70 hover:text-foreground hover:underline"
+            >
+              {album.title}
+            </a>
           </p>
         </div>
       </div>
@@ -549,9 +577,13 @@
       <ScrollArea class="min-h-0 flex-1">
         <div class="mx-auto w-full max-w-2xl py-2">
           <div class="grid grid-cols-[140px_minmax(0,1fr)] gap-x-3 gap-y-0.5">
-            {#each metadataRows as [k, v] (k)}
+            {#each metadataRows as [k, v, href] (k)}
               <div class="text-muted-foreground py-1.5 text-[11.5px]">{k}</div>
-              <div class="font-mono text-[12px] break-all">{v}</div>
+              {#if href}
+                <a href={href} onclick={onClose} class="hover:text-foreground font-mono text-[12px] break-all hover:underline">{v}</a>
+              {:else}
+                <div class="font-mono text-[12px] break-all">{v}</div>
+              {/if}
             {/each}
           </div>
           {#if song.destinationPath}
