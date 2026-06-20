@@ -99,6 +99,12 @@ public class WishlistDownloadProcessor(
                 {
                     var req = new DownloadRequest(item.Artist, item.Title, item.Album, item.Isrc, item.DurationMs, destinationDir);
                     var result = await provider.DownloadAsync(req, token);
+                    // Stamp the authoritative Spotify identity onto the file so the scanner reads it as
+                    // the source identity (instead of the downloader's native YouTube tags). Disk-only,
+                    // so it stays inside the DB-free parallel section. Tolerant: a stamp failure leaves
+                    // the download intact and just falls back to whatever tags the file carries.
+                    if (result.Success && result.FilePath is not null)
+                        DownloadTagWriter.Stamp(result.FilePath, item.Artist, item.Title, item.Album, item.Isrc, logger);
                     lock (resultsLock) results[item.Id] = result;
                 });
         }

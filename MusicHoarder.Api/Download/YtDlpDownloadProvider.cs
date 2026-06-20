@@ -7,8 +7,14 @@ namespace MusicHoarder.Api.Download;
 
 /// <summary>
 /// Downloads a track's audio from YouTube via yt-dlp, keeping YouTube's native Opus where possible
-/// (no lossy-to-lossy re-encode). Writes into the configured download staging directory and embeds
-/// metadata + thumbnail so the scanner reads artist/title/cover as seed tags for enrichment.
+/// (no lossy-to-lossy re-encode). Writes into the configured download staging directory.
+/// <para>
+/// It deliberately does NOT embed yt-dlp's metadata/thumbnail: the YouTube uploader channel lands in
+/// ARTIST and the full video title in TITLE, which poisons enrichment matching. The caller
+/// (<see cref="WishlistDownloadProcessor"/>) stamps the authoritative Spotify identity via
+/// <see cref="DownloadTagWriter"/> instead, and album art is supplied later by the destination
+/// cover-fetch pipeline.
+/// </para>
 /// Degrades gracefully (returns a failure result) when the yt-dlp binary is missing, mirroring the
 /// fpcalc-absent handling.
 /// </summary>
@@ -49,8 +55,9 @@ public class YtDlpDownloadProvider(
             psi.ArgumentList.Add("-x");
             psi.ArgumentList.Add("--audio-format");
             psi.ArgumentList.Add(format);
-            psi.ArgumentList.Add("--embed-metadata");
-            psi.ArgumentList.Add("--embed-thumbnail");
+            // Intentionally NOT --embed-metadata / --embed-thumbnail: yt-dlp would write the YouTube
+            // uploader channel into ARTIST and the full video title into TITLE, poisoning enrichment.
+            // The processor stamps the known Spotify identity via DownloadTagWriter after download.
             // Built-in throttle: a short (optionally randomized) pause before each fetch so a bulk
             // wishlist run doesn't machine-gun YouTube — rapid back-to-back requests are a strong
             // bot-detection signal. Power users can still override via YtDlpExtraArgs.
