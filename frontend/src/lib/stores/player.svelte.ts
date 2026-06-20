@@ -32,6 +32,8 @@ let queueIndex = $state(-1);
 let panelMountedCount = $state(0);
 
 let audioEl: HTMLAudioElement | null = null;
+/** Pre-mute level, restored on unmute so toggling mute is non-destructive. */
+let lastNonZeroVolume = 1;
 let loadGeneration = 0;
 let rafHandle: number | null = null;
 let lastTimeWrite = 0;
@@ -225,8 +227,16 @@ function seek(time: number) {
 }
 
 function setVolume(vol: number) {
-  if (audioEl) audioEl.volume = vol;
-  volumeState = vol;
+  const clamped = Math.max(0, Math.min(1, vol));
+  if (audioEl) audioEl.volume = clamped;
+  volumeState = clamped;
+  if (clamped > 0) lastNonZeroVolume = clamped;
+}
+
+/** Mute, or restore the pre-mute level (falling back to 0.8 if muted from 0). */
+function toggleMute() {
+  if (volumeState > 0) setVolume(0);
+  else setVolume(lastNonZeroVolume > 0 ? lastNonZeroVolume : 0.8);
 }
 
 function stop() {
@@ -303,6 +313,7 @@ export const playerStore = {
   togglePlay,
   seek,
   setVolume,
+  toggleMute,
   stop,
   registerPanel
 };
