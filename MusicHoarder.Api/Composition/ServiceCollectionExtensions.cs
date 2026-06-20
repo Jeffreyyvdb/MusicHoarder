@@ -368,6 +368,11 @@ public static class ServiceCollectionExtensions
             return new SpotifyLibraryComparisonService(spotifyApi, scopeFactory, ownerLookup, logger);
         });
 
+        // Export Spotify Liked Songs + playlists to on-disk .m3u8 files for Navidrome/Plex/Jellyfin.
+        services.AddSingleton<IM3uPlaylistWriter, M3uPlaylistWriter>();
+        services.AddScoped<IPlaylistExportService, PlaylistExportService>();
+        services.AddHostedService<PlaylistExportBackgroundService>();
+
         return services;
     }
 

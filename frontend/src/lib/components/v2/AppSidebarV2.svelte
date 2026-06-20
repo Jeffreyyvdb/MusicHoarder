@@ -13,6 +13,7 @@
     Inbox,
     Library,
     ListMusic,
+    ListVideo,
     LogOut,
     Music,
     Music2,
@@ -59,7 +60,8 @@
     | 'artists'
     | 'tracks'
     | 'spotify'
-    | 'wishlist';
+    | 'wishlist'
+    | 'playlists';
 
   type SubItem = {
     id: SubKey;
@@ -180,7 +182,8 @@
         { id: 'artists', label: 'Artists', href: '/artists', icon: Users, count: () => artistCount },
         { id: 'tracks', label: 'All tracks', href: '/tracks', icon: ListMusic, count: () => totalTracks },
         { id: 'spotify', label: 'Spotify', href: '/spotify', icon: Music2 },
-        { id: 'wishlist', label: 'Wishlist', href: '/wishlist', icon: Heart }
+        { id: 'wishlist', label: 'Wishlist', href: '/wishlist', icon: Heart },
+        { id: 'playlists', label: 'Playlists', href: '/playlists', icon: ListVideo }
       ]
     },
     {
@@ -236,6 +239,8 @@
         return pathname.startsWith('/spotify');
       case 'wishlist':
         return pathname.startsWith('/wishlist');
+      case 'playlists':
+        return pathname.startsWith('/playlists');
       default:
         return false;
     }

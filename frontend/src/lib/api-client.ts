@@ -1467,6 +1467,31 @@ export async function triggerWishlistDownload(): Promise<{ jobId: string }> {
 }
 
 // ---------------------------------------------------------------------------
+// Exported playlists API (Spotify Liked Songs + playlists → on-disk .m3u8)
+// ---------------------------------------------------------------------------
+
+export type ExportedPlaylistKind = "LikedSongs" | "Playlist"
+
+export interface ExportedPlaylist {
+  id: number
+  kind: ExportedPlaylistKind
+  spotifyPlaylistId?: string | null
+  name: string
+  filePath: string
+  spotifyTrackTotal: number
+  matchedTrackCount: number
+  lastGeneratedAtUtc?: string | null
+}
+
+export async function fetchExportedPlaylists(): Promise<{ playlists: ExportedPlaylist[] }> {
+  return requestJson<{ playlists: ExportedPlaylist[] }>("/api/playlists")
+}
+
+export async function regenerateExportedPlaylists(): Promise<{ queued: boolean }> {
+  return requestJson<{ queued: boolean }>("/api/playlists/regenerate", { method: "POST" })
+}
+
+// ---------------------------------------------------------------------------
 // Auth API
 // ---------------------------------------------------------------------------
 
