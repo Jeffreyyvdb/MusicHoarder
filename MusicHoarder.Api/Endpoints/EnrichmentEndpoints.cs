@@ -8,6 +8,7 @@ using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Library;
+using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Pipeline;
@@ -132,6 +133,33 @@ public static class EnrichmentEndpoints
             })
             .WithName("EnrichFolder")
             .WithSummary("Enqueue every song under a source folder (recursively) for enrichment. Pass reset=true to clear prior attempts first.")
+            .RequireOwner();
+
+        // One-time heal for wishlist downloads whose files carry the downloader's native tags (yt-dlp
+        // wrote the YouTube channel into ARTIST and the video title into TITLE), which blocked enrichment
+        // with artist/title-mismatch warnings. Re-stamps every linked download from its authoritative
+        // WishlistItem identity — both the file (durable against re-scans) and the row — then resets and
+        // re-enqueues it. Idempotent: re-running re-stamps from the same source and re-enrich.
+        group.MapPost("/restamp-wishlist-downloads", async (
+                EnrichmentPipelineChannel channel,
+                MusicHoarderDbContext db,
+                ILoggerFactory loggerFactory,
+                CancellationToken ct) =>
+            {
+                var logger = loggerFactory.CreateLogger("RestampWishlistDownloads");
+                var (requeued, fileStamped) = await RestampWishlistDownloadsAsync(
+                    db,
+                    ids => channel.EnqueueRange(ids, label: "Re-stamp wishlist downloads"),
+                    logger,
+                    ct);
+
+                if (requeued == 0)
+                    return Results.Ok(new { restamped = 0, requeued = 0, fileStamped = 0 });
+
+                return Results.Accepted("/api/enrichment/status", new { restamped = requeued, requeued, fileStamped });
+            })
+            .WithName("RestampWishlistDownloads")
+            .WithSummary("Re-stamp every linked wishlist download from its known Spotify identity (file + DB) and re-enqueue for enrichment. Heals downloads poisoned by the downloader's native YouTube tags.")
             .RequireOwner();
 
         group.MapPost("/fingerprint", (JobManager jobManager, IDirectoryAvailability availability) =>
@@ -369,6 +397,76 @@ public static class EnrichmentEndpoints
             .WithSummary("Get the current purge status snapshot. Includes the last completed result until a new purge starts.");
 
         return app;
+    }
+
+    private static string? NullIfEmpty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
+
+    /// <summary>
+    /// Re-stamps every linked wishlist download from its authoritative <see cref="WishlistItem"/>
+    /// identity — both the on-disk file (durable against a future re-scan that re-reads tags) and the
+    /// DB row — then resets enrichment/build and collects the ids to re-enqueue. Owner scoping is the
+    /// caller's responsibility (the route is <c>.RequireOwner()</c> and <paramref name="db"/> applies
+    /// the per-user query filter). Idempotent. Returns (requeued count, file-tags-rewritten count).
+    /// </summary>
+    internal static async Task<(int Requeued, int FileStamped)> RestampWishlistDownloadsAsync(
+        MusicHoarderDbContext db, Action<IReadOnlyList<int>> enqueue, ILogger logger, CancellationToken ct)
+    {
+        // Map each linked song to its WishlistItem identity (a song satisfies at most one item via the
+        // unique (owner, track) index; if several point at the same song, any is fine).
+        var identities = await db.WishlistItems
+            .Where(w => w.DownloadedSongId != null)
+            .Select(w => new { SongId = w.DownloadedSongId!.Value, w.Artist, w.Title, w.Album, w.Isrc })
+            .ToListAsync(ct);
+        var identityLookup = identities
+            .GroupBy(x => x.SongId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        if (identityLookup.Count == 0)
+            return (0, 0);
+
+        var requeued = new List<int>();
+        var fileStamped = 0;
+
+        // Page in batches so a ~2.6k-song run doesn't build one giant change-tracker graph.
+        foreach (var chunk in identityLookup.Keys.Chunk(200))
+        {
+            var songs = await db.Songs
+                .Include(s => s.ProviderAttempts)
+                .Where(s => chunk.Contains(s.Id) && s.DeletedAtUtc == null && !s.IsManuallyApproved)
+                .ToListAsync(ct);
+
+            foreach (var song in songs)
+            {
+                if (!identityLookup.TryGetValue(song.Id, out var id))
+                    continue;
+                if (string.IsNullOrWhiteSpace(id.Artist) && string.IsNullOrWhiteSpace(id.Title))
+                    continue; // nothing authoritative to stamp
+
+                // Rewrite the file tags (durable). Tolerant — a missing file (e.g. a prior build
+                // "file not found") still gets its DB identity fixed below.
+                if (DownloadTagWriter.Stamp(song.SourcePath, id.Artist, id.Title, id.Album, id.Isrc, logger))
+                    fileStamped++;
+
+                song.Artist = NullIfEmpty(id.Artist);
+                song.Title = NullIfEmpty(id.Title);
+                song.Album = NullIfEmpty(id.Album);
+                song.AlbumArtist = ArtistCreditNormalizer.GetPrimaryArtist(id.Artist);
+                song.Isrc = NullIfEmpty(id.Isrc);
+
+                song.ResetEnrichment(restoreOriginal: false);
+                song.ResetLibraryBuild();
+                requeued.Add(song.Id);
+            }
+
+            await db.SaveChangesAsync(ct);
+        }
+
+        enqueue(requeued);
+        logger.LogInformation(
+            "Re-stamped {Requeued} wishlist downloads ({FileStamped} file tags rewritten) and re-enqueued for enrichment",
+            requeued.Count, fileStamped);
+
+        return (requeued.Count, fileStamped);
     }
 
     private static async Task<int> EnqueueReadyAndRetryableAsync(

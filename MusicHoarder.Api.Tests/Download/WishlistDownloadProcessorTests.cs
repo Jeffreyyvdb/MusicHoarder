@@ -9,9 +9,11 @@ using MusicHoarder.Api.Spotify;
 
 namespace MusicHoarder.Api.Tests.Download;
 
-public class WishlistDownloadProcessorTests
+public class WishlistDownloadProcessorTests : IDisposable
 {
     private static readonly Guid Owner = WellKnownUsers.OwnerId;
+    private static readonly string FixtureDir = Path.Combine(AppContext.BaseDirectory, "Fixtures");
+    private readonly List<string> tempFiles = [];
 
     [Fact]
     public async Task ProcessBatch_ExactInLibraryMatch_SkipsOwnedWithoutDownloading()
@@ -85,6 +87,38 @@ public class WishlistDownloadProcessorTests
         Assert.Equal("fake", item.DownloadProvider);
         Assert.Equal(1, item.AttemptCount);
         Assert.Null(item.LastError);
+    }
+
+    [Fact]
+    public async Task ProcessBatch_SuccessfulDownload_StampsFileWithWishlistIdentity()
+    {
+        await using var db = CreateDbContext();
+        var item = MakePending("track-1");
+        item.Artist = "¥$";
+        item.Title = "PROBLEMATIC";
+        item.Album = "VULTURES 1";
+        item.Isrc = "USUG12400001";
+        db.WishlistItems.Add(item);
+        await db.SaveChangesAsync();
+
+        // The provider produces a real file carrying poisoned yt-dlp-style tags; the processor must
+        // overwrite them with the wishlist's known Spotify identity before the scanner reads it.
+        var produced = CopyFixtureToTemp("silence.mp3");
+        using (var seed = TagLib.File.Create(produced))
+        {
+            seed.Tag.Performers = ["YouTube Channel"];
+            seed.Tag.Title = "¥$ - PROBLEMATIC (Official Audio)";
+            seed.Save();
+        }
+
+        var processor = CreateProcessor(new FakeDownloadProvider(_ => DownloadResult.Ok(produced)));
+        await processor.ProcessBatchAsync(db, Owner, default);
+
+        using var file = TagLib.File.Create(produced);
+        Assert.Equal(["¥$"], file.Tag.Performers);
+        Assert.Equal("PROBLEMATIC", file.Tag.Title);
+        Assert.Equal("VULTURES 1", file.Tag.Album);
+        Assert.Equal("USUG12400001", file.Tag.ISRC);
     }
 
     [Fact]
@@ -302,6 +336,25 @@ public class WishlistDownloadProcessorTests
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
             .Options;
         return new MusicHoarderDbContext(options);
+    }
+
+    private string CopyFixtureToTemp(string fixtureName)
+    {
+        var source = Path.Combine(FixtureDir, fixtureName);
+        var dest = Path.Combine(
+            Path.GetTempPath(),
+            $"mh-wishdl-{Guid.NewGuid():N}{Path.GetExtension(fixtureName)}");
+        File.Copy(source, dest, overwrite: true);
+        tempFiles.Add(dest);
+        return dest;
+    }
+
+    public void Dispose()
+    {
+        foreach (var f in tempFiles)
+        {
+            try { File.Delete(f); } catch { /* best effort */ }
+        }
     }
 
     private sealed class FakeDownloadProvider(Func<DownloadRequest, DownloadResult> fn) : IDownloadProvider
