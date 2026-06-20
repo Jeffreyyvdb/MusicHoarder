@@ -79,6 +79,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>Sign in · MusicHoarder</title>
+</svelte:head>
+
 <!-- Mobile login -->
 <div class="mob-surface flex min-h-screen flex-col md:hidden">
   <div class="mob-login flex-1">
