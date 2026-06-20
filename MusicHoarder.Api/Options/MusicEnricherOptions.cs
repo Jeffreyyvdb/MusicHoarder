@@ -548,6 +548,27 @@ public class MusicEnricherOptions
     /// </summary>
     public string CompilationFolderName { get; set; } = "Various Artists";
 
+    // --- Playlist export (Spotify Liked Songs + playlists → on-disk M3U) ---
+
+    /// <summary>
+    /// Mirror the owner's Spotify Liked Songs and every playlist as static <c>.m3u8</c> files under
+    /// <see cref="PlaylistsFolderName"/> in the destination library, so Navidrome/Plex/Jellyfin
+    /// auto-import them. Each file lists the local built tracks matching the Spotify tracks, in
+    /// Spotify order (Liked Songs by liked-date descending). Master switch for both the periodic
+    /// background export and the manual regenerate trigger. Default on (no-op until Spotify connects).
+    /// </summary>
+    public bool EnablePlaylistExport { get; set; } = true;
+
+    /// <summary>Minutes between background playlist-export runs. 0 disables the periodic export.</summary>
+    [Range(0, 10080)]
+    public int PlaylistExportIntervalMinutes { get; set; } = 60;
+
+    /// <summary>
+    /// Sub-folder of the destination directory the <c>.m3u8</c> files are written to. Track paths
+    /// inside each file are relative to this folder (e.g. <c>../Artist/Album/01 - Title.flac</c>).
+    /// </summary>
+    public string PlaylistsFolderName { get; set; } = "Playlists";
+
     // --- Wishlist downloads (Spotify wishlist → downloader → source directory) ---
 
     /// <summary>
