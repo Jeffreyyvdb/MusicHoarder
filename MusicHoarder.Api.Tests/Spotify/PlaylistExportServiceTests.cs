@@ -122,6 +122,36 @@ public class PlaylistExportServiceTests
         Assert.Equal("../A/Album/01 - Aaa.flac", lines[4]);
     }
 
+    [Fact]
+    public async Task RunExport_MatchesBuiltTracks_WhenAmbientUserFilterWouldExcludeThem()
+    {
+        // Regression: the export runs from a Task.Run continuation where the request's HttpContext is
+        // gone, so the DbContext's global query filter resolves to a user that does NOT own the songs
+        // and would exclude every one of them (empty library index → 0 matches). Build the context
+        // with a non-owner accessor to reproduce a filter that hides the owner's songs, and assert the
+        // match still lands (the matcher must bypass the ambient filter).
+        using var temp = new TempDir();
+        var options = new DbContextOptionsBuilder<MusicHoarderDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options;
+        var nonOwner = new CurrentUser(new Guid("11111111-1111-1111-1111-111111111111"), "other@test.local", UserRole.Owner, "Other");
+        await using var db = new MusicHoarderDbContext(options, new TestCurrentUserAccessor(nonOwner));
+
+        SeedBuilt(db, 1, "sp:x", "DaBaby", "POP DAT THANG", Path.Combine(temp.Root, "DaBaby", "Album", "01 - POP DAT THANG.flac"));
+        await db.SaveChangesAsync();
+
+        // Sanity: with the empty-user ambient filter, a filtered read sees nothing.
+        Assert.Empty(await db.Songs.ToListAsync());
+
+        var liked = new SpotifyLikedSongsResponse(1, 0, 50, new[] { Track("sp:liked", "DaBaby", "POP DAT THANG") });
+        var service = CreateService(db, new StubApi(liked), temp.Root);
+        var result = await service.RunExportAsync();
+
+        Assert.Equal(1, result.MatchedTracks);
+        var content = await File.ReadAllTextAsync(Path.Combine(temp.Root, "Playlists", "Liked Songs.m3u8"));
+        Assert.Contains("../DaBaby/Album/01 - POP DAT THANG.flac", content);
+    }
+
     #region Helpers
 
     private static SpotifyTrackItem Track(string id, string artist, string title) =>
