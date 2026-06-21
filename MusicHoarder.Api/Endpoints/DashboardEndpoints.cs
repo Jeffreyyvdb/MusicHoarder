@@ -15,6 +15,7 @@ public static class DashboardEndpoints
     public static IEndpointRouteBuilder MapDashboardEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/stats", GetStats).WithName("GetStats");
+        app.MapGet("/insights", GetInsights).WithName("GetInsights");
         app.MapGet("/overview", GetOverview).WithName("GetOverview");
         app.MapGet("/library/directory-tree", GetDirectoryTree).WithName("GetDirectoryTree");
         app.MapGet("/library/directory-tree/files", GetDirectoryFiles).WithName("GetDirectoryFiles");
@@ -307,6 +308,324 @@ public static class DashboardEndpoints
                 .Select(c => c.ToDto())
                 .ToList(),
         };
+    }
+
+    private static double Pct(double part, double whole) => whole > 0 ? Math.Round(100.0 * part / whole, 1) : 0;
+
+    /// <summary>
+    /// One owner-scoped "story of the hoard" payload powering the Stats overview page: how much of the
+    /// source made it into the library, what enrichment added (covers, lyrics), how the Spotify-liked →
+    /// wishlist → download → library funnel converted, plus library totals, top artists/albums and
+    /// enrichment-quality breakdowns. All queries ride the EF global query filter (current user only),
+    /// so no manual demo/tenant exclusion is needed.
+    /// </summary>
+    internal static async Task<IResult> GetInsights(MusicHoarderDbContext db)
+    {
+        var active = db.Songs.Where(s => s.DeletedAtUtc == null);
+        var built = active.Where(s => s.LibraryBuildStatus == LibraryBuildStatus.Done && s.DestinationPath != null);
+
+        // Most scalar counts batched into two GroupBy(_=>1) round-trips (same pattern as GetStats),
+        // which the EF InMemory provider translates cleanly (no GroupBy→First).
+        var a = await active
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                Indexed = g.Count(),
+                Fingerprinted = g.Count(s => s.Fingerprint != null && s.Fingerprint != ""),
+                Matched = g.Count(s => s.EnrichmentStatus == EnrichmentStatus.Matched),
+                NeedsReview = g.Count(s => s.EnrichmentStatus == EnrichmentStatus.NeedsReview),
+                FailedEnrich = g.Count(s => s.EnrichmentStatus == EnrichmentStatus.Failed),
+                PendingEnrich = g.Count(s => s.EnrichmentStatus == EnrichmentStatus.Pending),
+                LyricsFetched = g.Count(s => s.LyricsStatus == LyricsStatus.Fetched),
+                LyricsInstrumental = g.Count(s => s.LyricsStatus == LyricsStatus.Instrumental),
+                LyricsNotFound = g.Count(s => s.LyricsStatus == LyricsStatus.NotFound),
+                LyricsNotFetched = g.Count(s => s.LyricsStatus == LyricsStatus.NotFetched),
+                LyricsFailed = g.Count(s => s.LyricsStatus == LyricsStatus.Failed),
+                WithMbid = g.Count(s => s.MusicBrainzId != null && s.MusicBrainzId != ""),
+                WithSpotify = g.Count(s => s.SpotifyId != null && s.SpotifyId != ""),
+                WithIsrc = g.Count(s => s.Isrc != null && s.Isrc != ""),
+                ManualApprovals = g.Count(s => s.IsManuallyApproved),
+                Duplicates = g.Count(s => s.IsDuplicate),
+                Conf90 = g.Count(s => s.EnrichmentStatus == EnrichmentStatus.Matched && s.MatchConfidence >= 0.9),
+                Conf75 = g.Count(s => s.EnrichmentStatus == EnrichmentStatus.Matched && s.MatchConfidence >= 0.75 && s.MatchConfidence < 0.9),
+                ConfLow = g.Count(s => s.EnrichmentStatus == EnrichmentStatus.Matched && s.MatchConfidence != null && s.MatchConfidence < 0.75),
+                OldestIndexed = g.Min(s => s.IndexedAtUtc),
+                NewestIndexed = g.Max(s => s.IndexedAtUtc),
+            })
+            .SingleOrDefaultAsync();
+
+        var b = await built
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                InLibrary = g.Count(),
+                WithCover = g.Count(s => s.HasCoverArt),
+                WithLyrics = g.Count(s => s.LyricsStatus == LyricsStatus.Fetched),
+                DurationSeconds = g.Sum(s => s.DurationSeconds ?? 0),
+                Bytes = g.Sum(s => s.FileSizeBytes),
+            })
+            .SingleOrDefaultAsync();
+
+        var indexed = a?.Indexed ?? 0;
+        var inLibrary = b?.InLibrary ?? 0;
+
+        // Album covers MusicHoarder physically wrote into the destination library (one per album folder).
+        // The original source file's cover state isn't recorded, so this audit-log count is the honest
+        // "covers we added" figure (vs library coverage %, which is the WithCover/InLibrary ratio below).
+        var albumCoversAdded = await db.LibraryWriteEvents
+            .Where(e => e.Kind == LibraryWriteEventKind.AlbumCoverWritten && e.AlbumFolder != null)
+            .Select(e => e.AlbumFolder!)
+            .Distinct()
+            .CountAsync();
+
+        // "In the library" = the linked downloaded song is built and live in the destination.
+        var liked = await db.WishlistItems
+            .Where(w => w.WishlistSource != null && w.WishlistSource.SourceType == WishlistSourceType.LikedSongs)
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                Total = g.Count(),
+                InLibrary = g.Count(w => w.DownloadedSong != null && w.DownloadedSong.DeletedAtUtc == null && w.DownloadedSong.LibraryBuildStatus == LibraryBuildStatus.Done && w.DownloadedSong.DestinationPath != null),
+                Downloaded = g.Count(w => w.Status == WishlistItemStatus.Downloaded || w.DownloadedSongId != null),
+                SkippedOwned = g.Count(w => w.Status == WishlistItemStatus.SkippedOwned),
+                Downloading = g.Count(w => w.Status == WishlistItemStatus.Downloading),
+                Pending = g.Count(w => w.Status == WishlistItemStatus.Pending),
+                NotFound = g.Count(w => w.Status == WishlistItemStatus.NotFound),
+                Failed = g.Count(w => w.Status == WishlistItemStatus.Failed),
+            })
+            .SingleOrDefaultAsync();
+
+        var wishAll = await db.WishlistItems
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                Total = g.Count(),
+                InLibrary = g.Count(w => w.DownloadedSong != null && w.DownloadedSong.DeletedAtUtc == null && w.DownloadedSong.LibraryBuildStatus == LibraryBuildStatus.Done && w.DownloadedSong.DestinationPath != null),
+                Downloaded = g.Count(w => w.Status == WishlistItemStatus.Downloaded || w.DownloadedSongId != null),
+            })
+            .SingleOrDefaultAsync();
+
+        var wishlistSources = await db.WishlistSources.CountAsync();
+
+        // Format breakdown — DB GroupBy+Count, then normalise extensions in memory.
+        var byExtRaw = await active
+            .GroupBy(s => s.Extension)
+            .Select(g => new { Ext = g.Key, Count = g.Count() })
+            .ToListAsync();
+        var byFormat = byExtRaw
+            .GroupBy(x => (x.Ext ?? "").TrimStart('.').ToLowerInvariant())
+            .Where(g => g.Key.Length > 0)
+            .Select(g => new { format = g.Key, count = g.Sum(x => x.Count) })
+            .OrderByDescending(x => x.count)
+            .ToList();
+
+        // Per-provider match counts (SongProviderAttempt is owner-scoped via its Song.OwnerUserId filter).
+        var providerRaw = await db.SongProviderAttempts
+            .GroupBy(p => p.Provider)
+            .Select(g => new
+            {
+                Provider = g.Key,
+                Total = g.Count(),
+                Matched = g.Count(x => x.Status == ProviderAttemptStatus.Matched),
+            })
+            .ToListAsync();
+        var byProvider = providerRaw
+            .Select(p => new { provider = p.Provider.ToString(), total = p.Total, matched = p.Matched })
+            .OrderByDescending(p => p.matched)
+            .ThenByDescending(p => p.total)
+            .ToList();
+
+        // Top artists / albums + distinct counts: pull three string columns over the built library and
+        // group in memory so case-insensitive grouping is correct and provider-agnostic (no DB collation).
+        var builtRows = await built
+            .Select(s => new { s.AlbumArtist, s.Artist, s.Album })
+            .ToListAsync();
+        static string ArtistOf(string? albumArtist, string? artist) => (albumArtist ?? artist ?? "").Trim();
+
+        var topArtists = builtRows
+            .Select(r => ArtistOf(r.AlbumArtist, r.Artist))
+            .Where(n => n.Length > 0)
+            .GroupBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new { name = g.Key, tracks = g.Count() })
+            .OrderByDescending(x => x.tracks)
+            .ThenBy(x => x.name, StringComparer.OrdinalIgnoreCase)
+            .Take(8)
+            .ToList();
+
+        var topAlbums = builtRows
+            .Where(r => !string.IsNullOrWhiteSpace(r.Album))
+            .GroupBy(
+                r => (Album: r.Album!.Trim(), Artist: ArtistOf(r.AlbumArtist, r.Artist)),
+                ValueTupleCaseInsensitiveComparer.Instance)
+            .Select(g => new { album = g.Key.Album, artist = g.Key.Artist, tracks = g.Count() })
+            .OrderByDescending(x => x.tracks)
+            .ThenBy(x => x.album, StringComparer.OrdinalIgnoreCase)
+            .Take(8)
+            .ToList();
+
+        var distinctArtists = builtRows
+            .Select(r => ArtistOf(r.AlbumArtist, r.Artist).ToLowerInvariant())
+            .Where(n => n.Length > 0)
+            .Distinct()
+            .Count();
+        var distinctAlbums = builtRows
+            .Where(r => !string.IsNullOrWhiteSpace(r.Album))
+            .Select(r => $"{ArtistOf(r.AlbumArtist, r.Artist)}{r.Album!.Trim()}".ToLowerInvariant())
+            .Distinct()
+            .Count();
+
+        var lyricsAdded = a?.LyricsFetched ?? 0;
+        var likedTotal = liked?.Total ?? 0;
+
+        var response = new
+        {
+            generatedAtUtc = DateTime.UtcNow,
+
+            // ── Stat 1: how much of the source path is now in the library ──
+            source = new
+            {
+                indexed,
+                inLibrary,
+                inLibraryPct = Pct(inLibrary, indexed),
+                notYetBuilt = Math.Max(0, indexed - inLibrary),
+            },
+
+            // Pipeline drop-off, indexed → in library.
+            funnel = new[]
+            {
+                new { stage = "Indexed", count = indexed },
+                new { stage = "Fingerprinted", count = a?.Fingerprinted ?? 0 },
+                new { stage = "Matched", count = a?.Matched ?? 0 },
+                new { stage = "In library", count = inLibrary },
+            }
+            .Select(x => new { x.stage, x.count, pct = Pct(x.count, indexed) })
+            .ToList(),
+
+            // ── Stat 2: covers that weren't there before, but are now ──
+            covers = new
+            {
+                albumCoversAdded,
+                builtWithCover = b?.WithCover ?? 0,
+                builtTracks = inLibrary,
+                coveragePct = Pct(b?.WithCover ?? 0, inLibrary),
+            },
+
+            // ── Stat 3: lyrics that weren't there before, but are now ──
+            lyrics = new
+            {
+                added = lyricsAdded,
+                builtWithLyrics = b?.WithLyrics ?? 0,
+                builtTracks = inLibrary,
+                coveragePct = Pct(b?.WithLyrics ?? 0, inLibrary),
+                instrumental = a?.LyricsInstrumental ?? 0,
+                notFound = a?.LyricsNotFound ?? 0,
+                breakdown = new[]
+                {
+                    new { status = "Fetched", count = lyricsAdded },
+                    new { status = "Instrumental", count = a?.LyricsInstrumental ?? 0 },
+                    new { status = "Not found", count = a?.LyricsNotFound ?? 0 },
+                    new { status = "Not fetched", count = a?.LyricsNotFetched ?? 0 },
+                    new { status = "Failed", count = a?.LyricsFailed ?? 0 },
+                },
+            },
+
+            // ── Stats 4 & 5: Spotify-liked → wishlist → download → library ──
+            wishlist = new
+            {
+                liked = new
+                {
+                    total = likedTotal,
+                    downloaded = liked?.Downloaded ?? 0,
+                    inLibrary = liked?.InLibrary ?? 0,
+                    skippedOwned = liked?.SkippedOwned ?? 0,
+                },
+                all = new
+                {
+                    total = wishAll?.Total ?? 0,
+                    downloaded = wishAll?.Downloaded ?? 0,
+                    inLibrary = wishAll?.InLibrary ?? 0,
+                },
+                sources = wishlistSources,
+                funnel = new[]
+                {
+                    new { stage = "Liked / wishlisted", count = likedTotal },
+                    new { stage = "Downloaded", count = liked?.Downloaded ?? 0 },
+                    new { stage = "In library", count = liked?.InLibrary ?? 0 },
+                }
+                .Select(x => new { x.stage, x.count, pct = Pct(x.count, likedTotal) })
+                .ToList(),
+                statusBreakdown = new[]
+                {
+                    new { status = "In library", count = liked?.InLibrary ?? 0 },
+                    new { status = "Downloaded", count = Math.Max(0, (liked?.Downloaded ?? 0) - (liked?.InLibrary ?? 0)) },
+                    new { status = "Already owned", count = liked?.SkippedOwned ?? 0 },
+                    new { status = "Downloading", count = liked?.Downloading ?? 0 },
+                    new { status = "Pending", count = liked?.Pending ?? 0 },
+                    new { status = "Not found", count = liked?.NotFound ?? 0 },
+                    new { status = "Failed", count = liked?.Failed ?? 0 },
+                },
+            },
+
+            // ── Library totals (the "cool stuff") ──
+            totals = new
+            {
+                builtTracks = inLibrary,
+                totalHours = Math.Round((b?.DurationSeconds ?? 0) / 3600.0, 1),
+                totalGiB = Math.Round((b?.Bytes ?? 0) / (1024.0 * 1024.0 * 1024.0), 2),
+                distinctArtists,
+                distinctAlbums,
+                duplicates = a?.Duplicates ?? 0,
+                oldestIndexedUtc = a?.OldestIndexed,
+                newestIndexedUtc = a?.NewestIndexed,
+                byFormat,
+            },
+
+            top = new { artists = topArtists, albums = topAlbums },
+
+            // ── Enrichment quality ──
+            quality = new
+            {
+                enrichment = new[]
+                {
+                    new { status = "Matched", count = a?.Matched ?? 0 },
+                    new { status = "Needs review", count = a?.NeedsReview ?? 0 },
+                    new { status = "Failed", count = a?.FailedEnrich ?? 0 },
+                    new { status = "Pending", count = a?.PendingEnrich ?? 0 },
+                },
+                confidence = new[]
+                {
+                    new { bucket = "90%+", count = a?.Conf90 ?? 0 },
+                    new { bucket = "75-90%", count = a?.Conf75 ?? 0 },
+                    new { bucket = "<75%", count = a?.ConfLow ?? 0 },
+                },
+                byProvider,
+                manualApprovals = a?.ManualApprovals ?? 0,
+                coverage = new
+                {
+                    fingerprint = new { count = a?.Fingerprinted ?? 0, pct = Pct(a?.Fingerprinted ?? 0, indexed) },
+                    musicBrainz = new { count = a?.WithMbid ?? 0, pct = Pct(a?.WithMbid ?? 0, indexed) },
+                    spotify = new { count = a?.WithSpotify ?? 0, pct = Pct(a?.WithSpotify ?? 0, indexed) },
+                    isrc = new { count = a?.WithIsrc ?? 0, pct = Pct(a?.WithIsrc ?? 0, indexed) },
+                },
+            },
+        };
+
+        return Results.Ok(response);
+    }
+
+    /// <summary>Case-insensitive equality for the (Album, Artist) grouping key used by top-albums.</summary>
+    private sealed class ValueTupleCaseInsensitiveComparer : IEqualityComparer<(string Album, string Artist)>
+    {
+        public static readonly ValueTupleCaseInsensitiveComparer Instance = new();
+
+        public bool Equals((string Album, string Artist) x, (string Album, string Artist) y)
+            => string.Equals(x.Album, y.Album, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(x.Artist, y.Artist, StringComparison.OrdinalIgnoreCase);
+
+        public int GetHashCode((string Album, string Artist) obj)
+            => HashCode.Combine(
+                obj.Album.ToLowerInvariant(),
+                obj.Artist.ToLowerInvariant());
     }
 
     private static async Task<IResult> GetStats(MusicHoarderDbContext db)

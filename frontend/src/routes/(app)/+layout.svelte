@@ -16,6 +16,7 @@
   // components, so set the browser-tab title here in one place rather than in every
   // +page.svelte. Labels mirror the sidebar nav so the tab matches the active item.
   const PAGE_TITLES: Record<string, string> = {
+    '/stats': 'Stats',
     '/pipeline': 'Pipeline',
     '/directories': 'By folder',
     '/quality': 'AI quality',

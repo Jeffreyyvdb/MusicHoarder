@@ -3,6 +3,7 @@
   import { page } from '$app/state';
   import {
     Activity,
+    ChartColumnBig,
     ChevronRight,
     Copy,
     Disc3,
@@ -74,7 +75,7 @@
     count?: () => number | string | null;
   };
 
-  type SectionId = 'pipeline' | 'inbox' | 'library' | 'history' | 'settings';
+  type SectionId = 'stats' | 'pipeline' | 'inbox' | 'library' | 'history' | 'settings';
 
   type Section = {
     id: SectionId;
@@ -147,6 +148,14 @@
   const destPath = $derived(overview?.destinationPath ?? null);
 
   const NAV: Section[] = [
+    {
+      // Single entry — a read-only "hoard at a glance" stats dashboard.
+      id: 'stats',
+      label: 'Stats',
+      href: '/stats',
+      icon: ChartColumnBig,
+      sub: []
+    },
     {
       id: 'pipeline',
       label: 'Pipeline',
