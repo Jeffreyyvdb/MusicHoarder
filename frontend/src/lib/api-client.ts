@@ -513,6 +513,74 @@ export async function fetchOverview(): Promise<ApiOverview> {
   return requestJson<ApiOverview>("/overview")
 }
 
+// ── Stats overview (the /stats page) ────────────────────────────────────────
+export interface InsightFunnelStage {
+  stage: string
+  count: number
+  pct: number
+}
+export interface InsightLabelCount {
+  status: string
+  count: number
+}
+export interface InsightCoverage {
+  count: number
+  pct: number
+}
+export interface LibraryInsights {
+  generatedAtUtc: string
+  source: { indexed: number; inLibrary: number; inLibraryPct: number; notYetBuilt: number }
+  funnel: InsightFunnelStage[]
+  covers: { albumCoversAdded: number; builtWithCover: number; builtTracks: number; coveragePct: number }
+  lyrics: {
+    added: number
+    builtWithLyrics: number
+    builtTracks: number
+    coveragePct: number
+    instrumental: number
+    notFound: number
+    breakdown: InsightLabelCount[]
+  }
+  wishlist: {
+    liked: { total: number; downloaded: number; inLibrary: number; skippedOwned: number }
+    all: { total: number; downloaded: number; inLibrary: number }
+    sources: number
+    funnel: InsightFunnelStage[]
+    statusBreakdown: InsightLabelCount[]
+  }
+  totals: {
+    builtTracks: number
+    totalHours: number
+    totalGiB: number
+    distinctArtists: number
+    distinctAlbums: number
+    duplicates: number
+    oldestIndexedUtc: string | null
+    newestIndexedUtc: string | null
+    byFormat: { format: string; count: number }[]
+  }
+  top: {
+    artists: { name: string; tracks: number }[]
+    albums: { album: string; artist: string; tracks: number }[]
+  }
+  quality: {
+    enrichment: InsightLabelCount[]
+    confidence: { bucket: string; count: number }[]
+    byProvider: { provider: string; total: number; matched: number }[]
+    manualApprovals: number
+    coverage: {
+      fingerprint: InsightCoverage
+      musicBrainz: InsightCoverage
+      spotify: InsightCoverage
+      isrc: InsightCoverage
+    }
+  }
+}
+
+export async function fetchInsights(): Promise<LibraryInsights> {
+  return requestJson<LibraryInsights>("/insights")
+}
+
 export interface DirectoryMatchNode {
   /** Folder name (the source library root for the top node). */
   name: string
