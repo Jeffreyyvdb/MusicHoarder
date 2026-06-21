@@ -114,6 +114,14 @@ export interface ApiSong {
   isInstrumental?: boolean | null
   syncedLyrics?: string | null
   plainLyrics?: string | null
+  /** True when an AI transcription exists. The (large) text is fetched on demand via fetchTrackLyrics. */
+  hasTranscribedLyrics?: boolean | null
+  /** "NotRequested" | "Pending" | "Completed" | "Failed". */
+  transcriptionStatus?: string | null
+  transcribedAtUtc?: string | null
+  transcriptionModel?: string | null
+  /** Which lyrics the synced viewer shows when both exist: "Lrclib" | "Transcribed". */
+  preferredLyricsSource?: string | null
   /** Sample rate in Hz (e.g. 44100). Shown in track details when present. */
   sampleRate?: number | null
   /** Bitrate in kbps (e.g. 320, 1411). Shown in track details when present. */
@@ -1122,10 +1130,42 @@ export interface TrackLyricsResponse {
   isInstrumental?: boolean | null
   synced?: string | null
   plain?: string | null
+  transcribedSynced?: string | null
+  transcribedPlain?: string | null
+  transcriptionStatus?: string | null
+  transcribedAtUtc?: string | null
+  transcriptionModel?: string | null
+  preferredLyricsSource?: string | null
 }
 
 export async function fetchTrackLyrics(trackId: number): Promise<TrackLyricsResponse> {
   return requestJson<TrackLyricsResponse>(`/api/tracks/${trackId}/lyrics`)
+}
+
+/** Choose which lyrics the synced viewer shows when both an LRCLIB version and an AI transcription exist. */
+export async function setPreferredLyricsSource(
+  songId: number,
+  source: "lrclib" | "transcribed"
+): Promise<{ id: number; preferredLyricsSource: string }> {
+  return requestJson(`/songs/${songId}/lyrics/preferred?source=${source}`, { method: "POST" })
+}
+
+export interface TranscribeLyricsResponse {
+  id: number
+  synced?: string | null
+  plain?: string | null
+  transcriptionStatus?: string | null
+  transcribedAtUtc?: string | null
+  model?: string | null
+  hasExistingLyrics?: boolean | null
+}
+
+/**
+ * Experimental: transcribe a song's audio via OpenAI Whisper into a synced LRC. The result is stored
+ * separately from the LRCLIB lyrics (for side-by-side comparison) and never re-tags the file on disk.
+ */
+export async function transcribeSongLyrics(songId: number): Promise<TranscribeLyricsResponse> {
+  return requestJson<TranscribeLyricsResponse>(`/songs/${songId}/lyrics/transcribe`, { method: "POST" })
 }
 
 export function getSongStreamUrl(songId: number): string {
@@ -1639,11 +1679,17 @@ export interface SettingsQualityGradingView {
   configured: boolean
 }
 
+export interface SettingsLyricsTranscriptionView {
+  /** True when a transcription provider is configured on the server (the experimental feature is live). */
+  enabled: boolean
+}
+
 export interface SettingsResponse {
   paths: SettingsPathsView
   providers: SettingsProvidersView
   spotify: SettingsSpotifyView
   qualityGrading: SettingsQualityGradingView
+  lyricsTranscription: SettingsLyricsTranscriptionView
   updatedAtUtc: string | null
 }
 

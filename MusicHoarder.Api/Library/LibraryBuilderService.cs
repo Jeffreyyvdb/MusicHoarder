@@ -83,8 +83,8 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
         var artistIds = MusicHoarder.Api.Metadata.MultiValue.Split(song.ArtistMusicBrainzIds);
         SetIfPresent(artistIds.Length > 0 ? artistIds[0] : null, v => tag.MusicBrainzArtistId = v);
 
-        // Embed lyrics: prefer synced LRC, fall back to plain
-        tag.Lyrics = NullIfEmpty(song.SyncedLyrics) ?? NullIfEmpty(song.PlainLyrics) ?? string.Empty;
+        // Embed lyrics: the user's preferred source (AI transcription or LRCLIB), synced over plain.
+        tag.Lyrics = NullIfEmpty(song.EffectiveSyncedLyrics) ?? NullIfEmpty(song.EffectivePlainLyrics) ?? string.Empty;
 
         // Multi-value / freeform fields the generic Tag doesn't expose. create:false so we only
         // touch the file's native tag (the generic sets above already created it) — never an

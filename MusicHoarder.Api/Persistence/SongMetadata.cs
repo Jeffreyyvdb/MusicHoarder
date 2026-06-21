@@ -192,6 +192,44 @@ public class SongMetadata
     public bool? IsInstrumental { get; set; }
     public LyricsStatus LyricsStatus { get; set; } = LyricsStatus.NotFetched;
 
+    // --- AI lyrics transcription (experimental; stored SEPARATELY from the LRCLIB lyrics above) ---
+    //
+    // An AI transcription of the song's audio (OpenAI whisper-1) kept apart from SyncedLyrics/PlainLyrics
+    // so it never clobbers the curated LRCLIB lyrics and the UI can show the two side-by-side. These
+    // fields are deliberately NOT in RebuildOnMetadataChangeInterceptor.TagRelevantProperties — storing a
+    // transcription must never re-tag the destination file (the transcript is for comparison, not the file).
+
+    public string? TranscribedSyncedLyrics { get; set; }
+    public string? TranscribedPlainLyrics { get; set; }
+    public TranscriptionStatus TranscriptionStatus { get; set; } = TranscriptionStatus.NotRequested;
+    public DateTime? TranscribedAtUtc { get; set; }
+    public string? TranscriptionModel { get; set; }
+    public string? TranscriptionError { get; set; }
+
+    /// <summary>
+    /// Which lyrics the app's synced viewer shows when both an LRCLIB version and an AI transcription
+    /// exist — a display preference the user sets from the side-by-side comparison. Defaults to the
+    /// curated LRCLIB version. Display-only: it never changes what is embedded into the destination file
+    /// (so it is intentionally absent from <c>RebuildOnMetadataChangeInterceptor.TagRelevantProperties</c>).
+    /// </summary>
+    public PreferredLyricsSource PreferredLyricsSource { get; set; } = PreferredLyricsSource.Lrclib;
+
+    /// <summary>
+    /// The lyrics that are canonical for display AND embedded into the destination file: the AI
+    /// transcription when the user chose it via <see cref="PreferredLyricsSource"/> (and it exists),
+    /// otherwise the LRCLIB version. Computed (not mapped) and non-destructive — both versions are kept,
+    /// so the choice can be switched at any time and the file re-tagged accordingly.
+    /// </summary>
+    public string? EffectiveSyncedLyrics =>
+        PreferredLyricsSource == PreferredLyricsSource.Transcribed && !string.IsNullOrWhiteSpace(TranscribedSyncedLyrics)
+            ? TranscribedSyncedLyrics
+            : SyncedLyrics;
+
+    public string? EffectivePlainLyrics =>
+        PreferredLyricsSource == PreferredLyricsSource.Transcribed && !string.IsNullOrWhiteSpace(TranscribedPlainLyrics)
+            ? TranscribedPlainLyrics
+            : PlainLyrics;
+
     // --- Guard properties ---
 
     public bool IsDeleted => DeletedAtUtc.HasValue;
@@ -689,6 +727,35 @@ public class SongMetadata
         LrclibId = null;
     }
 
+    // --- AI transcription lifecycle ---
+
+    public void ApplyTranscriptionResult(string? syncedLyrics, string? plainLyrics, string model)
+    {
+        TranscribedSyncedLyrics = string.IsNullOrWhiteSpace(syncedLyrics) ? null : syncedLyrics;
+        TranscribedPlainLyrics = string.IsNullOrWhiteSpace(plainLyrics) ? null : plainLyrics;
+        TranscriptionStatus = TranscriptionStatus.Completed;
+        TranscribedAtUtc = DateTime.UtcNow;
+        TranscriptionModel = model;
+        TranscriptionError = null;
+    }
+
+    public void MarkTranscriptionFailed(string error)
+    {
+        TranscriptionStatus = TranscriptionStatus.Failed;
+        TranscriptionError = Truncate(error, MaxErrorLength);
+        TranscribedAtUtc = DateTime.UtcNow;
+    }
+
+    public void ResetTranscription()
+    {
+        TranscriptionStatus = TranscriptionStatus.NotRequested;
+        TranscribedSyncedLyrics = null;
+        TranscribedPlainLyrics = null;
+        TranscribedAtUtc = null;
+        TranscriptionModel = null;
+        TranscriptionError = null;
+    }
+
     // --- Soft delete ---
 
     public void SoftDelete()
@@ -724,4 +791,18 @@ public enum LyricsStatus
     Instrumental = 2,
     NotFound = 3,
     Failed = 4,
+}
+
+public enum TranscriptionStatus
+{
+    NotRequested = 0,
+    Pending = 1,
+    Completed = 2,
+    Failed = 3,
+}
+
+public enum PreferredLyricsSource
+{
+    Lrclib = 0,
+    Transcribed = 1,
 }

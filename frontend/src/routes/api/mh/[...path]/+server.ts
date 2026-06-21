@@ -18,8 +18,13 @@ async function proxy(request: Request, pathSegments: string, search: string): Pr
   // response headers within the window, then clear the timer the moment it does. This keeps
   // the long-lived SSE progress feed (/api/enrichment/progress) streaming after headers
   // arrive, while preventing a busy API from making the proxy pend indefinitely.
+  //
+  // AI lyrics transcription is a deliberate long-running synchronous action (ffmpeg transcode +
+  // a whole-song Whisper call), so it gets a much longer window — it's bounded server-side by
+  // LyricsTranscription:TimeoutSeconds. Aborting it early would also cancel the API-side work.
+  const isLongRunning = pathSegments.endsWith('/lyrics/transcribe');
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
+  const timeout = setTimeout(() => controller.abort(), isLongRunning ? 240_000 : 10_000);
 
   let response: Response;
   try {

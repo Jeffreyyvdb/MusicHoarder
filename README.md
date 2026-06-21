@@ -151,6 +151,11 @@ using the `MusicEnricher__` prefix.
 
 Spotify metadata is optional and requires registering a Spotify app and configuring the OAuth relay.
 
+AI quality grading and the **experimental AI lyrics transcription** feature are also optional and
+configured separately (under the `QualityGrading__` and `LyricsTranscription__` prefixes). Lyrics
+transcription is **hidden in the UI unless `LyricsTranscription__ApiKey` is set** — see the
+[self-hosting guide](docs/SELF_HOSTING.md#optional-integrations).
+
 ---
 
 ## Self-host
@@ -175,8 +180,8 @@ The app serves plain HTTP — put it behind your own reverse proxy for TLS and p
 `PUBLIC_BASE_URL` at the external URL.
 
 **→ Full guide:** [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) — env reference, first login,
-reverse proxy, Portainer/TrueNAS, optional integrations (AcoustID, Spotify, AI grading, Umami),
-updating, backups, build-from-source, and troubleshooting.
+reverse proxy, Portainer/TrueNAS, optional integrations (AcoustID, Spotify, AI grading, AI lyrics
+transcription, Umami), updating, backups, build-from-source, and troubleshooting.
 
 ---
 
