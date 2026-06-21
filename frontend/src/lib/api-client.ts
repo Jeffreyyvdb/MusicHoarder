@@ -1540,19 +1540,46 @@ export async function triggerWishlistDownload(): Promise<{ jobId: string }> {
 
 export type ExportedPlaylistKind = "LikedSongs" | "Playlist"
 
-export interface ExportedPlaylist {
-  id: number
+// One of the owner's Spotify collections (Liked Songs or a playlist). Export is opt-in: `subscribed`
+// is false until the owner adds it, at which point coverage fields (matched/filePath/lastGenerated)
+// are populated by the export run. `id` is the subscription row id (null when not subscribed).
+export interface PlaylistCollection {
+  id: number | null
   kind: ExportedPlaylistKind
   spotifyPlaylistId?: string | null
   name: string
-  filePath: string
+  imageUrl?: string | null
+  ownerName?: string | null
   spotifyTrackTotal: number
+  subscribed: boolean
   matchedTrackCount: number
+  filePath?: string | null
   lastGeneratedAtUtc?: string | null
 }
 
-export async function fetchExportedPlaylists(): Promise<{ playlists: ExportedPlaylist[] }> {
-  return requestJson<{ playlists: ExportedPlaylist[] }>("/api/playlists")
+export interface PlaylistCollectionsResponse {
+  spotifyConnected: boolean
+  spotifyError?: string | null
+  collections: PlaylistCollection[]
+}
+
+export async function fetchPlaylistCollections(): Promise<PlaylistCollectionsResponse> {
+  return requestJson<PlaylistCollectionsResponse>("/api/playlists")
+}
+
+export async function subscribePlaylist(input: {
+  kind: ExportedPlaylistKind
+  spotifyPlaylistId?: string | null
+  name: string
+}): Promise<{ id: number; subscribed: boolean; queued: boolean }> {
+  return requestJson("/api/playlists/subscribe", {
+    method: "POST",
+    body: JSON.stringify(input)
+  })
+}
+
+export async function unsubscribePlaylist(id: number): Promise<{ message: string }> {
+  return requestJson(`/api/playlists/${id}`, { method: "DELETE" })
 }
 
 export async function regenerateExportedPlaylists(): Promise<{ queued: boolean }> {

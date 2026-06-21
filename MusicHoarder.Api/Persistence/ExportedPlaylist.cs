@@ -12,12 +12,13 @@ public enum ExportedPlaylistKind
 }
 
 /// <summary>
-/// A Spotify collection (Liked Songs or a single playlist) the export service mirrors as a static
-/// <c>.m3u8</c> file in the destination library, so Navidrome/Plex/Jellyfin auto-import it. The file
-/// lists the local built tracks that match the Spotify tracks, in Spotify order (Liked Songs by
-/// liked-date descending). This row is the on-disk manifest: it drives the coverage UI and lets the
-/// export service delete the <c>.m3u8</c> when a playlist is removed/renamed on Spotify. Owner-scoped
-/// (Spotify is per-user).
+/// A Spotify collection (Liked Songs or a single playlist) the owner has <b>subscribed</b> to export as
+/// a static <c>.m3u8</c> file in the destination library, so Navidrome/Plex/Jellyfin auto-import it. The
+/// file lists the local built tracks that match the Spotify tracks, in Spotify order (Liked Songs by
+/// liked-date descending). Export is <b>opt-in</b>: the existence of this row <i>is</i> the subscription
+/// — nothing is mirrored by default. The row doubles as the on-disk manifest: it drives the coverage UI
+/// and lets the export service delete the <c>.m3u8</c> when the owner unsubscribes or the playlist is
+/// removed/renamed on Spotify. Owner-scoped (Spotify is per-user).
 /// </summary>
 public class ExportedPlaylist
 {
