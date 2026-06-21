@@ -1,0 +1,40 @@
+using Microsoft.Extensions.Options;
+
+namespace MusicHoarder.Api.Options;
+
+/// <summary>
+/// Cross-field validation for <see cref="MusicEnricherOptions"/> that the per-property data annotations
+/// can't express. Runs at startup via <c>ValidateOnStart()</c>, so a contradictory config fails fast
+/// instead of silently doing nothing at runtime.
+/// </summary>
+public sealed class MusicEnricherOptionsValidator : IValidateOptions<MusicEnricherOptions>
+{
+    public ValidateOptionsResult Validate(string? name, MusicEnricherOptions o)
+    {
+        var errors = new List<string>();
+
+        if (o.AutoDownloadWishlist && !o.EnableWishlistDownloads)
+            errors.Add("MusicEnricher:AutoDownloadWishlist requires EnableWishlistDownloads = true (the auto-sweep can't run while the feature is off).");
+
+        if (o.DownloadMaxSleepSeconds > 0 && o.DownloadMaxSleepSeconds < o.DownloadSleepSeconds)
+            errors.Add("MusicEnricher:DownloadMaxSleepSeconds must be >= DownloadSleepSeconds (it's the upper bound of the randomized pre-download wait).");
+
+        return errors.Count > 0 ? ValidateOptionsResult.Fail(errors) : ValidateOptionsResult.Success;
+    }
+}
+
+/// <summary>
+/// Cross-field validation for <see cref="QualityGradingOptions"/>: the reasoning-token budget must leave
+/// room for the JSON answer within the output-token budget, or responses get truncated mid-object.
+/// </summary>
+public sealed class QualityGradingOptionsValidator : IValidateOptions<QualityGradingOptions>
+{
+    public ValidateOptionsResult Validate(string? name, QualityGradingOptions o)
+    {
+        if (o.ReasoningMaxTokens > 0 && o.ReasoningMaxTokens >= o.MaxOutputTokens)
+            return ValidateOptionsResult.Fail(
+                "QualityGrading:ReasoningMaxTokens must be less than MaxOutputTokens so the JSON answer has room after the chain-of-thought.");
+
+        return ValidateOptionsResult.Success;
+    }
+}

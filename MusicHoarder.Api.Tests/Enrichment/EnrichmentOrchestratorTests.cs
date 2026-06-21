@@ -1314,7 +1314,6 @@ public class EnrichmentOrchestratorTests
         {
             SourceDirectory = "/source",
             DestinationDirectory = "/dest",
-            EnrichmentBatchSize = 100,
             EnrichmentWorkerConcurrency = 1,
             EnableAcoustIdProvider = true,
             EnableMusicBrainzWebProvider = false,

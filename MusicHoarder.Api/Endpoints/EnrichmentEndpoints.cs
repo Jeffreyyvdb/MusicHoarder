@@ -56,6 +56,38 @@ public static class EnrichmentEndpoints
             .WithSummary("Enqueue all pending/retryable tracks for enrichment via the always-running enrichment workers.")
             .RequireOwner();
 
+        group.MapGet("/stuck", async (
+                MusicHoarderDbContext db,
+                IOptions<MusicEnricherOptions> options,
+                CancellationToken ct) =>
+            {
+                // Matched tracks that stall before they reach the destination library, and never recover on
+                // their own — visible nowhere else in the UI. "Quarantined" = failed the build too many
+                // times (needs a manual re-build); "lyricsHeld" = build-ready but waiting on the
+                // lyrics-before-build gate (clears itself once lyrics resolve or the wait times out).
+                var opts = options.Value;
+                var max = opts.MaxLibraryBuildAttempts;
+
+                var quarantined = await db.Songs
+                    .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic && !s.IsDuplicate)
+                    .ExcludingDemoTenant()
+                    .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched)
+                    .Where(s => s.LibraryBuildStatus == LibraryBuildStatus.Failed && s.LibraryBuildAttempts >= max)
+                    .CountAsync(ct);
+
+                // Held only by the lyrics gate = (build-ready ignoring the gate) − (build-ready with the gate).
+                var cutoff = LibraryBuildQuery.LyricsWaitCutoff(opts);
+                var lyricsHeld = cutoff is null
+                    ? 0
+                    : await LibraryBuildQuery.BuildCandidates(db.Songs, lyricsWaitCutoff: null, max).CountAsync(ct)
+                      - await LibraryBuildQuery.BuildCandidates(db.Songs, cutoff, max).CountAsync(ct);
+
+                return Results.Ok(new { quarantined, lyricsHeld });
+            })
+            .WithName("GetStuckCounts")
+            .WithSummary("Counts of Matched tracks stuck before the destination library: build-quarantined and lyrics-held.")
+            .RequireOwner();
+
         group.MapPost("/enrich/song/{id:int}", async (
                 int id,
                 bool? reset,

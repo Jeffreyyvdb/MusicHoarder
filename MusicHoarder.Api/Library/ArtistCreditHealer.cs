@@ -138,7 +138,7 @@ public sealed class ArtistCreditHealer(
     private IQueryable<SongMetadata> QueryEligible() => db.Songs
         .IgnoreQueryFilters()
         .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
-        .Where(s => s.OwnerUserId != WellKnownUsers.DemoId)
+        .ExcludingDemoTenant()
         .Where(s => !s.IsDuplicate)
         .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched)
         .Where(s => s.Artists == null || s.Artists == "")

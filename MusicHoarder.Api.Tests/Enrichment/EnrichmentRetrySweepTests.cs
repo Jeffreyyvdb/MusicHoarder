@@ -460,6 +460,7 @@ public class EnrichmentRetrySweepTests
             channel,
             new StubOrchestrator(enabled),
             opts,
+            TestPipelineMetrics.Create(),
             NullLogger<EnrichmentBackgroundService>.Instance);
     }
 

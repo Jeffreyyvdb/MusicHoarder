@@ -32,7 +32,12 @@ public interface IWishlistService
     /// Pending items (deduped by the unique <c>(OwnerUserId, SpotifyTrackId)</c> index). Updates
     /// <see cref="WishlistSource.LastSyncedAtUtc"/>.
     /// </summary>
-    Task<WishlistSyncResult> SyncSourceAsync(Guid ownerId, WishlistSource source, CancellationToken ct);
+    /// <param name="maxPages">
+    /// When set, stop after this many Spotify pages (50 tracks each) instead of paging the whole source.
+    /// Used by the fast Liked-Songs poll, which only needs the newest-first first page(s). Null = full sweep.
+    /// </param>
+    Task<WishlistSyncResult> SyncSourceAsync(
+        Guid ownerId, WishlistSource source, CancellationToken ct, int? maxPages = null);
 }
 
 public class WishlistService(
@@ -91,7 +96,8 @@ public class WishlistService(
         return source;
     }
 
-    public async Task<WishlistSyncResult> SyncSourceAsync(Guid ownerId, WishlistSource source, CancellationToken ct)
+    public async Task<WishlistSyncResult> SyncSourceAsync(
+        Guid ownerId, WishlistSource source, CancellationToken ct, int? maxPages = null)
     {
         // Dedupe against everything already on the owner's wishlist (any source). The set is also
         // seeded as we insert, so a track that recurs within the same fetch counts as already-present.
@@ -105,6 +111,7 @@ public class WishlistService(
         var added = 0;
         var alreadyPresent = 0;
         var offset = 0;
+        var pagesFetched = 0;
 
         // Page through Spotify and persist each page as we go. A large library (thousands of liked
         // songs) is dozens of sequential Spotify calls — far longer than an HTTP request should run,
@@ -148,6 +155,10 @@ public class WishlistService(
 
             offset += items.Count;
             if (offset >= total) break;
+
+            // Fast poll: stop after the bounded number of newest-first pages. The next full sweep
+            // (no cap) reconciles anything older this shallow window didn't reach.
+            if (maxPages is { } cap && ++pagesFetched >= cap) break;
         }
 
         source.LastSyncedAtUtc = DateTime.UtcNow;

@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace MusicHoarder.Api.Options;
 
 /// <summary>
@@ -70,13 +72,40 @@ public class SpotifyOptions
     public int OAuthStateTtlMinutes { get; set; } = 10;
 
     /// <summary>
+    /// How often (seconds) the background service checks whether the owner's Spotify access token is
+    /// expiring and refreshes it. Must stay well below the 5-minute refresh buffer, so it's capped at
+    /// 180s — a longer interval could let a token lapse between checks and break every Spotify-dependent
+    /// stage. Default 60.
+    /// </summary>
+    [Range(15, 180)]
+    public int SpotifyTokenRefreshIntervalSeconds { get; set; } = 60;
+
+    /// <summary>
     /// How often to refresh Spotify liked-song ↔ local library match cache in the background (0 = disabled).
     /// </summary>
     public int LibraryMatchSyncIntervalMinutes { get; set; } = 120;
 
     /// <summary>
-    /// How often the wishlist sync polls auto-synced sources (Liked Songs / playlists) for newly
-    /// added tracks and appends them as Pending wishlist items (0 = disabled).
+    /// How often the wishlist sync runs a <em>full</em> sweep — every auto-synced source (Liked Songs
+    /// and playlists) paged to completion, so playlist edits and any likes the fast poll's shallow
+    /// window missed are reconciled (0 = disabled, no sync at all).
     /// </summary>
     public int WishlistSyncIntervalMinutes { get; set; } = 30;
+
+    /// <summary>
+    /// How often (seconds) to run the cheap near-real-time Liked-Songs poll between full sweeps: a
+    /// single first-page fetch (Spotify returns newest-first) bounded by <see cref="WishlistFastPollMaxPages"/>,
+    /// so a newly liked song reaches the wishlist in ~2 minutes instead of waiting up to the full
+    /// <see cref="WishlistSyncIntervalMinutes"/>. Only Liked-Songs auto-synced sources are polled this
+    /// way (playlists are reconciled on the full sweep). 0 disables the fast poll (full sweeps only).
+    /// Requires <see cref="WishlistSyncIntervalMinutes"/> &gt; 0.
+    /// </summary>
+    public int LikedSongsFastPollSeconds { get; set; } = 120;
+
+    /// <summary>
+    /// Page cap for the fast Liked-Songs poll (50 tracks/page). The default of 2 covers a burst of new
+    /// likes since the last poll while keeping the call cheap; anything older is caught by the next full
+    /// sweep. Bounded so a page of all-already-present tracks can't make the fast poll page forever.
+    /// </summary>
+    public int WishlistFastPollMaxPages { get; set; } = 2;
 }

@@ -5,7 +5,15 @@ public enum IngestRunStatus
     Running,
     Completed,
     Cancelled,
-    Failed
+    Failed,
+
+    /// <summary>
+    /// The process died while this run was still <see cref="Running"/>. Detected and stamped on the
+    /// next boot by <c>IngestRunMonitor</c>'s recovery sweep — distinguished from <see cref="Failed"/>
+    /// (a step that ran to a failing completion) so the run ledger doesn't show a permanent phantom
+    /// "running" session after a crash. Appended last so existing persisted int values are unchanged.
+    /// </summary>
+    Interrupted
 }
 
 /// <summary>

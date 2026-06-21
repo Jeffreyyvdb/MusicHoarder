@@ -18,26 +18,26 @@ public class WishlistDownloadProcessor(
     IOptions<MusicEnricherOptions> options,
     ILogger<WishlistDownloadProcessor> logger)
 {
-    public const int BatchSize = 20;
-
     /// <summary>
-    /// Processes up to <see cref="BatchSize"/> Pending items: skips exact already-owned tracks, downloads
-    /// the rest via the resolved provider, and persists the resulting status transitions. Returns the
-    /// number of items processed and how many produced a new file.
+    /// Processes up to <see cref="MusicEnricherOptions.WishlistDownloadBatchSize"/> Pending items: skips
+    /// exact already-owned tracks, downloads the rest via the resolved provider, and persists the resulting
+    /// status transitions. Returns the number of items processed and how many produced a new file.
     /// </summary>
     public async Task<(int Processed, int Downloaded)> ProcessBatchAsync(
         MusicHoarderDbContext db, Guid ownerId, CancellationToken ct)
     {
         var opts = options.Value;
         var destinationDir = opts.DownloadDirectory;
+        var batchSize = Math.Clamp(opts.WishlistDownloadBatchSize, 1, 500);
 
         var batch = await db.WishlistItems
             .IgnoreQueryFilters()
-            .Where(w => w.OwnerUserId == ownerId && w.OwnerUserId != WellKnownUsers.DemoId)
+            .Where(w => w.OwnerUserId == ownerId)
+            .ExcludingDemoTenant()
             .Where(w => w.Status == WishlistItemStatus.Pending)
             .OrderByDescending(w => w.SpotifyAddedAtUtc)
             .ThenBy(w => w.Id)
-            .Take(BatchSize)
+            .Take(batchSize)
             .ToListAsync(ct);
 
         if (batch.Count == 0) return (0, 0);

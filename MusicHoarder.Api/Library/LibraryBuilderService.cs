@@ -304,6 +304,7 @@ public class LibraryBuilderService(
     IAlbumCoverWriter albumCoverWriter,
     IAlbumIdentityReconciler albumIdentityReconciler,
     IOptions<MusicEnricherOptions> options,
+    Observability.PipelineMetrics metrics,
     ILogger<LibraryBuilderService> logger) : ILibraryBuilderService
 {
     private const int CopyBufferSize = 1024 * 1024;
@@ -435,6 +436,10 @@ public class LibraryBuilderService(
             failed,
             duration.TotalSeconds);
 
+        metrics.RecordStageDuration("build", duration.TotalSeconds);
+        metrics.RecordTerminal("built", done);
+        metrics.RecordTerminal("build_failed", failed);
+
         return new LibraryBuildBatchResult(candidates.Count, done, failed, duration);
     }
 
@@ -457,7 +462,7 @@ public class LibraryBuilderService(
             .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
             // Destination folder keys carry no owner segment, so without this a demo album with the
             // same artist/album as an owner album would vote in the owner's identity election.
-            .Where(s => s.OwnerUserId != WellKnownUsers.DemoId)
+            .ExcludingDemoTenant()
             .Where(s => !s.IsDuplicate && !s.IsUnreleased)
             .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched)
             .ToListAsync(ct);
