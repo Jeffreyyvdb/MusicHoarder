@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth.Middleware;
 using MusicHoarder.Api.Composition;
 using MusicHoarder.Api.OpenApi;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Persistence.Interceptors;
 using MusicHoarder.ServiceDefaults;
@@ -48,6 +50,30 @@ var app = builder.Build();
 app.MapDefaultEndpoints();
 
 await app.ApplyPendingMigrationsAsync();
+
+// Capability banner: one line summarizing resolved optional-subsystem state, so an operator can see at
+// a glance what's actually on (several of these are gated by keys/flags that are easy to misconfigure).
+{
+    var me = app.Services.GetRequiredService<IOptions<MusicEnricherOptions>>().Value;
+    var qg = app.Services.GetRequiredService<IOptions<QualityGradingOptions>>().Value;
+    app.Logger.LogInformation(
+        "Capabilities — AutoStartPipeline={AutoStart}, SpotifyProvider={Spotify}, AcoustID={AcoustId}, " +
+        "WishlistDownloads={Wishlist}(auto={AutoDl}), QualityGrading={Grading}(configured={GradingConfigured}), " +
+        "CanonicalAlbumFetch={Canonical}, ExternalCoverArt={Cover}",
+        me.AutoStartPipeline,
+        me.EnableSpotifyApiProvider,
+        !string.IsNullOrWhiteSpace(me.AcoustIdApiKey),
+        me.EnableWishlistDownloads, me.AutoDownloadWishlist,
+        qg.Enabled, qg.IsConfigured,
+        me.EnableCanonicalAlbumFetch,
+        me.EnableExternalCoverArtFetch);
+
+    // Not a hard validation failure (the downloader simply idles), but surface it so an operator who
+    // enabled downloads notices the missing staging directory rather than wondering why nothing fetches.
+    if (me.EnableWishlistDownloads && string.IsNullOrWhiteSpace(me.DownloadDirectory))
+        app.Logger.LogWarning(
+            "MusicEnricher:EnableWishlistDownloads is on but DownloadDirectory is empty — the download worker will idle until it's set.");
+}
 
 if (app.Environment.IsDevelopment())
 {

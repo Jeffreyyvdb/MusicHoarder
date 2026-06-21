@@ -51,14 +51,18 @@ public class AlbumGradingBackgroundService(
         try { await Task.Delay(TimeSpan.FromSeconds(20), ct); }
         catch (OperationCanceledException) { return; }
 
+        var currentIdle = 0;
         while (!ct.IsCancellationRequested)
         {
             var opts = options.CurrentValue;
+            var baseIdle = Math.Max(1, opts.IdleDelaySeconds);
+            var maxIdle = Math.Max(baseIdle, 300);
+            var active = false;
             try
             {
                 var enabled = (await runtimeSettings.GetAsync(ct).ConfigureAwait(false)).QualityGradingEnabled;
                 if (enabled && opts.IsConfigured && opts.AutoGradeAlbums)
-                    await EnqueueUngradedAsync(opts, ct);
+                    active = await EnqueueUngradedAsync(opts, ct) > 0;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -69,13 +73,17 @@ public class AlbumGradingBackgroundService(
                 logger.LogWarning(ex, "Album auto-grade sweep failed");
             }
 
-            try { await Task.Delay(TimeSpan.FromSeconds(opts.IdleDelaySeconds), ct); }
+            // Reset to the base cadence when there was work; otherwise back off (doubling, capped) so an
+            // idle/disabled grader doesn't re-scan every IdleDelaySeconds forever.
+            currentIdle = active ? baseIdle : Math.Min(maxIdle, Math.Max(baseIdle, currentIdle * 2));
+
+            try { await Task.Delay(TimeSpan.FromSeconds(currentIdle), ct); }
             catch (OperationCanceledException) { break; }
         }
     }
 
-    /// <summary>Finds fetched albums whose latest grade is missing or stale and enqueues them.</summary>
-    internal async Task EnqueueUngradedAsync(QualityGradingOptions opts, CancellationToken ct)
+    /// <summary>Finds fetched albums whose latest grade is missing or stale and enqueues them. Returns the count enqueued.</summary>
+    internal async Task<int> EnqueueUngradedAsync(QualityGradingOptions opts, CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
@@ -88,7 +96,7 @@ public class AlbumGradingBackgroundService(
             .Select(a => new { a.Id, a.FetchedAtUtc })
             .ToListAsync(ct);
 
-        if (candidates.Count == 0) return;
+        if (candidates.Count == 0) return 0;
 
         var ids = candidates.Select(c => c.Id).ToList();
         var latestByAlbum = await db.CanonicalAlbumQualityGrades
@@ -121,6 +129,8 @@ public class AlbumGradingBackgroundService(
             channel.EnqueueRange(needsGrading, force: false);
             logger.LogInformation("Auto-grade sweep enqueued {Count} albums", needsGrading.Count);
         }
+
+        return needsGrading.Count;
     }
 
     private async Task RunWorkerAsync(int workerId, CancellationToken ct)

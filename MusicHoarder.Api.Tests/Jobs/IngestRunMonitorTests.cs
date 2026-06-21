@@ -175,4 +175,44 @@ public class IngestRunMonitorTests
         var run = await db.IngestRuns.IgnoreQueryFilters().SingleAsync();
         Assert.Equal(IngestRunStatus.Failed, run.Status);
     }
+
+    [Fact]
+    public async Task RecoverOrphanedRuns_finalizes_runs_left_running_by_a_crash()
+    {
+        var options = NewDbOptions();
+        var orphanId = Guid.NewGuid();
+        var completedId = Guid.NewGuid();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            // A run the previous process never finalized (crash mid-ingest).
+            seed.IngestRuns.Add(new IngestRun
+            {
+                Id = orphanId,
+                OwnerUserId = TestUsers.OwnerId,
+                StartedAtUtc = DateTime.UtcNow.AddMinutes(-30),
+                Status = IngestRunStatus.Running,
+            });
+            // A normally-finalized run must be left untouched.
+            seed.IngestRuns.Add(new IngestRun
+            {
+                Id = completedId,
+                OwnerUserId = TestUsers.OwnerId,
+                StartedAtUtc = DateTime.UtcNow.AddMinutes(-60),
+                EndedAtUtc = DateTime.UtcNow.AddMinutes(-59),
+                Status = IngestRunStatus.Completed,
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        var monitor = NewMonitor(options, new JobManager());
+        await monitor.RecoverOrphanedRunsAsync(CancellationToken.None);
+
+        await using var db = new MusicHoarderDbContext(options);
+        var orphan = await db.IngestRuns.IgnoreQueryFilters().SingleAsync(r => r.Id == orphanId);
+        Assert.Equal(IngestRunStatus.Interrupted, orphan.Status);
+        Assert.NotNull(orphan.EndedAtUtc);
+
+        var completed = await db.IngestRuns.IgnoreQueryFilters().SingleAsync(r => r.Id == completedId);
+        Assert.Equal(IngestRunStatus.Completed, completed.Status);
+    }
 }

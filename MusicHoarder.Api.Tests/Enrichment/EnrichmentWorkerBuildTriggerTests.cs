@@ -60,6 +60,7 @@ public class EnrichmentWorkerBuildTriggerTests
             channel,
             orchestrator,
             opts,
+            TestPipelineMetrics.Create(),
             NullLogger<EnrichmentBackgroundService>.Instance);
 
         var cts = new CancellationTokenSource();

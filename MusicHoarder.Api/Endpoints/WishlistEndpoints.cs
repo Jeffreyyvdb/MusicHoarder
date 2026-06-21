@@ -128,7 +128,19 @@ public static class WishlistEndpoints
                                 .IgnoreQueryFilters()
                                 .FirstOrDefaultAsync(s => s.Id == sourceId, CancellationToken.None);
                             if (src is not null)
-                                await svc.SyncSourceAsync(ownerId, src, CancellationToken.None);
+                            {
+                                var result = await svc.SyncSourceAsync(ownerId, src, CancellationToken.None);
+
+                                // Wake the download worker now rather than waiting its idle poll, so a
+                                // just-added source's tracks start fetching immediately. Gated by both
+                                // download flags (mirrors the worker's own auto-sweep gate).
+                                var opts = scope.ServiceProvider.GetRequiredService<IOptions<MusicEnricherOptions>>().Value;
+                                if (result.Added > 0 && opts.EnableWishlistDownloads && opts.AutoDownloadWishlist)
+                                {
+                                    var jobManager = scope.ServiceProvider.GetRequiredService<JobManager>();
+                                    jobManager.TryStartJob(JobType.Download, out _, out _);
+                                }
+                            }
                         }
                         catch (Exception ex)
                         {

@@ -1,3 +1,4 @@
+using System.Diagnostics.Metrics;
 using System.IO.Abstractions;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
@@ -14,6 +15,7 @@ using MusicHoarder.Api.Enrichment.AlbumTracklist.Providers;
 using MusicHoarder.Api.Enrichment.Providers;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Library;
+using MusicHoarder.Api.Observability;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Pipeline;
@@ -36,6 +38,7 @@ public static class ServiceCollectionExtensions
             .BindConfiguration(MusicEnricherOptions.SectionName)
             .ValidateDataAnnotations()
             .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<MusicEnricherOptions>, MusicEnricherOptionsValidator>();
 
         services
             .AddOptions<FrontendOptions>()
@@ -46,6 +49,7 @@ public static class ServiceCollectionExtensions
             .BindConfiguration(QualityGradingOptions.SectionName)
             .ValidateDataAnnotations()
             .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<QualityGradingOptions>, QualityGradingOptionsValidator>();
 
         services
             .AddOptions<SpotifyOptions>()
@@ -146,6 +150,15 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<YeTrackerCatalogService>();
         services.AddSingleton<IEnrichmentProvider, YeTrackerEnrichmentProvider>();
         services.AddSingleton<EnrichmentPipelineChannel>();
+        // Pipeline-domain OTel metrics. Built after the channel so the queue-depth gauge can observe its
+        // live in-flight count (one-way: the channel never depends on metrics).
+        services.AddSingleton<PipelineMetrics>(sp =>
+        {
+            var metrics = new PipelineMetrics(sp.GetRequiredService<IMeterFactory>());
+            var channel = sp.GetRequiredService<EnrichmentPipelineChannel>();
+            metrics.SetQueueDepthProvider(() => channel.InFlight);
+            return metrics;
+        });
         services.AddSingleton<IRuntimeSettingsService, RuntimeSettingsService>();
         services.AddSingleton<IEnrichmentOrchestrator, EnrichmentOrchestrator>();
         services.AddSingleton<IDestinationPathResolver, DestinationPathResolver>();
@@ -223,7 +236,8 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<AlbumGradingBackgroundService>();
 
         services.AddHealthChecks()
-            .AddCheck<LibraryDirectoriesHealthCheck>("library-directories", tags: ["pipeline"]);
+            .AddCheck<LibraryDirectoriesHealthCheck>("library-directories", tags: ["pipeline"])
+            .AddCheck<SpotifyTokenRefreshHealthCheck>("spotify-token-refresh", tags: ["pipeline"]);
 
         services.AddScoped<IFileSystem, FileSystem>();
         services.AddScoped<IFileScanner, FileScanner>();
@@ -343,6 +357,7 @@ public static class ServiceCollectionExtensions
             var ownerLookup = sp.GetRequiredService<IOwnerLookupService>();
             return new SpotifyOAuthService(scopeFactory, httpClient, ownerLookup, spotifyOpts, logger);
         });
+        services.AddSingleton<SpotifyTokenRefreshHealth>();
         services.AddHostedService<SpotifyTokenRefreshService>();
         services.AddHostedService<SpotifyLibraryMatchBackgroundService>();
         services.AddScoped<IWishlistService, WishlistService>();

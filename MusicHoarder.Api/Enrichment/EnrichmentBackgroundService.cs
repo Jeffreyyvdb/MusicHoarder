@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Jobs;
+using MusicHoarder.Api.Observability;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -13,6 +14,7 @@ public class EnrichmentBackgroundService(
     EnrichmentPipelineChannel pipelineChannel,
     IEnrichmentOrchestrator orchestrator,
     IOptions<MusicEnricherOptions> options,
+    PipelineMetrics metrics,
     ILogger<EnrichmentBackgroundService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -210,7 +212,7 @@ public class EnrichmentBackgroundService(
                 .IgnoreQueryFilters()
                 .Include(s => s.ProviderAttempts)
                 .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
-                .Where(s => s.OwnerUserId != Auth.WellKnownUsers.DemoId)
+                .ExcludingDemoTenant()
                 .Where(s => !s.IsManuallyApproved)
                 .Where(s => s.EnrichmentStatus == EnrichmentStatus.NeedsReview
                     || s.EnrichmentStatus == EnrichmentStatus.Failed)
@@ -337,6 +339,7 @@ public class EnrichmentBackgroundService(
                 {
                     case EnrichmentOutcome.Matched:
                         progressTracker.IncrementEnriched();
+                        metrics.RecordTerminal("matched");
                         // Don't trigger a build per matched song — the build is kicked once per
                         // enrichment cycle when the channel drains (EnrichmentPipelineChannel
                         // .MarkProcessed/ResetCycle -> TriggerBuild), and that single run's batch
@@ -349,9 +352,11 @@ public class EnrichmentBackgroundService(
                         break;
                     case EnrichmentOutcome.NeedsReview:
                         progressTracker.IncrementNeedsReview();
+                        metrics.RecordTerminal("needs_review");
                         break;
                     case EnrichmentOutcome.Failed:
                         progressTracker.IncrementFailed();
+                        metrics.RecordTerminal("failed");
                         break;
                 }
             }
@@ -364,6 +369,7 @@ public class EnrichmentBackgroundService(
                 logger.LogWarning(ex, "Enrichment worker {WorkerId} failed processing song {SongId}",
                     workerId, songId);
                 progressTracker.IncrementFailed();
+                metrics.RecordTerminal("failed");
             }
             finally
             {

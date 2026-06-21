@@ -57,6 +57,14 @@ public class MusicEnricherOptions
     public int DirectoryProbeTimeoutSeconds { get; set; } = 5;
 
     /// <summary>
+    /// How often (seconds) the <c>IngestRunMonitor</c> polls job state to open/refresh/finalize the
+    /// ingest-run ledger. Short so a run's start/end edges are captured promptly; it only runs trivial
+    /// indexed COUNT queries when idle. Default 3.
+    /// </summary>
+    [Range(1, 60)]
+    public int IngestRunMonitorPollSeconds { get; set; } = 3;
+
+    /// <summary>
     /// Enables the periodic GitHub Releases check that powers the in-app "update available" banner.
     /// Safe to disable in air-gapped/offline deploys via <c>MusicEnricher__EnableUpdateCheck=false</c>;
     /// when false the latest-version endpoint reports no update and GitHub is never contacted.
@@ -103,17 +111,15 @@ public class MusicEnricherOptions
     [Range(1, 20)]
     public int AcoustIdRequestsPerSecond { get; set; } = 3;
 
-    /// <summary>Number of tracks processed per enrichment cycle.</summary>
-    [Range(1, 10000)]
-    public int EnrichmentBatchSize { get; set; } = 200;
-
-    /// <summary>Number of concurrent enrichment workers per cycle.</summary>
+    /// <summary>
+    /// Number of songs enrichment processes concurrently. Each worker pins one DbContext/connection for
+    /// a song's whole multi-second external-I/O span, so this is the pipeline's throughput floor on a
+    /// backlog. The hard external caps live downstream (per-provider semaphores + process-wide token
+    /// buckets), so raising this only queues at those gates — it never exceeds any configured rps.
+    /// Default 6 (returns flatten past ~5–6 in-flight; MusicBrainz at 1 rps bounds MB-dependent songs).
+    /// </summary>
     [Range(1, 64)]
-    public int EnrichmentWorkerConcurrency { get; set; } = 2;
-
-    /// <summary>Delay in seconds before retrying when no tracks are pending enrichment.</summary>
-    [Range(1, 300)]
-    public int EnrichmentIdleDelaySeconds { get; set; } = 15;
+    public int EnrichmentWorkerConcurrency { get; set; } = 6;
 
     /// <summary>Max concurrent songs calling the AcoustID provider simultaneously.</summary>
     [Range(1, 20)]
@@ -143,8 +149,8 @@ public class MusicEnricherOptions
     /// </summary>
     public bool EnableMusicBrainzWebProvider { get; set; } = true;
 
-    /// <summary>Enable the Spotify API enrichment provider (artist+title, optional ISRC verification).</summary>
-    public bool EnableSpotifyApiProvider { get; set; } = false;
+    /// <summary>Enable the Spotify API enrichment provider (artist+title, optional ISRC verification). Default on (matches appsettings).</summary>
+    public bool EnableSpotifyApiProvider { get; set; } = true;
 
     /// <summary>
     /// Enable the community tracker enrichment provider (unreleased/leak files). On by default:
@@ -284,6 +290,16 @@ public class MusicEnricherOptions
     /// <summary>Delay in seconds before the canonical-album sweep re-checks for new albums to fetch.</summary>
     [Range(5, 3600)]
     public int CanonicalAlbumFetchIdleDelaySeconds { get; set; } = 30;
+
+    /// <summary>
+    /// Upper bound (seconds) the canonical-album idle delay backs off to while there's nothing to fetch.
+    /// The sweep materializes every matched song each cycle, so an empty run shouldn't repeat every 30s
+    /// forever; the delay doubles from <see cref="CanonicalAlbumFetchIdleDelaySeconds"/> up to this ceiling
+    /// and resets the moment a sweep finds work. Kept well under <see cref="CanonicalAlbumFailedRetryMinutes"/>
+    /// so timer-driven NotFound/Failed retries are never starved. Default 300 (5 min).
+    /// </summary>
+    [Range(5, 3600)]
+    public int CanonicalAlbumFetchMaxIdleDelaySeconds { get; set; } = 300;
 
     /// <summary>Days before a NotFound canonical-album fetch is retried (catalogs grow). 0 = never.</summary>
     [Range(0, 3650)]
@@ -600,6 +616,10 @@ public class MusicEnricherOptions
     /// <summary>Number of concurrent downloads.</summary>
     [Range(1, 16)]
     public int DownloadConcurrency { get; set; } = 2;
+
+    /// <summary>Number of Pending wishlist items claimed per download sweep batch.</summary>
+    [Range(1, 500)]
+    public int WishlistDownloadBatchSize { get; set; } = 20;
 
     /// <summary>Delay in seconds before the download worker re-checks for pending wishlist items.</summary>
     [Range(1, 300)]

@@ -98,8 +98,8 @@ public sealed class ExternalCoverArtSweepBackgroundService(
         var rows = await db.Songs
             .IgnoreQueryFilters()
             .AsNoTracking()
+            .ExcludingDemoTenant()
             .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic
-                && s.OwnerUserId != WellKnownUsers.DemoId
                 && !s.IsUnreleased
                 && s.LibraryBuildStatus == LibraryBuildStatus.Done
                 && s.DestinationPath != null
@@ -216,10 +216,10 @@ public sealed class ExternalCoverArtSweepBackgroundService(
     {
         var unflagged = await db.Songs
             .IgnoreQueryFilters()
+            .ExcludingDemoTenant()
             .Where(s => !s.HasCoverArt
                 && s.DeletedAtUtc == null
                 && !s.IsSynthetic
-                && s.OwnerUserId != WellKnownUsers.DemoId
                 && !s.IsUnreleased
                 && s.LibraryBuildStatus == LibraryBuildStatus.Done
                 && s.DestinationPath != null)

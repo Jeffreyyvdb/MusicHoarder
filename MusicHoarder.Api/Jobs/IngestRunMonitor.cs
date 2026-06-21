@@ -25,7 +25,6 @@ public class IngestRunMonitor(
     IOptions<MusicEnricherOptions> options,
     ILogger<IngestRunMonitor> logger) : BackgroundService
 {
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(3);
     private const int LogTailCap = 20;
 
     private static readonly JsonSerializerOptions LogJsonOptions = new()
@@ -42,6 +41,10 @@ public class IngestRunMonitor(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         logger.LogInformation("Ingest run monitor started.");
+
+        await RecoverOrphanedRunsAsync(stoppingToken);
+
+        var pollInterval = TimeSpan.FromSeconds(Math.Clamp(options.Value.IngestRunMonitorPollSeconds, 1, 60));
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -60,12 +63,56 @@ public class IngestRunMonitor(
 
             try
             {
-                await Task.Delay(PollInterval, stoppingToken);
+                await Task.Delay(pollInterval, stoppingToken);
             }
             catch (OperationCanceledException)
             {
                 break;
             }
+        }
+    }
+
+    /// <summary>
+    /// On boot, finalize any run left <see cref="IngestRunStatus.Running"/> by a previous process that
+    /// died mid-ingest. <see cref="_currentRunId"/> and <see cref="JobManager"/> are both in-memory and
+    /// reset to idle on every start, so a still-open run at startup can only be a crash orphan — never a
+    /// legitimately active one. Without this the row stays "running" forever and the next run opens a new
+    /// one, leaving a permanent phantom session in the run ledger. Guarded so a recovery failure (e.g.
+    /// DB not ready) never blocks the monitor. Public for unit testing.
+    /// </summary>
+    public async Task RecoverOrphanedRunsAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+
+            // Load + SaveChanges rather than ExecuteUpdate: there are only ever a handful of orphans at
+            // boot, and this works identically on the relational and in-memory (test) providers.
+            var orphans = await db.IngestRuns
+                .IgnoreQueryFilters()
+                .Where(r => r.Status == IngestRunStatus.Running && r.EndedAtUtc == null)
+                .ToListAsync(ct);
+
+            if (orphans.Count > 0)
+            {
+                var now = DateTime.UtcNow;
+                foreach (var run in orphans)
+                {
+                    run.Status = IngestRunStatus.Interrupted;
+                    run.EndedAtUtc = now;
+                }
+                await db.SaveChangesAsync(ct);
+                logger.LogWarning("Recovered {Count} orphaned ingest run(s) left Running by a previous process", orphans.Count);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to recover orphaned ingest runs on startup");
         }
     }
 

@@ -58,14 +58,18 @@ public class QualityGradingBackgroundService(
         try { await Task.Delay(TimeSpan.FromSeconds(10), ct); }
         catch (OperationCanceledException) { return; }
 
+        var currentIdle = 0;
         while (!ct.IsCancellationRequested)
         {
             var opts = options.CurrentValue;
+            var baseIdle = Math.Max(1, opts.IdleDelaySeconds);
+            var maxIdle = Math.Max(baseIdle, 300);
+            var active = false;
             try
             {
                 var enabled = (await runtimeSettings.GetAsync(ct).ConfigureAwait(false)).QualityGradingEnabled;
                 if (enabled && opts.IsConfigured && opts.AutoGradeAfterEnrichment)
-                    await EnqueueUngradedAsync(opts, ct);
+                    active = await EnqueueUngradedAsync(opts, ct) > 0;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -76,13 +80,17 @@ public class QualityGradingBackgroundService(
                 logger.LogWarning(ex, "Quality auto-grade sweep failed");
             }
 
-            try { await Task.Delay(TimeSpan.FromSeconds(opts.IdleDelaySeconds), ct); }
+            // Reset to the base cadence when there was work; otherwise back off (doubling, capped) so an
+            // idle/disabled grader doesn't re-scan the library every IdleDelaySeconds forever.
+            currentIdle = active ? baseIdle : Math.Min(maxIdle, Math.Max(baseIdle, currentIdle * 2));
+
+            try { await Task.Delay(TimeSpan.FromSeconds(currentIdle), ct); }
             catch (OperationCanceledException) { break; }
         }
     }
 
-    /// <summary>Finds gradeable songs whose latest grade is missing or stale and enqueues them.</summary>
-    internal async Task EnqueueUngradedAsync(QualityGradingOptions opts, CancellationToken ct)
+    /// <summary>Finds gradeable songs whose latest grade is missing or stale and enqueues them. Returns the count enqueued.</summary>
+    internal async Task<int> EnqueueUngradedAsync(QualityGradingOptions opts, CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
@@ -91,15 +99,15 @@ public class QualityGradingBackgroundService(
             .IgnoreQueryFilters()
             .AsNoTracking()
             // Exclude demo rows: the read-only demo library is never auto-graded.
-            .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic && !s.IsDuplicate
-                && s.OwnerUserId != WellKnownUsers.DemoId)
+            .ExcludingDemoTenant()
+            .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic && !s.IsDuplicate)
             .Where(s => GradeableStatuses.Contains(s.EnrichmentStatus))
             .OrderByDescending(s => s.EnrichedAtUtc)
             .Take(opts.BatchSize)
             .Select(s => new { s.Id, s.EnrichedAtUtc })
             .ToListAsync(ct);
 
-        if (candidates.Count == 0) return;
+        if (candidates.Count == 0) return 0;
 
         var ids = candidates.Select(c => c.Id).ToList();
 
@@ -136,6 +144,8 @@ public class QualityGradingBackgroundService(
             channel.EnqueueRange(needsGrading, force: false);
             logger.LogInformation("Auto-grade sweep enqueued {Count} songs", needsGrading.Count);
         }
+
+        return needsGrading.Count;
     }
 
     private async Task RunWorkerAsync(int workerId, CancellationToken ct)
