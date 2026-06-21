@@ -843,6 +843,7 @@ public class LibraryBuilderServiceTests
             coverWriter,
             new AlbumIdentityReconciler(),
             options,
+            TestPipelineMetrics.Create(),
             NullLogger<LibraryBuilderService>.Instance);
     }
 

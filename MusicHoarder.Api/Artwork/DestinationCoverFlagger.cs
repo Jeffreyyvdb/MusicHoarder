@@ -29,10 +29,10 @@ internal static class DestinationCoverFlagger
 
         var songs = await db.Songs
             .IgnoreQueryFilters()
+            .ExcludingDemoTenant()
             .Where(s => !s.HasCoverArt
                 && s.DeletedAtUtc == null
                 && !s.IsSynthetic
-                && s.OwnerUserId != WellKnownUsers.DemoId
                 && s.DestinationPath != null
                 && s.DestinationPath.StartsWith(prefix))
             .ToListAsync(ct);

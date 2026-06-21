@@ -36,6 +36,10 @@ public sealed class CanonicalAlbumFetchService(
             "Canonical-album fetch service started. BatchSize={BatchSize}, IdleDelay={IdleDelay}s",
             opts.CanonicalAlbumFetchBatchSize, opts.CanonicalAlbumFetchIdleDelaySeconds);
 
+        var baseIdle = Math.Max(1, opts.CanonicalAlbumFetchIdleDelaySeconds);
+        var maxIdle = Math.Max(baseIdle, opts.CanonicalAlbumFetchMaxIdleDelaySeconds);
+        var currentIdle = baseIdle;
+
         while (!stoppingToken.IsCancellationRequested)
         {
             int fetched;
@@ -53,8 +57,18 @@ public sealed class CanonicalAlbumFetchService(
                 fetched = 0;
             }
 
-            if (fetched == 0 && !await DelayIdleAsync(opts.CanonicalAlbumFetchIdleDelaySeconds, stoppingToken))
+            if (fetched > 0)
+            {
+                // Active: reset the backoff and process the next batch promptly.
+                currentIdle = baseIdle;
+                continue;
+            }
+
+            if (!await DelayIdleAsync(currentIdle, stoppingToken))
                 break;
+
+            // Nothing to do — back off (doubling, capped) so an idle library doesn't re-scan every 30s.
+            currentIdle = Math.Min(maxIdle, currentIdle * 2);
         }
     }
 
@@ -73,8 +87,8 @@ public sealed class CanonicalAlbumFetchService(
         var songs = await db.Songs
             .IgnoreQueryFilters()
             .AsNoTracking()
+            .ExcludingDemoTenant()
             .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic
-                && s.OwnerUserId != WellKnownUsers.DemoId
                 && s.EnrichmentStatus == EnrichmentStatus.Matched
                 && s.Album != null && s.Album != "")
             .Select(s => new SongHint(s.AlbumArtist, s.Artist, s.Album, s.MusicBrainzReleaseId, s.SpotifyId, s.Isrc))

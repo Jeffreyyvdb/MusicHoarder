@@ -63,12 +63,6 @@ public class JobManager
             FullMode = BoundedChannelFullMode.DropOldest
         });
 
-    private readonly Channel<Guid> _enrichChannel =
-        Channel.CreateBounded<Guid>(new BoundedChannelOptions(1)
-        {
-            FullMode = BoundedChannelFullMode.DropOldest
-        });
-
     private readonly Channel<Guid> _fingerprintChannel =
         Channel.CreateBounded<Guid>(new BoundedChannelOptions(1)
         {
@@ -89,7 +83,6 @@ public class JobManager
 
     public ChannelReader<Guid> ScanTriggers => _scanChannel.Reader;
     public ChannelReader<Guid> FingerprintTriggers => _fingerprintChannel.Reader;
-    public ChannelReader<Guid> EnrichTriggers => _enrichChannel.Reader;
     public ChannelReader<Guid> BuildTriggers => _buildChannel.Reader;
     public ChannelReader<Guid> DownloadTriggers => _downloadChannel.Reader;
 
@@ -116,8 +109,10 @@ public class JobManager
             cancellationToken = step.Cts!.Token;
         }
 
-        // Purge is not driven by the auto-trigger channel — the endpoint kicks off its own Task.
-        if (jobType != JobType.Purge)
+        // Purge is not driven by an auto-trigger channel — the endpoint kicks off its own Task.
+        // Enrich has no JobManager channel either: its work queue is the separate per-song
+        // EnrichmentPipelineChannel, so TryStartJob(Enrich) only flips the step Running.
+        if (jobType is not (JobType.Purge or JobType.Enrich))
             GetChannel(jobType).Writer.TryWrite(jobId);
         return true;
     }
@@ -319,7 +314,6 @@ public class JobManager
     {
         JobType.Scan => _scanChannel,
         JobType.Fingerprint => _fingerprintChannel,
-        JobType.Enrich => _enrichChannel,
         JobType.Build => _buildChannel,
         JobType.Download => _downloadChannel,
         _ => throw new ArgumentOutOfRangeException(nameof(type))

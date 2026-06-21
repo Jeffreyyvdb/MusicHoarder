@@ -53,7 +53,7 @@ public class DuplicateDetectionService(
             .IgnoreQueryFilters()
             .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
             // Grouping is by fingerprint across owners; keep the demo tenant out of it entirely.
-            .Where(s => s.OwnerUserId != WellKnownUsers.DemoId)
+            .ExcludingDemoTenant()
             .Where(s => s.Fingerprint != null && s.Fingerprint != "")
             .OrderBy(s => s.Id)
             .ToListAsync(ct);

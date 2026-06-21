@@ -92,6 +92,7 @@ public static class RunsEndpoints
         IngestRunStatus.Completed => "completed",
         IngestRunStatus.Cancelled => "cancelled",
         IngestRunStatus.Failed => "failed",
+        IngestRunStatus.Interrupted => "interrupted",
         _ => "completed"
     };
 

@@ -162,7 +162,8 @@ public class DownloadBackgroundService(
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
         return await db.WishlistItems
             .IgnoreQueryFilters()
-            .Where(w => w.OwnerUserId == ownerId && w.OwnerUserId != WellKnownUsers.DemoId)
+            .Where(w => w.OwnerUserId == ownerId)
+            .ExcludingDemoTenant()
             .Where(w => w.Status == WishlistItemStatus.Pending)
             .CountAsync(ct);
     }

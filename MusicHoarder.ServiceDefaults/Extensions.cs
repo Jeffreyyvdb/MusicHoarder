@@ -57,7 +57,11 @@ public static class Extensions
             {
                 metrics.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
-                    .AddRuntimeInstrumentation();
+                    .AddRuntimeInstrumentation()
+                    // Pipeline-domain instruments (queue depth, stage durations, terminal outcomes).
+                    // Name must match MusicHoarder.Api PipelineMetrics.MeterName (ServiceDefaults can't
+                    // reference the API project).
+                    .AddMeter("MusicHoarder.Pipeline");
             })
             .WithTracing(tracing =>
             {

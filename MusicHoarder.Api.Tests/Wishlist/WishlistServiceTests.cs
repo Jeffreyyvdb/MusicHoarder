@@ -127,6 +127,31 @@ public class WishlistServiceTests
         Assert.Equal("USRC12345678", item.Isrc);
     }
 
+    [Fact]
+    public async Task SyncSource_FastPoll_StopsAfterMaxPages()
+    {
+        await using var db = CreateDbContext();
+        var source = new WishlistSource
+        {
+            OwnerUserId = Owner,
+            SourceType = WishlistSourceType.LikedSongs,
+            Name = "Liked Songs",
+            CreatedAtUtc = DateTime.UtcNow,
+        };
+        db.WishlistSources.Add(source);
+        await db.SaveChangesAsync();
+
+        // 150 liked songs = 3 Spotify pages of 50; a 2-page fast poll must take only the newest 100.
+        var liked = Enumerable.Range(0, 150).Select(i => Track($"t{i}", $"Song {i}")).ToList();
+        var api = new FakeSpotifyApi { LikedSongs = liked };
+        var service = new WishlistService(db, api, NullLogger<WishlistService>.Instance);
+
+        var result = await service.SyncSourceAsync(Owner, source, default, maxPages: 2);
+
+        Assert.Equal(100, result.Added);
+        Assert.Equal(100, await db.WishlistItems.IgnoreQueryFilters().CountAsync());
+    }
+
     private static SpotifyTrackItem Track(string id, string title, string? isrc = null) =>
         new(id, title, "Artist", "Album", null, 200_000, DateTime.UtcNow, isrc);
 

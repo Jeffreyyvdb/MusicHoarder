@@ -25,6 +25,12 @@ public class EnrichmentPipelineChannel(JobManager jobManager, EnrichmentProgress
     public ChannelWriter<int> Writer => _channel.Writer;
     public ChannelReader<int> Reader => _channel.Reader;
 
+    /// <summary>Songs currently in flight in the active enrichment cycle (0 when idle). Surfaced as a metric gauge.</summary>
+    public int InFlight
+    {
+        get { lock (_lock) return _inFlight; }
+    }
+
     /// <summary>Label of the active enrichment cycle (e.g. "Manual enrich — Kanye West"), or null.</summary>
     public string? CurrentLabel
     {
