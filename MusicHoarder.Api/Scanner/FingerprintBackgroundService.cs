@@ -175,10 +175,11 @@ public class FingerprintBackgroundService(
 
         if (batch.Count == 0) return 0;
 
-        var semaphore = new SemaphoreSlim(opts.FingerprintConcurrency, opts.FingerprintConcurrency);
         var results = new List<(int Id, FpcalcOutcome Outcome)>();
         var resultsLock = new object();
 
+        // MaxDegreeOfParallelism already caps in-flight fpcalc invocations to FingerprintConcurrency,
+        // so no additional SemaphoreSlim gate is needed.
         await Parallel.ForEachAsync(
             batch,
             new ParallelOptions
@@ -188,18 +189,10 @@ public class FingerprintBackgroundService(
             },
             async (item, token) =>
             {
-                await semaphore.WaitAsync(token);
-                try
+                var outcome = await fpcalcService.GetFingerprintAsync(item.SourcePath, token);
+                lock (resultsLock)
                 {
-                    var outcome = await fpcalcService.GetFingerprintAsync(item.SourcePath, token);
-                    lock (resultsLock)
-                    {
-                        results.Add((item.Id, outcome));
-                    }
-                }
-                finally
-                {
-                    semaphore.Release();
+                    results.Add((item.Id, outcome));
                 }
             });
 
