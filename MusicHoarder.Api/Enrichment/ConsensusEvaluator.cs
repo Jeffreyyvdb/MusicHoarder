@@ -54,13 +54,15 @@ public static class ConsensusEvaluator
         double corroborationFloor = DefaultCorroborationFloor,
         bool preferOriginalRelease = true,
         DateTime? utcNow = null,
-        TimeSpan? maxRateLimitDeferral = null)
+        TimeSpan? maxRateLimitDeferral = null,
+        bool relaxDownloadDurationMismatch = false)
     {
         var now = utcNow ?? DateTime.UtcNow;
         var deferralWindow = maxRateLimitDeferral ?? DefaultRateLimitDeferral;
 
         var verdict = EvaluateInternal(
-            song, enabledProviders, identityOptions, corroborationFloor, preferOriginalRelease, now, deferralWindow);
+            song, enabledProviders, identityOptions, corroborationFloor, preferOriginalRelease, now, deferralWindow,
+            relaxDownloadDurationMismatch);
 
         // A confident verdict the answered providers already reached stands — never block a build
         // waiting on a provider that may never recover (e.g. iTunes throttling a shared IP). A
@@ -92,7 +94,8 @@ public static class ConsensusEvaluator
         double corroborationFloor,
         bool preferOriginalRelease,
         DateTime now,
-        TimeSpan deferralWindow)
+        TimeSpan deferralWindow,
+        bool relaxDownloadDurationMismatch)
     {
         if (enabledProviders.Count == 0)
             return new ConsensusResult(EnrichmentStatus.NeedsReview, null, 0, []);
@@ -172,7 +175,20 @@ public static class ConsensusEvaluator
                 // title_mismatch / artist_mismatch) means the chosen recording disagrees with the
                 // file's own self-consistent tags — exactly the symptom of a wrong fingerprint that
                 // several providers echoed. Send it to review instead of silently overwriting.
-                if (MatchWarnings.AnyBlocking(winner.Result.MatchWarnings))
+                //
+                // Exception for download-origin files (wishlist / Spotify-Like sync): they're fetched
+                // from YouTube and stamped with a known Spotify identity, so their audio length
+                // routinely differs from the canonical master (intro/outro/padding). When
+                // duration_mismatch is the *only* blocking warning and the cluster strongly
+                // corroborates the identity — AcoustID resolved the file's own audio to this recording,
+                // or ≥2 providers carry the same ISRC — the delta is padding, not a wrong match, so we
+                // let it auto-match (the warning stays on the row as advisory).
+                var blockingWarnings = winner.Result.MatchWarnings.Where(MatchWarnings.IsBlocking).ToList();
+                var durationIsAdvisory = relaxDownloadDurationMismatch
+                    && blockingWarnings.Count > 0
+                    && blockingWarnings.All(w => w == MatchWarnings.DurationMismatch)
+                    && HasStrongDurationCorroboration(bestCluster);
+                if (blockingWarnings.Count > 0 && !durationIsAdvisory)
                 {
                     return new ConsensusResult(
                         EnrichmentStatus.NeedsReview, winner.Result, CombineConfidence(bestCluster),
@@ -422,6 +438,23 @@ public static class ConsensusEvaluator
                 TitleNormalizer.NormalizeForSearch(pair.First),
                 TitleNormalizer.NormalizeForSearch(pair.Second),
                 StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// True when a cluster corroborates its identity strongly enough that a lone duration_mismatch is
+    /// padding (a download-origin file's audio came from a different source than the canonical master)
+    /// rather than a wrong match: either AcoustID is in the cluster — the file's own fingerprint
+    /// resolved to this recording — or ≥2 distinct providers independently carry the same ISRC.
+    /// </summary>
+    private static bool HasStrongDurationCorroboration(List<Candidate> cluster)
+    {
+        if (cluster.Any(c => c.Provider == EnrichmentProvider.AcoustID))
+            return true;
+
+        return cluster
+            .Where(c => !string.IsNullOrWhiteSpace(c.Identity.Isrc))
+            .GroupBy(c => ProviderIdentity.NormalizeIsrc(c.Identity.Isrc))
+            .Any(g => g.Select(c => c.Provider).Distinct().Count() >= 2);
     }
 
     private static double CombineConfidence(IEnumerable<Candidate> cluster)

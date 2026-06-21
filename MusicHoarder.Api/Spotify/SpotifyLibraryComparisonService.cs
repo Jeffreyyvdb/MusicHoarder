@@ -15,6 +15,7 @@ public partial class SpotifyLibraryComparisonService(
     private const double FuzzyThreshold = 85.0;
     public const string SourceLikedSync = "liked_sync";
     public const string SourceApiPage = "api_page";
+    public const string SourcePlaylistExport = "playlist_export";
 
     public async Task<IReadOnlyDictionary<string, SpotifyLibraryMatchInfo>> UpsertMatchesForTracksAsync(
         IReadOnlyList<SpotifyTrackItem> tracks,
@@ -415,9 +416,16 @@ public partial class SpotifyLibraryComparisonService(
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
+        // Filter by the owner explicitly (like every other query in this service) and bypass the
+        // ambient query filter: this runs from background sweeps and HTTP-triggered Task.Run
+        // continuations where the request's HttpContext is gone, so the global filter's user id
+        // falls back to Guid.Empty and would otherwise exclude every owned song — yielding an empty
+        // index and matching nothing.
+        var ownerId = ownerLookup.OwnerUserId;
         var tracks = await db.Songs
+            .IgnoreQueryFilters()
             .AsNoTracking()
-            .Where(s => s.DeletedAtUtc == null)
+            .Where(s => s.OwnerUserId == ownerId && s.DeletedAtUtc == null)
             .Select(s => new TrackIndexEntry(
                 s.Id,
                 s.SpotifyId,

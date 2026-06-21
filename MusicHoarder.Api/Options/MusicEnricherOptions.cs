@@ -453,6 +453,19 @@ public class MusicEnricherOptions
     public bool PreferOriginalRelease { get; set; } = true;
 
     /// <summary>
+    /// Treat a lone <c>duration_mismatch</c> as advisory (not blocking) for wishlist / Spotify-Like
+    /// download-origin files — those scanned from <see cref="DownloadDirectory"/> — when the enrichment
+    /// cluster strongly corroborates the identity (AcoustID matched the file's own audio, or ≥2
+    /// providers carry the same ISRC). These files are fetched from YouTube and stamped with a known
+    /// Spotify identity, so their audio length routinely differs from the canonical master; without
+    /// this they pile up in <see cref="EnrichmentStatus.NeedsReview"/> despite a correct, multi-provider
+    /// match. Off for source-library files, where a duration gap remains a genuine wrong-recording
+    /// signal. A change here heals the existing backlog only on an
+    /// <see cref="Enrichment.EnrichmentAlgorithm.CurrentVersion"/> bump.
+    /// </summary>
+    public bool RelaxDownloadDurationMismatch { get; set; } = true;
+
+    /// <summary>
     /// Minimum consensus confidence (with ≥2 agreeing providers) required to auto-overwrite a
     /// *good* existing curated value. Below this, a conflicting change is proposed for review
     /// rather than applied — so a curated library is never silently degraded.
@@ -550,6 +563,27 @@ public class MusicEnricherOptions
     /// "Various Artists" — the literal album-artist string every music server recognizes.
     /// </summary>
     public string CompilationFolderName { get; set; } = "Various Artists";
+
+    // --- Playlist export (Spotify Liked Songs + playlists → on-disk M3U) ---
+
+    /// <summary>
+    /// Mirror the owner's Spotify Liked Songs and every playlist as static <c>.m3u8</c> files under
+    /// <see cref="PlaylistsFolderName"/> in the destination library, so Navidrome/Plex/Jellyfin
+    /// auto-import them. Each file lists the local built tracks matching the Spotify tracks, in
+    /// Spotify order (Liked Songs by liked-date descending). Master switch for both the periodic
+    /// background export and the manual regenerate trigger. Default on (no-op until Spotify connects).
+    /// </summary>
+    public bool EnablePlaylistExport { get; set; } = true;
+
+    /// <summary>Minutes between background playlist-export runs. 0 disables the periodic export.</summary>
+    [Range(0, 10080)]
+    public int PlaylistExportIntervalMinutes { get; set; } = 60;
+
+    /// <summary>
+    /// Sub-folder of the destination directory the <c>.m3u8</c> files are written to. Track paths
+    /// inside each file are relative to this folder (e.g. <c>../Artist/Album/01 - Title.flac</c>).
+    /// </summary>
+    public string PlaylistsFolderName { get; set; } = "Playlists";
 
     // --- Wishlist downloads (Spotify wishlist → downloader → source directory) ---
 
