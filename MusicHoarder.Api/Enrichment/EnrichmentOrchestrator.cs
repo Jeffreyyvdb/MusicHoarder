@@ -142,9 +142,11 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
 
         var now = DateTime.UtcNow;
         var deferralWindow = TimeSpan.FromMinutes(_options.Value.RateLimitDeferralMinutes);
+        var relaxDownloadDuration = _options.Value.RelaxDownloadDurationMismatch
+            && IsDownloadOrigin(song, _options.Value.DownloadDirectory);
         var consensus = ConsensusEvaluator.Evaluate(
             song, enabledEnums, BuildIdentityOptions(), _options.Value.ConsensusCorroborationFloor,
-            _options.Value.PreferOriginalRelease, now, deferralWindow);
+            _options.Value.PreferOriginalRelease, now, deferralWindow, relaxDownloadDuration);
 
         // Visibility safety net: a Pending verdict that isn't waiting on a *fresh* rate-limited
         // provider means no enabled provider can act on this song at all (e.g. no fingerprint and
@@ -195,6 +197,23 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
     {
         var o = _options.Value;
         return new IdentityMatchOptions(o.IdentityArtistThreshold, o.IdentityTitleThreshold, o.IdentityDurationDeltaSeconds);
+    }
+
+    /// <summary>
+    /// True when the song was ingested from the wishlist download staging dir (Spotify-Like sync →
+    /// downloader), identified by its <see cref="SongMetadata.SourcePath"/> sitting under
+    /// <see cref="MusicEnricherOptions.DownloadDirectory"/>. Those files are YouTube rips stamped with a
+    /// known Spotify identity, so a duration gap to the canonical master is expected — see
+    /// <see cref="MusicEnricherOptions.RelaxDownloadDurationMismatch"/>.
+    /// </summary>
+    private static bool IsDownloadOrigin(SongMetadata song, string? downloadDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(downloadDirectory))
+            return false;
+
+        var prefix = downloadDirectory.TrimEnd('/', '\\');
+        return song.SourcePath.StartsWith(prefix + "/", StringComparison.Ordinal)
+            || song.SourcePath.StartsWith(prefix + "\\", StringComparison.Ordinal);
     }
 
     /// <summary>

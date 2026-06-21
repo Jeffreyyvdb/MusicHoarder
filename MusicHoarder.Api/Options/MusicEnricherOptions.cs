@@ -437,6 +437,19 @@ public class MusicEnricherOptions
     public bool PreferOriginalRelease { get; set; } = true;
 
     /// <summary>
+    /// Treat a lone <c>duration_mismatch</c> as advisory (not blocking) for wishlist / Spotify-Like
+    /// download-origin files — those scanned from <see cref="DownloadDirectory"/> — when the enrichment
+    /// cluster strongly corroborates the identity (AcoustID matched the file's own audio, or ≥2
+    /// providers carry the same ISRC). These files are fetched from YouTube and stamped with a known
+    /// Spotify identity, so their audio length routinely differs from the canonical master; without
+    /// this they pile up in <see cref="EnrichmentStatus.NeedsReview"/> despite a correct, multi-provider
+    /// match. Off for source-library files, where a duration gap remains a genuine wrong-recording
+    /// signal. A change here heals the existing backlog only on an
+    /// <see cref="Enrichment.EnrichmentAlgorithm.CurrentVersion"/> bump.
+    /// </summary>
+    public bool RelaxDownloadDurationMismatch { get; set; } = true;
+
+    /// <summary>
     /// Minimum consensus confidence (with ≥2 agreeing providers) required to auto-overwrite a
     /// *good* existing curated value. Below this, a conflicting change is proposed for review
     /// rather than applied — so a curated library is never silently degraded.
