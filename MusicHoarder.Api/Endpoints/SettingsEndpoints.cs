@@ -17,6 +17,7 @@ public static class SettingsEndpoints
                 IOptions<MusicEnricherOptions> options,
                 IOptions<SpotifyOptions> spotifyOptions,
                 IOptions<QualityGradingOptions> qualityOptions,
+                IOptions<LyricsTranscriptionOptions> lyricsTranscriptionOptions,
                 ICurrentUserAccessor currentUser,
                 CancellationToken ct) =>
             {
@@ -50,6 +51,10 @@ public static class SettingsEndpoints
                     QualityGrading: new QualityGradingView(
                         Enabled: effective.QualityGradingEnabled,
                         Configured: qualityConfigured),
+                    // Experimental AI lyrics transcription: only "enabled" when a transcription provider
+                    // (key + base URL) is configured on the server, so the UI can hide it entirely otherwise.
+                    LyricsTranscription: new LyricsTranscriptionView(
+                        Enabled: lyricsTranscriptionOptions.Value.IsConfigured),
                     UpdatedAtUtc: effective.UpdatedAtUtc));
             })
             .WithName("GetSettings")
@@ -109,12 +114,14 @@ public sealed record SettingsResponse(
     ProvidersView Providers,
     SpotifyView Spotify,
     QualityGradingView QualityGrading,
+    LyricsTranscriptionView LyricsTranscription,
     DateTime? UpdatedAtUtc);
 
 public sealed record PathsView(string SourceDirectory, string DestinationDirectory, string FpcalcPath);
 public sealed record ProvidersView(bool AcoustId, bool MusicBrainzWeb, bool SpotifyApi, bool Tracker, bool Deezer, bool AppleMusic);
 public sealed record SpotifyView(string OAuthRedirectBaseUrl, IReadOnlyList<string> Scopes);
 public sealed record QualityGradingView(bool Enabled, bool Configured);
+public sealed record LyricsTranscriptionView(bool Enabled);
 
 public sealed record SettingsUpdateRequest(ProvidersUpdate? Providers, QualityGradingUpdate? QualityGrading);
 public sealed record QualityGradingUpdate(bool? Enabled);

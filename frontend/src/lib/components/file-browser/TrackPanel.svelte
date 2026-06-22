@@ -32,6 +32,9 @@
     fetchSongQualityGrade,
     gradeSong,
     copyQualitySongDossier,
+    fetchTrackLyrics,
+    transcribeSongLyrics,
+    setPreferredLyricsSource,
     type ApiSong,
     type AlbumSummary,
     type EnrichmentDetail,
@@ -44,6 +47,7 @@
   import { lrclibWebUrl, lrclibWebSearchUrl } from '$lib/lrclib-url';
   import { acoustIdSourceConnected, lrclibSourceConnected } from '$lib/source-connection';
   import { playerStore } from '$lib/stores/player.svelte';
+  import { featuresStore } from '$lib/stores/features.svelte';
   import { cn } from '$lib/utils';
   import type { LyricsStatus } from '$lib/types';
 
@@ -75,6 +79,18 @@
   let enrichState = $state<'idle' | 'loading' | 'success' | 'error'>('idle');
   let enrichOutcome = $state<string | null>(null);
   let enrichError = $state<string | null>(null);
+
+  // --- AI lyrics transcription (experiment: compare whisper-1 against LRCLIB) ---
+  type AiLyrics = { synced?: string; plain?: string; model?: string; at?: string };
+  let aiLyrics = $state<AiLyrics | null>(null);
+  let transcribeState = $state<'idle' | 'loading' | 'success' | 'error'>('idle');
+  let transcribeError = $state<string | null>(null);
+  // Which version the big synced viewer shows when both exist, the compare-view toggle, and save state.
+  let preferredSource = $state<'lrclib' | 'transcribed'>('lrclib');
+  let showCompare = $state(false);
+  let preferSaving = $state(false);
+  // Plain (non-reactive) guard so re-syncing on song change can't loop the effect below.
+  let aiLoadedForSongId: number | null = null;
 
   // Provider attempts (real candidate matches) are loaded lazily when the
   // Fingerprint tab is first viewed, and refetched when the song changes.
@@ -258,6 +274,86 @@
         enrichState = 'idle';
         enrichError = null;
       }, 5000);
+    }
+  }
+
+  // Load any existing AI transcription when the song changes, and reset transient state so a prior
+  // song's transcription never bleeds into the next (the panel instance is reused across songs).
+  // Keyed on the plain `aiLoadedForSongId` (not $state) so it can't re-trigger itself.
+  $effect(() => {
+    const id = song.id;
+    if (aiLoadedForSongId === id) return;
+    aiLoadedForSongId = id;
+    aiLyrics = null;
+    transcribeState = 'idle';
+    transcribeError = null;
+    showCompare = false;
+    preferredSource = song.preferredLyricsSource === 'Transcribed' ? 'transcribed' : 'lrclib';
+    if (!song.hasTranscribedLyrics) return;
+    fetchTrackLyrics(id)
+      .then((d) => {
+        if (aiLoadedForSongId !== id) return; // navigated away while in flight
+        if (d.transcribedSynced || d.transcribedPlain) {
+          aiLyrics = {
+            synced: d.transcribedSynced ?? undefined,
+            plain: d.transcribedPlain ?? undefined,
+            model: d.transcriptionModel ?? undefined,
+            at: d.transcribedAtUtc ?? undefined
+          };
+        }
+      })
+      .catch(() => {});
+  });
+
+  async function handleTranscribe() {
+    if (transcribeState === 'loading') return;
+    transcribeState = 'loading';
+    transcribeError = null;
+    try {
+      const r = await transcribeSongLyrics(song.id);
+      aiLyrics = {
+        synced: r.synced ?? undefined,
+        plain: r.plain ?? undefined,
+        model: r.model ?? undefined,
+        at: r.transcribedAtUtc ?? undefined
+      };
+      transcribeState = 'success';
+      setTimeout(() => (transcribeState = 'idle'), 3000);
+    } catch (err) {
+      transcribeState = 'error';
+      transcribeError = err instanceof Error ? err.message : 'Transcription failed';
+      setTimeout(() => {
+        transcribeState = 'idle';
+        transcribeError = null;
+      }, 6000);
+    }
+  }
+
+  // The experimental AI lyrics feature is only shown when a transcription provider is configured server-side.
+  $effect(() => {
+    void featuresStore.ensureLoaded();
+  });
+  const lyricsFeatureEnabled = $derived(featuresStore.lyricsTranscription);
+
+  // Comparison only makes sense once an AI transcription exists alongside LRCLIB lyrics.
+  const canCompareLyrics = $derived(lyricsFeatureEnabled && aiLyrics != null && hasLyrics);
+  const comparingLyrics = $derived(showCompare && canCompareLyrics);
+  // The big synced viewer shows the AI version when it's the chosen default (or it's all we have).
+  const showAiInViewer = $derived(
+    lyricsFeatureEnabled && aiLyrics != null && (!hasLyrics || preferredSource === 'transcribed')
+  );
+
+  async function handleSetPreferred(source: 'lrclib' | 'transcribed') {
+    if (preferredSource === source || preferSaving) return;
+    const previous = preferredSource;
+    preferredSource = source; // optimistic
+    preferSaving = true;
+    try {
+      await setPreferredLyricsSource(song.id, source);
+    } catch {
+      preferredSource = previous; // revert on failure
+    } finally {
+      preferSaving = false;
     }
   }
 
@@ -606,22 +702,165 @@
       </ScrollArea>
     </Tabs.Content>
 
-    <Tabs.Content value="lyrics" class="flex min-h-0 flex-1 flex-col">
-      <div class="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col">
-        <LyricsPanel
-          variant="theater"
-          songId={song.id}
-          syncedLyrics={song.syncedLyrics ?? undefined}
-          plainLyrics={song.plainLyrics ?? undefined}
-          {lyricsStatus}
-          hasSyncedLyrics={song.hasSyncedLyrics ?? false}
-          hasPlainLyrics={song.hasPlainLyrics ?? false}
-          isInstrumental={song.isInstrumental ?? undefined}
-          currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
-          onSeek={isCurrentlyLoaded ? (timeMs: number) => playerStore.seek(timeMs / 1000) : undefined}
-          lrclibUrl={lrclibWebUrl(trackArtist, trackTitle)}
-        />
-      </div>
+    <Tabs.Content value="lyrics" class="flex min-h-0 flex-1 flex-col gap-2">
+      {#if song.isInstrumental !== true && lyricsFeatureEnabled}
+        <!-- Control bar: transcribe / re-transcribe, and (when both exist) toggle the comparison view.
+             Hidden entirely unless the AI transcription feature is configured on the server. -->
+        <div
+          class={cn(
+            'mx-auto flex w-full items-center justify-between gap-2 px-1',
+            comparingLyrics ? 'max-w-6xl' : 'max-w-3xl'
+          )}
+        >
+          <div class="text-muted-foreground flex min-w-0 items-center gap-1.5 text-xs">
+            {#if canCompareLyrics}
+              <Sparkles class="text-primary size-3.5 shrink-0" />
+              <span class="truncate">
+                Player shows: {preferredSource === 'transcribed' ? `AI · ${aiLyrics?.model ?? 'whisper'}` : 'LRCLIB'}
+              </span>
+            {:else if aiLyrics}
+              <Sparkles class="text-primary size-3.5 shrink-0" />
+              <span class="truncate">AI transcription{aiLyrics.model ? ` · ${aiLyrics.model}` : ''}</span>
+            {:else}
+              <span class="truncate">Transcribe the audio with AI to compare against LRCLIB.</span>
+            {/if}
+          </div>
+          <div class="flex shrink-0 items-center gap-2">
+            {#if canCompareLyrics}
+              <Button
+                variant={comparingLyrics ? 'secondary' : 'outline'}
+                size="sm"
+                onclick={() => (showCompare = !showCompare)}
+              >
+                {comparingLyrics ? 'Done' : 'Compare'}
+              </Button>
+            {/if}
+            <Button
+              variant="outline"
+              size="sm"
+              class={cn(
+                transcribeState === 'success' && 'text-primary',
+                transcribeState === 'error' && 'text-destructive'
+              )}
+              disabled={transcribeState === 'loading'}
+              onclick={handleTranscribe}
+            >
+              {#if transcribeState === 'loading'}
+                <Loader2 class="mr-1.5 size-3.5 animate-spin" />
+                Transcribing…
+              {:else if transcribeState === 'success'}
+                <CheckCircle2 class="mr-1.5 size-3.5" />
+                Done
+              {:else if transcribeState === 'error'}
+                <AlertCircle class="mr-1.5 size-3.5" />
+                Failed
+              {:else}
+                <Sparkles class="mr-1.5 size-3.5" />
+                {aiLyrics ? 'Re-transcribe' : 'Transcribe with AI'}
+              {/if}
+            </Button>
+          </div>
+        </div>
+        {#if transcribeError}
+          <p class="text-destructive mx-auto w-full max-w-3xl px-1 text-[11px]">{transcribeError}</p>
+        {/if}
+      {/if}
+
+      {#if comparingLyrics}
+        <!-- Side-by-side: LRCLIB vs AI, each with a "Set as default" chooser for the player. -->
+        <div class="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col gap-4 lg:flex-row">
+          <div class="flex min-h-0 flex-1 flex-col gap-1.5">
+            <div class="flex items-center justify-between gap-2 px-1">
+              <div class="text-muted-foreground flex items-center gap-1.5 text-xs font-medium">
+                <CheckCircle2 class="size-3.5 text-green-600 dark:text-green-500" />
+                LRCLIB
+              </div>
+              {#if preferredSource === 'lrclib'}
+                <span class="text-primary inline-flex items-center gap-1 text-[11px] font-medium">
+                  <Check class="size-3" /> Player default
+                </span>
+              {:else}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="h-6 px-2 text-[11px]"
+                  disabled={preferSaving}
+                  onclick={() => handleSetPreferred('lrclib')}
+                >
+                  Set as default
+                </Button>
+              {/if}
+            </div>
+            <LyricsPanel
+              variant="panel"
+              songId={song.id}
+              syncedLyrics={song.syncedLyrics ?? undefined}
+              plainLyrics={song.plainLyrics ?? undefined}
+              {lyricsStatus}
+              hasSyncedLyrics={song.hasSyncedLyrics ?? false}
+              hasPlainLyrics={song.hasPlainLyrics ?? false}
+              currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
+              onSeek={isCurrentlyLoaded ? (timeMs: number) => playerStore.seek(timeMs / 1000) : undefined}
+              lrclibUrl={lrclibWebUrl(trackArtist, trackTitle)}
+            />
+          </div>
+          <div class="flex min-h-0 flex-1 flex-col gap-1.5">
+            <div class="flex items-center justify-between gap-2 px-1">
+              <div class="text-muted-foreground flex items-center gap-1.5 text-xs font-medium">
+                <Sparkles class="text-primary size-3.5" />
+                AI · {aiLyrics?.model ?? 'whisper'}
+              </div>
+              {#if preferredSource === 'transcribed'}
+                <span class="text-primary inline-flex items-center gap-1 text-[11px] font-medium">
+                  <Check class="size-3" /> Player default
+                </span>
+              {:else}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="h-6 px-2 text-[11px]"
+                  disabled={preferSaving}
+                  onclick={() => handleSetPreferred('transcribed')}
+                >
+                  Set as default
+                </Button>
+              {/if}
+            </div>
+            {#key aiLyrics?.at}
+              <LyricsPanel
+                variant="panel"
+                songId={song.id}
+                syncedLyrics={aiLyrics?.synced}
+                plainLyrics={aiLyrics?.plain}
+                lyricsStatus="Fetched"
+                hasSyncedLyrics={Boolean(aiLyrics?.synced)}
+                hasPlainLyrics={Boolean(aiLyrics?.plain)}
+                currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
+                onSeek={isCurrentlyLoaded ? (timeMs: number) => playerStore.seek(timeMs / 1000) : undefined}
+              />
+            {/key}
+          </div>
+        </div>
+      {:else}
+        <!-- Big synced viewer showing the chosen default (AI when preferred / only option, else LRCLIB). -->
+        <div class="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col">
+          {#key showAiInViewer ? `ai-${aiLyrics?.at}` : 'lrclib'}
+            <LyricsPanel
+              variant="theater"
+              songId={song.id}
+              syncedLyrics={showAiInViewer ? aiLyrics?.synced : (song.syncedLyrics ?? undefined)}
+              plainLyrics={showAiInViewer ? aiLyrics?.plain : (song.plainLyrics ?? undefined)}
+              lyricsStatus={showAiInViewer ? 'Fetched' : lyricsStatus}
+              hasSyncedLyrics={showAiInViewer ? Boolean(aiLyrics?.synced) : (song.hasSyncedLyrics ?? false)}
+              hasPlainLyrics={showAiInViewer ? Boolean(aiLyrics?.plain) : (song.hasPlainLyrics ?? false)}
+              isInstrumental={song.isInstrumental ?? undefined}
+              currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
+              onSeek={isCurrentlyLoaded ? (timeMs: number) => playerStore.seek(timeMs / 1000) : undefined}
+              lrclibUrl={showAiInViewer ? undefined : lrclibWebUrl(trackArtist, trackTitle)}
+            />
+          {/key}
+        </div>
+      {/if}
     </Tabs.Content>
 
     <Tabs.Content value="fingerprint" class="flex min-h-0 flex-1 flex-col">

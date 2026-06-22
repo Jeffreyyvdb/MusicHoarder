@@ -52,6 +52,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IValidateOptions<QualityGradingOptions>, QualityGradingOptionsValidator>();
 
         services
+            .AddOptions<LyricsTranscriptionOptions>()
+            .BindConfiguration(LyricsTranscriptionOptions.SectionName)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services
             .AddOptions<SpotifyOptions>()
             .BindConfiguration(SpotifyOptions.SectionName);
 
@@ -296,6 +302,26 @@ public static class ServiceCollectionExtensions
             };
             var logger = sp.GetRequiredService<ILogger<LrcLibService>>();
             return new LrcLibService(httpClient, logger);
+        });
+
+        // Experimental AI lyrics transcription (OpenAI-compatible /audio/transcriptions). Infinite
+        // HttpClient timeout — the service bounds each call itself via LyricsTranscriptionOptions.TimeoutSeconds.
+        // The aligner calls OpenRouter (same creds as QualityGrading) with its own fast LlmModel + reasoning off.
+        services.AddSingleton<LlmLyricsAligner>(sp => new LlmLyricsAligner(
+            new HttpClient { Timeout = Timeout.InfiniteTimeSpan },
+            sp.GetRequiredService<IOptionsMonitor<QualityGradingOptions>>(),
+            sp.GetRequiredService<IOptionsMonitor<LyricsTranscriptionOptions>>(),
+            sp.GetRequiredService<ILogger<LlmLyricsAligner>>()));
+        services.AddSingleton<ILyricsTranscriptionService>(sp =>
+        {
+            var httpClient = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+            return new LyricsTranscriptionService(
+                httpClient,
+                sp.GetRequiredService<ILrcLibService>(),
+                sp.GetRequiredService<LlmLyricsAligner>(),
+                sp.GetRequiredService<IOptionsMonitor<LyricsTranscriptionOptions>>(),
+                sp.GetRequiredService<IOptions<MusicEnricherOptions>>(),
+                sp.GetRequiredService<ILogger<LyricsTranscriptionService>>());
         });
 
         services.AddSingleton<ISpotifyCatalogSearchService>(sp =>

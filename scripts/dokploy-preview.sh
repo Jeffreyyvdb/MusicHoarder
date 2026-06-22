@@ -44,6 +44,10 @@
 #                                   Empty → grading is a no-op in the preview.
 #   PREVIEW_QUALITY_GRADING_MODEL    model id; default deepseek/deepseek-v4-flash.
 #   PREVIEW_QUALITY_GRADING_BASE_URL OpenAI-compatible base URL; default https://openrouter.ai/api/v1.
+#   PREVIEW_LYRICS_TRANSCRIPTION_API_KEY  Whisper key (Groq recommended) for experimental AI lyrics
+#                                   transcription. Empty → the feature stays hidden in the preview UI.
+#   PREVIEW_LYRICS_TRANSCRIPTION_MODEL / _BASE_URL / _LLM_MODEL  optional overrides; default to
+#                                   Groq whisper-large-v3 + google/gemini-2.5-flash-lite.
 set -euo pipefail
 
 CMD="${1:-}"
@@ -163,6 +167,10 @@ YTDLP_COOKIES_PATH=${cookies_path}
 QUALITY_GRADING_API_KEY=${PREVIEW_QUALITY_GRADING_API_KEY:-}
 QUALITY_GRADING_MODEL=${PREVIEW_QUALITY_GRADING_MODEL:-deepseek/deepseek-v4-flash}
 QUALITY_GRADING_BASE_URL=${PREVIEW_QUALITY_GRADING_BASE_URL:-https://openrouter.ai/api/v1}
+LYRICS_TRANSCRIPTION_API_KEY=${PREVIEW_LYRICS_TRANSCRIPTION_API_KEY:-}
+LYRICS_TRANSCRIPTION_BASE_URL=${PREVIEW_LYRICS_TRANSCRIPTION_BASE_URL:-https://api.groq.com/openai/v1}
+LYRICS_TRANSCRIPTION_MODEL=${PREVIEW_LYRICS_TRANSCRIPTION_MODEL:-whisper-large-v3}
+LYRICS_TRANSCRIPTION_LLM_MODEL=${PREVIEW_LYRICS_TRANSCRIPTION_LLM_MODEL:-google/gemini-2.5-flash-lite}
 RESEND_API_KEY=
 RESEND_FROM_ADDRESS=noreply@musichoarder.local
 EOF

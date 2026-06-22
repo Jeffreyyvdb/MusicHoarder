@@ -156,7 +156,7 @@ public sealed record WrittenTagSet(
     }
 
     private static bool HasLyrics(SongMetadata song)
-        => !string.IsNullOrWhiteSpace(song.SyncedLyrics) || !string.IsNullOrWhiteSpace(song.PlainLyrics);
+        => !string.IsNullOrWhiteSpace(song.EffectiveSyncedLyrics) || !string.IsNullOrWhiteSpace(song.EffectivePlainLyrics);
 
     private static string? PositiveOrNull(int? value) => value is > 0 ? value.Value.ToString() : null;
 

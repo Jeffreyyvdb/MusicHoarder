@@ -17,6 +17,14 @@ public static class SongsEndpoints
             .WithSummary("Dev: source vs current metadata + every provider attempt for one song.")
             .WithTags("Tracks");
         app.MapGet("/api/tracks/{id:int}/lyrics", GetTrackLyrics).WithName("GetTrackLyrics");
+        app.MapPost("/songs/{id:int}/lyrics/transcribe", TranscribeLyrics)
+            .WithName("TranscribeLyrics")
+            .WithSummary("Experimental: transcribe a song's audio via OpenAI Whisper into a synced LRC, stored separately from LRCLIB lyrics for comparison.")
+            .WithTags("Lyrics");
+        app.MapPost("/songs/{id:int}/lyrics/preferred", SetPreferredLyrics)
+            .WithName("SetPreferredLyrics")
+            .WithSummary("Choose which lyrics (lrclib | transcribed) the synced viewer shows when both exist.")
+            .WithTags("Lyrics");
         app.MapPost("/enrichment/reset", ResetEnrichmentBatch).WithName("ResetEnrichmentBatch");
         app.MapPost("/songs/{id:int}/reset-enrichment", ResetSongEnrichment).WithName("ResetSongEnrichment");
         app.MapPost("/songs/{id:int}/unlock", UnlockSong)
@@ -131,6 +139,15 @@ public static class SongsEndpoints
                 s.SyncedLyrics,
                 s.PlainLyrics,
                 s.IsInstrumental,
+                // Lightweight transcription flags only — the (potentially large) AI lyric text is fetched
+                // on demand via GetTrackLyrics, not shipped with every row in the songs list.
+                HasTranscribedLyrics =
+                    (s.TranscribedSyncedLyrics != null && s.TranscribedSyncedLyrics != string.Empty)
+                    || (s.TranscribedPlainLyrics != null && s.TranscribedPlainLyrics != string.Empty),
+                s.TranscriptionStatus,
+                s.TranscribedAtUtc,
+                s.TranscriptionModel,
+                s.PreferredLyricsSource,
             })
             .ToListAsync();
 
@@ -157,7 +174,12 @@ public static class SongsEndpoints
             LyricsStatus = s.LyricsStatus.ToString(),
             HasSyncedLyrics = s.SyncedLyrics != null && s.SyncedLyrics != string.Empty,
             HasPlainLyrics = s.PlainLyrics != null && s.PlainLyrics != string.Empty,
-            s.IsInstrumental
+            s.IsInstrumental,
+            s.HasTranscribedLyrics,
+            TranscriptionStatus = s.TranscriptionStatus.ToString(),
+            s.TranscribedAtUtc,
+            s.TranscriptionModel,
+            PreferredLyricsSource = s.PreferredLyricsSource.ToString()
         }).ToList();
 
         return Results.Ok(new
@@ -180,6 +202,12 @@ public static class SongsEndpoints
                 s.SyncedLyrics,
                 s.PlainLyrics,
                 s.IsInstrumental,
+                s.TranscribedSyncedLyrics,
+                s.TranscribedPlainLyrics,
+                s.TranscriptionStatus,
+                s.TranscribedAtUtc,
+                s.TranscriptionModel,
+                s.PreferredLyricsSource,
             })
             .FirstOrDefaultAsync();
 
@@ -193,6 +221,123 @@ public static class SongsEndpoints
             song.IsInstrumental,
             Synced = song.SyncedLyrics,
             Plain = song.PlainLyrics,
+            TranscribedSynced = song.TranscribedSyncedLyrics,
+            TranscribedPlain = song.TranscribedPlainLyrics,
+            TranscriptionStatus = song.TranscriptionStatus.ToString(),
+            song.TranscribedAtUtc,
+            song.TranscriptionModel,
+            PreferredLyricsSource = song.PreferredLyricsSource.ToString(),
+        });
+    }
+
+    private static async Task<IResult> TranscribeLyrics(
+        int id,
+        MusicHoarderDbContext db,
+        ILyricsTranscriptionService transcriber,
+        CancellationToken ct)
+    {
+        if (!transcriber.IsConfigured)
+            return Results.Json(
+                new { message = "Lyrics transcription is not configured. Set LyricsTranscription:ApiKey (and optionally BaseUrl/Model)." },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+
+        var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null, ct);
+        if (song is null)
+            return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+        if (song.IsSynthetic)
+            return Results.UnprocessableEntity(new { message = "Demo songs have no audio file on disk to transcribe." });
+
+        if (song.IsInstrumental == true)
+            return Results.UnprocessableEntity(new { message = "Track is marked instrumental — nothing to transcribe." });
+
+        // Prefer the read-only source original; fall back to the built destination copy (mirrors StreamSong).
+        var filePath =
+            (!string.IsNullOrEmpty(song.SourcePath) && File.Exists(song.SourcePath)) ? song.SourcePath :
+            (!string.IsNullOrEmpty(song.DestinationPath) && File.Exists(song.DestinationPath)) ? song.DestinationPath :
+            null;
+
+        if (filePath is null)
+            return Results.UnprocessableEntity(new
+            {
+                message = "Audio file not found on disk.",
+                sourcePath = song.SourcePath,
+                destinationPath = song.DestinationPath,
+            });
+
+        try
+        {
+            var result = await transcriber.TranscribeAsync(song, filePath, ct);
+            // Stored separately from SyncedLyrics/PlainLyrics so it never clobbers the LRCLIB version.
+            song.ApplyTranscriptionResult(result.SyncedLyrics, result.PlainLyrics, result.Model);
+
+            // If the AI version is this song's chosen default, the file's effective lyrics just changed —
+            // re-tag the built destination so it reflects the fresh transcription.
+            if (song.PreferredLyricsSource == PreferredLyricsSource.Transcribed
+                && song.LibraryBuildStatus == LibraryBuildStatus.Done)
+            {
+                song.RequeueForRetag();
+            }
+            await db.SaveChangesAsync(ct);
+
+            return Results.Ok(new
+            {
+                song.Id,
+                Synced = song.TranscribedSyncedLyrics,
+                Plain = song.TranscribedPlainLyrics,
+                TranscriptionStatus = song.TranscriptionStatus.ToString(),
+                song.TranscribedAtUtc,
+                Model = song.TranscriptionModel,
+                HasExistingLyrics = song.LyricsStatus == LyricsStatus.Fetched,
+            });
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            song.MarkTranscriptionFailed(ex.Message);
+            await db.SaveChangesAsync(CancellationToken.None);
+            return Results.Json(
+                new { message = "Transcription failed.", error = ex.Message },
+                statusCode: StatusCodes.Status502BadGateway);
+        }
+    }
+
+    private static async Task<IResult> SetPreferredLyrics(int id, string? source, MusicHoarderDbContext db, CancellationToken ct)
+    {
+        PreferredLyricsSource? parsed = source?.Trim().ToLowerInvariant() switch
+        {
+            "lrclib" => PreferredLyricsSource.Lrclib,
+            "transcribed" => PreferredLyricsSource.Transcribed,
+            _ => null,
+        };
+        if (parsed is null)
+            return Results.BadRequest(new { message = "source must be 'lrclib' or 'transcribed'." });
+
+        var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null, ct);
+        if (song is null)
+            return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+        var changed = song.PreferredLyricsSource != parsed.Value;
+        song.PreferredLyricsSource = parsed.Value;
+
+        // Promote the choice into the file too: re-tag the built destination so external players
+        // (Navidrome, etc.) embed the chosen lyrics. Only when the choice actually changed.
+        var retagQueued = false;
+        if (changed && song.LibraryBuildStatus == LibraryBuildStatus.Done)
+        {
+            song.RequeueForRetag();
+            retagQueued = true;
+        }
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(new
+        {
+            song.Id,
+            PreferredLyricsSource = song.PreferredLyricsSource.ToString(),
+            retagQueued,
         });
     }
 

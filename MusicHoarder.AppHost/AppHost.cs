@@ -61,6 +61,20 @@ var qualityGradingBaseUrl = builder.AddParameter("quality-grading-base-url", bui
 var qualityGradingModel = builder.AddParameter("quality-grading-model", builder.Configuration["Parameters:quality-grading-model"] ?? "openai/gpt-4o-mini")
     .WithDescription("Cheap model id used for grading (provider namespace, e.g. openai/gpt-4o-mini or google/gemini-2.0-flash-001).");
 
+// Experimental AI lyrics transcription hits an OpenAI-compatible /audio/transcriptions endpoint
+// (Groq Whisper recommended). With the key blank the whole feature is hidden. Provider-neutral param
+// names so the deployed env var is LYRICS_TRANSCRIPTION_API_KEY (matches the self-host/preview compose).
+var lyricsTranscriptionApiKey = builder.AddParameter("lyrics-transcription-api-key", builder.Configuration["Parameters:lyrics-transcription-api-key"] ?? "", secret: true)
+    .WithDescription("API key for the OpenAI-compatible audio-transcriptions endpoint (Groq recommended). Blank → the AI lyrics feature is hidden.");
+var lyricsTranscriptionBaseUrl = builder.AddParameter("lyrics-transcription-base-url", builder.Configuration["Parameters:lyrics-transcription-base-url"] ?? "https://api.openai.com/v1")
+    .WithDescription("Base URL of the transcription API (e.g. https://api.groq.com/openai/v1 for Groq, or https://api.openai.com/v1, or a self-hosted whisper).");
+var lyricsTranscriptionModel = builder.AddParameter("lyrics-transcription-model", builder.Configuration["Parameters:lyrics-transcription-model"] ?? "whisper-1")
+    .WithDescription("Transcription model id. Must return verbose_json timestamps (e.g. whisper-large-v3 on Groq, or whisper-1 on OpenAI).");
+// Fast, cheap LLM that segments AI-transcribed lyrics for songs with no LRCLIB lyrics. Called over the
+// QualityGrading OpenRouter creds with reasoning off — keep it a low-latency non-reasoning model.
+var lyricsTranscriptionLlmModel = builder.AddParameter("lyrics-transcription-llm-model", builder.Configuration["Parameters:lyrics-transcription-llm-model"] ?? "google/gemini-2.5-flash-lite")
+    .WithDescription("LLM that segments AI-transcribed lyrics for no-lyrics songs (provider namespace, e.g. google/gemini-2.5-flash-lite).");
+
 var ownerEmail = builder.AddParameter("owner-email")
     .WithDescription("Email of the owner (admin) account. Used by magic-link sign-in.");
 var demoUserEmail = builder.AddParameter("demo-user-email")
@@ -106,6 +120,10 @@ var api = builder.AddProject<Projects.MusicHoarder_Api>("api")
     .WithEnvironment("QualityGrading__ApiKey", qualityGradingApiKey)
     .WithEnvironment("QualityGrading__BaseUrl", qualityGradingBaseUrl)
     .WithEnvironment("QualityGrading__Model", qualityGradingModel)
+    .WithEnvironment("LyricsTranscription__ApiKey", lyricsTranscriptionApiKey)
+    .WithEnvironment("LyricsTranscription__BaseUrl", lyricsTranscriptionBaseUrl)
+    .WithEnvironment("LyricsTranscription__Model", lyricsTranscriptionModel)
+    .WithEnvironment("LyricsTranscription__LlmModel", lyricsTranscriptionLlmModel)
     .WithExternalHttpEndpoints()
     .WithUrl("/scalar", "Scalar");
 #pragma warning disable ASPIRECOMPUTE003
