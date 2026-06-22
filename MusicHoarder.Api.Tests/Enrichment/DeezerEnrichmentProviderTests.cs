@@ -59,6 +59,26 @@ public class DeezerEnrichmentProviderTests
     }
 
     [Fact]
+    public async Task TryEnrichAsync_IsrcConfirmedButDurationMismatch_StillMatches()
+    {
+        // A 101Barz studiosessie: a long YouTube rip whose embedded ISRC the Deezer catalog also carries,
+        // but the catalog's track is materially shorter. The exact ISRC match proves the recording, so
+        // the duration gap becomes advisory and the provider recommends Matched instead of NeedsReview.
+        var isrcTrack = new DeezerCatalogTrack(
+            "deezer-1", "Nass Studiosessie 346", "101Barz", "Nass Studiosessie 346", 2021, 1, 300_000, "QZFYX2198474");
+        var catalog = new StubDeezerCatalog { OnIsrc = _ => isrcTrack };
+        var provider = CreateProvider(catalog);
+        var song = Song(artist: "101Barz", title: "Nass Studiosessie 346", durationSec: 444, isrc: "QZFYX2198474");
+
+        var result = await provider.TryEnrichAsync(song);
+
+        var matched = Assert.IsType<ProviderMatched>(result);
+        Assert.Equal(EnrichmentStatus.Matched, matched.Result.RecommendedStatus);
+        Assert.Contains("duration_mismatch_isrc_confirmed", matched.Result.MatchWarnings);
+        Assert.DoesNotContain("duration_mismatch", matched.Result.MatchWarnings);
+    }
+
+    [Fact]
     public async Task TryEnrichAsync_IsrcFirst_ShortCircuitsSearch()
     {
         var isrcTrack = new DeezerCatalogTrack("deezer-1", "Lucid Dreams", "Juice WRLD", "Goodbye & Good Riddance", 2018, 3, 239_000, "USUM71807840");

@@ -32,6 +32,15 @@ public static class MatchWarnings
     /// </summary>
     public const string DurationMismatch = "duration_mismatch";
 
+    /// <summary>
+    /// Non-blocking variant of <see cref="DurationMismatch"/>: the duration differs, but the file's own
+    /// embedded ISRC tag <b>exactly</b> matches the candidate's ISRC, which proves they are the same
+    /// registered recording. A length delta is then an alternate master/encode (a longer rip, an
+    /// edit/outro) rather than a wrong match, so it must not block — it is recorded for visibility only.
+    /// Emitted by <see cref="CatalogCandidateScorer"/> in place of <see cref="DurationMismatch"/>.
+    /// </summary>
+    public const string DurationMismatchIsrcConfirmed = "duration_mismatch_isrc_confirmed";
+
     /// <summary>Warnings that contradict the file's identity and must keep a candidate out of Matched.</summary>
     public static bool IsBlocking(string warning) => warning is
         "artist_mismatch"

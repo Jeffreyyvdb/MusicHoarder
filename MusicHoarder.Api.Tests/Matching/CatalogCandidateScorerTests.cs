@@ -90,6 +90,40 @@ public class CatalogCandidateScorerTests
     }
 
     [Fact]
+    public void DurationMismatch_WithConfirmedIsrc_IsAdvisoryNotBlocking()
+    {
+        // A 101Barz-style YouTube rip: long freestyle session, embedded ISRC that the catalog also
+        // carries. The ISRC proves the recording, so the length delta must not block — it becomes the
+        // non-blocking advisory and the score stays high enough to recommend a match.
+        var song = Song("101Barz", "Nass Studiosessie 346", "Nass Studiosessie 346", durationSec: 444, isrc: "QZFYX2198474");
+        var source = Source("101Barz", "Nass Studiosessie 346", "Nass Studiosessie 346");
+        var candidate = Candidate("101Barz", "Nass Studiosessie 346", "Nass Studiosessie 346", durationMs: 300_000, isrc: "QZFYX2198474");
+
+        var (score, warnings) = CatalogCandidateScorer.Score(song, source, candidate, SpotifyLikeTuning);
+
+        Assert.Contains(MusicHoarder.Api.Matching.MatchWarnings.DurationMismatchIsrcConfirmed, warnings);
+        Assert.DoesNotContain("duration_mismatch", warnings);
+        Assert.False(MusicHoarder.Api.Matching.MatchWarnings.AnyBlocking(warnings), "ISRC-confirmed length delta must not block");
+        Assert.True(score >= 0.95, $"identity is ISRC-proven, score should stay high, got {score}");
+    }
+
+    [Fact]
+    public void DurationMismatch_WithConflictingIsrc_StillBlocks()
+    {
+        // ISRC present on both but different → the duration delta keeps the regular blocking warning
+        // (the file ISRC didn't confirm this candidate).
+        var song = Song("101Barz", "Nass Studiosessie 346", "Nass Studiosessie 346", durationSec: 444, isrc: "QZFYX2198474");
+        var source = Source("101Barz", "Nass Studiosessie 346", "Nass Studiosessie 346");
+        var candidate = Candidate("101Barz", "Nass Studiosessie 346", "Nass Studiosessie 346", durationMs: 300_000, isrc: "GBAAA0000001");
+
+        var (_, warnings) = CatalogCandidateScorer.Score(song, source, candidate, SpotifyLikeTuning);
+
+        Assert.Contains("duration_mismatch", warnings);
+        Assert.Contains("isrc_mismatch", warnings);
+        Assert.DoesNotContain(MusicHoarder.Api.Matching.MatchWarnings.DurationMismatchIsrcConfirmed, warnings);
+    }
+
+    [Fact]
     public void VersionQualifierMismatch_WarnsAndPenalizes()
     {
         // Studio source vs. a "Live" candidate — must not silently satisfy the request.

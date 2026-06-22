@@ -68,10 +68,11 @@ public static class CatalogCandidateScorer
         // token-presence against the filename free-text and flagged identity_unverified (non-blocking).
         var score = SourceIdentityScorer.Score(source, candidate.Artist, candidate.Title, FuzzyThreshold, warnings);
 
+        var isrcConfirmed = false;
         if (tuning.Isrc is { } isrcScoring)
-            score = ScoreIsrc(score, warnings, song.Isrc, candidate.Isrc, isrcScoring);
+            (score, isrcConfirmed) = ScoreIsrc(score, warnings, song.Isrc, candidate.Isrc, isrcScoring);
 
-        score = ScoreDuration(score, warnings, song, candidate.DurationMs, tuning);
+        score = ScoreDuration(score, warnings, song, candidate.DurationMs, tuning, isrcConfirmed);
         score = ScoreVersion(score, warnings, song, candidate, tuning);
         score = ScoreAlbumAgreement(score, warnings, song.Album, candidate.Album, tuning);
 
@@ -81,29 +82,35 @@ public static class CatalogCandidateScorer
         return (Math.Max(0.0, score), warnings);
     }
 
-    private static double ScoreIsrc(
+    /// <summary>
+    /// Folds the ISRC signal into the score and reports whether the file's own ISRC was
+    /// <b>confirmed</b> — i.e. present on the file and exactly equal (after normalization) to the
+    /// candidate's. A confirmation is decisive identity proof the duration step then trusts.
+    /// </summary>
+    private static (double Score, bool IsrcConfirmed) ScoreIsrc(
         double score, List<string> warnings, string? songIsrc, string? candidateIsrc, IsrcScoring isrc)
     {
         var fileIsrc = ProviderIdentity.NormalizeIsrc(songIsrc);
         if (string.IsNullOrEmpty(fileIsrc))
-            return score;
+            return (score, false);
 
         var candIsrc = ProviderIdentity.NormalizeIsrc(candidateIsrc);
         if (string.IsNullOrEmpty(candIsrc))
         {
             warnings.Add(isrc.NotOnCandidateWarning);
-            return score;
+            return (score, false);
         }
 
         if (string.Equals(fileIsrc, candIsrc, StringComparison.Ordinal))
-            return Math.Min(1.0, score + isrc.ConfidenceBoost);
+            return (Math.Min(1.0, score + isrc.ConfidenceBoost), true);
 
         warnings.Add("isrc_mismatch");
-        return score * isrc.MismatchPenalty;
+        return (score * isrc.MismatchPenalty, false);
     }
 
     private static double ScoreDuration(
-        double score, List<string> warnings, SongMetadata song, int candidateDurationMs, ScoringTuning tuning)
+        double score, List<string> warnings, SongMetadata song, int candidateDurationMs, ScoringTuning tuning,
+        bool isrcConfirmed)
     {
         var songDurationSec = song.DurationSeconds
             ?? (song.DurationMs is int ms ? ms / 1000.0 : (double?)null);
@@ -114,7 +121,16 @@ public static class CatalogCandidateScorer
         if (delta <= tuning.DurationDeltaThresholdSeconds)
             return score;
 
-        warnings.Add("duration_mismatch");
+        // An exact ISRC match proves this is the same registered recording, so a length delta is an
+        // alternate master/encode (a longer YouTube rip, an outro) — not a wrong match. Record it for
+        // visibility but neither block nor penalize. Any other disagreement (artist/title) still blocks.
+        if (isrcConfirmed)
+        {
+            warnings.Add(MatchWarnings.DurationMismatchIsrcConfirmed);
+            return score;
+        }
+
+        warnings.Add(MatchWarnings.DurationMismatch);
         return score * tuning.DurationMismatchPenalty;
     }
 
