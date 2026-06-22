@@ -14,7 +14,9 @@ var deployTarget = builder.Configuration["DEPLOY_TARGET"]?.ToLowerInvariant() sw
 };
 
 builder.AddDockerComposeEnvironment("compose")
-    .WithProperties(env => env.DashboardEnabled = true)
+    // The Aspire dashboard ships only with the prod (swarm) stack; previews and the self-host template
+    // are lean plain-compose stacks without it (and without the OTLP wiring Aspire injects alongside it).
+    .WithProperties(env => env.DashboardEnabled = deployTarget == DeployTarget.Swarm)
     .ConfigureComposeFile(file => file.ConfigureMusicHoarderDeployment(deployTarget));
 
 // GHCR registry so `aspire publish` emits ghcr.io image references and `aspire do push`

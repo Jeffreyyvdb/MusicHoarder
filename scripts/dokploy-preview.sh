@@ -131,8 +131,11 @@ provision() {
     cookies_path="/data/cookies/youtube.txt"
   fi
 
+  # The preview compose is generated from the AppHost (DEPLOY_TARGET=compose), same source as the prod
+  # stack — see MusicHoarder.AppHost/ComposeFileExtensions.cs (ConfigureForPreview). Committed so this
+  # script (and Dokploy) deploy it verbatim; CI regenerates + checks it.
   local compose_file
-  compose_file="$(cat "${SCRIPT_DIR}/../docker-compose.preview.yaml")"
+  compose_file="$(cat "${SCRIPT_DIR}/../MusicHoarder.AppHost/aspire-output-preview/docker-compose.yaml")"
 
   # Newline-separated KEY=value, exactly as Dokploy stores compose env (filled into ${...}).
   local env_block
@@ -146,6 +149,18 @@ FRONTEND_PUBLIC_BASE_URL=${public_url}
 WEBAUTHN_RP_ID=${PREVIEW_BASE_DOMAIN}
 OWNER_SEED_CREDENTIAL_JSON=${PREVIEW_OWNER_SEED_CREDENTIAL:-}
 SOURCE_DIRECTORY=${source_dir}
+DESTINATION_DIRECTORY=/music/destination
+# The API listens on API_PORT (HTTP_PORTS); the generated compose references it for the published
+# port, the /alive healthcheck, and the frontend's MUSICHOARDER_API_URL.
+API_PORT=8080
+# No demo media on previews — empty makes the seeder fall back to the synthetic demo seed.
+DEMO_MEDIA_DIRECTORY=
+# Frontend: analytics off, and the relay return-origin allowlist empty (previews route OAuth through
+# the prod relay; they are not the relay themselves).
+SPOTIFY_RETURN_ORIGIN_ALLOWLIST=
+PUBLIC_UMAMI_SRC=
+PUBLIC_UMAMI_WEBSITE_ID=
+PUBLIC_UMAMI_RECORDER_SRC=
 ACOUSTID_API_KEY=
 SPOTIFY_CLIENT_ID=${PREVIEW_SPOTIFY_CLIENT_ID:-}
 SPOTIFY_CLIENT_SECRET=${PREVIEW_SPOTIFY_CLIENT_SECRET:-}
