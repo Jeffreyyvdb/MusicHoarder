@@ -23,6 +23,7 @@ public class PlaylistExportServiceTests
         SeedBuilt(db, id: 1, spotifyId: "sp:1", artist: "Artist A", title: "First", dest: Path.Combine(temp.Root, "Artist A", "2020 - Album", "01 - First.flac"));
         SeedBuilt(db, id: 2, spotifyId: "sp:2", artist: "Artist B", title: "Second", dest: Path.Combine(temp.Root, "Artist B", "2021 - Album", "02 - Second.flac"));
         SeedUnbuilt(db, id: 3, spotifyId: "sp:3", artist: "Artist C", title: "Third");
+        Subscribe(db, ExportedPlaylistKind.LikedSongs, null, "Liked Songs");
         await db.SaveChangesAsync();
 
         // Liked songs in Spotify order: sp:1, then sp:3 (not built → skipped), then sp:2, then sp:miss (no match).
@@ -99,6 +100,7 @@ public class PlaylistExportServiceTests
         await using var db = CreateDb();
         SeedBuilt(db, 1, "sp:a", "A", "Aaa", Path.Combine(temp.Root, "A", "Album", "01 - Aaa.flac"));
         SeedBuilt(db, 2, "sp:b", "B", "Bbb", Path.Combine(temp.Root, "B", "Album", "01 - Bbb.flac"));
+        Subscribe(db, ExportedPlaylistKind.Playlist, "pl1", "My Mix");
         await db.SaveChangesAsync();
 
         var playlistTracks = new SpotifyPlaylistTracksResponse(2, 0, 50, new[]
@@ -138,6 +140,7 @@ public class PlaylistExportServiceTests
         await using var db = new MusicHoarderDbContext(options, new TestCurrentUserAccessor(nonOwner));
 
         SeedBuilt(db, 1, "sp:x", "DaBaby", "POP DAT THANG", Path.Combine(temp.Root, "DaBaby", "Album", "01 - POP DAT THANG.flac"));
+        Subscribe(db, ExportedPlaylistKind.LikedSongs, null, "Liked Songs");
         await db.SaveChangesAsync();
 
         // Sanity: with the empty-user ambient filter, a filtered read sees nothing.
@@ -150,6 +153,90 @@ public class PlaylistExportServiceTests
         Assert.Equal(1, result.MatchedTracks);
         var content = await File.ReadAllTextAsync(Path.Combine(temp.Root, "Playlists", "Liked Songs.m3u8"));
         Assert.Contains("../DaBaby/Album/01 - POP DAT THANG.flac", content);
+    }
+
+    [Fact]
+    public async Task RunExport_WritesNothing_WhenNoSubscriptions()
+    {
+        using var temp = new TempDir();
+        await using var db = CreateDb();
+        SeedBuilt(db, 1, "sp:1", "Artist A", "First", Path.Combine(temp.Root, "Artist A", "Album", "01 - First.flac"));
+        await db.SaveChangesAsync();
+
+        // Liked Songs available on Spotify, but the owner hasn't subscribed → opt-in means no export.
+        var liked = new SpotifyLikedSongsResponse(1, 0, 50, new[] { Track("sp:1", "Artist A", "First") });
+        var service = CreateService(db, new StubApi(liked), temp.Root);
+        var result = await service.RunExportAsync();
+
+        Assert.True(result.Ran);
+        Assert.Equal(0, result.PlaylistsWritten);
+        Assert.False(File.Exists(Path.Combine(temp.Root, "Playlists", "Liked Songs.m3u8")));
+        Assert.False(await db.ExportedPlaylists.IgnoreQueryFilters().AnyAsync());
+    }
+
+    [Fact]
+    public async Task RunExport_SkipsUnsubscribedPlaylist()
+    {
+        using var temp = new TempDir();
+        await using var db = CreateDb();
+        SeedBuilt(db, 1, "sp:a", "A", "Aaa", Path.Combine(temp.Root, "A", "Album", "01 - Aaa.flac"));
+        await db.SaveChangesAsync();
+
+        // Spotify exposes a playlist, but it is not subscribed, so it must not be written.
+        var api = new StubApi(
+            new SpotifyLikedSongsResponse(0, 0, 50, []),
+            playlists: new SpotifyPlaylistsResponse(new[] { new SpotifyPlaylistItem("pl1", "My Mix", null, null, 1, "me") }),
+            playlistTracks: new SpotifyPlaylistTracksResponse(1, 0, 50, new[] { Track("sp:a", "A", "Aaa") }));
+
+        var service = CreateService(db, api, temp.Root);
+        var result = await service.RunExportAsync();
+
+        Assert.Equal(0, result.PlaylistsWritten);
+        Assert.False(File.Exists(Path.Combine(temp.Root, "Playlists", "My Mix.m3u8")));
+        Assert.False(await db.ExportedPlaylists.IgnoreQueryFilters().AnyAsync());
+    }
+
+    [Fact]
+    public async Task Subscribe_ThenRunExport_WritesTheSubscribedCollection()
+    {
+        using var temp = new TempDir();
+        await using var db = CreateDb();
+        SeedBuilt(db, 1, "sp:1", "Artist A", "First", Path.Combine(temp.Root, "Artist A", "Album", "01 - First.flac"));
+        await db.SaveChangesAsync();
+
+        var liked = new SpotifyLikedSongsResponse(1, 0, 50, new[] { Track("sp:1", "Artist A", "First") });
+        var service = CreateService(db, new StubApi(liked), temp.Root);
+
+        var row = await service.SubscribeAsync(ExportedPlaylistKind.LikedSongs, null, "Liked Songs");
+        Assert.True(row.Id > 0);
+
+        var result = await service.RunExportAsync();
+        Assert.Equal(1, result.PlaylistsWritten);
+        Assert.True(File.Exists(Path.Combine(temp.Root, "Playlists", "Liked Songs.m3u8")));
+    }
+
+    [Fact]
+    public async Task Unsubscribe_DeletesFileAndRow()
+    {
+        using var temp = new TempDir();
+        await using var db = CreateDb();
+        SeedBuilt(db, 1, "sp:1", "Artist A", "First", Path.Combine(temp.Root, "Artist A", "Album", "01 - First.flac"));
+        Subscribe(db, ExportedPlaylistKind.LikedSongs, null, "Liked Songs");
+        await db.SaveChangesAsync();
+
+        var liked = new SpotifyLikedSongsResponse(1, 0, 50, new[] { Track("sp:1", "Artist A", "First") });
+        var service = CreateService(db, new StubApi(liked), temp.Root);
+
+        await service.RunExportAsync();
+        var file = Path.Combine(temp.Root, "Playlists", "Liked Songs.m3u8");
+        Assert.True(File.Exists(file));
+
+        var id = (await db.ExportedPlaylists.IgnoreQueryFilters().SingleAsync()).Id;
+        var removed = await service.UnsubscribeAsync(id);
+
+        Assert.True(removed);
+        Assert.False(File.Exists(file));
+        Assert.False(await db.ExportedPlaylists.IgnoreQueryFilters().AnyAsync());
     }
 
     #region Helpers
@@ -204,6 +291,20 @@ public class PlaylistExportServiceTests
             DurationSeconds = 200,
             LibraryBuildStatus = LibraryBuildStatus.Pending,
             DestinationPath = null,
+        });
+    }
+
+    private static void Subscribe(MusicHoarderDbContext db, ExportedPlaylistKind kind, string? spotifyPlaylistId, string name)
+    {
+        // The presence of an ExportedPlaylist row IS the subscription (export is opt-in).
+        db.ExportedPlaylists.Add(new ExportedPlaylist
+        {
+            OwnerUserId = WellKnownUsers.OwnerId,
+            Kind = kind,
+            SpotifyPlaylistId = spotifyPlaylistId,
+            Name = name,
+            FilePath = string.Empty,
+            UpdatedAtUtc = DateTime.UtcNow,
         });
     }
 

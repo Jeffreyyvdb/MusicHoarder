@@ -25,10 +25,26 @@ public sealed record ExportedPlaylistSummary(
 public interface IPlaylistExportService
 {
     /// <summary>
-    /// Mirrors the owner's Spotify Liked Songs + every playlist to <c>.m3u8</c> files in the
-    /// destination library. Returns <c>Ran=false</c> if another run is already in progress.
+    /// Mirrors the owner's <b>subscribed</b> Spotify collections (Liked Songs and/or specific
+    /// playlists) to <c>.m3u8</c> files in the destination library. Export is opt-in: only collections
+    /// the owner has subscribed (an <see cref="ExportedPlaylist"/> row exists) are written — nothing is
+    /// synced by default. Returns <c>Ran=false</c> if another run is already in progress.
     /// </summary>
     Task<PlaylistExportResult> RunExportAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Subscribes a Spotify collection so it is mirrored on the next export run. Idempotent: re-subscribing
+    /// just refreshes the stored name. Does not write the file itself — call <see cref="RunExportAsync"/>
+    /// afterwards (the endpoint kicks that off the request path).
+    /// </summary>
+    Task<ExportedPlaylist> SubscribeAsync(
+        ExportedPlaylistKind kind, string? spotifyPlaylistId, string name, CancellationToken ct = default);
+
+    /// <summary>
+    /// Unsubscribes a collection: deletes its <c>.m3u8</c> file and the subscription row. Returns
+    /// <c>false</c> if no such subscription exists for the owner.
+    /// </summary>
+    Task<bool> UnsubscribeAsync(int id, CancellationToken ct = default);
 }
 
 public sealed class PlaylistExportService(
@@ -40,8 +56,8 @@ public sealed class PlaylistExportService(
     IOptions<MusicEnricherOptions> options,
     ILogger<PlaylistExportService> logger) : IPlaylistExportService
 {
-    // Serialize export runs: the periodic background tick and the manual regenerate button must never
-    // write the same files concurrently.
+    // Serialize export runs: the periodic background tick, the manual regenerate button and a
+    // subscribe-triggered run must never write the same files concurrently.
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
     public async Task<PlaylistExportResult> RunExportAsync(CancellationToken ct = default)
@@ -64,48 +80,65 @@ public sealed class PlaylistExportService(
 
     private async Task<PlaylistExportResult> RunExportCoreAsync(CancellationToken ct)
     {
-        var opts = options.Value;
-        var destinationRoot = opts.DestinationDirectory;
-        if (string.IsNullOrWhiteSpace(destinationRoot))
+        var playlistsDir = ResolvePlaylistsDir();
+        if (playlistsDir is null)
         {
             logger.LogWarning("Playlist export skipped: no destination directory configured");
             return new PlaylistExportResult(true, 0, 0, 0, []);
         }
 
-        var folderName = string.IsNullOrWhiteSpace(opts.PlaylistsFolderName) ? "Playlists" : opts.PlaylistsFolderName;
-        var playlistsDir = Path.Combine(destinationRoot, folderName);
+        // Opt-in: only collections the owner has subscribed are exported. No subscriptions → no-op.
+        var subscriptions = await LoadSubscriptionsAsync(ct);
+        if (subscriptions.Count == 0)
+        {
+            logger.LogInformation("Playlist export: no subscribed collections — nothing to export");
+            return new PlaylistExportResult(true, 0, 0, 0, []);
+        }
 
-        var collections = await GatherCollectionsAsync(ct);
+        // Live playlist snapshot drives rename + deletion detection, but only matters if a playlist (not
+        // just Liked Songs) is subscribed — skip the call otherwise.
+        Dictionary<string, SpotifyPlaylistItem>? liveById = null;
+        if (subscriptions.Any(s => s.Kind == ExportedPlaylistKind.Playlist))
+        {
+            var live = await spotifyApi.GetPlaylistsAsync(ct);
+            liveById = live.Items
+                .GroupBy(p => p.SpotifyId, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        }
 
         var summaries = new List<ExportedPlaylistSummary>();
         var usedFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var seenKeys = new HashSet<string>(StringComparer.Ordinal);
         var totalTracks = 0;
         var matchedTracks = 0;
 
-        foreach (var collection in collections)
+        foreach (var sub in subscriptions)
         {
             ct.ThrowIfCancellationRequested();
 
-            var entries = await ResolveEntriesAsync(collection.Tracks, ct);
-            var fileName = BuildUniqueFileName(collection, usedFileNames);
-            var filePath = Path.Combine(playlistsDir, fileName);
+            string name;
+            if (sub.Kind == ExportedPlaylistKind.Playlist)
+            {
+                if (liveById is null || !liveById.TryGetValue(sub.SpotifyPlaylistId ?? string.Empty, out var live))
+                {
+                    // Subscribed playlist was deleted or unfollowed on Spotify → drop file + subscription.
+                    await UnsubscribeAsync(sub.Id, ct);
+                    logger.LogInformation("Removed subscription for playlist gone from Spotify: {Name}", sub.Name);
+                    continue;
+                }
+                name = live.Name;
+            }
+            else
+            {
+                name = "Liked Songs";
+            }
 
-            await writer.WriteAsync(filePath, playlistsDir, entries, ct);
-            await UpsertRowAsync(collection, filePath, collection.Tracks.Count, entries.Count, ct);
-
-            seenKeys.Add(CollectionKey(collection.Kind, collection.SpotifyPlaylistId));
-            totalTracks += collection.Tracks.Count;
-            matchedTracks += entries.Count;
-            summaries.Add(new ExportedPlaylistSummary(
-                collection.Kind.ToString(), collection.Name, filePath, collection.Tracks.Count, entries.Count));
-
-            logger.LogInformation(
-                "Exported playlist {Name}: {Matched}/{Total} tracks → {Path}",
-                collection.Name, entries.Count, collection.Tracks.Count, filePath);
+            var tracks = await FetchTracksAsync(sub.Kind, sub.SpotifyPlaylistId, ct);
+            var collection = new ExportCollection(sub.Kind, sub.SpotifyPlaylistId, name, tracks);
+            var (total, matched, summary) = await ExportCollectionAsync(collection, playlistsDir, usedFileNames, ct);
+            totalTracks += total;
+            matchedTracks += matched;
+            summaries.Add(summary);
         }
-
-        await CleanupOrphansAsync(playlistsDir, seenKeys, ct);
 
         logger.LogInformation(
             "Playlist export finished: {Playlists} playlists, {Matched}/{Total} tracks written",
@@ -114,33 +147,129 @@ public sealed class PlaylistExportService(
         return new PlaylistExportResult(true, summaries.Count, totalTracks, matchedTracks, summaries);
     }
 
+    public async Task<ExportedPlaylist> SubscribeAsync(
+        ExportedPlaylistKind kind, string? spotifyPlaylistId, string name, CancellationToken ct = default)
+    {
+        // Liked Songs is a singleton keyed by a null playlist id; a playlist needs its Spotify id.
+        var normalizedId = kind == ExportedPlaylistKind.LikedSongs ? null : spotifyPlaylistId;
+        if (kind == ExportedPlaylistKind.Playlist && string.IsNullOrWhiteSpace(normalizedId))
+            throw new ArgumentException("A playlist subscription requires a Spotify playlist id.", nameof(spotifyPlaylistId));
+
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+        var ownerId = ownerLookup.OwnerUserId;
+        var now = DateTime.UtcNow;
+
+        var row = await db.ExportedPlaylists
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(e => e.OwnerUserId == ownerId
+                && e.Kind == kind
+                && e.SpotifyPlaylistId == normalizedId, ct);
+
+        var resolvedName = string.IsNullOrWhiteSpace(name)
+            ? (kind == ExportedPlaylistKind.LikedSongs ? "Liked Songs" : "Playlist")
+            : name;
+
+        if (row is null)
+        {
+            row = new ExportedPlaylist
+            {
+                OwnerUserId = ownerId,
+                Kind = kind,
+                SpotifyPlaylistId = normalizedId,
+                Name = resolvedName,
+                // FilePath / counts stay empty until the first export run writes the .m3u8.
+                FilePath = string.Empty,
+                UpdatedAtUtc = now,
+            };
+            db.ExportedPlaylists.Add(row);
+        }
+        else
+        {
+            row.Name = resolvedName;
+            row.UpdatedAtUtc = now;
+        }
+
+        await db.SaveChangesAsync(ct);
+        return row;
+    }
+
+    public async Task<bool> UnsubscribeAsync(int id, CancellationToken ct = default)
+    {
+        var playlistsDir = ResolvePlaylistsDir();
+
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+        var ownerId = ownerLookup.OwnerUserId;
+
+        var row = await db.ExportedPlaylists
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(e => e.Id == id && e.OwnerUserId == ownerId, ct);
+        if (row is null)
+            return false;
+
+        if (playlistsDir is not null)
+            TryDeletePlaylistFile(row.FilePath, playlistsDir);
+        db.ExportedPlaylists.Remove(row);
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    private sealed record Subscription(int Id, ExportedPlaylistKind Kind, string? SpotifyPlaylistId, string Name);
+
+    private async Task<List<Subscription>> LoadSubscriptionsAsync(CancellationToken ct)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+        var ownerId = ownerLookup.OwnerUserId;
+
+        return await db.ExportedPlaylists
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(e => e.OwnerUserId == ownerId)
+            // Liked Songs (Kind 0) first, then playlists by name — keeps file dedup deterministic.
+            .OrderBy(e => e.Kind)
+            .ThenBy(e => e.Name)
+            .Select(e => new Subscription(e.Id, e.Kind, e.SpotifyPlaylistId, e.Name))
+            .ToListAsync(ct);
+    }
+
+    private async Task<IReadOnlyList<SpotifyTrackItem>> FetchTracksAsync(
+        ExportedPlaylistKind kind, string? spotifyPlaylistId, CancellationToken ct)
+    {
+        // Liked Songs: Spotify returns /me/tracks newest-first, which is the requested "liked-date
+        // descending" order, so no re-sort is needed.
+        if (kind == ExportedPlaylistKind.LikedSongs)
+            return await PageAllAsync(
+                (offset, ct2) => spotifyApi.GetLikedSongsAsync(offset, 50, ct2), r => (r.Items, r.Total), ct);
+
+        return await PageAllAsync(
+            (offset, ct2) => spotifyApi.GetPlaylistTracksAsync(spotifyPlaylistId!, offset, 50, ct2),
+            r => (r.Items, r.Total), ct);
+    }
+
     private sealed record ExportCollection(
         ExportedPlaylistKind Kind,
         string? SpotifyPlaylistId,
         string Name,
         IReadOnlyList<SpotifyTrackItem> Tracks);
 
-    private async Task<List<ExportCollection>> GatherCollectionsAsync(CancellationToken ct)
+    private async Task<(int Total, int Matched, ExportedPlaylistSummary Summary)> ExportCollectionAsync(
+        ExportCollection collection, string playlistsDir, HashSet<string> usedFileNames, CancellationToken ct)
     {
-        var collections = new List<ExportCollection>();
+        var entries = await ResolveEntriesAsync(collection.Tracks, ct);
+        var fileName = BuildUniqueFileName(collection, usedFileNames);
+        var filePath = Path.Combine(playlistsDir, fileName);
 
-        // Liked Songs first — Spotify returns /me/tracks newest-first, which is exactly the requested
-        // "liked-date descending" order, so no re-sort is needed.
-        var liked = await PageAllAsync((offset, ct2) => spotifyApi.GetLikedSongsAsync(offset, 50, ct2),
-            r => (r.Items, r.Total), ct);
-        collections.Add(new ExportCollection(ExportedPlaylistKind.LikedSongs, null, "Liked Songs", liked));
+        await writer.WriteAsync(filePath, playlistsDir, entries, ct);
+        await UpsertRowAsync(collection, filePath, collection.Tracks.Count, entries.Count, ct);
 
-        var playlists = await spotifyApi.GetPlaylistsAsync(ct);
-        foreach (var playlist in playlists.Items)
-        {
-            ct.ThrowIfCancellationRequested();
-            var tracks = await PageAllAsync(
-                (offset, ct2) => spotifyApi.GetPlaylistTracksAsync(playlist.SpotifyId, offset, 50, ct2),
-                r => (r.Items, r.Total), ct);
-            collections.Add(new ExportCollection(ExportedPlaylistKind.Playlist, playlist.SpotifyId, playlist.Name, tracks));
-        }
+        logger.LogInformation(
+            "Exported playlist {Name}: {Matched}/{Total} tracks → {Path}",
+            collection.Name, entries.Count, collection.Tracks.Count, filePath);
 
-        return collections;
+        return (collection.Tracks.Count, entries.Count, new ExportedPlaylistSummary(
+            collection.Kind.ToString(), collection.Name, filePath, collection.Tracks.Count, entries.Count));
     }
 
     private static async Task<List<SpotifyTrackItem>> PageAllAsync<TResponse>(
@@ -257,7 +386,7 @@ public sealed class PlaylistExportService(
             };
             db.ExportedPlaylists.Add(row);
         }
-        else if (!string.Equals(row.FilePath, filePath, StringComparison.Ordinal))
+        else if (!string.IsNullOrEmpty(row.FilePath) && !string.Equals(row.FilePath, filePath, StringComparison.Ordinal))
         {
             // The collection was renamed on Spotify (same id, new sanitized filename): drop the old file.
             TryDeletePlaylistFile(row.FilePath, Path.GetDirectoryName(filePath));
@@ -269,32 +398,6 @@ public sealed class PlaylistExportService(
         row.MatchedTrackCount = matched;
         row.LastGeneratedAtUtc = now;
         row.UpdatedAtUtc = now;
-
-        await db.SaveChangesAsync(ct);
-    }
-
-    /// <summary>Removes <c>.m3u8</c> files + rows for collections no longer present on Spotify.</summary>
-    private async Task CleanupOrphansAsync(string playlistsDir, HashSet<string> seenKeys, CancellationToken ct)
-    {
-        using var scope = scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-        var ownerId = ownerLookup.OwnerUserId;
-
-        var rows = await db.ExportedPlaylists
-            .IgnoreQueryFilters()
-            .Where(e => e.OwnerUserId == ownerId)
-            .ToListAsync(ct);
-
-        var orphans = rows.Where(r => !seenKeys.Contains(CollectionKey(r.Kind, r.SpotifyPlaylistId))).ToList();
-        if (orphans.Count == 0)
-            return;
-
-        foreach (var orphan in orphans)
-        {
-            TryDeletePlaylistFile(orphan.FilePath, playlistsDir);
-            db.ExportedPlaylists.Remove(orphan);
-            logger.LogInformation("Removed orphaned playlist export {Name} ({Path})", orphan.Name, orphan.FilePath);
-        }
 
         await db.SaveChangesAsync(ct);
     }
@@ -320,8 +423,14 @@ public sealed class PlaylistExportService(
         }
     }
 
-    private static string CollectionKey(ExportedPlaylistKind kind, string? spotifyPlaylistId)
-        => $"{kind}\0{spotifyPlaylistId ?? string.Empty}";
+    private string? ResolvePlaylistsDir()
+    {
+        var opts = options.Value;
+        if (string.IsNullOrWhiteSpace(opts.DestinationDirectory))
+            return null;
+        var folderName = string.IsNullOrWhiteSpace(opts.PlaylistsFolderName) ? "Playlists" : opts.PlaylistsFolderName;
+        return Path.Combine(opts.DestinationDirectory, folderName);
+    }
 
     private static string BuildUniqueFileName(ExportCollection collection, HashSet<string> used)
     {
