@@ -525,9 +525,12 @@
           size="icon"
           class={cn(
             'size-10 rounded-full',
+            // Keep the icon's contrasting colour on hover — the ghost variant's
+            // default `hover:text-foreground` would otherwise turn it dark against
+            // the dark/filled button.
             isCurrentlyLoaded
-              ? 'bg-foreground text-background hover:bg-foreground/90'
-              : 'bg-primary text-primary-foreground hover:bg-primary/90'
+              ? 'bg-foreground text-background hover:bg-foreground/90 hover:text-background'
+              : 'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground'
           )}
           onclick={handlePlayToggle}
           aria-label={isCurrentlyPlaying ? 'Pause' : 'Play'}

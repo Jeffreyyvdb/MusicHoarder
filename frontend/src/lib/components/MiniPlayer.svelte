@@ -1,16 +1,19 @@
 <script lang="ts">
-  import { Pause, Play, Quote, SkipBack, SkipForward, Volume2, VolumeX, X } from '@lucide/svelte';
+  import {
+    Maximize2,
+    Pause,
+    Play,
+    Quote,
+    SkipBack,
+    SkipForward,
+    Volume2,
+    VolumeX,
+    X
+  } from '@lucide/svelte';
   import { playerStore } from '$lib/stores/player.svelte';
   import { songDetail } from '$lib/stores/song-detail.svelte';
   import { Button } from '$lib/components/ui/button';
   import Cover from '$lib/components/file-browser/Cover.svelte';
-
-  function formatTime(seconds: number): string {
-    if (!Number.isFinite(seconds) || Number.isNaN(seconds) || seconds < 0) return '0:00';
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  }
 
   // Progress as a 0..1 fraction. Driven into the seek bar via `transform: scaleX`
   // (composite-only) rather than a bits-ui Slider, whose per-value reflow on the
@@ -22,6 +25,15 @@
   );
 
   const canSeek = $derived(Number.isFinite(playerStore.duration) && playerStore.duration > 0);
+
+  // Apple-Music-style subtitle: "Artist — Album" when the album is known, artist
+  // alone otherwise (em dash, matching the macOS now-playing bar).
+  const subtitle = $derived.by(() => {
+    const song = playerStore.currentSong;
+    if (!song) return '';
+    const album = song.album?.trim();
+    return album ? `${song.artist} — ${album}` : song.artist;
+  });
 
   let seekEl: HTMLDivElement | null = $state(null);
 
@@ -128,7 +140,7 @@
 {#if playerStore.currentSong && !playerStore.isPanelMounted}
   {@const song = playerStore.currentSong}
   <div
-    class="border-border bg-background/70 fixed inset-x-3 z-50 overflow-hidden rounded-2xl border shadow-[0_-4px_24px_oklch(0%_0_0/0.08)] backdrop-blur-xl backdrop-saturate-150 bottom-[calc(84px_+_max(env(safe-area-inset-bottom),var(--mh-vv-bottom,0px)))] md:right-auto md:bottom-3 md:left-1/2 md:w-full md:max-w-3xl md:-translate-x-1/2 dark:shadow-[0_-4px_20px_rgba(0,0,0,0.35)]"
+    class="mh-mini-enter border-border bg-background/70 fixed inset-x-3 z-50 overflow-hidden rounded-2xl border shadow-[0_-4px_24px_oklch(0%_0_0/0.08)] backdrop-blur-xl backdrop-saturate-150 bottom-[calc(84px_+_max(env(safe-area-inset-bottom),var(--mh-vv-bottom,0px)))] md:right-auto md:bottom-3 md:left-1/2 md:w-full md:max-w-3xl md:-translate-x-1/2 dark:shadow-[0_-4px_20px_rgba(0,0,0,0.35)]"
   >
     <div class="bg-foreground/15 block h-0.5 w-full overflow-hidden sm:hidden" aria-hidden="true">
       <div
@@ -177,59 +189,72 @@
         </Button>
       </div>
 
-      <!-- CENTER: now-playing (art + title/artist, thin seek line under) -->
-      <div class="flex min-w-0 flex-1 flex-col items-center justify-center gap-1">
+      <!-- CENTER: now-playing, LEFT-aligned — art + title/artist with a slim seek
+           line directly under it (Apple-Music compact bar). -->
+      <div class="flex min-w-0 flex-1 flex-col items-start justify-center gap-1">
         <button
           type="button"
           onclick={() => songDetail.open(song.id)}
-          class="hover:bg-primary/10 flex min-w-0 max-w-full items-center gap-2.5 rounded-md px-1.5 py-0.5 text-left transition-colors"
+          aria-label="Open now playing"
+          class="group/np focus-visible:ring-ring/50 flex min-w-0 max-w-full items-center gap-2.5 rounded-md px-1.5 py-0.5 text-left outline-none focus-visible:ring-2"
         >
-          <Cover
-            artist={song.artist}
-            title={song.title}
-            coverUrl={song.coverUrl ?? null}
-            size={36}
-            corner={4}
-            caption={false}
-            class="size-9 shrink-0"
-          />
+          <!-- Album art with an Apple-Music-style enlarge affordance: the cover
+               eases up a touch and a dim scrim + expand glyph fade in on hover.
+               Tailwind's hover/group-hover variants are already gated behind
+               @media (hover: hover); motion-reduce drops the easing to a snap. -->
+          <span class="relative block size-9 shrink-0 overflow-hidden rounded-[4px]">
+            <Cover
+              artist={song.artist}
+              title={song.title}
+              coverUrl={song.coverUrl ?? null}
+              size={36}
+              corner={4}
+              caption={false}
+              class="size-9 transition-transform duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] group-hover/np:scale-[1.08] motion-reduce:transition-none"
+            />
+            <span
+              class="pointer-events-none absolute inset-0 grid place-items-center bg-black/45 opacity-0 transition-opacity duration-150 ease-out group-hover/np:opacity-100 motion-reduce:transition-none"
+              aria-hidden="true"
+            >
+              <Maximize2
+                class="size-4 scale-90 text-white transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] group-hover/np:scale-100 motion-reduce:transition-none"
+              />
+            </span>
+          </span>
           <div class="min-w-0">
             <p class="truncate text-[13px] leading-tight font-medium">{song.title}</p>
-            <p class="text-muted-foreground truncate text-[11px] leading-tight">{song.artist}</p>
+            <p class="text-muted-foreground truncate text-[11px] leading-tight">{subtitle}</p>
           </div>
         </button>
 
-        <div class="hidden w-full max-w-[460px] items-center gap-2 sm:flex">
-          <span class="text-muted-foreground w-9 shrink-0 text-right text-[10px] tabular-nums">
-            {formatTime(playerStore.currentTime)}
-          </span>
+        <!-- Slim seek line under the now-playing block; thickens on hover/focus so
+             it's easy to grab and drag. Desktop only — mobile uses the top-edge
+             progress line. -->
+        <div
+          bind:this={seekEl}
+          role="slider"
+          tabindex="0"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(progress * 100)}
+          aria-label="Seek"
+          class="group/seek relative hidden h-3 w-full max-w-[440px] cursor-pointer touch-none items-center select-none rounded-full outline-none sm:flex"
+          onpointerdown={onSeekPointerDown}
+          onpointermove={onSeekPointerMove}
+          onkeydown={onSeekKeyDown}
+        >
           <div
-            bind:this={seekEl}
-            role="slider"
-            tabindex="0"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(progress * 100)}
-            aria-label="Seek"
-            class="group relative flex h-3 min-w-0 flex-1 cursor-pointer touch-none items-center select-none"
-            onpointerdown={onSeekPointerDown}
-            onpointermove={onSeekPointerMove}
-            onkeydown={onSeekKeyDown}
+            class="bg-foreground/20 relative h-[3px] w-full overflow-hidden rounded-full transition-[height] duration-150 ease-out group-hover/seek:h-[7px] group-focus-visible/seek:h-[7px] motion-reduce:transition-none"
           >
-            <div class="bg-foreground/15 relative h-1 w-full overflow-hidden rounded-full">
-              <div
-                class="bg-foreground/40 group-hover:bg-primary absolute inset-0 origin-left rounded-full transition-colors"
-                style="transform: scaleX({progress})"
-              ></div>
-            </div>
             <div
-              class="border-ring pointer-events-none absolute size-3 -translate-x-1/2 rounded-full border bg-white opacity-0 transition-opacity group-hover:opacity-100"
-              style="left: {progress * 100}%"
+              class="bg-foreground/45 group-hover/seek:bg-primary group-focus-visible/seek:bg-primary absolute inset-0 origin-left rounded-full transition-colors"
+              style="transform: scaleX({progress})"
             ></div>
           </div>
-          <span class="text-muted-foreground w-9 shrink-0 text-[10px] tabular-nums">
-            {formatTime(playerStore.duration)}
-          </span>
+          <div
+            class="border-ring pointer-events-none absolute size-3 -translate-x-1/2 rounded-full border bg-white opacity-0 shadow-sm transition-opacity group-hover/seek:opacity-100 group-focus-visible/seek:opacity-100"
+            style="left: {progress * 100}%"
+          ></div>
         </div>
       </div>
 
@@ -298,3 +323,31 @@
     </div>
   </div>
 {/if}
+
+<style>
+  /* Strong ease-out curve (per Emil Kowalski) — punchier than the stock CSS easings. */
+  /* Touch only `transform` (the vertical rise) + opacity. On md+ the bar is
+     centered via Tailwind's `translate: -50%` (the standalone `translate`
+     property, independent of `transform`), so animating `transform` here
+     composes with it instead of overwriting the horizontal centering. */
+  .mh-mini-enter {
+    animation: mh-mini-rise 280ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  }
+
+  @keyframes mh-mini-rise {
+    from {
+      transform: translateY(8px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mh-mini-enter {
+      animation: none;
+    }
+  }
+</style>
