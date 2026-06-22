@@ -4,6 +4,24 @@ using Aspire.Hosting.Docker.Resources.ServiceNodes;
 using Aspire.Hosting.Docker.Resources.ServiceNodes.Swarm;
 
 /// <summary>
+/// Which deploy target a published compose file is shaped for. The app + env contract is shared
+/// across all targets (that is the whole point of generating them from one AppHost); only the
+/// orchestrator-specific shape — networking, rollout, image refs, ports, volumes — differs.
+/// Selected at publish time via the <c>DEPLOY_TARGET</c> config value (see AppHost.cs).
+/// </summary>
+internal enum DeployTarget
+{
+    /// <summary>musichoarder.app — deployed as a Docker Stack (Swarm) under Dokploy. The default.</summary>
+    Swarm,
+
+    /// <summary>Per-PR preview stack — plain <c>docker compose up</c> via scripts/dokploy-preview.sh.</summary>
+    Compose,
+
+    /// <summary>Published self-host template — plain <c>docker compose up</c>, GHCR-pulled images.</summary>
+    SelfHost,
+}
+
+/// <summary>
 /// Post-processing applied to the Aspire-generated Docker Compose file
 /// (<c>aspire publish</c> → <c>aspire-output/docker-compose.yaml</c>) that Dokploy deploys.
 /// Kept out of <c>AppHost.cs</c> so the composition root stays focused on resource wiring.
@@ -11,11 +29,31 @@ using Aspire.Hosting.Docker.Resources.ServiceNodes.Swarm;
 internal static class ComposeFileExtensions
 {
     /// <summary>
-    /// Applies every MusicHoarder-specific tweak the published compose needs: persistent storage,
-    /// the host music-library bind mounts, zero-downtime rollout config, and the normalizations that
-    /// make the file deployable as a Docker Stack (Swarm) under Dokploy.
+    /// Applies every MusicHoarder-specific tweak the published compose needs, shaped for the requested
+    /// <paramref name="target"/>. The app/env contract is shared; the dispatch below picks the
+    /// orchestrator-specific shape so all deploy targets stay generated from this one AppHost.
     /// </summary>
-    public static void ConfigureMusicHoarderDeployment(this ComposeFile file)
+    public static void ConfigureMusicHoarderDeployment(this ComposeFile file, DeployTarget target)
+    {
+        switch (target)
+        {
+            case DeployTarget.Swarm:
+                file.ConfigureForSwarm();
+                break;
+            default:
+                throw new NotSupportedException(
+                    $"Deploy target '{target}' is not wired yet. Only Swarm (musichoarder.app) is " +
+                    "implemented; Compose (preview) and SelfHost are added in follow-up changes.");
+        }
+    }
+
+    /// <summary>
+    /// musichoarder.app shape: deployed as a Docker Stack (Swarm) under Dokploy — overlay networks,
+    /// swarm <c>deploy:</c>/<c>update_config</c> rollout, no <c>pull_policy</c>/top-level <c>restart</c>,
+    /// host-bind music library + demo media. This is the body that shipped before the target seam, kept
+    /// verbatim so the generated prod compose is byte-for-byte unchanged.
+    /// </summary>
+    private static void ConfigureForSwarm(this ComposeFile file)
     {
         var api = file.Services["api"];
         var frontend = file.Services["frontend"];

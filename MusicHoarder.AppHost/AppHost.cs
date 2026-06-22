@@ -3,9 +3,19 @@ using System.Text.RegularExpressions;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
+// All deploy composes are generated from this one AppHost; DEPLOY_TARGET picks which shape `aspire
+// publish` emits (swarm for musichoarder.app, compose for previews, selfhost for the published
+// template). Defaults to swarm so a bare `aspire publish` keeps producing the prod compose.
+var deployTarget = builder.Configuration["DEPLOY_TARGET"]?.ToLowerInvariant() switch
+{
+    "compose" => DeployTarget.Compose,
+    "selfhost" => DeployTarget.SelfHost,
+    _ => DeployTarget.Swarm,
+};
+
 builder.AddDockerComposeEnvironment("compose")
     .WithProperties(env => env.DashboardEnabled = true)
-    .ConfigureComposeFile(file => file.ConfigureMusicHoarderDeployment());
+    .ConfigureComposeFile(file => file.ConfigureMusicHoarderDeployment(deployTarget));
 
 // GHCR registry so `aspire publish` emits ghcr.io image references and `aspire do push`
 // builds + pushes there. Dokploy's Compose service pulls these prebuilt images.
