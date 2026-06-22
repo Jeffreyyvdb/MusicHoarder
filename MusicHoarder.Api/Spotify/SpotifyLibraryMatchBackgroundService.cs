@@ -79,7 +79,10 @@ public class SpotifyLibraryMatchBackgroundService(
     private static async Task<bool> IsSpotifyConnectedAsync(IServiceScope scope, CancellationToken ct)
     {
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+        // IgnoreQueryFilters: in a hosted-service scope the multi-tenant filter resolves to
+        // OwnerUserId == Guid.Empty (no HTTP user) and would hide the owner's settings row.
         return await db.SpotifySettings
+            .IgnoreQueryFilters()
             .AsNoTracking()
             .AnyAsync(s => !string.IsNullOrEmpty(s.AccessToken) && !string.IsNullOrEmpty(s.RefreshToken), ct);
     }
