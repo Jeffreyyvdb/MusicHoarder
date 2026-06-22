@@ -35,10 +35,19 @@ public static class PlaylistsEndpoints
                     subs.TryGetValue(CollectionKey(ExportedPlaylistKind.LikedSongs, null), out var likedRow);
                     collections.Add(ToDto(ExportedPlaylistKind.LikedSongs, null, "Liked Songs", null, null, liked.Total, likedRow));
 
+                    // Dedupe by Spotify id: paging overlap (or an id-less playlist) would otherwise emit
+                    // two collections sharing a key and crash the keyed list on the client. Skip blank
+                    // ids outright — they can't be subscribed to.
+                    var seen = new HashSet<string>(StringComparer.Ordinal);
                     var playlists = await spotifyApi.GetPlaylistsAsync(ct);
                     foreach (var p in playlists.Items.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
                     {
-                        subs.TryGetValue(CollectionKey(ExportedPlaylistKind.Playlist, p.SpotifyId), out var row);
+                        if (string.IsNullOrWhiteSpace(p.SpotifyId))
+                            continue;
+                        var key = CollectionKey(ExportedPlaylistKind.Playlist, p.SpotifyId);
+                        if (!seen.Add(key))
+                            continue;
+                        subs.TryGetValue(key, out var row);
                         collections.Add(ToDto(ExportedPlaylistKind.Playlist, p.SpotifyId, p.Name, p.ImageUrl, p.OwnerName, p.TrackCount, row));
                     }
                 }
