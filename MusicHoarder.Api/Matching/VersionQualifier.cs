@@ -45,8 +45,13 @@ public static partial class VersionQualifier
     public static VersionQualifiers Detect(string? title, string? album = null)
     {
         var result = DetectIn(title);
-        // Deluxe/Remaster/Edition markers usually live on the album, not the track title.
-        result |= DetectIn(album) & (VersionQualifiers.Remaster | VersionQualifiers.Deluxe | VersionQualifiers.Extended);
+        // Deluxe/Remaster/Edition markers usually live on the album, not the track title. "Live" too:
+        // a live bootleg often carries the venue on the *album* ("… Live from Phoenix 2024.03.10") while
+        // the track title is the plain song name — without this it would falsely agree with the studio
+        // cut. Live is an identity-changing (strong) qualifier, so it keeps such a file out of an
+        // auto-match with the studio recording the catalogs return.
+        result |= DetectIn(album) & (
+            VersionQualifiers.Remaster | VersionQualifiers.Deluxe | VersionQualifiers.Extended | VersionQualifiers.Live);
         return result;
     }
 

@@ -34,6 +34,17 @@ public class VersionQualifierTests
         Assert.Equal(VersionQualifiers.None, q & VersionQualifier.StrongMask);
     }
 
+    [Fact]
+    public void Detect_LiveFromAlbum_WhenTitleIsPlain()
+    {
+        // A live bootleg carries the venue on the album, not the track title — it must still register
+        // as Live so it can't auto-match the studio recording the catalogs return.
+        var q = VersionQualifier.Detect("Promotion (feat. Future) [Phoenix]", "Vultures 2: Live from Phoenix 2024.03.10");
+
+        Assert.True(q.HasFlag(VersionQualifiers.Live));
+        Assert.False(VersionQualifier.Compare(q, VersionQualifiers.None), "a live file must not agree with a studio candidate");
+    }
+
     [Theory]
     // Studio vs studio → compatible
     [InlineData(VersionQualifiers.None, VersionQualifiers.None, true)]
