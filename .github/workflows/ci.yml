@@ -16,6 +16,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  compose-drift:
+    # Fails if the committed Aspire-generated prod compose is missing any env key the AppHost
+    # declares, or if the self-host compose is missing a provider/feature key — the failure mode
+    # that shipped AI lyrics transcription invisible in prod. Pure bash, no toolchain needed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Check Aspire compose drift
+        run: bash scripts/check-aspire-compose-drift.sh
+
   dotnet:
     runs-on: ubuntu-latest
     steps:
