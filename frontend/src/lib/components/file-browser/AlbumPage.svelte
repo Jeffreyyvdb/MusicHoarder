@@ -697,7 +697,7 @@
       <div
         class={cn(
           'border-border text-muted-foreground grid items-center gap-4 border-b px-3.5 py-2.5 text-[10px] font-semibold tracking-wider uppercase',
-          'grid-cols-[44px_minmax(0,1fr)_60px] sm:grid-cols-[44px_minmax(0,1fr)_110px_80px_140px_60px]'
+          'grid-cols-[44px_minmax(0,1fr)_60px_28px] sm:grid-cols-[44px_minmax(0,1fr)_110px_80px_140px_60px_28px]'
         )}
       >
         <span class="text-right">#</span>
@@ -706,6 +706,7 @@
         <span class="hidden sm:inline">Size</span>
         <span class="hidden sm:inline">Match</span>
         <span class="text-right"><Clock class="-mt-0.5 inline size-3" /></span>
+        <span aria-hidden="true"></span>
       </div>
 
       {#each visibleRows as row (row.key)}
