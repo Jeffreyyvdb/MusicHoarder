@@ -43,10 +43,11 @@ internal static class ComposeFileExtensions
             case DeployTarget.Compose:
                 file.ConfigureForPreview();
                 break;
+            case DeployTarget.SelfHost:
+                file.ConfigureForSelfHost();
+                break;
             default:
-                throw new NotSupportedException(
-                    $"Deploy target '{target}' is not wired yet. Swarm (musichoarder.app) and Compose " +
-                    "(preview) are implemented; SelfHost is added in a follow-up change.");
+                throw new NotSupportedException($"Deploy target '{target}' is not implemented.");
         }
     }
 
@@ -184,6 +185,95 @@ internal static class ComposeFileExtensions
 
         // No swarm depends_on conditions (the api retries Postgres via Npgsql; the frontend's health
         // probe is independent). No demo media on previews (MountDemoMedia is swarm-only).
+        api.DependsOn.Clear();
+        frontend.DependsOn.Clear();
+    }
+
+    /// <summary>
+    /// Published self-host template: plain <c>docker compose up</c> with prebuilt GHCR images. Like the
+    /// preview shape (bridge network, restart/pull_policy, no swarm/dashboard) but tuned for a standalone
+    /// self-hoster — versioned GHCR image refs, the music library + built destination as host binds (real
+    /// files on disk, not a managed volume), published host ports so the app is reachable without a
+    /// reverse proxy, and a direct Spotify redirect (self-hosters register their own app, so there is no
+    /// shared relay). End-user env var names (MUSIC_SOURCE_PATH / MUSIC_DESTINATION_PATH / PUBLIC_BASE_URL /
+    /// MUSICHOARDER_VERSION) are preserved so existing .env files keep working.
+    /// </summary>
+    private static void ConfigureForSelfHost(this ComposeFile file)
+    {
+        var api = file.Services["api"];
+        var frontend = file.Services["frontend"];
+        var postgres = file.Services["postgres"];
+
+        // Shared app + env contract — same helpers as swarm/preview, so new provider/feature env lands here too.
+        file.PersistDataProtectionKeys(api);
+        file.ConfigureWishlistDownloads(api);
+        ApplyProviderEnvDefaults(api);
+
+        // Prebuilt images pulled from GHCR, pinned by MUSICHOARDER_VERSION (defaults to :latest). The
+        // build-from-source override (docker-compose.build.yml) layers `build:` on these same services.
+        api.Image = "ghcr.io/jeffreyyvdb/musichoarder/api:${MUSICHOARDER_VERSION:-latest}";
+        frontend.Image = "ghcr.io/jeffreyyvdb/musichoarder/frontend:${MUSICHOARDER_VERSION:-latest}";
+
+        // Keep the Postgres data volume name the hand-written template used. Aspire names it
+        // "musichoarder-volume"; switching the published file to that would mount a fresh volume and
+        // orphan an existing self-hoster's database on upgrade. Rename it back to "postgres-data".
+        foreach (var v in postgres.Volumes)
+        {
+            if (v.Source == "musichoarder-volume") { v.Source = "postgres-data"; v.Name = "postgres-data"; }
+        }
+        file.Volumes.Remove("musichoarder-volume");
+        file.Volumes["postgres-data"] = new Volume { Name = "postgres-data", Driver = "local" };
+
+        // Host music library on disk: read-only source + writable destination, both host binds at the
+        // app's fixed container paths. Keeps the familiar MUSIC_SOURCE_PATH / MUSIC_DESTINATION_PATH env.
+        api.Environment["MusicEnricher__SourceDirectory"] = "/music/source";
+        api.Environment["MusicEnricher__DestinationDirectory"] = "/music/destination";
+        api.AddVolume(new Volume { Name = "music-source", Type = "bind", Source = "${MUSIC_SOURCE_PATH}", Target = "/music/source", ReadOnly = true });
+        api.AddVolume(new Volume { Name = "music-destination", Type = "bind", Source = "${MUSIC_DESTINATION_PATH}", Target = "/music/destination" });
+
+        // Published host ports so `docker compose up` is reachable at localhost without a reverse proxy.
+        // Pin the API's container port to 8080 (self-host has no API_PORT deploy var) and point the
+        // frontend straight at it; drop Aspire's service-discovery vars that reference ${API_PORT}.
+        api.Ports = ["5050:8080"];
+        frontend.Ports = ["3000:8001"];
+        api.Environment["HTTP_PORTS"] = "8080";
+        frontend.Environment["MUSICHOARDER_API_URL"] = "http://api:8080";
+        frontend.Environment.Remove("API_HTTP");
+        frontend.Environment.Remove("API_HTTPS");
+        frontend.Environment.Remove("services__api__http__0");
+
+        // No hosted demo on a self-host install — drop the demo-media dir (the seeder falls back to its
+        // synthetic seed when unset).
+        api.Environment.Remove("MusicEnricher__DemoMediaDirectory");
+
+        // Plain-compose rollout.
+        api.PullPolicy = "always";
+        api.Restart = "always";
+        frontend.PullPolicy = "always";
+        frontend.Restart = "always";
+        postgres.Restart = "always";
+
+        api.WithHttpHealthcheck("8080", "/alive", startPeriod: "40s");
+        frontend.WithHttpHealthcheck("8001", "/api/health", startPeriod: "20s");
+
+        // Spotify: self-hosters register their own app and redirect the browser straight back through
+        // their public origin (PUBLIC_BASE_URL) — no shared relay, so drop the relay env and the
+        // frontend's relay-only vars.
+        api.Environment.Remove("Spotify__OAuthRelayUrl");
+        api.Environment.Remove("Spotify__OAuthStateSigningKey"); // relay-only; direct redirect doesn't sign state
+        api.Environment["Spotify__OAuthRedirectBaseUrl"] = "${PUBLIC_BASE_URL}";
+        frontend.Environment.Remove("SPOTIFY_OAUTH_STATE_SIGNING_KEY");
+        frontend.Environment.Remove("SPOTIFY_RETURN_ORIGIN_ALLOWLIST");
+
+        // End-user ergonomics: a human edits .env here (unlike the deploy-env targets, which always
+        // set every var), so fail fast on the required secrets and default the optional ones — the
+        // guards the hand-written template carried.
+        file.Services["postgres"].Environment["POSTGRES_PASSWORD"] = "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}";
+        api.Environment["Auth__OwnerEmail"] = "${OWNER_EMAIL:?OWNER_EMAIL is required}";
+        api.Environment["Frontend__PublicBaseUrl"] = "${PUBLIC_BASE_URL:?PUBLIC_BASE_URL is required}";
+        api.Environment["Auth__DemoUserEmail"] = "${DEMO_USER_EMAIL:-demo@musichoarder.local}";
+        api.Environment["Resend__FromAddress"] = "${RESEND_FROM_ADDRESS:-noreply@musichoarder.local}";
+
         api.DependsOn.Clear();
         frontend.DependsOn.Clear();
     }

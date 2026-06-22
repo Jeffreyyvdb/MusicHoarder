@@ -8,7 +8,7 @@
 # The `image:` names still apply, so the locally built images are tagged with the same GHCR
 # references (a later `docker compose pull` would replace them with the published ones).
 services:
-  musichoarder:
+  api:
     build:
       context: .
       dockerfile: Dockerfile
