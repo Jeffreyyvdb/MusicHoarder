@@ -90,6 +90,7 @@ services:
       MusicEnricher__AutoDownloadWishlist: "${AUTO_DOWNLOAD_WISHLIST:-false}"
       MusicEnricher__DownloadDirectory: "/data/downloads"
       MusicEnricher__YtDlpCookiesPath: "${YTDLP_COOKIES_PATH:-}"
+      MusicEnricher__YtDlpExtraArgs: "${YTDLP_EXTRA_ARGS:-}"
     ports:
       - "${API_PORT}"
     volumes:

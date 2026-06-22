@@ -90,6 +90,14 @@ internal static class ComposeFileExtensions
         api.Environment["QualityGrading__Model"] = "${QUALITY_GRADING_MODEL:-deepseek/deepseek-v4-flash}";
         api.Environment["QualityGrading__BaseUrl"] = "${QUALITY_GRADING_BASE_URL:-https://openrouter.ai/api/v1}";
 
+        // Experimental AI lyrics transcription. Same pattern as QualityGrading: encode the Groq Whisper
+        // defaults as compose `:-` fallbacks here so a clean `aspire publish` reproduces them and the
+        // generated prod compose never drifts back to a bare ${...} (which is what hid the feature on
+        // prod once before). Blank LYRICS_TRANSCRIPTION_API_KEY → the feature stays hidden in the UI.
+        api.Environment["LyricsTranscription__BaseUrl"] = "${LYRICS_TRANSCRIPTION_BASE_URL:-https://api.groq.com/openai/v1}";
+        api.Environment["LyricsTranscription__Model"] = "${LYRICS_TRANSCRIPTION_MODEL:-whisper-large-v3}";
+        api.Environment["LyricsTranscription__LlmModel"] = "${LYRICS_TRANSCRIPTION_LLM_MODEL:-google/gemini-2.5-flash-lite}";
+
         // Aspire emits `depends_on` in the long (map+condition) form, which `docker stack deploy`
         // rejects ("depends_on must be a list"). Swarm ignores depends_on conditions regardless, and
         // startup ordering is already tolerated at runtime (the API retries Postgres via Npgsql; the
@@ -212,6 +220,7 @@ internal static class ComposeFileExtensions
         api.Environment["MusicEnricher__AutoDownloadWishlist"] = "${AUTO_DOWNLOAD_WISHLIST:-false}";
         api.Environment["MusicEnricher__DownloadDirectory"] = "/data/downloads";
         api.Environment["MusicEnricher__YtDlpCookiesPath"] = "${YTDLP_COOKIES_PATH:-}";
+        api.Environment["MusicEnricher__YtDlpExtraArgs"] = "${YTDLP_EXTRA_ARGS:-}";
 
         api.AddVolume(new Volume { Name = "musichoarder-downloads", Type = "volume", Source = "musichoarder-downloads", Target = "/data/downloads" });
         file.Volumes["musichoarder-downloads"] = new Volume { Name = "musichoarder-downloads", Driver = "local" };
