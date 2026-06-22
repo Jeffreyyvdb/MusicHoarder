@@ -30,7 +30,13 @@ public static class EnrichmentAlgorithm
     /// strongly-corroborated wishlist / Spotify-Like download (AcoustID fingerprint or ≥2 providers
     /// sharing an ISRC). Heals the YouTube-rip backlog that piled up in NeedsReview despite a correct,
     /// multi-provider match — see <see cref="Options.MusicEnricherOptions.RelaxDownloadDurationMismatch"/>.</item>
+    /// <item>3 — embedded-ISRC duration confirmation + filename-title fixes: an exact match between the
+    /// file's own ISRC tag and a candidate's ISRC downgrades <c>duration_mismatch</c> to advisory, so a
+    /// solo ISRC-confirmed catalog hit (e.g. a long 101Barz studiosessie rip Deezer carries under the
+    /// same ISRC) auto-matches instead of stalling in NeedsReview. Also a leading title that is itself a
+    /// number ("999 (Triple 9)") is no longer shredded as a track number, sharpening tracker/free-text
+    /// queries for the leak backlog.</item>
     /// </list>
     /// </summary>
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
 }
