@@ -528,8 +528,14 @@
             // Keep the icon's contrasting colour on hover — the ghost variant's
             // default `hover:text-foreground` would otherwise turn it dark against
             // the dark/filled button.
+            //
+            // For the loaded (active) state we want a solid, on-brand disc. In
+            // light mode the foreground/background swap reads as a crisp dark disc
+            // with a light glyph. In dark mode that same swap inverts to a glaring
+            // near-white disc with a near-black glyph, so override it to the brand
+            // green (matching this panel's waveform/progress accent) instead.
             isCurrentlyLoaded
-              ? 'bg-foreground text-background hover:bg-foreground/90 hover:text-background'
+              ? 'bg-foreground text-background hover:bg-foreground/90 hover:text-background dark:bg-primary dark:text-primary-foreground dark:hover:bg-primary/90 dark:hover:text-primary-foreground'
               : 'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground'
           )}
           onclick={handlePlayToggle}
