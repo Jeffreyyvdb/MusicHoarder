@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json.Serialization;
+using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Enrichment;
@@ -27,19 +28,44 @@ public sealed class LrcLibService(
             return null;
         }
 
-        var result = await TryExactMatchAsync(song, ct);
-        if (result is not null)
+        // LRCLIB indexes one primary artist per track, so a combined credit
+        // ("Fenix Flexin, Purps On The Beat", "A feat. B") matches nothing on either
+        // /api/get or /api/search. Try the stored credit first (covers solo artists and
+        // records LRCLIB happens to store under the exact credit), then fall back to the
+        // primary artist. Exact match is preferred over search across both candidates.
+        var artistCandidates = new List<string> { song.Artist! };
+        var primary = ArtistCreditNormalizer.GetPrimaryArtist(song.Artist);
+        if (!string.IsNullOrWhiteSpace(primary)
+            && !primary.Equals(song.Artist, StringComparison.OrdinalIgnoreCase))
         {
-            return result;
+            artistCandidates.Add(primary);
         }
 
-        return await TrySearchFallbackAsync(song, ct);
+        foreach (var artist in artistCandidates)
+        {
+            var result = await TryExactMatchAsync(song, artist, ct);
+            if (result is not null)
+            {
+                return result;
+            }
+        }
+
+        foreach (var artist in artistCandidates)
+        {
+            var result = await TrySearchFallbackAsync(song, artist, ct);
+            if (result is not null)
+            {
+                return result;
+            }
+        }
+
+        return null;
     }
 
-    private async Task<LyricsResult?> TryExactMatchAsync(SongMetadata song, CancellationToken ct)
+    private async Task<LyricsResult?> TryExactMatchAsync(SongMetadata song, string artistName, CancellationToken ct)
     {
         var url = $"api/get?track_name={Uri.EscapeDataString(song.Title!)}" +
-                  $"&artist_name={Uri.EscapeDataString(song.Artist!)}" +
+                  $"&artist_name={Uri.EscapeDataString(artistName)}" +
                   (string.IsNullOrWhiteSpace(song.Album) ? string.Empty : $"&album_name={Uri.EscapeDataString(song.Album)}") +
                   (song.DurationSeconds is > 0 ? $"&duration={song.DurationSeconds}" : string.Empty);
 
@@ -78,10 +104,10 @@ public sealed class LrcLibService(
         }
     }
 
-    private async Task<LyricsResult?> TrySearchFallbackAsync(SongMetadata song, CancellationToken ct)
+    private async Task<LyricsResult?> TrySearchFallbackAsync(SongMetadata song, string artistName, CancellationToken ct)
     {
         var url = $"api/search?track_name={Uri.EscapeDataString(song.Title!)}" +
-                  $"&artist_name={Uri.EscapeDataString(song.Artist!)}";
+                  $"&artist_name={Uri.EscapeDataString(artistName)}";
 
         try
         {

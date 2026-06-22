@@ -52,6 +52,26 @@ internal static class EnrichmentQueries
     }
 
     /// <summary>
+    /// Filters to songs eligible for an LRCLIB lyrics fetch that have not had one resolve yet —
+    /// the DB-side mirror of <see cref="SongMetadata.IsReadyForLyricsFetch"/>: a terminally matched
+    /// (or needs-review) song with a name but <see cref="LyricsStatus.NotFetched"/>. Excludes deleted,
+    /// synthetic, and demo rows. Used by the backfill sweep that heals songs whose inline lyrics fetch
+    /// never ran or was interrupted (so they reached <see cref="EnrichmentStatus.Matched"/> without lyrics).
+    /// </summary>
+    public static IQueryable<SongMetadata> WhereReadyForLyricsFetch(this IQueryable<SongMetadata> query)
+    {
+        return query
+            .Where(s => s.DeletedAtUtc == null)
+            .Where(s => !s.IsSynthetic)
+            .ExcludingDemoTenant()
+            .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched
+                || s.EnrichmentStatus == EnrichmentStatus.NeedsReview)
+            .Where(s => s.LyricsStatus == LyricsStatus.NotFetched)
+            .Where(s => !string.IsNullOrWhiteSpace(s.Title))
+            .Where(s => !string.IsNullOrWhiteSpace(s.Artist));
+    }
+
+    /// <summary>
     /// Returns IDs of songs with a retryable provider attempt: either a rate-limited attempt
     /// whose <see cref="SongProviderAttempt.RetryAfterUtc"/> has elapsed, or a terminal
     /// NoMatch/Failed attempt whose cooldown (<see cref="SongProviderAttempt.NextRetryAfterUtc"/>)

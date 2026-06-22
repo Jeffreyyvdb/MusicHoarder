@@ -510,6 +510,31 @@ public class MusicEnricherOptions
     public int LyricsBeforeBuildWaitMinutes { get; set; } = 5;
 
     /// <summary>
+    /// The inline LRCLIB fetch only fires on the enrichment run that flips a song to <c>Matched</c>, so a
+    /// song whose fetch was interrupted (shutdown/cancellation) — or that matched before a lyrics-matching
+    /// fix shipped — is stranded at <see cref="LyricsStatus.NotFetched"/> with nothing to retry it. This
+    /// startup-plus-periodic sweep re-attempts lyrics for those songs and re-queues a re-tag for any that
+    /// were already built. Gated by <see cref="AutoStartPipeline"/> (it's auto-discovery, like the other
+    /// sweeps). Set false to disable. Default on.
+    /// </summary>
+    public bool EnableLyricsBackfillSweep { get; set; } = true;
+
+    /// <summary>
+    /// Maximum number of stranded <see cref="LyricsStatus.NotFetched"/> songs the lyrics backfill sweep
+    /// fetches per pass, so a large backlog is drained gradually across sweeps rather than hammering the
+    /// public LRCLIB service in one burst. Default 200.
+    /// </summary>
+    [Range(1, 5000)]
+    public int LyricsBackfillBatchSize { get; set; } = 200;
+
+    /// <summary>
+    /// Bounded concurrency for the lyrics backfill sweep's LRCLIB calls — kept low because LRCLIB is a free
+    /// community service. Default 4.
+    /// </summary>
+    [Range(1, 32)]
+    public int LyricsBackfillConcurrency { get; set; } = 4;
+
+    /// <summary>
     /// Harmonize album-identity tags (release id, album name, year, disc count, compilation, release
     /// types, album-artist mbids) across all tracks that build into the same destination album folder,
     /// so a single on-disk album isn't split by a server's MusicBrainz-release grouping key (e.g.

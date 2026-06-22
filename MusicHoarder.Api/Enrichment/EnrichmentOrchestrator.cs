@@ -22,6 +22,15 @@ public interface IEnrichmentOrchestrator
 {
     Task<EnrichmentOutcome> ProcessSongAsync(int songId, CancellationToken ct = default);
     Task<IReadOnlySet<EnrichmentProvider>> GetEnabledProviderEnumsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Fetches LRCLIB lyrics for a single already-matched song that never had a lyrics fetch resolve
+    /// (the inline fetch only fires on the run that flips a song to Matched, so an interrupted or
+    /// since-fixed fetch leaves the song stranded at <see cref="LyricsStatus.NotFetched"/>). Returns
+    /// true when lyrics were applied. If the song was already built, it is re-queued for an in-place
+    /// re-tag so the destination file picks up the newly-fetched lyrics.
+    /// </summary>
+    Task<bool> FetchLyricsForSongAsync(int songId, CancellationToken ct = default);
 }
 
 public class EnrichmentOrchestrator : IEnrichmentOrchestrator
@@ -488,6 +497,34 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
 
     private static string SerializeResult(EnrichmentProviderResult result) =>
         JsonSerializer.Serialize(result);
+
+    public async Task<bool> FetchLyricsForSongAsync(int songId, CancellationToken ct = default)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+
+        var song = await dbContext.Songs
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(s => s.Id == songId, ct);
+
+        if (song is null || !song.IsReadyForLyricsFetch)
+            return false;
+
+        // Capture before the fetch: an already-built file was tagged without these lyrics, so it
+        // needs an in-place re-tag once we have them (the inline path runs pre-build, so it never does this).
+        var wasBuilt = song.LibraryBuildStatus == LibraryBuildStatus.Done;
+
+        await FetchLyricsForSongAsync(song, dbContext, ct);
+
+        var gotLyrics = song.LyricsStatus == LyricsStatus.Fetched;
+        if (gotLyrics && wasBuilt)
+        {
+            song.RequeueForRetag();
+            await dbContext.SaveChangesAsync(ct);
+        }
+
+        return gotLyrics;
+    }
 
     private async Task FetchLyricsForSongAsync(SongMetadata song, MusicHoarderDbContext dbContext, CancellationToken ct)
     {

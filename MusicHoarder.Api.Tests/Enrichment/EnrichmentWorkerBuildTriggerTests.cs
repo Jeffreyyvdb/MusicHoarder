@@ -104,6 +104,8 @@ public class EnrichmentWorkerBuildTriggerTests
 
         public Task<IReadOnlySet<EnrichmentProvider>> GetEnabledProviderEnumsAsync(CancellationToken ct = default)
             => Task.FromResult<IReadOnlySet<EnrichmentProvider>>(new HashSet<EnrichmentProvider>());
+
+        public Task<bool> FetchLyricsForSongAsync(int songId, CancellationToken ct = default) => Task.FromResult(false);
     }
 
     // The Matched path never opens a DB scope, so a no-op factory is enough for the worker loop.
