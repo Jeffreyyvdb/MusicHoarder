@@ -40,10 +40,13 @@ internal static class ComposeFileExtensions
             case DeployTarget.Swarm:
                 file.ConfigureForSwarm();
                 break;
+            case DeployTarget.Compose:
+                file.ConfigureForPreview();
+                break;
             default:
                 throw new NotSupportedException(
-                    $"Deploy target '{target}' is not wired yet. Only Swarm (musichoarder.app) is " +
-                    "implemented; Compose (preview) and SelfHost are added in follow-up changes.");
+                    $"Deploy target '{target}' is not wired yet. Swarm (musichoarder.app) and Compose " +
+                    "(preview) are implemented; SelfHost is added in a follow-up change.");
         }
     }
 
@@ -121,20 +124,7 @@ internal static class ComposeFileExtensions
         // swarm leaves postgres untouched when its image tag doesn't change.)
         file.Services["postgres"].WithStopFirstUpdate();
 
-        // QualityGrading model/endpoint default to compose interpolation fallbacks (the deploy env
-        // may leave QUALITY_GRADING_* unset). These mirror the documented defaults in the
-        // build-from-source docker-compose.yml; encoding them here keeps `aspire publish` faithful so
-        // the generated compose never drifts back to a bare ${...} with no fallback.
-        api.Environment["QualityGrading__Model"] = "${QUALITY_GRADING_MODEL:-deepseek/deepseek-v4-flash}";
-        api.Environment["QualityGrading__BaseUrl"] = "${QUALITY_GRADING_BASE_URL:-https://openrouter.ai/api/v1}";
-
-        // Experimental AI lyrics transcription. Same pattern as QualityGrading: encode the Groq Whisper
-        // defaults as compose `:-` fallbacks here so a clean `aspire publish` reproduces them and the
-        // generated prod compose never drifts back to a bare ${...} (which is what hid the feature on
-        // prod once before). Blank LYRICS_TRANSCRIPTION_API_KEY → the feature stays hidden in the UI.
-        api.Environment["LyricsTranscription__BaseUrl"] = "${LYRICS_TRANSCRIPTION_BASE_URL:-https://api.groq.com/openai/v1}";
-        api.Environment["LyricsTranscription__Model"] = "${LYRICS_TRANSCRIPTION_MODEL:-whisper-large-v3}";
-        api.Environment["LyricsTranscription__LlmModel"] = "${LYRICS_TRANSCRIPTION_LLM_MODEL:-google/gemini-2.5-flash-lite}";
+        ApplyProviderEnvDefaults(api);
 
         // Aspire emits `depends_on` in the long (map+condition) form, which `docker stack deploy`
         // rejects ("depends_on must be a list"). Swarm ignores depends_on conditions regardless, and
@@ -144,6 +134,74 @@ internal static class ComposeFileExtensions
         // depends_on — this only affects the Aspire/Dokploy stack.)
         api.DependsOn.Clear();
         frontend.DependsOn.Clear();
+    }
+
+    /// <summary>
+    /// Per-PR preview shape: plain <c>docker compose up</c> via scripts/dokploy-preview.sh. Shares the
+    /// swarm build's app/env contract but keeps an orchestrator-appropriate plain-compose shape —
+    /// <c>restart</c>/<c>pull_policy: always</c> instead of swarm <c>deploy:</c> blocks, the destination
+    /// as a managed named volume (reaped on teardown) instead of a host bind, no demo media, and the
+    /// preview-only knobs (manual pipeline, no auto wishlist sync, shared-parent passkey Rp id + seed).
+    /// </summary>
+    private static void ConfigureForPreview(this ComposeFile file)
+    {
+        var api = file.Services["api"];
+        var frontend = file.Services["frontend"];
+        var postgres = file.Services["postgres"];
+
+        // Shared app + env contract — same helpers the swarm build uses, so a new provider/feature env
+        // lands on the preview automatically (no parallel file to forget).
+        file.PersistDataProtectionKeys(api);
+        file.ConfigureWishlistDownloads(api);
+        ApplyProviderEnvDefaults(api);
+
+        // Music library: read-only source bind at the deploy-provided path; destination is a managed
+        // named volume so Dokploy's compose.delete(deleteVolumes:true) reaps the per-PR build on teardown.
+        api.AddVolume(new Volume { Name = "music-source", Type = "bind", Source = "${SOURCE_DIRECTORY}", Target = "${SOURCE_DIRECTORY}", ReadOnly = true });
+        api.AddVolume(new Volume { Name = "musichoarder-dest", Type = "volume", Source = "musichoarder-dest", Target = "${DESTINATION_DIRECTORY}" });
+        file.Volumes["musichoarder-dest"] = new Volume { Name = "musichoarder-dest", Driver = "local" };
+
+        // Plain-compose rollout: re-pull the rebuilt pr-<n> tag every redeploy, restart on crash. No
+        // swarm deploy/update_config blocks (ignored by `docker compose up` anyway).
+        api.PullPolicy = "always";
+        api.Restart = "always";
+        frontend.PullPolicy = "always";
+        frontend.Restart = "always";
+        postgres.Restart = "always";
+
+        // Readiness probes for Dokploy (no swarm rolling-update gating). Same endpoints as the swarm build.
+        api.WithHttpHealthcheck("${API_PORT}", "/alive", startPeriod: "40s");
+        frontend.WithHttpHealthcheck("8001", "/api/health", startPeriod: "20s");
+
+        // Preview-only behaviour: previews are resource-constrained, so discovery runs but the heavy
+        // stages (fingerprint/enrich/build) are driven manually from the UI; no background wishlist sync.
+        api.Environment["MusicEnricher__AutoStartPipeline"] = "false";
+        api.Environment["Spotify__WishlistSyncIntervalMinutes"] = "0";
+        // Pin the passkey relying-party id to the shared parent domain (not the per-PR host) so one
+        // registered passkey works on every pr-<n> subdomain; the seed gives owner login on a fresh DB.
+        api.Environment["WebAuthn__RpId"] = "${WEBAUTHN_RP_ID:-}";
+        api.Environment["Auth__OwnerSeedCredentialJson"] = "${OWNER_SEED_CREDENTIAL_JSON:-}";
+
+        // No swarm depends_on conditions (the api retries Postgres via Npgsql; the frontend's health
+        // probe is independent). No demo media on previews (MountDemoMedia is swarm-only).
+        api.DependsOn.Clear();
+        frontend.DependsOn.Clear();
+    }
+
+    /// <summary>
+    /// Provider/feature env that both deploy shapes share: the QualityGrading + LyricsTranscription
+    /// endpoints default to compose <c>${VAR:-default}</c> fallbacks (the deploy env may leave them
+    /// unset). Encoding them here keeps every generated compose faithful so none drifts back to a bare
+    /// <c>${...}</c> with no fallback — the failure that once shipped AI lyrics transcription invisible.
+    /// A blank API key still leaves each feature off; only the model/endpoint defaults are filled.
+    /// </summary>
+    private static void ApplyProviderEnvDefaults(Service api)
+    {
+        api.Environment["QualityGrading__Model"] = "${QUALITY_GRADING_MODEL:-deepseek/deepseek-v4-flash}";
+        api.Environment["QualityGrading__BaseUrl"] = "${QUALITY_GRADING_BASE_URL:-https://openrouter.ai/api/v1}";
+        api.Environment["LyricsTranscription__BaseUrl"] = "${LYRICS_TRANSCRIPTION_BASE_URL:-https://api.groq.com/openai/v1}";
+        api.Environment["LyricsTranscription__Model"] = "${LYRICS_TRANSCRIPTION_MODEL:-whisper-large-v3}";
+        api.Environment["LyricsTranscription__LlmModel"] = "${LYRICS_TRANSCRIPTION_LLM_MODEL:-google/gemini-2.5-flash-lite}";
     }
 
     /// <summary>

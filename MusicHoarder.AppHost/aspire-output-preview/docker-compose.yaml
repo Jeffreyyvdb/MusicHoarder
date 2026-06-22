@@ -1,0 +1,137 @@
+services:
+  postgres:
+    image: "docker.io/library/postgres:17.6"
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: "scram-sha-256"
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+    expose:
+      - "5432"
+    volumes:
+      - type: "volume"
+        target: "/var/lib/postgresql/data"
+        source: "musichoarder-volume"
+        read_only: false
+    networks:
+      - "aspire"
+    restart: "always"
+  api:
+    image: "${API_IMAGE}"
+    pull_policy: "always"
+    environment:
+      OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY: "in_memory"
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      HTTP_PORTS: "${API_PORT}"
+      ConnectionStrings__musichoarderdb: "Host=postgres;Port=5432;Username=postgres;Password=${POSTGRES_PASSWORD};Database=musichoarderdb"
+      MUSICHOARDERDB_HOST: "postgres"
+      MUSICHOARDERDB_PORT: "5432"
+      MUSICHOARDERDB_USERNAME: "postgres"
+      MUSICHOARDERDB_PASSWORD: "${POSTGRES_PASSWORD}"
+      MUSICHOARDERDB_URI: "postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/musichoarderdb"
+      MUSICHOARDERDB_JDBCCONNECTIONSTRING: "jdbc:postgresql://postgres:5432/musichoarderdb"
+      MUSICHOARDERDB_DATABASENAME: "musichoarderdb"
+      MusicEnricher__SourceDirectory: "${SOURCE_DIRECTORY}"
+      MusicEnricher__DestinationDirectory: "${DESTINATION_DIRECTORY}"
+      MusicEnricher__DemoMediaDirectory: "${DEMO_MEDIA_DIRECTORY}"
+      MusicEnricher__AcoustIdApiKey: "${ACOUSTID_API_KEY}"
+      Spotify__ClientId: "${SPOTIFY_CLIENT_ID}"
+      Spotify__ClientSecret: "${SPOTIFY_CLIENT_SECRET}"
+      Spotify__OAuthStateSigningKey: "${SPOTIFY_OAUTH_STATE_KEY}"
+      Auth__OwnerEmail: "${OWNER_EMAIL}"
+      Auth__DemoUserEmail: "${DEMO_USER_EMAIL}"
+      Auth__DataProtectionKeysPath: "/data/dpkeys"
+      Resend__ApiKey: "${RESEND_API_KEY}"
+      Resend__FromAddress: "${RESEND_FROM_ADDRESS}"
+      QualityGrading__ApiKey: "${QUALITY_GRADING_API_KEY}"
+      QualityGrading__BaseUrl: "${QUALITY_GRADING_BASE_URL:-https://openrouter.ai/api/v1}"
+      QualityGrading__Model: "${QUALITY_GRADING_MODEL:-deepseek/deepseek-v4-flash}"
+      LyricsTranscription__ApiKey: "${LYRICS_TRANSCRIPTION_API_KEY}"
+      LyricsTranscription__BaseUrl: "${LYRICS_TRANSCRIPTION_BASE_URL:-https://api.groq.com/openai/v1}"
+      LyricsTranscription__Model: "${LYRICS_TRANSCRIPTION_MODEL:-whisper-large-v3}"
+      LyricsTranscription__LlmModel: "${LYRICS_TRANSCRIPTION_LLM_MODEL:-google/gemini-2.5-flash-lite}"
+      Frontend__PublicBaseUrl: "${FRONTEND_PUBLIC_BASE_URL}"
+      Spotify__OAuthRelayUrl: "${FRONTEND_PUBLIC_BASE_URL}/api/spotify/relay"
+      MusicEnricher__EnableWishlistDownloads: "${ENABLE_WISHLIST_DOWNLOADS:-false}"
+      MusicEnricher__AutoDownloadWishlist: "${AUTO_DOWNLOAD_WISHLIST:-false}"
+      MusicEnricher__DownloadDirectory: "/data/downloads"
+      MusicEnricher__YtDlpCookiesPath: "${YTDLP_COOKIES_PATH:-}"
+      MusicEnricher__YtDlpExtraArgs: "${YTDLP_EXTRA_ARGS:-}"
+      MusicEnricher__AutoStartPipeline: "false"
+      Spotify__WishlistSyncIntervalMinutes: "0"
+      WebAuthn__RpId: "${WEBAUTHN_RP_ID:-}"
+      Auth__OwnerSeedCredentialJson: "${OWNER_SEED_CREDENTIAL_JSON:-}"
+    ports:
+      - "${API_PORT}"
+    volumes:
+      - type: "volume"
+        target: "/data/dpkeys"
+        source: "musichoarder-dpkeys"
+      - type: "volume"
+        target: "/data/downloads"
+        source: "musichoarder-downloads"
+      - type: "bind"
+        target: "/data/cookies/youtube.txt"
+        source: "${YTDLP_COOKIES_HOST_PATH:-/dev/null}"
+        read_only: true
+      - type: "bind"
+        target: "${SOURCE_DIRECTORY}"
+        source: "${SOURCE_DIRECTORY}"
+        read_only: true
+      - type: "volume"
+        target: "${DESTINATION_DIRECTORY}"
+        source: "musichoarder-dest"
+    networks:
+      - "aspire"
+    restart: "always"
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "curl -fsS http://localhost:${API_PORT}/alive || exit 1"
+      interval: "10s"
+      timeout: "5s"
+      retries: 6
+      start_period: "40s"
+  frontend:
+    image: "${FRONTEND_IMAGE}"
+    pull_policy: "always"
+    environment:
+      NODE_ENV: "production"
+      PORT: "8001"
+      API_HTTP: "http://api:${API_PORT}"
+      services__api__http__0: "http://api:${API_PORT}"
+      API_HTTPS: "https://api:${API_PORT}"
+      MUSICHOARDER_API_URL: "http://api:${API_PORT}"
+      SPOTIFY_OAUTH_STATE_SIGNING_KEY: "${SPOTIFY_OAUTH_STATE_KEY}"
+      SPOTIFY_RETURN_ORIGIN_ALLOWLIST: "${SPOTIFY_RETURN_ORIGIN_ALLOWLIST}"
+      PUBLIC_UMAMI_SRC: "${PUBLIC_UMAMI_SRC}"
+      PUBLIC_UMAMI_WEBSITE_ID: "${PUBLIC_UMAMI_WEBSITE_ID}"
+      PUBLIC_UMAMI_RECORDER_SRC: "${PUBLIC_UMAMI_RECORDER_SRC}"
+      HOST: "0.0.0.0"
+      HOSTNAME: "0.0.0.0"
+    ports:
+      - "8000"
+      - "8001"
+    networks:
+      - "aspire"
+    restart: "always"
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "curl -fsS http://localhost:8001/api/health || exit 1"
+      interval: "10s"
+      timeout: "5s"
+      retries: 6
+      start_period: "20s"
+networks:
+  aspire:
+    driver: "bridge"
+volumes:
+  musichoarder-volume:
+    driver: "local"
+  musichoarder-dpkeys:
+    driver: "local"
+  musichoarder-downloads:
+    driver: "local"
+  musichoarder-dest:
+    driver: "local"
