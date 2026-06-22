@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -11,6 +12,7 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
     private static readonly char[] ForbiddenPathChars = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
 
     private readonly string _destinationRoot = options.Value.DestinationDirectory;
+    private readonly string? _sourceRoot = options.Value.SourceDirectory;
     private readonly string _compilationFolder = string.IsNullOrWhiteSpace(options.Value.CompilationFolderName)
         ? "Various Artists"
         : options.Value.CompilationFolderName;
@@ -19,7 +21,7 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
     {
         ArgumentNullException.ThrowIfNull(song);
 
-        var title = NormalizeSegment(song.Title, "Unknown Title");
+        var title = NormalizeSegment(ResolveTitle(song), "Unknown Title");
         var extension = NormalizeExtension(song.Extension);
 
         var topFolder = IsVariousArtists(song)
@@ -110,6 +112,20 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
     {
         var preferred = song.AlbumArtist ?? ArtistCreditNormalizer.GetPrimaryArtist(song.Artist) ?? song.Artist;
         return NormalizeSegment(preferred, "Unknown Artist");
+    }
+
+    /// <summary>
+    /// The enriched title when present; otherwise the title parsed from the source filename so an
+    /// untagged/unmatched file (a leak whose title lives only in its filename, e.g.
+    /// "999 (Triple 9).mp3") lands as that name on disk instead of the "Unknown Title" placeholder.
+    /// Filename-derived only — it's never written back onto the row, just used for the destination path.
+    /// </summary>
+    private string? ResolveTitle(SongMetadata song)
+    {
+        if (!string.IsNullOrWhiteSpace(song.Title))
+            return song.Title;
+
+        return SongSearchText.ResolveDetailed(song, _sourceRoot).Title;
     }
 
     /// <summary>

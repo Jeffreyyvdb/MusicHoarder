@@ -123,8 +123,10 @@ public class DestinationPathResolverTests
     }
 
     [Fact]
-    public void ResolvePath_WithMissingArtistAndTitle_UsesFallbacks()
+    public void ResolvePath_WithMissingTitle_FallsBackToFilenameTitle()
     {
+        // No title tag, but the source filename carries one ("song") — use it instead of the
+        // "Unknown Title" placeholder. The artist is still blank → Unknown Artist.
         var resolver = CreateResolver();
         var song = CreateSong(
             artist: "  ",
@@ -132,12 +134,35 @@ public class DestinationPathResolverTests
             album: "Test Album",
             title: null,
             year: null,
-            trackNumber: null);
+            trackNumber: null,
+            sourcePath: "/source/song.mp3");
 
         var path = resolver.ResolvePath(song);
 
         Assert.Equal(
-            Path.Combine(DestinationRoot, "Unknown Artist", "Test Album", "Unknown Title.mp3"),
+            Path.Combine(DestinationRoot, "Unknown Artist", "Test Album", "song.mp3"),
+            path);
+    }
+
+    [Fact]
+    public void ResolvePath_LeakWithTitleOnlyInFilename_UsesFilenameTitle()
+    {
+        // A leak whose real title lives only in the filename ("999 (Triple 9).mp3") — the destination
+        // gets that name rather than "Unknown Title.mp3", even though the title tag is null.
+        var resolver = CreateResolver();
+        var song = CreateSong(
+            artist: "Juice WRLD",
+            albumArtist: "Juice WRLD",
+            album: "Goodbye & Good Riddance (sessions)",
+            title: null,
+            year: 2017,
+            trackNumber: null,
+            sourcePath: "/source/Juice WRLD/1 - Leaks/2 - Goodbye & Good Riddance ERA/999 (Triple 9).mp3");
+
+        var path = resolver.ResolvePath(song);
+
+        Assert.Equal(
+            Path.Combine(DestinationRoot, "Juice WRLD", "2017 - Goodbye & Good Riddance (sessions)", "999 (Triple 9).mp3"),
             path);
     }
 
@@ -348,12 +373,13 @@ public class DestinationPathResolverTests
         bool isUnreleased = false,
         bool isCompilation = false,
         int? discNumber = null,
-        int? totalDiscs = null)
+        int? totalDiscs = null,
+        string sourcePath = "/source/song.mp3")
     {
         return new SongMetadata
         {
             OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
-            SourcePath = "/source/song.mp3",
+            SourcePath = sourcePath,
             FileSizeBytes = 1000,
             FileName = "song.mp3",
             Extension = ".mp3",
