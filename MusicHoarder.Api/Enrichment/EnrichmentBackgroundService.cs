@@ -35,6 +35,7 @@ public class EnrichmentBackgroundService(
             await EnqueueAlgorithmStaleSongsAsync(stoppingToken);
             await EnqueueSongsMissingProvidersAsync(stoppingToken);
             await BackfillPendingSongsAsync(stoppingToken);
+            await BackfillMissingLyricsAsync(stoppingToken);
             sweepTask = RunRetrySweepLoopAsync(stoppingToken);
         }
 
@@ -301,6 +302,8 @@ public class EnrichmentBackgroundService(
                     pipelineChannel.EnqueueRange(retryIds);
                     logger.LogInformation("Retry sweep enqueued {Count} rate-limited songs", retryIds.Count);
                 }
+
+                await BackfillMissingLyricsAsync(ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -310,6 +313,69 @@ public class EnrichmentBackgroundService(
             {
                 logger.LogWarning(ex, "Retry sweep failed");
             }
+        }
+    }
+
+    /// <summary>
+    /// Heals songs stranded at <see cref="LyricsStatus.NotFetched"/> despite being eligible: the inline
+    /// LRCLIB fetch only fires on the run that flips a song to Matched, so an interrupted fetch — or a song
+    /// that matched before a lyrics-matching fix shipped — never gets another attempt. Re-fetches lyrics for
+    /// a bounded batch (gentle on the free LRCLIB service); the orchestrator re-queues a re-tag for any song
+    /// that was already built, which the builder's auto-poll then picks up.
+    /// </summary>
+    internal async Task BackfillMissingLyricsAsync(CancellationToken ct)
+    {
+        var opts = options.Value;
+        if (!opts.EnableLyricsBackfillSweep)
+            return;
+
+        try
+        {
+            List<int> ids;
+            using (var scope = scopeFactory.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+                ids = await db.Songs
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .WhereReadyForLyricsFetch()
+                    .OrderBy(s => s.Id)
+                    .Take(opts.LyricsBackfillBatchSize)
+                    .Select(s => s.Id)
+                    .ToListAsync(ct);
+            }
+
+            if (ids.Count == 0)
+                return;
+
+            var fetched = 0;
+            using var gate = new SemaphoreSlim(opts.LyricsBackfillConcurrency);
+            await Task.WhenAll(ids.Select(async id =>
+            {
+                await gate.WaitAsync(ct);
+                try
+                {
+                    if (await orchestrator.FetchLyricsForSongAsync(id, ct))
+                        Interlocked.Increment(ref fetched);
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            }));
+
+            logger.LogInformation(
+                "Lyrics backfill sweep fetched lyrics for {Fetched}/{Total} stranded songs",
+                fetched, ids.Count);
+
+            // Already-built songs that just got lyrics were re-queued for an in-place re-tag inside the
+            // orchestrator; wake the builder once (not per song) so the destination files pick them up.
+            if (fetched > 0)
+                jobManager.TryStartJob(JobType.Build, out _, out _);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Lyrics backfill sweep failed");
         }
     }
 

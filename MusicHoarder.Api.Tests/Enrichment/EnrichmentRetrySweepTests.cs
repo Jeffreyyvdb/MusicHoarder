@@ -408,6 +408,45 @@ public class EnrichmentRetrySweepTests
         Assert.False(channel.Reader.TryRead(out _));
     }
 
+    [Fact]
+    public async Task LyricsBackfill_FetchesOnlyEligibleStrandedSongs()
+    {
+        await using var db = CreateDb();
+        // Eligible: matched/needs-review with NotFetched lyrics and a name.
+        var matchedStranded = AddSong(db, EnrichmentStatus.Matched);
+        var reviewStranded = AddSong(db, EnrichmentStatus.NeedsReview);
+        // Ineligible.
+        var pending = AddSong(db, EnrichmentStatus.Pending);
+        var alreadyFetched = AddSong(db, EnrichmentStatus.Matched);
+        alreadyFetched.LyricsStatus = LyricsStatus.Fetched;
+        var demoStranded = AddSong(db, EnrichmentStatus.Matched, owner: MusicHoarder.Api.Auth.WellKnownUsers.DemoId);
+        await db.SaveChangesAsync();
+
+        var orchestrator = new RecordingOrchestrator();
+        var service = CreateService(db, orchestrator);
+
+        await service.BackfillMissingLyricsAsync(CancellationToken.None);
+
+        Assert.Equal(
+            new[] { matchedStranded.Id, reviewStranded.Id }.OrderBy(x => x),
+            orchestrator.FetchedSongIds.OrderBy(x => x));
+    }
+
+    [Fact]
+    public async Task LyricsBackfill_Disabled_FetchesNothing()
+    {
+        await using var db = CreateDb();
+        AddSong(db, EnrichmentStatus.Matched);
+        await db.SaveChangesAsync();
+
+        var orchestrator = new RecordingOrchestrator();
+        var service = CreateService(db, orchestrator, enableLyricsBackfill: false);
+
+        await service.BackfillMissingLyricsAsync(CancellationToken.None);
+
+        Assert.Empty(orchestrator.FetchedSongIds);
+    }
+
     private static SongMetadata AddSong(MusicHoarderDbContext db, EnrichmentStatus status, Guid? owner = null)
     {
         var song = new SongMetadata
@@ -464,12 +503,55 @@ public class EnrichmentRetrySweepTests
             NullLogger<EnrichmentBackgroundService>.Instance);
     }
 
+    private static EnrichmentBackgroundService CreateService(
+        MusicHoarderDbContext db,
+        IEnrichmentOrchestrator orchestrator,
+        bool enableLyricsBackfill = true)
+    {
+        var opts = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
+        {
+            SourceDirectory = "/source",
+            DestinationDirectory = "/dest",
+            EnableLyricsBackfillSweep = enableLyricsBackfill,
+        });
+
+        return new EnrichmentBackgroundService(
+            new SimpleScopeFactory(db),
+            new JobManager(),
+            new EnrichmentProgressTracker(),
+            new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker()),
+            orchestrator,
+            opts,
+            TestPipelineMetrics.Create(),
+            NullLogger<EnrichmentBackgroundService>.Instance);
+    }
+
+    private sealed class RecordingOrchestrator : IEnrichmentOrchestrator
+    {
+        private readonly List<int> _fetched = [];
+        public IReadOnlyList<int> FetchedSongIds => _fetched;
+
+        public Task<EnrichmentOutcome> ProcessSongAsync(int songId, CancellationToken ct = default)
+            => Task.FromResult(EnrichmentOutcome.Skipped);
+
+        public Task<IReadOnlySet<EnrichmentProvider>> GetEnabledProviderEnumsAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlySet<EnrichmentProvider>>(new HashSet<EnrichmentProvider>());
+
+        public Task<bool> FetchLyricsForSongAsync(int songId, CancellationToken ct = default)
+        {
+            lock (_fetched) _fetched.Add(songId);
+            return Task.FromResult(false);
+        }
+    }
+
     private sealed class StubOrchestrator(IReadOnlySet<EnrichmentProvider> enabled) : IEnrichmentOrchestrator
     {
         public Task<EnrichmentOutcome> ProcessSongAsync(int songId, CancellationToken ct = default)
             => Task.FromResult(EnrichmentOutcome.Skipped);
 
         public Task<IReadOnlySet<EnrichmentProvider>> GetEnabledProviderEnumsAsync(CancellationToken ct = default) => Task.FromResult(enabled);
+
+        public Task<bool> FetchLyricsForSongAsync(int songId, CancellationToken ct = default) => Task.FromResult(false);
     }
 
     private sealed class SimpleScopeFactory(MusicHoarderDbContext db) : IServiceScopeFactory
