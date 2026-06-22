@@ -15,13 +15,6 @@
   import { Button } from '$lib/components/ui/button';
   import Cover from '$lib/components/file-browser/Cover.svelte';
 
-  function formatTime(seconds: number): string {
-    if (!Number.isFinite(seconds) || Number.isNaN(seconds) || seconds < 0) return '0:00';
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  }
-
   // Progress as a 0..1 fraction. Driven into the seek bar via `transform: scaleX`
   // (composite-only) rather than a bits-ui Slider, whose per-value reflow on the
   // ~10 Hz time tick saturates the main thread and starves audio playback.
@@ -196,8 +189,9 @@
         </Button>
       </div>
 
-      <!-- CENTER: now-playing (art + title/artist, thin seek line under) -->
-      <div class="flex min-w-0 flex-1 flex-col items-center justify-center gap-1">
+      <!-- CENTER: now-playing, LEFT-aligned — art + title/artist with a slim seek
+           line directly under it (Apple-Music compact bar). -->
+      <div class="flex min-w-0 flex-1 flex-col items-start justify-center gap-1">
         <button
           type="button"
           onclick={() => songDetail.open(song.id)}
@@ -233,37 +227,34 @@
           </div>
         </button>
 
-        <div class="hidden w-full max-w-[460px] items-center gap-2 sm:flex">
-          <span class="text-muted-foreground w-9 shrink-0 text-right text-[10px] tabular-nums">
-            {formatTime(playerStore.currentTime)}
-          </span>
+        <!-- Slim seek line under the now-playing block; thickens on hover/focus so
+             it's easy to grab and drag. Desktop only — mobile uses the top-edge
+             progress line. -->
+        <div
+          bind:this={seekEl}
+          role="slider"
+          tabindex="0"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(progress * 100)}
+          aria-label="Seek"
+          class="group/seek relative hidden h-3 w-full max-w-[440px] cursor-pointer touch-none items-center select-none rounded-full outline-none sm:flex"
+          onpointerdown={onSeekPointerDown}
+          onpointermove={onSeekPointerMove}
+          onkeydown={onSeekKeyDown}
+        >
           <div
-            bind:this={seekEl}
-            role="slider"
-            tabindex="0"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(progress * 100)}
-            aria-label="Seek"
-            class="group relative flex h-3 min-w-0 flex-1 cursor-pointer touch-none items-center select-none"
-            onpointerdown={onSeekPointerDown}
-            onpointermove={onSeekPointerMove}
-            onkeydown={onSeekKeyDown}
+            class="bg-foreground/20 relative h-[3px] w-full overflow-hidden rounded-full transition-[height] duration-150 ease-out group-hover/seek:h-[7px] group-focus-visible/seek:h-[7px] motion-reduce:transition-none"
           >
-            <div class="bg-foreground/15 relative h-1 w-full overflow-hidden rounded-full">
-              <div
-                class="bg-foreground/40 group-hover:bg-primary absolute inset-0 origin-left rounded-full transition-colors"
-                style="transform: scaleX({progress})"
-              ></div>
-            </div>
             <div
-              class="border-ring pointer-events-none absolute size-3 -translate-x-1/2 rounded-full border bg-white opacity-0 transition-opacity group-hover:opacity-100"
-              style="left: {progress * 100}%"
+              class="bg-foreground/45 group-hover/seek:bg-primary group-focus-visible/seek:bg-primary absolute inset-0 origin-left rounded-full transition-colors"
+              style="transform: scaleX({progress})"
             ></div>
           </div>
-          <span class="text-muted-foreground w-9 shrink-0 text-[10px] tabular-nums">
-            {formatTime(playerStore.duration)}
-          </span>
+          <div
+            class="border-ring pointer-events-none absolute size-3 -translate-x-1/2 rounded-full border bg-white opacity-0 shadow-sm transition-opacity group-hover/seek:opacity-100 group-focus-visible/seek:opacity-100"
+            style="left: {progress * 100}%"
+          ></div>
         </div>
       </div>
 
