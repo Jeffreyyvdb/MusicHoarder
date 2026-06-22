@@ -1,124 +1,123 @@
-# MusicHoarder — self-hosting stack.
-#
-# This file PULLS prebuilt images from GHCR (ghcr.io/jeffreyyvdb/musichoarder/{api,frontend}),
-# so you don't need a repo checkout or any build toolchain:
-#
-#   1. download this file + .env.example   2. cp .env.example .env and fill it in   3. docker compose up -d
-#
-# Pin a release by setting MUSICHOARDER_VERSION in .env (defaults to :latest).
-# Prefer to build from source? Add the build override:
-#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
-# Full guide: docs/SELF_HOSTING.md
 services:
   postgres:
-    image: postgres:17
-    restart: always
+    image: "docker.io/library/postgres:17.6"
     environment:
-      POSTGRES_USER: musichoarder
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      POSTGRES_DB: musichoarderdb
+      POSTGRES_HOST_AUTH_METHOD: "scram-sha-256"
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+    expose:
+      - "5432"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U musichoarder -d musichoarderdb"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  musichoarder:
-    image: ghcr.io/jeffreyyvdb/musichoarder/api:${MUSICHOARDER_VERSION:-latest}
-    restart: always
+      - type: "volume"
+        target: "/var/lib/postgresql/data"
+        source: "postgres-data"
+        read_only: false
+    networks:
+      - "aspire"
+    restart: "always"
+  api:
+    image: "ghcr.io/jeffreyyvdb/musichoarder/api:${MUSICHOARDER_VERSION:-latest}"
+    pull_policy: "always"
+    environment:
+      OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY: "in_memory"
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      HTTP_PORTS: "8080"
+      ConnectionStrings__musichoarderdb: "Host=postgres;Port=5432;Username=postgres;Password=${POSTGRES_PASSWORD};Database=musichoarderdb"
+      MUSICHOARDERDB_HOST: "postgres"
+      MUSICHOARDERDB_PORT: "5432"
+      MUSICHOARDERDB_USERNAME: "postgres"
+      MUSICHOARDERDB_PASSWORD: "${POSTGRES_PASSWORD}"
+      MUSICHOARDERDB_URI: "postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/musichoarderdb"
+      MUSICHOARDERDB_JDBCCONNECTIONSTRING: "jdbc:postgresql://postgres:5432/musichoarderdb"
+      MUSICHOARDERDB_DATABASENAME: "musichoarderdb"
+      MusicEnricher__SourceDirectory: "/music/source"
+      MusicEnricher__DestinationDirectory: "/music/destination"
+      MusicEnricher__AcoustIdApiKey: "${ACOUSTID_API_KEY}"
+      Spotify__ClientId: "${SPOTIFY_CLIENT_ID}"
+      Spotify__ClientSecret: "${SPOTIFY_CLIENT_SECRET}"
+      Spotify__OAuthRedirectBaseUrl: "${PUBLIC_BASE_URL}"
+      Auth__OwnerEmail: "${OWNER_EMAIL:?OWNER_EMAIL is required}"
+      Auth__DemoUserEmail: "${DEMO_USER_EMAIL:-demo@musichoarder.local}"
+      Auth__DataProtectionKeysPath: "/data/dpkeys"
+      Resend__ApiKey: "${RESEND_API_KEY}"
+      Resend__FromAddress: "${RESEND_FROM_ADDRESS:-noreply@musichoarder.local}"
+      QualityGrading__ApiKey: "${QUALITY_GRADING_API_KEY}"
+      QualityGrading__BaseUrl: "${QUALITY_GRADING_BASE_URL:-https://openrouter.ai/api/v1}"
+      QualityGrading__Model: "${QUALITY_GRADING_MODEL:-deepseek/deepseek-v4-flash}"
+      LyricsTranscription__ApiKey: "${LYRICS_TRANSCRIPTION_API_KEY}"
+      LyricsTranscription__BaseUrl: "${LYRICS_TRANSCRIPTION_BASE_URL:-https://api.groq.com/openai/v1}"
+      LyricsTranscription__Model: "${LYRICS_TRANSCRIPTION_MODEL:-whisper-large-v3}"
+      LyricsTranscription__LlmModel: "${LYRICS_TRANSCRIPTION_LLM_MODEL:-google/gemini-2.5-flash-lite}"
+      Frontend__PublicBaseUrl: "${PUBLIC_BASE_URL:?PUBLIC_BASE_URL is required}"
+      MusicEnricher__EnableWishlistDownloads: "${ENABLE_WISHLIST_DOWNLOADS:-false}"
+      MusicEnricher__AutoDownloadWishlist: "${AUTO_DOWNLOAD_WISHLIST:-false}"
+      MusicEnricher__DownloadDirectory: "/data/downloads"
+      MusicEnricher__YtDlpCookiesPath: "${YTDLP_COOKIES_PATH:-}"
+      MusicEnricher__YtDlpExtraArgs: "${YTDLP_EXTRA_ARGS:-}"
     ports:
       - "5050:8080"
     volumes:
-      - ${MUSIC_SOURCE_PATH}:/music/source:ro
-      - ${MUSIC_DESTINATION_PATH}:/music/destination
-      # Writable staging dir for wishlist downloads (the source mount is read-only). The scanner
-      # indexes it as an extra source root, so downloads flow through the normal pipeline.
-      - musichoarder-downloads:/data/downloads
-      # Optional: a YouTube cookies file to defeat the datacenter-IP bot check. Export it from a
-      # logged-in browser (Netscape format), set YTDLP_COOKIES_HOST_PATH to its host path and
-      # YTDLP_COOKIES_PATH=/data/cookies/youtube.txt. Keep it private — never commit it.
-      - ${YTDLP_COOKIES_HOST_PATH:-/dev/null}:/data/cookies/youtube.txt:ro
-      # Persist DataProtection keys across container restarts so existing session cookies stay
-      # valid. Without this, every redeploy logs everyone out.
-      - musichoarder-dpkeys:/data/dpkeys
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Production
-      - ConnectionStrings__musichoarderdb=Host=postgres;Database=musichoarderdb;Username=musichoarder;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      - MusicEnricher__SourceDirectory=/music/source
-      - MusicEnricher__DestinationDirectory=/music/destination
-      # Wishlist downloader (yt-dlp + ffmpeg are baked into the API image). Off by default; the owner
-      # opts in via the Dokploy env. EnableWishlistDownloads gates the feature + the manual trigger;
-      # AutoDownloadWishlist additionally lets the worker auto-fetch the owner's Pending items in the
-      # background. The feature is owner-only (RequireOwner + owner-scoped workers).
-      - MusicEnricher__EnableWishlistDownloads=${ENABLE_WISHLIST_DOWNLOADS:-false}
-      - MusicEnricher__AutoDownloadWishlist=${AUTO_DOWNLOAD_WISHLIST:-false}
-      - MusicEnricher__DownloadDirectory=/data/downloads
-      # From a datacenter IP, YouTube throws "Sign in to confirm you're not a bot". Point
-      # YTDLP_COOKIES_PATH at a Netscape-format cookies file from a logged-in account (mounted via
-      # the optional bind below) to get past it; YTDLP_EXTRA_ARGS appends raw yt-dlp flags (e.g.
-      # `--extractor-args youtube:player_client=tv` or a `--proxy`). Both empty → plain yt-dlp.
-      - MusicEnricher__YtDlpCookiesPath=${YTDLP_COOKIES_PATH:-}
-      - MusicEnricher__YtDlpExtraArgs=${YTDLP_EXTRA_ARGS:-}
-      - MusicEnricher__AcoustIdApiKey=${ACOUSTID_API_KEY:-}
-      - Spotify__ClientId=${SPOTIFY_CLIENT_ID:-}
-      - Spotify__ClientSecret=${SPOTIFY_CLIENT_SECRET:-}
-      # Spotify redirects the browser back through the public frontend origin (the
-      # /api/spotify/callback SvelteKit route forwards to the API). Without this the redirect URI
-      # is derived from the proxied request host and resolves to a loopback address. Register
-      # <PUBLIC_BASE_URL>/api/spotify/callback in the Spotify dashboard.
-      - Spotify__OAuthRedirectBaseUrl=${PUBLIC_BASE_URL:?PUBLIC_BASE_URL is required}
-      - Auth__OwnerEmail=${OWNER_EMAIL:?OWNER_EMAIL is required}
-      - Auth__DemoUserEmail=${DEMO_USER_EMAIL:-demo@musichoarder.local}
-      - Auth__DataProtectionKeysPath=/data/dpkeys
-      - Resend__ApiKey=${RESEND_API_KEY:-}
-      - Resend__FromAddress=${RESEND_FROM_ADDRESS:-noreply@musichoarder.local}
-      - Frontend__PublicBaseUrl=${PUBLIC_BASE_URL:?PUBLIC_BASE_URL is required}
-      # AI quality grading (OpenAI-compatible; OpenRouter by default). Key blank → grading is a no-op.
-      - QualityGrading__ApiKey=${QUALITY_GRADING_API_KEY:-}
-      - QualityGrading__Model=${QUALITY_GRADING_MODEL:-deepseek/deepseek-v4-flash}
-      - QualityGrading__BaseUrl=${QUALITY_GRADING_BASE_URL:-https://openrouter.ai/api/v1}
-      # Experimental AI lyrics transcription (OpenAI-compatible Whisper; Groq recommended). Key blank →
-      # the feature is hidden in the UI entirely. The LlmModel (optional) reuses the QualityGrading creds.
-      - LyricsTranscription__ApiKey=${LYRICS_TRANSCRIPTION_API_KEY:-}
-      - LyricsTranscription__BaseUrl=${LYRICS_TRANSCRIPTION_BASE_URL:-https://api.groq.com/openai/v1}
-      - LyricsTranscription__Model=${LYRICS_TRANSCRIPTION_MODEL:-whisper-large-v3}
-      - LyricsTranscription__LlmModel=${LYRICS_TRANSCRIPTION_LLM_MODEL:-google/gemini-2.5-flash-lite}
+      - type: "volume"
+        target: "/data/dpkeys"
+        source: "musichoarder-dpkeys"
+      - type: "volume"
+        target: "/data/downloads"
+        source: "musichoarder-downloads"
+      - type: "bind"
+        target: "/data/cookies/youtube.txt"
+        source: "${YTDLP_COOKIES_HOST_PATH:-/dev/null}"
+        read_only: true
+      - type: "bind"
+        target: "/music/source"
+        source: "${MUSIC_SOURCE_PATH}"
+        read_only: true
+      - type: "bind"
+        target: "/music/destination"
+        source: "${MUSIC_DESTINATION_PATH}"
+    networks:
+      - "aspire"
+    restart: "always"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8080/alive"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    depends_on:
-      postgres:
-        condition: service_healthy
-
+      test:
+        - "CMD-SHELL"
+        - "curl -fsS http://localhost:8080/alive || exit 1"
+      interval: "10s"
+      timeout: "5s"
+      retries: 6
+      start_period: "40s"
   frontend:
-    image: ghcr.io/jeffreyyvdb/musichoarder/frontend:${MUSICHOARDER_VERSION:-latest}
-    restart: always
-    ports:
-      - "3000:3000"
+    image: "ghcr.io/jeffreyyvdb/musichoarder/frontend:${MUSICHOARDER_VERSION:-latest}"
+    pull_policy: "always"
     environment:
-      - MUSICHOARDER_API_URL=http://musichoarder:8080
-      # Umami analytics, loaded directly from the Umami host (script downloads from and posts
-      # events to PUBLIC_UMAMI_SRC's origin). Read at runtime via $env/dynamic/public, so changing
-      # these is an env change, no rebuild. Set PUBLIC_UMAMI_SRC to https://<umami-host>/script.js.
-      - PUBLIC_UMAMI_SRC=${PUBLIC_UMAMI_SRC:-}
-      - PUBLIC_UMAMI_WEBSITE_ID=${PUBLIC_UMAMI_WEBSITE_ID:-}
-      - PUBLIC_UMAMI_RECORDER_SRC=${PUBLIC_UMAMI_RECORDER_SRC:-}
+      NODE_ENV: "production"
+      PORT: "8001"
+      MUSICHOARDER_API_URL: "http://api:8080"
+      PUBLIC_UMAMI_SRC: "${PUBLIC_UMAMI_SRC}"
+      PUBLIC_UMAMI_WEBSITE_ID: "${PUBLIC_UMAMI_WEBSITE_ID}"
+      PUBLIC_UMAMI_RECORDER_SRC: "${PUBLIC_UMAMI_RECORDER_SRC}"
+      HOST: "0.0.0.0"
+      HOSTNAME: "0.0.0.0"
+    ports:
+      - "3000:8001"
+    networks:
+      - "aspire"
+    restart: "always"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    depends_on:
-      musichoarder:
-        condition: service_healthy
-
+      test:
+        - "CMD-SHELL"
+        - "curl -fsS http://localhost:8001/api/health || exit 1"
+      interval: "10s"
+      timeout: "5s"
+      retries: 6
+      start_period: "20s"
+networks:
+  aspire:
+    driver: "bridge"
 volumes:
   postgres-data:
+    driver: "local"
   musichoarder-dpkeys:
+    driver: "local"
   musichoarder-downloads:
+    driver: "local"

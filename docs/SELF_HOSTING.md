@@ -25,7 +25,7 @@ nano .env
 docker compose up -d
 ```
 
-The stack starts three containers: PostgreSQL, the API (`musichoarder`), and the frontend.
+The stack starts three containers: PostgreSQL, the API (`api`), and the frontend.
 Migrations apply automatically on first boot.
 
 - Frontend (the web UI): `http://<host-ip>:3000`
@@ -67,7 +67,7 @@ MusicHoarder uses passwordless **magic-link** sign-in.
    blank), the link is written to the API logs instead:
 
    ```bash
-   docker compose logs musichoarder | grep -i magic
+   docker compose logs api | grep -i magic
    ```
 
    Copy the URL into your browser to finish signing in.
@@ -172,7 +172,7 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 - **Permission errors on the music mounts** — the container must be able to *read* the source and
   *write* the destination. On a NAS, check the dataset/share ownership and ACLs for the user the
   container runs as. The source mount is read-only by design (`:ro`).
-- **Nothing happens after a scan** — check `docker compose logs musichoarder`; `fpcalc`
+- **Nothing happens after a scan** — check `docker compose logs api`; `fpcalc`
   (Chromaprint) is baked into the image, so fingerprinting works out of the box, but very large
   libraries take time. The processing pipeline runs in the background.
 - **Spotify login fails** — the redirect URI in the Spotify dashboard must exactly match
