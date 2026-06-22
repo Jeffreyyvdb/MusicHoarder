@@ -56,6 +56,25 @@ public class WishlistSyncBackgroundServiceTests
     }
 
     [Fact]
+    public async Task SyncOnce_InBackgroundScopeWhereFilterHidesSettings_StillSyncs()
+    {
+        // Regression for the auto-sync-of-new-likes outage: the hosted service runs in a scope with
+        // no HTTP user, so the SpotifySettings multi-tenant query filter resolves to
+        // OwnerUserId == <current scope user> != the owner. If the "connected" gate doesn't bypass the
+        // filter (IgnoreQueryFilters), it reads false and the sweep returns 0 forever — new likes never
+        // land on the wishlist. We model that with a non-owner accessor on the scope's DbContext; the
+        // owner's settings/source rows are therefore hidden unless the gate bypasses filters.
+        var jobManager = new JobManager();
+        var (svc, _) = BuildService(jobManager, enableDownloads: true, autoDownload: true,
+            liked: [Track("a", "Song A")],
+            scopeUser: new TestCurrentUserAccessor(TestCurrentUserAccessor.DemoUser));
+
+        var added = await svc.SyncOnceAsync(full: true, CancellationToken.None);
+
+        Assert.Equal(1, added);
+    }
+
+    [Fact]
     public async Task SyncOnce_WithNoNewItems_DoesNotKickDownload()
     {
         var jobManager = new JobManager();
@@ -81,7 +100,8 @@ public class WishlistSyncBackgroundServiceTests
     }
 
     private static (WishlistSyncBackgroundService Svc, MusicHoarderDbContext Db) BuildService(
-        JobManager jobManager, bool enableDownloads, bool autoDownload, List<SpotifyTrackItem> liked)
+        JobManager jobManager, bool enableDownloads, bool autoDownload, List<SpotifyTrackItem> liked,
+        ICurrentUserAccessor? scopeUser = null)
     {
         var dbOptions = new DbContextOptionsBuilder<MusicHoarderDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
@@ -110,7 +130,9 @@ public class WishlistSyncBackgroundServiceTests
         var api = new FakeSpotifyApi { LikedSongs = liked };
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddScoped(_ => new MusicHoarderDbContext(dbOptions));
+        services.AddScoped(_ => scopeUser is null
+            ? new MusicHoarderDbContext(dbOptions)
+            : new MusicHoarderDbContext(dbOptions, scopeUser));
         services.AddSingleton<ISpotifyApiService>(api);
         services.AddScoped<IWishlistService, WishlistService>();
         var provider = services.BuildServiceProvider();

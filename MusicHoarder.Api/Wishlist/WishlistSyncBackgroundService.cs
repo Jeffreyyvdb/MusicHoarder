@@ -104,7 +104,11 @@ public class WishlistSyncBackgroundService(
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
+        // IgnoreQueryFilters: this runs in a hosted-service scope where ICurrentUserAccessor has no
+        // HTTP user, so the multi-tenant filter would resolve to OwnerUserId == Guid.Empty and hide the
+        // owner's settings row — making this gate always-false and silently disabling auto-sync.
         var connected = await db.SpotifySettings
+            .IgnoreQueryFilters()
             .AsNoTracking()
             .AnyAsync(s => !string.IsNullOrEmpty(s.AccessToken) && !string.IsNullOrEmpty(s.RefreshToken), ct);
         if (!connected) return 0;
