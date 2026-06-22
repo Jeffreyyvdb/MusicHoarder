@@ -118,6 +118,32 @@ public class TrackerEnrichmentProviderTests
     }
 
     [Fact]
+    public async Task LeakTitleStartingWithNumber_QueriesFullTitleFromFilename()
+    {
+        // A leak whose title lives only in the filename and *starts with* a number ("999 (Triple 9)").
+        // The track-number parser must not shred the leading "999", or the tracker searches the useless
+        // "(Triple 9)" and misses the leak.
+        string? seenQuery = null;
+        var svc = new StubCatalog
+        {
+            Search = q =>
+            {
+                seenQuery = q;
+                return [new TrackerSong(9, "999 (Triple 9)", ["999", "Triple 9"], "unreleased", "gbgr", "Juice WRLD", null, 192, 2017)];
+            },
+        };
+        var provider = Create(svc);
+        var song = Song(artist: "Juice WRLD", title: null, durationSec: 192);
+        song.SourcePath = "/s/Juice WRLD/1 - Leaks/2 - Goodbye & Good Riddance ERA/999 (Triple 9).mp3";
+
+        var outcome = await provider.TryEnrichAsync(song);
+
+        Assert.Equal("999 (Triple 9)", seenQuery);
+        var matched = Assert.IsType<ProviderMatched>(outcome);
+        Assert.Equal("999 (Triple 9)", matched.Result.Title);
+    }
+
+    [Fact]
     public async Task NoSearchResults_ReturnsNoMatch()
     {
         var svc = new StubCatalog { Search = _ => [] };

@@ -64,6 +64,21 @@ public class SongSearchTextTests
         Assert.Equal(expectedTitle, title);
     }
 
+    [Theory]
+    // A bare 3-digit number with only a whitespace separator is the title, not a track number — keep it.
+    [InlineData("/m/Juice WRLD/Leaks/999 (Triple 9).mp3", "999 (Triple 9)")]
+    [InlineData("/m/Kanye West/808s & Heartbreak/808s.mp3", "808s")]
+    // But a 3-digit number followed by a real separator is still a track number.
+    [InlineData("/m/Artist/Box Set/100 - Finale.mp3", "Finale")]
+    public void Untagged_LeadingNumberThatIsPartOfTitle_IsKept(string path, string expectedTitle)
+    {
+        var song = Song(path);
+
+        var (_, title) = SongSearchText.Resolve(song, "/m");
+
+        Assert.Equal(expectedTitle, title);
+    }
+
     [Fact]
     public void Untagged_ArtistTitleFilename_StripsArtistAbbreviationPrefix()
     {

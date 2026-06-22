@@ -323,7 +323,11 @@ public static partial class SongSearchText
         return (artist, title);
     }
 
-    [GeneratedRegex(@"^\s*(\d{1,2}-)?(?<track>\d{1,3})\s*[.\-_]?\s+", RegexOptions.Compiled)]
+    // A leading track-number prefix on a "NN Title" file stem, optionally disc-prefixed ("1-01"). A
+    // number that is separated by punctuation ("01 - ", "01.") may be up to 3 digits; a number with a
+    // bare whitespace separator is bounded to 1–2 digits so a title that simply *starts* with a 3-digit
+    // number ("999 (Triple 9)", "808s") isn't mistaken for a track number and shredded from the title.
+    [GeneratedRegex(@"^\s*(\d{1,2}-)?(?:(?<track>\d{1,3})\s*[.\-_]\s*|(?<track>\d{1,2})\s+)", RegexOptions.Compiled)]
     private static partial Regex TrackNumberPrefix();
 
     // An "Artist - Title" separator: a single hyphen/dash (ASCII hyphen-minus, Unicode hyphen
