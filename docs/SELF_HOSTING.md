@@ -54,6 +54,8 @@ for you. See [`.env.example`](../.env.example) for the annotated source of truth
 | `DEMO_USER_EMAIL` | — | Read-only demo account (defaults to `demo@musichoarder.local`). |
 | `RESEND_API_KEY` / `RESEND_FROM_ADDRESS` | — | Send magic-link emails. Blank → link printed to logs. |
 | `QUALITY_GRADING_*` | — | Optional AI quality grading (OpenAI-compatible). |
+| `LYRICS_TRANSCRIPTION_API_KEY` | — | Experimental AI lyrics transcription + compare. **Blank → the feature is hidden in the UI.** Groq recommended; see below. |
+| `LYRICS_TRANSCRIPTION_BASE_URL` / `_MODEL` / `_LLM_MODEL` | — | Transcription endpoint, Whisper model, and (optional) cleanup LLM for the above. |
 | `PUBLIC_UMAMI_*` | — | Optional self-hosted Umami analytics. |
 
 ## First login
@@ -111,6 +113,15 @@ web form:
   `<PUBLIC_BASE_URL>/api/spotify/callback` in the Spotify dashboard.
 - **AI quality grading** — point `QUALITY_GRADING_*` at any OpenAI-compatible endpoint
   (OpenRouter by default) to let an LLM grade match/metadata quality for triage.
+- **AI lyrics transcription (experimental)** — set `LYRICS_TRANSCRIPTION_API_KEY` to enable, in a
+  track's **Lyrics** tab, transcribing the audio into synced lyrics (for songs LRCLIB has none for)
+  and comparing them side-by-side with LRCLIB, then choosing which version the player shows **and
+  embeds into the file**. The whole feature is **hidden until the key is set**.
+  [**Groq**](https://console.groq.com) is recommended (fast, cheap, has a free tier): set
+  `LYRICS_TRANSCRIPTION_BASE_URL=https://api.groq.com/openai/v1` and
+  `LYRICS_TRANSCRIPTION_MODEL=whisper-large-v3` (already the compose defaults). Songs that *do* have
+  LRCLIB lyrics are timed by deterministic forced alignment (no LLM); songs with *no* lyrics at all
+  optionally use a fast cleanup LLM (`LYRICS_TRANSCRIPTION_LLM_MODEL`) via the `QUALITY_GRADING_*` creds.
 - **Umami analytics** — set `PUBLIC_UMAMI_SRC` (full `…/script.js` URL) and
   `PUBLIC_UMAMI_WEBSITE_ID` to load a self-hosted Umami tracker.
 

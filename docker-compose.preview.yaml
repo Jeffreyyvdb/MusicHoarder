@@ -82,6 +82,12 @@ services:
       - QualityGrading__ApiKey=${QUALITY_GRADING_API_KEY:-}
       - QualityGrading__Model=${QUALITY_GRADING_MODEL:-deepseek/deepseek-v4-flash}
       - QualityGrading__BaseUrl=${QUALITY_GRADING_BASE_URL:-https://openrouter.ai/api/v1}
+      # Experimental AI lyrics transcription. Key blank → the feature is hidden in the UI. Defaults to
+      # Groq Whisper so a single secret switches it on; LlmModel reuses the QualityGrading creds above.
+      - LyricsTranscription__ApiKey=${LYRICS_TRANSCRIPTION_API_KEY:-}
+      - LyricsTranscription__BaseUrl=${LYRICS_TRANSCRIPTION_BASE_URL:-https://api.groq.com/openai/v1}
+      - LyricsTranscription__Model=${LYRICS_TRANSCRIPTION_MODEL:-whisper-large-v3}
+      - LyricsTranscription__LlmModel=${LYRICS_TRANSCRIPTION_LLM_MODEL:-google/gemini-2.5-flash-lite}
       - Auth__OwnerEmail=${OWNER_EMAIL}
       - Auth__DemoUserEmail=${DEMO_USER_EMAIL:-demo@musichoarder.local}
       - Auth__DataProtectionKeysPath=/data/dpkeys
