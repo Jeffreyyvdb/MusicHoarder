@@ -1,6 +1,7 @@
 import { untrack } from 'svelte';
 import { browser } from '$app/environment';
 import { toast } from 'svelte-sonner';
+import { coverThumbUrl } from '$lib/api-client';
 
 export interface PlayerSong {
   id: number;
@@ -9,6 +10,8 @@ export interface PlayerSong {
   streamUrl: string;
   /** Album-art URL (or null to fall back to the tinted Cover placeholder). */
   coverUrl?: string | null;
+  /** Album name, surfaced on the OS Media Session tile (or null/omitted). */
+  album?: string | null;
 }
 
 let currentSong = $state<PlayerSong | null>(null);
@@ -67,6 +70,71 @@ function stopRaf() {
   }
 }
 
+// ── OS Media Session integration ───────────────────────────────────────────
+// Feed `navigator.mediaSession` so the OS "Now Playing" surfaces (macOS Control
+// Center, lock screens, Bluetooth/car displays, hardware media keys) show the
+// current song and drive the in-app queue. All entry points are feature-detected
+// so SSR and browsers without support (or partial support) are silent no-ops —
+// each `setActionHandler` is also try/caught since older WebKit throws on
+// actions it doesn't recognise.
+
+function mediaSession(): MediaSession | null {
+  if (!browser || !('mediaSession' in navigator)) return null;
+  return navigator.mediaSession;
+}
+
+function updateMediaMetadata(song: PlayerSong) {
+  const ms = mediaSession();
+  if (!ms) return;
+  // Size our own cover endpoint to the 512px WebP bucket; external URLs (Spotify
+  // CDN) pass through unchanged. Omit `artwork` entirely when there's no cover.
+  const art = coverThumbUrl(song.coverUrl, 512);
+  ms.metadata = new MediaMetadata({
+    title: song.title,
+    artist: song.artist,
+    album: song.album ?? '',
+    artwork: art ? [{ src: art, sizes: '512x512', type: 'image/webp' }] : []
+  });
+}
+
+function updatePositionState() {
+  const ms = mediaSession();
+  if (!ms?.setPositionState) return;
+  if (!Number.isFinite(duration) || duration <= 0) return;
+  ms.setPositionState({
+    duration,
+    position: Math.min(Math.max(0, currentTime), duration),
+    playbackRate: 1
+  });
+}
+
+/** (Re)register action handlers, nulling prev/next at the queue ends so the OS greys them out. */
+function refreshActionHandlers() {
+  const ms = mediaSession();
+  if (!ms) return;
+  const set = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
+    try {
+      ms.setActionHandler(action, handler);
+    } catch {
+      // Action unsupported by this browser — ignore.
+    }
+  };
+  set('play', () => resume());
+  set('pause', () => pause());
+  set('previoustrack', queueIndex > 0 ? () => playPrevious() : null);
+  set('nexttrack', queueIndex >= 0 && queueIndex < queue.length - 1 ? () => playNext() : null);
+  set('seekto', (details) => {
+    if (typeof details.seekTime === 'number') seek(details.seekTime);
+  });
+  set('seekbackward', (details) => seek(currentTime - (details.seekOffset ?? 10)));
+  set('seekforward', (details) => seek(currentTime + (details.seekOffset ?? 10)));
+}
+
+function setPlaybackState(state: MediaSessionPlaybackState) {
+  const ms = mediaSession();
+  if (ms) ms.playbackState = state;
+}
+
 /**
  * Own the audio element imperatively rather than rendering it in a component.
  * A DOM-rendered `<audio>` is subject to Svelte's reconciliation: re-renders
@@ -83,7 +151,10 @@ function ensureAudioEl(): HTMLAudioElement | null {
   el.preload = 'metadata';
   el.volume = volumeState;
 
-  el.addEventListener('loadedmetadata', () => (duration = el.duration));
+  el.addEventListener('loadedmetadata', () => {
+    duration = el.duration;
+    updatePositionState();
+  });
   el.addEventListener('ended', () => {
     stopRaf();
     isPlaying = false;
@@ -100,17 +171,22 @@ function ensureAudioEl(): HTMLAudioElement | null {
   });
   el.addEventListener('play', () => {
     isPlaying = true;
+    setPlaybackState('playing');
     startRaf();
   });
   el.addEventListener('pause', () => {
     stopRaf();
     isPlaying = false;
+    setPlaybackState('paused');
     // The rAF stops here, so commit the exact paused position (the throttled
     // loop may have last written it up to TIME_WRITE_INTERVAL_MS ago).
     currentTime = el.currentTime;
   });
 
   audioEl = el;
+  // Register once on the session-owned element; handlers re-evaluate queue
+  // position each time they fire, and refreshActionHandlers() re-runs on load.
+  refreshActionHandlers();
   return el;
 }
 
@@ -158,6 +234,8 @@ async function loadAndPlay(song: PlayerSong) {
   currentSong = song;
   currentTime = 0;
   duration = 0;
+  updateMediaMetadata(song);
+  refreshActionHandlers(); // queue position may have changed (next/prev availability)
   audioEl.src = song.streamUrl;
   audioEl.load();
   attemptPlay();
@@ -223,6 +301,7 @@ function seek(time: number) {
   if (audioEl) {
     audioEl.currentTime = time;
     currentTime = time;
+    updatePositionState();
   }
 }
 
@@ -253,6 +332,11 @@ function stop() {
   duration = 0;
   queue = [];
   queueIndex = -1;
+  const ms = mediaSession();
+  if (ms) {
+    ms.metadata = null;
+    ms.playbackState = 'none';
+  }
 }
 
 /**
