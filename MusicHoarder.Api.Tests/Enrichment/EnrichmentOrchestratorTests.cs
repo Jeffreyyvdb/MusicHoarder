@@ -1439,6 +1439,7 @@ public class EnrichmentOrchestratorTests
                 opts.EnableDeezerProvider,
                 opts.EnableAppleMusicProvider,
                 QualityGradingEnabled: true,
+                AutoDownloadWishlist: opts.AutoDownloadWishlist,
                 UpdatedAtUtc: null);
         }
 

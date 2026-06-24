@@ -1780,18 +1780,27 @@ export interface SettingsLyricsTranscriptionView {
   enabled: boolean
 }
 
+export interface SettingsDownloadsView {
+  /** Deploy-time feature switch: wishlist downloads available at all (yt-dlp + a writable download dir). */
+  enabled: boolean
+  /** Runtime toggle: auto-sweep Pending wishlist items in the background. Flippable from the UI. */
+  autoDownload: boolean
+}
+
 export interface SettingsResponse {
   paths: SettingsPathsView
   providers: SettingsProvidersView
   spotify: SettingsSpotifyView
   qualityGrading: SettingsQualityGradingView
   lyricsTranscription: SettingsLyricsTranscriptionView
+  downloads: SettingsDownloadsView
   updatedAtUtc: string | null
 }
 
 export interface SettingsUpdateRequest {
   providers?: Partial<SettingsProvidersView>
   qualityGrading?: { enabled?: boolean }
+  downloads?: { autoDownload?: boolean }
 }
 
 export async function fetchSettings(): Promise<SettingsResponse> {
