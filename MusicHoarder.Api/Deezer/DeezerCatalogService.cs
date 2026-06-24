@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.RateLimiting;
 
@@ -130,7 +131,7 @@ public sealed class DeezerCatalogService(
 
             var title = root.TryGetProperty("title", out var tEl) && tEl.ValueKind == JsonValueKind.String ? tEl.GetString() : null;
             int? year = root.TryGetProperty("release_date", out var rdEl) && rdEl.ValueKind == JsonValueKind.String
-                ? ParseReleaseYear(rdEl.GetString()) : null;
+                ? ReleaseDateParser.ParseYear(rdEl.GetString()) : null;
             string? artist = root.TryGetProperty("artist", out var aEl) && aEl.ValueKind == JsonValueKind.Object &&
                 aEl.TryGetProperty("name", out var an) && an.ValueKind == JsonValueKind.String ? an.GetString() : null;
             string? cover = root.TryGetProperty("cover_xl", out var cEl) && cEl.ValueKind == JsonValueKind.String
@@ -346,7 +347,7 @@ public sealed class DeezerCatalogService(
                 isrc = isrcProp.GetString();
 
             if (track.TryGetProperty("release_date", out var rd) && rd.ValueKind == JsonValueKind.String)
-                releaseYear = ParseReleaseYear(rd.GetString());
+                releaseYear = ReleaseDateParser.ParseYear(rd.GetString());
 
             if (track.TryGetProperty("track_position", out var tp) && tp.ValueKind == JsonValueKind.Number)
                 trackNumber = tp.GetInt32();
@@ -383,13 +384,5 @@ public sealed class DeezerCatalogService(
         }
 
         return MusicHoarder.Api.Metadata.MultiValue.Join(names);
-    }
-
-    private static int? ParseReleaseYear(string? releaseDate)
-    {
-        if (string.IsNullOrWhiteSpace(releaseDate))
-            return null;
-        var part = releaseDate.Length >= 4 ? releaseDate[..4] : releaseDate;
-        return int.TryParse(part, out var y) && y is > 1000 and < 3000 ? y : null;
     }
 }

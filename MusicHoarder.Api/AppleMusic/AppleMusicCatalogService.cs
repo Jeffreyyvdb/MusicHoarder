@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.RateLimiting;
 
@@ -166,7 +167,7 @@ public sealed class AppleMusicCatalogService(
                     if (item.TryGetProperty("collectionName", out var cn) && cn.ValueKind == JsonValueKind.String) name = cn.GetString();
                     if (item.TryGetProperty("artistName", out var an) && an.ValueKind == JsonValueKind.String) artist = an.GetString();
                     if (item.TryGetProperty("artworkUrl100", out var aw) && aw.ValueKind == JsonValueKind.String) artwork = aw.GetString();
-                    if (item.TryGetProperty("releaseDate", out var rd) && rd.ValueKind == JsonValueKind.String) year = ParseReleaseYear(rd.GetString());
+                    if (item.TryGetProperty("releaseDate", out var rd) && rd.ValueKind == JsonValueKind.String) year = ReleaseDateParser.ParseYear(rd.GetString());
                 }
                 else if (wrapper == "track")
                 {
@@ -311,16 +312,8 @@ public sealed class AppleMusicCatalogService(
 
         int? releaseYear = null;
         if (track.TryGetProperty("releaseDate", out var rd) && rd.ValueKind == JsonValueKind.String)
-            releaseYear = ParseReleaseYear(rd.GetString());
+            releaseYear = ReleaseDateParser.ParseYear(rd.GetString());
 
         return new AppleMusicCatalogTrack(id, title, artist, albumName, releaseYear, trackNumber, durationMs, null);
-    }
-
-    private static int? ParseReleaseYear(string? releaseDate)
-    {
-        if (string.IsNullOrWhiteSpace(releaseDate))
-            return null;
-        var part = releaseDate.Length >= 4 ? releaseDate[..4] : releaseDate;
-        return int.TryParse(part, out var y) && y is > 1000 and < 3000 ? y : null;
     }
 }

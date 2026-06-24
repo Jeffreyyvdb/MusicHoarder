@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Metadata;
@@ -151,7 +150,7 @@ public sealed class MusicBrainzWebService(
 
         return dto.Releases
             .Where(r => !string.IsNullOrWhiteSpace(r.Id))
-            .Select(r => new MusicBrainzReleaseSearchResult(r.Id!, r.Title, ParseYear(r.Date), r.TrackCount, r.Score ?? 0))
+            .Select(r => new MusicBrainzReleaseSearchResult(r.Id!, r.Title, ReleaseDateParser.ParseYear(r.Date), r.TrackCount, r.Score ?? 0))
             .ToList();
     }
 
@@ -223,7 +222,7 @@ public sealed class MusicBrainzWebService(
             AlbumArtist: ArtistCreditNormalizer.GetPrimaryArtist(artist),
             ReleaseId: release?.Id,
             ReleaseTitle: release?.Title,
-            Year: ParseYear(release?.Date),
+            Year: ReleaseDateParser.ParseYear(release?.Date),
             Isrc: r.Isrcs is { Count: > 0 } ? r.Isrcs[0] : null,
             LengthMs: r.Length,
             Score: r.Score ?? 100,
@@ -271,7 +270,7 @@ public sealed class MusicBrainzWebService(
             Id: r.Id,
             Title: r.Title,
             AlbumArtist: string.IsNullOrWhiteSpace(artist) ? null : ArtistCreditNormalizer.GetPrimaryArtist(artist),
-            Year: ParseYear(r.Date),
+            Year: ReleaseDateParser.ParseYear(r.Date),
             TotalDiscs: totalDiscs,
             TotalTracks: totalTracks,
             Tracks: tracks);
@@ -296,13 +295,6 @@ public sealed class MusicBrainzWebService(
         => credits is null or { Count: 0 }
             ? null
             : MultiValue.Join(credits.Select(c => c.Artist?.Id));
-
-    private static int? ParseYear(string? date)
-    {
-        if (string.IsNullOrWhiteSpace(date) || date.Length < 4)
-            return null;
-        return int.TryParse(date.AsSpan(0, 4), NumberStyles.Integer, CultureInfo.InvariantCulture, out var y) ? y : null;
-    }
 
     private static string EscapeLucene(string value)
         => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);

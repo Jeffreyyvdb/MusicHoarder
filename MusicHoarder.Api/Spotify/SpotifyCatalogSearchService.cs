@@ -184,7 +184,7 @@ public sealed class SpotifyCatalogSearchService(
 
             var name = root.TryGetProperty("name", out var nEl) && nEl.ValueKind == JsonValueKind.String ? nEl.GetString() : null;
             int? year = root.TryGetProperty("release_date", out var rdEl) && rdEl.ValueKind == JsonValueKind.String
-                ? ParseReleaseYear(rdEl.GetString()) : null;
+                ? ReleaseDateParser.ParseYear(rdEl.GetString()) : null;
 
             string? artist = null;
             if (root.TryGetProperty("artists", out var arts) && arts.ValueKind == JsonValueKind.Array)
@@ -401,7 +401,7 @@ public sealed class SpotifyCatalogSearchService(
                 albumName = alName.GetString() ?? "";
 
             if (album.TryGetProperty("release_date", out var rd) && rd.ValueKind == JsonValueKind.String)
-                releaseYear = ParseReleaseYear(rd.GetString());
+                releaseYear = ReleaseDateParser.ParseYear(rd.GetString());
 
             if (album.TryGetProperty("album_type", out var at) && at.ValueKind == JsonValueKind.String)
                 albumType = at.GetString()?.ToLowerInvariant();
@@ -430,13 +430,5 @@ public sealed class SpotifyCatalogSearchService(
             id, name, artist, albumName, releaseYear, trackNumber, durationMs, isrc,
             Artists: artistsMulti, DiscNumber: discNumber, AlbumType: albumType, TotalTracks: totalTracks,
             AlbumId: albumId);
-    }
-
-    private static int? ParseReleaseYear(string? releaseDate)
-    {
-        if (string.IsNullOrWhiteSpace(releaseDate))
-            return null;
-        var part = releaseDate.Length >= 4 ? releaseDate[..4] : releaseDate;
-        return int.TryParse(part, out var y) && y is > 1000 and < 3000 ? y : null;
     }
 }
