@@ -20,17 +20,17 @@ updates:
       prefix: 'fix(deps)'
       prefix-development: 'chore(deps)'
       include: 'scope'
-    # @sveltejs/adapter-node 5.5.5+ regressed: the build now bundles the request
-    # handler into build/server/chunks/*.js instead of inlining it in
-    # build/handler.js, which breaks the adapter's `import.meta.url`-relative
-    # resolution of the static `client/` directory. Result: every /_app/immutable/*
-    # and static asset 404s (SSR still works), so the SvelteKit client never
-    # hydrates and the login/passkey UI never wires up. Pinned to 5.5.4 in
-    # frontend/package.json until the upstream regression is fixed; keep this
-    # ignore so Dependabot can't auto-merge it back to a broken version.
+    # @sveltejs/adapter-node 5.5.5 ONLY is broken: that release bundled the
+    # request handler into a nested build/server/chunks/*.js instead of
+    # build/handler.js, breaking the adapter's `import.meta.url`-relative
+    # resolution of the static `client/` dir — every /_app/immutable/* and
+    # static asset 404s (SSR still works), so the SvelteKit client never
+    # hydrates (sveltejs/kit#16095). Fixed upstream in 5.5.6 (#16114, which also
+    # fixes a separate boot deadlock #16092); we run 5.5.7. Ignore exactly 5.5.5
+    # so it can never come back; 5.5.6+ are allowed through normally.
     ignore:
       - dependency-name: '@sveltejs/adapter-node'
-        versions: ['>= 5.5.5']
+        versions: ['5.5.5']
     # Patch + minor bumps are grouped per dependency-type so the weekly
     # delivery is at most two bun PRs (prod-deps, dev-deps) instead of one
     # per package. Majors stay ungrouped — they're rare and deserve
