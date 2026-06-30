@@ -23,5 +23,12 @@ public class RuntimeSettings
     /// <summary>Overlays <see cref="Options.QualityGradingOptions.Enabled"/> — the AI quality grader master switch.</summary>
     public bool? QualityGradingEnabled { get; set; }
 
+    /// <summary>
+    /// Overlays <see cref="Options.MusicEnricherOptions.AutoDownloadWishlist"/> — when true the download
+    /// worker auto-sweeps Pending wishlist items in the background instead of waiting for the explicit
+    /// <c>POST /api/wishlist/download</c> trigger. Lets the owner flip auto-download from the Wishlist UI.
+    /// </summary>
+    public bool? AutoDownloadWishlist { get; set; }
+
     public DateTime? UpdatedAtUtc { get; set; }
 }

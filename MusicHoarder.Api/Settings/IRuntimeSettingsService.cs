@@ -22,6 +22,7 @@ public sealed record EffectiveSettings(
     bool EnableDeezerProvider,
     bool EnableAppleMusicProvider,
     bool QualityGradingEnabled,
+    bool AutoDownloadWishlist,
     DateTime? UpdatedAtUtc);
 
 /// <summary>
@@ -37,4 +38,5 @@ public sealed record RuntimeSettingsUpdate
     public bool? EnableDeezerProvider { get; init; }
     public bool? EnableAppleMusicProvider { get; init; }
     public bool? QualityGradingEnabled { get; init; }
+    public bool? AutoDownloadWishlist { get; init; }
 }

@@ -55,6 +55,12 @@ public static class SettingsEndpoints
                     // (key + base URL) is configured on the server, so the UI can hide it entirely otherwise.
                     LyricsTranscription: new LyricsTranscriptionView(
                         Enabled: lyricsTranscriptionOptions.Value.IsConfigured),
+                    // Wishlist downloads: Enabled is the deploy-time feature switch (yt-dlp + a writable
+                    // download dir); AutoDownload is the runtime toggle the owner flips from the UI. The
+                    // UI shows the toggle only when the feature is enabled.
+                    Downloads: new DownloadsView(
+                        Enabled: opts.EnableWishlistDownloads,
+                        AutoDownload: effective.AutoDownloadWishlist),
                     UpdatedAtUtc: effective.UpdatedAtUtc));
             })
             .WithName("GetSettings")
@@ -77,6 +83,7 @@ public static class SettingsEndpoints
                     EnableDeezerProvider = request.Providers?.Deezer,
                     EnableAppleMusicProvider = request.Providers?.AppleMusic,
                     QualityGradingEnabled = request.QualityGrading?.Enabled,
+                    AutoDownloadWishlist = request.Downloads?.AutoDownload,
                 };
 
                 var effective = await runtimeSettings.UpdateAsync(update, ct);
@@ -90,6 +97,7 @@ public static class SettingsEndpoints
                         effective.EnableDeezerProvider,
                         effective.EnableAppleMusicProvider),
                     qualityGrading = new { enabled = effective.QualityGradingEnabled },
+                    downloads = new { autoDownload = effective.AutoDownloadWishlist },
                     updatedAtUtc = effective.UpdatedAtUtc,
                 });
             })
@@ -115,6 +123,7 @@ public sealed record SettingsResponse(
     SpotifyView Spotify,
     QualityGradingView QualityGrading,
     LyricsTranscriptionView LyricsTranscription,
+    DownloadsView Downloads,
     DateTime? UpdatedAtUtc);
 
 public sealed record PathsView(string SourceDirectory, string DestinationDirectory, string FpcalcPath);
@@ -122,7 +131,9 @@ public sealed record ProvidersView(bool AcoustId, bool MusicBrainzWeb, bool Spot
 public sealed record SpotifyView(string OAuthRedirectBaseUrl, IReadOnlyList<string> Scopes);
 public sealed record QualityGradingView(bool Enabled, bool Configured);
 public sealed record LyricsTranscriptionView(bool Enabled);
+public sealed record DownloadsView(bool Enabled, bool AutoDownload);
 
-public sealed record SettingsUpdateRequest(ProvidersUpdate? Providers, QualityGradingUpdate? QualityGrading);
+public sealed record SettingsUpdateRequest(ProvidersUpdate? Providers, QualityGradingUpdate? QualityGrading, DownloadsUpdate? Downloads);
 public sealed record QualityGradingUpdate(bool? Enabled);
+public sealed record DownloadsUpdate(bool? AutoDownload);
 public sealed record ProvidersUpdate(bool? AcoustId, bool? MusicBrainzWeb, bool? SpotifyApi, bool? Tracker, bool? Deezer, bool? AppleMusic);

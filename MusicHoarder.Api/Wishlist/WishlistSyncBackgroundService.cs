@@ -25,6 +25,7 @@ public class WishlistSyncBackgroundService(
     JobManager jobManager,
     IOptions<SpotifyOptions> spotifyOptions,
     IOptions<MusicEnricherOptions> enricherOptions,
+    Settings.IRuntimeSettingsService runtimeSettings,
     ILogger<WishlistSyncBackgroundService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -144,19 +145,20 @@ public class WishlistSyncBackgroundService(
             }
         }
 
-        if (added > 0) MaybeKickDownload(added);
+        if (added > 0) await MaybeKickDownloadAsync(added, ct);
         return added;
     }
 
     /// <summary>
     /// Wake the download worker immediately when a sync added items, instead of letting it wait out its
-    /// idle poll. Gated by both download flags — mirroring the worker's own auto-sweep gate — so it never
-    /// fires (and logs/SignalCompletes a no-op) when the feature or auto-download is off.
+    /// idle poll. Gated by the feature switch (deploy-time config) and the auto-download runtime setting —
+    /// mirroring the worker's own auto-sweep gate — so it never fires (and logs/SignalCompletes a no-op)
+    /// when the feature or auto-download is off.
     /// </summary>
-    private void MaybeKickDownload(int added)
+    private async Task MaybeKickDownloadAsync(int added, CancellationToken ct)
     {
-        var opts = enricherOptions.Value;
-        if (!opts.EnableWishlistDownloads || !opts.AutoDownloadWishlist) return;
+        if (!enricherOptions.Value.EnableWishlistDownloads) return;
+        if (!(await runtimeSettings.GetAsync(ct)).AutoDownloadWishlist) return;
 
         if (jobManager.TryStartJob(JobType.Download, out var jobId, out _))
             logger.LogInformation("Wishlist sync added {Added} item(s); kicked download {JobId}", added, jobId);
