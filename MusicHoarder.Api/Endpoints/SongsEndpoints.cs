@@ -726,7 +726,7 @@ public static class SongsEndpoints
             // when a provider returns NeedsReview, so bulk-approve must apply the winning
             // candidate from the provider attempt's MatchedDataJson before flipping to Matched.
             // Skip rows where the recorded MatchedBy provider has no candidate JSON we can apply.
-            if (!TryApplyWinningCandidate(song))
+            if (!WinningCandidateApplier.TryApply(song))
             {
                 skippedIds.Add(song.Id);
                 continue;
@@ -749,61 +749,6 @@ public static class SongsEndpoints
             SkippedCount = skippedIds.Count,
             SkippedIds = skippedIds,
         });
-    }
-
-    internal static bool TryApplyWinningCandidate(Persistence.SongMetadata song)
-    {
-        if (string.IsNullOrWhiteSpace(song.MatchedBy)) return false;
-
-        var providerEnum = EnrichmentOrchestrator.MapProviderName(song.MatchedBy);
-        if (providerEnum is null) return false;
-
-        var attempt = song.ProviderAttempts.FirstOrDefault(a =>
-            a.Provider == providerEnum.Value && a.Status == ProviderAttemptStatus.Matched);
-        if (attempt is null || string.IsNullOrWhiteSpace(attempt.MatchedDataJson)) return false;
-
-        EnrichmentProviderResult? candidate;
-        try
-        {
-            candidate = JsonSerializer.Deserialize<EnrichmentProviderResult>(attempt.MatchedDataJson);
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-        if (candidate is null) return false;
-
-        var warningsJson = candidate.MatchWarnings.Count > 0
-            ? JsonSerializer.Serialize(candidate.MatchWarnings)
-            : null;
-
-        song.ApplyEnrichmentMatch(new EnrichmentMatchData(
-            candidate.Artist,
-            candidate.AlbumArtist,
-            candidate.Title,
-            candidate.Year,
-            candidate.TrackNumber,
-            candidate.MusicBrainzId,
-            candidate.MusicBrainzReleaseId,
-            candidate.SpotifyId,
-            candidate.AcoustIdTrackId,
-            candidate.Isrc,
-            candidate.MatchedBy,
-            candidate.MatchConfidence,
-            warningsJson,
-            EnrichmentStatus.Matched,
-            candidate.Album,
-            candidate.Artists,
-            candidate.ArtistMusicBrainzIds,
-            candidate.AlbumArtistMusicBrainzId,
-            candidate.MusicBrainzReleaseGroupId,
-            candidate.DiscNumber,
-            candidate.TotalDiscs,
-            candidate.TotalTracks,
-            candidate.IsCompilation,
-            candidate.ReleaseTypePrimary,
-            candidate.ReleaseTypes));
-        return true;
     }
 
     private static async Task<IResult> SoftDeleteSong(int id, MusicHoarderDbContext db)
