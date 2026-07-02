@@ -187,6 +187,27 @@ internal static class ComposeFileExtensions
         // probe is independent). No demo media on previews (MountDemoMedia is swarm-only).
         api.DependsOn.Clear();
         frontend.DependsOn.Clear();
+
+        // ── Single shared network (fixes Dokploy preview 504 Gateway Timeouts) ───────────────────
+        // Aspire emits a dedicated `aspire` bridge network and pins every service to it. On Dokploy,
+        // each *isolated* compose stack ALSO gets a per-app project network (named after the appName,
+        // e.g. `mh-pr-278-ohgunr`) that Dokploy attaches every service AND dokploy-traefik to for
+        // routing — so the containers end up dual-homed. Dokploy injects only the `traefik.http.*`
+        // labels onto plain compose stacks, no `traefik.docker.network` disambiguator, so Traefik's
+        // docker provider can resolve the frontend to its `aspire` IP — a network Traefik is NOT on —
+        // and every request black-holes into a 504 even though the container serves 200 internally
+        // (sveltejs unaffected; this is pure ingress routing). Services already reach each other by
+        // name on the shared Dokploy project network, so drop the redundant `aspire` network: all
+        // services then sit on that one network — the working pre-#262 / pr-199 topology.
+        //
+        // Preview-only: the swarm/prod build keeps the network (promoted to an overlay) because Dokploy
+        // stamps `traefik.swarm.network=dokploy-network` on swarm services, which disambiguates; and
+        // self-host is a standalone single-network `docker compose up` that never had the bug.
+        foreach (var service in file.Services.Values)
+        {
+            service.Networks.Clear();
+        }
+        file.Networks.Clear();
     }
 
     /// <summary>

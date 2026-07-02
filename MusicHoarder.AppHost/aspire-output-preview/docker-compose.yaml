@@ -13,8 +13,6 @@ services:
         target: "/var/lib/postgresql/data"
         source: "musichoarder-volume"
         read_only: false
-    networks:
-      - "aspire"
     restart: "always"
   api:
     image: "${API_IMAGE}"
@@ -81,8 +79,6 @@ services:
       - type: "volume"
         target: "${DESTINATION_DIRECTORY}"
         source: "musichoarder-dest"
-    networks:
-      - "aspire"
     restart: "always"
     healthcheck:
       test:
@@ -112,8 +108,6 @@ services:
     ports:
       - "8000"
       - "8001"
-    networks:
-      - "aspire"
     restart: "always"
     healthcheck:
       test:
@@ -123,9 +117,6 @@ services:
       timeout: "5s"
       retries: 6
       start_period: "20s"
-networks:
-  aspire:
-    driver: "bridge"
 volumes:
   musichoarder-volume:
     driver: "local"
