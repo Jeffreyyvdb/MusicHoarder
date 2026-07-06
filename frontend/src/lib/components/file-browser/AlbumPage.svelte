@@ -88,6 +88,11 @@
     const artist = album?.artist ?? null;
     const title = album?.title ?? null;
     const year = album?.year ?? null;
+    // Built albums group by destination folder (AlbumSummary.key is that folder). Pass it so the
+    // backend matches canonical tracks against exactly the songs this page lists — matching against
+    // the wider tag-based set can annotate a track with an unbuilt duplicate the page doesn't show,
+    // which renders as a false MISSING row while the built copy drops to the bonus tail.
+    const folder = album?.songs.some((s) => s.destinationPath) ? album.key : null;
     tracklist = null;
     linkStatus = 'pending';
     albumGrade = null;
@@ -97,7 +102,7 @@
     }
     let cancelled = false;
     loadingDetail = true;
-    void fetchAlbumDetail(artist, title, year)
+    void fetchAlbumDetail(artist, title, year, folder)
       .then((d) => {
         if (cancelled) return;
         tracklist = d.tracklist;

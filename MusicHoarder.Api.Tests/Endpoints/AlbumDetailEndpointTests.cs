@@ -48,7 +48,7 @@ public class AlbumDetailEndpointTests
         db.CanonicalAlbumQualityGrades.Add(Grade(1, SongQualityVerdict.Questionable, 55));
         await db.SaveChangesAsync();
 
-        var result = await AlbumsEndpoints.GetAlbumDetail("Daft Punk", "Discovery", year: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+        var result = await AlbumsEndpoints.GetAlbumDetail("Daft Punk", "Discovery", year: null, folder: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
 
         var value = Value(result);
         Assert.Equal("linked", GetProperty<string>(value, "status"));
@@ -91,7 +91,7 @@ public class AlbumDetailEndpointTests
         });
         await db.SaveChangesAsync();
 
-        var result = await AlbumsEndpoints.GetAlbumDetail("Daft Punk", "Discovery", year: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+        var result = await AlbumsEndpoints.GetAlbumDetail("Daft Punk", "Discovery", year: null, folder: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
 
         var value = Value(result);
         Assert.Equal("linked", GetProperty<string>(value, "status"));
@@ -116,7 +116,7 @@ public class AlbumDetailEndpointTests
         db.CanonicalAlbumQualityGrades.Add(Grade(1, SongQualityVerdict.Good, 80, model: "old/model"));
         await db.SaveChangesAsync();
 
-        var result = await AlbumsEndpoints.GetAlbumDetail("Daft Punk", "Discovery", year: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+        var result = await AlbumsEndpoints.GetAlbumDetail("Daft Punk", "Discovery", year: null, folder: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
 
         var grade = GetProperty<object>(Value(result), "grade")!;
         Assert.True(GetProperty<bool>(grade, "graded"));
@@ -127,7 +127,7 @@ public class AlbumDetailEndpointTests
     public async Task GetAlbumDetail_NoRow_ReturnsPending_NullTracklist_Ungraded()
     {
         await using var db = NewContext();
-        var result = await AlbumsEndpoints.GetAlbumDetail("Nobody", "Nothing", year: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+        var result = await AlbumsEndpoints.GetAlbumDetail("Nobody", "Nothing", year: null, folder: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
 
         var value = Value(result);
         Assert.Equal("pending", GetProperty<string>(value, "status"));
@@ -145,7 +145,7 @@ public class AlbumDetailEndpointTests
         });
         await db.SaveChangesAsync();
 
-        var result = await AlbumsEndpoints.GetAlbumDetail("Nobody", "Phantom Album", year: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+        var result = await AlbumsEndpoints.GetAlbumDetail("Nobody", "Phantom Album", year: null, folder: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
 
         var value = Value(result);
         Assert.Equal("localOnly", GetProperty<string>(value, "status"));
@@ -179,7 +179,7 @@ public class AlbumDetailEndpointTests
         db.Songs.Add(OwnedSong("/c.mp3", "Kanye West", "My Beautiful Dark Twisted Fantasy", year: 2013, trackNumber: 1, title: "Mama's Boy"));
         await db.SaveChangesAsync();
 
-        var result = await AlbumsEndpoints.GetAlbumDetail("Kanye West", "My Beautiful Dark Twisted Fantasy", year: 2010, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+        var result = await AlbumsEndpoints.GetAlbumDetail("Kanye West", "My Beautiful Dark Twisted Fantasy", year: 2010, folder: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
 
         var value = Value(result);
         Assert.Equal("linked", GetProperty<string>(value, "status"));
@@ -212,7 +212,7 @@ public class AlbumDetailEndpointTests
         db.Songs.Add(OwnedSong("/c.mp3", "Kanye West", "My Beautiful Dark Twisted Fantasy", year: 2013, trackNumber: 14, title: "Mama's Boy"));
         await db.SaveChangesAsync();
 
-        var result = await AlbumsEndpoints.GetAlbumDetail("Kanye West", "My Beautiful Dark Twisted Fantasy", year: 2013, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+        var result = await AlbumsEndpoints.GetAlbumDetail("Kanye West", "My Beautiful Dark Twisted Fantasy", year: 2013, folder: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
 
         var value = Value(result);
         Assert.Equal("localOnly", GetProperty<string>(value, "status"));
@@ -221,10 +221,112 @@ public class AlbumDetailEndpointTests
     }
 
     [Fact]
+    public async Task GetAlbumDetail_FolderScoped_MatchesTheBuiltCopy_NotAnUnbuiltDuplicateWithTheMbid()
+    {
+        await using var db = NewContext();
+        db.CanonicalAlbums.Add(new CanonicalAlbum
+        {
+            Id = 1,
+            ArtistKey = "joey bada",
+            AlbumKey = "1999",
+            DisplayTitle = "1999",
+            DisplayArtist = "Joey Bada$$",
+            Status = CanonicalAlbumStatus.Fetched,
+            Tracks =
+            [
+                new CanonicalAlbumTrack { DiscNumber = 1, TrackNumber = 7, Title = "World Domination", MusicBrainzRecordingId = "rec-wd" },
+            ],
+        });
+        // The copy the album page shows: built into the folder, matched via a provider that left no MBID.
+        var built = OwnedSong("/src/07.flac", "Joey Bada$$", "1999", trackNumber: 7, title: "World Domination",
+            destinationPath: "/dest/Joey Bada$$/2012 - 1999/07 - World Domination.flac");
+        // A re-downloaded twin carrying the canonical recording MBID that was never built — the page
+        // doesn't show it, so the matcher must not consume it (that used to render a false MISSING row).
+        var unbuiltDuplicate = OwnedSong("/src/slskd/07.flac", "Joey Bada$$", "1999", mbid: "rec-wd", trackNumber: 7, title: "World Domination");
+        db.Songs.AddRange(built, unbuiltDuplicate);
+        await db.SaveChangesAsync();
+
+        var result = await AlbumsEndpoints.GetAlbumDetail(
+            "Joey Bada$$", "1999", year: null, folder: "/dest/Joey Bada$$/2012 - 1999", db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+
+        var tracklist = GetProperty<object>(Value(result), "tracklist")!;
+        Assert.Equal(1, GetProperty<int>(tracklist, "ownedCount"));
+        var tracks = ((IEnumerable)GetProperty<object>(tracklist, "tracks")!).Cast<object>().ToList();
+        Assert.Equal(built.Id, GetProperty<int?>(tracks[0], "ownedSongId"));
+    }
+
+    [Fact]
+    public async Task GetAlbumDetail_FolderScoped_IgnoresSiblingPrefixAndNestedFolders()
+    {
+        await using var db = NewContext();
+        db.CanonicalAlbums.Add(new CanonicalAlbum
+        {
+            Id = 1,
+            ArtistKey = "joey bada",
+            AlbumKey = "1999",
+            DisplayTitle = "1999",
+            DisplayArtist = "Joey Bada$$",
+            Status = CanonicalAlbumStatus.Fetched,
+            Tracks =
+            [
+                new CanonicalAlbumTrack { DiscNumber = 1, TrackNumber = 1, Title = "Summer Knights" },
+                new CanonicalAlbumTrack { DiscNumber = 1, TrackNumber = 2, Title = "Waves" },
+            ],
+        });
+        var inFolder = OwnedSong("/src/01.flac", "Joey Bada$$", "1999", trackNumber: 1, title: "Summer Knights",
+            destinationPath: "/dest/Joey Bada$$/2012 - 1999/01 - Summer Knights.flac");
+        // Same name prefix but a different folder — must not count as owned here.
+        var siblingFolder = OwnedSong("/src/02a.flac", "Joey Bada$$", "1999", trackNumber: 2, title: "Waves",
+            destinationPath: "/dest/Joey Bada$$/2012 - 1999 deluxe/02 - Waves.flac");
+        // Nested one level below the album folder — its own card, not a direct child.
+        var nestedFolder = OwnedSong("/src/02b.flac", "Joey Bada$$", "1999", trackNumber: 2, title: "Waves",
+            destinationPath: "/dest/Joey Bada$$/2012 - 1999/cd2/02 - Waves.flac");
+        db.Songs.AddRange(inFolder, siblingFolder, nestedFolder);
+        await db.SaveChangesAsync();
+
+        var result = await AlbumsEndpoints.GetAlbumDetail(
+            "Joey Bada$$", "1999", year: null, folder: "/dest/Joey Bada$$/2012 - 1999", db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+
+        var tracklist = GetProperty<object>(Value(result), "tracklist")!;
+        Assert.Equal(1, GetProperty<int>(tracklist, "ownedCount"));
+        var tracks = ((IEnumerable)GetProperty<object>(tracklist, "tracks")!).Cast<object>().ToList();
+        Assert.Equal(inFolder.Id, GetProperty<int?>(tracks[0], "ownedSongId"));
+        Assert.Null(GetProperty<int?>(tracks[1], "ownedSongId"));
+    }
+
+    [Fact]
+    public async Task GetAlbumDetail_FolderScopedToUnrelatedRelease_ReturnsLocalOnly()
+    {
+        await using var db = NewContext();
+        db.CanonicalAlbums.Add(new CanonicalAlbum
+        {
+            Id = 1,
+            ArtistKey = "joey bada",
+            AlbumKey = "1999",
+            DisplayTitle = "1999",
+            DisplayArtist = "Joey Bada$$",
+            Status = CanonicalAlbumStatus.Fetched,
+            Tracks = [new CanonicalAlbumTrack { DiscNumber = 1, TrackNumber = 1, Title = "Summer Knights" }],
+        });
+        // The folder holds only a track that matches nothing on the canonical album (a bootleg
+        // sharing the album name) — the endpoint must report local-only, not "missing everything".
+        db.Songs.Add(OwnedSong("/src/14.flac", "Joey Bada$$", "1999", trackNumber: 14, title: "Freestyle Bootleg",
+            destinationPath: "/dest/Joey Bada$$/1999 bootleg/14 - Freestyle Bootleg.flac"));
+        await db.SaveChangesAsync();
+
+        var result = await AlbumsEndpoints.GetAlbumDetail(
+            "Joey Bada$$", "1999", year: null, folder: "/dest/Joey Bada$$/1999 bootleg", db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+
+        var value = Value(result);
+        Assert.Equal("localOnly", GetProperty<string>(value, "status"));
+        Assert.Null(GetProperty<object>(value, "tracklist"));
+    }
+
+    [Fact]
     public async Task GetAlbumDetail_BlankParams_Returns404()
     {
         await using var db = NewContext();
-        var result = await AlbumsEndpoints.GetAlbumDetail("", "", year: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
+        var result = await AlbumsEndpoints.GetAlbumDetail("", "", year: null, folder: null, db, EnrichOpts(), GradeOpts(), CancellationToken.None);
         Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)result).StatusCode);
     }
 
@@ -303,7 +405,8 @@ public class AlbumDetailEndpointTests
     };
 
     private static SongMetadata OwnedSong(
-        string sourcePath, string albumArtist, string album, string? mbid = null, int? trackNumber = null, string? title = null, int? year = null) => new()
+        string sourcePath, string albumArtist, string album, string? mbid = null, int? trackNumber = null,
+        string? title = null, int? year = null, string? destinationPath = null) => new()
     {
         OwnerUserId = WellKnownUsers.OwnerId,
         SourcePath = sourcePath,
@@ -320,6 +423,8 @@ public class AlbumDetailEndpointTests
         MusicBrainzId = mbid,
         TrackNumber = trackNumber,
         Title = title,
+        DestinationPath = destinationPath,
+        LibraryBuildStatus = destinationPath is null ? LibraryBuildStatus.Pending : LibraryBuildStatus.Done,
     };
 
     private static MusicHoarderDbContext NewContext()
