@@ -741,11 +741,15 @@ export async function fetchAlbumDetail(
   artist: string,
   album: string,
   year?: number | null,
+  folder?: string | null,
 ): Promise<AlbumDetailResult> {
   const params = new URLSearchParams({ artist, album })
   // Scope to one destination folder so an album name split across releases shows only this card's
   // release (e.g. a bootleg sharing the name reads as local-only instead of "missing 14 tracks").
   if (year != null) params.set("year", String(year))
+  // For built albums the folder is the exact display unit: the backend then matches owned tracks
+  // against its direct children only, so unbuilt duplicates can't produce false MISSING rows.
+  if (folder) params.set("folder", folder)
   const response = await fetch(`${API_PREFIX}/api/albums/detail?${params.toString()}`, { cache: "no-store" })
   if (response.status === 404) return { status: "pending", tracklist: null, grade: { graded: false } }
   if (!response.ok) throw new Error(`album detail failed: ${response.status}`)

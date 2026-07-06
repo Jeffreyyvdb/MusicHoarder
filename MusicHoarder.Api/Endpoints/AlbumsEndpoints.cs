@@ -49,6 +49,7 @@ public static class AlbumsEndpoints
         string artist,
         string album,
         int? year,
+        string? folder,
         MusicHoarderDbContext db,
         IOptions<MusicEnricherOptions> options,
         IOptionsMonitor<QualityGradingOptions> gradingOptions,
@@ -72,21 +73,44 @@ public static class AlbumsEndpoints
             return Results.Ok(new { status = DeriveStatus(canonical), tracklist = (object?)null, grade = new { graded = false } });
 
         // ── Reconciled tracklist, each canonical track annotated with the owned song (if any) ──
-        // Owned songs in this album group, mirroring the frontend's (albumArtist ?? artist, album) grouping.
-        // A single album name can split across destination folders (different releases keyed by year);
-        // when the caller passes the folder's year we scope to it so the card reflects exactly one release.
-        var artistLower = artist.ToLowerInvariant();
-        var albumLower = album.ToLowerInvariant();
-        var ownedQuery = db.Songs
-            .AsNoTracking()
-            .Where(s => s.DeletedAtUtc == null
-                && s.Album != null && s.Album.ToLower() == albumLower
-                && ((s.AlbumArtist ?? s.Artist) ?? "").ToLower() == artistLower);
-        if (year is not null)
-            ownedQuery = ownedQuery.Where(s => s.Year == year);
-        var ownedSongs = await ownedQuery
-            .Select(s => new OwnedTrackInfo(s.Id, s.MusicBrainzId, s.DiscNumber, s.TrackNumber, s.Title))
-            .ToListAsync(ct);
+        // Owned songs must come from the same set the album page displays, or a canonical track can be
+        // annotated with a song the page doesn't show — the UI then renders it as MISSING while the copy
+        // the user actually sees drops to the unmatched "bonus" tail. Built albums group by destination
+        // folder in the frontend, so when the caller passes that folder we scope to its direct children
+        // (unbuilt duplicates and copies in other folders are invisible on the page and must not be
+        // consumed by the matcher). Unbuilt albums fall back to the tag-based
+        // (albumArtist ?? artist, album[, year]) grouping the frontend uses for them.
+        List<OwnedTrackInfo> ownedSongs;
+        var folderKey = string.IsNullOrWhiteSpace(folder) ? null : folder.TrimEnd('/');
+        if (folderKey is not null)
+        {
+            var folderPrefix = folderKey + "/";
+            ownedSongs = (await db.Songs
+                    .AsNoTracking()
+                    .Where(s => s.DeletedAtUtc == null
+                        && s.DestinationPath != null && s.DestinationPath.StartsWith(folderPrefix))
+                    .Select(s => new { s.Id, s.MusicBrainzId, s.DiscNumber, s.TrackNumber, s.Title, s.DestinationPath })
+                    .ToListAsync(ct))
+                // Direct children only — a nested album folder shares the prefix but is its own card.
+                .Where(s => s.DestinationPath!.LastIndexOf('/') == folderKey.Length)
+                .Select(s => new OwnedTrackInfo(s.Id, s.MusicBrainzId, s.DiscNumber, s.TrackNumber, s.Title))
+                .ToList();
+        }
+        else
+        {
+            var artistLower = artist.ToLowerInvariant();
+            var albumLower = album.ToLowerInvariant();
+            var ownedQuery = db.Songs
+                .AsNoTracking()
+                .Where(s => s.DeletedAtUtc == null
+                    && s.Album != null && s.Album.ToLower() == albumLower
+                    && ((s.AlbumArtist ?? s.Artist) ?? "").ToLower() == artistLower);
+            if (year is not null)
+                ownedQuery = ownedQuery.Where(s => s.Year == year);
+            ownedSongs = await ownedQuery
+                .Select(s => new OwnedTrackInfo(s.Id, s.MusicBrainzId, s.DiscNumber, s.TrackNumber, s.Title))
+                .ToListAsync(ct);
+        }
 
         var orderedTracks = canonical.Tracks
             .OrderBy(t => t.DiscNumber)
@@ -98,7 +122,7 @@ public static class AlbumsEndpoints
         // Scoped to one folder but none of its owned tracks appear on the canonical album → this folder
         // is a different release that merely shares the album name (e.g. a bootleg). Report local-only so
         // the UI renders the owned tracks alone instead of greying in a canonical tracklist it isn't part of.
-        if (year is not null && ownedSongs.Count > 0 && matches.Count == 0)
+        if ((year is not null || folderKey is not null) && ownedSongs.Count > 0 && matches.Count == 0)
             return Results.Ok(new { status = "localOnly", tracklist = (object?)null, grade = new { graded = false } });
 
         var tracks = orderedTracks
