@@ -52,6 +52,51 @@ public class DuplicateDetectionServiceTests
     }
 
     [Fact]
+    public async Task DetectDuplicates_PrefersMatchedCopy_OverBiggerUnmatchedTwin()
+    {
+        // Identical audio, equal format: one copy is enriched-Matched with verified tags, the other is
+        // a bigger file that never matched (e.g. mislabeled — same recording under a wrong title).
+        // Electing the unmatched one as "best" would knock the correctly-tagged copy out of the build.
+        await using var db = CreateDbContext();
+        var matched = CreateSong(1, "/a/survival tactics.flac", ".flac", "FP_M", bitrate: null, size: 22_000_000);
+        matched.EnrichmentStatus = EnrichmentStatus.Matched;
+        var mislabeled = CreateSong(2, "/b/survivors guilt.flac", ".flac", "FP_M", bitrate: null, size: 23_000_000);
+        db.Songs.AddRange(matched, mislabeled);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        await service.DetectDuplicatesAsync();
+
+        var songs = await db.Songs.OrderBy(s => s.Id).ToListAsync();
+        Assert.False(songs[0].IsDuplicate);
+        Assert.True(songs[1].IsDuplicate);
+        Assert.Equal(1, songs[1].DuplicateOfId);
+    }
+
+    [Fact]
+    public async Task DetectDuplicates_PrefersBuiltCopy_OverBiggerUnbuiltTwin()
+    {
+        // At equal quality and enrichment standing, flagging the already-built copy would orphan its
+        // destination file and rebuild the same audio under a new name — keep the built one as best.
+        await using var db = CreateDbContext();
+        var unbuilt = CreateSong(1, "/a/track.flac", ".flac", "FP_N", bitrate: null, size: 23_000_000);
+        unbuilt.EnrichmentStatus = EnrichmentStatus.Matched;
+        var built = CreateSong(2, "/b/track.flac", ".flac", "FP_N", bitrate: null, size: 22_000_000);
+        built.EnrichmentStatus = EnrichmentStatus.Matched;
+        built.MarkBuildDone("/dest/Artist/Album/01 - Track.flac");
+        db.Songs.AddRange(unbuilt, built);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        await service.DetectDuplicatesAsync();
+
+        var songs = await db.Songs.OrderBy(s => s.Id).ToListAsync();
+        Assert.True(songs[0].IsDuplicate);
+        Assert.Equal(2, songs[0].DuplicateOfId);
+        Assert.False(songs[1].IsDuplicate);
+    }
+
+    [Fact]
     public async Task DetectDuplicates_NoGroupsWithSingleTrack()
     {
         await using var db = CreateDbContext();

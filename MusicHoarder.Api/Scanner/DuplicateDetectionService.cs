@@ -71,8 +71,15 @@ public class DuplicateDetectionService(
 
         foreach (var group in groups)
         {
+            // Quality first, then metadata trustworthiness: a Matched copy carries verified tags, while
+            // an unmatched twin may be a mislabeled file (identical audio under a wrong title/album) —
+            // electing that one as "best" knocks the correctly-tagged copy out of the build. An
+            // already-built copy also outranks an unbuilt twin at equal standing: flagging the built one
+            // would orphan its destination file and rebuild the same audio under a new name.
             var ranked = group
                 .OrderByDescending(s => IDuplicateDetectionService.QualityScore(s))
+                .ThenByDescending(s => s.EnrichmentStatus == EnrichmentStatus.Matched)
+                .ThenByDescending(s => s.LibraryBuildStatus == LibraryBuildStatus.Done && s.DestinationPath != null)
                 .ThenByDescending(s => s.FileSizeBytes)
                 .ThenBy(s => s.Id)
                 .ToList();
