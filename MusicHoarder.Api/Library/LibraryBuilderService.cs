@@ -7,6 +7,7 @@ using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Scanner;
 
 namespace MusicHoarder.Api.Library;
 
@@ -335,14 +336,14 @@ public class LibraryBuilderService(
                 .ToListAsync(ct);
 
             var uniqueDestinationPaths = new HashSet<string>(StringComparer.Ordinal);
-            candidates = [];
+            var pathDeduped = new List<(SongMetadata Song, string DestinationPath, string FolderKey)>();
             foreach (var candidateSong in rawCandidates)
             {
                 var destinationPath = destinationPathResolver.ResolvePath(candidateSong);
                 if (uniqueDestinationPaths.Add(destinationPath))
                 {
                     var folderKey = Path.GetDirectoryName(destinationPath) ?? string.Empty;
-                    candidates.Add(new LibraryBuildTrackCandidate(candidateSong.Id, destinationPath, folderKey));
+                    pathDeduped.Add((candidateSong, destinationPath, folderKey));
                 }
                 else
                 {
@@ -352,6 +353,8 @@ public class LibraryBuilderService(
                         destinationPath);
                 }
             }
+
+            candidates = await ApplyPositionGuardAsync(db, pathDeduped, ct);
 
             if (candidates.Count > 0 && opts.EnableAlbumIdentityReconciliation)
             {
@@ -442,6 +445,139 @@ public class LibraryBuilderService(
 
         return new LibraryBuildBatchResult(candidates.Count, done, failed, duration);
     }
+
+    // A destination album folder can hold only one file per (disc, track) position — a re-encode of an
+    // already-built track resolves to a different file name (different title casing or extension), so
+    // without this guard it would land NEXT TO the existing copy instead of colliding with it, and the
+    // album folder ends up with FLAC + OPUS copies of the same track. Different encodings never share a
+    // chromaprint string, so fingerprint-based duplicate detection can't catch these; the position plus
+    // a fuzzy-similar title is the signal (position alone isn't enough — two genuinely different songs
+    // can carry the same track number through bad tags, and those must both build). Fresh builds that
+    // would occupy an already-built position without being a quality upgrade are flagged as duplicates
+    // of the occupant (terminal state — keeps LibraryBuildQuery's pending-work poll and this batch in
+    // agreement, so no busy-loop). A genuinely higher-quality copy still builds (upgrade path), with a
+    // warning that the lower-quality file remains beside it. Re-tags/relocates (an existing
+    // DestinationPath or PreviousDestinationPath) and tracks without a track number bypass the guard.
+    private async Task<List<LibraryBuildTrackCandidate>> ApplyPositionGuardAsync(
+        MusicHoarderDbContext db,
+        List<(SongMetadata Song, string DestinationPath, string FolderKey)> candidates,
+        CancellationToken ct)
+    {
+        var titleThreshold = options.Value.IdentityTitleThreshold;
+        var accepted = new List<LibraryBuildTrackCandidate>();
+        var guarded = new List<(SongMetadata Song, string DestinationPath, string FolderKey)>();
+        foreach (var candidate in candidates)
+        {
+            var isFreshBuild = candidate.Song.DestinationPath is null && candidate.Song.PreviousDestinationPath is null;
+            if (isFreshBuild && candidate.Song.TrackNumber is not null)
+                guarded.Add(candidate);
+            else
+                accepted.Add(new LibraryBuildTrackCandidate(candidate.Song.Id, candidate.DestinationPath, candidate.FolderKey));
+        }
+
+        if (guarded.Count == 0)
+            return accepted;
+
+        // Within the batch, one candidate per (position, ~title): the best copy builds now; a deferred
+        // loser gets flagged against the built winner on a later sweep. Same-position candidates with
+        // clearly different titles are unrelated songs and all build.
+        var survivors = new List<(SongMetadata Song, string DestinationPath, string FolderKey)>();
+        foreach (var group in guarded.GroupBy(c => PositionKey(c.Song.OwnerUserId, c.FolderKey, c.Song.DiscNumber, c.Song.TrackNumber!.Value)))
+        {
+            var ranked = group
+                .OrderByDescending(c => IDuplicateDetectionService.QualityScore(c.Song))
+                .ThenByDescending(c => c.Song.FileSizeBytes)
+                .ThenBy(c => c.Song.Id)
+                .ToList();
+            var kept = new List<(SongMetadata Song, string DestinationPath, string FolderKey)>();
+            foreach (var candidate in ranked)
+            {
+                if (kept.Any(k => TitlesMatch(k.Song.Title, candidate.Song.Title, titleThreshold)))
+                {
+                    logger.LogWarning(
+                        "Deferring song {SongId}: another copy of {Folder} disc {Disc} track {Track} builds in this batch",
+                        candidate.Song.Id, candidate.FolderKey, candidate.Song.DiscNumber ?? 1, candidate.Song.TrackNumber);
+                }
+                else
+                {
+                    kept.Add(candidate);
+                }
+            }
+            survivors.AddRange(kept);
+        }
+
+        // Already-built occupants of the affected positions (direct children of each folder). Where a
+        // position already holds several copies (a pre-existing mess), the best one represents it.
+        var occupantsByPosition = new Dictionary<string, List<SongMetadata>>(StringComparer.Ordinal);
+        foreach (var folder in survivors.Select(c => c.FolderKey).Distinct(StringComparer.Ordinal))
+        {
+            var folderPrefix = folder + Path.DirectorySeparatorChar;
+            var occupants = await db.Songs
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic
+                    && s.LibraryBuildStatus == LibraryBuildStatus.Done
+                    && s.DestinationPath != null && s.DestinationPath.StartsWith(folderPrefix)
+                    && s.TrackNumber != null)
+                .ToListAsync(ct);
+            foreach (var occupant in occupants.Where(o => Path.GetDirectoryName(o.DestinationPath) == folder))
+            {
+                var key = PositionKey(occupant.OwnerUserId, folder, occupant.DiscNumber, occupant.TrackNumber!.Value);
+                if (!occupantsByPosition.TryGetValue(key, out var list))
+                    occupantsByPosition[key] = list = [];
+                list.Add(occupant);
+            }
+        }
+
+        var duplicateOf = new Dictionary<int, int>();
+        foreach (var candidate in survivors)
+        {
+            var key = PositionKey(candidate.Song.OwnerUserId, candidate.FolderKey, candidate.Song.DiscNumber, candidate.Song.TrackNumber!.Value);
+            var occupant = occupantsByPosition.TryGetValue(key, out var list)
+                ? list
+                    .Where(o => o.Id != candidate.Song.Id && TitlesMatch(o.Title, candidate.Song.Title, titleThreshold))
+                    .OrderByDescending(o => IDuplicateDetectionService.QualityScore(o))
+                    .ThenByDescending(o => o.FileSizeBytes)
+                    .FirstOrDefault()
+                : null;
+            if (occupant is null)
+            {
+                accepted.Add(new LibraryBuildTrackCandidate(candidate.Song.Id, candidate.DestinationPath, candidate.FolderKey));
+                continue;
+            }
+
+            if (IDuplicateDetectionService.QualityScore(candidate.Song) > IDuplicateDetectionService.QualityScore(occupant))
+            {
+                logger.LogWarning(
+                    "Building song {SongId} into {Folder} disc {Disc} track {Track} even though song {OccupantId} already holds that position — the new copy is higher quality, the old file stays beside it",
+                    candidate.Song.Id, candidate.FolderKey, candidate.Song.DiscNumber ?? 1, candidate.Song.TrackNumber, occupant.Id);
+                accepted.Add(new LibraryBuildTrackCandidate(candidate.Song.Id, candidate.DestinationPath, candidate.FolderKey));
+                continue;
+            }
+
+            logger.LogInformation(
+                "Skipping song {SongId}: song {OccupantId} already built at {Folder} disc {Disc} track {Track} with equal or better quality — flagging as duplicate",
+                candidate.Song.Id, occupant.Id, candidate.FolderKey, candidate.Song.DiscNumber ?? 1, candidate.Song.TrackNumber);
+            duplicateOf[candidate.Song.Id] = occupant.Id;
+        }
+
+        if (duplicateOf.Count > 0)
+        {
+            var ids = duplicateOf.Keys.ToList();
+            var rows = await db.Songs.IgnoreQueryFilters().Where(s => ids.Contains(s.Id)).ToListAsync(ct);
+            foreach (var row in rows)
+                row.MarkAsDuplicate(duplicateOf[row.Id]);
+            await db.SaveChangesAsync(ct);
+        }
+
+        return accepted;
+    }
+
+    private static bool TitlesMatch(string? a, string? b, double threshold)
+        => (Matching.FuzzyTextMatch.Ratio(a, b) ?? 0) >= threshold;
+
+    private static string PositionKey(Guid ownerId, string folder, int? disc, int track)
+        => $"{ownerId:N}|{folder}|{disc ?? 1}|{track}";
 
     // Elects one album identity per destination folder represented in this batch. Crucially it elects
     // from the FULL folder membership (every matched, buildable song that resolves to the folder), not

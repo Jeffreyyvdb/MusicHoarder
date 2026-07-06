@@ -803,6 +803,132 @@ public class LibraryBuilderServiceTests
         Assert.Empty(await db.LibraryWriteEvents.Where(e => e.Kind == LibraryWriteEventKind.AlbumCoverWritten).ToListAsync());
     }
 
+    [Fact]
+    public async Task ProcessNextBatchAsync_FlagsFreshBuildAsDuplicate_WhenPositionAlreadyBuiltWithBetterQuality()
+    {
+        // A FLAC of track 1 is already built; a lower-quality OPUS re-encode of the same track would
+        // resolve to a different file name (different extension), so without the position guard it
+        // lands NEXT TO the FLAC instead of colliding with it.
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            ["/source/new.opus"] = new("abcde"),
+            ["/dest/Artist/2026 - Album/01 - Track.flac"] = new("flac-bytes")
+        });
+
+        await using var db = CreateDbContext();
+        var occupant = CreateMatchedSong("/source/old.flac", 10, libraryBuildStatus: LibraryBuildStatus.Done);
+        occupant.Extension = ".flac";
+        occupant.DestinationPath = "/dest/Artist/2026 - Album/01 - Track.flac";
+        var candidate = CreateMatchedSong("/source/new.opus", 5);
+        candidate.Extension = ".opus";
+        db.Songs.AddRange(occupant, candidate);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter());
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Equal(0, result.TotalTracks);
+        var flagged = await db.Songs.SingleAsync(s => s.Id == candidate.Id);
+        Assert.True(flagged.IsDuplicate);
+        Assert.Equal(occupant.Id, flagged.DuplicateOfId);
+        Assert.Equal(LibraryBuildStatus.Pending, flagged.LibraryBuildStatus);
+        Assert.False(fileSystem.File.Exists("/dest/Artist/2026 - Album/01 - Track.opus"));
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_AllowsSamePosition_WhenTitlesAreClearlyDifferentSongs()
+    {
+        // Two unrelated songs can share a track number through bad tags — the position guard must not
+        // eat one of them; only a fuzzy-similar title makes a position conflict a duplicate.
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            ["/source/new.opus"] = new("abcde"),
+            ["/dest/Artist/2026 - Album/01 - Completely Different Song.flac"] = new("flac-bytes")
+        });
+
+        await using var db = CreateDbContext();
+        var occupant = CreateMatchedSong("/source/old.flac", 10, title: "Completely Different Song", libraryBuildStatus: LibraryBuildStatus.Done);
+        occupant.Extension = ".flac";
+        occupant.DestinationPath = "/dest/Artist/2026 - Album/01 - Completely Different Song.flac";
+        var candidate = CreateMatchedSong("/source/new.opus", 5);
+        candidate.Extension = ".opus";
+        db.Songs.AddRange(occupant, candidate);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter());
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Equal(1, result.Done);
+        var built = await db.Songs.SingleAsync(s => s.Id == candidate.Id);
+        Assert.False(built.IsDuplicate);
+        Assert.Equal(LibraryBuildStatus.Done, built.LibraryBuildStatus);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_StillBuilds_WhenFreshCopyIsHigherQualityThanBuiltOccupant()
+    {
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            ["/source/new.flac"] = new("flac-bytes"),
+            ["/dest/Artist/2026 - Album/01 - Track.opus"] = new("opus-bytes")
+        });
+
+        await using var db = CreateDbContext();
+        var occupant = CreateMatchedSong("/source/old.opus", 5, libraryBuildStatus: LibraryBuildStatus.Done);
+        occupant.Extension = ".opus";
+        occupant.DestinationPath = "/dest/Artist/2026 - Album/01 - Track.opus";
+        var candidate = CreateMatchedSong("/source/new.flac", 10);
+        candidate.Extension = ".flac";
+        db.Songs.AddRange(occupant, candidate);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter());
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Equal(1, result.Done);
+        var built = await db.Songs.SingleAsync(s => s.Id == candidate.Id);
+        Assert.False(built.IsDuplicate);
+        Assert.Equal(LibraryBuildStatus.Done, built.LibraryBuildStatus);
+        Assert.True(fileSystem.File.Exists("/dest/Artist/2026 - Album/01 - Track.flac"));
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_BuildsOnlyBestCopy_WhenTwoFreshCandidatesShareAPosition()
+    {
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            ["/source/track.flac"] = new("flac-bytes"),
+            ["/source/track.opus"] = new("opus-bytes")
+        });
+
+        await using var db = CreateDbContext();
+        var flac = CreateMatchedSong("/source/track.flac", 10);
+        flac.Extension = ".flac";
+        var opus = CreateMatchedSong("/source/track.opus", 5);
+        opus.Extension = ".opus";
+        db.Songs.AddRange(flac, opus);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter());
+
+        // First sweep: the FLAC wins the position, the OPUS is deferred (still pending, unflagged).
+        var first = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        Assert.Equal(1, first.TotalTracks);
+        Assert.Equal(1, first.Done);
+        Assert.Equal(LibraryBuildStatus.Done, (await db.Songs.SingleAsync(s => s.Id == flac.Id)).LibraryBuildStatus);
+        var deferred = await db.Songs.SingleAsync(s => s.Id == opus.Id);
+        Assert.False(deferred.IsDuplicate);
+        Assert.Equal(LibraryBuildStatus.Pending, deferred.LibraryBuildStatus);
+
+        // Second sweep: the FLAC now occupies the position, so the OPUS resolves to a duplicate.
+        var second = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        Assert.Equal(0, second.TotalTracks);
+        var flagged = await db.Songs.SingleAsync(s => s.Id == opus.Id);
+        Assert.True(flagged.IsDuplicate);
+        Assert.Equal(flac.Id, flagged.DuplicateOfId);
+        Assert.False(fileSystem.File.Exists("/dest/Artist/2026 - Album/01 - Track.opus"));
+    }
+
     private static LibraryBuilderService CreateService(
         MusicHoarderDbContext db,
         IFileSystem fileSystem,
