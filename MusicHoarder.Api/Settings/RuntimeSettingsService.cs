@@ -68,6 +68,7 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
             if (update.EnableDeezerProvider.HasValue) row.EnableDeezerProvider = update.EnableDeezerProvider;
             if (update.EnableAppleMusicProvider.HasValue) row.EnableAppleMusicProvider = update.EnableAppleMusicProvider;
             if (update.QualityGradingEnabled.HasValue) row.QualityGradingEnabled = update.QualityGradingEnabled;
+            if (update.AutoDownloadWishlist.HasValue) row.AutoDownloadWishlist = update.AutoDownloadWishlist;
 
             row.UpdatedAtUtc = DateTime.UtcNow;
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -93,6 +94,7 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
             EnableDeezerProvider: row?.EnableDeezerProvider ?? defaults.EnableDeezerProvider,
             EnableAppleMusicProvider: row?.EnableAppleMusicProvider ?? defaults.EnableAppleMusicProvider,
             QualityGradingEnabled: row?.QualityGradingEnabled ?? qualityDefaults.Enabled,
+            AutoDownloadWishlist: row?.AutoDownloadWishlist ?? defaults.AutoDownloadWishlist,
             UpdatedAtUtc: row?.UpdatedAtUtc);
     }
 }

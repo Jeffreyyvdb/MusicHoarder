@@ -22,6 +22,7 @@ public class DownloadBackgroundService(
     DownloadProgressTracker progressTracker,
     IOwnerLookupService ownerLookup,
     IOptions<MusicEnricherOptions> options,
+    Settings.IRuntimeSettingsService runtimeSettings,
     ILogger<DownloadBackgroundService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -78,8 +79,10 @@ public class DownloadBackgroundService(
                 // No explicit trigger queued. Only auto-sweep Pending items in the background when the
                 // feature is ready AND auto-download is enabled; otherwise wait for an explicit trigger
                 // so the instance never fetches on its own (e.g. PR previews stay manual/opt-in, while
-                // production auto-downloads for the owner).
-                var autoSweep = ready && opts.AutoDownloadWishlist;
+                // production auto-downloads for the owner). The auto-download flag is a runtime setting
+                // (overlays MusicEnricher:AutoDownloadWishlist) so the owner can flip it from the UI.
+                var autoDownload = (await runtimeSettings.GetAsync(stoppingToken)).AutoDownloadWishlist;
+                var autoSweep = ready && autoDownload;
                 pendingCount = autoSweep ? await CountPendingAsync(stoppingToken) : 0;
 
                 if (!autoSweep || pendingCount == 0)

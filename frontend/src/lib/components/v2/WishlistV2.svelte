@@ -2,6 +2,7 @@
   import { Button } from '$lib/components/ui/button';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { Badge } from '$lib/components/ui/badge';
+  import { Switch } from '$lib/components/ui/switch';
   import {
     Heart,
     Download,
@@ -10,7 +11,8 @@
     Loader2,
     AlertCircle,
     CheckCircle2,
-    Music
+    Music,
+    Info
   } from '@lucide/svelte';
   import {
     fetchWishlist,
@@ -21,6 +23,8 @@
     retryFailedWishlistItems,
     removeWishlistItem,
     triggerWishlistDownload,
+    fetchSettings,
+    updateSettings,
     openProgressStream,
     type WishlistItem,
     type WishlistSource,
@@ -54,12 +58,49 @@
   let busySources = $state(new Set<number>());
   let progress = $state<ProgressSnapshot | null>(null);
 
+  // Wishlist-download config: `downloadsEnabled` is the deploy-time feature switch; `autoDownload` is the
+  // runtime toggle the owner flips below. Until settings load, null means "unknown" so nothing flashes.
+  let downloadsEnabled = $state<boolean | null>(null);
+  let autoDownload = $state<boolean | null>(null);
+  let autoDownloadBusy = $state(false);
+
   async function loadSources() {
     try {
       const result = await fetchWishlistSources();
       sources = result.sources;
     } catch {
       // Non-fatal — the item list is the primary view.
+    }
+  }
+
+  async function loadSettings() {
+    try {
+      const settings = await fetchSettings();
+      downloadsEnabled = settings.downloads.enabled;
+      autoDownload = settings.downloads.autoDownload;
+    } catch {
+      // Non-fatal — the download buttons still work; we just can't show the auto-download state.
+    }
+  }
+
+  async function onToggleAutoDownload() {
+    if (autoDownload === null) return;
+    const next = !autoDownload;
+    autoDownloadBusy = true;
+    banner = null;
+    try {
+      await updateSettings({ downloads: { autoDownload: next } });
+      autoDownload = next;
+      banner = {
+        type: 'success',
+        message: next
+          ? 'Auto-download on — new liked tracks will download automatically.'
+          : 'Auto-download off — use “Download now” to fetch pending tracks.'
+      };
+    } catch (err) {
+      banner = { type: 'error', message: err instanceof Error ? err.message : 'Failed to update auto-download' };
+    } finally {
+      autoDownloadBusy = false;
     }
   }
 
@@ -81,6 +122,7 @@
 
   $effect(() => {
     void loadSources();
+    void loadSettings();
   });
 
   // Reload the item list whenever the status filter changes.
@@ -227,6 +269,9 @@
   }
 
   const downloadingNow = $derived(progress?.download?.status === 'Running');
+  // Show the toggle/hint only when the feature is available on this deployment.
+  const showAutoDownloadControl = $derived(downloadsEnabled === true && autoDownload !== null);
+  const autoDownloadOff = $derived(showAutoDownloadControl && autoDownload === false);
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -244,7 +289,21 @@
           <a href="/spotify" class="underline">Spotify</a> page.
         </p>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2">
+        {#if showAutoDownloadControl}
+          <label
+            class="border-border bg-card flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm"
+            title="When on, newly liked tracks download automatically in the background. When off, use “Download now”."
+          >
+            <Switch
+              checked={autoDownload ?? false}
+              disabled={autoDownloadBusy}
+              onCheckedChange={onToggleAutoDownload}
+              aria-label="Auto-download new tracks"
+            />
+            <span class="select-none">Auto-download</span>
+          </label>
+        {/if}
         <Button
           variant="outline"
           onclick={onRetryAllFailed}
@@ -277,6 +336,19 @@
         : 'border-destructive/30 bg-destructive/10 text-destructive'}"
     >
       {banner.message}
+    </div>
+  {/if}
+
+  {#if autoDownloadOff && !downloadingNow}
+    <div
+      class="border-border bg-muted/40 text-muted-foreground mx-4 mt-3 flex items-start gap-2 rounded-md border px-3 py-2 text-sm md:mx-6"
+    >
+      <Info class="mt-0.5 size-4 shrink-0" />
+      <span>
+        Auto-download is off — Pending tracks stay queued and won't download on their own. Turn on
+        <span class="font-medium">Auto-download</span> to fetch new likes automatically, or click
+        <span class="font-medium">Download now</span> for a one-off sweep.
+      </span>
     </div>
   {/if}
 

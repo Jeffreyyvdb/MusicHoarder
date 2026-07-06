@@ -6,6 +6,7 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Settings;
 using MusicHoarder.Api.Spotify;
 using MusicHoarder.Api.Tests.Auth;
 using MusicHoarder.Api.Wishlist;
@@ -147,8 +148,8 @@ public class WishlistSyncBackgroundServiceTests
                 SourceDirectory = "/src",
                 DestinationDirectory = "/dst",
                 EnableWishlistDownloads = enableDownloads,
-                AutoDownloadWishlist = autoDownload,
             }),
+            new StubRuntimeSettings(autoDownload),
             NullLogger<WishlistSyncBackgroundService>.Instance);
 
         return (svc, new MusicHoarderDbContext(dbOptions));
@@ -156,6 +157,25 @@ public class WishlistSyncBackgroundServiceTests
 
     private static SpotifyTrackItem Track(string id, string title) =>
         new(id, title, "Artist", "Album", null, 200_000, DateTime.UtcNow, null);
+
+    private sealed class StubRuntimeSettings(bool autoDownload) : IRuntimeSettingsService
+    {
+        private readonly EffectiveSettings _effective = new(
+            EnableAcoustIdProvider: true,
+            EnableMusicBrainzWebProvider: true,
+            EnableSpotifyApiProvider: true,
+            EnableTrackerProvider: true,
+            EnableDeezerProvider: true,
+            EnableAppleMusicProvider: true,
+            QualityGradingEnabled: true,
+            AutoDownloadWishlist: autoDownload,
+            UpdatedAtUtc: null);
+
+        public Task<EffectiveSettings> GetAsync(CancellationToken ct = default) => Task.FromResult(_effective);
+
+        public Task<EffectiveSettings> UpdateAsync(RuntimeSettingsUpdate update, CancellationToken ct = default) =>
+            Task.FromResult(_effective);
+    }
 
     private sealed class FakeSpotifyApi : ISpotifyApiService
     {
