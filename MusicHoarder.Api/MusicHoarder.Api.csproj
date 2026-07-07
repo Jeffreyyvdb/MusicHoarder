@@ -44,7 +44,7 @@
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
+        <PackageReference Include="Microsoft.OpenApi" Version="3.7.0" />
         <PackageReference Include="Scalar.AspNetCore" Version="2.16.6" />
         <PackageReference Include="SkiaSharp" Version="3.119.4" />
         <!-- Headless image decode/resize/encode only (no text rendering), so the NoDependencies
