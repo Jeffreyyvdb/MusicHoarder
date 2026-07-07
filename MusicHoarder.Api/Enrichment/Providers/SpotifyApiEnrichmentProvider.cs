@@ -90,33 +90,16 @@ public class SpotifyApiEnrichmentProvider(
         }
 
         var opts = options.Value;
-        SpotifyCatalogTrack? bestTrack = null;
-        double bestScore = 0;
-        var bestWarnings = new List<string>();
-
-        foreach (var track in tracks)
-        {
-            var (score, warnings) = ScoreCandidate(song, resolved, track, opts);
-            if (score > bestScore)
-            {
-                bestScore = score;
-                bestTrack = track;
-                bestWarnings = warnings;
-            }
-        }
-
-        if (bestTrack is null)
+        var best = CatalogMatchResolver.SelectBest(
+            tracks, track => ScoreCandidate(song, resolved, track, opts));
+        if (best is null)
             return new ProviderNoMatch();
 
-        if (bestScore < opts.SpotifyApiMinConfidence - 1e-9)
-            return new ProviderNoMatch(BuildResult(song, bestTrack, bestScore, bestWarnings, EnrichmentStatus.NeedsReview));
-
-        var blocking = MatchWarnings.AnyBlocking(bestWarnings);
-        var status = bestScore >= opts.SpotifyApiMatchedThreshold - 1e-9 && !blocking
-            ? EnrichmentStatus.Matched
-            : EnrichmentStatus.NeedsReview;
-
-        return new ProviderMatched(BuildResult(song, bestTrack, bestScore, bestWarnings, status));
+        return CatalogMatchResolver.Finalize(
+            best.Score,
+            best.Warnings,
+            new CatalogMatchResolver.MatchThresholds(opts.SpotifyApiMinConfidence, opts.SpotifyApiMatchedThreshold),
+            status => BuildResult(song, best.Candidate, best.Score, best.Warnings, status));
     }
 
     private EnrichmentProviderResult BuildResult(
