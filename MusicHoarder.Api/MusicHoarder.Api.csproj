@@ -44,8 +44,8 @@
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
-        <PackageReference Include="Scalar.AspNetCore" Version="2.16.6" />
+        <PackageReference Include="Microsoft.OpenApi" Version="2.9.0" />
+        <PackageReference Include="Scalar.AspNetCore" Version="2.16.10" />
         <PackageReference Include="SkiaSharp" Version="4.148.0" />
         <!-- Headless image decode/resize/encode only (no text rendering), so the NoDependencies
              native asset avoids needing libfontconfig in the Linux container. The base SkiaSharp
