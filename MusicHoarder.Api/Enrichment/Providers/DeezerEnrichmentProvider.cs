@@ -35,9 +35,7 @@ public class DeezerEnrichmentProvider(
         }
 
         var opts = options.Value;
-        DeezerCatalogTrack? bestTrack;
-        double bestScore;
-        List<string> bestWarnings;
+        DeezerCatalogTrack bestTrack;
 
         try
         {
@@ -74,22 +72,12 @@ public class DeezerEnrichmentProvider(
                 return new ProviderNoMatch();
             }
 
-            bestTrack = null;
-            bestScore = 0;
-            bestWarnings = [];
-            foreach (var track in tracks)
-            {
-                var (score, warnings) = ScoreCandidate(song, resolved, track, opts);
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    bestTrack = track;
-                    bestWarnings = warnings;
-                }
-            }
-
-            if (bestTrack is null)
+            var best = CatalogMatchResolver.SelectBest(
+                tracks, track => ScoreCandidate(song, resolved, track, opts));
+            if (best is null)
                 return new ProviderNoMatch();
+
+            bestTrack = best.Candidate;
 
             // Hydrate only the chosen candidate to get its ISRC + release year / track #, which
             // Deezer omits from search results (the ISRC feeds independent cross-provider consensus).
@@ -108,23 +96,17 @@ public class DeezerEnrichmentProvider(
         }
 
         // Re-score against the hydrated track so an ISRC match can boost confidence.
-        (bestScore, bestWarnings) = ScoreCandidate(song, resolved, bestTrack, opts);
-        return Finalize(song, bestTrack, bestScore, bestWarnings, opts);
+        var (finalScore, finalWarnings) = ScoreCandidate(song, resolved, bestTrack, opts);
+        return Finalize(song, bestTrack, finalScore, finalWarnings, opts);
     }
 
     private ProviderOutcome Finalize(
         SongMetadata song, DeezerCatalogTrack track, double score, List<string> warnings, MusicEnricherOptions opts)
-    {
-        if (score < opts.DeezerApiMinConfidence - 1e-9)
-            return new ProviderNoMatch(BuildResult(song, track, score, warnings, EnrichmentStatus.NeedsReview));
-
-        var blocking = MatchWarnings.AnyBlocking(warnings);
-        var status = score >= opts.DeezerApiMatchedThreshold - 1e-9 && !blocking
-            ? EnrichmentStatus.Matched
-            : EnrichmentStatus.NeedsReview;
-
-        return new ProviderMatched(BuildResult(song, track, score, warnings, status));
-    }
+        => CatalogMatchResolver.Finalize(
+            score,
+            warnings,
+            new CatalogMatchResolver.MatchThresholds(opts.DeezerApiMinConfidence, opts.DeezerApiMatchedThreshold),
+            status => BuildResult(song, track, score, warnings, status));
 
     private EnrichmentProviderResult BuildResult(
         SongMetadata song,
