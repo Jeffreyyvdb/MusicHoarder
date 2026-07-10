@@ -180,13 +180,16 @@
           res.requeued > 0
             ? `Re-tagging ${res.requeued} track${res.requeued === 1 ? '' : 's'}…`
             : 'Nothing to re-tag yet';
+        toast.success(retagMessage);
       } else {
         retagState = 'error';
         retagMessage = res.message;
+        toast.error(retagMessage);
       }
     } catch (err) {
       retagState = 'error';
       retagMessage = err instanceof Error ? err.message : 'Re-tag failed';
+      toast.error(retagMessage);
     } finally {
       retagTimer = setTimeout(() => {
         retagState = 'idle';
@@ -753,7 +756,7 @@
                 onclick={(e) => playTrack(song, e)}
                 aria-label={isCurrentlyPlaying ? 'Pause track' : 'Play track'}
                 class={cn(
-                  'text-primary absolute inset-0 grid place-items-center opacity-0 transition-opacity group-hover:opacity-100',
+                  'text-primary absolute inset-0 grid place-items-center opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 group-focus-within:opacity-100',
                   isCurrentlyPlaying && 'group-hover:opacity-100'
                 )}
               >

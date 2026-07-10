@@ -13,6 +13,7 @@
 
   let overview = $state<AlbumQualityOverview | null>(null);
   let loading = $state(true);
+  let error = $state<string | null>(null);
   let grading = $state(false);
   let progressText = $state<string | null>(null);
 
@@ -20,8 +21,10 @@
     loading = true;
     try {
       overview = await fetchAlbumQualityOverview();
-    } catch {
+      error = null;
+    } catch (e) {
       overview = null;
+      error = e instanceof Error ? e.message : 'Failed to load album quality overview';
     } finally {
       loading = false;
     }
@@ -109,7 +112,9 @@
     </div>
   </header>
 
-  {#if loading}
+  {#if error}
+    <div class="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-[13px] text-red-600 dark:text-red-400">{error}</div>
+  {:else if loading}
     <div class="text-muted-foreground flex flex-1 items-center justify-center text-sm">Loading…</div>
   {:else if !overview || lib === undefined}
     <div class="text-muted-foreground flex flex-1 items-center justify-center text-sm">No album grades yet.</div>

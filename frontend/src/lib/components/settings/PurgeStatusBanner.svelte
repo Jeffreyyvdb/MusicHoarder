@@ -29,11 +29,11 @@
     <Alert.Title>{modeLabel} running…</Alert.Title>
     <Alert.Description class="text-muted-foreground">
       {#if snapshot.filesTotal > 0}
-        {snapshot.filesDeleted.toLocaleString()} / {snapshot.filesTotal.toLocaleString()} destination
+        <span class="tabular-nums">{snapshot.filesDeleted.toLocaleString()}</span> / <span class="tabular-nums">{snapshot.filesTotal.toLocaleString()}</span> destination
         files deleted{#if snapshot.filesFailed > 0}
-          &nbsp;({snapshot.filesFailed.toLocaleString()} failed){/if}.
+          &nbsp;(<span class="tabular-nums">{snapshot.filesFailed.toLocaleString()}</span> failed){/if}.
       {:else}
-        Preparing {snapshot.songsTotal.toLocaleString()} songs…
+        Preparing <span class="tabular-nums">{snapshot.songsTotal.toLocaleString()}</span> songs…
       {/if}
     </Alert.Description>
     <Progress value={Math.min(100, overallPct)} class="mt-2 h-1.5" />

@@ -6,7 +6,11 @@
   import { githubUrl, installCommand } from '$lib/components/landing/landing-demo-data';
   import { ExternalLink } from '@lucide/svelte';
 
+  let launching = $state(false);
+
   async function startDemo() {
+    if (launching) return;
+    launching = true;
     try {
       await signInAsDemo();
       await goto('/pipeline');
@@ -45,7 +49,7 @@
     />
 
     <div class="mt-7 flex flex-wrap justify-center gap-3">
-      <Button size="lg" onclick={startDemo}>Try the live demo</Button>
+      <Button size="lg" onclick={startDemo} disabled={launching}>Try the live demo</Button>
       <Button
         size="lg"
         variant="outline"

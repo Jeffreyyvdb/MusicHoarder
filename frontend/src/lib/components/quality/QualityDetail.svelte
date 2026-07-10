@@ -269,7 +269,7 @@
                   type="button"
                   onclick={() => (view = v.id)}
                   class={cn(
-                    'rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors',
+                    'rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors active:translate-y-px',
                     view === v.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent'
                   )}>{v.label}</button
                 >
@@ -312,13 +312,13 @@
       <button
         type="button"
         onclick={onCopy}
-        class="border-border hover:bg-accent inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] transition-colors"
+        class="border-border hover:bg-accent inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] transition-colors active:translate-y-px"
       >
         <Copy class="size-3.5" /> Copy dossier
       </button>
       <a
         href={reviewHref}
-        class="border-border hover:bg-accent inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] transition-colors"
+        class="border-border hover:bg-accent inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] transition-colors active:translate-y-px"
       >
         <ExternalLink class="size-3.5" /> Open in review
       </a>
@@ -326,7 +326,7 @@
         type="button"
         disabled={regradeBusy}
         onclick={onRegrade}
-        class="bg-primary text-primary-foreground inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+        class="bg-primary text-primary-foreground inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-90 active:not-disabled:translate-y-px disabled:opacity-50"
       >
         {#if regradeBusy}<Loader2 class="size-3.5 animate-spin" />{:else}<Sparkles class="size-3.5" />{/if}
         Re-grade

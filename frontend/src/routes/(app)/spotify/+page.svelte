@@ -6,6 +6,7 @@
   import { Badge } from '$lib/components/ui/badge';
   import * as Tabs from '$lib/components/ui/tabs';
   import { Input } from '$lib/components/ui/input';
+  import { Switch } from '$lib/components/ui/switch';
   import {
     fetchSpotifyStatus,
     fetchSpotifyConnectUrl,
@@ -50,7 +51,7 @@
   let oauthBanner = $state<{ type: 'success' | 'error'; message: string } | null>(null);
 
   let likedSongs = $state<SpotifyApiTrack[]>([]);
-  let likedTotal = $state(0);
+  let likedTotal = $state<number | null>(null);
   let likedOffset = $state(0);
   let isLoadingLiked = $state(false);
   let likedError = $state<string | null>(null);
@@ -361,7 +362,7 @@
       <div
         class="mx-4 mt-4 rounded-lg border px-4 py-3 text-sm md:mx-6 {oauthBanner.type ===
         'success'
-          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+          ? 'border-primary/40 bg-primary/10 text-primary'
           : 'border-destructive/50 bg-destructive/10 text-destructive'}"
       >
         <div class="flex items-start gap-2">
@@ -386,7 +387,7 @@
       <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div class="flex items-center gap-2">
-            <h1 class="text-2xl font-bold">Spotify</h1>
+            <h1 class="text-2xl font-semibold tracking-tight">Spotify</h1>
             <Badge class="border-0 bg-[#1DB954]/20 text-[#1DB954]">Connected</Badge>
           </div>
           {#if status.connectedAt}
@@ -461,10 +462,12 @@
                     ></span>
                     <span>You</span>
                   </span>
-                  <span class="opacity-50">·</span>
-                  <span>
-                    {likedTotal} song{likedTotal === 1 ? '' : 's'}
-                  </span>
+                  {#if likedTotal !== null}
+                    <span class="opacity-50">·</span>
+                    <span>
+                      {likedTotal} song{likedTotal === 1 ? '' : 's'}
+                    </span>
+                  {/if}
                 </div>
               </div>
             </div>
@@ -494,7 +497,7 @@
               Add to wishlist
             </Button>
             <label class="text-muted-foreground flex cursor-pointer items-center gap-1.5 text-xs">
-              <input type="checkbox" bind:checked={wishlistAutoSync} class="accent-[#1DB954]" />
+              <Switch size="sm" bind:checked={wishlistAutoSync} aria-label="Auto-sync new likes" />
               Auto-sync new likes
             </label>
 
@@ -526,7 +529,9 @@
                 class="bg-secondary border-0 pl-9"
               />
             </div>
-            <span class="text-muted-foreground shrink-0 text-sm">{likedTotal} songs</span>
+            {#if likedTotal !== null}
+              <span class="text-muted-foreground shrink-0 text-sm">{likedTotal} songs</span>
+            {/if}
           </div>
 
           {#if likedError}
@@ -578,7 +583,7 @@
             <PaginationControls
               offset={likedOffset}
               limit={likedLimit}
-              total={likedTotal}
+              total={likedTotal ?? 0}
               onPageChange={loadLikedSongs}
               isLoading={isLoadingLiked}
             />

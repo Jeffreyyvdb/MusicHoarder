@@ -1067,6 +1067,8 @@
           </Button>
           {#if resetError}
             <p class="text-destructive text-[11px]">{resetError}</p>
+          {:else if resetState === 'idle'}
+            <p class="text-muted-foreground/70 text-[10.5px]">Clears matches and lyrics; re-enrichment runs automatically.</p>
           {/if}
 
           <Button

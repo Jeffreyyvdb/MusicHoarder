@@ -29,7 +29,11 @@
 </script>
 
 {#if lastError}
-  <Alert.Root variant="destructive" aria-live="polite" class="m-4 w-auto">
+  <Alert.Root
+    variant="destructive"
+    aria-live="polite"
+    class="mx-4 my-2 w-auto border-destructive/40 bg-destructive/10"
+  >
     <CircleAlert class="size-4" />
     <Alert.Description class="min-w-0 break-words">
       {#if outOfCredits}

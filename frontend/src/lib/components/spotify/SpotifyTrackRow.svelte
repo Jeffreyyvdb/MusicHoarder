@@ -192,7 +192,7 @@
       tabindex="0"
       onclick={onToggleExpand}
       onkeydown={handleKeyDown}
-      class="group hover:bg-secondary/50 flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors"
+      class="group hover:bg-secondary/50 active:bg-secondary/70 flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors"
     >
       {@render rowContent()}
     </div>

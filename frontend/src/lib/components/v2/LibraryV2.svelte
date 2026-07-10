@@ -3,6 +3,7 @@
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { Search, X } from '@lucide/svelte';
+  import { Button } from '$lib/components/ui/button';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import AlbumPage from '$lib/components/file-browser/AlbumPage.svelte';
   import TrackList from '$lib/components/file-browser/TrackList.svelte';
@@ -55,6 +56,7 @@
   // ── data layer (shared songs store, also feeds the global detail panel) ─────
   const songs = $derived(songsStore.songs);
   const isLoading = $derived(songsStore.isLoading);
+  const loadError = $derived(songsStore.error);
 
   $effect(() => {
     void songsStore.loadSongs();
@@ -279,7 +281,12 @@
     </div>
   </header>
 
-  {#if tab === 'tracks'}
+  {#if loadError && songs.length === 0 && !isLoading}
+    <div class="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-16 text-center">
+      <p class="text-destructive text-sm">{loadError}</p>
+      <Button onclick={() => void songsStore.loadSongs()}>Retry</Button>
+    </div>
+  {:else if tab === 'tracks'}
     <!-- All tracks: the virtualized TrackList. Selecting a row drives the global
          SongDetailHost (app-shell-mounted), which pushes this view on desktop and
          is a bottom Sheet on mobile. The min-h-0 flex chain keeps TrackList's

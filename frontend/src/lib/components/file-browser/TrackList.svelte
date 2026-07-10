@@ -436,7 +436,7 @@
               '@xl:grid-cols-[40px_40px_minmax(0,1.5fr)_minmax(0,1fr)_56px_52px]',
               '@3xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_44px_56px_52px]',
               '@5xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.9fr)_52px_104px_72px_128px_52px]',
-              'hover:bg-accent/50',
+              'hover:bg-accent/50 active:bg-accent/70',
               isSelected && 'bg-primary/10',
               isLoaded && 'text-primary'
             )}
@@ -466,7 +466,7 @@
                 }}
                 aria-label={isCurrentlyPlaying ? 'Pause track' : 'Play track'}
                 class={cn(
-                  'text-primary absolute inset-0 grid place-items-center opacity-0 transition-opacity group-hover:opacity-100',
+                  'text-primary absolute inset-0 grid place-items-center opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 group-focus-within:opacity-100',
                   isCurrentlyPlaying && 'group-hover:opacity-100'
                 )}
               >

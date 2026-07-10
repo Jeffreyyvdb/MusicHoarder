@@ -29,7 +29,7 @@
         <button
           type="button"
           onclick={() => onSelectIssue?.(ins.code)}
-          class="bg-muted/30 hover:bg-muted/60 grid grid-cols-[24px_1fr_auto] items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition-colors"
+          class="bg-muted/30 hover:bg-muted/60 grid grid-cols-[24px_1fr_auto] items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition-colors active:translate-y-px"
         >
           <span class="text-muted-foreground font-mono text-[12px] font-semibold tabular-nums">{String(i + 1).padStart(2, '0')}</span>
           <div class="min-w-0">

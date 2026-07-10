@@ -48,7 +48,7 @@
           onclick={() => onpick(c)}
           disabled={readonly}
           class={cn(
-            'flex items-start gap-3 rounded-md border p-3 text-left transition-colors',
+            'flex items-start gap-3 rounded-md border p-3 text-left transition-[color,background-color,border-color,transform] active:translate-y-px',
             picked
               ? 'border-primary bg-primary/10'
               : readonly

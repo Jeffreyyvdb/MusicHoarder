@@ -42,6 +42,7 @@
     type QualityOverview,
     type QualityProgress
   } from '$lib/api-client';
+  import { activityTone } from '$lib/activity-tone';
   import { isBuiltSong } from '$lib/album-sections';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { cn } from '$lib/utils';
@@ -57,6 +58,7 @@
   let qualityProgress = $state<QualityProgress | null>(null);
   let duplicates = $state<DuplicatesResponse | null>(null);
   let loaded = $state(false);
+  let loadError = $state(false);
   let rescanning = $state(false);
 
   // Guard against overlapping polls: during an active scan the API is busy and a
@@ -84,6 +86,12 @@
       if (qRes.status === 'fulfilled') quality = qRes.value;
       if (qpRes.status === 'fulfilled') qualityProgress = qpRes.value;
       if (dupRes.status === 'fulfilled') duplicates = dupRes.value;
+      // Quality failures stay silent (may be legitimately unconfigured); the core
+      // fetches failing means the KPIs below are stale/missing, so say so.
+      loadError =
+        stRes.status === 'rejected' ||
+        songsRes.status === 'rejected' ||
+        dupRes.status === 'rejected';
       loaded = true;
     } finally {
       loadInFlight = false;
@@ -343,20 +351,6 @@
   // ── live activity log (real RecentActivity from the overview poll) ──────────
   const recent = $derived<ApiOverviewActivity[]>(overview?.recentActivity ?? []);
 
-  function activityTone(type: ApiOverviewActivity['type']): string {
-    switch (type) {
-      case 'failed':
-        return 'text-red-500';
-      case 'review':
-        return 'text-amber-600 dark:text-amber-500';
-      case 'copied':
-      case 'enriched':
-        return 'text-primary';
-      default:
-        return 'text-muted-foreground';
-    }
-  }
-
   // ── just landed (recently-added albums, reusing album-sections) ─────────────
   const justLanded = $derived.by<AlbumSummary[]>(() => {
     if (!loaded) return [];
@@ -452,7 +446,7 @@
     <div class="text-muted-foreground flex items-center gap-1.5 font-mono text-[10px] tracking-[0.12em] uppercase">
       <span
         class="bg-primary inline-flex size-1.5 rounded-full"
-        class:mh-v2-subdot={anyRunning}
+        class:mh-v2-pulse={anyRunning}
         aria-hidden="true"
       ></span>
       {anyRunning ? 'Live · pipeline running' : 'Pipeline · idle'}
@@ -470,7 +464,7 @@
         type="button"
         onclick={handleRescan}
         disabled={rescanning || anyRunning}
-        class="border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+        class="border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] font-medium transition-colors active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
       >
         {#if rescanning}
           <Loader2 class="size-3.5 animate-spin" />
@@ -485,6 +479,22 @@
 
 <ScrollArea class="min-h-0 flex-1">
   <div class="flex flex-col gap-6 px-4 py-6 sm:px-7">
+    {#if loadError}
+      <div class="border-destructive/40 bg-destructive/10 flex items-center gap-2 rounded-lg border px-3 py-2">
+        <AlertTriangle class="text-destructive size-3.5 shrink-0" />
+        <span class="text-destructive flex-1 text-[12px]">
+          Some pipeline data failed to load — figures below may be missing or stale.
+        </span>
+        <button
+          type="button"
+          onclick={() => void loadAll()}
+          class="text-destructive text-[12px] font-medium hover:underline active:translate-y-px"
+        >
+          Retry
+        </button>
+      </div>
+    {/if}
+
     <!-- KPI row -->
     <div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
       <!-- Source -->
@@ -496,7 +506,11 @@
           <span class="text-muted-foreground text-[13px] font-medium">Source</span>
         </div>
         {#if sourceTotal == null}
-          <Skeleton class="mt-2 h-7 w-16" />
+          {#if loaded}
+            <div class="text-muted-foreground mt-1.5 text-2xl font-semibold tracking-tight tabular-nums">—</div>
+          {:else}
+            <Skeleton class="mt-2 h-7 w-16" />
+          {/if}
         {:else}
           <div class="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums">{fmtNum(sourceTotal)}</div>
         {/if}
@@ -632,7 +646,7 @@
               onclick={() => (activeStage = st.id)}
               data-active={isActive || undefined}
               class={cn(
-                'group relative flex flex-col gap-1.5 rounded-lg border p-3 text-left transition-colors',
+                'group relative flex flex-col gap-1.5 rounded-lg border p-3 text-left transition-colors active:translate-y-px',
                 isActive ? 'border-foreground/25 bg-muted/40' : 'border-border bg-background hover:bg-muted/60'
               )}
             >
@@ -650,7 +664,7 @@
               <div class="flex items-center gap-1 text-[12.5px] font-medium">
                 {st.label}
                 {#if st.live}
-                  <span class="bg-primary mh-v2-subdot size-1.5 rounded-full"></span>
+                  <span class="bg-primary mh-v2-pulse size-1.5 rounded-full"></span>
                 {/if}
               </div>
               <div class="text-muted-foreground flex items-center gap-1 text-[10.5px]">
@@ -734,7 +748,11 @@
               </span>
               <div>
                 {#if card.count == null}
-                  <Skeleton class="h-5 w-8" />
+                  {#if loaded}
+                    <div class="text-muted-foreground text-lg font-semibold leading-none tabular-nums">—</div>
+                  {:else}
+                    <Skeleton class="h-5 w-8" />
+                  {/if}
                 {:else}
                   <div class="text-lg font-semibold leading-none tabular-nums">{card.count.toLocaleString()}</div>
                 {/if}
@@ -845,21 +863,3 @@
     </div>
   </div>
 </ScrollArea>
-
-<style>
-  :global(.mh-v2-subdot) {
-    box-shadow: 0 0 0 0 oklch(0.5 0.17 145 / 0.5);
-    animation: mh-v2-subdot 2s infinite;
-  }
-  @keyframes mh-v2-subdot {
-    0% {
-      box-shadow: 0 0 0 0 oklch(0.5 0.17 145 / 0.5);
-    }
-    70% {
-      box-shadow: 0 0 0 5px oklch(0.5 0.17 145 / 0);
-    }
-    100% {
-      box-shadow: 0 0 0 0 oklch(0.5 0.17 145 / 0);
-    }
-  }
-</style>

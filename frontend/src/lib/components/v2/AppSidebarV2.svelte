@@ -454,21 +454,3 @@
     {/if}
   </Sidebar.Footer>
 </Sidebar.Root>
-
-<style>
-  :global(.mh-v2-pulse) {
-    box-shadow: 0 0 0 0 oklch(0.5 0.17 145 / 0.5);
-    animation: mh-v2-pulse 2s infinite;
-  }
-  @keyframes mh-v2-pulse {
-    0% {
-      box-shadow: 0 0 0 0 oklch(0.5 0.17 145 / 0.5);
-    }
-    70% {
-      box-shadow: 0 0 0 6px oklch(0.5 0.17 145 / 0);
-    }
-    100% {
-      box-shadow: 0 0 0 0 oklch(0.5 0.17 145 / 0);
-    }
-  }
-</style>

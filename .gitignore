@@ -489,3 +489,5 @@ $RECYCLE.BIN/
 .claude/*.md
 .claude/settings.local.json
 .claude/plans/
+# playwright-cli session artifacts (page snapshots, console logs)
+.playwright-cli/

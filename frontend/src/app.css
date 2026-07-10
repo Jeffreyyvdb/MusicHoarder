@@ -155,6 +155,17 @@
     html {
       scroll-behavior: auto;
     }
+    *,
+    ::before,
+    ::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
+    .animate-spin,
+    .animate-pulse,
+    [data-loading] {
+      animation-duration: revert !important;
+    }
   }
   body {
     @apply bg-background text-foreground;
@@ -175,4 +186,28 @@
    app-wide horizontal scrollbar; clamp the width to the visible area. */
 .toaster.group {
   --width: min(356px, calc(100vw - 2rem));
+}
+
+/* Live "job running" pulse dot shared by the sidebar, pipeline sub-nav, bottom
+   nav and pipeline home. Under prefers-reduced-motion the animation stops and
+   the dot stays as a static status indicator. */
+.mh-v2-pulse {
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 50%, transparent);
+  animation: mh-v2-pulse 2s infinite;
+}
+@keyframes mh-v2-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 50%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mh-v2-pulse {
+    animation: none;
+  }
 }
