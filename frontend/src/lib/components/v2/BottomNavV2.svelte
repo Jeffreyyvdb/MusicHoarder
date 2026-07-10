@@ -42,7 +42,8 @@
       class={cn(
         'relative flex flex-1 flex-col items-center justify-center gap-1 rounded-xl py-2 transition-colors',
         'text-muted-foreground hover:text-foreground',
-        'data-[active=true]:bg-muted data-[active=true]:text-foreground'
+        'data-[active=true]:bg-muted data-[active=true]:text-foreground',
+        'focus-visible:ring-ring/60 outline-none focus-visible:ring-2'
       )}
     >
       {#if item.live && running}

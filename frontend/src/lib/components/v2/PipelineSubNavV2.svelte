@@ -32,13 +32,16 @@
 >
   {#each tabs as tab (tab.id)}
     {@const isActive = tab.id === active}
-    {@const Icon = tab.icon}
+    <!-- Text-only tabs: the underline + weight change carries the active state;
+         per-tab icons stay in the sidebar where icon+label pairing earns its
+         keep. The bar stays count-less and fixed-height (constraint). -->
     <a
       href={tab.href}
       data-active={isActive || undefined}
       class={cn(
-        'relative flex shrink-0 items-center gap-1.5 px-2.5 py-2.5 text-[12.5px] whitespace-nowrap transition-colors',
+        'relative flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-2.5 text-[13px] whitespace-nowrap transition-colors',
         'after:absolute after:inset-x-2.5 after:bottom-0 after:h-[2px] after:rounded-full after:bg-transparent',
+        'focus-visible:ring-ring/60 outline-none focus-visible:ring-2 focus-visible:ring-inset',
         isActive
           ? 'text-foreground font-medium after:bg-primary'
           : 'text-muted-foreground hover:text-foreground'
@@ -47,14 +50,11 @@
       {#if tab.live && running}
         <span class="bg-primary mh-v2-pulse size-1.5 shrink-0 rounded-full"></span>
       {/if}
-      {#if Icon}
-        <Icon class="size-3.5" />
-      {/if}
       <span>{tab.label}</span>
       {#if tab.count != null}
         <span
           class={cn(
-            'rounded-full px-1.5 py-px font-mono text-[10px] tabular-nums',
+            'rounded-full px-1.5 py-px text-[10.5px] tabular-nums',
             isActive ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
           )}
         >{typeof tab.count === 'number' ? tab.count.toLocaleString() : tab.count}</span>
@@ -63,6 +63,6 @@
   {/each}
   <span class="flex-1"></span>
   {#if meta}
-    <span class="text-muted-foreground/80 hidden font-mono text-[11px] whitespace-nowrap sm:block">{meta}</span>
+    <span class="text-muted-foreground/80 hidden text-[11px] whitespace-nowrap tabular-nums sm:block">{meta}</span>
   {/if}
 </nav>
