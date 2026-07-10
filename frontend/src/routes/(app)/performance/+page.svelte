@@ -147,7 +147,7 @@
   <ScrollArea class="min-h-0 flex-1">
     <div class="space-y-8 px-6 py-6">
       {#if error}
-        <div class="rounded-md border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div class="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}
         </div>
       {/if}
@@ -165,7 +165,7 @@
             </div>
           {/each}
         </div>
-      {:else if snapshots.length === 0}
+      {:else if snapshots.length === 0 && !error}
         <div class="rounded-lg border border-dashed border-border px-6 py-12 text-center">
           <p class="text-sm font-medium">No snapshots yet</p>
           <p class="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
