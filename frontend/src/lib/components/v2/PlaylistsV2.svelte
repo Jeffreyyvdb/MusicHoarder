@@ -195,7 +195,7 @@
         </div>
       {:else}
         {#if !spotifyConnected}
-          <div class="border-border bg-card mb-3 rounded-lg border p-4 text-sm">
+          <div class="mb-3 py-6 text-sm">
             <p class="font-medium">Spotify isn’t connected.</p>
             <p class="text-muted-foreground mt-1">
               Connect it on the <a href="/spotify" class="underline">Spotify</a> page to browse your Liked
@@ -209,9 +209,9 @@
         {/if}
 
         {#if collections.length === 0}
-          <div class="border-border bg-card text-muted-foreground rounded-lg border p-8 text-center text-sm">
-            <ListVideo class="mx-auto mb-3 size-8 opacity-50" />
-            <p class="font-medium">Nothing to show yet.</p>
+          <div class="text-muted-foreground py-16 text-center text-sm">
+            <ListVideo class="mx-auto mb-3 size-8 opacity-40" />
+            <p class="font-medium text-foreground">Nothing to show yet.</p>
             <p class="mt-1">
               {#if spotifyConnected}
                 No Liked Songs or playlists were found on your Spotify account.
@@ -221,14 +221,14 @@
             </p>
           </div>
         {:else}
-          <div class="text-muted-foreground mb-3 text-xs">
+          <div class="text-muted-foreground mb-2 text-xs">
             {subscribedCount} synced of {collections.length} collection{collections.length === 1 ? '' : 's'}
           </div>
-          <div class="flex flex-col gap-2">
+          <div class="divide-border divide-y">
             {#each collections as c (keyOf(c))}
               {@const pct = coveragePct(c)}
               {@const busy = busyKeys.has(keyOf(c))}
-              <div class="border-border bg-card flex flex-col gap-2 rounded-lg border p-3">
+              <div class="hover:bg-secondary/40 flex flex-col gap-2 px-2 py-3 transition-colors">
                 <div class="flex items-center gap-3">
                   {#if c.imageUrl}
                     <img src={c.imageUrl} alt="" class="size-10 shrink-0 rounded object-cover" />
@@ -237,7 +237,7 @@
                       class="bg-muted flex size-10 shrink-0 items-center justify-center rounded"
                     >
                       {#if c.kind === 'LikedSongs'}
-                        <Heart class="size-5 text-[#1DB954]" />
+                        <Heart class="size-5 text-primary" />
                       {:else}
                         <Music2 class="text-muted-foreground size-5" />
                       {/if}
@@ -295,7 +295,7 @@
                 {#if c.subscribed && c.lastGeneratedAtUtc}
                   <div class="bg-muted h-1.5 overflow-hidden rounded-full">
                     <div
-                      class="h-full rounded-full bg-primary transition-[width] duration-300"
+                      class="h-full rounded-full bg-primary transition-[width] duration-300 motion-reduce:transition-none"
                       style="width: {pct}%;"
                     ></div>
                   </div>
