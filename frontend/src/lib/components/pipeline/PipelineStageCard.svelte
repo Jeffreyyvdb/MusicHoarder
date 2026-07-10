@@ -1,4 +1,8 @@
 <script lang="ts">
+  // NOTE (design audit): this card is NOT dead code — it is consumed by
+  // ImportPipelineDrawer.svelte (the in-app live-import drawer) and by the
+  // marketing landing page's PipelineConveyor.svelte. Its admin-console styling
+  // is deliberately left untouched here; the landing redesign follow-up owns it.
   import type { Component } from 'svelte';
   import { Progress } from '$lib/components/ui/progress';
   import { cn } from '$lib/utils';
