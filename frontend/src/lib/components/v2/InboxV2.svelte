@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { Tag, Copy, Sparkles } from '@lucide/svelte';
-  import type { Component } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { cn } from '$lib/utils';
@@ -10,11 +8,11 @@
 
   type TabId = 'review' | 'dupes' | 'ai';
 
-  type Tab = { id: TabId; label: string; icon: Component };
+  type Tab = { id: TabId; label: string };
   const TABS: Tab[] = [
-    { id: 'review', label: 'Tag review', icon: Tag },
-    { id: 'dupes', label: 'Duplicates', icon: Copy },
-    { id: 'ai', label: 'AI flagged', icon: Sparkles }
+    { id: 'review', label: 'Tag review' },
+    { id: 'dupes', label: 'Duplicates' },
+    { id: 'ai', label: 'AI flagged' }
   ];
 
   // The active subtab is driven by ?tab= so the sidebar subitems, breadcrumb, and
@@ -57,42 +55,34 @@
 <!-- Header -->
 <header class="border-border flex shrink-0 items-end justify-between gap-4 border-b px-4 py-4 sm:px-7 sm:py-5">
   <div class="min-w-0">
-    <div class="text-muted-foreground font-mono text-[10px] tracking-[0.12em] uppercase">
-      {totalAwaiting == null ? 'Loading…' : `${totalAwaiting.toLocaleString()} item${totalAwaiting === 1 ? '' : 's'} awaiting you`}
-    </div>
-    <h1 class="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">Inbox</h1>
-    <p class="text-muted-foreground mt-1 hidden max-w-2xl text-xs sm:block">
-      Everything the pipeline couldn't auto-resolve. Pick the right tag candidate, compare ambiguous
-      duplicates, or inspect what the AI grader flagged as wrong.
+    <h1 class="text-xl font-semibold tracking-tight sm:text-2xl">Inbox</h1>
+    <p class="text-muted-foreground mt-1 max-w-2xl text-[13px]">
+      {#if totalAwaiting != null}
+        {totalAwaiting.toLocaleString()} item{totalAwaiting === 1 ? '' : 's'} awaiting you ·
+      {/if}
+      Everything the pipeline couldn't auto-resolve.
     </p>
   </div>
 </header>
 
 <!-- Subtabs -->
-<nav class="border-border flex shrink-0 items-center gap-1 overflow-x-auto border-b px-4 sm:px-7" aria-label="Inbox queues">
+<nav class="border-border flex shrink-0 items-center gap-2 overflow-x-auto border-b px-4 sm:px-7" aria-label="Inbox queues">
   {#each TABS as t (t.id)}
     {@const isActive = t.id === tab}
-    {@const Icon = t.icon}
     {@const count = counts[t.id]}
     <button
       type="button"
       onclick={() => selectTab(t.id)}
       data-active={isActive || undefined}
       class={cn(
-        'relative flex shrink-0 items-center gap-1.5 px-2.5 py-2.5 text-[12.5px] whitespace-nowrap transition-colors',
-        'after:absolute after:inset-x-2.5 after:bottom-0 after:h-[2px] after:rounded-full after:bg-transparent',
+        'relative flex shrink-0 items-baseline gap-1.5 px-3 py-3 text-sm whitespace-nowrap transition-colors',
+        'after:absolute after:inset-x-3 after:bottom-0 after:h-[2px] after:rounded-full after:bg-transparent',
         isActive ? 'text-foreground font-medium after:bg-primary' : 'text-muted-foreground hover:text-foreground'
       )}
     >
-      <Icon class="size-3.5" />
       <span>{t.label}</span>
       {#if count != null && count > 0}
-        <span
-          class={cn(
-            'rounded-full px-1.5 py-px font-mono text-[10px] tabular-nums',
-            isActive ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
-          )}
-        >{count.toLocaleString()}</span>
+        <span class="text-muted-foreground text-xs tabular-nums">{count.toLocaleString()}</span>
       {/if}
     </button>
   {/each}
