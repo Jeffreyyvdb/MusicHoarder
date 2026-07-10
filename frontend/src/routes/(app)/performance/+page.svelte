@@ -177,7 +177,7 @@
             Capture baseline
           </Button>
         </div>
-      {:else}
+      {:else if snapshots.length > 0}
         <!-- Timeline charts -->
         <section>
           <h2 class="mb-3 text-sm font-semibold text-muted-foreground">

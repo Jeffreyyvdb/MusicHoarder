@@ -1,0 +1,220 @@
+- generic [ref=f2e2]:
+  - region "Notifications alt+T"
+  - generic [ref=f2e20]:
+    - generic [ref=f2e23]:
+      - list [ref=f2e25]:
+        - listitem [ref=f2e26]:
+          - link "MusicHoarder v1.0.0 · self-hosted" [ref=f2e27] [cursor=pointer]:
+            - /url: /pipeline
+            - generic [ref=f2e30]:
+              - generic [ref=f2e31]: MusicHoarder
+              - generic [ref=f2e32]: v1.0.0 · self-hosted
+      - generic [ref=f2e33]:
+        - link "Stats" [ref=f2e35] [cursor=pointer]:
+          - /url: /stats
+        - generic [ref=f2e38]:
+          - link "Pipeline" [ref=f2e39] [cursor=pointer]:
+            - /url: /pipeline
+          - generic [ref=f2e42]:
+            - link "Conveyor" [ref=f2e43] [cursor=pointer]:
+              - /url: /pipeline
+            - link "By folder" [ref=f2e46] [cursor=pointer]:
+              - /url: /directories
+            - link "AI quality" [ref=f2e49] [cursor=pointer]:
+              - /url: /quality
+            - link "Performance over time" [ref=f2e52] [cursor=pointer]:
+              - /url: /performance
+        - generic [ref=f2e55]:
+          - link "Inbox 6" [ref=f2e56] [cursor=pointer]:
+            - /url: /inbox
+            - generic [ref=f2e58]: Inbox
+            - generic [ref=f2e59]: "6"
+          - generic [ref=f2e60]:
+            - link "Tag review 6" [ref=f2e61] [cursor=pointer]:
+              - /url: /inbox?tab=review
+              - generic [ref=f2e63]: Tag review
+              - generic [ref=f2e64]: "6"
+            - link "Duplicates" [ref=f2e65] [cursor=pointer]:
+              - /url: /inbox?tab=dupes
+            - link "AI flagged" [ref=f2e68] [cursor=pointer]:
+              - /url: /inbox?tab=ai
+        - generic [ref=f2e71]:
+          - link "Library" [ref=f2e72] [cursor=pointer]:
+            - /url: /library
+          - generic [ref=f2e75]:
+            - link "Albums 5" [ref=f2e76] [cursor=pointer]:
+              - /url: /library
+              - generic [ref=f2e78]: Albums
+              - generic [ref=f2e79]: "5"
+            - link "Artists 5" [ref=f2e80] [cursor=pointer]:
+              - /url: /artists
+              - generic [ref=f2e82]: Artists
+              - generic [ref=f2e83]: "5"
+            - link "All tracks 20" [ref=f2e84] [cursor=pointer]:
+              - /url: /tracks
+              - generic [ref=f2e86]: All tracks
+              - generic [ref=f2e87]: "20"
+            - link "Spotify" [ref=f2e88] [cursor=pointer]:
+              - /url: /spotify
+            - link "Wishlist" [ref=f2e91] [cursor=pointer]:
+              - /url: /wishlist
+            - link "Playlists" [ref=f2e94] [cursor=pointer]:
+              - /url: /playlists
+        - link "History" [ref=f2e98] [cursor=pointer]:
+          - /url: /history
+        - link "Settings" [ref=f2e102] [cursor=pointer]:
+          - /url: /settings
+      - generic [ref=f2e105]:
+        - generic [ref=f2e106]:
+          - generic [ref=f2e107]: Storage
+          - generic [ref=f2e108]: 459 MB / 2 TB
+        - generic [ref=f2e110]:
+          - generic [ref=f2e111]: SRC
+          - generic "/root/music" [ref=f2e112]
+        - generic [ref=f2e113]:
+          - generic [ref=f2e114]: DST
+          - generic "/music/destination" [ref=f2e115]
+        - generic [ref=f2e116]:
+          - link "Account settings" [ref=f2e117] [cursor=pointer]:
+            - /url: /settings
+            - generic [ref=f2e118]: DE
+            - generic [ref=f2e119]:
+              - generic [ref=f2e120]: Demo
+              - generic [ref=f2e121]: demo@musichoarder.local
+          - button "Sign out" [ref=f2e123]
+    - main [ref=f2e125]:
+      - generic [ref=f2e126]:
+        - button "Toggle Sidebar" [ref=f2e127]
+        - button "Change theme" [ref=f2e130]
+      - alert [ref=f2e131]:
+        - generic [ref=f2e133]: MusicHoarder 1.95.1 is available
+        - generic [ref=f2e134]:
+          - generic [ref=f2e135]: You're running 1.0.0.
+          - generic [ref=f2e136]:
+            - link "View release notes" [ref=f2e137] [cursor=pointer]:
+              - /url: https://github.com/Jeffreyyvdb/MusicHoarder/releases/tag/v1.95.1
+            - button "How to update" [ref=f2e139]
+        - button "Dismiss update notice" [ref=f2e142]
+      - generic [ref=f2e143]:
+        - navigation "Pipeline views" [ref=f2e144]:
+          - link "Conveyor" [ref=f2e145] [cursor=pointer]:
+            - /url: /pipeline
+          - link "By folder" [ref=f2e148] [cursor=pointer]:
+            - /url: /directories
+          - link "AI quality" [ref=f2e151] [cursor=pointer]:
+            - /url: /quality
+          - link "Album matches" [ref=f2e154] [cursor=pointer]:
+            - /url: /album-quality
+          - link "Performance over time" [ref=f2e157] [cursor=pointer]:
+            - /url: /performance
+        - generic [ref=f2e161]:
+          - generic [ref=f2e162]: Pipeline · idle
+          - heading "Pipeline" [level=1] [ref=f2e164]
+          - paragraph [ref=f2e165]:
+            - text: "Files flow left-to-right: scanned, fingerprinted, matched against providers, decided on, graded by AI, deduped, then landed in your library. Anything that needs a human surfaces in"
+            - link "Inbox" [ref=f2e166] [cursor=pointer]:
+              - /url: /inbox
+            - text: .
+        - generic [ref=f2e170]:
+          - generic [ref=f2e171]:
+            - generic [ref=f2e172]:
+              - generic [ref=f2e173]: Source
+              - generic [ref=f2e178]: files
+            - generic [ref=f2e179]:
+              - generic [ref=f2e180]: In library
+              - generic [ref=f2e185]: enriched
+            - generic [ref=f2e186]:
+              - generic [ref=f2e187]: In flight
+              - generic [ref=f2e192]: idle
+            - link "Awaiting you — tags · — AI" [ref=f2e193] [cursor=pointer]:
+              - /url: /inbox
+              - generic [ref=f2e194]: Awaiting you
+              - generic [ref=f2e199]: — tags · — AI
+            - generic [ref=f2e200]:
+              - generic [ref=f2e201]: Avg quality
+              - generic [ref=f2e206]: AI score
+            - generic [ref=f2e207]:
+              - generic [ref=f2e208]: Errors
+              - generic [ref=f2e213]: failed enrichment
+          - generic [ref=f2e214]:
+            - generic [ref=f2e215]:
+              - generic [ref=f2e216]: Conveyor
+              - generic [ref=f2e217]: Click a stage to see what's flowing through it.
+            - generic [ref=f2e218]:
+              - generic [ref=f2e219]:
+                - button "01 Scan index —" [ref=f2e220]:
+                  - generic [ref=f2e221]: "01"
+                  - generic [ref=f2e225]: Scan
+                  - generic [ref=f2e226]: index
+                  - generic [ref=f2e228]: —
+                - button "02 Fingerprint Chromaprint —" [ref=f2e230]:
+                  - generic [ref=f2e231]: "02"
+                  - generic [ref=f2e235]: Fingerprint
+                  - generic [ref=f2e236]: Chromaprint
+                  - generic [ref=f2e238]: —
+                - button "03 Match providers —" [ref=f2e240]:
+                  - generic [ref=f2e241]: "03"
+                  - generic [ref=f2e245]: Match
+                  - generic [ref=f2e246]: providers
+                  - generic [ref=f2e248]: —
+                - button "04 Decide consensus —" [ref=f2e250]:
+                  - generic [ref=f2e251]: "04"
+                  - generic [ref=f2e255]: Decide
+                  - generic [ref=f2e256]: consensus
+                  - generic [ref=f2e258]: —
+                - button "05 AI grade quality LLM —" [ref=f2e260]:
+                  - generic [ref=f2e261]: "05"
+                  - generic [ref=f2e265]: AI grade
+                  - generic [ref=f2e266]: quality LLM
+                  - generic [ref=f2e268]: —
+                - button "06 Dedupe fingerprint —" [ref=f2e270]:
+                  - generic [ref=f2e271]: "06"
+                  - generic [ref=f2e275]: Dedupe
+                  - generic [ref=f2e276]: fingerprint
+                  - generic [ref=f2e278]: —
+                - button "07 Library destination —" [ref=f2e280]:
+                  - generic [ref=f2e281]: "07"
+                  - generic [ref=f2e285]: Library
+                  - generic [ref=f2e286]: destination
+                  - generic [ref=f2e288]: —
+              - generic [ref=f2e291]:
+                - generic [ref=f2e292]: Match
+                - paragraph [ref=f2e294]: Nothing in this stage right now.
+          - generic [ref=f2e295]:
+            - generic [ref=f2e296]:
+              - generic [ref=f2e297]: Needs you
+              - generic [ref=f2e298]: When the pipeline can't decide, items pile up here.
+              - link "Open Inbox" [ref=f2e299] [cursor=pointer]:
+                - /url: /inbox
+            - generic [ref=f2e301]:
+              - link "Tag reviews Providers couldn't agree (or none scored high enough). Pick the right candidate or override the fields manually. Review" [ref=f2e302] [cursor=pointer]:
+                - /url: /inbox
+                - generic [ref=f2e303]: Tag reviews
+                - paragraph [ref=f2e309]: Providers couldn't agree (or none scored high enough). Pick the right candidate or override the fields manually.
+                - generic [ref=f2e310]: Review
+              - link "Ambiguous duplicates Same fingerprint, can't auto-pick which to keep. Mutable keep-A/B resolution lands with the Inbox section. Compare" [ref=f2e312] [cursor=pointer]:
+                - /url: /inbox
+                - generic [ref=f2e313]: Ambiguous duplicates
+                - paragraph [ref=f2e319]: Same fingerprint, can't auto-pick which to keep. Mutable keep-A/B resolution lands with the Inbox section.
+                - generic [ref=f2e320]: Compare
+              - link "AI flagged Enrichment looks wrong to the quality grader (path mismatch, year drift, title rewritten). Worth a second look. Inspect" [ref=f2e322] [cursor=pointer]:
+                - /url: /inbox
+                - generic [ref=f2e323]: AI flagged
+                - paragraph [ref=f2e329]: Enrichment looks wrong to the quality grader (path mismatch, year drift, title rewritten). Worth a second look.
+                - generic [ref=f2e330]: Inspect
+          - generic [ref=f2e332]:
+            - generic [ref=f2e333]:
+              - generic [ref=f2e334]:
+                - generic [ref=f2e335]: Live activity
+                - generic [ref=f2e336]: recent events
+                - generic [ref=f2e337]: tail -f
+              - paragraph [ref=f2e339]: No recent activity yet.
+            - generic [ref=f2e341]:
+              - generic [ref=f2e342]: Just landed
+              - generic [ref=f2e343]: in library
+              - link "All" [ref=f2e344] [cursor=pointer]:
+                - /url: /library
+  - generic [ref=f2e353]:
+    - heading "Search everywhere" [level=2] [ref=f2e354]
+    - generic [ref=f2e355]: Search tracks, albums, artists, and jump to any page.
+  - generic [ref=f2e356]: Pipeline · MusicHoarder

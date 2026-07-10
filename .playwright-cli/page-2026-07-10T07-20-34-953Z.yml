@@ -1,0 +1,14 @@
+- generic [ref=f2e2]:
+  - region "Notifications alt+T"
+  - generic [ref=f2e4]:
+    - generic [ref=f2e10]:
+      - heading "Sign in" [level=1] [ref=f2e11]
+      - paragraph [ref=f2e12]: Magic-link sign-in to MusicHoarder.
+    - generic [ref=f2e13]:
+      - generic [ref=f2e14]:
+        - generic [ref=f2e15]: Email
+        - textbox "Email" [ref=f2e16]:
+          - /placeholder: you@example.com
+      - button "Send me a magic link" [disabled]
+    - button "Try the demo" [ref=f2e18]
+    - paragraph [ref=f2e19]: The demo account is read-only and shares a seeded library.
