@@ -130,7 +130,7 @@
             type="button"
             onclick={() => (selectedId = o.songId)}
             class={cn(
-              'mb-0.5 flex w-full items-center gap-2.5 rounded-md border-l-2 border-transparent py-2 pr-2.5 pl-2 text-left transition-colors',
+              'mb-0.5 flex w-full items-center gap-2.5 rounded-md border-l-2 border-transparent py-2 pr-2.5 pl-2 text-left transition-colors active:translate-y-px',
               selectedId === o.songId ? 'border-l-primary bg-card' : 'hover:bg-accent'
             )}
           >

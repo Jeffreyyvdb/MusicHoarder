@@ -1,27 +1,26 @@
 <script lang="ts">
   import type { ApiOverviewActivity } from '$lib/api-client';
+  import { activityTone } from '$lib/activity-tone';
   import { cn } from '$lib/utils';
 
   type Props = { activity: ApiOverviewActivity; faded?: number };
   const { activity, faded = 0 }: Props = $props();
 
-  // Map backend activity type → design's "stage tag" + a tailwind colour class.
-  // This is purely visual sugar — the underlying values come from /overview.
-  const TAG: Record<ApiOverviewActivity['type'], { tag: string; tone: string }> = {
-    discovered: { tag: 'scan', tone: 'text-primary/70' },
-    enriched: { tag: 'meta', tone: 'text-sky-400' },
-    copied: { tag: 'write', tone: 'text-primary' },
-    review: { tag: 'meta', tone: 'text-amber-400' },
-    failed: { tag: 'err', tone: 'text-red-400' }
+  // Map backend activity type → design's "stage tag" abbreviation.
+  // Colour comes from the shared activityTone() so it matches PipelineHomeV2's
+  // "Live activity" panel — this is purely visual sugar, the underlying values
+  // come from /overview.
+  const TAG: Record<ApiOverviewActivity['type'], string> = {
+    discovered: 'scan',
+    enriched: 'meta',
+    copied: 'write',
+    review: 'meta',
+    failed: 'err'
   };
 
-  const t = $derived(TAG[activity.type] ?? TAG.discovered);
+  const t = $derived({ tag: TAG[activity.type] ?? TAG.discovered, tone: activityTone(activity.type) });
   const msgTone = $derived(
-    activity.type === 'failed'
-      ? 'text-red-400'
-      : activity.type === 'review'
-        ? 'text-amber-400'
-        : 'text-muted-foreground'
+    activity.type === 'failed' || activity.type === 'review' ? t.tone : 'text-muted-foreground'
   );
   const subject = $derived(
     activity.artist && activity.artist !== 'unknown'

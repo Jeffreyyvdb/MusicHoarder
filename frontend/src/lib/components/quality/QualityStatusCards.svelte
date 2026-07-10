@@ -24,7 +24,7 @@
     type="button"
     onclick={() => onSelect('flagged')}
     class={cn(
-      'group bg-card flex flex-col gap-2 rounded-xl border p-5 text-left transition-all hover:border-foreground/20 hover:shadow-sm',
+      'group bg-card flex flex-col gap-2 rounded-xl border p-5 text-left transition-all hover:border-foreground/20 hover:shadow-sm active:scale-[0.99]',
       active === 'flagged' && 'ring-foreground/15 border-foreground/25 ring-1'
     )}
   >
@@ -47,7 +47,7 @@
     type="button"
     onclick={() => onSelect('silent')}
     class={cn(
-      'group bg-card flex flex-col gap-2 rounded-xl border p-5 text-left transition-all hover:border-foreground/20 hover:shadow-sm',
+      'group bg-card flex flex-col gap-2 rounded-xl border p-5 text-left transition-all hover:border-foreground/20 hover:shadow-sm active:scale-[0.99]',
       active === 'silent' && 'ring-foreground/15 border-foreground/25 ring-1'
     )}
   >
@@ -71,7 +71,7 @@
     type="button"
     onclick={() => onSelect('verified')}
     class={cn(
-      'group bg-card flex flex-col gap-2 rounded-xl border p-5 text-left transition-all hover:border-foreground/20 hover:shadow-sm',
+      'group bg-card flex flex-col gap-2 rounded-xl border p-5 text-left transition-all hover:border-foreground/20 hover:shadow-sm active:scale-[0.99]',
       active === 'verified' && 'ring-foreground/15 border-foreground/25 ring-1'
     )}
   >

@@ -11,6 +11,7 @@
   const { text, label = 'your-server : ~', class: className = '' }: Props = $props();
 
   let copied = $state(false);
+  let copyFailed = $state(false);
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   function copy() {
@@ -18,12 +19,19 @@
     navigator.clipboard
       ?.writeText(text)
       .then(flash)
-      .catch(flash);
+      .catch(fail);
   }
   function flash() {
+    copyFailed = false;
     copied = true;
     clearTimeout(timer);
     timer = setTimeout(() => (copied = false), 1800);
+  }
+  function fail() {
+    copied = false;
+    copyFailed = true;
+    clearTimeout(timer);
+    timer = setTimeout(() => (copyFailed = false), 1800);
   }
 </script>
 
@@ -45,6 +53,8 @@
     >
       {#if copied}
         <Check class="size-3" /> Copied
+      {:else if copyFailed}
+        <Copy class="size-3" /> Failed
       {:else}
         <Copy class="size-3" /> Copy
       {/if}

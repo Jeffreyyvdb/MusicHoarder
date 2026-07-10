@@ -7,7 +7,11 @@
 
   const version = $derived(page.data.appVersion as string | null | undefined);
 
+  let launching = $state(false);
+
   async function startDemo() {
+    if (launching) return;
+    launching = true;
     try {
       await signInAsDemo();
       await goto('/pipeline');
@@ -81,6 +85,13 @@
     </a>
     <ThemeToggle />
     <Button variant="ghost" size="sm" href="/login" class="hidden sm:inline-flex">Sign in</Button>
-    <Button size="sm" onclick={startDemo}>Try the live demo</Button>
+    <Button
+      size="sm"
+      onclick={startDemo}
+      disabled={launching}
+      class="h-10 px-4 md:h-7 md:px-2.5"
+    >
+      Try the live demo
+    </Button>
   </div>
 </nav>

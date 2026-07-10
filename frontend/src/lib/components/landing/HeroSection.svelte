@@ -73,8 +73,7 @@
   <!-- RIGHT column: live-pipeline log card -->
   <div class="md:justify-self-end">
     <div
-      class="bg-card border-border overflow-hidden rounded-[10px] border"
-      style="box-shadow: 0 8px 24px rgba(0,0,0,0.08), 0 0 0 0.5px rgba(0,0,0,0.06);"
+      class="bg-card border-border shadow-[0_8px_24px_rgba(0,0,0,0.08),0_0_0_0.5px_rgba(0,0,0,0.06)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.35),0_0_0_0.5px_rgba(255,255,255,0.08)] overflow-hidden rounded-[10px] border"
     >
       <div
         class="bg-surface-sunken border-border text-muted-foreground flex items-center gap-2 border-b px-4 py-3 text-[11px] font-semibold tracking-[0.04em] uppercase"

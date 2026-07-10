@@ -6,6 +6,7 @@
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
   import { Badge } from '$lib/components/ui/badge';
+  import { Switch } from '$lib/components/ui/switch';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import PurgeStatusBanner from '$lib/components/settings/PurgeStatusBanner.svelte';
   import { isPasskeySupported } from '$lib/webauthn-client';
@@ -670,17 +671,11 @@
               <Badge variant="outline" class="text-muted-foreground hidden shrink-0 sm:inline-flex">
                 {p.auth}
               </Badge>
-              <label class="inline-flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  class="peer sr-only"
-                  checked={providers?.[p.key] ?? false}
-                  onchange={(e) => toggleProvider(p.key, e.currentTarget.checked)}
-                />
-                <span
-                  class="border-input bg-secondary peer-checked:bg-primary relative h-5 w-9 rounded-full border transition-colors after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-4"
-                ></span>
-              </label>
+              <Switch
+                checked={providers?.[p.key] ?? false}
+                onCheckedChange={(v) => toggleProvider(p.key, v)}
+                aria-label="Toggle {p.name}"
+              />
             </div>
           {/each}
         </div>
@@ -737,19 +732,13 @@
               {/if}
             </div>
           </div>
-          <label class="inline-flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              class="peer sr-only"
-              checked={qualityGrading?.enabled ?? false}
-              onchange={(e) => {
-                if (qualityGrading) qualityGrading = { ...qualityGrading, enabled: e.currentTarget.checked };
-              }}
-            />
-            <span
-              class="border-input bg-secondary peer-checked:bg-primary relative h-5 w-9 rounded-full border transition-colors after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-4"
-            ></span>
-          </label>
+          <Switch
+            checked={qualityGrading?.enabled ?? false}
+            onCheckedChange={(v) => {
+              if (qualityGrading) qualityGrading = { ...qualityGrading, enabled: v };
+            }}
+            aria-label="Enable AI quality grading"
+          />
         </div>
 
         {#if qualityGradingResult}

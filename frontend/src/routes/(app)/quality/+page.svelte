@@ -200,7 +200,7 @@
         disabled={busy || polling || !gradingConfigured}
         onclick={onGradeOutdated}
         title="These grades were made with an older prompt or model. Re-grade just them."
-        class="border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400 inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12.5px] font-medium transition-colors disabled:opacity-50"
+        class="border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400 inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12.5px] font-medium transition-colors active:not-disabled:translate-y-px disabled:opacity-50"
       >
         {#if busy || polling}<Loader2 class="size-3.5 animate-spin" />{:else}<Sparkles class="size-3.5" />{/if}
         Re-grade {overview.outdatedCount.toLocaleString()} outdated
@@ -211,7 +211,7 @@
       disabled={busy || polling || !gradingConfigured}
       onclick={onGradeAll}
       title={gradingConfigured ? undefined : 'AI grading is not configured on the server'}
-      class="bg-primary text-primary-foreground inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+      class="bg-primary text-primary-foreground inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-opacity hover:opacity-90 active:not-disabled:translate-y-px disabled:opacity-50"
     >
       {#if busy || polling}<Loader2 class="size-3.5 animate-spin" />{:else}<Sparkles class="size-3.5" />{/if}
       Re-grade library
@@ -220,7 +220,7 @@
       type="button"
       onclick={loadOverview}
       aria-label="Refresh"
-      class="border-border hover:bg-accent inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] transition-colors"
+      class="border-border hover:bg-accent inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] transition-colors active:translate-y-px"
     >
       <RefreshCw class={cn('size-3.5', isLoading && 'animate-spin')} />
     </button>
@@ -300,7 +300,7 @@
                 type="button"
                 onclick={() => selectCategory(t.id)}
                 class={cn(
-                  'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12px] transition-colors',
+                  'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12px] transition-colors active:translate-y-px',
                   active ? 'bg-card border-border text-foreground font-medium shadow-sm' : 'text-muted-foreground hover:bg-muted/60 border-border'
                 )}
               >

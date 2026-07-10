@@ -281,7 +281,7 @@
       <div>
         <div class="flex items-center gap-2">
           <Heart class="size-5" />
-          <h1 class="text-2xl font-bold">Wishlist</h1>
+          <h1 class="text-2xl font-semibold tracking-tight">Wishlist</h1>
           <Badge variant="secondary">{total}</Badge>
         </div>
         <p class="text-muted-foreground mt-1 text-sm">
@@ -370,12 +370,12 @@
                 </div>
               </div>
               <label class="text-muted-foreground flex cursor-pointer items-center gap-1.5 text-xs">
-                <input
-                  type="checkbox"
+                <Switch
+                  size="sm"
                   checked={source.autoSync}
                   disabled={busySources.has(source.id)}
-                  onchange={() => onToggleAutoSync(source)}
-                  class="accent-[#1DB954]"
+                  onCheckedChange={() => onToggleAutoSync(source)}
+                  aria-label="Auto-sync"
                 />
                 Auto-sync
               </label>

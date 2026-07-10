@@ -50,7 +50,7 @@
         type="button"
         onclick={() => onSelect(s.songId)}
         class={cn(
-          'grid w-full grid-cols-[36px_1fr] items-start gap-2.5 rounded-md border border-l-[3px] border-transparent p-2 text-left transition-colors',
+          'grid w-full grid-cols-[36px_1fr] items-start gap-2.5 rounded-md border border-l-[3px] border-transparent p-2 text-left transition-colors active:translate-y-px',
           active ? 'bg-accent border-l-primary' : 'hover:bg-muted/60',
           !active && s.bucket === 'flagged' && 'border-l-amber-500/70',
           !active && s.bucket === 'silent' && 'border-l-red-500/70'

@@ -38,12 +38,24 @@
       : 0
   );
 
-  function onClick(e: MouseEvent) {
+  function seekToClientX(target: HTMLDivElement, clientX: number) {
+    const rect = target.getBoundingClientRect();
+    const ratio = (clientX - rect.left) / rect.width;
+    playerStore.seek(Math.max(0, Math.min(1, ratio)) * effectiveDuration);
+  }
+
+  function onPointerDown(e: PointerEvent) {
     if (!isActive || effectiveDuration <= 0) return;
     const target = e.currentTarget as HTMLDivElement;
-    const rect = target.getBoundingClientRect();
-    const ratio = (e.clientX - rect.left) / rect.width;
-    playerStore.seek(Math.max(0, Math.min(1, ratio)) * effectiveDuration);
+    target.setPointerCapture(e.pointerId);
+    seekToClientX(target, e.clientX);
+  }
+
+  function onPointerMove(e: PointerEvent) {
+    if (!isActive || effectiveDuration <= 0) return;
+    const target = e.currentTarget as HTMLDivElement;
+    if (!target.hasPointerCapture(e.pointerId)) return;
+    seekToClientX(target, e.clientX);
   }
 </script>
 
@@ -54,8 +66,9 @@
   aria-valuemax={100}
   aria-valuenow={Math.round(progress * 100)}
   aria-label="Track progress"
-  class="relative flex h-9 cursor-pointer items-center gap-[1px]"
-  onclick={onClick}
+  class="relative flex h-9 cursor-pointer touch-none items-center gap-[1px]"
+  onpointerdown={onPointerDown}
+  onpointermove={onPointerMove}
   onkeydown={(e) => {
     if (!isActive) return;
     if (e.key === 'ArrowLeft') playerStore.seek(Math.max(0, playerStore.currentTime - 5));

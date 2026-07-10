@@ -2,6 +2,7 @@
   import { CalendarClock, ChevronRight, Disc3, Image, Tags, Users } from '@lucide/svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { Button } from '$lib/components/ui/button';
+  import { Skeleton } from '$lib/components/ui/skeleton';
   import { fetchHistory, type HistorySummary } from '$lib/api-client';
 
   type RangeKey = '1' | '7' | '30' | 'custom';
@@ -155,7 +156,18 @@
       {:else if range === 'custom' && dateWindow === null}
         <p class="text-sm text-muted-foreground">Pick a start and end date.</p>
       {:else if loading}
-        <p class="text-sm text-muted-foreground">Loading…</p>
+        <ul class="space-y-2">
+          {#each Array(5) as _, i (i)}
+            <li class="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
+              <Skeleton class="size-8 shrink-0 rounded-md" />
+              <div class="min-w-0 flex-1 space-y-1.5">
+                <Skeleton class="h-4 w-2/3" />
+                <Skeleton class="h-3 w-1/3" />
+              </div>
+              <Skeleton class="h-3 w-10 shrink-0" />
+            </li>
+          {/each}
+        </ul>
       {:else if summaries.length === 0}
         <div class="rounded-lg border border-dashed border-border px-6 py-12 text-center">
           <p class="text-sm font-medium">No changes in this range</p>
@@ -175,7 +187,7 @@
             <li class="rounded-lg border border-border bg-card">
               <button
                 type="button"
-                class="flex w-full items-center gap-3 px-4 py-3 text-left"
+                class="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors hover:bg-muted/50 active:bg-muted"
                 onclick={() => toggle(s.id)}
               >
                 <span class="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
