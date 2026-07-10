@@ -118,7 +118,7 @@
     class={cn(
       'group hover:bg-muted/50 relative flex items-center gap-2 rounded-md pr-2 transition-[background-color,opacity]',
       node.expectedLow && 'opacity-70 hover:opacity-100',
-      expanded && 'bg-primary/[0.04]'
+      expanded && 'bg-muted/40'
     )}
   >
     <button
@@ -145,25 +145,27 @@
         </span>
         {#if node.expectedLow}
           <span
-            class="border-border text-muted-foreground inline-flex shrink-0 items-center rounded-full border border-dashed bg-muted px-1.5 py-px text-[10px] whitespace-nowrap"
+            class="bg-muted text-muted-foreground inline-flex shrink-0 items-center rounded-full px-2 py-px text-[11px] whitespace-nowrap"
             title="You marked this folder as expected to have a low match rate (leaks, unreleased, field recordings)."
           >
-            expected low
+            Expected low
           </span>
         {:else}
           {#if node.needsReview > 0}
             <span
-              class="inline-flex shrink-0 items-center rounded-full bg-amber-500/15 px-1.5 py-px text-[10px] font-medium whitespace-nowrap text-amber-600 dark:text-amber-400"
+              class="text-muted-foreground inline-flex shrink-0 items-center gap-1.5 text-[11px] whitespace-nowrap"
               title={`${node.needsReview} files awaiting review`}
             >
+              <span class="size-1.5 rounded-full bg-amber-500"></span>
               {node.needsReview.toLocaleString()} review
             </span>
           {/if}
           {#if node.failed > 0}
             <span
-              class="inline-flex shrink-0 items-center rounded-full bg-red-500/10 px-1.5 py-px text-[10px] font-medium whitespace-nowrap text-red-600 dark:text-red-400"
+              class="text-muted-foreground inline-flex shrink-0 items-center gap-1.5 text-[11px] whitespace-nowrap"
               title={`${node.failed} files matched nothing`}
             >
+              <span class="size-1.5 rounded-full bg-red-500"></span>
               {node.failed.toLocaleString()} failed
             </span>
           {/if}
@@ -175,27 +177,21 @@
         class={cn('bg-muted hidden h-[6px] w-28 shrink-0 overflow-hidden rounded-full sm:flex', node.expectedLow && 'opacity-60')}
         title={`in library ${written} · matched ${matchedNotWritten} · review ${node.needsReview} · failed ${node.failed} · queued ${node.pending}`}
       >
-        <span class="h-full bg-emerald-600" style="width: {pct(written)}%"></span>
-        <span class="h-full bg-emerald-500" style="width: {pct(matchedNotWritten)}%"></span>
+        <span class="h-full bg-primary" style="width: {pct(written)}%"></span>
+        <span class="h-full bg-primary/50" style="width: {pct(matchedNotWritten)}%"></span>
         <span class="h-full bg-amber-500" style="width: {pct(node.needsReview)}%"></span>
         <span class="h-full bg-red-500" style="width: {pct(node.failed)}%"></span>
-        <span class="h-full bg-slate-400/60" style="width: {pct(node.pending)}%"></span>
+        <span class="bg-muted-foreground/25 h-full" style="width: {pct(node.pending)}%"></span>
       </span>
 
-      <span class="text-muted-foreground hidden w-16 shrink-0 text-right font-mono text-[11px] tabular-nums sm:block">
+      <span class="text-muted-foreground hidden w-16 shrink-0 text-right text-xs tabular-nums sm:block">
         <span class="text-foreground">{enriched.toLocaleString()}</span><span class="text-muted-foreground/50">/</span>{node.total.toLocaleString()}
       </span>
 
       <span
         class={cn(
-          'w-10 shrink-0 text-right font-mono text-[11px] tabular-nums',
-          node.expectedLow
-            ? 'text-muted-foreground/70'
-            : matchedPctLabel >= 90
-              ? 'text-emerald-600 dark:text-emerald-400'
-              : matchedPctLabel >= 60
-                ? 'text-amber-600 dark:text-amber-400'
-                : 'text-red-600 dark:text-red-400'
+          'w-10 shrink-0 text-right text-xs tabular-nums',
+          node.expectedLow ? 'text-muted-foreground/60' : 'text-muted-foreground'
         )}
       >
         {matchedPctLabel}%
@@ -205,7 +201,7 @@
     <!-- Row actions: mark expected-low + enrich (hover-revealed on desktop, always visible on
          touch; persistent when active). Fixed width matches the header's actions column so the
          Match% column aligns across rows. -->
-    <div class="flex w-[88px] shrink-0 items-center justify-end gap-0.5">
+    <div class="flex w-[104px] shrink-0 items-center justify-end gap-0.5">
       {#if onToggleExpected}
         <button
           type="button"
@@ -215,17 +211,17 @@
             : 'Mark as expected low match (leaks, unreleased, field recordings)'}
           aria-label={node.expectedLow ? 'Clear expected-low tag' : 'Mark as expected low'}
           class={cn(
-            'grid size-6 place-items-center rounded-md transition-[opacity,color,background-color] focus-visible:opacity-100',
-            'hover:bg-card hover:text-foreground hover:border-border border border-transparent',
+            '-my-1 grid size-8 shrink-0 place-items-center rounded-md transition-[opacity,color,background-color] focus-visible:opacity-100',
+            'hover:bg-muted hover:text-foreground',
             node.expectedLow
               ? 'text-primary opacity-100'
-              : 'text-muted-foreground opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
+              : 'text-muted-foreground opacity-100 sm:opacity-40 sm:group-hover:opacity-100'
           )}
         >
           {#if node.expectedLow}
-            <Check class="size-3" />
+            <Check class="size-3.5" />
           {:else}
-            <Tag class="size-3" />
+            <Tag class="size-3.5" />
           {/if}
         </button>
       {/if}
@@ -235,8 +231,8 @@
           variant="ghost"
           size="sm"
           class={cn(
-            'h-6 shrink-0 px-2 text-[11px] opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100',
-            (isEnriching || enrichState === 'error') && 'opacity-100',
+            '-my-1 h-8 shrink-0 px-2 text-xs opacity-100 transition-opacity focus-visible:opacity-100 sm:opacity-40 sm:group-hover:opacity-100',
+            (isEnriching || enrichState === 'error') && 'sm:opacity-100',
             isEnriching && 'text-primary',
             enrichState === 'error' && 'text-destructive'
           )}
@@ -268,7 +264,7 @@
       {#if hasFiles}
         {#if filesState === 'loading'}
           <div
-            class="text-muted-foreground flex items-center gap-2 py-1.5 text-[11px]"
+            class="text-muted-foreground flex items-center gap-2 py-1.5 text-xs"
             style="padding-left: {depth * 18 + 30}px"
           >
             <Loader2 class="size-3 animate-spin" />
@@ -278,7 +274,7 @@
           <button
             type="button"
             onclick={loadFiles}
-            class="text-muted-foreground hover:text-foreground flex items-center gap-2 py-1.5 text-[11px]"
+            class="text-muted-foreground hover:text-foreground flex items-center gap-2 py-1.5 text-xs"
             style="padding-left: {depth * 18 + 30}px"
           >
             <AlertCircle class="size-3 text-amber-500" />
