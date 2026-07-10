@@ -560,7 +560,7 @@
         type="button"
         onclick={playAlbumStart}
         aria-label="Play album"
-        class="bg-primary text-primary-foreground grid size-13 shrink-0 place-items-center rounded-full shadow-[0_6px_16px_oklch(0.5_0.17_145_/_0.4)] transition-transform hover:scale-105"
+        class="bg-primary text-primary-foreground grid size-13 shrink-0 place-items-center rounded-full transition-[scale,filter] duration-100 ease-out hover:brightness-110 active:scale-95"
       >
         {#if playerStore.isPlaying && currentlyPlaying}
           <Pause class="size-5" />
@@ -573,7 +573,7 @@
         type="button"
         onclick={playAlbumShuffle}
         aria-label="Shuffle album"
-        class="border-border text-foreground hover:bg-muted inline-flex h-10 shrink-0 items-center gap-2 rounded-full border px-4 text-sm font-medium transition-colors"
+        class="border-border text-foreground hover:bg-muted inline-flex h-10 shrink-0 items-center gap-2 rounded-full border px-4 text-sm font-medium transition-[color,background-color,scale] duration-100 ease-out active:scale-[0.97]"
       >
         <Shuffle class="size-4" />
         Shuffle
@@ -756,7 +756,8 @@
                 onclick={(e) => playTrack(song, e)}
                 aria-label={isCurrentlyPlaying ? 'Pause track' : 'Play track'}
                 class={cn(
-                  'text-primary absolute inset-0 grid place-items-center opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 group-focus-within:opacity-100',
+                  'absolute inset-0 grid place-items-center opacity-0 transition-[opacity,scale] duration-100 ease-out group-hover:opacity-100 focus-visible:opacity-100 group-focus-within:opacity-100 active:scale-[0.97]',
+                  isCurrentlyLoaded ? 'text-primary' : 'text-foreground',
                   isCurrentlyPlaying && 'group-hover:opacity-100'
                 )}
               >
@@ -951,6 +952,13 @@
     }
     50% {
       height: 100%;
+    }
+  }
+  /* Belt-and-braces alongside the global app.css reduced-motion guard: the
+     equalizer holds a static three-bar pose instead of animating. */
+  @media (prefers-reduced-motion: reduce) {
+    .mh-eq.is-playing > :global(i) {
+      animation: none;
     }
   }
 </style>

@@ -33,6 +33,13 @@ let queueIndex = $state(-1);
  * stacking two bottom-anchored controls.
  */
 let panelMountedCount = $state(0);
+/**
+ * True after the user dismisses the MiniPlayer bar with its close (X) control.
+ * Dismissal pauses playback and hides the bar but keeps `currentSong`/`queue`
+ * intact — pressing play anywhere (row, panel, OS media keys) clears the flag
+ * so the bar comes back with its full state. Only `stop()` tears state down.
+ */
+let miniPlayerDismissed = $state(false);
 
 let audioEl: HTMLAudioElement | null = null;
 /** Pre-mute level, restored on unmute so toggling mute is non-destructive. */
@@ -197,6 +204,7 @@ function ensureAudioEl(): HTMLAudioElement | null {
  * (a newer load/pause superseding this play) is intentionally ignored.
  */
 function attemptPlay() {
+  miniPlayerDismissed = false; // any play intent brings the mini player back
   void audioEl
     ?.play()
     .then(() => (isPlaying = true))
@@ -318,6 +326,16 @@ function toggleMute() {
   else setVolume(lastNonZeroVolume > 0 ? lastNonZeroVolume : 0.8);
 }
 
+/**
+ * Dismiss the MiniPlayer bar: pause playback and hide the chrome, keeping the
+ * current song and queue so play resumes exactly where the user left off. This
+ * is what the bar's close (X) affordance calls — it must never destroy state.
+ */
+function dismissMiniPlayer() {
+  pause();
+  miniPlayerDismissed = true;
+}
+
 function stop() {
   if (audioEl) {
     audioEl.pause();
@@ -332,6 +350,7 @@ function stop() {
   duration = 0;
   queue = [];
   queueIndex = -1;
+  miniPlayerDismissed = false;
   const ms = mediaSession();
   if (ms) {
     ms.metadata = null;
@@ -389,6 +408,9 @@ export const playerStore = {
   get isPanelMounted() {
     return panelMountedCount > 0;
   },
+  get isMiniPlayerDismissed() {
+    return miniPlayerDismissed;
+  },
   playSong,
   playNext,
   playPrevious,
@@ -398,6 +420,7 @@ export const playerStore = {
   seek,
   setVolume,
   toggleMute,
+  dismissMiniPlayer,
   stop,
   registerPanel
 };

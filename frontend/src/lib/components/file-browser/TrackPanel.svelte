@@ -19,7 +19,7 @@
   import * as Tabs from '$lib/components/ui/tabs/index.js';
   import LyricsPanel from '$lib/components/file-browser/LyricsPanel.svelte';
   import SourceRow from '$lib/components/file-browser/SourceRow.svelte';
-  import Waveform from '$lib/components/file-browser/Waveform.svelte';
+  import Scrubber from '$lib/components/file-browser/Scrubber.svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import {
     artistLabelForSong,
@@ -500,44 +500,29 @@
 
 {#snippet transport()}
   <div class="mx-auto w-full max-w-[340px]">
-    <Waveform
-      seed={song.id}
-      isActive={isCurrentlyLoaded}
-      fallbackDuration={song.durationSeconds ?? 0}
-    />
+    <Scrubber isActive={isCurrentlyLoaded} fallbackDuration={song.durationSeconds ?? 0} />
     <div class="mt-1.5 flex items-center gap-3">
-      <span class="text-muted-foreground w-9 shrink-0 text-right font-mono text-[10.5px] tabular-nums">
+      <span class="text-muted-foreground w-10 shrink-0 text-right text-xs tabular-nums">
         {isCurrentlyLoaded ? formatTime(playerStore.currentTime) : '0:00'}
       </span>
       <div class="mx-auto flex items-center gap-1">
         <Button
           variant="ghost"
           size="icon"
-          class="size-7 disabled:opacity-40"
+          class="text-foreground hover:text-foreground hover:bg-foreground/10 size-7 transition-transform duration-100 ease-out active:scale-[0.97] disabled:opacity-40"
           onclick={() => playerStore.playPrevious()}
           disabled={!canGoPrevious}
           aria-label="Previous track"
         >
           <SkipBack class="size-3.5" />
         </Button>
+        <!-- One consistent accent disc in both themes and both loaded states —
+             the Play↔Pause glyph swap is the only state signal, matching the
+             album-page play button. -->
         <Button
           variant="ghost"
           size="icon"
-          class={cn(
-            'size-10 rounded-full',
-            // Keep the icon's contrasting colour on hover — the ghost variant's
-            // default `hover:text-foreground` would otherwise turn it dark against
-            // the dark/filled button.
-            //
-            // For the loaded (active) state we want a solid, on-brand disc. In
-            // light mode the foreground/background swap reads as a crisp dark disc
-            // with a light glyph. In dark mode that same swap inverts to a glaring
-            // near-white disc with a near-black glyph, so override it to the brand
-            // green (matching this panel's waveform/progress accent) instead.
-            isCurrentlyLoaded
-              ? 'bg-foreground text-background hover:bg-foreground/90 hover:text-background dark:bg-primary dark:text-primary-foreground dark:hover:bg-primary/90 dark:hover:text-primary-foreground'
-              : 'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground'
-          )}
+          class="bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground size-10 rounded-full transition-transform duration-100 ease-out active:scale-95"
           onclick={handlePlayToggle}
           aria-label={isCurrentlyPlaying ? 'Pause' : 'Play'}
         >
@@ -550,7 +535,7 @@
         <Button
           variant="ghost"
           size="icon"
-          class="size-7 disabled:opacity-40"
+          class="text-foreground hover:text-foreground hover:bg-foreground/10 size-7 transition-transform duration-100 ease-out active:scale-[0.97] disabled:opacity-40"
           onclick={() => playerStore.playNext()}
           disabled={!canGoNext}
           aria-label="Next track"
@@ -558,7 +543,7 @@
           <SkipForward class="size-3.5" />
         </Button>
       </div>
-      <span class="text-muted-foreground w-9 shrink-0 font-mono text-[10.5px] tabular-nums">
+      <span class="text-muted-foreground w-10 shrink-0 text-xs tabular-nums">
         {formatDuration(song.durationSeconds)}
       </span>
     </div>
