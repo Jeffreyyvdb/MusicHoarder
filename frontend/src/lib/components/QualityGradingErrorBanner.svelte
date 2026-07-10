@@ -6,11 +6,20 @@
 
   const POLL_INTERVAL_MS = 15_000;
 
+  // Shell banner policy: `visible` reports the underlying error state upward,
+  // `suppressed` hides this banner while a higher-priority one (offline) shows.
+  type Props = { visible?: boolean; suppressed?: boolean };
+  let { visible = $bindable(false), suppressed = false }: Props = $props();
+
   let lastError = $state<QualityProgress['lastError']>(null);
 
   // The server suppresses `lastError` when grading is disabled or unconfigured, so a non-null
   // value here always means "grading is on and erroring". A failed fetch leaves it null → nothing shows.
   const outOfCredits = $derived(lastError?.code === 'out_of_credits');
+
+  $effect(() => {
+    visible = lastError !== null;
+  });
 
   async function refresh(): Promise<void> {
     try {
@@ -28,7 +37,7 @@
   });
 </script>
 
-{#if lastError}
+{#if lastError && !suppressed}
   <Alert.Root
     variant="destructive"
     aria-live="polite"

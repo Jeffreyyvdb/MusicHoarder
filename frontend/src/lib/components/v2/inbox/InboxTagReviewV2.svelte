@@ -13,7 +13,6 @@
   } from '$lib/api-client';
   import {
     reasonFor,
-    confidencePercent,
     candidatesFromDetail,
     buildDestinationPath,
     bestGuess,
@@ -30,6 +29,7 @@
   import BeforeAfterView from '$lib/components/review/BeforeAfterView.svelte';
   import { Button } from '$lib/components/ui/button';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
+  import * as Tooltip from '$lib/components/ui/tooltip';
   import { toast } from 'svelte-sonner';
   import { cn } from '$lib/utils';
 
@@ -45,10 +45,13 @@
   type MetadataEdits = Partial<Record<EditableFieldKey, string>>;
   type Decision = 'accept' | 'reject' | 'skip';
 
-  const PILL_TINT: Record<'warn' | 'info' | 'err', string> = {
-    warn: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
-    info: 'bg-primary/15 text-primary',
-    err: 'bg-red-500/15 text-red-600 dark:text-red-400'
+  // One status signal per row/header: a small colored dot + sentence-case label.
+  // Amber/red are reserved for genuinely actionable states; ambiguous/info stays neutral.
+  const STATUS_DOT: Record<'warn' | 'info' | 'err' | 'ok', string> = {
+    warn: 'bg-amber-500',
+    info: 'bg-muted-foreground/50',
+    err: 'bg-red-500',
+    ok: 'bg-primary'
   };
 
   let tracks = $state<ApiSong[]>([]);
@@ -482,20 +485,19 @@
               <div class="text-foreground truncate text-[12px] font-semibold">{group.album}</div>
               <div class="truncate text-[11px]">{group.artist}</div>
             </div>
-            <span class="bg-accent text-muted-foreground shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium">
+            <span class="text-muted-foreground shrink-0 text-[11px] tabular-nums">
               {group.items.length}
             </span>
           </div>
           {#each group.items as track (track.id)}
             {@const r = reasonFor(track)}
             {@const info = rowOriginal(track)}
-            {@const pct = confidencePercent(track)}
             {@const decided = decisions[track.id] != null}
             <button
               type="button"
               onclick={() => (selectedId = track.id)}
               class={cn(
-                'mb-0.5 flex w-full items-center gap-2.5 rounded-md border-l-2 border-transparent py-2 pr-2.5 pl-2 text-left transition-colors active:translate-y-px',
+                'mb-0.5 flex w-full items-center gap-2.5 rounded-md border-l-2 border-transparent py-2 pr-2.5 pl-2 text-left transition-[background-color,transform] duration-100 ease-out active:scale-[0.99]',
                 selectedId === track.id ? 'border-l-primary bg-card' : 'hover:bg-accent',
                 decided && 'opacity-60'
               )}
@@ -505,12 +507,10 @@
                 <div class={cn('truncate text-[13px] font-medium', info.titleFromFilename && 'font-mono text-[12px]')}>{info.title}</div>
                 <div class="text-muted-foreground truncate text-[11.5px]">{info.subtitle || '—'}</div>
               </div>
-              {#if pct}<span class="text-muted-foreground shrink-0 font-mono text-[10px]">{pct}</span>{/if}
-              {#if decided}
-                <span class="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-wide uppercase">Skipped</span>
-              {:else}
-                <span class={cn('shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-wide uppercase', PILL_TINT[r.tint])}>{r.label}</span>
-              {/if}
+              <span class="text-muted-foreground flex shrink-0 items-center gap-1.5 text-[11px]">
+                <span class={cn('size-1.5 rounded-full', decided ? 'bg-muted-foreground/40' : STATUS_DOT[r.tint])}></span>
+                {decided ? 'Skipped' : r.label}
+              </span>
             </button>
           {/each}
         {/each}
@@ -523,35 +523,8 @@
         class="flex min-h-0 min-w-0 flex-col overflow-hidden md:flex"
         class:hidden={selectedId == null}
       >
-        <!-- Banner -->
-        <div
-          class={cn(
-            'flex items-center gap-3 px-4 py-3 sm:px-6',
-            banner.tone === 'warn' && 'bg-amber-500/10',
-            banner.tone === 'info' && 'bg-primary/10',
-            banner.tone === 'err' && 'bg-red-500/10',
-            banner.tone === 'ok' && 'bg-primary/10'
-          )}
-        >
-          <span
-            class={cn(
-              'grid size-8 shrink-0 place-items-center rounded-full text-white',
-              banner.tone === 'warn' && 'bg-amber-500',
-              banner.tone === 'info' && 'bg-primary',
-              banner.tone === 'err' && 'bg-red-500',
-              banner.tone === 'ok' && 'bg-primary'
-            )}
-          >
-            {#if banner.tone === 'ok'}<Check class="size-4" strokeWidth={2.5} />{:else}<X class="size-4" strokeWidth={2.5} />{/if}
-          </span>
-          <div class="min-w-0 flex-1">
-            <div class="text-[14px] font-semibold">{banner.title}</div>
-            <div class="text-muted-foreground text-[12px]">{banner.body}</div>
-          </div>
-        </div>
-
-        <!-- Header -->
-        <div class="border-border flex items-start gap-4 border-b px-4 pt-3 pb-4 sm:px-6">
+        <!-- Header — status is a small inline dot + label beside the title, not a banner. -->
+        <div class="border-border flex flex-wrap items-start gap-x-4 gap-y-3 border-b px-4 pt-4 pb-4 sm:px-6">
           <button
             type="button"
             onclick={() => (selectedId = null)}
@@ -563,18 +536,23 @@
           </button>
           <Cover artist={original.subtitle || 'Unknown'} title={original.title} size={52} corner={8} caption={false} />
           <div class="min-w-0 flex-1">
-            <div class="text-muted-foreground font-mono text-[10px] tracking-[0.1em]">ORIGINAL</div>
-            <h2 class={cn('my-0.5 truncate text-[20px] font-semibold tracking-tight', original.titleFromFilename && 'font-mono text-[16px]')}>{original.title}</h2>
+            <div class="text-muted-foreground hidden text-[11px] sm:block">Original file</div>
+            <div class="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5">
+              <h2 class={cn('my-0.5 max-w-full min-w-0 truncate text-[20px] font-semibold tracking-tight', original.titleFromFilename && 'font-mono text-[16px]')}>{original.title}</h2>
+              <span class="text-muted-foreground flex shrink-0 items-center gap-1.5 text-[12px]" title={banner.body}>
+                <span class={cn('size-1.5 rounded-full', STATUS_DOT[banner.tone])}></span>
+                {banner.title}
+              </span>
+            </div>
             {#if original.subtitle}<div class="text-muted-foreground truncate text-[12.5px]">{original.subtitle}</div>{/if}
             <div class="text-muted-foreground/70 truncate font-mono text-[11px]">{original.fileName}</div>
             {#if guess.title && guess.title !== original.title}
-              <div class="text-muted-foreground/80 mt-1.5 truncate text-[12px]">
-                <span class="font-mono text-[10px] tracking-[0.08em]">BEST GUESS →</span>
-                {guess.title}{guess.subtitle ? ' · ' + guess.subtitle : ''}
+              <div class="text-muted-foreground mt-1.5 truncate text-[12px]">
+                Best guess: <span class="text-foreground/80">{guess.title}</span>{guess.subtitle ? ' · ' + guess.subtitle : ''}
               </div>
             {/if}
           </div>
-          <div class="flex shrink-0 items-center gap-2">
+          <div class="flex w-full shrink-0 items-center gap-2 sm:w-auto">
             <button
               type="button"
               onclick={() => onCopyDossier(selectedTrack.id)}
@@ -600,15 +578,15 @@
 
         <!-- Scrollable body: candidates + before/after diff -->
         <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 pb-[calc(1rem_+_var(--mh-content-pad))] sm:px-6">
-          <div class="text-muted-foreground flex items-baseline gap-2">
-            <span class="text-[12px] font-semibold tracking-wide uppercase">Candidates</span>
-            <span class="text-[11.5px]">Pick a provider's answer, or override fields below.</span>
+          <div class="flex items-baseline gap-2">
+            <span class="text-foreground text-[13px] font-semibold">Candidates</span>
+            <span class="text-muted-foreground text-[11.5px]">Pick a provider's answer, or override fields below.</span>
           </div>
           <CandidateGrid {candidates} pickedKey={pickedKey[selectedTrack.id] ?? null} loading={detailLoading[selectedTrack.id]} onpick={pickCandidate} single={isMobile.current} />
 
-          <div class="text-muted-foreground flex items-baseline gap-2 pt-1">
-            <span class="text-[12px] font-semibold tracking-wide uppercase">Field diff</span>
-            <span class="text-[11.5px]">Embedded tags → what we'll write.</span>
+          <div class="flex items-baseline gap-2 pt-1">
+            <span class="text-foreground text-[13px] font-semibold">Field diff</span>
+            <span class="text-muted-foreground text-[11.5px]">Embedded tags → what we'll write.</span>
           </div>
           <BeforeAfterView
             rows={beforeRows}
@@ -623,17 +601,22 @@
           />
         </div>
 
-        <!-- Action bar -->
+        <!-- Action bar — keyboard shortcuts live in a "?" tooltip so they stay discoverable at any width. -->
         <div class="border-border bg-background flex flex-wrap items-center gap-2 border-t px-4 py-3 sm:gap-3 sm:px-6">
-          <div class="text-muted-foreground hidden flex-1 items-center gap-1 text-[11px] lg:flex">
-            <b class="text-foreground/80 mr-1">Keys</b>
-            <kbd class="bg-muted rounded border px-1.5 py-px font-mono text-[10px]">A</kbd> accept
-            <kbd class="bg-muted ml-1 rounded border px-1.5 py-px font-mono text-[10px]">S</kbd> skip
-            <kbd class="bg-muted ml-1 rounded border px-1.5 py-px font-mono text-[10px]">R</kbd> reject
-            <kbd class="bg-muted ml-1 rounded border px-1.5 py-px font-mono text-[10px]">←</kbd>
-            <kbd class="bg-muted rounded border px-1.5 py-px font-mono text-[10px]">→</kbd> nav
+          <div class="flex flex-1 items-center">
+            <Tooltip.Provider delayDuration={150}>
+              <Tooltip.Root>
+                <Tooltip.Trigger
+                  class="border-border text-muted-foreground hover:bg-accent hover:text-foreground grid size-7 place-items-center rounded-full border text-[12px] font-medium transition-colors"
+                  aria-label="Keyboard shortcuts"
+                >?</Tooltip.Trigger>
+                <Tooltip.Content side="top" align="start">
+                  A accept · S skip · R reject · ← → navigate
+                </Tooltip.Content>
+              </Tooltip.Root>
+            </Tooltip.Provider>
           </div>
-          <div class="flex flex-1 items-center justify-end gap-2 lg:flex-none">
+          <div class="flex items-center justify-end gap-2">
             <Button variant="outline" onclick={handleSkip} disabled={actionLoading}>Skip</Button>
             <Button variant="outline" onclick={handleReject} disabled={actionLoading} class="gap-1.5">
               {#if actionLoading}<Loader2 class="size-3.5 animate-spin" />{:else}<X class="size-3.5" />{/if}

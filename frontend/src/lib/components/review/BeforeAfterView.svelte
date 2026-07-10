@@ -26,22 +26,22 @@
   const destFile = $derived(destinationPath.slice(destinationPath.lastIndexOf('/') + 1));
 </script>
 
-<!-- FROM → WILL WRITE TO -->
+<!-- From → will write to (paths stay monospace — genuinely technical strings). -->
 <div class="grid items-stretch gap-3 sm:grid-cols-[1fr_auto_1fr]">
   <div class="border-border bg-surface-sunken/40 rounded-lg border p-4">
-    <div class="text-muted-foreground font-mono text-[10px] tracking-[0.08em]">FROM</div>
+    <div class="text-muted-foreground text-[11px] font-medium">From</div>
     <div class="text-muted-foreground mt-2 font-mono text-[11px] break-all">{fromFolder}/</div>
     <div class="mt-0.5 font-mono text-[13px] font-semibold break-all">{fileName}</div>
-    <div class="text-muted-foreground mt-2 font-mono text-[11px]">{fromMeta}</div>
+    <div class="text-muted-foreground mt-2 text-[11px]">{fromMeta}</div>
   </div>
   <div class="text-muted-foreground hidden items-center justify-center sm:flex">
     <ArrowRight class="size-5" />
   </div>
   <div class="border-primary bg-primary/10 rounded-lg border p-4">
-    <div class="text-primary font-mono text-[10px] tracking-[0.08em]">WILL WRITE TO</div>
+    <div class="text-primary text-[11px] font-medium">Will write to</div>
     <div class="text-muted-foreground mt-2 font-mono text-[11px] break-all">{destDir}</div>
     <div class="text-primary mt-0.5 font-mono text-[13px] font-semibold break-all">{destFile}</div>
-    <div class="text-muted-foreground mt-2 font-mono text-[11px]">{destFormat}</div>
+    <div class="text-muted-foreground mt-2 text-[11px]">{destFormat}</div>
   </div>
 </div>
 
@@ -52,14 +52,14 @@
   <Table.Root class="min-w-[34rem]">
     <Table.Header>
       <Table.Row
-        class="bg-surface-sunken/60 text-muted-foreground hover:bg-surface-sunken/60 font-mono text-[10px] tracking-[0.06em]"
+        class="bg-surface-sunken/60 text-muted-foreground hover:bg-surface-sunken/60 text-[11px]"
       >
-        <Table.Head class="text-muted-foreground h-auto w-20 px-4 py-2.5 font-normal">FIELD</Table.Head>
-        <Table.Head class="text-muted-foreground h-auto px-4 py-2.5 font-normal">EMBEDDED</Table.Head>
+        <Table.Head class="text-muted-foreground h-auto w-20 px-4 py-2.5 font-normal">Field</Table.Head>
+        <Table.Head class="text-muted-foreground h-auto px-4 py-2.5 font-normal">Embedded</Table.Head>
         <Table.Head class="text-muted-foreground h-auto px-4 py-2.5 font-normal"
-          >FINAL{#if !readonly} · EDIT IF NEEDED{/if}</Table.Head
+          >{readonly ? 'Final' : 'Final · edit if needed'}</Table.Head
         >
-        <Table.Head class="text-muted-foreground h-auto w-px px-4 py-2.5 text-right font-normal">SOURCE</Table.Head>
+        <Table.Head class="text-muted-foreground h-auto w-px px-4 py-2.5 text-right font-normal">Source</Table.Head>
       </Table.Row>
     </Table.Header>
     <Table.Body>
@@ -101,14 +101,9 @@
           <Table.Cell class="px-4 py-2.5 text-right">
             <div class="flex justify-end">
               {#if row.sourceLabel}
-                <span class="border-border inline-flex items-center gap-1.5 rounded-md border px-1.5 py-0.5 whitespace-nowrap">
+                <span class="text-muted-foreground inline-flex items-center gap-1.5 text-[11px] whitespace-nowrap">
                   <span class="size-1.5 rounded-full" style="background: {row.sourceColor}"></span>
-                  <span class="text-[10.5px]">{row.sourceLabel}</span>
-                  {#if row.sourcePct != null}
-                    <span class="text-muted-foreground border-border ml-0.5 border-l pl-1.5 font-mono text-[10.5px]"
-                      >{row.sourcePct}</span
-                    >
-                  {/if}
+                  {row.sourceLabel}{#if row.sourcePct != null}&nbsp;<span class="tabular-nums">{row.sourcePct}%</span>{/if}
                 </span>
               {:else}
                 <span class="text-muted-foreground/40">·</span>

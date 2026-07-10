@@ -3,7 +3,7 @@
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { Button } from '$lib/components/ui/button';
   import { Skeleton } from '$lib/components/ui/skeleton';
-  import { fetchHistory, type HistorySummary } from '$lib/api-client';
+  import { fetchHistory, type HistoryRawChange, type HistorySummary } from '$lib/api-client';
 
   type RangeKey = '1' | '7' | '30' | 'custom';
 
@@ -107,6 +107,24 @@
     { key: '30', label: '30 days' },
     { key: 'custom', label: 'Custom' }
   ];
+
+  // Turns a raw backend field key ("albumartist", "cover") into a readable word ("Album artist", "Cover").
+  function humanizeField(field: string): string {
+    const spaced = field.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ');
+    const lower = spaced.toLowerCase();
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  }
+
+  function describeChange(c: HistoryRawChange): string {
+    const field = humanizeField(c.field);
+    if (c.oldValue == null && c.newValue != null) {
+      return `${field} set to "${c.newValue}"`;
+    }
+    if (c.oldValue != null && c.newValue == null) {
+      return `${field} removed (was "${c.oldValue}")`;
+    }
+    return `${field} changed from "${c.oldValue ?? '—'}" to "${c.newValue ?? '—'}"`;
+  }
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col">
@@ -118,14 +136,14 @@
       </p>
     </div>
     <div class="flex flex-wrap items-center gap-2">
-      <div class="flex items-center gap-1 rounded-md border border-border p-0.5">
+      <div class="flex flex-wrap items-center gap-1.5">
         {#each RANGES as r (r.key)}
           <button
             type="button"
             onclick={() => (range = r.key)}
-            class="rounded px-2.5 py-1 text-xs font-medium transition-colors {range === r.key
+            class="rounded-full px-3 py-1 text-xs transition-colors {range === r.key
               ? 'bg-primary text-primary-foreground'
-              : 'text-muted-foreground hover:text-foreground'}"
+              : 'bg-secondary text-muted-foreground hover:bg-secondary/70'}"
           >
             {r.label}
           </button>
@@ -150,7 +168,7 @@
   <ScrollArea class="min-h-0 flex-1">
     <div class="px-6 py-6">
       {#if error}
-        <div class="rounded-md border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div class="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}
         </div>
       {:else if range === 'custom' && dateWindow === null}
@@ -199,24 +217,22 @@
                     {#if s.albumArtist}{s.albumArtist}{#if s.album} — {/if}{/if}{s.album ?? ''}
                   </div>
                 </div>
-                <span class="shrink-0 font-mono text-[10px] text-muted-foreground">{relTime(s.latestWrittenAtUtc)}</span>
-                <ChevronRight class="size-4 shrink-0 text-muted-foreground transition-transform {isOpen ? 'rotate-90' : ''}" />
+                <span class="shrink-0 text-xs text-muted-foreground">{relTime(s.latestWrittenAtUtc)}</span>
+                <ChevronRight class="size-4 shrink-0 text-foreground/70 transition-transform {isOpen ? 'rotate-90' : ''}" />
               </button>
 
               {#if isOpen}
                 <div class="border-t border-border px-4 py-3">
-                  <ul class="space-y-1 font-mono text-xs">
+                  <ul class="space-y-1.5 text-sm">
                     {#each s.changes as c, ci (ci)}
-                      <li class="flex flex-wrap items-baseline gap-x-2">
+                      <li class="flex flex-wrap items-baseline gap-x-1.5 text-foreground/90">
                         {#if c.songId != null}
-                          <a href={`/track/${c.songId}`} class="text-foreground hover:underline">
+                          <a href={`/track/${c.songId}`} class="font-medium text-foreground hover:underline">
                             {c.trackTitle ?? `#${c.songId}`}
                           </a>
+                          <span class="text-muted-foreground">—</span>
                         {/if}
-                        <span class="text-muted-foreground">{c.field}:</span>
-                        <span class="text-red-400">{c.oldValue ?? '∅'}</span>
-                        <span class="text-muted-foreground">→</span>
-                        <span class="text-emerald-400">{c.newValue ?? '∅'}</span>
+                        <span>{describeChange(c)}</span>
                       </li>
                     {/each}
                   </ul>
