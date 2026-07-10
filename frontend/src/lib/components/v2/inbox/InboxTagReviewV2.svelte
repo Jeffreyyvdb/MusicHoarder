@@ -71,6 +71,11 @@
     tracks.filter((t) => t.matchConfidence != null && t.matchConfidence >= bulkThreshold).length
   );
 
+  // Accepted/rejected rows leave `tracks` entirely; skipped rows stay (dimmed,
+  // badged) but no longer count as remaining work.
+  const remainingCount = $derived(tracks.filter((t) => !decisions[t.id]).length);
+  const skippedCount = $derived(tracks.length - remainingCount);
+
   // Report the live count up to the parent Inbox tab strip. The callback is
   // invoked via untrack() so the effect depends only on `loading`/`tracks` — not
   // on the `oncount` prop's identity. The parent passes a fresh inline arrow on
@@ -78,7 +83,7 @@
   // parent re-renders, which (because the parent reassigns its counts object on
   // every call) is a self-sustaining loop → effect_update_depth_exceeded.
   $effect(() => {
-    const n = loading ? null : tracks.length;
+    const n = loading ? null : remainingCount;
     untrack(() => oncount?.(n));
   });
 
@@ -277,7 +282,9 @@
       error = null;
       await submitManualReview(track.id, { decision: 'reject' });
       decisions = { ...decisions, [track.id]: 'reject' };
-      advanceToNextUndecided(track.id);
+      const next = tracks.find((t) => t.id !== track.id && !decisions[t.id]);
+      tracks = tracks.filter((t) => t.id !== track.id);
+      selectedId = next?.id ?? tracks[0]?.id ?? null;
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to reject track';
     } finally {
@@ -322,10 +329,13 @@
   }
 
   function selectAt(delta: number) {
-    if (tracks.length === 0) return;
-    const idx = tracks.findIndex((t) => t.id === selectedId);
-    const next = Math.max(0, Math.min(tracks.length - 1, (idx < 0 ? 0 : idx) + delta));
-    selectedId = tracks[next].id;
+    // Traverse only undecided rows (plus the current one, which may itself be
+    // skipped) so arrow keys reflect actual remaining work.
+    const pool = tracks.filter((t) => t.id === selectedId || !decisions[t.id]);
+    if (pool.length === 0) return;
+    const idx = pool.findIndex((t) => t.id === selectedId);
+    const next = Math.max(0, Math.min(pool.length - 1, (idx < 0 ? 0 : idx) + delta));
+    selectedId = pool[next].id;
   }
 
   // Keyboard: A accept · S skip · R reject · ←/→ nav. Ignore while typing.
@@ -393,7 +403,10 @@
       class:hidden={selectedId != null}
     >
       <div class="border-border flex items-center justify-between gap-2 border-b px-4 py-2.5">
-        <span class="text-muted-foreground text-[11px]">{tracks.length} awaiting review</span>
+        <span class="text-muted-foreground text-[11px]">
+          {remainingCount} awaiting review{#if skippedCount > 0}
+            · {skippedCount} skipped{/if}
+        </span>
         <div class="flex items-center gap-1.5">
           <Button
             variant="outline"
@@ -477,12 +490,14 @@
             {@const r = reasonFor(track)}
             {@const info = rowOriginal(track)}
             {@const pct = confidencePercent(track)}
+            {@const decided = decisions[track.id] != null}
             <button
               type="button"
               onclick={() => (selectedId = track.id)}
               class={cn(
-                'mb-0.5 flex w-full items-center gap-2.5 rounded-md border-l-2 border-transparent py-2 pr-2.5 pl-2 text-left transition-colors',
-                selectedId === track.id ? 'border-l-primary bg-card' : 'hover:bg-accent'
+                'mb-0.5 flex w-full items-center gap-2.5 rounded-md border-l-2 border-transparent py-2 pr-2.5 pl-2 text-left transition-colors active:translate-y-px',
+                selectedId === track.id ? 'border-l-primary bg-card' : 'hover:bg-accent',
+                decided && 'opacity-60'
               )}
             >
               <Cover artist={track.artist ?? 'Unknown'} title={info.title} size={40} corner={6} caption={false} />
@@ -491,7 +506,11 @@
                 <div class="text-muted-foreground truncate text-[11.5px]">{info.subtitle || '—'}</div>
               </div>
               {#if pct}<span class="text-muted-foreground shrink-0 font-mono text-[10px]">{pct}</span>{/if}
-              <span class={cn('shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-wide uppercase', PILL_TINT[r.tint])}>{r.label}</span>
+              {#if decided}
+                <span class="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-wide uppercase">Skipped</span>
+              {:else}
+                <span class={cn('shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-wide uppercase', PILL_TINT[r.tint])}>{r.label}</span>
+              {/if}
             </button>
           {/each}
         {/each}

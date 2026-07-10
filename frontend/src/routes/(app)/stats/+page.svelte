@@ -15,6 +15,7 @@
   } from '@lucide/svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { Button } from '$lib/components/ui/button';
+  import { Skeleton } from '$lib/components/ui/skeleton';
   import { fetchInsights, type LibraryInsights } from '$lib/api-client';
 
   let data = $state<LibraryInsights | null>(null);
@@ -173,7 +174,30 @@
           {error}
         </div>
       {:else if loading && !data}
-        <p class="text-muted-foreground text-sm">Loading…</p>
+        <section class="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-5">
+          {#each Array(5) as _, i (i)}
+            <div class="bg-card flex flex-col gap-2.5 rounded-xl border p-5">
+              <div class="flex items-center gap-2.5">
+                <Skeleton class="size-8 rounded-lg" />
+                <Skeleton class="h-3.5 w-20" />
+              </div>
+              <Skeleton class="h-[34px] w-16" />
+              <Skeleton class="h-3 w-28" />
+            </div>
+          {/each}
+        </section>
+        <section class="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {#each Array(2) as _, i (i)}
+            <div class="bg-card rounded-xl border p-5">
+              <Skeleton class="mb-4 h-4 w-32" />
+              <div class="space-y-3">
+                {#each Array(3) as _, j (j)}
+                  <Skeleton class="h-2.5 w-full rounded-full" />
+                {/each}
+              </div>
+            </div>
+          {/each}
+        </section>
       {:else if empty}
         <div class="border-border rounded-lg border border-dashed px-6 py-12 text-center">
           <p class="text-sm font-medium">Nothing indexed yet</p>

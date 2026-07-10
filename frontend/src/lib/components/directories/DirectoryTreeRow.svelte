@@ -202,8 +202,9 @@
       </span>
     </button>
 
-    <!-- Row actions: mark expected-low + enrich (revealed on hover; persistent when active).
-         Fixed width matches the header's actions column so the Match% column aligns across rows. -->
+    <!-- Row actions: mark expected-low + enrich (hover-revealed on desktop, always visible on
+         touch; persistent when active). Fixed width matches the header's actions column so the
+         Match% column aligns across rows. -->
     <div class="flex w-[88px] shrink-0 items-center justify-end gap-0.5">
       {#if onToggleExpected}
         <button
@@ -218,7 +219,7 @@
             'hover:bg-card hover:text-foreground hover:border-border border border-transparent',
             node.expectedLow
               ? 'text-primary opacity-100'
-              : 'text-muted-foreground opacity-0 group-hover:opacity-100'
+              : 'text-muted-foreground opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
           )}
         >
           {#if node.expectedLow}
@@ -234,7 +235,7 @@
           variant="ghost"
           size="sm"
           class={cn(
-            'h-6 shrink-0 px-2 text-[11px] opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100',
+            'h-6 shrink-0 px-2 text-[11px] opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100',
             (isEnriching || enrichState === 'error') && 'opacity-100',
             isEnriching && 'text-primary',
             enrichState === 'error' && 'text-destructive'

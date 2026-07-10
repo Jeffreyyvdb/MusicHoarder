@@ -26,7 +26,7 @@
 
 <Sidebar.Provider>
   <AppSidebarV2 />
-  <Sidebar.Inset class={cn('bg-background h-svh min-w-0', drawerOpen && 'pb-[340px]')}>
+  <Sidebar.Inset class={cn('bg-background h-svh min-w-0', drawerOpen && 'md:pb-[340px]')}>
     <AppTopBarV2 />
     <LibraryOfflineBanner />
     <QualityGradingErrorBanner />
@@ -41,12 +41,10 @@
       data-mh-content
       class={cn(
         'flex min-h-0 flex-1 flex-col overflow-hidden',
-        !drawerOpen && [
-          playerPad
-            ? '[--mh-content-pad:calc(140px_+_max(env(safe-area-inset-bottom),var(--mh-vv-bottom,0px)))] md:[--mh-content-pad:88px]'
-            : '[--mh-content-pad:calc(80px_+_max(env(safe-area-inset-bottom),var(--mh-vv-bottom,0px)))] md:[--mh-content-pad:0px]'
-        ],
-        drawerOpen && '[--mh-content-pad:0px]'
+        playerPad
+          ? '[--mh-content-pad:calc(140px_+_max(env(safe-area-inset-bottom),var(--mh-vv-bottom,0px)))]'
+          : '[--mh-content-pad:calc(80px_+_max(env(safe-area-inset-bottom),var(--mh-vv-bottom,0px)))]',
+        playerPad && !drawerOpen ? 'md:[--mh-content-pad:88px]' : 'md:[--mh-content-pad:0px]'
       )}
     >
       <SectionSubNav />

@@ -2,6 +2,7 @@
   import { ChevronRight, Search, Sparkles, AlertTriangle } from '@lucide/svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import { cn } from '$lib/utils';
+  import { scoreColor } from '$lib/quality-ui';
   import {
     buildTimeline,
     contributedProviders,
@@ -103,7 +104,7 @@
           <span class="text-muted-foreground inline-flex items-center gap-1">
             <Sparkles class="size-3" />
             AI grade
-            <b class="font-mono" style="color: oklch(0.74 0.15 150)">{demoProvenanceGrade.score}/100</b>
+            <b class={cn('font-mono', scoreColor(demoProvenanceGrade.score ?? 0))}>{demoProvenanceGrade.score}/100</b>
           </span>
         </div>
       </div>

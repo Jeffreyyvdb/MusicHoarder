@@ -13,6 +13,7 @@ import { fetchSongs, openProgressStream, type ApiSong, type ProgressSnapshot } f
 
 let songs = $state<ApiSong[]>([]);
 let isLoading = $state(false);
+let error = $state<string | null>(null);
 let hasLoaded = false;
 
 async function loadSongs(opts?: { silent?: boolean }): Promise<void> {
@@ -21,6 +22,9 @@ async function loadSongs(opts?: { silent?: boolean }): Promise<void> {
     const loaded = await fetchSongs();
     songs = loaded;
     hasLoaded = true;
+    error = null;
+  } catch (err) {
+    error = err instanceof Error ? err.message : 'Failed to load library';
   } finally {
     if (!opts?.silent) isLoading = false;
   }
@@ -100,6 +104,7 @@ function stopLive(): void {
 function reset(): void {
   songs = [];
   isLoading = false;
+  error = null;
   hasLoaded = false;
   liveRefCount = 0;
   lastBuilt = -1;
@@ -120,6 +125,9 @@ export const songsStore = {
   },
   get isLoading() {
     return isLoading;
+  },
+  get error() {
+    return error;
   },
   loadSongs,
   ensureLoaded,

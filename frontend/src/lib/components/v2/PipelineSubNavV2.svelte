@@ -45,7 +45,7 @@
       )}
     >
       {#if tab.live && running}
-        <span class="bg-primary mh-v2-subdot size-1.5 shrink-0 rounded-full"></span>
+        <span class="bg-primary mh-v2-pulse size-1.5 shrink-0 rounded-full"></span>
       {/if}
       {#if Icon}
         <Icon class="size-3.5" />
@@ -66,21 +66,3 @@
     <span class="text-muted-foreground/80 hidden font-mono text-[11px] whitespace-nowrap sm:block">{meta}</span>
   {/if}
 </nav>
-
-<style>
-  :global(.mh-v2-subdot) {
-    box-shadow: 0 0 0 0 oklch(0.5 0.17 145 / 0.5);
-    animation: mh-v2-subdot 2s infinite;
-  }
-  @keyframes mh-v2-subdot {
-    0% {
-      box-shadow: 0 0 0 0 oklch(0.5 0.17 145 / 0.5);
-    }
-    70% {
-      box-shadow: 0 0 0 5px oklch(0.5 0.17 145 / 0);
-    }
-    100% {
-      box-shadow: 0 0 0 0 oklch(0.5 0.17 145 / 0);
-    }
-  }
-</style>

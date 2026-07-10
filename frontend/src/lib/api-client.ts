@@ -165,7 +165,11 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
       if (body.error === "demo_read_only") {
         throw new Error("This action is disabled — the demo account is read-only.")
       }
-      detail = (body.message as string) ?? JSON.stringify(body)
+      // Other error codes (e.g. "owner_required") read as raw JSON in error banners —
+      // fall back to the code itself as readable text.
+      detail =
+        (body.message as string) ??
+        (typeof body.error === "string" ? body.error.replaceAll("_", " ") : JSON.stringify(body))
     } catch (err) {
       if (err instanceof Error && err.message.includes("read-only")) throw err
       // ignore parse errors

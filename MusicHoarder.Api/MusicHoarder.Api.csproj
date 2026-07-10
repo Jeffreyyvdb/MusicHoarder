@@ -44,13 +44,14 @@
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
-        <PackageReference Include="Scalar.AspNetCore" Version="2.16.6" />
-        <PackageReference Include="SkiaSharp" Version="3.119.4" />
+        <PackageReference Include="Microsoft.OpenApi" Version="2.9.0" />
+        <PackageReference Include="Scalar.AspNetCore" Version="2.16.10" />
+        <PackageReference Include="SkiaSharp" Version="4.148.0" />
         <!-- Headless image decode/resize/encode only (no text rendering), so the NoDependencies
              native asset avoids needing libfontconfig in the Linux container. The base SkiaSharp
-             package already carries the macOS/Windows natives for local dev. -->
-        <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.4" />
+             package already carries the macOS/Windows natives for local dev. Managed SkiaSharp and
+             the native asset must move together — a mismatch fails the native-lib version check. -->
+        <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.148.0" />
         <PackageReference Include="System.IO.Abstractions" Version="22.1.1" />
         <PackageReference Include="System.IO.Abstractions.TestingHelpers" Version="22.1.1" />
         <PackageReference Include="TagLibSharp" Version="2.3.0" />

@@ -42,7 +42,7 @@
 </script>
 
 <aside
-  class="bg-card border-border shadow-pipeline fixed right-0 bottom-0 left-0 z-40 flex h-[340px] flex-col border-t"
+  class="bg-card border-border shadow-pipeline fixed right-0 bottom-0 left-0 z-40 hidden h-[340px] flex-col border-t md:flex"
   transition:fly={{ y: 40, duration: 250, easing: cubicOut, opacity: 0 }}
 >
   <header class="border-border flex items-center justify-between gap-4 border-b px-5 py-3">

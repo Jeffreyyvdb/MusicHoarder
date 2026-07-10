@@ -12,7 +12,7 @@
 <header
   class="border-border bg-background flex h-12 shrink-0 items-center gap-2.5 border-b px-3.5"
 >
-  <Sidebar.Trigger class="-ml-1 size-7" />
+  <Sidebar.Trigger class="-ml-1 size-9 md:size-7" />
   <div class="ml-auto flex items-center gap-1.5">
     <ThemeToggle />
   </div>

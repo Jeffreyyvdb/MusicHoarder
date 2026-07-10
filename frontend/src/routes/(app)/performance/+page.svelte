@@ -2,6 +2,7 @@
   import { TrendingUp, TrendingDown, Camera, Minus, GitCompareArrows } from '@lucide/svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { Button } from '$lib/components/ui/button';
+  import { Skeleton } from '$lib/components/ui/skeleton';
   import Sparkline from '$lib/components/performance/Sparkline.svelte';
   import {
     fetchSnapshots,
@@ -107,11 +108,11 @@
   }
 
   const charts = $derived([
-    { title: 'Match rate', series: matchRateSeries, color: '#10b981', format: pct, yMin: 0, yMax: 100 },
-    { title: 'Avg AI score', series: avgAiSeries, color: '#6366f1', format: score, yMin: 0, yMax: 100 },
-    { title: 'Needs review', series: needsReviewSeries, color: '#f59e0b', format: count, yMin: 0 },
-    { title: 'Failed', series: failedSeries, color: '#ef4444', format: count, yMin: 0 },
-    { title: 'Avg match confidence', series: confidenceSeries, color: '#0ea5e9', format: pct, yMin: 0, yMax: 100 }
+    { title: 'Match rate', series: matchRateSeries, color: 'var(--color-primary)', format: pct, yMin: 0, yMax: 100 },
+    { title: 'Avg AI score', series: avgAiSeries, color: 'var(--chart-3)', format: score, yMin: 0, yMax: 100 },
+    { title: 'Needs review', series: needsReviewSeries, color: 'var(--chart-4)', format: count, yMin: 0 },
+    { title: 'Failed', series: failedSeries, color: 'var(--color-destructive)', format: count, yMin: 0 },
+    { title: 'Avg match confidence', series: confidenceSeries, color: 'var(--chart-2)', format: pct, yMin: 0, yMax: 100 }
   ]);
 
   function statusClass(status: string): string {
@@ -146,14 +147,25 @@
   <ScrollArea class="min-h-0 flex-1">
     <div class="space-y-8 px-6 py-6">
       {#if error}
-        <div class="rounded-md border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div class="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}
         </div>
       {/if}
 
       {#if loading}
-        <p class="text-sm text-muted-foreground">Loading…</p>
-      {:else if snapshots.length === 0}
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {#each Array(5) as _, i (i)}
+            <div class="rounded-lg border border-border bg-card p-4">
+              <div class="flex items-baseline justify-between">
+                <Skeleton class="h-4 w-24" />
+                <Skeleton class="h-5 w-10" />
+              </div>
+              <Skeleton class="mt-3 h-3 w-20" />
+              <Skeleton class="mt-3 h-14 w-full" />
+            </div>
+          {/each}
+        </div>
+      {:else if snapshots.length === 0 && !error}
         <div class="rounded-lg border border-dashed border-border px-6 py-12 text-center">
           <p class="text-sm font-medium">No snapshots yet</p>
           <p class="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
@@ -165,7 +177,7 @@
             Capture baseline
           </Button>
         </div>
-      {:else}
+      {:else if snapshots.length > 0}
         <!-- Timeline charts -->
         <section>
           <h2 class="mb-3 text-sm font-semibold text-muted-foreground">
@@ -313,7 +325,7 @@
               <li class="rounded-lg border border-border bg-card">
                 <button
                   type="button"
-                  class="flex w-full items-center gap-3 px-4 py-3 text-left"
+                  class="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors hover:bg-muted/50 active:bg-muted"
                   onclick={() => openDetail(s.id)}
                 >
                   <div class="min-w-0 flex-1">
