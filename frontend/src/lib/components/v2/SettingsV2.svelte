@@ -50,13 +50,14 @@
   } from '@lucide/svelte';
 
   // ── tabs ─────────────────────────────────────────────────────────────────────
-  type TabId = 'sources' | 'providers' | 'rules' | 'output' | 'account';
+  type TabId = 'sources' | 'providers' | 'rules' | 'output' | 'account' | 'updates';
   const TABS: { id: TabId; label: string }[] = [
     { id: 'sources', label: 'Sources' },
     { id: 'providers', label: 'Providers' },
     { id: 'rules', label: 'Filename rules' },
     { id: 'output', label: 'Library output' },
-    { id: 'account', label: 'Account' }
+    { id: 'account', label: 'Account' },
+    { id: 'updates', label: 'Updates' }
   ];
 
   // Deep-linkable via ?tab=, defaults to Sources. The v2 sidebar links every
@@ -165,6 +166,17 @@
   let purgeSnapshot = $state<PurgeSnapshot | null>(null);
   let purgeStartError = $state<string | null>(null);
   const purgeRunning = $derived(purgeSnapshot?.status === 'running');
+
+  // "Purge all data" is the most destructive action in the app — it requires an explicit typed
+  // acknowledgment (not just a click-through Cancel/Confirm) before the dialog's action enables.
+  let purgeAllDialogOpen = $state(false);
+  let purgeAllConfirmText = $state('');
+  const PURGE_ALL_CONFIRM_WORD = 'DELETE';
+  const purgeAllConfirmed = $derived(purgeAllConfirmText.trim().toUpperCase() === PURGE_ALL_CONFIRM_WORD);
+  function onPurgeAllDialogOpenChange(open: boolean) {
+    purgeAllDialogOpen = open;
+    if (!open) purgeAllConfirmText = '';
+  }
 
   const redirectUri = $derived(
     settings?.spotify.oAuthRedirectBaseUrl
@@ -344,15 +356,31 @@
     }
   }
 
-  // ── provider catalog (real provider keys + cosmetic dots) ───────────────────────
+  // ── updates ──────────────────────────────────────────────────────────────────
+  const UPDATE_CMD = 'docker compose pull && docker compose up -d';
+  let updateCmdCopied = $state(false);
+
+  async function copyUpdateCommand() {
+    try {
+      await navigator.clipboard.writeText(UPDATE_CMD);
+      updateCmdCopied = true;
+      setTimeout(() => (updateCmdCopied = false), 2000);
+    } catch {
+      // Clipboard may be unavailable in some embeddings; silently ignore.
+    }
+  }
+
+  // ── provider catalog (real provider keys) ───────────────────────────────────────
+  // `dot` is only set for a genuine third-party brand mark (Spotify); every other provider gets a
+  // single neutral gray identity dot — see design-audit finding on hardcoded per-provider hexes.
   type ProviderKey = keyof SettingsProvidersView;
-  const PROVIDER_CATALOG: { key: ProviderKey; name: string; desc: string; auth: string; dot: string }[] = [
+  const PROVIDER_CATALOG: { key: ProviderKey; name: string; desc: string; auth: string; dot: string | null }[] = [
     {
       key: 'acoustId',
       name: 'AcoustID',
       desc: 'Fingerprint → MusicBrainz recording match',
       auth: 'Free',
-      dot: 'oklch(0.68 0.18 30)'
+      dot: null
     },
     {
       key: 'spotifyApi',
@@ -366,28 +394,28 @@
       name: 'Deezer',
       desc: 'Free ISRC-first + artist/title catalog search (no auth)',
       auth: 'Free',
-      dot: '#a238ff'
+      dot: null
     },
     {
       key: 'appleMusic',
       name: 'Apple Music',
       desc: 'Free iTunes artist + title catalog search (no auth)',
       auth: 'Free',
-      dot: '#fa2d48'
+      dot: null
     },
     {
       key: 'musicBrainzWeb',
       name: 'MusicBrainz web',
       desc: 'Direct ISRC / artist+title lookups against MusicBrainz',
       auth: 'Free',
-      dot: 'oklch(0.62 0.16 280)'
+      dot: null
     },
     {
       key: 'tracker',
       name: 'Community trackers',
       desc: 'Juice WRLD unreleased / leak files (best-effort)',
       auth: 'Community',
-      dot: 'oklch(0.58 0.12 60)'
+      dot: null
     }
   ];
 
@@ -399,13 +427,8 @@
 <!-- Page header (mirrors PipelineHomeV2's header rhythm) -->
 <header class="border-border flex shrink-0 items-end justify-between gap-4 border-b px-4 py-4 sm:px-7 sm:py-5">
   <div class="min-w-0">
-    <div
-      class="text-muted-foreground flex items-center gap-1.5 font-mono text-[10px] tracking-[0.12em] uppercase"
-    >
-      Configuration
-    </div>
-    <h1 class="mt-1 text-2xl font-semibold tracking-tight">Settings</h1>
-    <p class="text-muted-foreground mt-1 max-w-2xl text-xs">
+    <h1 class="text-2xl font-semibold tracking-tight">Settings</h1>
+    <p class="text-muted-foreground mt-1 max-w-2xl text-sm">
       Where the pipeline reads from, which providers it queries, and where the clean library lives.
     </p>
   </div>
@@ -420,7 +443,7 @@
       onclick={() => selectTab(tab.id)}
       data-active={isActive || undefined}
       class={cn(
-        'relative flex shrink-0 items-center gap-1.5 px-2.5 py-2.5 text-[12.5px] transition-colors',
+        'relative flex shrink-0 items-center gap-1.5 px-2.5 py-2.5 text-sm transition-colors',
         'after:absolute after:inset-x-2.5 after:bottom-0 after:h-[2px] after:rounded-full after:bg-transparent',
         isActive
           ? 'text-foreground font-medium after:bg-primary'
@@ -442,8 +465,8 @@
       <!-- =================== SOURCES =================== -->
       <section class="border-border bg-card rounded-lg border">
         <header class="border-border border-b px-5 py-3.5">
-          <h2 class="text-[13px] font-semibold">Source directories</h2>
-          <p class="text-muted-foreground text-[11.5px]">
+          <h2 class="text-sm font-semibold">Source directories</h2>
+          <p class="text-muted-foreground text-xs">
             Where MusicHoarder reads raw files. Configured via Aspire AppHost parameters
             (<code class="bg-secondary rounded px-1 py-0.5">source-directory</code> /
             <code class="bg-secondary rounded px-1 py-0.5">destination-directory</code>) — edit
@@ -452,16 +475,16 @@
         </header>
         <div class="divide-border divide-y">
           <div class="flex flex-col gap-2 px-5 py-4">
-            <div class="text-[12.5px] font-medium">Primary source</div>
+            <div class="text-sm font-medium">Primary source</div>
             <Input readonly value={settings?.paths.sourceDirectory ?? ''} class="font-mono text-sm" />
-            <p class="text-muted-foreground text-[11.5px]">
+            <p class="text-muted-foreground text-xs">
               Files under this folder are scanned, fingerprinted, and enriched.
             </p>
           </div>
           <div class="flex flex-col gap-2 px-5 py-4">
-            <div class="text-[12.5px] font-medium">fpcalc binary</div>
+            <div class="text-sm font-medium">fpcalc binary</div>
             <Input readonly value={settings?.paths.fpcalcPath ?? ''} class="font-mono text-sm" />
-            <p class="text-muted-foreground text-[11.5px]">
+            <p class="text-muted-foreground text-xs">
               Chromaprint CLI used for fingerprinting. Must be on
               <code class="bg-secondary rounded px-1 py-0.5">$PATH</code> or an absolute path.
             </p>
@@ -476,13 +499,13 @@
             <span class="size-2.5 rounded-full bg-[#1DB954]"></span>
           </div>
           <div class="min-w-0 flex-1">
-            <h2 class="text-[13px] font-semibold">Spotify (sync source)</h2>
-            <p class="text-muted-foreground text-[11.5px]">
+            <h2 class="text-sm font-semibold">Spotify (sync source)</h2>
+            <p class="text-muted-foreground text-xs">
               Pulls liked songs, playlists, and release metadata. Audio is never streamed.
             </p>
           </div>
           {#if spotifyStatus?.connected}
-            <Badge class="border-0 bg-[#1DB954]/20 text-[#1DB954]">Connected</Badge>
+            <Badge class="border-0 bg-primary/20 text-primary">Connected</Badge>
           {:else if savedCredentials?.hasClientSecret}
             <Badge variant="secondary">Credentials set</Badge>
           {:else}
@@ -495,8 +518,8 @@
             <div class="flex items-start gap-2">
               <KeyRound class="text-muted-foreground mt-0.5 size-4 shrink-0" />
               <div>
-                <p class="mb-1 text-[12.5px] font-medium">How to get your Spotify API credentials</p>
-                <ol class="text-muted-foreground list-inside list-decimal space-y-1 text-[11.5px]">
+                <p class="mb-1 text-sm font-medium">How to get your Spotify API credentials</p>
+                <ol class="text-muted-foreground list-inside list-decimal space-y-1 text-xs">
                   <li>
                     Go to the
                     <a
@@ -577,7 +600,7 @@
                 <Copy class="mr-2 size-4" /> Copy
               </Button>
             </div>
-            <p class="text-muted-foreground text-[11.5px]">
+            <p class="text-muted-foreground text-xs">
               Add this exact URI to your Spotify app's Redirect URIs list.
             </p>
           </div>
@@ -596,7 +619,7 @@
           {#if saveResult}
             <div
               class="flex items-center gap-2 rounded-lg border px-4 py-3 text-sm {saveResult.success
-                ? 'border-[#1DB954]/50 bg-[#1DB954]/10 text-[#1DB954]'
+                ? 'border-primary/50 bg-primary/10 text-primary'
                 : 'border-destructive/50 bg-destructive/10 text-destructive'}"
             >
               {#if saveResult.success}
@@ -651,8 +674,8 @@
       <!-- =================== PROVIDERS =================== -->
       <section class="border-border bg-card rounded-lg border">
         <header class="border-border border-b px-5 py-3.5">
-          <h2 class="text-[13px] font-semibold">Active providers — queried in parallel during match</h2>
-          <p class="text-muted-foreground text-[11.5px]">
+          <h2 class="text-sm font-semibold">Active providers — queried in parallel during match</h2>
+          <p class="text-muted-foreground text-xs">
             Toggle providers off to skip them entirely. New toggles take effect on the next
             enrichment cycle; previously-attempted songs keep their per-provider history.
           </p>
@@ -661,12 +684,12 @@
           {#each PROVIDER_CATALOG as p (p.key)}
             <div class="flex items-center gap-4 px-5 py-3.5">
               <span
-                class="inline-block size-3 shrink-0 rounded-full ring-1 ring-white/60"
-                style="background: {p.dot}"
+                class="inline-block size-2.5 shrink-0 rounded-full {p.dot ? '' : 'bg-muted-foreground/50'}"
+                style={p.dot ? `background: ${p.dot}` : undefined}
               ></span>
               <div class="min-w-0 flex-1">
-                <div class="text-[12.5px] font-medium">{p.name}</div>
-                <div class="text-muted-foreground text-[11.5px]">{p.desc}</div>
+                <div class="text-sm font-medium">{p.name}</div>
+                <div class="text-muted-foreground text-xs">{p.desc}</div>
               </div>
               <Badge variant="outline" class="text-muted-foreground hidden shrink-0 sm:inline-flex">
                 {p.auth}
@@ -683,7 +706,7 @@
         {#if providersResult}
           <div
             class="mx-5 mb-4 flex items-center gap-2 rounded-lg border px-4 py-2 text-sm {providersResult.success
-              ? 'border-[#1DB954]/50 bg-[#1DB954]/10 text-[#1DB954]'
+              ? 'border-primary/50 bg-primary/10 text-primary'
               : 'border-destructive/50 bg-destructive/10 text-destructive'}"
           >
             {#if providersResult.success}
@@ -710,10 +733,10 @@
       <!-- AI quality grading (real toggle) -->
       <section class="border-border bg-card rounded-lg border">
         <header class="border-border border-b px-5 py-3.5">
-          <h2 class="flex items-center gap-2 text-[13px] font-semibold">
+          <h2 class="flex items-center gap-2 text-sm font-semibold">
             <Sparkles class="size-4" /> AI quality grading
           </h2>
-          <p class="text-muted-foreground text-[11.5px]">
+          <p class="text-muted-foreground text-xs">
             An LLM grades each enrichment result so you can benchmark and debug the algorithm. Turn
             it off to stop the background grading sweep.
           </p>
@@ -721,8 +744,8 @@
 
         <div class="flex items-center gap-4 px-5 py-3.5">
           <div class="min-w-0 flex-1">
-            <div class="text-[12.5px] font-medium">Enable AI quality grading</div>
-            <div class="text-muted-foreground text-[11.5px]">
+            <div class="text-sm font-medium">Enable AI quality grading</div>
+            <div class="text-muted-foreground text-xs">
               {#if qualityGrading && !qualityGrading.configured}
                 No API key set on the server — also set
                 <code class="bg-secondary rounded px-1 py-0.5">QUALITY_GRADING_API_KEY</code>
@@ -744,7 +767,7 @@
         {#if qualityGradingResult}
           <div
             class="mx-5 mb-4 flex items-center gap-2 rounded-lg border px-4 py-2 text-sm {qualityGradingResult.success
-              ? 'border-[#1DB954]/50 bg-[#1DB954]/10 text-[#1DB954]'
+              ? 'border-primary/50 bg-primary/10 text-primary'
               : 'border-destructive/50 bg-destructive/10 text-destructive'}"
           >
             {#if qualityGradingResult.success}
@@ -771,14 +794,14 @@
       <!-- Consensus thresholds — not API-writable yet -->
       <section class="border-border bg-card rounded-lg border border-dashed">
         <header class="border-border flex items-center gap-2 border-b border-dashed px-5 py-3.5">
-          <h2 class="text-[13px] font-semibold">Consensus thresholds</h2>
+          <h2 class="text-sm font-semibold">Consensus thresholds</h2>
           <span
-            class="text-muted-foreground rounded bg-muted px-1.5 py-px font-mono text-[9px] tracking-wide uppercase"
-            >soon</span
+            class="text-muted-foreground rounded-full bg-muted px-2 py-0.5 text-xs"
+            >Soon</span
           >
         </header>
         <div class="px-5 py-4">
-          <p class="text-muted-foreground text-[12px] leading-relaxed">
+          <p class="text-muted-foreground text-xs leading-relaxed">
             Auto-accept threshold, single-source minimum, and the per-provider confidence weights
             are tuned server-side today (in <code class="bg-secondary rounded px-1 py-0.5">MusicEnricherOptions</code>).
             An in-app editor for these consensus rules — including hit-rate and latency stats per
@@ -790,17 +813,17 @@
       <!-- =================== FILENAME RULES (coming soon) =================== -->
       <section class="border-border bg-card rounded-lg border border-dashed">
         <header class="border-border flex items-center gap-2 border-b border-dashed px-5 py-3.5">
-          <h2 class="text-[13px] font-semibold">Custom filename rules</h2>
+          <h2 class="text-sm font-semibold">Custom filename rules</h2>
           <span
-            class="text-muted-foreground rounded bg-muted px-1.5 py-px font-mono text-[9px] tracking-wide uppercase"
-            >soon</span
+            class="text-muted-foreground rounded-full bg-muted px-2 py-0.5 text-xs"
+            >Soon</span
           >
         </header>
         <div class="flex flex-col items-start gap-3 px-5 py-8">
           <div class="bg-secondary text-muted-foreground flex size-10 items-center justify-center rounded-lg">
             <FolderInput class="size-5" />
           </div>
-          <p class="text-muted-foreground max-w-xl text-[12.5px] leading-relaxed">
+          <p class="text-muted-foreground max-w-xl text-sm leading-relaxed">
             Capture groups from a filename and map them to metadata fallbacks — useful for YouTube
             downloads, niche scenes, leaks, or any source public databases don't track. These
             user-defined rules aren't wired to the API yet, so there's nothing to configure here
@@ -812,8 +835,8 @@
       <!-- =================== LIBRARY OUTPUT =================== -->
       <section class="border-border bg-card rounded-lg border">
         <header class="border-border border-b px-5 py-3.5">
-          <h2 class="text-[13px] font-semibold">Library output</h2>
-          <p class="text-muted-foreground text-[11.5px]">
+          <h2 class="text-sm font-semibold">Library output</h2>
+          <p class="text-muted-foreground text-xs">
             Where the organised library is written after enrichment + tag-write. Destination is set
             via the <code class="bg-secondary rounded px-1 py-0.5">destination-directory</code>
             AppHost parameter.
@@ -821,13 +844,13 @@
         </header>
         <div class="divide-border divide-y">
           <div class="flex flex-col gap-2 px-5 py-4">
-            <div class="text-[12.5px] font-medium">Destination</div>
+            <div class="text-sm font-medium">Destination</div>
             <Input
               readonly
               value={settings?.paths.destinationDirectory ?? ''}
               class="font-mono text-sm"
             />
-            <p class="text-muted-foreground text-[11.5px]">Where enriched files land.</p>
+            <p class="text-muted-foreground text-xs">Where enriched files land.</p>
           </div>
         </div>
       </section>
@@ -835,37 +858,37 @@
       <!-- Folder / filename templates — not API-writable yet -->
       <section class="border-border bg-card rounded-lg border border-dashed">
         <header class="border-border flex items-center gap-2 border-b border-dashed px-5 py-3.5">
-          <h2 class="text-[13px] font-semibold">Folder &amp; filename templates</h2>
+          <h2 class="text-sm font-semibold">Folder &amp; filename templates</h2>
           <span
-            class="text-muted-foreground rounded bg-muted px-1.5 py-px font-mono text-[9px] tracking-wide uppercase"
-            >soon</span
+            class="text-muted-foreground rounded-full bg-muted px-2 py-0.5 text-xs"
+            >Soon</span
           >
         </header>
         <div class="divide-border divide-y">
           <div class="flex items-center gap-4 px-5 py-3.5">
             <div class="min-w-0 flex-1">
-              <div class="text-[12.5px] font-medium">Folder structure</div>
-              <div class="text-muted-foreground text-[11.5px]">
+              <div class="text-sm font-medium">Folder structure</div>
+              <div class="text-muted-foreground text-xs">
                 Path template the library builder uses today.
               </div>
             </div>
-            <code class="bg-secondary rounded px-2 py-1 font-mono text-[11.5px]"
+            <code class="bg-secondary rounded px-2 py-1 font-mono text-xs"
               >{'{albumartist}/{album}'}</code
             >
           </div>
           <div class="flex items-center gap-4 px-5 py-3.5">
             <div class="min-w-0 flex-1">
-              <div class="text-[12.5px] font-medium">Filename</div>
-              <div class="text-muted-foreground text-[11.5px]">
+              <div class="text-sm font-medium">Filename</div>
+              <div class="text-muted-foreground text-xs">
                 How individual track files are named today.
               </div>
             </div>
-            <code class="bg-secondary rounded px-2 py-1 font-mono text-[11.5px]"
+            <code class="bg-secondary rounded px-2 py-1 font-mono text-xs"
               >{'{track:02} - {title}'}</code
             >
           </div>
           <div class="px-5 py-4">
-            <p class="text-muted-foreground text-[12px] leading-relaxed">
+            <p class="text-muted-foreground text-xs leading-relaxed">
               These templates are fixed in the library builder for now and aren't exposed by the
               settings API. Editable path/filename templates and re-encode options are coming soon.
             </p>
@@ -876,8 +899,8 @@
       <!-- =================== ACCOUNT =================== -->
       <section class="border-border bg-card rounded-lg border">
         <header class="border-border border-b px-5 py-3.5">
-          <h2 class="text-[13px] font-semibold">Account</h2>
-          <p class="text-muted-foreground text-[11.5px]">
+          <h2 class="text-sm font-semibold">Account</h2>
+          <p class="text-muted-foreground text-xs">
             Signed-in user. Sign in by magic link or passkey — no passwords. Roles control who can
             mutate pipeline state.
           </p>
@@ -926,10 +949,10 @@
       {#if user?.role === 'Owner'}
         <section class="border-border bg-card rounded-lg border">
           <header class="border-border border-b px-5 py-3.5">
-            <h2 class="flex items-center gap-2 text-[13px] font-semibold">
+            <h2 class="flex items-center gap-2 text-sm font-semibold">
               <KeyRound class="size-4" /> Passkeys
             </h2>
-            <p class="text-muted-foreground text-[11.5px]">
+            <p class="text-muted-foreground text-xs">
               Sign in with Touch ID, Windows Hello, or a security key — no email needed. Enroll one
               on each device you use. Keep at least one magic-link-capable email so you can recover
               access.
@@ -1010,14 +1033,14 @@
         <!-- Anonymous telemetry — not API-writable yet -->
         <section class="border-border bg-card rounded-lg border border-dashed">
           <header class="border-border flex items-center gap-2 border-b border-dashed px-5 py-3.5">
-            <h2 class="text-[13px] font-semibold">Anonymous telemetry</h2>
+            <h2 class="text-sm font-semibold">Anonymous telemetry</h2>
             <span
-              class="text-muted-foreground rounded bg-muted px-1.5 py-px font-mono text-[9px] tracking-wide uppercase"
-              >soon</span
+              class="text-muted-foreground rounded-full bg-muted px-2 py-0.5 text-xs"
+              >Soon</span
             >
           </header>
           <div class="px-5 py-4">
-            <p class="text-muted-foreground text-[12px] leading-relaxed">
+            <p class="text-muted-foreground text-xs leading-relaxed">
               MusicHoarder is self-hosted and ships no telemetry today — track names, artists, and
               paths never leave your server. A per-user opt-in for anonymous pipeline-performance
               stats is coming soon.
@@ -1032,8 +1055,8 @@
               <AlertTriangle class="text-destructive size-4" />
             </div>
             <div class="min-w-0 flex-1">
-              <h2 class="text-[13px] font-semibold">Danger zone</h2>
-              <p class="text-muted-foreground text-[11.5px]">
+              <h2 class="text-sm font-semibold">Danger zone</h2>
+              <p class="text-muted-foreground text-xs">
                 Irreversible actions that purge pipeline state. Make sure no job is running.
               </p>
             </div>
@@ -1097,7 +1120,7 @@
                   touched. The next run re-scans and re-fingerprints from source.
                 </p>
               </div>
-              <AlertDialog.Root>
+              <AlertDialog.Root bind:open={purgeAllDialogOpen} onOpenChange={onPurgeAllDialogOpenChange}>
                 <AlertDialog.Trigger>
                   {#snippet child({ props })}
                     <Button {...props} variant="destructive" class="shrink-0 gap-2" disabled={purgeRunning}>
@@ -1116,13 +1139,33 @@
                     <AlertDialog.Description>
                       This deletes every song record, provider attempt, and cached Spotify match, and
                       removes files that were copied to the destination folder. Source files are not
-                      affected. This runs in the background — you can navigate away and the progress
-                      will be here when you come back. This cannot be undone.
+                      affected. If you're demoing this build or benchmarking match quality, this also
+                      wipes any grading history you were comparing against. This runs in the
+                      background — you can navigate away and the progress will be here when you come
+                      back. This cannot be undone.
                     </AlertDialog.Description>
                   </AlertDialog.Header>
+                  <div class="px-6 pb-2">
+                    <Label for="purge-all-confirm" class="text-xs text-muted-foreground">
+                      Type <span class="font-semibold text-foreground">{PURGE_ALL_CONFIRM_WORD}</span> to confirm
+                    </Label>
+                    <Input
+                      id="purge-all-confirm"
+                      autocomplete="off"
+                      bind:value={purgeAllConfirmText}
+                      placeholder={PURGE_ALL_CONFIRM_WORD}
+                      class="mt-1.5"
+                    />
+                  </div>
                   <AlertDialog.Footer>
                     <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
-                    <AlertDialog.Action onclick={() => handlePurge('all')}>Purge all data</AlertDialog.Action>
+                    <AlertDialog.Action
+                      variant="destructive"
+                      disabled={!purgeAllConfirmed}
+                      onclick={() => handlePurge('all')}
+                    >
+                      Purge all data
+                    </AlertDialog.Action>
                   </AlertDialog.Footer>
                 </AlertDialog.Content>
               </AlertDialog.Root>
@@ -1147,6 +1190,53 @@
           </div>
         </section>
       {/if}
+    {:else if activeTab === 'updates'}
+      <!-- =================== UPDATES =================== -->
+      <section class="border-border bg-card rounded-lg border">
+        <header class="border-border flex items-center gap-2 border-b px-5 py-3.5">
+          <h2 class="flex items-center gap-2 text-sm font-semibold">
+            <Sparkles class="size-4" /> Updating MusicHoarder
+          </h2>
+          <p class="text-muted-foreground text-xs">
+            MusicHoarder ships as containers. Pulling the latest images and recreating the stack
+            applies a new release — your database and library are untouched.
+          </p>
+        </header>
+
+        <div class="space-y-4 p-5">
+          <div class="flex flex-col gap-2">
+            <div class="text-sm font-medium">Update command</div>
+            <div class="flex items-center justify-between gap-2 rounded-md border border-border bg-secondary/30 px-3 py-2">
+              <code class="min-w-0 flex-1 truncate text-xs">{UPDATE_CMD}</code>
+              <Button variant="ghost" size="icon" class="size-8 shrink-0" onclick={copyUpdateCommand} aria-label="Copy update command" title="Copy update command">
+                {#if updateCmdCopied}
+                  <CheckCircle2 class="size-4 text-primary" />
+                {:else}
+                  <Copy class="size-4" />
+                {/if}
+              </Button>
+            </div>
+            <p class="text-muted-foreground text-xs">
+              Run this in your compose stack's directory to pull the new images and recreate the
+              containers.
+            </p>
+          </div>
+
+          <div class="border-border rounded-md border border-dashed p-3">
+            <p class="text-muted-foreground text-xs leading-relaxed">
+              Running <a href="https://github.com/ofkm/arcane" target="_blank" rel="noopener noreferrer" class="text-primary underline">Arcane</a>?
+              Add the <code class="bg-secondary rounded px-1 py-0.5">arcane.stack.auto-update</code> label
+              to your compose stack to let it pull and redeploy new releases automatically instead of
+              running the command by hand.
+            </p>
+          </div>
+
+          <p class="text-muted-foreground text-xs">
+            The current version and whether a newer release is available show up as a banner across
+            the app when one is out — this tab is just the reference copy of the same instructions.
+          </p>
+        </div>
+      </section>
     {/if}
   </div>
 </div>
