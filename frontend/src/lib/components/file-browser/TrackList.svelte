@@ -471,9 +471,9 @@
                 )}
               >
                 {#if isCurrentlyPlaying}
-                  <Pause class="size-3.5" />
+                  <Pause class="size-3.5" fill="currentColor" />
                 {:else}
-                  <Play class="size-3.5" />
+                  <Play class="size-3.5" fill="currentColor" />
                 {/if}
               </button>
             </span>

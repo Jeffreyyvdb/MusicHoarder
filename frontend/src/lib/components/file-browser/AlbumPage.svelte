@@ -563,9 +563,9 @@
         class="bg-primary text-primary-foreground grid size-13 shrink-0 place-items-center rounded-full transition-[scale,filter] duration-100 ease-out hover:brightness-110 active:scale-95"
       >
         {#if playerStore.isPlaying && currentlyPlaying}
-          <Pause class="size-5" />
+          <Pause class="size-5" fill="currentColor" />
         {:else}
-          <Play class="size-5" />
+          <Play class="size-5 translate-x-px" fill="currentColor" />
         {/if}
       </button>
 
@@ -762,9 +762,9 @@
                 )}
               >
                 {#if isCurrentlyPlaying}
-                  <Pause class="size-4" />
+                  <Pause class="size-4" fill="currentColor" />
                 {:else}
-                  <Play class="size-4" />
+                  <Play class="size-4" fill="currentColor" />
                 {/if}
               </button>
             </span>
@@ -822,7 +822,7 @@
               </DropdownMenu.Trigger>
               <DropdownMenu.Content align="end" class="min-w-44">
                 <DropdownMenu.Item onSelect={() => playFrom(song)}>
-                  <Play class="size-4" />
+                  <Play class="size-4" fill="currentColor" />
                   Play
                 </DropdownMenu.Item>
                 <DropdownMenu.Item onSelect={() => songDetail.open(song.id, album.key)}>
