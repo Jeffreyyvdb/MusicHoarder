@@ -53,15 +53,22 @@
 
   const selected = $derived(offenders.find((o) => o.songId === selectedId) ?? null);
 
-  function verdictTint(v: QualityVerdict | undefined): string {
+  // One status signal: a small colored dot + sentence-case label (no tinted pill).
+  function verdictDot(v: QualityVerdict | undefined): string {
     switch (v) {
       case 'Wrong':
-        return 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30';
+        return 'bg-red-500';
       case 'Questionable':
-        return 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30';
+        return 'bg-amber-500';
       default:
-        return 'bg-muted text-muted-foreground border-border';
+        return 'bg-muted-foreground/50';
     }
+  }
+
+  /** "artist_changed" → "Artist changed" — raw codes stay behind a tooltip. */
+  function humanizeIssue(code: string): string {
+    const s = code.replace(/_/g, ' ').trim();
+    return s.charAt(0).toUpperCase() + s.slice(1);
   }
 
   async function onCopyDossier(songId: number) {
@@ -130,7 +137,7 @@
             type="button"
             onclick={() => (selectedId = o.songId)}
             class={cn(
-              'mb-0.5 flex w-full items-center gap-2.5 rounded-md border-l-2 border-transparent py-2 pr-2.5 pl-2 text-left transition-colors active:translate-y-px',
+              'mb-0.5 flex w-full items-center gap-2.5 rounded-md border-l-2 border-transparent py-2 pr-2.5 pl-2 text-left transition-[background-color,transform] duration-100 ease-out active:scale-[0.99]',
               selectedId === o.songId ? 'border-l-primary bg-card' : 'hover:bg-accent'
             )}
           >
@@ -139,7 +146,10 @@
               <div class="truncate text-[13px] font-medium">{o.title ?? o.fileName}</div>
               <div class="text-muted-foreground truncate text-[11.5px]">{o.artist ?? '—'}</div>
             </div>
-            <span class="text-muted-foreground shrink-0 font-mono text-[11px] tabular-nums">{o.score}</span>
+            <span class="text-muted-foreground flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums">
+              <span class={cn('size-1.5 rounded-full', verdictDot(o.verdict))}></span>
+              {o.score}
+            </span>
           </button>
         {/each}
       </div>
@@ -151,7 +161,7 @@
         class="flex min-h-0 min-w-0 flex-col overflow-hidden md:flex"
         class:hidden={selectedId == null}
       >
-        <div class="border-border flex items-start gap-3 border-b bg-red-500/5 px-4 py-3 sm:px-6">
+        <div class="border-border flex items-start gap-3 border-b px-4 py-3 sm:px-6">
           <button
             type="button"
             onclick={() => (selectedId = null)}
@@ -161,12 +171,13 @@
           >
             <ChevronLeft class="size-5" />
           </button>
-          <Sparkles class="mt-0.5 size-5 shrink-0 text-red-600 dark:text-red-400" />
+          <Sparkles class="text-muted-foreground mt-0.5 size-5 shrink-0" />
           <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2.5">
               <span class="text-[14px] font-semibold">AI flagged</span>
-              <span class={cn('rounded-md border px-1.5 py-0.5 text-[10.5px] font-semibold', verdictTint(selected.verdict))}>
-                {selected.verdict} · {selected.score} / 100
+              <span class="text-muted-foreground flex shrink-0 items-center gap-1.5 text-[12px] tabular-nums">
+                <span class={cn('size-1.5 rounded-full', verdictDot(selected.verdict))}></span>
+                {selected.verdict} · {selected.score}/100
               </span>
             </div>
             <div class="text-muted-foreground truncate text-[12px]">{selected.title ?? selected.fileName}{selected.artist ? ` — ${selected.artist}` : ''}</div>
@@ -174,27 +185,27 @@
         </div>
 
         <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 pb-[calc(1rem_+_var(--mh-content-pad))] sm:px-6">
-          <!-- Verdict card -->
-          <div class="border-border bg-card rounded-lg border">
-            <div class="border-border flex items-center justify-between border-b px-4 py-2.5">
-              <span class="text-[12.5px] font-semibold">Quality LLM verdict</span>
-              <span class="text-muted-foreground font-mono text-[11px]">graded {selected.gradedAtUtc.slice(0, 10)}</span>
+          <!-- Verdict -->
+          <div>
+            <div class="flex items-baseline justify-between gap-2">
+              <span class="text-foreground text-[13px] font-semibold">Quality LLM verdict</span>
+              <span class="text-muted-foreground text-[11.5px]">Graded {selected.gradedAtUtc.slice(0, 10)}</span>
             </div>
-            <div class="px-4 py-3">
+            <div class="mt-2">
               {#if selected.summary}
                 <p class="text-foreground/80 text-[13px] leading-relaxed">{selected.summary}</p>
               {:else}
                 <p class="text-muted-foreground text-[13px]">No summary provided by the grader.</p>
               {/if}
               {#if selected.issues.length > 0}
-                <div class="mt-3 flex flex-wrap gap-1.5">
+                <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
                   {#each selected.issues as issue (issue.code)}
                     <span
-                      class="border-border bg-muted/40 inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5"
-                      title={issue.detail ?? ''}
+                      class="text-muted-foreground flex items-center gap-1.5 text-[12px]"
+                      title={[issue.code, issue.detail].filter(Boolean).join(' — ')}
                     >
-                      <code class="font-mono text-[10.5px]">{issue.code}</code>
-                      <span class="text-muted-foreground text-[10px] uppercase">{issue.severity}</span>
+                      <span class={cn('size-1.5 rounded-full', issue.severity?.toLowerCase() === 'major' ? 'bg-red-500' : 'bg-amber-500')}></span>
+                      {humanizeIssue(issue.code)}
                     </span>
                   {/each}
                 </div>
@@ -202,18 +213,17 @@
             </div>
           </div>
 
-          <!-- What the algorithm did -->
-          <div class="border-border overflow-hidden rounded-lg border">
-            <div class="bg-surface-sunken/60 text-muted-foreground border-border hidden grid-cols-1 gap-3 border-b px-4 py-2 font-mono text-[10px] tracking-[0.06em] sm:grid sm:grid-cols-[120px_1fr]">
-              <div>FIELD</div>
-              <div>VALUE</div>
-            </div>
-            {#each [{ l: 'Title', v: selected.title ?? '—' }, { l: 'Artist', v: selected.artist ?? '—' }, { l: 'Album', v: selected.album ?? '—' }, { l: 'Source', v: selected.sourcePath, mono: true }, { l: 'Destination', v: selected.destinationPathPreview ?? '(not written)', mono: true }, { l: 'Status at grade', v: selected.enrichmentStatusAtGrade ?? '—' }] as row (row.l)}
-              <div class="border-border grid grid-cols-1 gap-1 border-b px-4 py-2 last:border-b-0 sm:grid-cols-[120px_1fr] sm:items-center sm:gap-3">
-                <div class="text-muted-foreground text-[12.5px] font-medium sm:text-foreground">{row.l}</div>
-                <div class={cn('min-w-0 break-words text-[12.5px]', row.mono && 'font-mono text-[11px]')}>{row.v}</div>
-              </div>
-            {/each}
+          <!-- What the algorithm did — plain definition list, spacing not borders. -->
+          <div class="border-border border-t pt-4">
+            <div class="text-foreground text-[13px] font-semibold">What the algorithm did</div>
+            <dl class="mt-3 space-y-3">
+              {#each [{ l: 'Title', v: selected.title ?? '—' }, { l: 'Artist', v: selected.artist ?? '—' }, { l: 'Album', v: selected.album ?? '—' }, { l: 'Source', v: selected.sourcePath, mono: true }, { l: 'Destination', v: selected.destinationPathPreview ?? '(not written)', mono: true }, { l: 'Status at grade', v: selected.enrichmentStatusAtGrade ?? '—' }] as row (row.l)}
+                <div>
+                  <dt class="text-muted-foreground text-[11px]">{row.l}</dt>
+                  <dd class={cn('min-w-0 break-words text-[13px]', row.mono && 'font-mono text-[11.5px]')}>{row.v}</dd>
+                </div>
+              {/each}
+            </dl>
           </div>
         </div>
 

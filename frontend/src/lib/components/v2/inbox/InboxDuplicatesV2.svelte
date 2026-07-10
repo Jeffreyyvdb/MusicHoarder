@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Check, ChevronLeft, Loader2, RefreshCw, Copy, Trash2 } from '@lucide/svelte';
+  import { Check, ChevronLeft, Loader2, RefreshCw, Copy } from '@lucide/svelte';
   import {
     fetchDuplicates,
     type DuplicateGroup,
@@ -165,7 +165,7 @@
             type="button"
             onclick={() => (selectedIdx = i)}
             class={cn(
-              'mb-0.5 flex w-full items-center gap-2.5 rounded-md border-l-2 border-transparent py-2 pr-2.5 pl-2 text-left transition-colors active:translate-y-px',
+              'mb-0.5 flex w-full items-center gap-2.5 rounded-md border-l-2 border-transparent py-2 pr-2.5 pl-2 text-left transition-[background-color,transform] duration-100 ease-out active:scale-[0.99]',
               selectedIdx === i ? 'border-l-primary bg-card' : 'hover:bg-accent'
             )}
           >
@@ -174,7 +174,7 @@
               <div class="truncate text-[13px] font-medium">{meta.title}</div>
               <div class="text-muted-foreground truncate text-[11.5px]">{meta.subtitle}</div>
             </div>
-            <span class="shrink-0 rounded bg-sky-500/15 px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-sky-600 uppercase dark:text-sky-400">
+            <span class="text-muted-foreground shrink-0 text-[11px] tabular-nums">
               {g.duplicates.length + (g.best ? 1 : 0)} copies
             </span>
           </button>
@@ -188,7 +188,7 @@
         class="flex min-h-0 min-w-0 flex-col overflow-hidden md:flex"
         class:hidden={selectedIdx == null}
       >
-        <div class="border-border flex items-center gap-3 border-b bg-sky-500/5 px-4 py-3 sm:px-6">
+        <div class="border-border flex items-center gap-3 border-b px-4 py-3 sm:px-6">
           <button
             type="button"
             onclick={() => (selectedIdx = null)}
@@ -198,12 +198,11 @@
           >
             <ChevronLeft class="size-5" />
           </button>
-          <Copy class="size-5 shrink-0 text-sky-600 dark:text-sky-400" />
+          <Copy class="text-muted-foreground size-5 shrink-0" />
           <div class="min-w-0 flex-1">
             <div class="text-[14px] font-semibold">Ambiguous duplicate</div>
-            <div class="text-muted-foreground truncate font-mono text-[11px]">
-              fingerprint {selectedGroup.fingerprint ? selectedGroup.fingerprint.slice(0, 18) + '…' : '(none)'} ·
-              {selectedGroup.duplicates.length + (selectedGroup.best ? 1 : 0)} files matched
+            <div class="text-muted-foreground truncate text-[12px]">
+              {selectedGroup.duplicates.length + (selectedGroup.best ? 1 : 0)} files share one fingerprint
             </div>
           </div>
         </div>
@@ -214,21 +213,17 @@
               {#if col.side}
                 {@const s = col.side}
                 <div class={cn('rounded-lg border p-4', col.kept ? 'border-primary bg-primary/5' : 'border-border bg-card')}>
-                  <div class="mb-2 flex items-center gap-2">
-                    <span
-                      class={cn(
-                        'rounded px-1.5 py-0.5 text-[9px] font-bold tracking-wide uppercase',
-                        col.kept ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
-                      )}
-                    >{col.kept ? 'Recommend · keep' : 'Duplicate'}</span>
+                  <div class={cn('mb-2 flex items-center gap-1.5 text-[11px] font-medium', col.kept ? 'text-primary' : 'text-muted-foreground')}>
+                    <span class={cn('size-1.5 rounded-full', col.kept ? 'bg-primary' : 'bg-muted-foreground/50')}></span>
+                    {col.kept ? 'Recommended keep' : 'Duplicate'}
                   </div>
                   <div class="truncate text-[15px] font-medium">{s.title}</div>
                   <div class="text-muted-foreground truncate text-[12px]">{s.subtitle || '—'}</div>
                   <div class="mt-3 grid grid-cols-2 gap-3">
-                    {#each [{ l: 'Bitrate', v: s.bitrate }, { l: 'Size', v: s.size }, { l: 'Duration', v: s.duration }, { l: 'Fingerprint', v: s.fingerprint ? s.fingerprint.slice(0, 12) + '…' : '—' }] as stat (stat.l)}
+                    {#each [{ l: 'Bitrate', v: s.bitrate }, { l: 'Size', v: s.size }, { l: 'Duration', v: s.duration }, { l: 'Fingerprint', v: s.fingerprint ? s.fingerprint.slice(0, 12) + '…' : '—', mono: true }] as stat (stat.l)}
                       <div>
-                        <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">{stat.l}</div>
-                        <div class="font-mono text-[12px]">{stat.v}</div>
+                        <div class="text-muted-foreground text-[11px]">{stat.l}</div>
+                        <div class={cn('text-[12.5px] tabular-nums', stat.mono && 'font-mono text-[11.5px]')}>{stat.v}</div>
                       </div>
                     {/each}
                   </div>
@@ -244,18 +239,18 @@
 
           {#if extras.length > 0}
             <div>
-              <div class="text-muted-foreground mb-1.5 text-[11px] font-semibold tracking-wide uppercase">
+              <div class="text-muted-foreground mb-1.5 text-[12px] font-medium">
                 {extras.length} more cop{extras.length === 1 ? 'y' : 'ies'} in this cluster
               </div>
-              <div class="border-border divide-border divide-y overflow-hidden rounded-lg border">
+              <div class="divide-border divide-y">
                 {#each extras as m (m.id)}
-                  <div class="flex items-center gap-3 px-3 py-2">
+                  <div class="flex items-center gap-3 py-2">
                     <div class="min-w-0 flex-1">
                       <div class="truncate text-[12.5px]">{m.title || m.fileName}</div>
                       <div class="text-muted-foreground truncate font-mono text-[10.5px]">{m.sourcePath}</div>
                     </div>
-                    <span class="text-muted-foreground shrink-0 font-mono text-[11px]">{formatBitrate(m.bitrate, m.extension)}</span>
-                    <span class="text-muted-foreground shrink-0 font-mono text-[11px]">{formatFileSize(m.fileSizeBytes)}</span>
+                    <span class="text-muted-foreground shrink-0 text-[11.5px] tabular-nums">{formatBitrate(m.bitrate, m.extension)}</span>
+                    <span class="text-muted-foreground shrink-0 text-[11.5px] tabular-nums">{formatFileSize(m.fileSizeBytes)}</span>
                   </div>
                 {/each}
               </div>
@@ -263,18 +258,9 @@
           {/if}
         </div>
 
-        <!-- Action bar — resolve isn't a real endpoint yet -->
-        <div class="border-border bg-background flex flex-wrap items-center gap-2 border-t px-4 py-3 sm:gap-3 sm:px-6">
-          <div class="text-muted-foreground flex-1 text-[11px]">
-            The comparison is live, but mutable keep / delete resolution
-            <span class="bg-muted ml-1 rounded px-1.5 py-px font-mono text-[9px] tracking-wide uppercase">coming soon</span>
-          </div>
-          <Button variant="outline" disabled class="gap-1.5" title="No resolve endpoint yet — coming soon">
-            <Trash2 class="size-3.5" /> Delete B
-          </Button>
-          <Button disabled class="gap-1.5" title="No resolve endpoint yet — coming soon">
-            <Check class="size-3.5" strokeWidth={2} /> Keep A
-          </Button>
+        <!-- Footer — resolution isn't shipped yet; say so quietly instead of rendering dead buttons. -->
+        <div class="border-border bg-background border-t px-4 py-3 sm:px-6">
+          <p class="text-muted-foreground text-[12px]">Resolution actions are coming soon — for now the comparison is read-only.</p>
         </div>
       </div>
     {/if}
