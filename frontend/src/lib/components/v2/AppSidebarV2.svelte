@@ -146,6 +146,12 @@
 
   const sourcePath = $derived(overview?.sourcePath ?? null);
   const destPath = $derived(overview?.destinationPath ?? null);
+  const watchedFolders = $derived([sourcePath, destPath].filter(Boolean).length);
+  const folderTooltip = $derived(
+    [sourcePath && `Source: ${sourcePath}`, destPath && `Destination: ${destPath}`]
+      .filter(Boolean)
+      .join('\n')
+  );
 
   const NAV: Section[] = [
     {
@@ -300,7 +306,7 @@
               </div>
               <div class="grid min-w-0 flex-1 text-left leading-tight">
                 <span class="truncate text-sm font-semibold">MusicHoarder</span>
-                <span class="text-muted-foreground truncate font-mono text-[10.5px]">
+                <span class="text-muted-foreground truncate text-[11px]">
                   {version ? `v${version} · ` : ''}self-hosted
                 </span>
               </div>
@@ -322,14 +328,15 @@
           data-active={secActive || undefined}
           class={cn(
             'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
-            'text-sidebar-foreground hover:bg-sidebar-accent'
+            'text-sidebar-foreground hover:bg-sidebar-accent',
+            'focus-visible:ring-sidebar-ring outline-none focus-visible:ring-2'
           )}
         >
+          <!-- Only one nav level carries emphasis at a time: when a sub-item is
+               active it alone is highlighted, and the section header stays
+               neutral (it is already "expanded" by being on that route). -->
           <section.icon
-            class={cn(
-              'size-4 shrink-0',
-              leafActive ? 'text-primary' : secActive ? 'text-sidebar-foreground' : 'text-muted-foreground'
-            )}
+            class={cn('size-4 shrink-0', leafActive ? 'text-primary' : 'text-muted-foreground')}
           />
           <span
             class={cn(
@@ -340,8 +347,10 @@
             <span class="bg-primary mh-v2-pulse size-[7px] shrink-0 rounded-full"></span>
           {/if}
           {#if badge != null && badge > 0}
+            <!-- Attention badge: one small filled circle in the accent, iOS
+                 style. Amber stays reserved for the offline warning. -->
             <span
-              class="rounded-full border border-amber-500/35 bg-amber-500/20 px-[7px] py-px font-mono text-[10.5px] text-amber-700 dark:text-amber-400"
+              class="bg-primary text-primary-foreground grid h-[17px] min-w-[17px] shrink-0 place-items-center rounded-full px-1 text-[10px] leading-none font-semibold tabular-nums"
             >{badge.toLocaleString()}</span>
           {/if}
         </a>
@@ -356,7 +365,8 @@
               class={cn(
                 'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 transition-colors',
                 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground',
-                'data-[active=true]:text-primary data-[active=true]:font-medium'
+                'data-[active=true]:text-primary data-[active=true]:font-medium',
+                'focus-visible:ring-sidebar-ring outline-none focus-visible:ring-2'
               )}
             >
               <item.icon
@@ -410,17 +420,18 @@
         <div class="bg-primary h-full transition-[width] duration-300" style="width: {storagePct ?? 0}%;"></div>
       </div>
     {/if}
-    {#if sourcePath}
-      <div class="flex items-center gap-1.5 text-[10.5px]">
-        <span class="text-muted-foreground/80 w-6 shrink-0 font-mono text-[9px] font-semibold tracking-[0.08em]">SRC</span>
-        <span class="text-muted-foreground truncate font-mono" title={sourcePath}>{sourcePath}</span>
-      </div>
-    {/if}
-    {#if destPath}
-      <div class="flex items-center gap-1.5 text-[10.5px]">
-        <span class="text-muted-foreground/80 w-6 shrink-0 font-mono text-[9px] font-semibold tracking-[0.08em]">DST</span>
-        <span class="text-muted-foreground truncate font-mono" title={destPath}>{destPath}</span>
-      </div>
+    {#if watchedFolders > 0}
+      <!-- Human status line — the raw source/destination paths live in Settings
+           (and in the tooltip), not in permanent chrome. -->
+      <a
+        href="/settings"
+        title={folderTooltip}
+        class="text-muted-foreground hover:text-foreground focus-visible:ring-sidebar-ring flex items-center gap-2 rounded-sm text-[11px] outline-none transition-colors focus-visible:ring-2"
+      >
+        <span class="flex-1 whitespace-nowrap">
+          Watching {watchedFolders} {watchedFolders === 1 ? 'folder' : 'folders'}
+        </span>
+      </a>
     {/if}
     {#if user}
       <div
@@ -428,7 +439,7 @@
       >
         <a
           href="/settings"
-          class="flex min-w-0 flex-1 items-center gap-[9px]"
+          class="focus-visible:ring-sidebar-ring flex min-w-0 flex-1 items-center gap-[9px] rounded-sm outline-none focus-visible:ring-2"
           aria-label="Account settings"
         >
           <div
@@ -438,14 +449,14 @@
           </div>
           <div class="min-w-0 flex-1">
             <div class="truncate text-[11.5px] font-medium">{user.displayName ?? user.email}</div>
-            <div class="text-muted-foreground truncate font-mono text-[9.5px]">{user.email}</div>
+            <div class="text-muted-foreground truncate text-[10.5px]">{user.email}</div>
           </div>
           <ChevronRight class="text-muted-foreground size-3.5 shrink-0" />
         </a>
         <button
           type="button"
           aria-label="Sign out"
-          class="text-muted-foreground hover:bg-sidebar-accent hover:text-foreground grid size-[26px] shrink-0 place-items-center rounded-md transition-colors"
+          class="text-muted-foreground hover:bg-sidebar-accent hover:text-foreground focus-visible:ring-sidebar-ring grid size-[26px] shrink-0 place-items-center rounded-md outline-none transition-colors focus-visible:ring-2"
           onclick={() => signOutAndReset()}
         >
           <LogOut class="size-3.5" />
