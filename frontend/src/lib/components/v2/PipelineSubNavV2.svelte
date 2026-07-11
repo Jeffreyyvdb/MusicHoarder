@@ -27,40 +27,43 @@
 </script>
 
 <nav
-  class="no-scrollbar border-border flex shrink-0 items-center gap-1 overflow-x-auto border-b px-4 sm:px-7"
+  class="no-scrollbar border-border flex shrink-0 items-center overflow-x-auto border-b px-4 py-2 sm:px-7"
   aria-label="Pipeline views"
 >
-  {#each tabs as tab (tab.id)}
-    {@const isActive = tab.id === active}
-    <!-- Text-only tabs: the underline + weight change carries the active state;
-         per-tab icons stay in the sidebar where icon+label pairing earns its
-         keep. The bar stays count-less and fixed-height (constraint). -->
-    <a
-      href={tab.href}
-      data-active={isActive || undefined}
-      class={cn(
-        'relative flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-2.5 text-[13px] whitespace-nowrap transition-colors',
-        'after:absolute after:inset-x-2.5 after:bottom-0 after:h-[2px] after:rounded-full after:bg-transparent',
-        'focus-visible:ring-ring/60 outline-none focus-visible:ring-2 focus-visible:ring-inset',
-        isActive
-          ? 'text-foreground font-medium after:bg-primary'
-          : 'text-muted-foreground hover:text-foreground'
-      )}
-    >
-      {#if tab.live && running}
-        <span class="bg-primary mh-v2-pulse size-1.5 shrink-0 rounded-full"></span>
-      {/if}
-      <span>{tab.label}</span>
-      {#if tab.count != null}
-        <span
-          class={cn(
-            'rounded-full px-1.5 py-px text-[10.5px] tabular-nums',
-            isActive ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
-          )}
-        >{typeof tab.count === 'number' ? tab.count.toLocaleString() : tab.count}</span>
-      {/if}
-    </a>
-  {/each}
+  <!-- Apple-style segmented control (same idiom as the song-panel tabs): a soft
+       capsule track with the active segment as a raised pill. The bar stays
+       count-less and dimension-stable (constraint) — switching tabs only moves
+       the pill, never resizes the bar. -->
+  <div class="bg-foreground/5 flex shrink-0 items-center gap-1 rounded-full p-1">
+    {#each tabs as tab (tab.id)}
+      {@const isActive = tab.id === active}
+      <a
+        href={tab.href}
+        data-active={isActive || undefined}
+        aria-current={isActive ? 'page' : undefined}
+        class={cn(
+          'flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors sm:px-4 sm:text-[13px]',
+          'focus-visible:ring-ring/60 outline-none focus-visible:ring-2',
+          isActive
+            ? 'bg-background text-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'
+        )}
+      >
+        {#if tab.live && running}
+          <span class="bg-primary mh-v2-pulse size-1.5 shrink-0 rounded-full"></span>
+        {/if}
+        <span>{tab.label}</span>
+        {#if tab.count != null}
+          <span
+            class={cn(
+              'rounded-full px-1.5 py-px text-[10.5px] tabular-nums',
+              isActive ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
+            )}
+          >{typeof tab.count === 'number' ? tab.count.toLocaleString() : tab.count}</span>
+        {/if}
+      </a>
+    {/each}
+  </div>
   <span class="flex-1"></span>
   {#if meta}
     <span class="text-muted-foreground/80 hidden text-[11px] whitespace-nowrap tabular-nums sm:block">{meta}</span>
