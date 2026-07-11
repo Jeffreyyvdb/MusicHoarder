@@ -29,6 +29,12 @@ library, let it run, and review anything it isn't sure about.
   MusicBrainz, Spotify, Apple Music, and Deezer, with missing tracks greyed out so gaps are obvious.
 - **Synced lyrics** — fetches time-synced lyrics where available.
 - **Duplicate detection** — finds the same recording across formats/bitrates.
+- **Soulseek quality upgrades (optional)** — connect a self-run [slskd](https://github.com/slskd/slskd)
+  instance to fill wishlist tracks from Soulseek (falling back to yt-dlp) and to manually upgrade
+  existing tracks to better copies (e.g. Opus → FLAC) without losing enrichment, lyrics, or track ids.
+- **Instance sync (optional)** — push finished tracks from a private instance to a public one over
+  HTTPS, with a fingerprint-based existence check so only missing or better-quality files transfer,
+  and in-place replacement that keeps the remote's track ids stable.
 - **Non-destructive by design** — source files are read-only; everything is written as fresh,
   cleanly-named copies in a separate destination library.
 - **Manual review** — anything the pipeline isn't confident about lands in a review queue instead of

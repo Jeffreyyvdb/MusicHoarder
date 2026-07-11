@@ -441,7 +441,10 @@
             <div class="min-w-0 flex-1">
               <div class="truncate text-sm font-medium">{item.title}</div>
               <div class="text-muted-foreground truncate text-xs">
-                {item.artist}{item.album ? ` · ${item.album}` : ''}
+                {item.artist}{item.album ? ` · ${item.album}` : ''}{item.downloadProvider &&
+                (item.status === 'Downloaded' || item.downloadedSongId != null)
+                  ? ` · via ${item.downloadProvider}`
+                  : ''}
               </div>
               {#if item.lastError && (item.status === 'Failed' || item.status === 'NotFound')}
                 <div class="text-destructive mt-0.5 truncate text-xs" title={item.lastError}>{item.lastError}</div>
