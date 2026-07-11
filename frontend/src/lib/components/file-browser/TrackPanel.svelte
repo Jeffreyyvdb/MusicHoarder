@@ -11,6 +11,7 @@
     RotateCcw,
     Rewind,
     FastForward,
+    Search,
     Sparkles,
     X
   } from '@lucide/svelte';
@@ -35,6 +36,7 @@
     fetchTrackLyrics,
     transcribeSongLyrics,
     setPreferredLyricsSource,
+    soulseek,
     type ApiSong,
     type AlbumSummary,
     type EnrichmentDetail,
@@ -120,6 +122,69 @@
       return;
     void loadEnrichmentDetail(song.id);
   });
+
+  // ── Soulseek quality upgrade ────────────────────────────────────────────────
+  // Shown only when slskd is configured; the /api/soulseek/* endpoints enforce owner-only.
+  let soulseekConfigured = $state(false);
+  let upgradeRequesting = $state(false);
+  let upgradeError = $state<string | null>(null);
+
+  $effect(() => {
+    let cancelled = false;
+    void soulseek
+      .getStatus()
+      .then((s) => {
+        if (!cancelled) soulseekConfigured = s.configured;
+      })
+      .catch(() => {
+        // Endpoint unavailable (not owner / not configured) — keep the action hidden.
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  // Reflect an in-flight upgrade as a disabled button label.
+  const upgradeActiveLabel = $derived.by(() => {
+    const u = enrichmentDetail?.upgrade;
+    if (!u?.active) return null;
+    switch (u.status) {
+      case 'Queued':
+        return 'Queued…';
+      case 'Searching':
+        return 'Searching…';
+      case 'Downloading':
+        return 'Downloading…';
+      case 'AwaitingIngest':
+        return 'Processing…';
+      default:
+        return 'Upgrading…';
+    }
+  });
+
+  const upgradeTerminalNote = $derived.by(() => {
+    const u = enrichmentDetail?.upgrade;
+    if (!u || u.active) return null;
+    if (u.status === 'NotFound') return 'No better copy found on Soulseek.';
+    if (u.status === 'Failed') return u.error ? `Upgrade failed — ${u.error}` : 'Upgrade failed.';
+    if (u.status === 'Completed') return 'Upgraded to a better copy.';
+    return null;
+  });
+
+  async function handleFindBetterQuality() {
+    if (upgradeRequesting || !song) return;
+    upgradeRequesting = true;
+    upgradeError = null;
+    try {
+      await soulseek.requestUpgrade({ songId: song.id });
+      loadedSongId = null; // force a refetch so the button reflects the new active state
+      await loadEnrichmentDetail(song.id);
+    } catch (err) {
+      upgradeError = err instanceof Error ? err.message : 'Failed to queue upgrade';
+    } finally {
+      upgradeRequesting = false;
+    }
+  }
 
   // AI quality grade for the Enrichment tab — loaded lazily, refetched per song.
   let quality = $state<SongQualityGradeView | null>(null);
@@ -1083,6 +1148,32 @@
           </Button>
           {#if enrichError}
             <p class="text-destructive text-[11px]">{enrichError}</p>
+          {/if}
+
+          {#if soulseekConfigured}
+            <Button
+              variant="outline"
+              class="mt-2 w-full"
+              size="sm"
+              disabled={upgradeRequesting || enrichmentDetail?.upgrade?.active === true}
+              onclick={handleFindBetterQuality}
+            >
+              {#if upgradeRequesting || enrichmentDetail?.upgrade?.active}
+                <Loader2 class="mr-1.5 size-3.5 animate-spin" />
+              {:else}
+                <Search class="mr-1.5 size-3.5" />
+              {/if}
+              {upgradeActiveLabel ?? 'Find better quality'}
+            </Button>
+            {#if upgradeError}
+              <p class="text-destructive text-[11px]">{upgradeError}</p>
+            {:else if upgradeTerminalNote}
+              <p class="text-muted-foreground/70 text-[10.5px]">{upgradeTerminalNote}</p>
+            {:else}
+              <p class="text-muted-foreground/70 text-[10.5px]">
+                Searches Soulseek for a higher-quality copy and swaps it in place.
+              </p>
+            {/if}
           {/if}
         </div>
       </ScrollArea>
