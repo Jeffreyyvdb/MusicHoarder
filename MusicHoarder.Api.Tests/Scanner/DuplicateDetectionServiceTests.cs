@@ -267,38 +267,20 @@ public class DuplicateDetectionServiceTests
     }
 
     [Fact]
-    public void QualityScore_Flac_Returns1000()
+    public void QualityScore_OrdersFlacAboveWavAboveLossyAboveUnknown()
     {
-        var song = CreateSong(1, "/a/track.flac", ".flac", "FP", bitrate: null, size: 50_000_000);
-        Assert.Equal(1000, IDuplicateDetectionService.QualityScore(song));
-    }
+        var flac = CreateSong(1, "/a/track.flac", ".flac", "FP", bitrate: null, size: 50_000_000);
+        var wav = CreateSong(2, "/a/track.wav", ".wav", "FP", bitrate: null, size: 100_000_000);
+        var mp3High = CreateSong(3, "/a/track.mp3", ".mp3", "FP", bitrate: 320, size: 10_000_000);
+        var mp3Low = CreateSong(4, "/b/track.mp3", ".mp3", "FP", bitrate: 128, size: 4_000_000);
+        var mp3NoBitrate = CreateSong(5, "/c/track.mp3", ".mp3", "FP", bitrate: null, size: 4_000_000);
+        var unknown = CreateSong(6, "/a/track.xyz", ".xyz", "FP", bitrate: null, size: 10_000_000);
 
-    [Fact]
-    public void QualityScore_Mp3_ReturnsBitrate()
-    {
-        var song = CreateSong(1, "/a/track.mp3", ".mp3", "FP", bitrate: 320, size: 10_000_000);
-        Assert.Equal(320, IDuplicateDetectionService.QualityScore(song));
-    }
-
-    [Fact]
-    public void QualityScore_Mp3NullBitrate_ReturnsZero()
-    {
-        var song = CreateSong(1, "/a/track.mp3", ".mp3", "FP", bitrate: null, size: 10_000_000);
-        Assert.Equal(0, IDuplicateDetectionService.QualityScore(song));
-    }
-
-    [Fact]
-    public void QualityScore_Wav_Returns900()
-    {
-        var song = CreateSong(1, "/a/track.wav", ".wav", "FP", bitrate: null, size: 100_000_000);
-        Assert.Equal(900, IDuplicateDetectionService.QualityScore(song));
-    }
-
-    [Fact]
-    public void QualityScore_UnknownExtension_ReturnsZero()
-    {
-        var song = CreateSong(1, "/a/track.xyz", ".xyz", "FP", bitrate: null, size: 10_000_000);
-        Assert.Equal(0, IDuplicateDetectionService.QualityScore(song));
+        Assert.True(IDuplicateDetectionService.QualityScore(flac) > IDuplicateDetectionService.QualityScore(wav));
+        Assert.True(IDuplicateDetectionService.QualityScore(wav) > IDuplicateDetectionService.QualityScore(mp3High));
+        Assert.True(IDuplicateDetectionService.QualityScore(mp3High) > IDuplicateDetectionService.QualityScore(mp3Low));
+        Assert.True(IDuplicateDetectionService.QualityScore(mp3Low) > IDuplicateDetectionService.QualityScore(mp3NoBitrate));
+        Assert.True(IDuplicateDetectionService.QualityScore(mp3NoBitrate) > IDuplicateDetectionService.QualityScore(unknown));
     }
 
     [Fact]
