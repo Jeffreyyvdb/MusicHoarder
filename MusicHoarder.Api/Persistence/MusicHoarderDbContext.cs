@@ -288,6 +288,9 @@ public class MusicHoarderDbContext : DbContext
                 .WithOne()
                 .HasForeignKey<TrackSyncState>(e => e.SongId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // Match the Songs filter (required end) so filtered joins stay consistent.
+            entity.HasQueryFilter(e => !hasUser || e.Song!.OwnerUserId == userId);
         });
 
         modelBuilder.Entity<UpgradeRequest>(entity =>
@@ -301,6 +304,8 @@ public class MusicHoarderDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.SongId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
         });
 
         modelBuilder.Entity<LibraryWriteEvent>(entity =>
