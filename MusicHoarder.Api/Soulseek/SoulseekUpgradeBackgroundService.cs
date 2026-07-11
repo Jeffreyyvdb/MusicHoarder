@@ -22,8 +22,13 @@ public class SoulseekUpgradeBackgroundService(
         await Task.WhenAll(RunWorkerAsync(stoppingToken), RunMergeSweepLoopAsync(stoppingToken));
     }
 
-    /// <summary>Searching/Downloading rows only exist while a worker is actively on them; any found
-    /// at startup are crash leftovers — re-queue them so they retry from the top.</summary>
+    /// <summary>
+    /// Reclaims unfinished requests on startup. The work queue is an in-memory channel, so a restart
+    /// loses whatever was enqueued: a <c>Queued</c> row was enqueued but never picked up, and a
+    /// <c>Searching</c>/<c>Downloading</c> row was mid-flight when the process died. Reset the
+    /// in-flight ones back to Queued and re-enqueue everything not yet terminal, so nothing is
+    /// orphaned across a redeploy.
+    /// </summary>
     private async Task ResetStaleRequestsAsync(CancellationToken ct)
     {
         try
@@ -34,18 +39,20 @@ public class SoulseekUpgradeBackgroundService(
             // would hide every row. Upgrade requests are owner-only by construction.
             var stale = await db.UpgradeRequests
                 .IgnoreQueryFilters()
-                .Where(r => r.Status == UpgradeRequestStatus.Searching || r.Status == UpgradeRequestStatus.Downloading)
+                .Where(r => r.Status == UpgradeRequestStatus.Queued
+                    || r.Status == UpgradeRequestStatus.Searching
+                    || r.Status == UpgradeRequestStatus.Downloading)
                 .ToListAsync(ct);
             if (stale.Count == 0)
                 return;
 
-            foreach (var request in stale)
+            foreach (var request in stale.Where(r => r.Status != UpgradeRequestStatus.Queued))
             {
                 request.Status = UpgradeRequestStatus.Queued;
                 request.UpdatedAtUtc = DateTime.UtcNow;
             }
             await db.SaveChangesAsync(ct);
-            logger.LogInformation("Re-queued {Count} crash-stale upgrade request(s)", stale.Count);
+            logger.LogInformation("Re-enqueued {Count} unfinished upgrade request(s) on startup", stale.Count);
 
             foreach (var request in stale)
                 channel.Enqueue(request.Id);
