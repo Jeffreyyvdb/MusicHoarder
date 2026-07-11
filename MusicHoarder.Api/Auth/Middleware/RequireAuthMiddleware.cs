@@ -9,6 +9,7 @@ public sealed class RequireAuthMiddleware
     private static readonly string[] AllowlistedPrefixes =
     [
         "/api/auth/",
+        "/api/share/", // anonymous shared-song links — token-scoped, does NOT cover the owner-only /api/shares
         "/api/version", // prefix match — also covers /api/version/latest (the update-check endpoint)
         "/health",
         "/alive",

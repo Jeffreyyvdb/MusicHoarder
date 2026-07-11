@@ -1305,6 +1305,44 @@ export function parseSongId(fileItemId: string): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+// ── Share links (owner-only management; the public consumption lives in share-client.ts) ─────
+
+export interface SongShareView {
+  id: number
+  token: string
+  scope: "Song" | "Album"
+  songId: number
+  createdAtUtc: string
+  title: string
+  artist?: string | null
+  album?: string | null
+}
+
+/**
+ * Create a public share link for a song (or its whole album). Idempotent per (song, scope):
+ * re-sharing hands back the existing active link instead of minting a new token.
+ */
+export async function createSongShare(songId: number, scope: "song" | "album"): Promise<SongShareView> {
+  return requestJson<SongShareView>("/api/shares", {
+    method: "POST",
+    body: JSON.stringify({ songId, scope }),
+  })
+}
+
+export async function listSongShares(): Promise<SongShareView[]> {
+  return requestJson<SongShareView[]>("/api/shares")
+}
+
+export async function revokeSongShare(id: number): Promise<void> {
+  const response = await fetch(`${API_PREFIX}/api/shares/${id}`, { method: "DELETE", cache: "no-store" })
+  if (!response.ok) throw new Error(`Could not revoke share (${response.status}).`)
+}
+
+/** The public URL a friend opens — same origin, so it works for every deployment. */
+export function shareUrl(token: string): string {
+  return `${location.origin}/share/${encodeURIComponent(token)}`
+}
+
 // ── Track review API ──────────────────────────────────────────────────────────
 
 export interface ManualReviewRequest {

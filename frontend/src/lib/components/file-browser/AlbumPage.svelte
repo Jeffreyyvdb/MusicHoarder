@@ -17,6 +17,7 @@
     Play,
     RefreshCw,
     Search,
+    Share2,
     Shuffle,
     Tag,
     TriangleAlert
@@ -47,6 +48,7 @@
   } from '$lib/api-client';
   import { VERDICT_DOT } from '$lib/quality-ui';
   import { toast } from 'svelte-sonner';
+  import { createShareAndCopyLink } from '$lib/share-actions';
   import { albumViewPrefs } from '$lib/stores/album-view-prefs.svelte';
   import { playerStore } from '$lib/stores/player.svelte';
   import { songDetail } from '$lib/stores/song-detail.svelte';
@@ -195,6 +197,21 @@
         retagState = 'idle';
         retagMessage = null;
       }, 4000);
+    }
+  }
+
+  // Share: mint (or fetch the existing) public link for this album and copy it. The link plays
+  // the album and shows lyrics/metadata to anyone — no account needed.
+  let shareState = $state<'idle' | 'loading'>('idle');
+
+  async function shareAlbum() {
+    const first = album?.songs[0];
+    if (!first || shareState === 'loading') return;
+    shareState = 'loading';
+    try {
+      await createShareAndCopyLink(first.id, 'album');
+    } finally {
+      shareState = 'idle';
     }
   }
 
@@ -578,6 +595,32 @@
         <Shuffle class="size-4" />
         Shuffle
       </button>
+
+      <Tooltip.Provider delayDuration={300}>
+        <Tooltip.Root>
+          <Tooltip.Trigger>
+            {#snippet child({ props })}
+              <button
+                {...props}
+                type="button"
+                onclick={shareAlbum}
+                disabled={shareState === 'loading'}
+                aria-label="Share album"
+                class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {#if shareState === 'loading'}
+                  <Loader2 class="size-4 animate-spin" />
+                {:else}
+                  <Share2 class="size-4" />
+                {/if}
+              </button>
+            {/snippet}
+          </Tooltip.Trigger>
+          <Tooltip.Content>
+            Share — copy a public link that plays this album for anyone, no account needed.
+          </Tooltip.Content>
+        </Tooltip.Root>
+      </Tooltip.Provider>
 
       {#if destinationFolder}
         <Tooltip.Provider delayDuration={300}>

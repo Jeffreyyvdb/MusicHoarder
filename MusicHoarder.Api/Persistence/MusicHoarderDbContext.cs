@@ -53,6 +53,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<LibraryWriteEvent> LibraryWriteEvents { get; set; } = null!;
     public DbSet<EnrichmentSnapshot> EnrichmentSnapshots { get; set; } = null!;
     public DbSet<EnrichmentSnapshotSong> EnrichmentSnapshotSongs { get; set; } = null!;
+    public DbSet<SongShare> SongShares { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
     public DbSet<Session> Sessions { get; set; } = null!;
     public DbSet<MagicLinkToken> MagicLinkTokens { get; set; } = null!;
@@ -315,6 +316,24 @@ public class MusicHoarderDbContext : DbContext
             // Mirror the parent snapshot's tenancy filter so a child is filtered exactly when its
             // principal would be (otherwise EF warns about the required relationship).
             entity.HasQueryFilter(e => !hasUser || e.Snapshot.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<SongShare>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // Public share resolution is a point lookup by token (via IgnoreQueryFilters).
+            entity.HasIndex(e => e.Token).IsUnique();
+            // The owner's share list sweeps active rows.
+            entity.HasIndex(e => new { e.OwnerUserId, e.RevokedAtUtc });
+
+            entity.HasOne(e => e.Song)
+                .WithMany()
+                .HasForeignKey(e => e.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Owner-scoped for the management endpoints; the anonymous share endpoints resolve
+            // tokens via .IgnoreQueryFilters() and re-scope by the share's own OwnerUserId.
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
         });
 
         modelBuilder.Entity<User>(entity =>

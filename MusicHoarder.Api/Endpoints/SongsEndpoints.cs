@@ -456,10 +456,22 @@ public static class SongsEndpoints
         if (song is null)
             return Results.NotFound(new { message = $"Song with id {id} not found." });
 
-        var filePath =
-            (!string.IsNullOrEmpty(song.SourcePath) && File.Exists(song.SourcePath)) ? song.SourcePath :
-            (!string.IsNullOrEmpty(song.DestinationPath) && File.Exists(song.DestinationPath)) ? song.DestinationPath :
-            null;
+        return StreamSongFile(song);
+    }
+
+    /// <summary>Prefers the source file, falls back to the built destination copy.</summary>
+    internal static string? ResolveAudioFilePath(SongMetadata song) =>
+        (!string.IsNullOrEmpty(song.SourcePath) && File.Exists(song.SourcePath)) ? song.SourcePath :
+        (!string.IsNullOrEmpty(song.DestinationPath) && File.Exists(song.DestinationPath)) ? song.DestinationPath :
+        null;
+
+    /// <summary>
+    /// Range-enabled audio stream for a song row the caller has already loaded and authorized
+    /// (also used by the anonymous share endpoints, which do their own token-based scoping).
+    /// </summary>
+    internal static IResult StreamSongFile(SongMetadata song)
+    {
+        var filePath = ResolveAudioFilePath(song);
 
         if (filePath is null)
             return Results.NotFound(new
@@ -508,10 +520,21 @@ public static class SongsEndpoints
         if (song is null || song.IsSynthetic)
             return Results.NotFound();
 
-        var filePath =
-            (!string.IsNullOrEmpty(song.SourcePath) && File.Exists(song.SourcePath)) ? song.SourcePath :
-            (!string.IsNullOrEmpty(song.DestinationPath) && File.Exists(song.DestinationPath)) ? song.DestinationPath :
-            null;
+        return await ServeCoverAsync(song, coverArtResolver, thumbnails, http, size);
+    }
+
+    /// <summary>
+    /// Resolve + serve a song's cover (thumbnailed when <paramref name="size"/> is set) for a row
+    /// the caller has already authorized (also used by the anonymous share endpoints).
+    /// </summary>
+    internal static async Task<IResult> ServeCoverAsync(
+        SongMetadata song,
+        ICoverArtResolver coverArtResolver,
+        ICoverThumbnailService thumbnails,
+        HttpContext http,
+        int? size)
+    {
+        var filePath = ResolveAudioFilePath(song);
 
         if (filePath is null)
             return Results.NotFound();
