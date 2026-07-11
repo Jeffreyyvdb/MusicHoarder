@@ -45,6 +45,33 @@ public class IndexServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Index_SkipsDotFilesAndDotDirectories()
+    {
+        await File.WriteAllBytesAsync(Path.Combine(tempDir, "track.mp3"), [1, 2, 3]);
+        var incoming = Directory.CreateDirectory(Path.Combine(tempDir, ".incoming")).FullName;
+        await File.WriteAllBytesAsync(Path.Combine(incoming, "halfwritten.flac"), [1, 2, 3]);
+        await File.WriteAllBytesAsync(Path.Combine(tempDir, "._resourcefork.mp3"), [1, 2, 3]);
+
+        await using var db = NewContext();
+        var result = await CreateService(db).IndexAsync(Guid.NewGuid(), tempDir);
+
+        Assert.Equal(1, result.TotalFiles);
+        var row = await db.Songs.IgnoreQueryFilters().SingleAsync();
+        Assert.EndsWith("track.mp3", row.SourcePath);
+    }
+
+    [Theory]
+    [InlineData("/root/.incoming/file.flac", "/root/", true)]
+    [InlineData("/root/sub/.hidden/file.flac", "/root/", true)]
+    [InlineData("/root/._file.mp3", "/root/", true)]
+    [InlineData("/root/Artist/file.flac", "/root/", false)]
+    [InlineData("/srv/.media/music/file.flac", "/srv/.media/music/", false)] // dot in the ROOT doesn't count
+    public void HasHiddenSegment_OnlyFlagsSegmentsBelowRoot(string file, string root, bool expected)
+    {
+        Assert.Equal(expected, IndexService.HasHiddenSegment(file, root));
+    }
+
+    [Fact]
     public async Task Index_ScopesDeletionToScannedRoot_LeavingOtherRootsUntouched()
     {
         // Two source roots: the read-only library (rootA) and the writable download dir (rootB).

@@ -1583,6 +1583,117 @@ export async function triggerWishlistDownload(): Promise<{ jobId: string }> {
   return requestJson<{ jobId: string }>("/api/wishlist/download", { method: "POST" })
 }
 
+// ── Soulseek & library sync API ───────────────────────────────────────────────
+
+export type SyncMode = "Off" | "Push" | "Receive"
+
+/** Outbox rollup for Push mode — how many tracks sit in each sync state. */
+export interface SyncOutboxCounts {
+  pending: number
+  uploading: number
+  synced: number
+  skippedRemoteBetter: number
+  failed: number
+}
+
+export interface SyncStatus {
+  mode: SyncMode
+  receiveConfigured: boolean
+  pushConfigured: boolean
+  outbox: SyncOutboxCounts
+}
+
+export interface SoulseekStatus {
+  configured: boolean
+  connected: boolean
+  version?: string | null
+}
+
+export type SoulseekUpgradeStatus =
+  | "Queued"
+  | "Searching"
+  | "Downloading"
+  | "AwaitingIngest"
+  | "Completed"
+  | "NotFound"
+  | "Failed"
+  | "Cancelled"
+
+export interface SoulseekUpgrade {
+  id: number
+  songId: number
+  songArtist?: string | null
+  songTitle?: string | null
+  songExtension?: string | null
+  songBitrate?: number | null
+  status: string
+  candidateQualityScore?: number | null
+  candidateInfoJson?: string | null
+  error?: string | null
+  createdAtUtc: string
+  updatedAtUtc: string
+  completedAtUtc?: string | null
+}
+
+/** Target one song by id, or a whole album by artist + album. */
+export interface SoulseekUpgradeRequest {
+  songId?: number
+  artist?: string
+  album?: string
+}
+
+export interface SoulseekUpgradeResult {
+  queued: number
+  skippedActive: number
+}
+
+/** Per-track sync state surfaced on the enrichment detail (Push deployments only). */
+export interface TrackSyncView {
+  status: "Pending" | "Uploading" | "Synced" | "SkippedRemoteBetter" | "Failed"
+  attempts: number
+  lastError?: string | null
+  remoteQualityScore?: number | null
+  updatedAtUtc: string
+}
+
+/** The song's latest Soulseek quality-upgrade attempt, surfaced on the enrichment detail. */
+export interface SongUpgradeView {
+  id: number
+  status: SoulseekUpgradeStatus
+  active: boolean
+  candidateInfoJson?: string | null
+  error?: string | null
+  updatedAtUtc: string
+}
+
+export const sync = {
+  getStatus(): Promise<SyncStatus> {
+    return requestJson<SyncStatus>("/api/sync/status")
+  },
+}
+
+export const soulseek = {
+  getStatus(): Promise<SoulseekStatus> {
+    return requestJson<SoulseekStatus>("/api/soulseek/status")
+  },
+  requestUpgrade(body: SoulseekUpgradeRequest): Promise<SoulseekUpgradeResult> {
+    return requestJson<SoulseekUpgradeResult>("/api/soulseek/upgrades", {
+      method: "POST",
+      body: JSON.stringify(body),
+    })
+  },
+  listUpgrades(status?: string, limit?: number): Promise<SoulseekUpgrade[]> {
+    const params = new URLSearchParams()
+    if (status) params.set("status", status)
+    if (limit != null) params.set("limit", String(limit))
+    const qs = params.toString()
+    return requestJson<SoulseekUpgrade[]>(`/api/soulseek/upgrades${qs ? `?${qs}` : ""}`)
+  },
+  cancelUpgrade(id: number): Promise<{ cancelled: boolean }> {
+    return requestJson<{ cancelled: boolean }>(`/api/soulseek/upgrades/${id}`, { method: "DELETE" })
+  },
+}
+
 // ---------------------------------------------------------------------------
 // Exported playlists API (Spotify Liked Songs + playlists → on-disk .m3u8)
 // ---------------------------------------------------------------------------
@@ -1970,6 +2081,10 @@ export interface EnrichmentDetail {
   diff: MetadataDiffEntry[]
   providerAttempts: ProviderAttempt[]
   changeLog: ChangeLogEntry[]
+  /** Push-mode sync state for this track; null when sync is off or the track has no outbox row. */
+  trackSync?: TrackSyncView | null
+  /** Latest Soulseek quality-upgrade attempt; null when none has been requested. */
+  upgrade?: SongUpgradeView | null
 }
 
 export async function fetchEnrichmentDetail(songId: number): Promise<EnrichmentDetail> {

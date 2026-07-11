@@ -875,7 +875,49 @@ public static class SongsEndpoints
             diff,
             providerAttempts,
             changeLog,
+            trackSync = await GetTrackSyncInfoAsync(db, id),
+            upgrade = await GetLatestUpgradeInfoAsync(db, id),
         });
+    }
+
+    /// <summary>Push-side sync outbox state, folded into the detail so the UI needs no extra call.
+    /// Null when this instance never synced the track (e.g. sync off / receive-side).</summary>
+    private static async Task<object?> GetTrackSyncInfoAsync(MusicHoarderDbContext db, int songId)
+    {
+        return await db.TrackSyncStates
+            .AsNoTracking()
+            .Where(t => t.SongId == songId)
+            .Select(t => new
+            {
+                status = t.Status.ToString(),
+                t.Attempts,
+                t.LastError,
+                t.RemoteQualityScore,
+                t.UpdatedAtUtc,
+            })
+            .FirstOrDefaultAsync();
+    }
+
+    /// <summary>Latest Soulseek upgrade request for the track, newest first. Null when none exist.</summary>
+    private static async Task<object?> GetLatestUpgradeInfoAsync(MusicHoarderDbContext db, int songId)
+    {
+        return await db.UpgradeRequests
+            .AsNoTracking()
+            .Where(r => r.SongId == songId)
+            .OrderByDescending(r => r.Id)
+            .Select(r => new
+            {
+                r.Id,
+                status = r.Status.ToString(),
+                active = r.Status == UpgradeRequestStatus.Queued
+                    || r.Status == UpgradeRequestStatus.Searching
+                    || r.Status == UpgradeRequestStatus.Downloading
+                    || r.Status == UpgradeRequestStatus.AwaitingIngest,
+                r.CandidateInfoJson,
+                r.Error,
+                r.UpdatedAtUtc,
+            })
+            .FirstOrDefaultAsync();
     }
 
     internal static List<object> BuildMetadataDiff(SongMetadata s)

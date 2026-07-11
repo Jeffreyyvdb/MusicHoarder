@@ -95,6 +95,7 @@ internal static class ComposeFileExtensions
         MountMusicLibrary(api);
         MountDemoMedia(api);
         file.ConfigureWishlistDownloads(api);
+        file.MountSyncedSource(api);
 
         // ── Zero-downtime deploys ──────────────────────────────────────────────────────────────
         // Dokploy "Compose" deploys (`docker compose up`) stop the old container before the new one
@@ -228,6 +229,7 @@ internal static class ComposeFileExtensions
         // Shared app + env contract — same helpers as swarm/preview, so new provider/feature env lands here too.
         file.PersistDataProtectionKeys(api);
         file.ConfigureWishlistDownloads(api);
+        file.MountSyncedSource(api);
         ApplyProviderEnvDefaults(api);
 
         // Prebuilt images pulled from GHCR, pinned by MUSICHOARDER_VERSION (defaults to :latest). The
@@ -251,6 +253,13 @@ internal static class ComposeFileExtensions
         api.Environment["MusicEnricher__DestinationDirectory"] = "/music/destination";
         api.AddVolume(new Volume { Name = "music-source", Type = "bind", Source = "${MUSIC_SOURCE_PATH}", Target = "/music/source", ReadOnly = true });
         api.AddVolume(new Volume { Name = "music-destination", Type = "bind", Source = "${MUSIC_DESTINATION_PATH}", Target = "/music/destination" });
+
+        // Soulseek (user-operated slskd): the api needs read-write access to slskd's completed-downloads
+        // directory so it can move finished files into its own staging dir. Optional — the /dev/null
+        // fallback (same trick as the cookies bind) keeps the compose valid when slskd isn't used;
+        // the integration stays off unless SLSKD_URL + SLSKD_API_KEY are set. Read-write on purpose.
+        api.Environment["Slskd__DownloadsDirectory"] = "${SLSKD_DOWNLOADS_DIR:-/data/slskd-downloads}";
+        api.AddVolume(new Volume { Name = "slskd-downloads", Type = "bind", Source = "${SLSKD_DOWNLOADS_HOST_PATH:-/dev/null}", Target = "/data/slskd-downloads" });
 
         // Published host ports so `docker compose up` is reachable at localhost without a reverse proxy.
         // Pin the API's container port to 8080 (self-host has no API_PORT deploy var) and point the
@@ -313,6 +322,31 @@ internal static class ComposeFileExtensions
         api.Environment["LyricsTranscription__BaseUrl"] = "${LYRICS_TRANSCRIPTION_BASE_URL:-https://api.groq.com/openai/v1}";
         api.Environment["LyricsTranscription__Model"] = "${LYRICS_TRANSCRIPTION_MODEL:-whisper-large-v3}";
         api.Environment["LyricsTranscription__LlmModel"] = "${LYRICS_TRANSCRIPTION_LLM_MODEL:-google/gemini-2.5-flash-lite}";
+        // Soulseek via user-operated slskd. All blank → integration off; the "slskd" chain entry then
+        // reports NotFound and every wishlist download falls through to yt-dlp, so these defaults are
+        // safe on instances (e.g. the public VPS) that never configure slskd.
+        api.Environment["Slskd__BaseUrl"] = "${SLSKD_URL:-}";
+        api.Environment["Slskd__ApiKey"] = "${SLSKD_API_KEY:-}";
+        api.Environment["Slskd__DownloadsDirectory"] = "${SLSKD_DOWNLOADS_DIR:-}";
+        api.Environment["MusicEnricher__DownloadProviders__0"] = "${DOWNLOAD_PROVIDER_1:-slskd}";
+        api.Environment["MusicEnricher__DownloadProviders__1"] = "${DOWNLOAD_PROVIDER_2:-yt-dlp}";
+        // Instance sync: role is pure config on one shared build — Push on the private instance,
+        // Receive on the public one, Off (the default) everywhere else. The key gates the
+        // internet-facing receive endpoints, so generate a long random one (openssl rand -base64 48).
+        api.Environment["Sync__Mode"] = "${SYNC_MODE:-Off}";
+        api.Environment["Sync__ApiKey"] = "${SYNC_API_KEY:-}";
+        api.Environment["Sync__RemoteBaseUrl"] = "${SYNC_REMOTE_URL:-}";
+        api.Environment["Sync__SyncedSourceDirectory"] = "${SYNC_SOURCE_DIR:-/data/synced-source}";
+    }
+
+    /// <summary>
+    /// Named volume backing the sync-receive managed directory. Harmless (empty) when the instance
+    /// isn't a receiver; required so received files survive redeploys when it is.
+    /// </summary>
+    private static void MountSyncedSource(this ComposeFile file, Service api)
+    {
+        api.AddVolume(new Volume { Name = "musichoarder-synced-source", Type = "volume", Source = "musichoarder-synced-source", Target = "/data/synced-source" });
+        file.Volumes["musichoarder-synced-source"] = new Volume { Name = "musichoarder-synced-source", Driver = "local" };
     }
 
     /// <summary>

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MusicHoarder.Api.Audio;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Persistence;
 
@@ -15,27 +16,10 @@ public interface IDuplicateDetectionService
     Task<DuplicateDetectionResult> DetectDuplicatesAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Computes a quality score for a song based on format and bitrate.
-    /// FLAC/WAV/AIFF (lossless) score highest; lossy formats score by bitrate.
-    /// Ties are broken by file size (larger = higher quality).
+    /// Computes a quality score for a song. Codec tier dominates (lossless always beats lossy);
+    /// bitrate breaks ties within a tier. Ties are broken by file size (larger = higher quality).
     /// </summary>
-    static int QualityScore(SongMetadata song)
-    {
-        var formatScore = song.Extension?.ToLowerInvariant() switch
-        {
-            ".flac" => 1000,
-            ".wav" => 900,
-            ".aiff" => 900,
-            ".mp3" => song.Bitrate ?? 0,
-            ".m4a" => song.Bitrate ?? 0,
-            ".aac" => song.Bitrate ?? 0,
-            ".ogg" => song.Bitrate ?? 0,
-            ".opus" => song.Bitrate ?? 0,
-            ".wma" => song.Bitrate ?? 0,
-            _ => 0
-        };
-        return formatScore;
-    }
+    static int QualityScore(SongMetadata song) => AudioQuality.Score(song);
 }
 
 public class DuplicateDetectionService(

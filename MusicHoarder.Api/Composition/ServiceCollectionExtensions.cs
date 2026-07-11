@@ -23,7 +23,9 @@ using MusicHoarder.Api.Quality;
 using MusicHoarder.Api.Scanner;
 using MusicHoarder.Api.Settings;
 using MusicHoarder.Api.Snapshots;
+using MusicHoarder.Api.Soulseek;
 using MusicHoarder.Api.Spotify;
+using MusicHoarder.Api.Sync;
 using MusicHoarder.Api.Version;
 using MusicHoarder.Api.Wishlist;
 
@@ -56,6 +58,19 @@ public static class ServiceCollectionExtensions
             .BindConfiguration(LyricsTranscriptionOptions.SectionName)
             .ValidateDataAnnotations()
             .ValidateOnStart();
+
+        services
+            .AddOptions<SlskdOptions>()
+            .BindConfiguration(SlskdOptions.SectionName)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services
+            .AddOptions<SyncOptions>()
+            .BindConfiguration(SyncOptions.SectionName)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<SyncOptions>, SyncOptionsValidator>();
 
         services
             .AddOptions<SpotifyOptions>()
@@ -199,10 +214,42 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<LibraryBuilderBackgroundService>();
 
         // Wishlist downloader: fetches Pending wishlist items into the source tree, then the scanner
-        // ingests them like any other file. Pluggable provider (yt-dlp first).
+        // ingests them like any other file. Ordered provider chain (MusicEnricher:DownloadProviders);
+        // an unconfigured slskd reports NotFound so the chain falls through to yt-dlp.
+        services.AddSingleton<ISlskdClient>(sp => new SlskdClient(
+            new HttpClient { Timeout = TimeSpan.FromSeconds(30) },
+            sp.GetRequiredService<IOptionsMonitor<SlskdOptions>>(),
+            sp.GetRequiredService<ILogger<SlskdClient>>()));
+        services.AddSingleton<SlskdFileFetcher>();
+        // yt-dlp stays first: ResolveProviders falls back to the first registered provider when the
+        // configured chain resolves to nothing, and that fallback has always been yt-dlp.
         services.AddSingleton<IDownloadProvider, YtDlpDownloadProvider>();
+        services.AddSingleton<IDownloadProvider, SlskdDownloadProvider>();
         services.AddScoped<WishlistDownloadProcessor>();
         services.AddHostedService<DownloadBackgroundService>();
+
+        // Manual Soulseek quality upgrades: search/download worker + the merge sweep that swaps a
+        // verified better file into the target row (Id-preserving).
+        services.AddSingleton<SoulseekUpgradeChannel>();
+        services.AddScoped<SoulseekUpgradeService>();
+        services.AddScoped<UpgradeMergeService>();
+        services.AddHostedService<SoulseekUpgradeBackgroundService>();
+
+        // Instance sync (receive side): ingest applies pushed tracks; the endpoint filter is the
+        // machine-to-machine auth gate. Both are inert unless Sync:Mode=Receive.
+        services.AddScoped<ISyncIngestService, SyncIngestService>();
+        services.AddSingleton<SyncApiKeyFilter>();
+
+        // Instance sync (push side): the builder's post-build hook feeds the channel; the worker
+        // checks-then-uploads with a persistent outbox (TrackSyncState). Inert unless Sync:Mode=Push.
+        services.AddSingleton<TrackSyncChannel>();
+        services.AddSingleton<ITrackSyncEnqueuer, TrackSyncEnqueuer>();
+        services.AddSingleton<ISyncPushClient>(sp => new SyncPushClient(
+            new HttpClient { Timeout = Timeout.InfiniteTimeSpan }, // per-call CTS owns timeouts (uploads are long)
+            sp.GetRequiredService<IOptionsMonitor<SyncOptions>>(),
+            sp.GetRequiredService<ILogger<SyncPushClient>>()));
+        services.AddScoped<TrackSyncProcessor>();
+        services.AddHostedService<TrackSyncBackgroundService>();
 
         // Multi-provider canonical album tracklists (full-album view, missing tracks greyed out).
         services.AddSingleton<IAlbumTracklistProvider, MusicBrainzAlbumTracklistProvider>();

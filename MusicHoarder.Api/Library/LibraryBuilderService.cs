@@ -306,6 +306,7 @@ public class LibraryBuilderService(
     IAlbumIdentityReconciler albumIdentityReconciler,
     IOptions<MusicEnricherOptions> options,
     Observability.PipelineMetrics metrics,
+    Sync.ITrackSyncEnqueuer trackSyncEnqueuer,
     ILogger<LibraryBuilderService> logger) : ILibraryBuilderService
 {
     private const int CopyBufferSize = 1024 * 1024;
@@ -404,6 +405,10 @@ public class LibraryBuilderService(
                     {
                         case LibraryBuildOutcome.Done:
                             Interlocked.Increment(ref done);
+                            // Per-track "finished" hook: the result is produced after the build's
+                            // SaveChanges committed, so the sync worker always reads a Done row.
+                            // No-op unless this instance pushes; demo builds are dropped inside.
+                            trackSyncEnqueuer.TryEnqueue(result.SongId, result.OwnerUserId);
                             if (!result.IsUnreleased && !string.IsNullOrEmpty(result.SourcePath))
                             {
                                 var directory = fileSystem.Path.GetDirectoryName(candidate.DestinationPath);
