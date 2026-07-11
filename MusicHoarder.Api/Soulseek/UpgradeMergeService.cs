@@ -31,7 +31,10 @@ public class UpgradeMergeService(
     /// many requests reached a terminal state this pass.</summary>
     public async Task<int> SweepAsync(CancellationToken ct)
     {
+        // IgnoreQueryFilters: background scope → the tenant filter resolves to Guid.Empty and would
+        // hide the owner's rows. Owner scoping is explicit below.
         var pending = await db.UpgradeRequests
+            .IgnoreQueryFilters()
             .Include(r => r.Song)
             .Where(r => r.OwnerUserId == ownerLookup.OwnerUserId
                 && r.Status == UpgradeRequestStatus.AwaitingIngest)
