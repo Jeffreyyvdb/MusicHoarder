@@ -1,19 +1,10 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { fly } from 'svelte/transition';
-  import {
-    ChevronDown,
-    FastForward,
-    Loader2,
-    Maximize2,
-    Music,
-    Pause,
-    Play,
-    Rewind
-  } from '@lucide/svelte';
-  import { Button } from '$lib/components/ui/button';
+  import { Loader2, Music, Pause, Play } from '@lucide/svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
-  import Scrubber from '$lib/components/file-browser/Scrubber.svelte';
+  import SongTransport from '$lib/components/file-browser/SongTransport.svelte';
+  import LyricsCard from '$lib/components/file-browser/LyricsCard.svelte';
+  import LyricsFullscreen from '$lib/components/file-browser/LyricsFullscreen.svelte';
   import LyricsPanel from '$lib/components/file-browser/LyricsPanel.svelte';
   import { playerStore, type PlayerSong } from '$lib/stores/player.svelte';
   import { formatDuration } from '$lib/formatters';
@@ -80,8 +71,6 @@
     activeTrack != null && playerStore.currentSong?.id === activeTrack.id
   );
   const isCurrentlyPlaying = $derived(isCurrentlyLoaded && playerStore.isPlaying);
-  const canGoPrevious = $derived(isCurrentlyLoaded && playerStore.hasPrevious);
-  const canGoNext = $derived(isCurrentlyLoaded && playerStore.hasNext);
 
   function playTrack(track: ShareTrack) {
     const queue = tracks.map(toPlayerSong);
@@ -139,41 +128,17 @@
     activeTrack != null && activeTrack.isInstrumental !== true && lyricsReady && lyrics !== null
   );
 
-  // Mobile fullscreen lyrics overlay (Apple Music / Spotify style): just the lyrics with a
-  // scrubber + play/pause, no page scrolling.
+  // Mobile fullscreen lyrics overlay (Apple Music / Spotify style).
   let lyricsExpanded = $state(false);
 
   $effect(() => {
     if (!canExpandLyrics) lyricsExpanded = false;
   });
 
-  // Lock body scroll while the fullscreen lyrics overlay is open.
-  $effect(() => {
-    if (!lyricsExpanded) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  });
-
-  function formatTime(seconds: number): string {
-    if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  }
-
   const activeDurationSeconds = $derived(
     activeTrack?.durationMs ? activeTrack.durationMs / 1000 : 0
   );
 </script>
-
-<svelte:window
-  onkeydown={(e) => {
-    if (e.key === 'Escape' && lyricsExpanded) lyricsExpanded = false;
-  }}
-/>
 
 <svelte:head>
   <title>{pageTitle}</title>
@@ -192,55 +157,6 @@
     {/if}
   {/if}
 </svelte:head>
-
-{#snippet transport()}
-  <div class="mx-auto mt-6 w-full max-w-[340px] lg:mx-0">
-    <Scrubber isActive={isCurrentlyLoaded} fallbackDuration={activeDurationSeconds} />
-    <div class="mt-1.5 flex items-center gap-3">
-      <span class="text-muted-foreground w-10 shrink-0 text-right text-xs tabular-nums">
-        {isCurrentlyLoaded ? formatTime(playerStore.currentTime) : '0:00'}
-      </span>
-      <div class="mx-auto flex items-center gap-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          class="text-foreground hover:text-foreground size-9 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent active:scale-90 disabled:opacity-30 dark:hover:bg-transparent"
-          onclick={() => playerStore.playPrevious()}
-          disabled={!canGoPrevious}
-          aria-label="Previous track"
-        >
-          <Rewind class="size-5.5" fill="currentColor" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          class="text-foreground hover:text-foreground size-11 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent active:scale-90 dark:hover:bg-transparent"
-          onclick={handlePlayToggle}
-          aria-label={isCurrentlyPlaying ? 'Pause' : 'Play'}
-        >
-          {#if isCurrentlyPlaying}
-            <Pause class="size-7" fill="currentColor" />
-          {:else}
-            <Play class="size-7 translate-x-px" fill="currentColor" />
-          {/if}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          class="text-foreground hover:text-foreground size-9 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent active:scale-90 disabled:opacity-30 dark:hover:bg-transparent"
-          onclick={() => playerStore.playNext()}
-          disabled={!canGoNext}
-          aria-label="Next track"
-        >
-          <FastForward class="size-5.5" fill="currentColor" />
-        </Button>
-      </div>
-      <span class="text-muted-foreground w-10 shrink-0 text-xs tabular-nums">
-        {formatDuration(activeDurationSeconds)}
-      </span>
-    </div>
-  </div>
-{/snippet}
 
 {#snippet trackRows()}
   {#each tracks as track, i (track.id)}
@@ -341,8 +257,14 @@
           </p>
         </div>
 
-        <!-- Transport: same naked-glyph Apple-style controls as the in-app track panel. -->
-        {@render transport()}
+        <div class="mx-auto mt-6 w-full max-w-[340px] lg:mx-0">
+          <SongTransport
+            isActive={isCurrentlyLoaded}
+            isPlaying={isCurrentlyPlaying}
+            fallbackDuration={activeDurationSeconds}
+            onPlayToggle={handlePlayToggle}
+          />
+        </div>
 
         {#if isAlbumShare}
           <!-- Desktop tracklist lives inside the rail and scrolls on its own. -->
@@ -366,50 +288,29 @@
       </div>
 
       <!-- Mobile lyrics card: a compact live preview right under the transport, expandable
-           to a fullscreen lyrics + play/pause overlay (Apple Music / Spotify style). -->
+           to the fullscreen lyrics + play/pause overlay. -->
       {#if showLyricsSection}
         <section class="mt-8 w-full lg:hidden">
-          <button
-            type="button"
-            class="bg-foreground/5 relative block w-full overflow-hidden rounded-2xl text-left"
-            onclick={() => {
-              if (canExpandLyrics) lyricsExpanded = true;
-            }}
-            aria-label="Show fullscreen lyrics"
-          >
-            <div class="flex items-center justify-between px-4 pt-3.5 pb-1">
-              <h2 class="text-muted-foreground text-xs font-semibold tracking-widest uppercase">
-                Lyrics
-              </h2>
-              {#if canExpandLyrics}
-                <Maximize2 class="text-muted-foreground size-4" />
-              {/if}
-            </div>
-            <div class="pointer-events-none relative h-72 px-3 pb-3">
-              {#if activeTrack.isInstrumental || (lyricsReady && lyrics)}
-                {#key activeTrack.id}
-                  <div class="flex h-full flex-col">
-                    <LyricsPanel
-                      variant="theater"
-                      songId={activeTrack.id}
-                      syncedLyrics={lyrics?.synced ?? undefined}
-                      plainLyrics={lyrics?.plain ?? undefined}
-                      isInstrumental={activeTrack.isInstrumental}
-                      currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
-                    />
-                  </div>
-                {/key}
-                <!-- Bottom fade hinting there's more to see fullscreen -->
-                <div
-                  class="from-background/0 via-background/0 to-background/25 absolute inset-x-0 bottom-0 h-12 rounded-b-2xl bg-gradient-to-b"
-                ></div>
-              {:else if lyricsLoading}
-                <div class="text-muted-foreground flex h-full items-center gap-2 px-1 text-sm">
-                  <Loader2 class="size-4 animate-spin" /> Loading lyrics…
+          <LyricsCard expandable={canExpandLyrics} onExpand={() => (lyricsExpanded = true)}>
+            {#if activeTrack.isInstrumental || (lyricsReady && lyrics)}
+              {#key activeTrack.id}
+                <div class="flex h-full flex-col">
+                  <LyricsPanel
+                    variant="theater"
+                    songId={activeTrack.id}
+                    syncedLyrics={lyrics?.synced ?? undefined}
+                    plainLyrics={lyrics?.plain ?? undefined}
+                    isInstrumental={activeTrack.isInstrumental}
+                    currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
+                  />
                 </div>
-              {/if}
-            </div>
-          </button>
+              {/key}
+            {:else if lyricsLoading}
+              <div class="text-muted-foreground flex h-full items-center gap-2 px-1 text-sm">
+                <Loader2 class="size-4 animate-spin" /> Loading lyrics…
+              </div>
+            {/if}
+          </LyricsCard>
         </section>
       {/if}
 
@@ -463,90 +364,32 @@
 
     <!-- Mobile fullscreen lyrics overlay: only the lyrics + scrubber + play/pause. -->
     {#if lyricsExpanded && canExpandLyrics}
-      <div
-        class="bg-background fixed inset-0 z-50 flex flex-col lg:hidden"
-        transition:fly={{ y: 32, duration: 220 }}
+      <LyricsFullscreen
+        title={activeTrack.title}
+        artist={displayArtist}
+        coverTitle={payload.album.title ?? activeTrack.title}
+        {coverUrl}
+        {ambientUrl}
+        isActive={isCurrentlyLoaded}
+        isPlaying={isCurrentlyPlaying}
+        fallbackDuration={activeDurationSeconds}
+        onPlayToggle={handlePlayToggle}
+        onClose={() => (lyricsExpanded = false)}
       >
-        {#if ambientUrl}
-          <img
-            src={ambientUrl}
-            alt=""
-            aria-hidden="true"
-            class="absolute inset-0 size-full scale-110 object-cover opacity-50 blur-3xl"
+        {#key activeTrack.id}
+          <LyricsPanel
+            variant="theater"
+            songId={activeTrack.id}
+            syncedLyrics={lyrics?.synced ?? undefined}
+            plainLyrics={lyrics?.plain ?? undefined}
+            isInstrumental={activeTrack.isInstrumental}
+            currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
+            onSeek={(ms) => {
+              if (isCurrentlyLoaded) playerStore.seek(ms / 1000);
+            }}
           />
-        {/if}
-        <div class="bg-background/85 absolute inset-0"></div>
-
-        <div
-          class="relative z-10 flex min-h-0 flex-1 flex-col px-5 pt-[max(1rem,env(safe-area-inset-top))]"
-        >
-          <div class="flex shrink-0 items-center gap-3 pb-3">
-            <Cover
-              artist={displayArtist}
-              title={payload.album.title ?? activeTrack.title}
-              {coverUrl}
-              size={44}
-              corner={8}
-              caption={false}
-              class="shrink-0 !shadow-md"
-            />
-            <div class="min-w-0 flex-1">
-              <h2 class="truncate text-sm leading-tight font-semibold">{activeTrack.title}</h2>
-              <p class="text-muted-foreground truncate text-xs">{displayArtist}</p>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              class="bg-foreground/10 hover:bg-foreground/15 size-9 shrink-0 rounded-full"
-              onclick={() => (lyricsExpanded = false)}
-              aria-label="Close fullscreen lyrics"
-            >
-              <ChevronDown class="size-5" />
-            </Button>
-          </div>
-
-          {#key activeTrack.id}
-            <div class="flex min-h-0 flex-1 flex-col">
-              <LyricsPanel
-                variant="theater"
-                songId={activeTrack.id}
-                syncedLyrics={lyrics?.synced ?? undefined}
-                plainLyrics={lyrics?.plain ?? undefined}
-                isInstrumental={activeTrack.isInstrumental}
-                currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
-                onSeek={(ms) => {
-                  if (isCurrentlyLoaded) playerStore.seek(ms / 1000);
-                }}
-              />
-            </div>
-          {/key}
-
-          <div class="shrink-0 pt-2 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-            <Scrubber isActive={isCurrentlyLoaded} fallbackDuration={activeDurationSeconds} />
-            <div class="mt-1 flex items-center justify-between">
-              <span class="text-muted-foreground w-10 text-xs tabular-nums">
-                {isCurrentlyLoaded ? formatTime(playerStore.currentTime) : '0:00'}
-              </span>
-              <Button
-                variant="ghost"
-                size="icon"
-                class="text-foreground hover:text-foreground size-12 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent active:scale-90 dark:hover:bg-transparent"
-                onclick={handlePlayToggle}
-                aria-label={isCurrentlyPlaying ? 'Pause' : 'Play'}
-              >
-                {#if isCurrentlyPlaying}
-                  <Pause class="size-8" fill="currentColor" />
-                {:else}
-                  <Play class="size-8 translate-x-px" fill="currentColor" />
-                {/if}
-              </Button>
-              <span class="text-muted-foreground w-10 text-right text-xs tabular-nums">
-                {formatDuration(activeDurationSeconds)}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
+        {/key}
+      </LyricsFullscreen>
     {/if}
   {/if}
 </div>
