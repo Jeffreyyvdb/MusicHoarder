@@ -23,6 +23,7 @@ using MusicHoarder.Api.Quality;
 using MusicHoarder.Api.Scanner;
 using MusicHoarder.Api.Settings;
 using MusicHoarder.Api.Snapshots;
+using MusicHoarder.Api.Soulseek;
 using MusicHoarder.Api.Spotify;
 using MusicHoarder.Api.Version;
 using MusicHoarder.Api.Wishlist;
@@ -54,6 +55,12 @@ public static class ServiceCollectionExtensions
         services
             .AddOptions<LyricsTranscriptionOptions>()
             .BindConfiguration(LyricsTranscriptionOptions.SectionName)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services
+            .AddOptions<SlskdOptions>()
+            .BindConfiguration(SlskdOptions.SectionName)
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
@@ -199,8 +206,16 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<LibraryBuilderBackgroundService>();
 
         // Wishlist downloader: fetches Pending wishlist items into the source tree, then the scanner
-        // ingests them like any other file. Pluggable provider (yt-dlp first).
+        // ingests them like any other file. Ordered provider chain (MusicEnricher:DownloadProviders);
+        // an unconfigured slskd reports NotFound so the chain falls through to yt-dlp.
+        services.AddSingleton<ISlskdClient>(sp => new SlskdClient(
+            new HttpClient { Timeout = TimeSpan.FromSeconds(30) },
+            sp.GetRequiredService<IOptionsMonitor<SlskdOptions>>(),
+            sp.GetRequiredService<ILogger<SlskdClient>>()));
+        // yt-dlp stays first: ResolveProviders falls back to the first registered provider when the
+        // configured chain resolves to nothing, and that fallback has always been yt-dlp.
         services.AddSingleton<IDownloadProvider, YtDlpDownloadProvider>();
+        services.AddSingleton<IDownloadProvider, SlskdDownloadProvider>();
         services.AddScoped<WishlistDownloadProcessor>();
         services.AddHostedService<DownloadBackgroundService>();
 

@@ -252,6 +252,13 @@ internal static class ComposeFileExtensions
         api.AddVolume(new Volume { Name = "music-source", Type = "bind", Source = "${MUSIC_SOURCE_PATH}", Target = "/music/source", ReadOnly = true });
         api.AddVolume(new Volume { Name = "music-destination", Type = "bind", Source = "${MUSIC_DESTINATION_PATH}", Target = "/music/destination" });
 
+        // Soulseek (user-operated slskd): the api needs read-write access to slskd's completed-downloads
+        // directory so it can move finished files into its own staging dir. Optional — the /dev/null
+        // fallback (same trick as the cookies bind) keeps the compose valid when slskd isn't used;
+        // the integration stays off unless SLSKD_URL + SLSKD_API_KEY are set. Read-write on purpose.
+        api.Environment["Slskd__DownloadsDirectory"] = "${SLSKD_DOWNLOADS_DIR:-/data/slskd-downloads}";
+        api.AddVolume(new Volume { Name = "slskd-downloads", Type = "bind", Source = "${SLSKD_DOWNLOADS_HOST_PATH:-/dev/null}", Target = "/data/slskd-downloads" });
+
         // Published host ports so `docker compose up` is reachable at localhost without a reverse proxy.
         // Pin the API's container port to 8080 (self-host has no API_PORT deploy var) and point the
         // frontend straight at it; drop Aspire's service-discovery vars that reference ${API_PORT}.
@@ -313,6 +320,14 @@ internal static class ComposeFileExtensions
         api.Environment["LyricsTranscription__BaseUrl"] = "${LYRICS_TRANSCRIPTION_BASE_URL:-https://api.groq.com/openai/v1}";
         api.Environment["LyricsTranscription__Model"] = "${LYRICS_TRANSCRIPTION_MODEL:-whisper-large-v3}";
         api.Environment["LyricsTranscription__LlmModel"] = "${LYRICS_TRANSCRIPTION_LLM_MODEL:-google/gemini-2.5-flash-lite}";
+        // Soulseek via user-operated slskd. All blank → integration off; the "slskd" chain entry then
+        // reports NotFound and every wishlist download falls through to yt-dlp, so these defaults are
+        // safe on instances (e.g. the public VPS) that never configure slskd.
+        api.Environment["Slskd__BaseUrl"] = "${SLSKD_URL:-}";
+        api.Environment["Slskd__ApiKey"] = "${SLSKD_API_KEY:-}";
+        api.Environment["Slskd__DownloadsDirectory"] = "${SLSKD_DOWNLOADS_DIR:-}";
+        api.Environment["MusicEnricher__DownloadProviders__0"] = "${DOWNLOAD_PROVIDER_1:-slskd}";
+        api.Environment["MusicEnricher__DownloadProviders__1"] = "${DOWNLOAD_PROVIDER_2:-yt-dlp}";
     }
 
     /// <summary>
