@@ -12,9 +12,11 @@
     Rewind,
     FastForward,
     Search,
+    Share2,
     Sparkles,
     X
   } from '@lucide/svelte';
+  import { createShareAndCopyLink } from '$lib/share-actions';
   import { Button } from '$lib/components/ui/button';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import * as Tabs from '$lib/components/ui/tabs/index.js';
@@ -81,6 +83,20 @@
   let enrichState = $state<'idle' | 'loading' | 'success' | 'error'>('idle');
   let enrichOutcome = $state<string | null>(null);
   let enrichError = $state<string | null>(null);
+
+  // Share: mint (or fetch the existing) public link for this song and copy it. The link plays
+  // the song and shows its lyrics/metadata to anyone — no account needed.
+  let shareState = $state<'idle' | 'loading'>('idle');
+
+  async function shareSong() {
+    if (shareState === 'loading') return;
+    shareState = 'loading';
+    try {
+      await createShareAndCopyLink(song.id, 'song');
+    } finally {
+      shareState = 'idle';
+    }
+  }
 
   // --- AI lyrics transcription (experiment: compare whisper-1 against LRCLIB) ---
   type AiLyrics = { synced?: string; plain?: string; model?: string; at?: string };
@@ -630,6 +646,21 @@
         aria-label="Close"
       >
         <X class="size-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        onclick={shareSong}
+        disabled={shareState === 'loading'}
+        class="bg-foreground/5 hover:bg-foreground/10 absolute right-3 size-9 rounded-full sm:right-5"
+        aria-label="Share song — copy a public link"
+        title="Share — copy a public link that plays this song for anyone, no account needed."
+      >
+        {#if shareState === 'loading'}
+          <Loader2 class="size-4 animate-spin" />
+        {:else}
+          <Share2 class="size-4" />
+        {/if}
       </Button>
       <Tabs.List class="bg-foreground/5 h-auto gap-1 rounded-full p-1">
         {#each TAB_DEFS as tab (tab.value)}
