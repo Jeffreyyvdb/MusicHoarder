@@ -1,9 +1,10 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Http.Features;
-using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Options;
+using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Sync;
 
 namespace MusicHoarder.Api.Endpoints;
@@ -109,14 +110,29 @@ public static class SyncEndpoints
         return Results.Ok(response);
     }
 
-    private static IResult Status(IOptionsMonitor<SyncOptions> options)
+    private static async Task<IResult> Status(
+        IOptionsMonitor<SyncOptions> options, MusicHoarderDbContext db, CancellationToken ct)
     {
         var opts = options.CurrentValue;
+        var outbox = await db.TrackSyncStates
+            .GroupBy(s => s.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToListAsync(ct);
+        int Count(TrackSyncStatus status) => outbox.FirstOrDefault(o => o.Status == status)?.Count ?? 0;
+
         return Results.Ok(new
         {
             mode = opts.Mode.ToString(),
             receiveConfigured = opts.IsReceiveConfigured,
             pushConfigured = opts.IsPushConfigured,
+            outbox = new
+            {
+                pending = Count(TrackSyncStatus.Pending),
+                uploading = Count(TrackSyncStatus.Uploading),
+                synced = Count(TrackSyncStatus.Synced),
+                skippedRemoteBetter = Count(TrackSyncStatus.SkippedRemoteBetter),
+                failed = Count(TrackSyncStatus.Failed),
+            },
         });
     }
 }

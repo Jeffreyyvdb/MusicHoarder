@@ -53,6 +53,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<LibraryWriteEvent> LibraryWriteEvents { get; set; } = null!;
     public DbSet<EnrichmentSnapshot> EnrichmentSnapshots { get; set; } = null!;
     public DbSet<EnrichmentSnapshotSong> EnrichmentSnapshotSongs { get; set; } = null!;
+    public DbSet<TrackSyncState> TrackSyncStates { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
     public DbSet<Session> Sessions { get; set; } = null!;
     public DbSet<MagicLinkToken> MagicLinkTokens { get; set; } = null!;
@@ -271,6 +272,21 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => new { e.OwnerUserId, e.StartedAtUtc });
 
             entity.HasQueryFilter(r => !hasUser || r.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<TrackSyncState>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // One outbox row per song; the sweep joins Songs → TrackSyncStates on this.
+            entity.HasIndex(e => e.SongId).IsUnique();
+            entity.HasIndex(e => new { e.Status, e.NextAttemptAtUtc });
+
+            // The outbox row is meaningless without its song; songs are soft-deleted in practice,
+            // so Cascade only fires on the rare hard delete (e.g. upgrade-merge provisional rows).
+            entity.HasOne(e => e.Song)
+                .WithOne()
+                .HasForeignKey<TrackSyncState>(e => e.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<LibraryWriteEvent>(entity =>

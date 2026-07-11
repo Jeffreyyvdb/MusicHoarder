@@ -232,6 +232,17 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ISyncIngestService, SyncIngestService>();
         services.AddSingleton<SyncApiKeyFilter>();
 
+        // Instance sync (push side): the builder's post-build hook feeds the channel; the worker
+        // checks-then-uploads with a persistent outbox (TrackSyncState). Inert unless Sync:Mode=Push.
+        services.AddSingleton<TrackSyncChannel>();
+        services.AddSingleton<ITrackSyncEnqueuer, TrackSyncEnqueuer>();
+        services.AddSingleton<ISyncPushClient>(sp => new SyncPushClient(
+            new HttpClient { Timeout = Timeout.InfiniteTimeSpan }, // per-call CTS owns timeouts (uploads are long)
+            sp.GetRequiredService<IOptionsMonitor<SyncOptions>>(),
+            sp.GetRequiredService<ILogger<SyncPushClient>>()));
+        services.AddScoped<TrackSyncProcessor>();
+        services.AddHostedService<TrackSyncBackgroundService>();
+
         // Multi-provider canonical album tracklists (full-album view, missing tracks greyed out).
         services.AddSingleton<IAlbumTracklistProvider, MusicBrainzAlbumTracklistProvider>();
         services.AddSingleton<IAlbumTracklistProvider, SpotifyAlbumTracklistProvider>();
