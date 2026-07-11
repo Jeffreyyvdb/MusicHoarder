@@ -220,12 +220,20 @@ public static class ServiceCollectionExtensions
             new HttpClient { Timeout = TimeSpan.FromSeconds(30) },
             sp.GetRequiredService<IOptionsMonitor<SlskdOptions>>(),
             sp.GetRequiredService<ILogger<SlskdClient>>()));
+        services.AddSingleton<SlskdFileFetcher>();
         // yt-dlp stays first: ResolveProviders falls back to the first registered provider when the
         // configured chain resolves to nothing, and that fallback has always been yt-dlp.
         services.AddSingleton<IDownloadProvider, YtDlpDownloadProvider>();
         services.AddSingleton<IDownloadProvider, SlskdDownloadProvider>();
         services.AddScoped<WishlistDownloadProcessor>();
         services.AddHostedService<DownloadBackgroundService>();
+
+        // Manual Soulseek quality upgrades: search/download worker + the merge sweep that swaps a
+        // verified better file into the target row (Id-preserving).
+        services.AddSingleton<SoulseekUpgradeChannel>();
+        services.AddScoped<SoulseekUpgradeService>();
+        services.AddScoped<UpgradeMergeService>();
+        services.AddHostedService<SoulseekUpgradeBackgroundService>();
 
         // Instance sync (receive side): ingest applies pushed tracks; the endpoint filter is the
         // machine-to-machine auth gate. Both are inert unless Sync:Mode=Receive.

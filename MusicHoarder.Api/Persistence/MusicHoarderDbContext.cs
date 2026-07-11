@@ -54,6 +54,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<EnrichmentSnapshot> EnrichmentSnapshots { get; set; } = null!;
     public DbSet<EnrichmentSnapshotSong> EnrichmentSnapshotSongs { get; set; } = null!;
     public DbSet<TrackSyncState> TrackSyncStates { get; set; } = null!;
+    public DbSet<UpgradeRequest> UpgradeRequests { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
     public DbSet<Session> Sessions { get; set; } = null!;
     public DbSet<MagicLinkToken> MagicLinkTokens { get; set; } = null!;
@@ -286,6 +287,19 @@ public class MusicHoarderDbContext : DbContext
             entity.HasOne(e => e.Song)
                 .WithOne()
                 .HasForeignKey<TrackSyncState>(e => e.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<UpgradeRequest>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // "Is there an active request for this song?" + the merge sweep's status scan.
+            entity.HasIndex(e => new { e.SongId, e.Status });
+            entity.HasIndex(e => e.Status);
+
+            entity.HasOne(e => e.Song)
+                .WithMany()
+                .HasForeignKey(e => e.SongId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
