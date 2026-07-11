@@ -87,6 +87,16 @@ var lyricsTranscriptionModel = builder.AddParameter("lyrics-transcription-model"
 var lyricsTranscriptionLlmModel = builder.AddParameter("lyrics-transcription-llm-model", builder.Configuration["Parameters:lyrics-transcription-llm-model"] ?? "google/gemini-2.5-flash-lite")
     .WithDescription("LLM that segments AI-transcribed lyrics for no-lyrics songs (provider namespace, e.g. google/gemini-2.5-flash-lite).");
 
+// Soulseek via a user-operated slskd instance (never provisioned here — the user runs slskd
+// themselves; MusicHoarder only needs to reach its REST API and read its completed-downloads dir).
+// All blank → the integration is off and the "slskd" download provider reports NotFound.
+var slskdBaseUrl = builder.AddParameter("slskd-base-url", builder.Configuration["Parameters:slskd-base-url"] ?? "")
+    .WithDescription("Base URL of a user-operated slskd instance (e.g. http://localhost:5030). Blank → Soulseek integration off.");
+var slskdApiKey = builder.AddParameter("slskd-api-key", builder.Configuration["Parameters:slskd-api-key"] ?? "", secret: true)
+    .WithDescription("slskd API key (web.authentication.api_keys), sent as X-API-Key.");
+var slskdDownloadsDirectory = builder.AddParameter("slskd-downloads-directory", builder.Configuration["Parameters:slskd-downloads-directory"] ?? "")
+    .WithDescription("slskd's completed-downloads directory as seen from the API process (in dev: the host path slskd writes to).");
+
 var ownerEmail = builder.AddParameter("owner-email")
     .WithDescription("Email of the owner (admin) account. Used by magic-link sign-in.");
 var demoUserEmail = builder.AddParameter("demo-user-email")
@@ -142,6 +152,9 @@ var api = builder.AddProject<Projects.MusicHoarder_Api>("api")
     .WithEnvironment("LyricsTranscription__BaseUrl", lyricsTranscriptionBaseUrl)
     .WithEnvironment("LyricsTranscription__Model", lyricsTranscriptionModel)
     .WithEnvironment("LyricsTranscription__LlmModel", lyricsTranscriptionLlmModel)
+    .WithEnvironment("Slskd__BaseUrl", slskdBaseUrl)
+    .WithEnvironment("Slskd__ApiKey", slskdApiKey)
+    .WithEnvironment("Slskd__DownloadsDirectory", slskdDownloadsDirectory)
     .WithExternalHttpEndpoints()
     .WithUrl("/scalar", "Scalar");
 #pragma warning disable ASPIRECOMPUTE003

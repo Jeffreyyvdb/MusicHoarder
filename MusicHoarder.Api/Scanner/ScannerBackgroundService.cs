@@ -12,6 +12,7 @@ public class ScannerBackgroundService(
     JobManager jobManager,
     IDirectoryAvailability directoryAvailability,
     IOptions<MusicEnricherOptions> options,
+    IOptions<SyncOptions> syncOptions,
     ILogger<ScannerBackgroundService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -33,6 +34,14 @@ public class ScannerBackgroundService(
             var downloadDir = options.Value.DownloadDirectory;
             if (!string.IsNullOrWhiteSpace(downloadDir) && Directory.Exists(downloadDir))
                 roots.Add(downloadDir);
+            // Sync-receive managed dir: rows are created directly by the ingest, so scanning it is
+            // the crash-recovery safety net (a file orphaned between move and row-insert gets a
+            // normal re-enriching ingest). In-flight uploads live in .incoming/, which the indexer
+            // skips as a hidden directory.
+            var syncedDir = syncOptions.Value.SyncedSourceDirectory;
+            if (syncOptions.Value.Mode == SyncMode.Receive
+                && !string.IsNullOrWhiteSpace(syncedDir) && Directory.Exists(syncedDir))
+                roots.Add(syncedDir);
 
             if (roots.Count == 0)
             {

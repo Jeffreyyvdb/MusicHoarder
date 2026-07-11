@@ -658,6 +658,44 @@ public class SongMetadata
         PreviousDestinationPath = DestinationPath;
     }
 
+    /// <summary>
+    /// Points this row at a different (better-quality) source file while preserving everything the
+    /// row *means*: Id (streaming URLs are Id-addressed), enrichment identity/tags, lyrics, and the
+    /// Original* snapshot all survive; only the file-identity facts and the fingerprint change. Used
+    /// by the Soulseek quality-upgrade merge and the sync-receive replace path. The caller must
+    /// follow with <see cref="ResetLibraryBuild"/> so the builder swaps the destination file (an
+    /// extension change relocates <see cref="DestinationPath"/>; the old file is pruned via
+    /// <see cref="PreviousDestinationPath"/>), and owns resolving the <c>(OwnerUserId, SourcePath)</c>
+    /// unique-index handoff when another row occupied the new path. <see cref="HasCoverArt"/> is
+    /// deliberately untouched — it's refreshed by the next scan / cover pipeline.
+    /// </summary>
+    public void ApplySourceUpgrade(
+        string sourcePath,
+        long fileSizeBytes,
+        string fileName,
+        string extension,
+        DateTime lastModifiedUtc,
+        int? bitrate,
+        string? fingerprint,
+        int? durationSeconds,
+        int? durationMs)
+    {
+        SourcePath = sourcePath;
+        FileSizeBytes = fileSizeBytes;
+        FileName = fileName;
+        Extension = extension;
+        LastModifiedUtc = lastModifiedUtc;
+        Bitrate = bitrate;
+        Fingerprint = fingerprint;
+        DurationSeconds = durationSeconds ?? DurationSeconds;
+        DurationMs = durationMs ?? DurationMs;
+        IndexedAtUtc = DateTime.UtcNow;
+        // The old file's write snapshot no longer describes the new source; drop it so the next
+        // build diffs from scratch instead of a stale baseline.
+        LastWrittenTagsJson = null;
+        LastWrittenAtUtc = null;
+    }
+
     public void ResetPostFingerprint()
     {
         ResetEnrichment(restoreOriginal: true);

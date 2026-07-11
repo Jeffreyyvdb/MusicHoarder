@@ -95,6 +95,13 @@ public class IndexService(
             if (!SupportedExtensions.Contains(Path.GetExtension(file).ToLowerInvariant()))
                 continue;
 
+            // Skip dot-files and anything under a dot-directory within the root: in-flight sync
+            // uploads (.incoming/), Syncthing's .stfolder, .Trash, macOS ._ resource forks — none
+            // are library content, and a half-written upload indexed mid-stream would create a
+            // corrupt-file row that immediately re-scans as changed.
+            if (HasHiddenSegment(file, rootPrefix))
+                continue;
+
             allDiscoveredPaths.Add(file);
 
             if (!existingSongs.TryGetValue(file, out var existing))
@@ -336,6 +343,24 @@ public class IndexService(
     /// </summary>
     internal static string NormalizeRootPrefix(string directoryPath)
         => directoryPath.Replace('\\', '/').TrimEnd('/') + "/";
+
+    /// <summary>
+    /// True when any path segment BELOW the scan root starts with a dot (hidden file or a file
+    /// inside a hidden directory). Segments of the root itself don't count, so a root like
+    /// <c>/srv/.media/music</c> still scans.
+    /// </summary>
+    internal static bool HasHiddenSegment(string filePath, string rootPrefix)
+    {
+        var normalized = filePath.Replace('\\', '/');
+        if (!normalized.StartsWith(rootPrefix, StringComparison.Ordinal))
+            return false;
+        foreach (var segment in normalized[rootPrefix.Length..].Split('/'))
+        {
+            if (segment.StartsWith('.'))
+                return true;
+        }
+        return false;
+    }
 
     internal static bool DateTimeIsEqualMicroseconds(DateTime a, DateTime b)
         => Math.Abs((a - b).TotalMicroseconds) < 1;

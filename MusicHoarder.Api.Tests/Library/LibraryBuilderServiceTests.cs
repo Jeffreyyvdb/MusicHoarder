@@ -970,6 +970,7 @@ public class LibraryBuilderServiceTests
             new AlbumIdentityReconciler(),
             options,
             TestPipelineMetrics.Create(),
+            new NoOpTrackSyncEnqueuer(),
             NullLogger<LibraryBuilderService>.Instance);
     }
 
@@ -1132,5 +1133,10 @@ public class LibraryBuilderServiceTests
             if (serviceType == typeof(ILibraryTagWriter)) return tagWriter;
             return null;
         }
+    }
+
+    private sealed class NoOpTrackSyncEnqueuer : MusicHoarder.Api.Sync.ITrackSyncEnqueuer
+    {
+        public void TryEnqueue(int songId, Guid ownerUserId) { }
     }
 }
