@@ -21,7 +21,7 @@
   }
 </script>
 
-<nav class="mx-auto flex max-w-[1280px] items-center justify-between px-6 py-6 md:px-14">
+<nav class="mx-auto flex max-w-[1280px] items-center justify-between px-4 py-6 md:px-14">
   <a href="/" class="flex items-center gap-2.5 text-[15px] font-semibold tracking-tight">
     <span
       class="bg-card grid h-7 w-7 place-items-center rounded-[7px]"
@@ -37,14 +37,14 @@
     <span>MusicHoarder</span>
     {#if version}
       <span
-        class="bg-surface-sunken text-muted-foreground ml-1 rounded-[3px] px-1.5 py-0.5 font-mono text-[10.5px] font-normal"
+        class="bg-surface-sunken text-muted-foreground ml-1 hidden rounded-[3px] px-1.5 py-0.5 font-mono text-[10.5px] font-normal sm:inline"
       >
         v{version}
       </span>
     {/if}
   </a>
 
-  <div class="flex items-center gap-4 md:gap-5">
+  <div class="flex items-center gap-2 md:gap-5">
     <a
       href="#pipeline"
       class="text-muted-foreground hover:text-foreground hidden text-[13px] transition-colors sm:inline"
@@ -84,14 +84,22 @@
       GitHub
     </a>
     <ThemeToggle />
-    <Button variant="ghost" size="sm" href="/login" class="hidden sm:inline-flex">Sign in</Button>
+    <Button
+      variant="ghost"
+      size="sm"
+      href="/login"
+      class="h-10 px-3 md:h-7 md:px-2.5"
+    >
+      Sign in
+    </Button>
     <Button
       size="sm"
       onclick={startDemo}
       disabled={launching}
-      class="h-10 px-4 md:h-7 md:px-2.5"
+      class="h-10 px-3 md:h-7 md:px-2.5"
     >
-      Try the live demo
+      <span class="sm:hidden">Live demo</span>
+      <span class="hidden sm:inline">Try the live demo</span>
     </Button>
   </div>
 </nav>
