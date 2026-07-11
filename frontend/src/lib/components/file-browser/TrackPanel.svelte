@@ -9,11 +9,14 @@
     Pause,
     Play,
     RotateCcw,
-    SkipBack,
-    SkipForward,
+    Rewind,
+    FastForward,
+    Search,
+    Share2,
     Sparkles,
     X
   } from '@lucide/svelte';
+  import { createShareAndCopyLink } from '$lib/share-actions';
   import { Button } from '$lib/components/ui/button';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import * as Tabs from '$lib/components/ui/tabs/index.js';
@@ -35,6 +38,7 @@
     fetchTrackLyrics,
     transcribeSongLyrics,
     setPreferredLyricsSource,
+    soulseek,
     type ApiSong,
     type AlbumSummary,
     type EnrichmentDetail,
@@ -80,6 +84,20 @@
   let enrichOutcome = $state<string | null>(null);
   let enrichError = $state<string | null>(null);
 
+  // Share: mint (or fetch the existing) public link for this song and copy it. The link plays
+  // the song and shows its lyrics/metadata to anyone — no account needed.
+  let shareState = $state<'idle' | 'loading'>('idle');
+
+  async function shareSong() {
+    if (shareState === 'loading') return;
+    shareState = 'loading';
+    try {
+      await createShareAndCopyLink(song.id, 'song');
+    } finally {
+      shareState = 'idle';
+    }
+  }
+
   // --- AI lyrics transcription (experiment: compare whisper-1 against LRCLIB) ---
   type AiLyrics = { synced?: string; plain?: string; model?: string; at?: string };
   let aiLyrics = $state<AiLyrics | null>(null);
@@ -120,6 +138,69 @@
       return;
     void loadEnrichmentDetail(song.id);
   });
+
+  // ── Soulseek quality upgrade ────────────────────────────────────────────────
+  // Shown only when slskd is configured; the /api/soulseek/* endpoints enforce owner-only.
+  let soulseekConfigured = $state(false);
+  let upgradeRequesting = $state(false);
+  let upgradeError = $state<string | null>(null);
+
+  $effect(() => {
+    let cancelled = false;
+    void soulseek
+      .getStatus()
+      .then((s) => {
+        if (!cancelled) soulseekConfigured = s.configured;
+      })
+      .catch(() => {
+        // Endpoint unavailable (not owner / not configured) — keep the action hidden.
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  // Reflect an in-flight upgrade as a disabled button label.
+  const upgradeActiveLabel = $derived.by(() => {
+    const u = enrichmentDetail?.upgrade;
+    if (!u?.active) return null;
+    switch (u.status) {
+      case 'Queued':
+        return 'Queued…';
+      case 'Searching':
+        return 'Searching…';
+      case 'Downloading':
+        return 'Downloading…';
+      case 'AwaitingIngest':
+        return 'Processing…';
+      default:
+        return 'Upgrading…';
+    }
+  });
+
+  const upgradeTerminalNote = $derived.by(() => {
+    const u = enrichmentDetail?.upgrade;
+    if (!u || u.active) return null;
+    if (u.status === 'NotFound') return 'No better copy found on Soulseek.';
+    if (u.status === 'Failed') return u.error ? `Upgrade failed — ${u.error}` : 'Upgrade failed.';
+    if (u.status === 'Completed') return 'Upgraded to a better copy.';
+    return null;
+  });
+
+  async function handleFindBetterQuality() {
+    if (upgradeRequesting || !song) return;
+    upgradeRequesting = true;
+    upgradeError = null;
+    try {
+      await soulseek.requestUpgrade({ songId: song.id });
+      loadedSongId = null; // force a refetch so the button reflects the new active state
+      await loadEnrichmentDetail(song.id);
+    } catch (err) {
+      upgradeError = err instanceof Error ? err.message : 'Failed to queue upgrade';
+    } finally {
+      upgradeRequesting = false;
+    }
+  }
 
   // AI quality grade for the Enrichment tab — loaded lazily, refetched per song.
   let quality = $state<SongQualityGradeView | null>(null);
@@ -505,42 +586,42 @@
       <span class="text-muted-foreground w-10 shrink-0 text-right text-xs tabular-nums">
         {isCurrentlyLoaded ? formatTime(playerStore.currentTime) : '0:00'}
       </span>
-      <div class="mx-auto flex items-center gap-1">
+      <!-- Apple Music now-playing style: naked solid glyphs, no disc, no hover
+           wash (a translucent circle reads as smudge on dark artwork). Feedback
+           is press-scale on the glyph itself. -->
+      <div class="mx-auto flex items-center gap-2">
         <Button
           variant="ghost"
           size="icon"
-          class="text-foreground hover:text-foreground hover:bg-foreground/10 size-7 transition-transform duration-100 ease-out active:scale-[0.97] disabled:opacity-40"
+          class="text-foreground hover:text-foreground size-9 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent dark:hover:bg-transparent active:scale-90 disabled:opacity-30"
           onclick={() => playerStore.playPrevious()}
           disabled={!canGoPrevious}
           aria-label="Previous track"
         >
-          <SkipBack class="size-3.5" />
+          <Rewind class="size-5.5" fill="currentColor" />
         </Button>
-        <!-- One consistent accent disc in both themes and both loaded states —
-             the Play↔Pause glyph swap is the only state signal, matching the
-             album-page play button. -->
         <Button
           variant="ghost"
           size="icon"
-          class="bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground size-10 rounded-full transition-transform duration-100 ease-out active:scale-95"
+          class="text-foreground hover:text-foreground size-11 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent dark:hover:bg-transparent active:scale-90"
           onclick={handlePlayToggle}
           aria-label={isCurrentlyPlaying ? 'Pause' : 'Play'}
         >
           {#if isCurrentlyPlaying}
-            <Pause class="size-4" />
+            <Pause class="size-7" fill="currentColor" />
           {:else}
-            <Play class="size-4 translate-x-px" />
+            <Play class="size-7 translate-x-px" fill="currentColor" />
           {/if}
         </Button>
         <Button
           variant="ghost"
           size="icon"
-          class="text-foreground hover:text-foreground hover:bg-foreground/10 size-7 transition-transform duration-100 ease-out active:scale-[0.97] disabled:opacity-40"
+          class="text-foreground hover:text-foreground size-9 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent dark:hover:bg-transparent active:scale-90 disabled:opacity-30"
           onclick={() => playerStore.playNext()}
           disabled={!canGoNext}
           aria-label="Next track"
         >
-          <SkipForward class="size-3.5" />
+          <FastForward class="size-5.5" fill="currentColor" />
         </Button>
       </div>
       <span class="text-muted-foreground w-10 shrink-0 text-xs tabular-nums">
@@ -565,6 +646,21 @@
         aria-label="Close"
       >
         <X class="size-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        onclick={shareSong}
+        disabled={shareState === 'loading'}
+        class="bg-foreground/5 hover:bg-foreground/10 absolute right-3 size-9 rounded-full sm:right-5"
+        aria-label="Share song — copy a public link"
+        title="Share — copy a public link that plays this song for anyone, no account needed."
+      >
+        {#if shareState === 'loading'}
+          <Loader2 class="size-4 animate-spin" />
+        {:else}
+          <Share2 class="size-4" />
+        {/if}
       </Button>
       <Tabs.List class="bg-foreground/5 h-auto gap-1 rounded-full p-1">
         {#each TAB_DEFS as tab (tab.value)}
@@ -1083,6 +1179,32 @@
           </Button>
           {#if enrichError}
             <p class="text-destructive text-[11px]">{enrichError}</p>
+          {/if}
+
+          {#if soulseekConfigured}
+            <Button
+              variant="outline"
+              class="mt-2 w-full"
+              size="sm"
+              disabled={upgradeRequesting || enrichmentDetail?.upgrade?.active === true}
+              onclick={handleFindBetterQuality}
+            >
+              {#if upgradeRequesting || enrichmentDetail?.upgrade?.active}
+                <Loader2 class="mr-1.5 size-3.5 animate-spin" />
+              {:else}
+                <Search class="mr-1.5 size-3.5" />
+              {/if}
+              {upgradeActiveLabel ?? 'Find better quality'}
+            </Button>
+            {#if upgradeError}
+              <p class="text-destructive text-[11px]">{upgradeError}</p>
+            {:else if upgradeTerminalNote}
+              <p class="text-muted-foreground/70 text-[10.5px]">{upgradeTerminalNote}</p>
+            {:else}
+              <p class="text-muted-foreground/70 text-[10.5px]">
+                Searches Soulseek for a higher-quality copy and swaps it in place.
+              </p>
+            {/if}
           {/if}
         </div>
       </ScrollArea>

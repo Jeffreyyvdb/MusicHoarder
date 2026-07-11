@@ -53,6 +53,9 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<LibraryWriteEvent> LibraryWriteEvents { get; set; } = null!;
     public DbSet<EnrichmentSnapshot> EnrichmentSnapshots { get; set; } = null!;
     public DbSet<EnrichmentSnapshotSong> EnrichmentSnapshotSongs { get; set; } = null!;
+    public DbSet<SongShare> SongShares { get; set; } = null!;
+    public DbSet<TrackSyncState> TrackSyncStates { get; set; } = null!;
+    public DbSet<UpgradeRequest> UpgradeRequests { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
     public DbSet<Session> Sessions { get; set; } = null!;
     public DbSet<MagicLinkToken> MagicLinkTokens { get; set; } = null!;
@@ -273,6 +276,39 @@ public class MusicHoarderDbContext : DbContext
             entity.HasQueryFilter(r => !hasUser || r.OwnerUserId == userId);
         });
 
+        modelBuilder.Entity<TrackSyncState>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // One outbox row per song; the sweep joins Songs → TrackSyncStates on this.
+            entity.HasIndex(e => e.SongId).IsUnique();
+            entity.HasIndex(e => new { e.Status, e.NextAttemptAtUtc });
+
+            // The outbox row is meaningless without its song; songs are soft-deleted in practice,
+            // so Cascade only fires on the rare hard delete (e.g. upgrade-merge provisional rows).
+            entity.HasOne(e => e.Song)
+                .WithOne()
+                .HasForeignKey<TrackSyncState>(e => e.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Match the Songs filter (required end) so filtered joins stay consistent.
+            entity.HasQueryFilter(e => !hasUser || e.Song!.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<UpgradeRequest>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // "Is there an active request for this song?" + the merge sweep's status scan.
+            entity.HasIndex(e => new { e.SongId, e.Status });
+            entity.HasIndex(e => e.Status);
+
+            entity.HasOne(e => e.Song)
+                .WithMany()
+                .HasForeignKey(e => e.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+        });
+
         modelBuilder.Entity<LibraryWriteEvent>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -315,6 +351,24 @@ public class MusicHoarderDbContext : DbContext
             // Mirror the parent snapshot's tenancy filter so a child is filtered exactly when its
             // principal would be (otherwise EF warns about the required relationship).
             entity.HasQueryFilter(e => !hasUser || e.Snapshot.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<SongShare>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // Public share resolution is a point lookup by token (via IgnoreQueryFilters).
+            entity.HasIndex(e => e.Token).IsUnique();
+            // The owner's share list sweeps active rows.
+            entity.HasIndex(e => new { e.OwnerUserId, e.RevokedAtUtc });
+
+            entity.HasOne(e => e.Song)
+                .WithMany()
+                .HasForeignKey(e => e.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Owner-scoped for the management endpoints; the anonymous share endpoints resolve
+            // tokens via .IgnoreQueryFilters() and re-scope by the share's own OwnerUserId.
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
         });
 
         modelBuilder.Entity<User>(entity =>

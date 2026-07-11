@@ -124,6 +124,27 @@ web form:
   optionally use a fast cleanup LLM (`LYRICS_TRANSCRIPTION_LLM_MODEL`) via the `QUALITY_GRADING_*` creds.
 - **Umami analytics** — set `PUBLIC_UMAMI_SRC` (full `…/script.js` URL) and
   `PUBLIC_UMAMI_WEBSITE_ID` to load a self-hosted Umami tracker.
+- **Soulseek via slskd** — MusicHoarder can use a [slskd](https://github.com/slskd/slskd) instance
+  **you run and manage yourself** as a wishlist download source (tried before yt-dlp) and for
+  manual per-track/album quality upgrades. MusicHoarder never joins the Soulseek network itself —
+  it only calls slskd's REST API. Set `SLSKD_URL` (e.g. `http://slskd:5030`), `SLSKD_API_KEY`
+  (an entry under slskd's `web.authentication.api_keys`), and bind slskd's **completed-downloads
+  directory** into the api container read-write via `SLSKD_DOWNLOADS_HOST_PATH` (it's mounted at
+  `/data/slskd-downloads`; finished files are moved out of it into the normal download staging
+  dir, so it stays a transient staging area). All three unset → the integration is off and the
+  provider chain quietly falls through to yt-dlp. Etiquette: share a folder in your slskd config —
+  zero-share accounts get queued or banned by many peers — and leave MusicHoarder's built-in
+  search rate limit alone unless you know why you're raising it.
+- **Instance sync** — one MusicHoarder (e.g. your homelab) can push every finished track to
+  another (e.g. a public VPS) over plain HTTPS: after a track's library build completes, the
+  pusher asks the receiver "do you have this track, at what quality?" (by audio fingerprint /
+  AcoustID / MusicBrainz id — never by database id) and uploads only when the receiver is missing
+  it or holds a worse copy; better copies replace the receiver's file **in place**, preserving its
+  track id so stream URLs keep working. Generate one shared key with `openssl rand -base64 48`,
+  then on the receiver set `SYNC_MODE=Receive` + `SYNC_API_KEY=<key>`; on the pusher set
+  `SYNC_MODE=Push`, `SYNC_API_KEY=<key>`, and `SYNC_REMOTE_URL=https://<receiver-api-origin>`.
+  The receive endpoints answer 404 unless `SYNC_MODE=Receive`, so the surface is invisible
+  everywhere else; failed pushes retry with backoff automatically.
 
 ## Updating
 

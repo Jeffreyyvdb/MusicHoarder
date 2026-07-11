@@ -24,6 +24,32 @@ public sealed class MusicEnricherOptionsValidator : IValidateOptions<MusicEnrich
 }
 
 /// <summary>
+/// Mode-aware validation for <see cref="SyncOptions"/>: the key-strength and per-role requirements
+/// only apply when sync is actually on, so the default (Off, everything blank) always boots.
+/// </summary>
+public sealed class SyncOptionsValidator : IValidateOptions<SyncOptions>
+{
+    public ValidateOptionsResult Validate(string? name, SyncOptions o)
+    {
+        if (o.Mode == SyncMode.Off)
+            return ValidateOptionsResult.Success;
+
+        var errors = new List<string>();
+
+        if (string.IsNullOrWhiteSpace(o.ApiKey) || o.ApiKey.Length < 32)
+            errors.Add("Sync:ApiKey must be at least 32 characters when sync is enabled — it is the only gate on an internet-facing endpoint. Generate one with `openssl rand -base64 48`.");
+
+        if (o.Mode == SyncMode.Push && string.IsNullOrWhiteSpace(o.RemoteBaseUrl))
+            errors.Add("Sync:RemoteBaseUrl is required in Push mode (the receiving instance's public HTTPS origin).");
+
+        if (o.Mode == SyncMode.Receive && string.IsNullOrWhiteSpace(o.SyncedSourceDirectory))
+            errors.Add("Sync:SyncedSourceDirectory is required in Receive mode (where received files are written).");
+
+        return errors.Count > 0 ? ValidateOptionsResult.Fail(errors) : ValidateOptionsResult.Success;
+    }
+}
+
+/// <summary>
 /// Cross-field validation for <see cref="QualityGradingOptions"/>: the reasoning-token budget must leave
 /// room for the JSON answer within the output-token budget, or responses get truncated mid-object.
 /// </summary>

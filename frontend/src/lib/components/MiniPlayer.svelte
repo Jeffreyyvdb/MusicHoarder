@@ -4,8 +4,8 @@
     Pause,
     Play,
     Quote,
-    SkipBack,
-    SkipForward,
+    Rewind,
+    FastForward,
     Volume2,
     VolumeX,
     X
@@ -139,42 +139,44 @@
     </div>
 
     <div class="flex h-[56px] items-center gap-2 px-3 sm:h-[64px] sm:gap-3 sm:px-4">
-      <!-- LEFT: transport -->
+      <!-- LEFT: transport. Apple Music bar style: naked solid glyphs, no hover
+           wash (a translucent circle reads as smudge in dark mode) — feedback
+           is press-scale on the glyph itself. -->
       <div class="flex shrink-0 items-center gap-0.5 sm:gap-1">
         <Button
           variant="ghost"
           size="icon"
-          class="text-foreground hover:text-foreground hover:bg-foreground/10 size-9 shrink-0 transition-transform duration-100 ease-out active:scale-[0.97] disabled:opacity-40"
+          class="text-foreground hover:text-foreground size-9 shrink-0 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent dark:hover:bg-transparent active:scale-90 disabled:opacity-30"
           onclick={() => playerStore.playPrevious()}
           disabled={!playerStore.hasPrevious}
           aria-label="Previous track"
         >
-          <SkipBack class="size-5" />
+          <Rewind class="size-5" fill="currentColor" />
         </Button>
 
         <Button
           variant="ghost"
           size="icon"
-          class="text-foreground hover:text-foreground hover:bg-foreground/10 size-9 shrink-0 transition-transform duration-100 ease-out active:scale-[0.97]"
+          class="text-foreground hover:text-foreground size-9 shrink-0 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent dark:hover:bg-transparent active:scale-90"
           onclick={() => playerStore.togglePlay()}
           aria-label={playerStore.isPlaying ? 'Pause' : 'Play'}
         >
           {#if playerStore.isPlaying}
-            <Pause class="size-5" />
+            <Pause class="size-5.5" fill="currentColor" />
           {:else}
-            <Play class="size-5 translate-x-px" />
+            <Play class="size-5.5 translate-x-px" fill="currentColor" />
           {/if}
         </Button>
 
         <Button
           variant="ghost"
           size="icon"
-          class="text-foreground hover:text-foreground hover:bg-foreground/10 size-9 shrink-0 transition-transform duration-100 ease-out active:scale-[0.97] disabled:opacity-40"
+          class="text-foreground hover:text-foreground size-9 shrink-0 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent dark:hover:bg-transparent active:scale-90 disabled:opacity-30"
           onclick={() => playerStore.playNext()}
           disabled={!playerStore.hasNext}
           aria-label="Next track"
         >
-          <SkipForward class="size-5" />
+          <FastForward class="size-5" fill="currentColor" />
         </Button>
       </div>
 

@@ -629,8 +629,19 @@ public class MusicEnricherOptions
     /// </summary>
     public bool AutoDownloadWishlist { get; set; } = false;
 
-    /// <summary>Name of the <c>IDownloadProvider</c> to use, resolved by <c>IDownloadProvider.Name</c>. Default "yt-dlp".</summary>
+    /// <summary>Name of the <c>IDownloadProvider</c> to use, resolved by <c>IDownloadProvider.Name</c>. Default "yt-dlp".
+    /// Legacy single-provider form; ignored when <see cref="DownloadProviders"/> is non-empty.</summary>
     public string DownloadProvider { get; set; } = "yt-dlp";
+
+    /// <summary>
+    /// Ordered download-provider chain, e.g. <c>["slskd", "yt-dlp"]</c>. Each track tries providers
+    /// in order, falling through to the next only when the current one reports "not found" (a real
+    /// transient error stops the chain so a flaky provider doesn't silently burn the fallback's
+    /// quota; the item goes Failed and the next sweep retries the whole chain). Empty falls back to
+    /// the single <see cref="DownloadProvider"/>. Unconfigured providers report "not found", so a
+    /// chain containing "slskd" is harmless on instances without slskd settings.
+    /// </summary>
+    public string[] DownloadProviders { get; set; } = [];
 
     /// <summary>Path to the yt-dlp binary. Must be on PATH or an absolute path.</summary>
     public string YtDlpPath { get; set; } = "yt-dlp";

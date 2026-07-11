@@ -48,7 +48,7 @@ public class WishlistDownloadProcessor(
             .Where(m => m.OwnerUserId == ownerId && trackIds.Contains(m.SpotifyTrackId))
             .ToDictionaryAsync(m => m.SpotifyTrackId, ct);
 
-        var provider = ResolveProvider();
+        var providers = ResolveProviders();
         var inLibrary = (int)ComparisonMatchStatus.InLibrary;
         var now = DateTime.UtcNow;
 
@@ -88,7 +88,7 @@ public class WishlistDownloadProcessor(
         // Downloads hit the network/disk only — no DB access — so the parallel section is EF-safe.
         // Parallel.ForEachAsync already bounds in-flight bodies to MaxDegreeOfParallelism, so no extra
         // semaphore is needed.
-        var results = new Dictionary<int, DownloadResult>();
+        var results = new Dictionary<int, (DownloadResult Result, string ProviderName)>();
         var resultsLock = new object();
         if (toDownload.Count > 0)
         {
@@ -98,14 +98,25 @@ public class WishlistDownloadProcessor(
                 async (item, token) =>
                 {
                     var req = new DownloadRequest(item.Artist, item.Title, item.Album, item.Isrc, item.DurationMs, destinationDir);
-                    var result = await provider.DownloadAsync(req, token);
+                    // Provider chain: fall through to the next provider only on NotFound. A transient
+                    // Error stops the chain — the item goes Failed and the next sweep retries from the
+                    // top, so a flaky first provider can't silently burn the fallback's quota.
+                    var result = DownloadResult.Missing("no download provider configured");
+                    var providerName = providers.Count > 0 ? providers[0].Name : "";
+                    foreach (var candidate in providers)
+                    {
+                        providerName = candidate.Name;
+                        result = await candidate.DownloadAsync(req, token);
+                        if (result.Success || !result.NotFound)
+                            break;
+                    }
                     // Stamp the authoritative Spotify identity onto the file so the scanner reads it as
                     // the source identity (instead of the downloader's native YouTube tags). Disk-only,
                     // so it stays inside the DB-free parallel section. Tolerant: a stamp failure leaves
                     // the download intact and just falls back to whatever tags the file carries.
                     if (result.Success && result.FilePath is not null)
                         DownloadTagWriter.Stamp(result.FilePath, item.Artist, item.Title, item.Album, item.Isrc, logger);
-                    lock (resultsLock) results[item.Id] = result;
+                    lock (resultsLock) results[item.Id] = (result, providerName);
                 });
         }
 
@@ -115,7 +126,7 @@ public class WishlistDownloadProcessor(
         var downloadedCount = 0;
         foreach (var item in toDownload)
         {
-            if (!results.TryGetValue(item.Id, out var result))
+            if (!results.TryGetValue(item.Id, out var entry))
             {
                 // Cancelled before this item ran — revert the optimistic Downloading mark to Pending
                 // so the next run retries it (without inflating AttemptCount).
@@ -124,7 +135,8 @@ public class WishlistDownloadProcessor(
                 continue;
             }
 
-            item.DownloadProvider = provider.Name;
+            var (result, providerName) = entry;
+            item.DownloadProvider = providerName;
             item.AttemptCount += 1;
             item.UpdatedAtUtc = finishedAt;
 
@@ -243,11 +255,33 @@ public class WishlistDownloadProcessor(
         return stale.Count;
     }
 
-    public IDownloadProvider ResolveProvider()
+    /// <summary>
+    /// Resolves the ordered provider chain from <see cref="MusicEnricherOptions.DownloadProviders"/>
+    /// (falling back to the legacy single <see cref="MusicEnricherOptions.DownloadProvider"/>).
+    /// Unknown names are skipped with a warning; an empty result falls back to the first registered
+    /// provider so the worker never runs with nothing.
+    /// </summary>
+    public IReadOnlyList<IDownloadProvider> ResolveProviders()
     {
-        var name = options.Value.DownloadProvider;
-        return downloadProviders.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))
-            ?? downloadProviders.First();
+        var opts = options.Value;
+        var names = opts.DownloadProviders is { Length: > 0 }
+            ? opts.DownloadProviders
+            : [opts.DownloadProvider];
+
+        var resolved = new List<IDownloadProvider>();
+        foreach (var name in names)
+        {
+            var provider = downloadProviders.FirstOrDefault(
+                p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (provider is null)
+                logger.LogWarning("Unknown download provider '{Name}' in chain — skipping", name);
+            else if (!resolved.Contains(provider))
+                resolved.Add(provider);
+        }
+
+        if (resolved.Count == 0)
+            resolved.Add(downloadProviders.First());
+        return resolved;
     }
 
     /// <summary>Normalize to forward slashes to match how the scanner stores <see cref="SongMetadata.SourcePath"/>.</summary>

@@ -7,9 +7,11 @@
     Loader2,
     AlertTriangle,
     Sparkles,
-    FolderOpen
+    FolderOpen,
+    Search
   } from '@lucide/svelte';
   import { goto } from '$app/navigation';
+  import { page } from '$app/state';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { Skeleton } from '$lib/components/ui/skeleton';
   import Cover from '$lib/components/file-browser/Cover.svelte';
@@ -22,6 +24,7 @@
     fetchSongQualityGrade,
     fetchSongs,
     mapEnrichmentStatus,
+    soulseek,
     type ApiSong,
     type EnrichmentDetail,
     type SongQualityGradeView
@@ -170,6 +173,91 @@
       reenriching = false;
     }
   }
+
+  // ── soulseek quality upgrade (owner-only) ────────────────────────────────────
+  const isOwner = $derived(
+    (page.data.user as { role?: 'Owner' | 'Demo' } | undefined)?.role === 'Owner'
+  );
+  let soulseekConfigured = $state(false);
+  let requestingUpgrade = $state(false);
+  let upgradeRequestError = $state<string | null>(null);
+
+  $effect(() => {
+    if (!isOwner) return;
+    let cancelled = false;
+    void soulseek
+      .getStatus()
+      .then((s) => {
+        if (!cancelled) soulseekConfigured = s.configured;
+      })
+      .catch(() => {
+        // Endpoint unavailable — keep the action hidden.
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  // Label for the disabled button while an upgrade is in flight.
+  const upgradeActiveLabel = $derived.by(() => {
+    const u = detail?.upgrade;
+    if (!u?.active) return null;
+    switch (u.status) {
+      case 'Searching':
+        return 'Searching…';
+      case 'Downloading':
+        return 'Downloading…';
+      case 'AwaitingIngest':
+        return 'Awaiting ingest…';
+      default:
+        return 'Queued…';
+    }
+  });
+
+  // Terminal failure note — shown muted, the button stays enabled for a retry.
+  const upgradeTerminalNote = $derived.by(() => {
+    const u = detail?.upgrade;
+    if (!u || u.active) return null;
+    if (u.status === 'NotFound')
+      return u.error ? `No better copy found — ${u.error}` : 'No better copy found on Soulseek.';
+    if (u.status === 'Failed') return u.error ? `Upgrade failed — ${u.error}` : 'Upgrade failed.';
+    return null;
+  });
+
+  async function handleFindBetterQuality() {
+    if (!song || requestingUpgrade || detail?.upgrade?.active) return;
+    requestingUpgrade = true;
+    upgradeRequestError = null;
+    try {
+      await soulseek.requestUpgrade({ songId: song.id });
+      await loadAll(song.id);
+    } catch (err) {
+      upgradeRequestError = err instanceof Error ? err.message : 'Could not queue the upgrade.';
+    } finally {
+      requestingUpgrade = false;
+    }
+  }
+
+  // Per-track sync state badge (Push deployments only; null otherwise).
+  const syncBadge = $derived.by(() => {
+    const ts = detail?.trackSync;
+    if (!ts) return null;
+    switch (ts.status) {
+      case 'Synced':
+        return { label: 'Synced', cls: 'border-[#1DB954]/40 bg-[#1DB954]/10 text-[#1DB954]' };
+      case 'Uploading':
+        return { label: 'Uploading', cls: 'border-border bg-card text-foreground' };
+      case 'SkippedRemoteBetter':
+        return { label: 'Remote has better', cls: 'border-border bg-muted text-muted-foreground' };
+      case 'Failed':
+        return {
+          label: 'Sync failed',
+          cls: 'border-destructive/40 bg-destructive/10 text-destructive'
+        };
+      default:
+        return { label: 'Sync pending', cls: 'border-border bg-card text-foreground' };
+    }
+  });
 </script>
 
 <!-- Header -->
@@ -207,12 +295,32 @@
       {/if}
       Re-enrich
     </button>
+    {#if isOwner && soulseekConfigured}
+      <button
+        type="button"
+        onclick={handleFindBetterQuality}
+        disabled={requestingUpgrade || !song || detail?.upgrade?.active === true}
+        class="border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {#if requestingUpgrade || detail?.upgrade?.active}
+          <Loader2 class="size-3.5 animate-spin" />
+        {:else}
+          <Search class="size-3.5" />
+        {/if}
+        {upgradeActiveLabel ?? 'Find better quality'}
+      </button>
+    {/if}
     <a
       href={libraryHref}
       class="border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] font-medium transition-colors"
     >
       <ExternalLink class="size-3.5" /> Open in library
     </a>
+    {#if isOwner && soulseekConfigured && (upgradeRequestError || upgradeTerminalNote)}
+      <span class="text-muted-foreground w-full text-[11px] sm:text-right">
+        {upgradeRequestError ?? upgradeTerminalNote}
+      </span>
+    {/if}
   </div>
 </header>
 
@@ -291,6 +399,16 @@
               <span class="text-muted-foreground inline-flex items-center gap-1">
                 <Sparkles class="size-3" />
                 AI grade <b class="font-mono" style="color: oklch(0.74 0.15 150)">{grade.score}/100</b>
+              </span>
+            {/if}
+            {#if syncBadge}
+              <span
+                class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium {syncBadge.cls}"
+                title={detail?.trackSync?.status === 'Failed'
+                  ? (detail?.trackSync?.lastError ?? undefined)
+                  : undefined}
+              >
+                {syncBadge.label}
               </span>
             {/if}
           </div>

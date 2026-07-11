@@ -81,6 +81,9 @@ services:
       LyricsTranscription__BaseUrl: "${LYRICS_TRANSCRIPTION_BASE_URL:-https://api.groq.com/openai/v1}"
       LyricsTranscription__Model: "${LYRICS_TRANSCRIPTION_MODEL:-whisper-large-v3}"
       LyricsTranscription__LlmModel: "${LYRICS_TRANSCRIPTION_LLM_MODEL:-google/gemini-2.5-flash-lite}"
+      Slskd__BaseUrl: "${SLSKD_URL:-}"
+      Slskd__ApiKey: "${SLSKD_API_KEY:-}"
+      Slskd__DownloadsDirectory: "${SLSKD_DOWNLOADS_DIR:-}"
       Frontend__PublicBaseUrl: "${FRONTEND_PUBLIC_BASE_URL}"
       Spotify__OAuthRelayUrl: "${FRONTEND_PUBLIC_BASE_URL}/api/spotify/relay"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://compose-dashboard:18889"
@@ -91,6 +94,12 @@ services:
       MusicEnricher__DownloadDirectory: "/data/downloads"
       MusicEnricher__YtDlpCookiesPath: "${YTDLP_COOKIES_PATH:-}"
       MusicEnricher__YtDlpExtraArgs: "${YTDLP_EXTRA_ARGS:-}"
+      MusicEnricher__DownloadProviders__0: "${DOWNLOAD_PROVIDER_1:-slskd}"
+      MusicEnricher__DownloadProviders__1: "${DOWNLOAD_PROVIDER_2:-yt-dlp}"
+      Sync__Mode: "${SYNC_MODE:-Off}"
+      Sync__ApiKey: "${SYNC_API_KEY:-}"
+      Sync__RemoteBaseUrl: "${SYNC_REMOTE_URL:-}"
+      Sync__SyncedSourceDirectory: "${SYNC_SOURCE_DIR:-/data/synced-source}"
     ports:
       - "${API_PORT}"
     volumes:
@@ -115,6 +124,9 @@ services:
         target: "/data/cookies/youtube.txt"
         source: "${YTDLP_COOKIES_HOST_PATH:-/dev/null}"
         read_only: true
+      - type: "volume"
+        target: "/data/synced-source"
+        source: "musichoarder-synced-source"
     networks:
       - "aspire"
     deploy:
@@ -191,4 +203,6 @@ volumes:
   musichoarder-dpkeys:
     driver: "local"
   musichoarder-downloads:
+    driver: "local"
+  musichoarder-synced-source:
     driver: "local"
