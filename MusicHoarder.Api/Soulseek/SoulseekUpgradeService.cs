@@ -30,7 +30,11 @@ public class SoulseekUpgradeService(
 
     public async Task ProcessRequestAsync(int requestId, CancellationToken ct)
     {
+        // IgnoreQueryFilters: this runs in a background scope where the DbContext's tenant filter
+        // resolves to Guid.Empty (no HTTP user), which would otherwise hide the owner's rows. Owner
+        // scoping is applied explicitly below.
         var request = await db.UpgradeRequests
+            .IgnoreQueryFilters()
             .Include(r => r.Song)
             .FirstOrDefaultAsync(r => r.Id == requestId && r.OwnerUserId == ownerLookup.OwnerUserId, ct);
         if (request is null || request.Status != UpgradeRequestStatus.Queued)

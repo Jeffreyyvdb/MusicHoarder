@@ -30,7 +30,10 @@ public class SoulseekUpgradeBackgroundService(
         {
             using var scope = scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+            // IgnoreQueryFilters: background scope → the tenant filter resolves to Guid.Empty and
+            // would hide every row. Upgrade requests are owner-only by construction.
             var stale = await db.UpgradeRequests
+                .IgnoreQueryFilters()
                 .Where(r => r.Status == UpgradeRequestStatus.Searching || r.Status == UpgradeRequestStatus.Downloading)
                 .ToListAsync(ct);
             if (stale.Count == 0)
