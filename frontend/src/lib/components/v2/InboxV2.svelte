@@ -65,27 +65,32 @@
   </div>
 </header>
 
-<!-- Subtabs -->
-<nav class="border-border flex shrink-0 items-center gap-2 overflow-x-auto border-b px-4 sm:px-7" aria-label="Inbox queues">
-  {#each TABS as t (t.id)}
-    {@const isActive = t.id === tab}
-    {@const count = counts[t.id]}
-    <button
-      type="button"
-      onclick={() => selectTab(t.id)}
-      data-active={isActive || undefined}
-      class={cn(
-        'relative flex shrink-0 items-baseline gap-1.5 px-3 py-3 text-sm whitespace-nowrap transition-colors',
-        'after:absolute after:inset-x-3 after:bottom-0 after:h-[2px] after:rounded-full after:bg-transparent',
-        isActive ? 'text-foreground font-medium after:bg-primary' : 'text-muted-foreground hover:text-foreground'
-      )}
-    >
-      <span>{t.label}</span>
-      {#if count != null && count > 0}
-        <span class="text-muted-foreground text-xs tabular-nums">{count.toLocaleString()}</span>
-      {/if}
-    </button>
-  {/each}
+<!-- Subtabs — Apple-style segmented control, matching the section sub-nav and
+     the song-panel tabs (one tab idiom app-wide). -->
+<nav class="no-scrollbar border-border flex shrink-0 items-center overflow-x-auto border-b px-4 py-2 sm:px-7" aria-label="Inbox queues">
+  <div class="bg-foreground/5 flex shrink-0 items-center gap-1 rounded-full p-1">
+    {#each TABS as t (t.id)}
+      {@const isActive = t.id === tab}
+      {@const count = counts[t.id]}
+      <button
+        type="button"
+        onclick={() => selectTab(t.id)}
+        data-active={isActive || undefined}
+        class={cn(
+          'flex shrink-0 items-baseline gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors sm:px-4 sm:text-[13px]',
+          'focus-visible:ring-ring/60 outline-none focus-visible:ring-2',
+          isActive
+            ? 'bg-background text-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'
+        )}
+      >
+        <span>{t.label}</span>
+        {#if count != null && count > 0}
+          <span class="text-muted-foreground text-xs tabular-nums">{count.toLocaleString()}</span>
+        {/if}
+      </button>
+    {/each}
+  </div>
 </nav>
 
 <!-- Body: only the active queue is mounted (keyed so switching resets state). -->

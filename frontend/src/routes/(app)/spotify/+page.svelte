@@ -408,20 +408,22 @@
     </div>
 
     <Tabs.Root value="liked" class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div class="border-border border-b px-4 md:px-6">
-        <Tabs.List class="h-12 bg-transparent p-0">
+      <!-- Apple-style segmented control, matching the section sub-nav and the
+           song-panel tabs (one tab idiom app-wide). -->
+      <div class="border-border border-b px-4 py-2 md:px-6">
+        <Tabs.List class="bg-foreground/5 h-auto gap-1 rounded-full p-1">
           <Tabs.Trigger
             value="liked"
-            class="data-[state=active]:border-b-primary/50 h-12 rounded-none border-0 border-b-2 border-transparent px-4 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            class="text-muted-foreground hover:text-foreground data-[state=active]:bg-background data-[state=active]:text-foreground rounded-full border-0 bg-transparent px-3 py-1.5 text-xs font-medium whitespace-nowrap shadow-none transition-colors data-[state=active]:shadow-sm sm:px-4 sm:text-[13px]"
           >
-            <Heart class="mr-2 size-4" />
+            <Heart class="mr-1.5 size-3.5" />
             Liked Songs
           </Tabs.Trigger>
           <Tabs.Trigger
             value="playlists"
-            class="data-[state=active]:border-b-primary/50 h-12 rounded-none border-0 border-b-2 border-transparent px-4 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            class="text-muted-foreground hover:text-foreground data-[state=active]:bg-background data-[state=active]:text-foreground rounded-full border-0 bg-transparent px-3 py-1.5 text-xs font-medium whitespace-nowrap shadow-none transition-colors data-[state=active]:shadow-sm sm:px-4 sm:text-[13px]"
           >
-            <ListMusic class="mr-2 size-4" />
+            <ListMusic class="mr-1.5 size-3.5" />
             Playlists
           </Tabs.Trigger>
         </Tabs.List>

@@ -461,25 +461,28 @@
   </div>
 </header>
 
-<!-- Tab bar -->
-<nav class="border-border flex shrink-0 items-center gap-1 overflow-x-auto border-b px-4 sm:px-7" aria-label="Settings sections">
-  {#each TABS as tab (tab.id)}
-    {@const isActive = tab.id === activeTab}
-    <button
-      type="button"
-      onclick={() => selectTab(tab.id)}
-      data-active={isActive || undefined}
-      class={cn(
-        'relative flex shrink-0 items-center gap-1.5 px-2.5 py-2.5 text-sm transition-colors',
-        'after:absolute after:inset-x-2.5 after:bottom-0 after:h-[2px] after:rounded-full after:bg-transparent',
-        isActive
-          ? 'text-foreground font-medium after:bg-primary'
-          : 'text-muted-foreground hover:text-foreground'
-      )}
-    >
-      {tab.label}
-    </button>
-  {/each}
+<!-- Tab bar — Apple-style segmented control, matching the section sub-nav and
+     the song-panel tabs (one tab idiom app-wide). -->
+<nav class="no-scrollbar border-border flex shrink-0 items-center overflow-x-auto border-b px-4 py-2 sm:px-7" aria-label="Settings sections">
+  <div class="bg-foreground/5 flex shrink-0 items-center gap-1 rounded-full p-1">
+    {#each TABS as tab (tab.id)}
+      {@const isActive = tab.id === activeTab}
+      <button
+        type="button"
+        onclick={() => selectTab(tab.id)}
+        data-active={isActive || undefined}
+        class={cn(
+          'flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors sm:px-4 sm:text-[13px]',
+          'focus-visible:ring-ring/60 outline-none focus-visible:ring-2',
+          isActive
+            ? 'bg-background text-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'
+        )}
+      >
+        {tab.label}
+      </button>
+    {/each}
+  </div>
 </nav>
 
 <div class="min-h-0 flex-1 overflow-auto pb-[var(--mh-content-pad)]">
