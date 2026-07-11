@@ -6,6 +6,7 @@ using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Soulseek;
+using MusicHoarder.Api.Tests.Auth;
 
 namespace MusicHoarder.Api.Tests.Soulseek;
 
@@ -65,6 +66,47 @@ public class UpgradeMergeServiceTests : IDisposable
         Assert.True(File.Exists(newFile));
 
         var request = await db.UpgradeRequests.SingleAsync();
+        Assert.Equal(UpgradeRequestStatus.Completed, request.Status);
+    }
+
+    [Fact]
+    public async Task Merge_ProcessesOwnerRows_UnderBackgroundTenantFilter()
+    {
+        // Regression: in production the DbContext always has an ICurrentUserAccessor, so a background
+        // scope (no HTTP user) resolves the tenant filter to Guid.Empty — hiding the owner's rows
+        // unless the service uses IgnoreQueryFilters. This is the exact condition under which the
+        // upgrade merge sweep silently found nothing and upgrades stalled forever. A shared-name
+        // in-memory DB lets us seed/assert with a permissive context while the SERVICE runs against
+        // the restrictive, prod-like one.
+        var dbName = Guid.NewGuid().ToString("N");
+        var opts = new DbContextOptionsBuilder<MusicHoarderDbContext>().UseInMemoryDatabase(dbName).Options;
+
+        // Seed as the OWNER (not anonymous): the EF model cache keys on userId, so a no-accessor
+        // seed would cache a *permissive* model under Guid.Empty that the background context (also
+        // Empty) would then reuse — masking the bug. In prod the accessor is always present, so no
+        // permissive model is ever cached under Empty.
+        var newFile = WriteStagingFile("better.flac", bytes: 2048);
+        await using (var seed = new MusicHoarderDbContext(opts, new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser)))
+        {
+            var target = TargetSong(10, WriteStagingFile("old.opus"), extension: ".opus", bitrate: 128, fingerprint: "FP-old");
+            target.MarkBuildDone("/dest/Artist/song.opus");
+            seed.Songs.AddRange(target, ProvisionalSong(11, newFile, extension: ".flac", bitrate: 900, fingerprint: "FP-new"));
+            seed.UpgradeRequests.Add(AwaitingIngest(1, songId: 10, downloadedPath: newFile));
+            await seed.SaveChangesAsync();
+        }
+
+        // Service runs against a context whose tenant filter resolves to Guid.Empty (prod background scope).
+        await using (var backgroundDb = new MusicHoarderDbContext(opts, new AnonymousUserAccessor()))
+        {
+            var merged = await CreateService(backgroundDb).SweepAsync(default);
+            Assert.Equal(1, merged); // would be 0 without IgnoreQueryFilters — the bug
+        }
+
+        await using var verify = new MusicHoarderDbContext(opts);
+        var song = Assert.Single(await verify.Songs.IgnoreQueryFilters().ToListAsync());
+        Assert.Equal(10, song.Id);
+        Assert.Equal(".flac", song.Extension);
+        var request = await verify.UpgradeRequests.IgnoreQueryFilters().SingleAsync();
         Assert.Equal(UpgradeRequestStatus.Completed, request.Status);
     }
 
@@ -267,12 +309,14 @@ public class UpgradeMergeServiceTests : IDisposable
             NullLogger<UpgradeMergeService>.Instance);
     }
 
-    private static MusicHoarderDbContext CreateDbContext()
+    private static MusicHoarderDbContext CreateDbContext() =>
+        new(new DbContextOptionsBuilder<MusicHoarderDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options);
+
+    private sealed class AnonymousUserAccessor : ICurrentUserAccessor
     {
-        var options = new DbContextOptionsBuilder<MusicHoarderDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
-            .Options;
-        return new MusicHoarderDbContext(options);
+        public CurrentUser? User => null;
+        public Guid UserId => Guid.Empty;
     }
 
     private sealed class StaticOptionsMonitor<T>(T value) : IOptionsMonitor<T>
