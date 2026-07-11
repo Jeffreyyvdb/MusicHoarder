@@ -4,8 +4,8 @@
     Pause,
     Play,
     Quote,
-    SkipBack,
-    SkipForward,
+    Rewind,
+    FastForward,
     Volume2,
     VolumeX,
     X
@@ -13,6 +13,7 @@
   import { fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import { playerStore } from '$lib/stores/player.svelte';
+  import { seekTargetForKey } from '$lib/player-seek';
   import { songDetail } from '$lib/stores/song-detail.svelte';
   import { Button } from '$lib/components/ui/button';
   import Cover from '$lib/components/file-browser/Cover.svelte';
@@ -69,32 +70,10 @@
 
   function onSeekKeyDown(e: KeyboardEvent) {
     if (!canSeek) return;
-    const d = playerStore.duration;
-    const t = playerStore.currentTime;
-    let next: number | null = null;
-    switch (e.key) {
-      case 'ArrowLeft':
-        next = t - 5;
-        break;
-      case 'ArrowRight':
-        next = t + 5;
-        break;
-      case 'PageDown':
-        next = t - 30;
-        break;
-      case 'PageUp':
-        next = t + 30;
-        break;
-      case 'Home':
-        next = 0;
-        break;
-      case 'End':
-        next = d;
-        break;
-    }
+    const next = seekTargetForKey(e.key, playerStore.currentTime, playerStore.duration);
     if (next === null) return;
     e.preventDefault();
-    playerStore.seek(Math.max(0, Math.min(d, next)));
+    playerStore.seek(next);
   }
 
   // Volume uses the same lightweight pointer-driven track as the seek bar (a
@@ -146,7 +125,7 @@
   }
 </script>
 
-{#if playerStore.currentSong && !playerStore.isPanelMounted}
+{#if playerStore.currentSong && !playerStore.isPanelMounted && !playerStore.isMiniPlayerDismissed}
   {@const song = playerStore.currentSong}
   <div
     class="mh-mini-enter border-border bg-background/70 fixed inset-x-3 z-50 overflow-hidden rounded-2xl border shadow-[0_-4px_24px_oklch(0%_0_0/0.08)] backdrop-blur-xl backdrop-saturate-150 bottom-[calc(84px_+_max(env(safe-area-inset-bottom),var(--mh-vv-bottom,0px)))] md:right-auto md:bottom-3 md:left-1/2 md:w-full md:max-w-3xl md:-translate-x-1/2 dark:shadow-[0_-4px_20px_rgba(0,0,0,0.35)]"
@@ -160,42 +139,44 @@
     </div>
 
     <div class="flex h-[56px] items-center gap-2 px-3 sm:h-[64px] sm:gap-3 sm:px-4">
-      <!-- LEFT: transport -->
+      <!-- LEFT: transport. Apple Music bar style: naked solid glyphs, no hover
+           wash (a translucent circle reads as smudge in dark mode) — feedback
+           is press-scale on the glyph itself. -->
       <div class="flex shrink-0 items-center gap-0.5 sm:gap-1">
         <Button
           variant="ghost"
           size="icon"
-          class="text-muted-foreground hover:text-foreground hover:bg-primary/10 size-9 shrink-0 disabled:opacity-40"
+          class="text-foreground hover:text-foreground size-9 shrink-0 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent dark:hover:bg-transparent active:scale-90 disabled:opacity-30"
           onclick={() => playerStore.playPrevious()}
           disabled={!playerStore.hasPrevious}
           aria-label="Previous track"
         >
-          <SkipBack class="size-5" />
+          <Rewind class="size-5" fill="currentColor" />
         </Button>
 
         <Button
           variant="ghost"
           size="icon"
-          class="text-foreground hover:text-primary hover:bg-primary/10 size-9 shrink-0"
+          class="text-foreground hover:text-foreground size-9 shrink-0 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent dark:hover:bg-transparent active:scale-90"
           onclick={() => playerStore.togglePlay()}
           aria-label={playerStore.isPlaying ? 'Pause' : 'Play'}
         >
           {#if playerStore.isPlaying}
-            <Pause class="size-5" />
+            <Pause class="size-5.5" fill="currentColor" />
           {:else}
-            <Play class="size-5 translate-x-px" />
+            <Play class="size-5.5 translate-x-px" fill="currentColor" />
           {/if}
         </Button>
 
         <Button
           variant="ghost"
           size="icon"
-          class="text-muted-foreground hover:text-foreground hover:bg-primary/10 size-9 shrink-0 disabled:opacity-40"
+          class="text-foreground hover:text-foreground size-9 shrink-0 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent dark:hover:bg-transparent active:scale-90 disabled:opacity-30"
           onclick={() => playerStore.playNext()}
           disabled={!playerStore.hasNext}
           aria-label="Next track"
         >
-          <SkipForward class="size-5" />
+          <FastForward class="size-5" fill="currentColor" />
         </Button>
       </div>
 
@@ -309,7 +290,7 @@
           >
             <div class="bg-foreground/15 relative h-1 w-full overflow-hidden rounded-full">
               <div
-                class="bg-foreground/40 group-hover:bg-primary absolute inset-0 origin-left rounded-full transition-colors"
+                class="bg-foreground/55 group-hover:bg-primary absolute inset-0 origin-left rounded-full transition-colors"
                 style="transform: scaleX({playerStore.volume})"
               ></div>
             </div>
@@ -324,8 +305,8 @@
           variant="ghost"
           size="icon"
           class="text-muted-foreground hover:text-foreground size-8 shrink-0"
-          onclick={() => playerStore.stop()}
-          aria-label="Close player"
+          onclick={() => playerStore.dismissMiniPlayer()}
+          aria-label="Hide player"
         >
           <X class="size-4" />
         </Button>

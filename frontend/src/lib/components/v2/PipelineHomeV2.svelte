@@ -1,25 +1,5 @@
 <script lang="ts">
-  import {
-    Disc3,
-    PackageCheck,
-    RefreshCw,
-    Sparkles,
-    Tag,
-    ScanLine,
-    Copy,
-    CheckCheck,
-    ChevronRight,
-    Clock,
-    AlertTriangle,
-    Wand2,
-    Loader2,
-    History,
-    HardDrive,
-    Library,
-    Activity,
-    Inbox,
-    Gauge
-  } from '@lucide/svelte';
+  import { RefreshCw, ChevronRight, Sparkles, Tag, Copy, Loader2, History } from '@lucide/svelte';
   import type { Component } from 'svelte';
   import { goto } from '$app/navigation';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
@@ -42,7 +22,6 @@
     type QualityOverview,
     type QualityProgress
   } from '$lib/api-client';
-  import { activityTone } from '$lib/activity-tone';
   import { isBuiltSong } from '$lib/album-sections';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { cn } from '$lib/utils';
@@ -188,23 +167,18 @@
   type Stage = {
     id: StageId;
     label: string;
-    icon: Component;
-    /** Real per-stage data exists for this stage. */
-    real: boolean;
-    /** Cumulative count processed by this stage (real stages only). */
+    /** Cumulative count processed by this stage. */
     count: number | null;
-    /** Sub-label under the stage name. */
-    sub: string;
-    /** Live pulse (real + running). */
+    /** Stage is actively processing right now. */
     live: boolean;
-    /** Flagged needs-attention (decide). */
-    warn?: boolean;
+    /** Live throughput while running (files/s), null when idle. */
+    rate: number | null;
   };
 
   let activeStage = $state<StageId>('match');
 
   /** A conveyor stage's count: the live per-run figure while the stage is actively
-   *  running (so the bar climbs in real time), otherwise the stable library-wide total
+   *  running (so the count climbs in real time), otherwise the stable library-wide total
    *  from the DB-backed overview poll — which survives restarts and stays coherent. The
    *  live snapshot value is 0 (not null) for stages that didn't run this session, so a
    *  plain `?? total` fallback would never fire; this picks deliberately. */
@@ -225,90 +199,63 @@
       {
         id: 'scan',
         label: 'Scan',
-        icon: ScanLine,
-        real: true,
         count: stageCount(s?.scanned, job?.tracksProcessed, running && s?.scan?.status === 'Running'),
-        sub: running && rates.scan > 0 ? `${rates.scan.toFixed(0)}/s` : 'index',
-        live: running && s?.scan?.status === 'Running'
+        live: running && s?.scan?.status === 'Running',
+        rate: running && rates.scan > 0 ? rates.scan : null
       },
       {
         id: 'fingerprint',
         label: 'Fingerprint',
-        icon: Disc3,
-        real: true,
         count: stageCount(
           s?.fingerprinted,
           job?.tracksFingerprinted,
           running && s?.fingerprint?.status === 'Running'
         ),
-        sub: 'Chromaprint',
-        live: running && s?.fingerprint?.status === 'Running'
+        live: running && s?.fingerprint?.status === 'Running',
+        rate: running && rates.fingerprint > 0 ? rates.fingerprint : null
       },
       {
         id: 'match',
         label: 'Match',
-        icon: Tag,
-        real: true,
         count: stageCount(s?.enriched, job?.tracksBuildEligible, running && s?.enrich?.status === 'Running'),
-        sub: 'providers',
-        live: running && s?.enrich?.status === 'Running'
+        live: running && s?.enrich?.status === 'Running',
+        rate: running && rates.enrich > 0 ? rates.enrich : null
       },
       {
         id: 'decide',
         label: 'Decide',
-        icon: Wand2,
-        real: true,
         count: decidedCount,
-        sub: 'consensus',
         live: running && s?.enrich?.status === 'Running',
-        warn: (tagReviewCount ?? 0) > 0
+        rate: null
       },
       {
         id: 'grade',
         label: 'AI grade',
-        icon: Sparkles,
-        real: true,
         count: qualityGraded,
-        sub: 'quality LLM',
-        live: qualityProgress?.active === true
+        live: qualityProgress?.active === true,
+        rate: null
       },
       {
         id: 'dedupe',
         label: 'Dedupe',
-        icon: Copy,
-        real: true,
         count: duplicateCount,
-        sub: 'fingerprint',
-        live: running && s?.fingerprint?.status === 'Running'
+        live: running && s?.fingerprint?.status === 'Running',
+        rate: null
       },
       {
         id: 'library',
         label: 'Library',
-        icon: PackageCheck,
-        real: true,
         count: stageCount(s?.built, job?.tracksCopied ?? inLibrary, running && s?.build?.status === 'Running'),
-        sub: 'destination',
-        live: running && s?.build?.status === 'Running'
+        live: running && s?.build?.status === 'Running',
+        rate: running && rates.build > 0 ? rates.build : null
       }
     ];
   });
 
   const activeStageDef = $derived(stages.find((st) => st.id === activeStage) ?? stages[0]);
 
-  // The biggest real per-stage count, used to scale the progress bars.
-  const maxStageCount = $derived(
-    Math.max(1, ...stages.filter((st) => st.real && st.count != null).map((st) => st.count ?? 0))
-  );
-
-  function barWidth(st: Stage): number {
-    if (st.id === 'library') return 100;
-    if (!st.real || st.count == null) return 0;
-    return Math.min(95, (st.count / maxStageCount) * 95 + 5);
-  }
-
-  // Detail chips for the active stage. The SSE stream is count-only, so chips
-  // reflect cumulative counts honestly rather than inventing file names. Each
-  // stage surfaces the figures that are meaningful to it.
+  // Detail figures for the selected stage. The SSE stream is count-only, so the
+  // detail reflects cumulative counts honestly rather than inventing file names.
   type StageDetail = { lines: { label: string; value: string }[] };
 
   const activeStageDetail = $derived.by<StageDetail>(() => {
@@ -348,8 +295,32 @@
     return { lines };
   });
 
-  // ── live activity log (real RecentActivity from the overview poll) ──────────
+  // ── recent activity (real RecentActivity from the overview poll) ────────────
   const recent = $derived<ApiOverviewActivity[]>(overview?.recentActivity ?? []);
+
+  // Sentence-case verbs + one small dot per event type. Green for progress,
+  // amber only for the actionable review state, red only for failures.
+  const ACTIVITY_VERB: Record<ApiOverviewActivity['type'], string> = {
+    discovered: 'Discovered',
+    copied: 'Added to library',
+    enriched: 'Matched',
+    review: 'Needs review',
+    failed: 'Failed'
+  };
+
+  function activityDot(type: ApiOverviewActivity['type']): string {
+    switch (type) {
+      case 'failed':
+        return 'bg-destructive';
+      case 'review':
+        return 'bg-amber-500';
+      case 'enriched':
+      case 'copied':
+        return 'bg-primary';
+      default:
+        return 'bg-muted-foreground/40';
+    }
+  }
 
   // ── just landed (recently-added albums, reusing album-sections) ─────────────
   const justLanded = $derived.by<AlbumSummary[]>(() => {
@@ -393,47 +364,39 @@
     }
   }
 
-  type NeedCard = {
+  type NeedRow = {
     id: 'review' | 'dupes' | 'ai';
     icon: Component;
     count: number | null;
     label: string;
     body: string;
-    cta: string;
     href: string;
-    tone: 'review' | 'dupes' | 'ai';
   };
 
-  const needCards = $derived<NeedCard[]>([
+  const needRows = $derived<NeedRow[]>([
     {
       id: 'review',
       icon: Tag,
       count: tagReviewCount,
       label: 'Tag reviews',
-      body: "Providers couldn't agree (or none scored high enough). Pick the right candidate or override the fields manually.",
-      cta: 'Review',
-      href: '/inbox',
-      tone: 'review'
+      body: "Providers couldn't agree — pick the right candidate or fix the fields yourself.",
+      href: '/inbox'
     },
     {
       id: 'dupes',
       icon: Copy,
       count: duplicateCount,
       label: 'Ambiguous duplicates',
-      body: "Same fingerprint, can't auto-pick which to keep. Mutable keep-A/B resolution lands with the Inbox section.",
-      cta: 'Compare',
-      href: '/inbox',
-      tone: 'dupes'
+      body: "Same fingerprint, can't auto-pick which copy to keep.",
+      href: '/inbox'
     },
     {
       id: 'ai',
       icon: Sparkles,
       count: aiFlaggedCount,
       label: 'AI flagged',
-      body: 'Enrichment looks wrong to the quality grader (path mismatch, year drift, title rewritten). Worth a second look.',
-      cta: 'Inspect',
-      href: '/inbox',
-      tone: 'ai'
+      body: 'The quality grader thinks these matches look wrong — worth a second look.',
+      href: '/inbox'
     }
   ]);
 </script>
@@ -443,19 +406,20 @@
   class="border-border flex shrink-0 flex-col gap-3 border-b px-4 py-4 sm:flex-row sm:items-end sm:justify-between sm:gap-4 sm:px-7 sm:py-5"
 >
   <div class="min-w-0">
-    <div class="text-muted-foreground flex items-center gap-1.5 font-mono text-[10px] tracking-[0.12em] uppercase">
-      <span
-        class="bg-primary inline-flex size-1.5 rounded-full"
-        class:mh-v2-pulse={anyRunning}
-        aria-hidden="true"
-      ></span>
-      {anyRunning ? 'Live · pipeline running' : 'Pipeline · idle'}
-    </div>
-    <h1 class="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">Pipeline</h1>
-    <p class="text-muted-foreground mt-1 line-clamp-2 max-w-2xl text-xs sm:line-clamp-none">
-      Files flow left-to-right: scanned, fingerprinted, matched against providers, decided on,
-      graded by AI, deduped, then landed in your library. Anything that needs a human surfaces in
-      <a href="/inbox" class="text-primary hover:underline">Inbox</a>.
+    <h1 class="flex items-center gap-2.5 text-2xl font-semibold tracking-tight sm:text-[28px]">
+      Pipeline
+      {#if anyRunning}
+        <span class="bg-primary mh-v2-pulse mt-0.5 size-2 rounded-full" aria-hidden="true"></span>
+        <span class="sr-only">running</span>
+      {/if}
+    </h1>
+    <p class="text-muted-foreground mt-1 max-w-xl text-[13px]">
+      {#if anyRunning}
+        Running — files are flowing through scan, match, grade, and build.
+      {:else}
+        Watches your source folder, matches every file, and builds a clean library. Anything that
+        needs a human lands in <a href="/inbox" class="text-primary hover:underline">Inbox</a>.
+      {/if}
     </p>
   </div>
   <div class="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
@@ -464,7 +428,7 @@
         type="button"
         onclick={handleRescan}
         disabled={rescanning || anyRunning}
-        class="border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] font-medium transition-colors active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+        class="border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] font-medium transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {#if rescanning}
           <Loader2 class="size-3.5 animate-spin" />
@@ -478,249 +442,261 @@
 </header>
 
 <ScrollArea class="min-h-0 flex-1">
-  <div class="flex flex-col gap-6 px-4 py-6 sm:px-7">
+  <div class="flex flex-col gap-10 px-4 py-7 sm:px-7">
     {#if loadError}
-      <div class="border-destructive/40 bg-destructive/10 flex items-center gap-2 rounded-lg border px-3 py-2">
-        <AlertTriangle class="text-destructive size-3.5 shrink-0" />
-        <span class="text-destructive flex-1 text-[12px]">
+      <div class="flex items-center gap-2 text-[12.5px]">
+        <span class="bg-destructive size-1.5 shrink-0 rounded-full" aria-hidden="true"></span>
+        <span class="text-muted-foreground flex-1">
           Some pipeline data failed to load — figures below may be missing or stale.
         </span>
         <button
           type="button"
           onclick={() => void loadAll()}
-          class="text-destructive text-[12px] font-medium hover:underline active:translate-y-px"
+          class="text-foreground shrink-0 font-medium hover:underline"
         >
           Retry
         </button>
       </div>
     {/if}
 
-    <!-- KPI row -->
-    <div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-      <!-- Source -->
-      <div class="border-border bg-card rounded-xl border p-4 transition-all hover:border-foreground/20 hover:shadow-sm">
-        <div class="flex items-center gap-2">
-          <span class="bg-muted text-muted-foreground grid size-7 place-items-center rounded-lg">
-            <HardDrive class="size-3.5" />
-          </span>
-          <span class="text-muted-foreground text-[13px] font-medium">Source</span>
-        </div>
-        {#if sourceTotal == null}
-          {#if loaded}
-            <div class="text-muted-foreground mt-1.5 text-2xl font-semibold tracking-tight tabular-nums">—</div>
+    <!-- Stat strip — typographic, unboxed. Desktop: hairline-divided row. -->
+    <section aria-label="Pipeline stats">
+      <div class="divide-border hidden items-stretch divide-x sm:flex">
+        <div class="min-w-0 flex-1 pr-6">
+          {#if sourceTotal == null && !loaded}
+            <Skeleton class="h-9 w-16" />
           {:else}
-            <Skeleton class="mt-2 h-7 w-16" />
-          {/if}
-        {:else}
-          <div class="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums">{fmtNum(sourceTotal)}</div>
-        {/if}
-        <div class="text-muted-foreground mt-0.5 text-[11px]">
-          files{sourceBytes != null ? ` · ${fmtBytes(sourceBytes)}` : ''}
-        </div>
-      </div>
-
-      <!-- In library -->
-      <div class="border-border bg-card rounded-xl border p-4 transition-all hover:border-foreground/20 hover:shadow-sm">
-        <div class="flex items-center gap-2">
-          <span class="bg-muted text-muted-foreground grid size-7 place-items-center rounded-lg">
-            <Library class="size-3.5" />
-          </span>
-          <span class="text-muted-foreground text-[13px] font-medium">In library</span>
-        </div>
-        {#if inLibrary == null}
-          <Skeleton class="mt-2 h-7 w-16" />
-        {:else}
-          <div class="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums">{fmtNum(inLibrary)}</div>
-        {/if}
-        <div class="text-muted-foreground mt-0.5 text-[11px]">
-          {enrichedPct != null ? `${enrichedPct.toFixed(1)}% enriched` : 'enriched'}
-        </div>
-      </div>
-
-      <!-- In flight -->
-      <div class="border-border bg-card rounded-xl border p-4 transition-all hover:border-foreground/20 hover:shadow-sm">
-        <div class="flex items-center gap-2">
-          <span
-            class={cn(
-              'grid size-7 place-items-center rounded-lg',
-              anyRunning ? 'bg-primary/12 text-primary' : 'bg-muted text-muted-foreground'
-            )}
-          >
-            <Activity class="size-3.5" />
-          </span>
-          <span class="text-muted-foreground text-[13px] font-medium">In flight</span>
-        </div>
-        {#if !loaded}
-          <Skeleton class="mt-2 h-7 w-12" />
-        {:else}
-          <div class="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums">{inFlight.toLocaleString()}</div>
-        {/if}
-        <div class="text-muted-foreground mt-0.5 text-[11px]">
-          {anyRunning ? 'mid-pipeline' : 'idle'}
-        </div>
-      </div>
-
-      <!-- Awaiting you -->
-      <a
-        href="/inbox"
-        class="border-border bg-card group block rounded-xl border p-4 transition-all hover:border-foreground/20 hover:shadow-sm"
-      >
-        <div class="flex items-center gap-2">
-          <span class="grid size-7 place-items-center rounded-lg bg-amber-500/12 text-amber-600 dark:text-amber-500">
-            <Inbox class="size-3.5" />
-          </span>
-          <span class="text-muted-foreground text-[13px] font-medium">Awaiting you</span>
-        </div>
-        {#if awaitingYou == null}
-          <Skeleton class="mt-2 h-7 w-12" />
-        {:else}
-          <div class="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums text-amber-600 dark:text-amber-500">
-            {fmtNum(awaitingYou)}
-          </div>
-        {/if}
-        <div class="text-muted-foreground mt-0.5 text-[11px]">
-          {fmtNum(tagReviewCount)} tags · {aiFlaggedCount != null ? `${aiFlaggedCount} AI` : '— AI'}
-        </div>
-      </a>
-
-      <!-- Avg quality -->
-      <div class="border-border bg-card rounded-xl border p-4 transition-all hover:border-foreground/20 hover:shadow-sm">
-        <div class="flex items-center gap-2">
-          <span class="bg-muted text-muted-foreground grid size-7 place-items-center rounded-lg">
-            <Gauge class="size-3.5" />
-          </span>
-          <span class="text-muted-foreground text-[13px] font-medium">Avg quality</span>
-        </div>
-        {#if avgQuality == null}
-          {#if loaded}
-            <div class="text-muted-foreground mt-1.5 text-2xl font-semibold tracking-tight tabular-nums">—</div>
-          {:else}
-            <Skeleton class="mt-2 h-7 w-14" />
-          {/if}
-        {:else}
-          <div class="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums">{avgQuality.toFixed(1)}</div>
-        {/if}
-        <div class="text-muted-foreground mt-0.5 text-[11px]">
-          {qualityGraded != null && qualityGraded > 0 ? `AI score · ${qualityGraded.toLocaleString()} graded` : 'AI score'}
-        </div>
-      </div>
-
-      <!-- Errors -->
-      <div class="border-border bg-card rounded-xl border p-4 transition-all hover:border-foreground/20 hover:shadow-sm">
-        <div class="flex items-center gap-2">
-          <span
-            class={cn(
-              'grid size-7 place-items-center rounded-lg',
-              (errorCount ?? 0) > 0 ? 'bg-red-500/12 text-red-500' : 'bg-muted text-muted-foreground'
-            )}
-          >
-            <AlertTriangle class="size-3.5" />
-          </span>
-          <span class="text-muted-foreground text-[13px] font-medium">Errors</span>
-        </div>
-        {#if errorCount == null}
-          <Skeleton class="mt-2 h-7 w-10" />
-        {:else}
-          <div class={cn('mt-1.5 text-2xl font-semibold tracking-tight tabular-nums', errorCount > 0 && 'text-red-500')}>
-            {fmtNum(errorCount)}
-          </div>
-        {/if}
-        <div class="text-muted-foreground mt-0.5 text-[11px]">failed enrichment</div>
-      </div>
-    </div>
-
-    <!-- Conveyor -->
-    <section class="border-border bg-card rounded-lg border">
-      <div class="border-border flex items-baseline gap-2 border-b px-4 py-3">
-        <span class="text-[13px] font-semibold">Conveyor</span>
-        <span class="text-muted-foreground text-[11.5px]">Click a stage to see what's flowing through it.</span>
-      </div>
-
-      <div class="p-3">
-        <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-          {#each stages as st, i (st.id)}
-            {@const isActive = activeStage === st.id}
-            {@const Icon = st.icon}
-            <button
-              type="button"
-              onclick={() => (activeStage = st.id)}
-              data-active={isActive || undefined}
-              class={cn(
-                'group relative flex flex-col gap-1.5 rounded-lg border p-3 text-left transition-colors active:translate-y-px',
-                isActive ? 'border-foreground/25 bg-muted/40' : 'border-border bg-background hover:bg-muted/60'
-              )}
-            >
-              <div class="flex items-center justify-between">
-                <span
-                  class={cn(
-                    'grid size-6 place-items-center rounded-md',
-                    st.live ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
-                  )}
-                >
-                  <Icon class="size-3.5" />
-                </span>
-                <span class="text-muted-foreground/60 font-mono text-[10px]">{String(i + 1).padStart(2, '0')}</span>
-              </div>
-              <div class="flex items-center gap-1 text-[12.5px] font-medium">
-                {st.label}
-                {#if st.live}
-                  <span class="bg-primary mh-v2-pulse size-1.5 rounded-full"></span>
-                {/if}
-              </div>
-              <div class="text-muted-foreground flex items-center gap-1 text-[10.5px]">
-                <span class="truncate">{st.sub}</span>
-              </div>
-              <div class="mt-0.5 text-base font-semibold tabular-nums">
-                {#if st.real && st.count != null}
-                  {st.count.toLocaleString()}
-                  <span class="text-muted-foreground text-[10px] font-normal">{st.id === 'library' ? 'tracks' : 'done'}</span>
-                {:else}
-                  <span class="text-muted-foreground text-sm">—</span>
-                {/if}
-              </div>
-              <div class="bg-border h-[3px] overflow-hidden rounded-full">
-                <div
-                  class={cn('h-full transition-[width] duration-500', st.warn ? 'bg-amber-500' : 'bg-primary')}
-                  style="width: {barWidth(st)}%;"
-                ></div>
-              </div>
-            </button>
-          {/each}
-        </div>
-
-        <!-- Active-stage detail -->
-        <div class="border-border bg-muted/30 mt-3 rounded-lg border p-3">
-          <div class="text-muted-foreground mb-2 flex items-center gap-1.5 text-[12px] font-semibold">
-            {#if activeStageDef.warn}
-              <AlertTriangle class="size-3.5 text-amber-500" />
-            {:else}
-              <CheckCheck class="size-3.5" />
-            {/if}
-            {activeStageDef.label}
-          </div>
-          {#if activeStageDetail.lines.length === 0}
-            <p class="text-muted-foreground text-[12px]">Nothing in this stage right now.</p>
-          {:else}
-            <div class="flex flex-wrap gap-2">
-              {#each activeStageDetail.lines as line (line.label)}
-                <span
-                  class="border-border bg-card inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px]"
-                >
-                  <span class="text-muted-foreground">{line.label}</span>
-                  <span class="font-mono font-medium tabular-nums">{line.value}</span>
-                </span>
-              {/each}
+            <div class={cn('text-[28px] leading-9 font-semibold tracking-tight tabular-nums', sourceTotal == null && 'text-muted-foreground')}>
+              {fmtNum(sourceTotal)}
             </div>
           {/if}
+          <div class="text-muted-foreground mt-1 text-[12.5px]">
+            Source files{sourceBytes != null ? ` · ${fmtBytes(sourceBytes)}` : ''}
+          </div>
         </div>
+
+        <div class="min-w-0 flex-1 px-6">
+          {#if inLibrary == null}
+            <Skeleton class="h-9 w-16" />
+          {:else}
+            <div class="text-[28px] leading-9 font-semibold tracking-tight tabular-nums">{fmtNum(inLibrary)}</div>
+          {/if}
+          <div class="text-muted-foreground mt-1 truncate text-[12.5px]">
+            In library{enrichedPct != null ? ` · ${enrichedPct.toFixed(0)}% enriched` : ''}
+          </div>
+        </div>
+
+        <div class="min-w-0 flex-1 px-6">
+          {#if !loaded}
+            <Skeleton class="h-9 w-12" />
+          {:else}
+            <div class="text-[28px] leading-9 font-semibold tracking-tight tabular-nums">{inFlight.toLocaleString()}</div>
+          {/if}
+          <div class="text-muted-foreground mt-1 text-[12.5px]">In flight</div>
+        </div>
+
+        <!-- The only interactive stat: explicit chevron affordance, links to Inbox. -->
+        <a
+          href="/inbox"
+          class="group focus-visible:ring-ring min-w-0 flex-1 rounded-sm px-6 focus-visible:ring-2 focus-visible:outline-none"
+        >
+          {#if awaitingYou == null}
+            <Skeleton class="h-9 w-12" />
+          {:else}
+            <div
+              class={cn(
+                'text-[28px] leading-9 font-semibold tracking-tight tabular-nums',
+                awaitingYou > 0 && 'text-amber-600 dark:text-amber-500'
+              )}
+            >
+              {fmtNum(awaitingYou)}
+            </div>
+          {/if}
+          <div class="text-muted-foreground group-hover:text-foreground mt-1 flex items-center gap-0.5 text-[12.5px] transition-colors">
+            Awaiting you <ChevronRight class="size-3" />
+          </div>
+        </a>
+
+        <div class="min-w-0 flex-1 px-6">
+          {#if avgQuality == null && !loaded}
+            <Skeleton class="h-9 w-14" />
+          {:else}
+            <div class={cn('text-[28px] leading-9 font-semibold tracking-tight tabular-nums', avgQuality == null && 'text-muted-foreground')}>
+              {avgQuality == null ? '—' : avgQuality.toFixed(1)}
+            </div>
+          {/if}
+          <div class="text-muted-foreground mt-1 text-[12.5px]">
+            Avg quality{qualityGraded != null && qualityGraded > 0 ? ` · ${qualityGraded.toLocaleString()} graded` : ''}
+          </div>
+        </div>
+
+        <div class="min-w-0 flex-1 pl-6">
+          {#if errorCount == null}
+            <Skeleton class="h-9 w-10" />
+          {:else}
+            <div class={cn('text-[28px] leading-9 font-semibold tracking-tight tabular-nums', errorCount > 0 && 'text-destructive')}>
+              {fmtNum(errorCount)}
+            </div>
+          {/if}
+          <div class="text-muted-foreground mt-1 text-[12.5px]">Errors</div>
+        </div>
+      </div>
+
+      <!-- Mobile: compact two-line summary instead of stacked boxes. -->
+      <div class="text-muted-foreground space-y-1 text-[13px] leading-6 sm:hidden">
+        {#if !loaded}
+          <Skeleton class="h-5 w-56" />
+          <Skeleton class="h-5 w-40" />
+        {:else}
+          <p>
+            <span class="text-foreground font-semibold tabular-nums">{fmtNum(sourceTotal)}</span> files ·
+            <span class="text-foreground font-semibold tabular-nums">{fmtNum(inLibrary)}</span> in library{enrichedPct != null
+              ? ` · ${enrichedPct.toFixed(0)}% enriched`
+              : ''}
+          </p>
+          <p class="flex items-center gap-1">
+            <a href="/inbox" class="inline-flex items-center gap-0.5 font-medium">
+              <span
+                class={cn(
+                  'font-semibold tabular-nums',
+                  (awaitingYou ?? 0) > 0 ? 'text-amber-600 dark:text-amber-500' : 'text-foreground'
+                )}>{fmtNum(awaitingYou)}</span
+              >
+              <span class="text-muted-foreground font-normal">awaiting you</span>
+              <ChevronRight class="size-3" />
+            </a>
+            <span>·</span>
+            <span
+              ><span class={cn('text-foreground font-semibold tabular-nums', (errorCount ?? 0) > 0 && 'text-destructive')}
+                >{fmtNum(errorCount)}</span
+              > errors</span
+            >
+          </p>
+        {/if}
       </div>
     </section>
 
-    <!-- Needs you -->
-    <section>
-      <div class="mb-2.5 flex flex-wrap items-baseline gap-2">
-        <span class="text-[13px] font-semibold">Needs you</span>
-        <span class="text-muted-foreground text-[11.5px]">When the pipeline can't decide, items pile up here.</span>
+    <!-- Conveyor — one connected flow on the page background. -->
+    <section aria-label="Conveyor">
+      <div class="mb-5 flex items-baseline gap-2">
+        <h2 class="text-[13px] font-semibold">Conveyor</h2>
+        <span class="text-muted-foreground text-[12px]">Select a stage for detail.</span>
+      </div>
+
+      <!-- Desktop: horizontal flow, nodes joined by a continuous line. -->
+      <div class="relative hidden sm:block">
+        <div
+          class="bg-border absolute top-[5px] h-px"
+          style="left: calc(100% / 14); right: calc(100% / 14);"
+          aria-hidden="true"
+        ></div>
+        <div class="grid grid-cols-7">
+          {#each stages as st (st.id)}
+            {@const isActive = activeStage === st.id}
+            <button
+              type="button"
+              onclick={() => (activeStage = st.id)}
+              aria-pressed={isActive}
+              class="group focus-visible:ring-ring flex flex-col items-center gap-2.5 rounded-md pb-1 text-center transition-transform duration-100 ease-out focus-visible:ring-2 focus-visible:outline-none active:scale-[0.97]"
+            >
+              <span
+                class={cn(
+                  'relative z-10 size-[11px] rounded-full transition-colors',
+                  st.count != null && st.count > 0 ? 'bg-primary' : 'bg-muted-foreground/30',
+                  st.live && 'ring-primary/20 ring-4'
+                )}
+                aria-hidden="true"
+              ></span>
+              <span
+                class={cn(
+                  'max-w-full truncate px-1 text-[13px] leading-tight transition-colors',
+                  isActive ? 'text-foreground font-semibold' : 'text-muted-foreground group-hover:text-foreground font-medium'
+                )}
+              >
+                {st.label}
+                <span class="text-muted-foreground font-normal tabular-nums">
+                  {st.count == null ? '—' : st.count.toLocaleString()}
+                </span>
+              </span>
+              {#if st.live && st.rate != null}
+                <span class="text-muted-foreground -mt-1.5 text-[11px] tabular-nums">{st.rate.toFixed(0)}/s</span>
+              {/if}
+            </button>
+          {/each}
+        </div>
+      </div>
+
+      <!-- Mobile: same flow, vertical timeline. -->
+      <div class="relative sm:hidden">
+        <div class="bg-border absolute top-3 bottom-3 left-[5px] w-px" aria-hidden="true"></div>
+        <div class="flex flex-col">
+          {#each stages as st (st.id)}
+            {@const isActive = activeStage === st.id}
+            <button
+              type="button"
+              onclick={() => (activeStage = st.id)}
+              aria-pressed={isActive}
+              class="group focus-visible:ring-ring flex items-center gap-3 rounded-md py-2 text-left focus-visible:ring-2 focus-visible:outline-none"
+            >
+              <span
+                class={cn(
+                  'relative z-10 size-[11px] shrink-0 rounded-full transition-colors',
+                  st.count != null && st.count > 0 ? 'bg-primary' : 'bg-muted-foreground/30',
+                  st.live && 'ring-primary/20 ring-4'
+                )}
+                aria-hidden="true"
+              ></span>
+              <span
+                class={cn(
+                  'flex-1 truncate text-[13px]',
+                  isActive ? 'text-foreground font-semibold' : 'text-muted-foreground font-medium'
+                )}
+              >
+                {st.label}
+              </span>
+              {#if st.live && st.rate != null}
+                <span class="text-muted-foreground text-[11px] tabular-nums">{st.rate.toFixed(0)}/s</span>
+              {/if}
+              <span class="text-muted-foreground text-[13px] tabular-nums">
+                {st.count == null ? '—' : st.count.toLocaleString()}
+              </span>
+            </button>
+          {/each}
+        </div>
+      </div>
+
+      <!-- Selected-stage detail — plain inline figures, no box. -->
+      <div class="border-border mt-5 border-t pt-3">
+        {#if activeStageDetail.lines.length === 0}
+          <p class="text-muted-foreground text-[12.5px]">
+            <span class="text-foreground font-medium">{activeStageDef.label}</span>
+            — nothing in this stage right now.
+          </p>
+        {:else}
+          <p class="text-muted-foreground text-[12.5px]">
+            <span class="text-foreground font-medium">{activeStageDef.label}</span>
+            {#each activeStageDetail.lines as line, i (line.label)}
+              <span class="text-muted-foreground/60" aria-hidden="true">{i === 0 ? ' — ' : ' · '}</span
+              >{line.label}
+              <span
+                class={cn(
+                  'font-medium tabular-nums',
+                  line.label === 'To review' && line.value !== '0'
+                    ? 'text-amber-600 dark:text-amber-500'
+                    : 'text-foreground'
+                )}>{line.value}</span
+              >
+            {/each}
+          </p>
+        {/if}
+      </div>
+    </section>
+
+    <!-- Needs you — a divided list, not widget boxes. -->
+    <section aria-label="Needs you">
+      <div class="mb-1.5 flex flex-wrap items-baseline gap-2">
+        <h2 class="text-[13px] font-semibold">Needs you</h2>
+        <span class="text-muted-foreground text-[12px]">When the pipeline can't decide, items pile up here.</span>
         <a
           href="/inbox"
           class="text-primary ml-auto inline-flex items-center gap-0.5 text-[12px] font-medium hover:underline"
@@ -728,86 +704,71 @@
           Open Inbox <ChevronRight class="size-3" />
         </a>
       </div>
-      <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
-        {#each needCards as card (card.id)}
-          {@const Icon = card.icon}
+      <div class="divide-border divide-y">
+        {#each needRows as row (row.id)}
+          {@const Icon = row.icon}
           <a
-            href={card.href}
-            class="border-border bg-card hover:border-foreground/20 group flex flex-col rounded-xl border p-5 transition-all hover:shadow-sm"
+            href={row.href}
+            class="group hover:bg-muted/50 focus-visible:ring-ring -mx-3 flex items-center gap-3.5 rounded-lg px-3 py-3 transition-colors focus-visible:ring-2 focus-visible:outline-none"
           >
-            <div class="flex items-center gap-2.5">
-              <span
-                class={cn(
-                  'grid size-8 place-items-center rounded-lg',
-                  card.tone === 'review' && 'bg-amber-500/12 text-amber-600 dark:text-amber-500',
-                  card.tone === 'dupes' && 'bg-sky-500/12 text-sky-600 dark:text-sky-400',
-                  card.tone === 'ai' && 'bg-primary/12 text-primary'
-                )}
-              >
-                <Icon class="size-4" />
-              </span>
-              <div>
-                {#if card.count == null}
-                  {#if loaded}
-                    <div class="text-muted-foreground text-lg font-semibold leading-none tabular-nums">—</div>
-                  {:else}
-                    <Skeleton class="h-5 w-8" />
-                  {/if}
-                {:else}
-                  <div class="text-lg font-semibold leading-none tabular-nums">{card.count.toLocaleString()}</div>
-                {/if}
-                <div class="text-muted-foreground mt-0.5 text-[11.5px]">{card.label}</div>
-              </div>
+            <Icon class="text-muted-foreground size-4 shrink-0" />
+            <div class="min-w-0 flex-1">
+              <div class="text-[13px] font-medium">{row.label}</div>
+              <div class="text-muted-foreground truncate text-[12px]">{row.body}</div>
             </div>
-            <p class="text-muted-foreground mt-2.5 flex-1 text-[12px] leading-relaxed">{card.body}</p>
-            <span class="text-muted-foreground group-hover:text-foreground mt-2.5 inline-flex items-center gap-0.5 text-[12px] font-medium transition-colors">
-              {card.cta} <ChevronRight class="size-3" />
-            </span>
+            {#if row.count == null}
+              {#if loaded}
+                <span class="text-muted-foreground text-sm tabular-nums">—</span>
+              {:else}
+                <Skeleton class="h-4 w-6" />
+              {/if}
+            {:else}
+              <span class={cn('text-sm font-semibold tabular-nums', row.count === 0 && 'text-muted-foreground font-normal')}>
+                {row.count.toLocaleString()}
+              </span>
+            {/if}
+            <ChevronRight class="text-muted-foreground/50 group-hover:text-muted-foreground size-3.5 shrink-0 transition-colors" />
           </a>
         {/each}
       </div>
     </section>
 
-    <!-- Live activity + Just landed -->
-    <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
-      <!-- Live activity -->
-      <section class="border-border bg-card flex min-h-0 flex-col rounded-lg border">
-        <div class="border-border flex items-center gap-2 border-b px-4 py-2.5">
-          <span class="text-[12.5px] font-semibold">Live activity</span>
-          <span class="text-muted-foreground text-[11px]">recent events</span>
-          <span class="text-primary ml-auto font-mono text-[10.5px]">tail -f</span>
+    <!-- Recent activity + Just landed -->
+    <div class="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-12">
+      <!-- Recent activity — plain sentence-case rows, one dot per event type. -->
+      <section aria-label="Recent activity" class="min-w-0">
+        <div class="mb-1.5 flex items-baseline gap-2">
+          <h2 class="text-[13px] font-semibold">Recent activity</h2>
         </div>
-        <div class="max-h-72 min-h-0 overflow-y-auto px-3 py-2">
+        <div class="max-h-72 min-h-0 overflow-y-auto">
           {#if recent.length > 0}
-            <div class="space-y-0.5">
+            <div class="divide-border/60 divide-y">
               {#each recent as a (a.id)}
-                <div class="grid grid-cols-[auto_52px_1fr] items-center gap-2 py-[3px] font-mono text-[11px] sm:grid-cols-[auto_64px_1fr]">
-                  <span class="text-muted-foreground/70 tabular-nums">{a.time}</span>
-                  <span class={cn('truncate font-semibold tracking-wide uppercase text-[9.5px]', activityTone(a.type))}>{a.type}</span>
-                  <span class="text-muted-foreground truncate">
-                    {a.track}{a.artist ? ` — ${a.artist}` : ''}
+                <div class="flex items-center gap-2.5 py-[7px] text-[12.5px]">
+                  <span class={cn('size-1.5 shrink-0 rounded-full', activityDot(a.type))} aria-hidden="true"></span>
+                  <span class="min-w-0 flex-1 truncate">
+                    <span class="font-medium">{ACTIVITY_VERB[a.type] ?? a.type}</span>
+                    <span class="text-muted-foreground"> — {a.track}{a.artist ? ` · ${a.artist}` : ''}</span>
                   </span>
+                  <span class="text-muted-foreground/70 shrink-0 text-[11.5px]">{a.time}</span>
                 </div>
               {/each}
             </div>
           {:else}
-            <p class="text-muted-foreground/70 px-1 py-8 text-center font-mono text-[11px]">
-              No recent activity yet.
-            </p>
+            <p class="text-muted-foreground/70 py-8 text-center text-[12.5px]">No recent activity yet.</p>
           {/if}
         </div>
       </section>
 
       <!-- Just landed -->
-      <section class="border-border bg-card flex min-h-0 flex-col rounded-lg border">
-        <div class="border-border flex items-center gap-2 border-b px-4 py-2.5">
-          <span class="text-[12.5px] font-semibold">Just landed</span>
-          <span class="text-muted-foreground text-[11px]">in library</span>
-          <a href="/library" class="text-primary ml-auto inline-flex items-center gap-0.5 text-[11.5px] font-medium hover:underline">
+      <section aria-label="Just landed" class="min-w-0">
+        <div class="mb-1.5 flex items-baseline gap-2">
+          <h2 class="text-[13px] font-semibold">Just landed</h2>
+          <a href="/library" class="text-primary ml-auto inline-flex items-center gap-0.5 text-[12px] font-medium hover:underline">
             All <ChevronRight class="size-3" />
           </a>
         </div>
-        <div class="max-h-72 min-h-0 overflow-y-auto p-2.5">
+        <div class="max-h-72 min-h-0 overflow-y-auto">
           {#if !loaded}
             <div class="space-y-1.5">
               {#each Array(4) as _, i (i)}
@@ -815,26 +776,26 @@
               {/each}
             </div>
           {:else if justLanded.length > 0}
-            <div class="space-y-1">
+            <div class="divide-border/60 divide-y">
               {#each justLanded as album (album.key)}
                 {@const firstSong = album.songs[0]}
-                <div class="hover:bg-muted/60 group/row flex w-full items-center gap-2.5 rounded-md p-1.5 transition-colors">
+                <div class="hover:bg-muted/50 group/row -mx-2 flex items-center gap-2.5 rounded-md px-2 py-2 transition-colors">
                   <button
                     type="button"
                     onclick={() => goto(`/library?album=${encodeURIComponent(album.key)}`)}
-                    class="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+                    class="focus-visible:ring-ring flex min-w-0 flex-1 items-center gap-2.5 rounded-sm text-left focus-visible:ring-2 focus-visible:outline-none"
                     title="Open album"
                   >
                     {#if album.coverUrl}
                       <img src={album.coverUrl} alt="" class="size-9 shrink-0 rounded object-cover" />
                     {:else}
-                      <span class="bg-gradient-to-br from-cyan-700/80 to-cyan-300/80 grid size-9 shrink-0 place-items-center rounded text-[10px] font-semibold text-white">
+                      <span class="bg-muted text-muted-foreground grid size-9 shrink-0 place-items-center rounded text-[10px] font-semibold">
                         {albumInitials(album.title)}
                       </span>
                     {/if}
                     <div class="min-w-0 flex-1">
                       <div class="truncate text-[12.5px] font-medium">{album.title}</div>
-                      <div class="text-muted-foreground truncate text-[11px]">
+                      <div class="text-muted-foreground truncate text-[11.5px]">
                         {album.artist}{album.year ? ` · ${album.year}` : ''}
                       </div>
                     </div>
@@ -843,20 +804,17 @@
                     <a
                       href={`/track/${firstSong.id}`}
                       title="View enrichment timeline"
-                      class="text-muted-foreground/70 hover:text-primary hover:border-primary/40 border-border inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-1 text-[10.5px] font-medium opacity-100 transition-colors group-hover/row:opacity-100 focus-visible:opacity-100 sm:opacity-0"
+                      class="text-muted-foreground/60 hover:text-foreground inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11.5px] font-medium opacity-100 transition-colors group-hover/row:opacity-100 focus-visible:opacity-100 sm:opacity-0"
                     >
                       <History class="size-3" /> Timeline
                     </a>
                   {/if}
-                  <Clock class="text-muted-foreground/60 hidden size-3.5 shrink-0 sm:inline-flex" />
-                  <ChevronRight class="text-muted-foreground/60 hidden size-3.5 shrink-0 sm:inline-flex" />
+                  <ChevronRight class="text-muted-foreground/50 hidden size-3.5 shrink-0 sm:inline-flex" />
                 </div>
               {/each}
             </div>
           {:else}
-            <p class="text-muted-foreground/70 px-1 py-8 text-center text-[12px]">
-              Nothing in the library yet.
-            </p>
+            <p class="text-muted-foreground/70 py-8 text-center text-[12.5px]">Nothing in the library yet.</p>
           {/if}
         </div>
       </section>

@@ -11,7 +11,7 @@
     onpick: (c: ReviewCandidate) => void;
     /** Single-column layout (mobile / narrow). Defaults to a responsive 2-col grid. */
     single?: boolean;
-    /** Audit/overview mode: cards are non-interactive and the header drops the "pick one" CTA. */
+    /** Audit/overview mode: cards are non-interactive. */
     readonly?: boolean;
   };
 
@@ -19,75 +19,54 @@
     $props();
 </script>
 
-<div
-  class="border-border bg-surface-sunken/40 rounded-lg border p-3"
-  class:border-primary={pickedKey != null && candidates.length > 0}
->
-  <div
-    class="text-muted-foreground mb-2.5 flex items-center justify-between text-[10.5px] font-semibold tracking-[0.06em] uppercase"
-  >
-    <span>Candidate matches · <span class="normal-case">{readonly ? 'ranked by match confidence' : 'pick one to project into the final values'}</span></span>
-    <span class="font-mono">{candidates.length}</span>
+{#if loading && candidates.length === 0}
+  <div class="text-muted-foreground flex items-center gap-2 py-2 text-sm">
+    <Spinner class="size-4" /> Loading candidates…
   </div>
-
-  {#if loading && candidates.length === 0}
-    <div class="text-muted-foreground flex items-center gap-2 py-2 text-sm">
-      <Spinner class="size-4" /> Loading candidates…
-    </div>
-  {:else if candidates.length === 0}
-    <div class="text-muted-foreground bg-background rounded-md px-3.5 py-4 text-[12.5px]">
-      No fingerprint matches. Enter metadata manually below or skip this file.
-    </div>
-  {:else}
-    <div class={cn('grid gap-2', single ? 'grid-cols-1' : 'sm:grid-cols-2')}>
-      {#each candidates as c (c.key)}
-        {@const picked = pickedKey === c.key}
-        {@const pct = c.score != null ? Math.round(c.score * 100) : null}
-        <button
-          type="button"
-          onclick={() => onpick(c)}
-          disabled={readonly}
-          class={cn(
-            'flex items-start gap-3 rounded-md border p-3 text-left transition-[color,background-color,border-color,transform] active:translate-y-px',
-            picked
-              ? 'border-primary bg-primary/10'
-              : readonly
-                ? 'border-border bg-background cursor-default'
-                : 'border-border bg-background hover:bg-accent'
-          )}
-        >
-          <div class="w-12 shrink-0">
-            <div class={cn('font-mono text-[15px] font-semibold', picked && 'text-primary')}>
-              {c.score != null ? c.score.toFixed(2) : '—'}
-            </div>
-            <div class="bg-border mt-1 h-[3px] overflow-hidden rounded-full">
-              <div class="bg-primary h-full" style="width: {pct ?? 0}%"></div>
-            </div>
+{:else if candidates.length === 0}
+  <div class="text-muted-foreground bg-surface-sunken/40 rounded-md px-3.5 py-4 text-[12.5px]">
+    No fingerprint matches. Enter metadata manually below or skip this file.
+  </div>
+{:else}
+  <div class={cn('grid gap-2', single ? 'grid-cols-1' : 'sm:grid-cols-2')}>
+    {#each candidates as c (c.key)}
+      {@const picked = pickedKey === c.key}
+      {@const pct = c.score != null ? Math.round(c.score * 100) : null}
+      <button
+        type="button"
+        onclick={() => onpick(c)}
+        disabled={readonly}
+        class={cn(
+          'flex items-center gap-3 rounded-lg border p-3 text-left transition-[color,background-color,border-color,transform] duration-100 ease-out',
+          !readonly && 'active:scale-[0.99]',
+          picked
+            ? 'border-primary bg-primary/10'
+            : readonly
+              ? 'border-border bg-background cursor-default'
+              : 'border-border bg-background hover:bg-accent'
+        )}
+      >
+        <div class="min-w-0 flex-1">
+          <div class="truncate text-[13px] font-medium">{c.title}</div>
+          <div class="text-muted-foreground mt-0.5 truncate text-[11.5px]">
+            {c.artist} · <em class="text-foreground/70 italic">{c.album}</em>{#if c.year} · {c.year}{/if}
           </div>
-          <div class="min-w-0 flex-1">
-            <div class="truncate text-[13px] font-medium">{c.title}</div>
-            <div class="text-muted-foreground mt-0.5 truncate text-[11.5px]">
-              {c.artist} · <em class="text-foreground/70 italic">{c.album}</em>{#if c.year} · {c.year}{/if}
-            </div>
-            <div
-              class="border-border mt-1.5 inline-flex items-center gap-1.5 rounded-md border px-1.5 py-0.5"
-            >
-              <span class="size-1.5 rounded-full" style="background: {providerColor(c.source)}"></span>
-              <span class="text-[10.5px]">{c.source}</span>
-              {#if pct != null}
-                <span class="text-muted-foreground border-border ml-0.5 border-l pl-1.5 font-mono text-[10.5px]"
-                  >{pct}</span
-                >
-              {/if}
-            </div>
+          <div class="text-muted-foreground mt-1.5 flex items-center gap-1.5 text-[11px]">
+            <span class="size-1.5 shrink-0 rounded-full" style="background: {providerColor(c.source)}"></span>
+            {c.source}
           </div>
-          {#if picked}
-            <div class="text-primary flex shrink-0 items-center gap-1 self-center font-mono text-[9px] font-bold tracking-[0.08em]">
-              <Check class="size-3" strokeWidth={2.5} /> PICKED
-            </div>
+        </div>
+        <div class="flex shrink-0 flex-col items-end gap-0.5">
+          {#if pct != null}
+            <span class={cn('text-[14px] font-semibold tabular-nums', picked ? 'text-primary' : 'text-foreground/80')}>{pct}%</span>
           {/if}
-        </button>
-      {/each}
-    </div>
-  {/if}
-</div>
+          {#if picked}
+            <span class="text-primary flex items-center gap-1 text-[11px] font-medium">
+              <Check class="size-3" strokeWidth={2.5} /> Picked
+            </span>
+          {/if}
+        </div>
+      </button>
+    {/each}
+  </div>
+{/if}

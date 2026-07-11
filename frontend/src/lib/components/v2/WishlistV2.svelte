@@ -245,19 +245,30 @@
     }
   }
 
+  // Three token-based treatments: neutral (queued/in-progress/skipped), destructive (failed), and
+  // primary (downloaded) — no hardcoded brand/traffic-light hexes.
   function statusBadgeClass(status: WishlistItemStatus): string {
     switch (status) {
       case 'Downloaded':
-        return 'border-0 bg-[#1DB954]/20 text-[#1DB954]';
-      case 'Downloading':
-        return 'border-0 bg-blue-500/20 text-blue-600 dark:text-blue-400';
-      case 'SkippedOwned':
-        return 'border-0 bg-muted text-muted-foreground';
+        return 'border-0 bg-primary/15 text-primary';
       case 'Failed':
       case 'NotFound':
         return 'border-0 bg-destructive/15 text-destructive';
       default:
-        return 'border-0 bg-amber-500/20 text-amber-600 dark:text-amber-400';
+        return 'border-0 bg-muted text-muted-foreground';
+    }
+  }
+
+  // A small status dot to reinforce the badge without relying on color alone — neutral/destructive/primary.
+  function statusDotClass(status: WishlistItemStatus): string {
+    switch (status) {
+      case 'Downloaded':
+        return 'bg-primary';
+      case 'Failed':
+      case 'NotFound':
+        return 'bg-destructive';
+      default:
+        return 'bg-muted-foreground/60';
     }
   }
 
@@ -332,7 +343,7 @@
   {#if banner}
     <div
       class="mx-4 mt-3 rounded-md border px-3 py-2 text-sm md:mx-6 {banner.type === 'success'
-        ? 'border-[#1DB954]/30 bg-[#1DB954]/10 text-[#1DB954]'
+        ? 'border-primary/30 bg-primary/10 text-primary'
         : 'border-destructive/30 bg-destructive/10 text-destructive'}"
     >
       {banner.message}
@@ -356,10 +367,10 @@
     <!-- Sources -->
     {#if sources.length > 0}
       <div class="border-border border-b px-4 py-4 md:px-6">
-        <h2 class="text-muted-foreground mb-3 text-xs font-semibold tracking-wide uppercase">Sources</h2>
-        <div class="flex flex-col gap-2">
+        <h2 class="text-muted-foreground mb-2 text-sm font-medium">Sources</h2>
+        <div class="divide-border divide-y">
           {#each sources as source (source.id)}
-            <div class="border-border bg-card flex items-center gap-3 rounded-lg border p-3">
+            <div class="hover:bg-secondary/40 flex items-center gap-3 rounded-md px-1 py-2.5 transition-colors">
               <Music class="text-muted-foreground size-4 shrink-0" />
               <div class="min-w-0 flex-1">
                 <div class="truncate text-sm font-medium">{source.name}</div>
@@ -382,7 +393,9 @@
               <Button
                 variant="ghost"
                 size="icon"
+                class="size-10 shrink-0"
                 aria-label="Remove source"
+                title="Remove source"
                 disabled={busySources.has(source.id)}
                 onclick={() => onRemoveSource(source)}
               >
@@ -426,9 +439,9 @@
         <p class="text-muted-foreground">No wishlist items{statusFilter === 'All' ? ' yet' : ` (${statusFilter})`}.</p>
       </div>
     {:else}
-      <div class="flex flex-col gap-2 p-2 md:px-4">
+      <div class="divide-border divide-y px-2 md:px-4">
         {#each items as item (item.id)}
-          <div class="border-border/50 hover:bg-secondary/40 flex items-center gap-3 rounded-lg border px-3 py-2">
+          <div class="hover:bg-secondary/40 flex items-center gap-3 px-2 py-2.5 transition-colors">
             <div class="bg-secondary size-10 shrink-0 overflow-hidden rounded">
               {#if item.albumArt}
                 <img src={item.albumArt} alt="" class="size-full object-cover" crossorigin="anonymous" />
@@ -476,7 +489,8 @@
               {fmtDuration(item.durationMs)}
             </span>
 
-            <Badge class={statusBadgeClass(item.status)}>
+            <Badge class="{statusBadgeClass(item.status)} gap-1.5">
+              <span class="size-1.5 shrink-0 rounded-full {statusDotClass(item.status)}"></span>
               {item.status === 'SkippedOwned' ? 'Skipped' : item.status}
             </Badge>
 
@@ -484,7 +498,9 @@
               <Button
                 variant="ghost"
                 size="icon"
+                class="size-10 shrink-0"
                 aria-label="Retry"
+                title="Retry"
                 disabled={busyItems.has(item.id)}
                 onclick={() => onRetry(item)}
               >
@@ -494,7 +510,9 @@
             <Button
               variant="ghost"
               size="icon"
+              class="size-10 shrink-0"
               aria-label="Remove"
+              title="Remove"
               disabled={busyItems.has(item.id)}
               onclick={() => onRemoveItem(item)}
             >

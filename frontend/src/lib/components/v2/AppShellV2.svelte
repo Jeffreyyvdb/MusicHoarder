@@ -22,15 +22,22 @@
   // versions.
   const drawerOpen = $derived(pipelineOverlay.isOpen);
   const playerPad = $derived(playerStore.currentSong && !playerStore.isPanelMounted);
+
+  // Banner policy: at most ONE banner renders at a time — offline (pipeline is
+  // actually paused) outranks the grading error, which outranks the update
+  // notice. Each banner reports its underlying state up; lower priorities are
+  // suppressed while a higher one is visible.
+  let offlineVisible = $state(false);
+  let gradingErrorVisible = $state(false);
 </script>
 
 <Sidebar.Provider>
   <AppSidebarV2 />
   <Sidebar.Inset class={cn('bg-background h-svh min-w-0', drawerOpen && 'md:pb-[340px]')}>
     <AppTopBarV2 />
-    <LibraryOfflineBanner />
-    <QualityGradingErrorBanner />
-    <VersionUpdateBanner />
+    <LibraryOfflineBanner bind:visible={offlineVisible} />
+    <QualityGradingErrorBanner bind:visible={gradingErrorVisible} suppressed={offlineVisible} />
+    <VersionUpdateBanner suppressed={offlineVisible || gradingErrorVisible} />
     <!-- Page content scrolls *behind* the floating MiniPlayer / mobile bottom nav
          so the frosted glass reveals moving content. Rather than reserving dead
          space on the inset (which left the bar over blank background), we publish

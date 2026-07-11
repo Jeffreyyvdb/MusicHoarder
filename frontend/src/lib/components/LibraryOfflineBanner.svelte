@@ -1,10 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
   import { fetchLibraryAvailability, type LibraryAvailability } from '$lib/api-client';
-  import * as Alert from '$lib/components/ui/alert/index.js';
 
   const POLL_INTERVAL_MS = 15_000;
+
+  // The shell binds `visible` to suppress lower-priority banners (update notice)
+  // while this one shows — at most one banner renders at a time.
+  type Props = { visible?: boolean };
+  let { visible = $bindable(false) }: Props = $props();
 
   let availability = $state<LibraryAvailability | null>(null);
 
@@ -13,6 +16,10 @@
   const offline = $derived(
     availability !== null && (!availability.sourceAvailable || !availability.destinationAvailable)
   );
+
+  $effect(() => {
+    visible = offline;
+  });
 
   const offlineLabel = $derived.by(() => {
     if (!availability) return '';
@@ -37,15 +44,21 @@
   });
 </script>
 
+<!--
+  Slim hairline strip, not a tinted wall: one amber dot carries the warning —
+  the only amber in the shell chrome, so it stays legible as "something is
+  actually wrong".
+-->
 {#if offline}
-  <Alert.Root
+  <div
     aria-live="polite"
-    class="mx-4 my-2 w-auto border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+    class="border-border/70 text-muted-foreground flex min-h-9 shrink-0 items-center gap-2.5 border-b px-4 py-1.5 text-[13px] sm:px-7"
   >
-    <TriangleAlert class="size-4" />
-    <Alert.Description class="text-amber-700 dark:text-amber-400">
-      Music library {offlineLabel} directory is unreachable — the processing pipeline is paused.
-      Settings and other pages still work; it resumes automatically when you reconnect.
-    </Alert.Description>
-  </Alert.Root>
+    <span class="size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true"></span>
+    <p class="min-w-0 flex-1">
+      <span class="text-foreground font-medium">Library {offlineLabel} directory unreachable</span>
+      <span class="mx-1" aria-hidden="true">—</span>
+      the pipeline is paused and resumes automatically when you reconnect.
+    </p>
+  </div>
 {/if}
