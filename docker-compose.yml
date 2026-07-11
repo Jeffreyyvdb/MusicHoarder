@@ -60,6 +60,10 @@ services:
       MusicEnricher__YtDlpExtraArgs: "${YTDLP_EXTRA_ARGS:-}"
       MusicEnricher__DownloadProviders__0: "${DOWNLOAD_PROVIDER_1:-slskd}"
       MusicEnricher__DownloadProviders__1: "${DOWNLOAD_PROVIDER_2:-yt-dlp}"
+      Sync__Mode: "${SYNC_MODE:-Off}"
+      Sync__ApiKey: "${SYNC_API_KEY:-}"
+      Sync__RemoteBaseUrl: "${SYNC_REMOTE_URL:-}"
+      Sync__SyncedSourceDirectory: "${SYNC_SOURCE_DIR:-/data/synced-source}"
     ports:
       - "5050:8080"
     volumes:
@@ -73,6 +77,9 @@ services:
         target: "/data/cookies/youtube.txt"
         source: "${YTDLP_COOKIES_HOST_PATH:-/dev/null}"
         read_only: true
+      - type: "volume"
+        target: "/data/synced-source"
+        source: "musichoarder-synced-source"
       - type: "bind"
         target: "/music/source"
         source: "${MUSIC_SOURCE_PATH}"
@@ -128,4 +135,6 @@ volumes:
   musichoarder-dpkeys:
     driver: "local"
   musichoarder-downloads:
+    driver: "local"
+  musichoarder-synced-source:
     driver: "local"

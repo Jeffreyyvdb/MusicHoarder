@@ -25,6 +25,7 @@ using MusicHoarder.Api.Settings;
 using MusicHoarder.Api.Snapshots;
 using MusicHoarder.Api.Soulseek;
 using MusicHoarder.Api.Spotify;
+using MusicHoarder.Api.Sync;
 using MusicHoarder.Api.Version;
 using MusicHoarder.Api.Wishlist;
 
@@ -63,6 +64,13 @@ public static class ServiceCollectionExtensions
             .BindConfiguration(SlskdOptions.SectionName)
             .ValidateDataAnnotations()
             .ValidateOnStart();
+
+        services
+            .AddOptions<SyncOptions>()
+            .BindConfiguration(SyncOptions.SectionName)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<SyncOptions>, SyncOptionsValidator>();
 
         services
             .AddOptions<SpotifyOptions>()
@@ -218,6 +226,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDownloadProvider, SlskdDownloadProvider>();
         services.AddScoped<WishlistDownloadProcessor>();
         services.AddHostedService<DownloadBackgroundService>();
+
+        // Instance sync (receive side): ingest applies pushed tracks; the endpoint filter is the
+        // machine-to-machine auth gate. Both are inert unless Sync:Mode=Receive.
+        services.AddScoped<ISyncIngestService, SyncIngestService>();
+        services.AddSingleton<SyncApiKeyFilter>();
 
         // Multi-provider canonical album tracklists (full-album view, missing tracks greyed out).
         services.AddSingleton<IAlbumTracklistProvider, MusicBrainzAlbumTracklistProvider>();

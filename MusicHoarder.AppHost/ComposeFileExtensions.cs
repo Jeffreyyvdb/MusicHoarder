@@ -95,6 +95,7 @@ internal static class ComposeFileExtensions
         MountMusicLibrary(api);
         MountDemoMedia(api);
         file.ConfigureWishlistDownloads(api);
+        file.MountSyncedSource(api);
 
         // ── Zero-downtime deploys ──────────────────────────────────────────────────────────────
         // Dokploy "Compose" deploys (`docker compose up`) stop the old container before the new one
@@ -228,6 +229,7 @@ internal static class ComposeFileExtensions
         // Shared app + env contract — same helpers as swarm/preview, so new provider/feature env lands here too.
         file.PersistDataProtectionKeys(api);
         file.ConfigureWishlistDownloads(api);
+        file.MountSyncedSource(api);
         ApplyProviderEnvDefaults(api);
 
         // Prebuilt images pulled from GHCR, pinned by MUSICHOARDER_VERSION (defaults to :latest). The
@@ -328,6 +330,23 @@ internal static class ComposeFileExtensions
         api.Environment["Slskd__DownloadsDirectory"] = "${SLSKD_DOWNLOADS_DIR:-}";
         api.Environment["MusicEnricher__DownloadProviders__0"] = "${DOWNLOAD_PROVIDER_1:-slskd}";
         api.Environment["MusicEnricher__DownloadProviders__1"] = "${DOWNLOAD_PROVIDER_2:-yt-dlp}";
+        // Instance sync: role is pure config on one shared build — Push on the private instance,
+        // Receive on the public one, Off (the default) everywhere else. The key gates the
+        // internet-facing receive endpoints, so generate a long random one (openssl rand -base64 48).
+        api.Environment["Sync__Mode"] = "${SYNC_MODE:-Off}";
+        api.Environment["Sync__ApiKey"] = "${SYNC_API_KEY:-}";
+        api.Environment["Sync__RemoteBaseUrl"] = "${SYNC_REMOTE_URL:-}";
+        api.Environment["Sync__SyncedSourceDirectory"] = "${SYNC_SOURCE_DIR:-/data/synced-source}";
+    }
+
+    /// <summary>
+    /// Named volume backing the sync-receive managed directory. Harmless (empty) when the instance
+    /// isn't a receiver; required so received files survive redeploys when it is.
+    /// </summary>
+    private static void MountSyncedSource(this ComposeFile file, Service api)
+    {
+        api.AddVolume(new Volume { Name = "musichoarder-synced-source", Type = "volume", Source = "musichoarder-synced-source", Target = "/data/synced-source" });
+        file.Volumes["musichoarder-synced-source"] = new Volume { Name = "musichoarder-synced-source", Driver = "local" };
     }
 
     /// <summary>
