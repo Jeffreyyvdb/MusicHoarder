@@ -136,12 +136,12 @@ public class SoulseekUpgradeService(
     private async Task<IReadOnlyList<SlskdCandidate>> FindBetterCandidatesAsync(
         SongMetadata song, SlskdOptions opts, CancellationToken ct)
     {
-        var responses = await fetcher.SearchAsync($"{song.Artist} {song.Title}".Trim(), ct);
+        var responses = await fetcher.SearchAsync(SoulseekSearchQuery.Build(song.Artist, song.Title), ct);
         var candidates = SlskdCandidateSelector.Select(responses, song.Title!, song.DurationMs ?? 0, opts);
 
         if (candidates.Count == 0 && !string.IsNullOrWhiteSpace(song.Album))
         {
-            responses = await fetcher.SearchAsync($"{song.Artist} {song.Album}".Trim(), ct);
+            responses = await fetcher.SearchAsync(SoulseekSearchQuery.Build(song.Artist, song.Album), ct);
             candidates = SlskdCandidateSelector.Select(responses, song.Title!, song.DurationMs ?? 0, opts);
         }
 

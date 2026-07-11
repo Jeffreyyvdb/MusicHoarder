@@ -84,5 +84,5 @@ public class SlskdDownloadProvider(
     }
 
     internal static string BuildSearchQuery(string artist, string term) =>
-        string.IsNullOrWhiteSpace(artist) ? term.Trim() : $"{artist} {term}".Trim();
+        SoulseekSearchQuery.Build(artist, term);
 }
