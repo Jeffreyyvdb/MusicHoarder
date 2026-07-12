@@ -173,4 +173,23 @@ public class JobManagerTests
         Assert.True(scanToken.IsCancellationRequested);
         Assert.True(buildToken.IsCancellationRequested);
     }
+    [Fact]
+    public void ForcePipelineCascade_IsOneShotPerJob()
+    {
+        var manager = new JobManager();
+        var jobId = Guid.NewGuid();
+
+        // Unset by default.
+        Assert.False(manager.ConsumeForcePipelineCascade(jobId));
+
+        manager.MarkForcePipelineCascade(jobId);
+        // First consume returns true, second returns false (one-shot).
+        Assert.True(manager.ConsumeForcePipelineCascade(jobId));
+        Assert.False(manager.ConsumeForcePipelineCascade(jobId));
+
+        // A different job id is unaffected.
+        manager.MarkForcePipelineCascade(jobId);
+        Assert.False(manager.ConsumeForcePipelineCascade(Guid.NewGuid()));
+        Assert.True(manager.ConsumeForcePipelineCascade(jobId));
+    }
 }

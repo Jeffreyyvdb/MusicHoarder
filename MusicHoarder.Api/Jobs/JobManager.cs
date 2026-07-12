@@ -86,6 +86,23 @@ public class JobManager
     public ChannelReader<Guid> BuildTriggers => _buildChannel.Reader;
     public ChannelReader<Guid> DownloadTriggers => _downloadChannel.Reader;
 
+    // Scan jobs that must cascade into fingerprint→enrich→build even when AutoStartPipeline is off —
+    // set for explicit acquisitions (URL import / wishlist download), where the user asked for the
+    // track so it should reach the library regardless of the manual-mode auto-discovery gate.
+    private readonly HashSet<Guid> _forceCascadeScans = new();
+
+    /// <summary>Flags a scan job so the scanner cascades it forward even in manual mode. One-shot.</summary>
+    public void MarkForcePipelineCascade(Guid scanJobId)
+    {
+        lock (_lock) { _forceCascadeScans.Add(scanJobId); }
+    }
+
+    /// <summary>Reads and clears the force-cascade flag for a scan job (one-shot; false if unset).</summary>
+    public bool ConsumeForcePipelineCascade(Guid scanJobId)
+    {
+        lock (_lock) { return _forceCascadeScans.Remove(scanJobId); }
+    }
+
     /// <summary>
     /// Start a job for the given step. Returns false if that step is already running.
     /// Clears the paused flag so the step can auto-trigger again.
