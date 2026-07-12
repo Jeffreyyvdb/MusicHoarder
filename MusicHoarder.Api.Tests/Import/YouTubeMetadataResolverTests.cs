@@ -56,4 +56,24 @@ public class YouTubeMetadataResolverTests
         Assert.Null(YouTubeMetadataResolver.Parse("""{ "duration": 10 }"""));
         Assert.Null(YouTubeMetadataResolver.Parse("not json"));
     }
+
+    [Theory]
+    [InlineData("ERROR: [youtube] xyz: Sign in to confirm you're not a bot.", "cookies")]
+    [InlineData("ERROR: No supported JavaScript runtime could be found", "JavaScript runtime")]
+    [InlineData("ERROR: [youtube] xyz: Private video. Sign in if you've been granted access.", "private")]
+    [InlineData("ERROR: unable to download: HTTP Error 429: Too Many Requests", "rate-limiting")]
+    public void Classify_MapsKnownStderrToActionableHint(string stderr, string expectedFragment)
+    {
+        var hint = YouTubeMetadataResolver.Classify(stderr);
+        Assert.NotNull(hint);
+        Assert.Contains(expectedFragment, hint!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("some unrecognized failure")]
+    public void Classify_ReturnsNull_ForUnknownStderr(string stderr)
+    {
+        Assert.Null(YouTubeMetadataResolver.Classify(stderr));
+    }
 }

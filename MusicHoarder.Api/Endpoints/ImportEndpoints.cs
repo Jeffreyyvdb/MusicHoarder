@@ -71,20 +71,28 @@ public static class ImportEndpoints
                 // YouTube: probe the canonical watch URL (tracking/playlist params already stripped).
                 var watchUrl = ImportUrlParser.YouTubeWatchUrl(id);
                 var probe = await youtube.ProbeAsync(watchUrl, ct);
-                if (probe is null)
+                if (!probe.Ok)
+                {
+                    // Lead with the actionable hint (bot check / missing JS runtime / private / …) and
+                    // fall back to a generic message; include the raw yt-dlp detail for diagnostics.
+                    var message = probe.Hint
+                        ?? "Could not read that YouTube video. It may be private, age-restricted, or yt-dlp is unavailable.";
                     return Results.UnprocessableEntity(new
                     {
-                        error = "youtube_probe_failed",
-                        message = "Could not read that YouTube video. It may be private, age-restricted, or yt-dlp is unavailable.",
+                        error = probe.BinaryMissing ? "youtube_unavailable" : "youtube_probe_failed",
+                        message,
+                        detail = probe.Detail,
                     });
+                }
 
+                var result = probe.Result!;
                 return Results.Ok(new ImportResolveResponse(
                     Source: "youtube",
-                    Title: probe.Title,
-                    Artist: probe.Artist,
+                    Title: result.Title,
+                    Artist: result.Artist,
                     Album: null,
-                    DurationMs: probe.DurationMs,
-                    CoverUrl: probe.ThumbnailUrl,
+                    DurationMs: result.DurationMs,
+                    CoverUrl: result.ThumbnailUrl,
                     SpotifyTrackId: null,
                     Isrc: null,
                     SourceUrl: watchUrl));
