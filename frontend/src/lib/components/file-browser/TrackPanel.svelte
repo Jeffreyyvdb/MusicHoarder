@@ -7,6 +7,7 @@
     History,
     Loader2,
     RotateCcw,
+    Heart,
     Search,
     Share2,
     Sparkles,
@@ -50,7 +51,9 @@
   import { lrclibWebUrl, lrclibWebSearchUrl } from '$lib/lrclib-url';
   import { acoustIdSourceConnected, lrclibSourceConnected } from '$lib/source-connection';
   import { playerStore } from '$lib/stores/player.svelte';
+  import { songsStore } from '$lib/stores/songs.svelte';
   import { featuresStore } from '$lib/stores/features.svelte';
+  import { toast } from 'svelte-sonner';
   import { cn } from '$lib/utils';
   import type { LyricsStatus } from '$lib/types';
 
@@ -86,6 +89,18 @@
   // Share: mint (or fetch the existing) public link for this song and copy it. The link plays
   // the song and shows its lyrics/metadata to anyone — no account needed.
   let shareState = $state<'idle' | 'loading'>('idle');
+
+  const isLiked = $derived(Boolean(song.likedAtUtc));
+
+  async function toggleLike() {
+    try {
+      await songsStore.toggleLike(song.id);
+    } catch (err) {
+      toast.error('Could not update liked songs', {
+        description: err instanceof Error ? err.message : undefined
+      });
+    }
+  }
 
   async function shareSong() {
     if (shareState === 'loading') return;
@@ -605,6 +620,17 @@
         aria-label="Close"
       >
         <X class="size-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        onclick={toggleLike}
+        class="bg-foreground/5 hover:bg-foreground/10 absolute right-[52px] size-9 rounded-full active:scale-90 sm:right-[60px]"
+        aria-label={isLiked ? 'Remove from liked songs' : 'Add to liked songs'}
+        aria-pressed={isLiked}
+        title={isLiked ? 'Remove from liked songs' : 'Add to liked songs'}
+      >
+        <Heart class={cn('size-4', isLiked && 'text-primary')} fill={isLiked ? 'currentColor' : 'none'} />
       </Button>
       <Button
         variant="ghost"

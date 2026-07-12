@@ -38,9 +38,11 @@ const ROUTE_MAP: Record<string, Resolved> = {
   '/quality': { tabs: PIPELINE_SUBNAV, active: 'quality' },
   '/album-quality': { tabs: PIPELINE_SUBNAV, active: 'album-quality' },
   '/performance': { tabs: PIPELINE_SUBNAV, active: 'performance' },
+  '/overview': { tabs: [...LIBRARY_SUBNAV], active: 'overview' },
   '/library': { tabs: [...LIBRARY_SUBNAV], active: 'albums' },
   '/artists': { tabs: [...LIBRARY_SUBNAV], active: 'artists' },
   '/tracks': { tabs: [...LIBRARY_SUBNAV], active: 'tracks' },
+  '/liked': { tabs: [...LIBRARY_SUBNAV], active: 'liked' },
   '/spotify': { tabs: [...LIBRARY_SUBNAV], active: 'spotify' }
 };
 
@@ -71,8 +73,10 @@ export function resolveActiveSection(pathname: string): ActiveSection | null {
   if (
     path === '/library' ||
     path.startsWith('/library/') ||
+    path.startsWith('/overview') ||
     path.startsWith('/artists') ||
     path.startsWith('/tracks') ||
+    path.startsWith('/liked') ||
     path.startsWith('/spotify')
   )
     return 'library';

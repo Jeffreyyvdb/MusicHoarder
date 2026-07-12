@@ -132,6 +132,11 @@ export interface ApiSong {
   /** True when the track has resolvable artwork (embedded, or a cover/folder/front.* image in
    * its directory). The image bytes are fetched lazily from {@link getSongCoverUrl}. */
   hasCoverArt?: boolean | null
+  /** When the user liked this song; null/undefined = not liked. Also the "recently liked" sort key. */
+  likedAtUtc?: string | null
+  /** Times playback of this track was started (client-reported). */
+  playCount?: number | null
+  lastPlayedAtUtc?: string | null
 }
 
 interface SongsResponse {
@@ -1341,6 +1346,30 @@ export async function revokeSongShare(id: number): Promise<void> {
 /** The public URL a friend opens — same origin, so it works for every deployment. */
 export function shareUrl(token: string): string {
   return `${location.origin}/share/${encodeURIComponent(token)}`
+}
+
+// ── Likes + play reporting ───────────────────────────────────────────────────
+
+/** Mark a song as liked. Idempotent — re-liking keeps the original timestamp. */
+export async function likeSong(songId: number): Promise<{ id: number; likedAtUtc: string }> {
+  return requestJson<{ id: number; likedAtUtc: string }>(`/songs/${songId}/like`, { method: "POST" })
+}
+
+export async function unlikeSong(songId: number): Promise<{ id: number; likedAtUtc: null }> {
+  return requestJson<{ id: number; likedAtUtc: null }>(`/songs/${songId}/like`, { method: "DELETE" })
+}
+
+/**
+ * Record a playback start (bumps play count + last-played). Fire-and-forget from the player;
+ * demo sessions are write-blocked server-side, so callers should swallow failures.
+ */
+export async function reportSongPlayed(
+  songId: number
+): Promise<{ id: number; playCount: number; lastPlayedAtUtc: string }> {
+  return requestJson<{ id: number; playCount: number; lastPlayedAtUtc: string }>(
+    `/songs/${songId}/played`,
+    { method: "POST" }
+  )
 }
 
 // ── Track review API ──────────────────────────────────────────────────────────

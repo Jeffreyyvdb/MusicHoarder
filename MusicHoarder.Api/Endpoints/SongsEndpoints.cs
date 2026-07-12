@@ -61,7 +61,56 @@ public static class SongsEndpoints
             .WithSummary("Soft-delete a song so it is excluded from review listings and library build.")
             .WithTags("Tracks");
 
+        // Likes + play reporting. Ownership comes from the per-user query filter (a foreign song id
+        // resolves to 404); demo sessions are already write-blocked by DemoReadOnlyMiddleware.
+        app.MapPost("/songs/{id:int}/like", LikeSong)
+            .WithName("LikeSong")
+            .WithSummary("Mark a song as liked (idempotent; the timestamp is the recently-liked sort key).")
+            .WithTags("Tracks");
+        app.MapDelete("/songs/{id:int}/like", UnlikeSong)
+            .WithName("UnlikeSong")
+            .WithSummary("Remove a song from liked songs.")
+            .WithTags("Tracks");
+        app.MapPost("/songs/{id:int}/played", ReportPlayed)
+            .WithName("ReportSongPlayed")
+            .WithSummary("Record a playback start: bumps the play count and last-played timestamp.")
+            .WithTags("Tracks");
+
         return app;
+    }
+
+    internal static async Task<IResult> LikeSong(int id, MusicHoarderDbContext db, CancellationToken ct)
+    {
+        var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null, ct);
+        if (song is null)
+            return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+        song.LikedAtUtc ??= DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(new { song.Id, song.LikedAtUtc });
+    }
+
+    internal static async Task<IResult> UnlikeSong(int id, MusicHoarderDbContext db, CancellationToken ct)
+    {
+        var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id, ct);
+        if (song is null)
+            return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+        song.LikedAtUtc = null;
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(new { song.Id, LikedAtUtc = (DateTime?)null });
+    }
+
+    internal static async Task<IResult> ReportPlayed(int id, MusicHoarderDbContext db, CancellationToken ct)
+    {
+        var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null, ct);
+        if (song is null)
+            return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+        song.PlayCount++;
+        song.LastPlayedAtUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(new { song.Id, song.PlayCount, song.LastPlayedAtUtc });
     }
 
     internal static async Task<IResult> ListSongs(MusicHoarderDbContext db, bool includeDeleted = false, string? enrichmentStatus = null)
@@ -148,6 +197,9 @@ public static class SongsEndpoints
                 s.TranscribedAtUtc,
                 s.TranscriptionModel,
                 s.PreferredLyricsSource,
+                s.LikedAtUtc,
+                s.PlayCount,
+                s.LastPlayedAtUtc,
             })
             .ToListAsync();
 
@@ -179,7 +231,10 @@ public static class SongsEndpoints
             TranscriptionStatus = s.TranscriptionStatus.ToString(),
             s.TranscribedAtUtc,
             s.TranscriptionModel,
-            PreferredLyricsSource = s.PreferredLyricsSource.ToString()
+            PreferredLyricsSource = s.PreferredLyricsSource.ToString(),
+            s.LikedAtUtc,
+            s.PlayCount,
+            s.LastPlayedAtUtc
         }).ToList();
 
         return Results.Ok(new

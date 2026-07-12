@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    Heart,
     Maximize2,
     Pause,
     Play,
@@ -10,9 +11,11 @@
     VolumeX,
     X
   } from '@lucide/svelte';
+  import { toast } from 'svelte-sonner';
   import { fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import { playerStore } from '$lib/stores/player.svelte';
+  import { songsStore } from '$lib/stores/songs.svelte';
   import { seekTargetForKey } from '$lib/player-seek';
   import { songDetail } from '$lib/stores/song-detail.svelte';
   import { Button } from '$lib/components/ui/button';
@@ -44,6 +47,25 @@
     const album = song.album?.trim();
     return album ? `${song.artist} — ${album}` : song.artist;
   });
+
+  // Liked state comes from the library row (PlayerSong doesn't carry it); the
+  // lookup misses for non-library playback (e.g. share links), hiding the heart.
+  const librarySong = $derived.by(() => {
+    const id = playerStore.currentSong?.id;
+    return id == null ? undefined : songsStore.songs.find((s) => s.id === id);
+  });
+  const isLiked = $derived(Boolean(librarySong?.likedAtUtc));
+
+  async function toggleLike() {
+    if (!librarySong) return;
+    try {
+      await songsStore.toggleLike(librarySong.id);
+    } catch (err) {
+      toast.error('Could not update liked songs', {
+        description: err instanceof Error ? err.message : undefined
+      });
+    }
+  }
 
   let seekEl: HTMLDivElement | null = $state(null);
 
@@ -251,6 +273,20 @@
 
       <!-- RIGHT: actions -->
       <div class="flex shrink-0 items-center gap-1">
+        {#if librarySong}
+          <Button
+            variant="ghost"
+            size="icon"
+            class="{isLiked
+              ? 'text-primary hover:text-primary'
+              : 'text-muted-foreground hover:text-foreground'} size-8 shrink-0 active:scale-90"
+            onclick={toggleLike}
+            aria-label={isLiked ? 'Remove from liked songs' : 'Add to liked songs'}
+            aria-pressed={isLiked}
+          >
+            <Heart class="size-4" fill={isLiked ? 'currentColor' : 'none'} />
+          </Button>
+        {/if}
         <Button
           variant="ghost"
           size="icon"

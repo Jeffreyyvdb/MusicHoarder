@@ -1,7 +1,8 @@
 import { untrack } from 'svelte';
 import { browser } from '$app/environment';
 import { toast } from 'svelte-sonner';
-import { coverThumbUrl } from '$lib/api-client';
+import { coverThumbUrl, reportSongPlayed } from '$lib/api-client';
+import { songsStore } from '$lib/stores/songs.svelte';
 
 export interface PlayerSong {
   id: number;
@@ -247,6 +248,17 @@ async function loadAndPlay(song: PlayerSong) {
   audioEl.src = song.streamUrl;
   audioEl.load();
   attemptPlay();
+  reportPlay(song.id);
+}
+
+/**
+ * Fire-and-forget play reporting (feeds the overview's last-played / discover
+ * shelves). Failures are expected for demo sessions (write-blocked) and
+ * anonymous share playback — never let them disturb playback.
+ */
+function reportPlay(songId: number) {
+  songsStore.notePlayed(songId);
+  void reportSongPlayed(songId).catch(() => {});
 }
 
 /**

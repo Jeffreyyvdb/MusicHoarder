@@ -181,6 +181,18 @@ public class SongMetadata
 
     public DateTime? DeletedAtUtc { get; set; }
 
+    // --- Listening signals (user data, not pipeline state) ---
+    //
+    // Deliberately absent from RebuildOnMetadataChangeInterceptor.TagRelevantProperties and never
+    // touched by ResetEnrichment/RequeueForRetag: a like or play must survive re-enrichment and
+    // re-builds, and must never re-tag the destination file.
+
+    /// <summary>When the user liked this song; null = not liked. Doubles as the "recently liked" sort key.</summary>
+    public DateTime? LikedAtUtc { get; set; }
+
+    public int PlayCount { get; set; }
+    public DateTime? LastPlayedAtUtc { get; set; }
+
     // --- Provider attempts ---
 
     public ICollection<SongProviderAttempt> ProviderAttempts { get; set; } = new List<SongProviderAttempt>();

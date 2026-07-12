@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { Search, X } from '@lucide/svelte';
+  import { Heart, Play, Search, Shuffle, X } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import AlbumPage from '$lib/components/file-browser/AlbumPage.svelte';
@@ -20,16 +20,20 @@
   } from '$lib/api-client';
   import { isBuiltSong } from '$lib/album-sections';
   import { parseBrowseFilter, applyBrowseFilter, browseFilterLabel } from '$lib/browse-filter';
+  import { formatTotalDuration } from '$lib/formatters';
+  import { toPlayerSong } from '$lib/api-client';
   import { breadcrumbStore } from '$lib/stores/breadcrumbs.svelte';
+  import { playerStore } from '$lib/stores/player.svelte';
   import { songsStore } from '$lib/stores/songs.svelte';
   import { songDetail } from '$lib/stores/song-detail.svelte';
+  import { shuffle } from '$lib/utils';
 
   // The song-detail panel is now the global SongDetailHost (mounted in the app
   // shell), so Library no longer hosts its own resizable side-pane / bottom
   // Sheet — track selection just drives the shared store. The desktop/mobile
   // form-factor split lives in SongDetailHost.
 
-  type LibraryTab = 'albums' | 'artists' | 'tracks';
+  type LibraryTab = 'albums' | 'artists' | 'tracks' | 'liked';
   type Props = {
     /** Which sub-view this route hosts. The sub-nav navigates between routes. */
     tab: LibraryTab;
@@ -169,8 +173,31 @@
   });
 
   // Tracks tab: scope by browse filter + local search; the TrackList does its own
-  // sort/format filtering, so we only narrow by query here.
+  // sorting, so we only narrow by query here.
   const tracksScoped = $derived(browseScoped);
+
+  // Liked tab: hearted songs, newest like first (the TrackList's 'liked' sort).
+  const likedSongs = $derived(builtSongs.filter((s) => Boolean(s.likedAtUtc)));
+  const likedDurationSec = $derived(
+    likedSongs.reduce((n, s) => n + (s.durationSeconds ?? 0), 0)
+  );
+
+  function likedQueue(): ApiSong[] {
+    return [...likedSongs].sort(
+      (a, b) => Date.parse(b.likedAtUtc ?? '') - Date.parse(a.likedAtUtc ?? '')
+    );
+  }
+  function likedFallbackArtist(s: ApiSong): string {
+    return (s.albumArtist ?? s.artist ?? '').trim() || 'Unknown Artist';
+  }
+  function playLiked() {
+    const queue = likedQueue().map((s) => toPlayerSong(s, likedFallbackArtist(s)));
+    if (queue.length > 0) void playerStore.playSong(queue[0], queue, 0);
+  }
+  function shuffleLiked() {
+    const queue = shuffle(likedQueue()).map((s) => toPlayerSong(s, likedFallbackArtist(s)));
+    if (queue.length > 0) void playerStore.playSong(queue[0], queue, 0);
+  }
 
   const totalTracks = $derived(builtSongs.length);
   const artistCount = $derived(artistGroups.length);
@@ -285,6 +312,62 @@
     <div class="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-16 text-center">
       <p class="text-destructive text-sm">{loadError}</p>
       <Button onclick={() => void songsStore.loadSongs()}>Retry</Button>
+    </div>
+  {:else if tab === 'liked'}
+    <!-- Liked songs: Spotify-style hero + the shared TrackList sorted by
+         recently-liked. The min-h-0 chain keeps virtualization bounded. -->
+    <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div
+        class="border-border flex shrink-0 items-center gap-4 border-b bg-gradient-to-br from-primary/15 via-primary/5 to-transparent px-4 py-5 sm:gap-5 sm:px-7 sm:py-6"
+      >
+        <div
+          class="grid size-16 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-primary to-primary/60 text-primary-foreground shadow-lg sm:size-20"
+        >
+          <Heart class="size-7 sm:size-9" fill="currentColor" />
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-muted-foreground text-[11px] font-medium tracking-wider uppercase">Playlist</p>
+          <h1 class="truncate text-2xl font-bold tracking-tight sm:text-3xl">Liked Songs</h1>
+          <p class="text-muted-foreground mt-1 text-xs sm:text-sm">
+            {likedSongs.length.toLocaleString()} song{likedSongs.length === 1 ? '' : 's'}
+            {#if likedSongs.length > 0}
+              · <span class="font-mono">{formatTotalDuration(likedDurationSec)}</span>
+            {/if}
+          </p>
+        </div>
+        {#if likedSongs.length > 0}
+          <div class="flex shrink-0 items-center gap-2">
+            <Button onclick={playLiked} class="rounded-full active:scale-95">
+              <Play class="size-4" fill="currentColor" />
+              <span class="hidden sm:inline">Play</span>
+            </Button>
+            <Button variant="outline" onclick={shuffleLiked} class="rounded-full active:scale-95">
+              <Shuffle class="size-4" />
+              <span class="hidden sm:inline">Shuffle</span>
+            </Button>
+          </div>
+        {/if}
+      </div>
+      {#if likedSongs.length === 0 && !isLoading}
+        <div class="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+          <Heart class="size-10 opacity-40" />
+          <p class="text-sm font-medium">No liked songs yet</p>
+          <p class="max-w-xs text-xs">
+            Tap the heart on any track — in the list or the song panel — and it'll show up here,
+            newest first.
+          </p>
+        </div>
+      {:else}
+        <TrackList
+          songs={likedSongs}
+          searchQuery={query}
+          {isLoading}
+          selectedId={tracksSelectedId}
+          onSelect={selectTrack}
+          hideHeading
+          initialSortKey="liked"
+        />
+      {/if}
     </div>
   {:else if tab === 'tracks'}
     <!-- All tracks: the virtualized TrackList. Selecting a row drives the global

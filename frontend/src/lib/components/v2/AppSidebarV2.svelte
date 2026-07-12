@@ -9,9 +9,11 @@
     Disc3,
     FolderTree,
     Gauge,
+    Gift,
     Heart,
     History,
     Inbox,
+    LayoutGrid,
     Library,
     ListMusic,
     ListVideo,
@@ -57,9 +59,11 @@
     | 'review'
     | 'dupes'
     | 'aiflag'
+    | 'overview'
     | 'albums'
     | 'artists'
     | 'tracks'
+    | 'liked'
     | 'spotify'
     | 'wishlist'
     | 'playlists';
@@ -134,6 +138,9 @@
       .filter((s) => s === 'needsreview' || s === 'failed').length;
   });
   const albumCount = $derived.by(() => (songs.length === 0 ? null : buildAlbumsFromSongs(builtSongs).length));
+  const likedCount = $derived.by(() =>
+    songs.length === 0 ? null : builtSongs.filter((s) => s.likedAtUtc).length
+  );
   const artistCount = $derived.by(() => {
     if (songs.length === 0) return null;
     const set = new Set<string>();
@@ -193,11 +200,13 @@
       href: '/library',
       icon: Library,
       sub: [
+        { id: 'overview', label: 'Overview', href: '/overview', icon: LayoutGrid },
         { id: 'albums', label: 'Albums', href: '/library', icon: Disc3, count: () => albumCount },
         { id: 'artists', label: 'Artists', href: '/artists', icon: Users, count: () => artistCount },
         { id: 'tracks', label: 'All tracks', href: '/tracks', icon: ListMusic, count: () => totalTracks },
+        { id: 'liked', label: 'Liked songs', href: '/liked', icon: Heart, count: () => likedCount },
         { id: 'spotify', label: 'Spotify', href: '/spotify', icon: Music2 },
-        { id: 'wishlist', label: 'Wishlist', href: '/wishlist', icon: Heart },
+        { id: 'wishlist', label: 'Wishlist', href: '/wishlist', icon: Gift },
         { id: 'playlists', label: 'Playlists', href: '/playlists', icon: ListVideo }
       ]
     },
@@ -244,12 +253,16 @@
         return onInbox && inboxTab === 'review';
       case 'dupes':
         return onInbox && inboxTab === 'dupes';
+      case 'overview':
+        return pathname === '/overview';
       case 'albums':
         return (pathname === '/library' || pathname.startsWith('/library/')) && !isSourceView;
       case 'artists':
         return pathname.startsWith('/artists');
       case 'tracks':
         return pathname === '/tracks';
+      case 'liked':
+        return pathname === '/liked';
       case 'spotify':
         return pathname.startsWith('/spotify');
       case 'wishlist':
