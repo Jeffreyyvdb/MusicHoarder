@@ -14,4 +14,11 @@ public interface ISyncIngestService
     /// metadata. Idempotent: re-uploading an identical or worse file is a no-op skip.
     /// </summary>
     Task<SyncUploadResponse> IngestAsync(SyncTrackPayload payload, Stream file, CancellationToken ct);
+
+    /// <summary>
+    /// Applies a like-only change (no file) for a track already present here: matches by the portable
+    /// identity ladder and sets its <see cref="Persistence.SongMetadata.LikedAtUtc"/>. Returns
+    /// <c>Matched=false</c> when the track isn't present yet (the pusher will retry after the file syncs).
+    /// </summary>
+    Task<SyncLikeResponse> ApplyLikeAsync(SyncLikeRequest request, CancellationToken ct);
 }

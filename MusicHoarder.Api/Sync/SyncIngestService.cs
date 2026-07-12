@@ -117,6 +117,25 @@ public sealed class SyncIngestService(
         return new SyncUploadResponse(SyncUploadOutcome.Replaced, existing.Id, candidateScore);
     }
 
+    public async Task<SyncLikeResponse> ApplyLikeAsync(SyncLikeRequest request, CancellationToken ct)
+    {
+        var (existing, matchedBy) = await FindExistingAsync(
+            request.Fingerprint, request.AcoustIdTrackId, request.MusicBrainzId,
+            request.Artist, request.Title, request.DurationMs, ct);
+
+        if (existing is null)
+            return new SyncLikeResponse(Matched: false, SongId: null);
+
+        // Pusher is authoritative (one-way sync): mirror its like verbatim, including a clear.
+        existing.LikedAtUtc = request.LikedAtUtc;
+        await db.SaveChangesAsync(ct);
+
+        logger.LogInformation("Sync applied like ({Liked}) to song {SongId} '{Artist} - {Title}' (matched by {MatchedBy})",
+            request.LikedAtUtc is not null, existing.Id, LogSanitizer.ForLog(request.Artist),
+            LogSanitizer.ForLog(request.Title), matchedBy);
+        return new SyncLikeResponse(Matched: true, SongId: existing.Id);
+    }
+
     /// <summary>
     /// The matching ladder over live, canonical rows (owner tenant, non-synthetic, non-deleted,
     /// non-duplicate). Sequential FirstOrDefaults — precision order matters more than round-trips
@@ -284,6 +303,9 @@ public sealed class SyncIngestService(
         song.SyncedLyrics = payload.SyncedLyrics;
         song.IsInstrumental = payload.IsInstrumental;
         song.LyricsStatus = payload.LyricsStatus;
+
+        // The pusher owns the like (one-way sync): mirror it, even clearing a stale local like.
+        song.LikedAtUtc = payload.LikedAtUtc;
     }
 
     private void DeleteManagedSourceFile(string sourcePath, SyncOptions opts)
