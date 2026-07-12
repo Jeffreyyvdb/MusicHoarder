@@ -3,12 +3,21 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Tests.Auth;
 using MusicHoarder.Api.Endpoints;
+using MusicHoarder.Api.Navidrome;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
 
 public class LikesAndPlaysTests
 {
+    /// <summary>No-op like enqueuer — these tests exercise the DB side, not the Navidrome push.</summary>
+    private static readonly INavidromeLikeEnqueuer Noop = new NoopEnqueuer();
+
+    private sealed class NoopEnqueuer : INavidromeLikeEnqueuer
+    {
+        public void TryEnqueue(int songId, Guid ownerUserId) { }
+    }
+
     [Fact]
     public async Task LikeSong_SetsLikedAtUtc_AndIsIdempotent()
     {
@@ -24,7 +33,7 @@ public class LikesAndPlaysTests
 
         await using (var db = NewContext(options))
         {
-            var result = await SongsEndpoints.LikeSong(songId, db, CancellationToken.None);
+            var result = await SongsEndpoints.LikeSong(songId, db, Noop, CancellationToken.None);
             Assert.NotNull(GetProperty<DateTime?>(ResultValue(result), "LikedAtUtc"));
         }
 
@@ -38,7 +47,7 @@ public class LikesAndPlaysTests
         // Re-liking keeps the original timestamp (idempotent).
         await using (var db = NewContext(options))
         {
-            await SongsEndpoints.LikeSong(songId, db, CancellationToken.None);
+            await SongsEndpoints.LikeSong(songId, db, Noop, CancellationToken.None);
         }
 
         await using (var db = NewContext(options))
@@ -64,7 +73,7 @@ public class LikesAndPlaysTests
 
         await using (var db = NewContext(options))
         {
-            await SongsEndpoints.UnlikeSong(songId, db, CancellationToken.None);
+            await SongsEndpoints.UnlikeSong(songId, db, Noop, CancellationToken.None);
         }
 
         await using (var db = NewContext(options))
@@ -119,7 +128,7 @@ public class LikesAndPlaysTests
         await using (var db = new MusicHoarderDbContext(
             options, new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser)))
         {
-            var result = await SongsEndpoints.LikeSong(songId, db, CancellationToken.None);
+            var result = await SongsEndpoints.LikeSong(songId, db, Noop, CancellationToken.None);
             Assert.Equal(StatusCodes.Status404NotFound, GetStatusCode(result));
         }
 
