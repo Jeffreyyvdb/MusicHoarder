@@ -1,8 +1,12 @@
 using FuzzySharp;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Matching;
+using MusicHoarder.Api.Navidrome;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Sync;
 
 namespace MusicHoarder.Api.Spotify;
 
@@ -10,6 +14,9 @@ public partial class SpotifyLibraryComparisonService(
     ISpotifyApiService spotifyApi,
     IServiceScopeFactory scopeFactory,
     IOwnerLookupService ownerLookup,
+    INavidromeLikeEnqueuer navidromeLikeEnqueuer,
+    ITrackSyncEnqueuer trackSyncEnqueuer,
+    IOptions<SpotifyOptions> spotifyOptions,
     ILogger<SpotifyLibraryComparisonService> logger) : ISpotifyLibraryComparisonService
 {
     private const double FuzzyThreshold = 85.0;
@@ -150,9 +157,10 @@ public partial class SpotifyLibraryComparisonService(
     {
         var index = await LoadTrackIndexAsync(ct);
         var now = DateTime.UtcNow;
-        int total = 0, inLibrary = 0, possible = 0, notIn = 0;
+        int total = 0, inLibrary = 0, possible = 0, notIn = 0, autoLiked = 0;
         const int batchSize = 50;
         var spotifyOffset = 0;
+        var autoLikeEnabled = spotifyOptions.Value.AutoLikeMatchedSongs;
 
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
@@ -178,6 +186,10 @@ public partial class SpotifyLibraryComparisonService(
                 .ToListAsync(ct);
             var existingById = existingRows.ToDictionary(r => r.SpotifyTrackId, StringComparer.OrdinalIgnoreCase);
 
+            // Song ids to auto-like from this page: only exact ("InLibrary") matches, never fuzzy
+            // "possible" matches, so an uncertain match can't like the wrong track.
+            var pageAutoLikeSongIds = new HashSet<int>();
+
             foreach (var song in page.Items)
             {
                 if (string.IsNullOrWhiteSpace(song.SpotifyId))
@@ -191,6 +203,9 @@ public partial class SpotifyLibraryComparisonService(
                     case ComparisonMatchStatus.NotInLibrary: notIn++; break;
                 }
 
+                if (autoLikeEnabled && status == ComparisonMatchStatus.InLibrary && matched is not null)
+                    pageAutoLikeSongIds.Add(matched.Id);
+
                 var row = ToPersistedRow(song, status, matched, confidence, SourceLikedSync, now);
                 if (existingById.TryGetValue(song.SpotifyId, out var existing))
                     CopyMatchOntoExisting(existing, row);
@@ -202,6 +217,9 @@ public partial class SpotifyLibraryComparisonService(
             }
 
             await db.SaveChangesAsync(ct);
+
+            if (pageAutoLikeSongIds.Count > 0)
+                autoLiked += await AutoLikeMatchedSongsAsync(db, ownerId, pageAutoLikeSongIds, now, ct);
 
             spotifyOffset += page.Items.Count;
             if (spotifyOffset >= page.Total)
@@ -223,8 +241,47 @@ public partial class SpotifyLibraryComparisonService(
         }
 
         logger.LogInformation(
-            "Spotify liked library match sync finished: total={Total}, inLibrary={InLib}, possible={Possible}, notInLibrary={NotIn}",
-            total, inLibrary, possible, notIn);
+            "Spotify liked library match sync finished: total={Total}, inLibrary={InLib}, possible={Possible}, notInLibrary={NotIn}, autoLiked={AutoLiked}",
+            total, inLibrary, possible, notIn, autoLiked);
+    }
+
+    /// <summary>
+    /// Likes the owner's library songs behind the given ids that aren't already liked, then propagates
+    /// each newly-liked song through the standard like plumbing (Navidrome star + Sync push) exactly as
+    /// the manual like endpoint does. Additive only: already-liked songs are skipped so a re-sweep never
+    /// re-enqueues them, and it never removes a like. Returns the number of songs newly liked.
+    /// </summary>
+    private async Task<int> AutoLikeMatchedSongsAsync(
+        MusicHoarderDbContext db, Guid ownerId, IReadOnlyCollection<int> songIds, DateTime now, CancellationToken ct)
+    {
+        // IgnoreQueryFilters + explicit owner: this runs from a background sweep with no HttpContext, so
+        // the ambient multi-tenant filter would resolve to Guid.Empty and match nothing (see LoadTrackIndexAsync).
+        var toLike = await db.Songs
+            .IgnoreQueryFilters()
+            .Where(s => s.OwnerUserId == ownerId
+                && s.DeletedAtUtc == null
+                && s.LikedAtUtc == null
+                && songIds.Contains(s.Id))
+            .ToListAsync(ct);
+
+        if (toLike.Count == 0)
+            return 0;
+
+        foreach (var song in toLike)
+            song.LikedAtUtc = now;
+
+        await db.SaveChangesAsync(ct);
+
+        // Propagate after the like commits. Both enqueuers are inert unless their feature is configured
+        // (Navidrome credentials / Sync push mode) and both skip the demo tenant internally.
+        foreach (var song in toLike)
+        {
+            navidromeLikeEnqueuer.TryEnqueue(song.Id, song.OwnerUserId);
+            trackSyncEnqueuer.TryEnqueue(song.Id, song.OwnerUserId);
+        }
+
+        logger.LogInformation("Auto-liked {Count} library songs matched from Spotify liked songs", toLike.Count);
+        return toLike.Count;
     }
 
     public async Task<SpotifyComparisonResponse> CompareAsync(

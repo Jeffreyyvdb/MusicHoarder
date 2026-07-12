@@ -86,6 +86,19 @@ public class SpotifyOptions
     public int LibraryMatchSyncIntervalMinutes { get; set; } = 120;
 
     /// <summary>
+    /// When true (default), a Spotify liked song that matches a library track <em>exactly</em> — same
+    /// Spotify track id, or identical normalized artist+title (the <c>InLibrary</c> match status) — is
+    /// automatically liked in MusicHoarder during the periodic liked-song match sweep. That like then
+    /// propagates through the normal like plumbing: it stars the track on a configured Navidrome server
+    /// and enqueues it to a Sync push target, exactly as a manual like would. Additive only: it never
+    /// removes a like (unliking on Spotify does <em>not</em> unlike here), an already-liked song is left
+    /// untouched (no re-sync), and fuzzy "possible" matches are deliberately excluded so an uncertain
+    /// match can't like the wrong track. Set false to keep the sweep comparison-only. Has no effect when
+    /// <see cref="LibraryMatchSyncIntervalMinutes"/> is 0 (the sweep never runs).
+    /// </summary>
+    public bool AutoLikeMatchedSongs { get; set; } = true;
+
+    /// <summary>
     /// How often the wishlist sync runs a <em>full</em> sweep — every auto-synced source (Liked Songs
     /// and playlists) paged to completion, so playlist edits and any likes the fast poll's shallow
     /// window missed are reconciled (0 = disabled, no sync at all).
