@@ -45,9 +45,12 @@ library, let it run, and review anything it isn't sure about.
   destination folder so players show the real sleeve.
 - **Duplicate detection** — groups songs by identical fingerprint and elects the best copy (codec
   tier and bitrate, then metadata trustworthiness, then file size) so only the best version is built.
-- **Synced lyrics** — fetches time-synced (karaoke-style) or plain lyrics from LRCLIB and embeds
-  them into the built file. *Optional, experimental:* when none exist, an OpenAI Whisper pass can
-  transcribe synced lyrics — stored separately so it never clobbers curated ones.
+- **Synced lyrics + AI transcription** — fetches time-synced (karaoke-style) or plain lyrics from
+  LRCLIB, embeds them into the built file, and shows them in the app with a synced/plain toggle.
+  *Optional, experimental:* when no lyrics exist anywhere, an OpenAI-compatible **Whisper** pass
+  (default `whisper-1`; repoint it at Groq or a self-hosted model) transcribes the audio into a fresh
+  synced `.lrc` from Whisper's word/segment timestamps — stored **separately** from any curated
+  lyrics and clearly marked, so it never overwrites the real thing. No key → the feature is just off.
 - **Community trackers** *(optional)* — artist-scoped catalogs cover leaks, alternate versions, and
   unreleased albums that mainstream services don't, gated to a per-artist allowlist.
 
@@ -79,17 +82,24 @@ library, let it run, and review anything it isn't sure about.
 - **Discover playlists** *(optional)* — browse Deezer-backed editorial and chart playlists by genre
   or search, or paste a Spotify/Deezer playlist link, then subscribe so new tracks are wishlisted
   and (with downloads enabled) fetched automatically.
-- **Spotify import & comparison** *(optional)* — connect a Spotify account (read-only) to browse
-  your Liked Songs and playlists with each track's local-library match shown, add any collection as
-  an auto-syncing wishlist source, and get a track-by-track in-library / missing comparison.
-- **Wishlist with auto-download** *(optional)* — turns wishlisted tracks into actual files via an
-  ordered chain: a self-run [slskd](https://github.com/slskd/slskd) (Soulseek) first, then a yt-dlp
-  fallback that keeps native Opus and stamps the authoritative identity so downloads enrich
-  correctly. Already-owned tracks are skipped; failures retry. Off by default.
+- **Spotify sync** *(optional)* — connect a Spotify account (read-only) and browse your Liked Songs
+  and playlists with every track's local-library match shown inline. Add any playlist (or your Liked
+  Songs) as an **auto-syncing wishlist source** so new additions flow in on their own, see a
+  track-by-track *in-library vs missing* comparison, and a fast poll picks up songs you just liked
+  within seconds.
+- **Wishlist with auto-download** *(optional)* — everything wishlisted (from Spotify sync or
+  Discover) is turned into an actual file by an ordered fetch chain: a self-run
+  [slskd](https://github.com/slskd/slskd) (Soulseek) first, then a yt-dlp fallback that keeps native
+  Opus and stamps the authoritative identity so the download enriches correctly and lands in the
+  right album. Already-owned tracks are skipped; failures retry individually or in bulk. The whole
+  *liked → wishlisted → downloaded → in library* journey is charted on the Stats page. Off by default.
 - **Playlist export** *(optional)* — mirror your Spotify Liked Songs or any playlist as a static
   `.m3u8` file in the destination library, in order, so Navidrome/Plex/Jellyfin auto-import it.
-- **Public share links** — mint a revocable, chrome-free public page for a single track or a whole
-  album, with ambient artwork, in-page playback, and a live synced-lyrics theater view.
+- **Public share links & share view** — mint a revocable, no-account link scoped to a single track
+  or a whole album. The public page is a chrome-free player with ambient artwork pulled from the
+  cover, an album queue that plays straight through, and a **full-screen synced-lyrics theater** that
+  scrolls line-by-line with the song and follows the queue as it advances. Nothing else in your
+  library is exposed, and the link is revocable anytime.
 - **Library history** — an audit log of every change written to the destination (album
   consolidations, artist renames, year corrections, cover art, per-field tag diffs), so you can see
   exactly "what Navidrome sees differently."
