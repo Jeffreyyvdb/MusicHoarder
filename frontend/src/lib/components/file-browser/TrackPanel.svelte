@@ -6,11 +6,7 @@
     Copy,
     History,
     Loader2,
-    Pause,
-    Play,
     RotateCcw,
-    Rewind,
-    FastForward,
     Heart,
     Search,
     Share2,
@@ -22,11 +18,14 @@
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import * as Tabs from '$lib/components/ui/tabs/index.js';
   import LyricsPanel from '$lib/components/file-browser/LyricsPanel.svelte';
+  import LyricsCard from '$lib/components/file-browser/LyricsCard.svelte';
+  import LyricsFullscreen from '$lib/components/file-browser/LyricsFullscreen.svelte';
   import SourceRow from '$lib/components/file-browser/SourceRow.svelte';
-  import Scrubber from '$lib/components/file-browser/Scrubber.svelte';
+  import SongTransport from '$lib/components/file-browser/SongTransport.svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import {
     artistLabelForSong,
+    coverThumbUrl,
     coverUrlForSong,
     enrichSong,
     fetchEnrichmentDetail,
@@ -292,6 +291,10 @@
   const albumHref = $derived(`/library?album=${encodeURIComponent(album.key)}`);
   const lyricsStatus = $derived((song.lyricsStatus ?? 'NotFetched') as LyricsStatus);
   const coverUrl = $derived(coverUrlForSong(song) ?? album.coverUrl ?? null);
+  const ambientUrl = $derived(coverThumbUrl(coverUrl, 600));
+
+  // Mobile fullscreen lyrics overlay (shared with the public share page).
+  let lyricsExpanded = $state(false);
 
   // Smart default tab (Apple-Music style): open on Lyrics when the track has any
   // lyrics, otherwise Metadata. Re-applied only when the *song id* changes — so
@@ -323,12 +326,6 @@
     const queue = album.songs.map((s) => toPlayerSong(s, album.artist));
     void playerStore.playSong(toPlayerSong(song, album.artist), queue, trackIndex);
   }
-
-  // Prev/next walk the active playback queue (the album/list the current song
-  // was started from), so they only act while this panel's track is the one
-  // loaded in the player; otherwise there's no queue position to move within.
-  const canGoPrevious = $derived(isCurrentlyLoaded && playerStore.hasPrevious);
-  const canGoNext = $derived(isCurrentlyLoaded && playerStore.hasNext);
 
   async function handleResetEnrichment() {
     resetState = 'loading';
@@ -438,6 +435,15 @@
   const showAiInViewer = $derived(
     lyricsFeatureEnabled && aiLyrics != null && (!hasLyrics || preferredSource === 'transcribed')
   );
+
+  // The mobile lyrics card / fullscreen overlay present the same source as the big viewer.
+  const lyricsExpandable = $derived(
+    song.isInstrumental !== true &&
+      (showAiInViewer ? Boolean(aiLyrics?.synced || aiLyrics?.plain) : hasLyrics)
+  );
+  $effect(() => {
+    if (!lyricsExpandable) lyricsExpanded = false;
+  });
 
   async function handleSetPreferred(source: 'lrclib' | 'transcribed') {
     if (preferredSource === source || preferSaving) return;
@@ -586,63 +592,16 @@
     ['Status', enrichmentNormalized]
   ]);
 
-  function formatTime(seconds: number): string {
-    if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  }
 </script>
 
 {#snippet transport()}
   <div class="mx-auto w-full max-w-[340px]">
-    <Scrubber isActive={isCurrentlyLoaded} fallbackDuration={song.durationSeconds ?? 0} />
-    <div class="mt-1.5 flex items-center gap-3">
-      <span class="text-muted-foreground w-10 shrink-0 text-right text-xs tabular-nums">
-        {isCurrentlyLoaded ? formatTime(playerStore.currentTime) : '0:00'}
-      </span>
-      <!-- Apple Music now-playing style: naked solid glyphs, no disc, no hover
-           wash (a translucent circle reads as smudge on dark artwork). Feedback
-           is press-scale on the glyph itself. -->
-      <div class="mx-auto flex items-center gap-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          class="text-foreground hover:text-foreground size-9 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent dark:hover:bg-transparent active:scale-90 disabled:opacity-30"
-          onclick={() => playerStore.playPrevious()}
-          disabled={!canGoPrevious}
-          aria-label="Previous track"
-        >
-          <Rewind class="size-5.5" fill="currentColor" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          class="text-foreground hover:text-foreground size-11 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent dark:hover:bg-transparent active:scale-90"
-          onclick={handlePlayToggle}
-          aria-label={isCurrentlyPlaying ? 'Pause' : 'Play'}
-        >
-          {#if isCurrentlyPlaying}
-            <Pause class="size-7" fill="currentColor" />
-          {:else}
-            <Play class="size-7 translate-x-px" fill="currentColor" />
-          {/if}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          class="text-foreground hover:text-foreground size-9 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent dark:hover:bg-transparent active:scale-90 disabled:opacity-30"
-          onclick={() => playerStore.playNext()}
-          disabled={!canGoNext}
-          aria-label="Next track"
-        >
-          <FastForward class="size-5.5" fill="currentColor" />
-        </Button>
-      </div>
-      <span class="text-muted-foreground w-10 shrink-0 text-xs tabular-nums">
-        {formatDuration(song.durationSeconds)}
-      </span>
-    </div>
+    <SongTransport
+      isActive={isCurrentlyLoaded}
+      isPlaying={isCurrentlyPlaying}
+      fallbackDuration={song.durationSeconds ?? 0}
+      onPlayToggle={handlePlayToggle}
+    />
   </div>
 {/snippet}
 
@@ -751,8 +710,14 @@
         {@render transport()}
       </div>
 
-      <!-- Mobile compact header: small art + title/artist -->
-      <div class="flex shrink-0 items-center gap-3 lg:hidden">
+      <!-- Mobile compact header: small art + title/artist. Hidden on the Lyrics tab,
+           whose share-style hero carries the art, title, and transport itself. -->
+      <div
+        class={cn(
+          'shrink-0 items-center gap-3 lg:hidden',
+          activeTab === 'lyrics' ? 'hidden' : 'flex'
+        )}
+      >
         <Cover
           artist={trackArtist}
           title={album.title}
@@ -819,6 +784,62 @@
     </Tabs.Content>
 
     <Tabs.Content value="lyrics" class="flex min-h-0 flex-1 flex-col gap-2">
+      <!-- Mobile: the share-screen treatment — hero art, transport, and a lyrics card
+           that expands to the fullscreen lyrics overlay. -->
+      <div class="min-h-0 flex-1 overflow-y-auto lg:hidden">
+        <div class="mx-auto flex w-full max-w-xl flex-col items-center px-2 pt-4 pb-8">
+          <Cover
+            artist={trackArtist}
+            title={album.title}
+            {coverUrl}
+            size={288}
+            corner={12}
+            caption={false}
+            class="aspect-square !h-auto w-56 shrink-0 !shadow-[0_24px_48px_rgba(0,0,0,0.45)] sm:w-64"
+          />
+          <div class="mt-5 w-full text-center">
+            <h2 class="truncate text-2xl font-bold tracking-[-0.02em]">{trackTitle}</h2>
+            <p class="text-muted-foreground mt-1 truncate text-sm">
+              <a href={artistHref} onclick={onClose} class="hover:text-foreground hover:underline">
+                {trackArtist}
+              </a>
+              ·
+              <a
+                href={albumHref}
+                onclick={onClose}
+                class="text-muted-foreground/70 hover:text-foreground hover:underline"
+              >
+                {album.title}
+              </a>
+            </p>
+          </div>
+          <div class="mt-6 w-full">
+            {@render transport()}
+          </div>
+          <div class="mt-8 w-full">
+            <LyricsCard expandable={lyricsExpandable} onExpand={() => (lyricsExpanded = true)}>
+              {#key showAiInViewer ? `ai-${aiLyrics?.at}` : 'lrclib'}
+                <div class="flex h-full flex-col">
+                  <LyricsPanel
+                    variant="theater"
+                    songId={song.id}
+                    syncedLyrics={showAiInViewer ? aiLyrics?.synced : (song.syncedLyrics ?? undefined)}
+                    plainLyrics={showAiInViewer ? aiLyrics?.plain : (song.plainLyrics ?? undefined)}
+                    lyricsStatus={showAiInViewer ? 'Fetched' : lyricsStatus}
+                    hasSyncedLyrics={showAiInViewer ? Boolean(aiLyrics?.synced) : (song.hasSyncedLyrics ?? false)}
+                    hasPlainLyrics={showAiInViewer ? Boolean(aiLyrics?.plain) : (song.hasPlainLyrics ?? false)}
+                    isInstrumental={song.isInstrumental ?? undefined}
+                    currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
+                  />
+                </div>
+              {/key}
+            </LyricsCard>
+          </div>
+        </div>
+      </div>
+
+      <!-- Desktop: AI-lyrics tooling + the big theater viewer -->
+      <div class="hidden min-h-0 flex-1 flex-col gap-2 lg:flex">
       {#if song.isInstrumental !== true && lyricsFeatureEnabled}
         <!-- Control bar: transcribe / re-transcribe, and (when both exist) toggle the comparison view.
              Hidden entirely unless the AI transcription feature is configured on the server. -->
@@ -977,6 +998,7 @@
           {/key}
         </div>
       {/if}
+      </div>
     </Tabs.Content>
 
     <Tabs.Content value="fingerprint" class="flex min-h-0 flex-1 flex-col">
@@ -1237,12 +1259,44 @@
     </Tabs.Content>
       </div>
 
-      <!-- Mobile transport pinned at the bottom -->
-      <div class="shrink-0 lg:hidden">
+      <!-- Mobile transport pinned at the bottom (the Lyrics tab's hero has its own) -->
+      <div class={cn('shrink-0 lg:hidden', activeTab === 'lyrics' && 'hidden')}>
         {@render transport()}
       </div>
     </div>
   </Tabs.Root>
+
+  <!-- Mobile fullscreen lyrics overlay (shared with the public share page): only the
+       lyrics + scrubber + play/pause, over the track's ambient artwork. -->
+  {#if lyricsExpanded}
+    <LyricsFullscreen
+      title={trackTitle}
+      artist={trackArtist}
+      coverTitle={album.title}
+      {coverUrl}
+      {ambientUrl}
+      isActive={isCurrentlyLoaded}
+      isPlaying={isCurrentlyPlaying}
+      fallbackDuration={song.durationSeconds ?? 0}
+      onPlayToggle={handlePlayToggle}
+      onClose={() => (lyricsExpanded = false)}
+    >
+      {#key showAiInViewer ? `ai-${aiLyrics?.at}` : 'lrclib'}
+        <LyricsPanel
+          variant="theater"
+          songId={song.id}
+          syncedLyrics={showAiInViewer ? aiLyrics?.synced : (song.syncedLyrics ?? undefined)}
+          plainLyrics={showAiInViewer ? aiLyrics?.plain : (song.plainLyrics ?? undefined)}
+          lyricsStatus={showAiInViewer ? 'Fetched' : lyricsStatus}
+          hasSyncedLyrics={showAiInViewer ? Boolean(aiLyrics?.synced) : (song.hasSyncedLyrics ?? false)}
+          hasPlainLyrics={showAiInViewer ? Boolean(aiLyrics?.plain) : (song.hasPlainLyrics ?? false)}
+          isInstrumental={song.isInstrumental ?? undefined}
+          currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
+          onSeek={isCurrentlyLoaded ? (timeMs: number) => playerStore.seek(timeMs / 1000) : undefined}
+        />
+      {/key}
+    </LyricsFullscreen>
+  {/if}
 </div>
 
 <style>

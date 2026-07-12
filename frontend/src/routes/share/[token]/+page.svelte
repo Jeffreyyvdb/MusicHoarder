@@ -1,9 +1,10 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { FastForward, Loader2, Music, Pause, Play, Rewind } from '@lucide/svelte';
-  import { Button } from '$lib/components/ui/button';
+  import { Loader2, Music, Pause, Play } from '@lucide/svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
-  import Scrubber from '$lib/components/file-browser/Scrubber.svelte';
+  import SongTransport from '$lib/components/file-browser/SongTransport.svelte';
+  import LyricsCard from '$lib/components/file-browser/LyricsCard.svelte';
+  import LyricsFullscreen from '$lib/components/file-browser/LyricsFullscreen.svelte';
   import LyricsPanel from '$lib/components/file-browser/LyricsPanel.svelte';
   import { playerStore, type PlayerSong } from '$lib/stores/player.svelte';
   import { formatDuration } from '$lib/formatters';
@@ -70,8 +71,6 @@
     activeTrack != null && playerStore.currentSong?.id === activeTrack.id
   );
   const isCurrentlyPlaying = $derived(isCurrentlyLoaded && playerStore.isPlaying);
-  const canGoPrevious = $derived(isCurrentlyLoaded && playerStore.hasPrevious);
-  const canGoNext = $derived(isCurrentlyLoaded && playerStore.hasNext);
 
   function playTrack(track: ShareTrack) {
     const queue = tracks.map(toPlayerSong);
@@ -125,13 +124,16 @@
       (activeTrack.hasSyncedLyrics || activeTrack.hasPlainLyrics || activeTrack.isInstrumental)
   );
   const lyricsReady = $derived(lyrics !== null && lyricsForId === activeTrack?.id);
+  const canExpandLyrics = $derived(
+    activeTrack != null && activeTrack.isInstrumental !== true && lyricsReady && lyrics !== null
+  );
 
-  function formatTime(seconds: number): string {
-    if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  }
+  // Mobile fullscreen lyrics overlay (Apple Music / Spotify style).
+  let lyricsExpanded = $state(false);
+
+  $effect(() => {
+    if (!canExpandLyrics) lyricsExpanded = false;
+  });
 
   const activeDurationSeconds = $derived(
     activeTrack?.durationMs ? activeTrack.durationMs / 1000 : 0
@@ -156,6 +158,52 @@
   {/if}
 </svelte:head>
 
+{#snippet trackRows()}
+  {#each tracks as track, i (track.id)}
+    {@const isRowLoaded = playerStore.currentSong?.id === track.id}
+    {@const isRowPlaying = isRowLoaded && playerStore.isPlaying}
+    <li>
+      <button
+        type="button"
+        onclick={() => playTrack(track)}
+        class="hover:bg-foreground/5 group flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors"
+      >
+        <span
+          class="text-muted-foreground w-6 shrink-0 text-right text-xs tabular-nums group-hover:hidden {isRowLoaded
+            ? 'hidden'
+            : ''}"
+        >
+          {track.trackNumber ?? i + 1}
+        </span>
+        <span
+          class="w-6 shrink-0 {isRowLoaded ? 'inline-flex' : 'hidden group-hover:inline-flex'} justify-end"
+        >
+          {#if isRowPlaying}
+            <Pause class="text-primary size-3.5" fill="currentColor" />
+          {:else}
+            <Play class="text-primary size-3.5" fill="currentColor" />
+          {/if}
+        </span>
+        <span
+          class="min-w-0 flex-1 truncate text-sm {isRowLoaded ? 'text-primary font-medium' : ''}"
+        >
+          {track.title}
+        </span>
+        <span class="text-muted-foreground shrink-0 text-xs tabular-nums">
+          {formatDuration(track.durationMs ? track.durationMs / 1000 : null)}
+        </span>
+      </button>
+    </li>
+  {/each}
+{/snippet}
+
+{#snippet sharedVia()}
+  Shared via
+  <a href="/" class="text-foreground/70 hover:text-foreground font-medium hover:underline">
+    MusicHoarder
+  </a>
+{/snippet}
+
 <!-- Public share page: no app chrome, no auth — just the shared music, presented with the
      same ambient-artwork treatment as the in-app now-playing overlay. -->
 <div class="bg-background text-foreground relative min-h-dvh" style="--mh-content-pad: 0px">
@@ -168,7 +216,7 @@
     />
   {/if}
   <!-- Plain translucent scrim, deliberately NOT backdrop-blur: unlike the in-app overlay
-       (which locks body scroll), this page scrolls over the fixed backdrop, and a
+       (which locks body scroll), this page scrolls over the fixed backdrop on mobile, and a
        full-viewport backdrop-filter forces a re-raster on every scrolled frame — it stalls
        the compositor outright. The ambient img's own blur is static and cheap. -->
   <div class="bg-background/80 fixed inset-0"></div>
@@ -182,134 +230,110 @@
       </p>
     </main>
   {:else}
+    <!-- Mobile: single scrolling column (hero → lyrics card → tracklist). Desktop: the
+         in-app track-panel layout — fixed left rail (art, title, transport, tracklist)
+         with the theater lyrics filling the right column, no page scroll. -->
     <main
-      class="relative z-10 mx-auto flex w-full max-w-xl flex-col items-center px-6 pt-12 pb-14 sm:pt-16"
+      class="relative z-10 mx-auto flex w-full max-w-xl flex-col items-center px-6 pt-12 pb-14 sm:pt-16 lg:h-dvh lg:max-w-6xl lg:flex-row lg:items-stretch lg:justify-center lg:gap-12 lg:overflow-hidden lg:px-10 lg:pt-10 lg:pb-10 xl:gap-16"
     >
-      <Cover
-        artist={displayArtist}
-        title={payload.album.title ?? activeTrack.title}
-        {coverUrl}
-        size={288}
-        corner={12}
-        caption={false}
-        class="aspect-square !h-auto w-64 !shadow-[0_24px_48px_rgba(0,0,0,0.45)] sm:w-72"
-      />
+      <!-- Left rail (desktop) / hero (mobile) -->
+      <div
+        class="flex w-full flex-col items-center lg:h-full lg:w-[340px] lg:shrink-0 lg:items-stretch lg:justify-center"
+      >
+        <Cover
+          artist={displayArtist}
+          title={payload.album.title ?? activeTrack.title}
+          {coverUrl}
+          size={340}
+          corner={12}
+          caption={false}
+          class="aspect-square !h-auto w-64 shrink-0 !shadow-[0_24px_48px_rgba(0,0,0,0.45)] sm:w-72 lg:w-full"
+        />
 
-      <div class="mt-6 w-full text-center">
-        <h1 class="truncate text-2xl font-bold tracking-[-0.02em]">{activeTrack.title}</h1>
-        <p class="text-muted-foreground mt-1 truncate text-sm">
-          {displayArtist}{albumLabel ? ` · ${albumLabel}` : ''}
-        </p>
-      </div>
-
-      <!-- Transport: same naked-glyph Apple-style controls as the in-app track panel. -->
-      <div class="mx-auto mt-6 w-full max-w-[340px]">
-        <Scrubber isActive={isCurrentlyLoaded} fallbackDuration={activeDurationSeconds} />
-        <div class="mt-1.5 flex items-center gap-3">
-          <span class="text-muted-foreground w-10 shrink-0 text-right text-xs tabular-nums">
-            {isCurrentlyLoaded ? formatTime(playerStore.currentTime) : '0:00'}
-          </span>
-          <div class="mx-auto flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              class="text-foreground hover:text-foreground size-9 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent active:scale-90 disabled:opacity-30 dark:hover:bg-transparent"
-              onclick={() => playerStore.playPrevious()}
-              disabled={!canGoPrevious}
-              aria-label="Previous track"
-            >
-              <Rewind class="size-5.5" fill="currentColor" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              class="text-foreground hover:text-foreground size-11 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent active:scale-90 dark:hover:bg-transparent"
-              onclick={handlePlayToggle}
-              aria-label={isCurrentlyPlaying ? 'Pause' : 'Play'}
-            >
-              {#if isCurrentlyPlaying}
-                <Pause class="size-7" fill="currentColor" />
-              {:else}
-                <Play class="size-7 translate-x-px" fill="currentColor" />
-              {/if}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              class="text-foreground hover:text-foreground size-9 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent active:scale-90 disabled:opacity-30 dark:hover:bg-transparent"
-              onclick={() => playerStore.playNext()}
-              disabled={!canGoNext}
-              aria-label="Next track"
-            >
-              <FastForward class="size-5.5" fill="currentColor" />
-            </Button>
-          </div>
-          <span class="text-muted-foreground w-10 shrink-0 text-xs tabular-nums">
-            {formatDuration(activeDurationSeconds)}
-          </span>
+        <div class="mt-6 w-full text-center lg:text-left">
+          <h1 class="truncate text-2xl font-bold tracking-[-0.02em]">{activeTrack.title}</h1>
+          <p class="text-muted-foreground mt-1 truncate text-sm">
+            {displayArtist}{albumLabel ? ` · ${albumLabel}` : ''}
+          </p>
         </div>
+
+        <div class="mx-auto mt-6 w-full max-w-[340px] lg:mx-0">
+          <SongTransport
+            isActive={isCurrentlyLoaded}
+            isPlaying={isCurrentlyPlaying}
+            fallbackDuration={activeDurationSeconds}
+            onPlayToggle={handlePlayToggle}
+          />
+        </div>
+
+        {#if isAlbumShare}
+          <!-- Desktop tracklist lives inside the rail and scrolls on its own. -->
+          <div class="mt-6 hidden min-h-0 flex-1 lg:flex lg:flex-col">
+            <h2
+              class="text-muted-foreground mb-2 px-1 text-xs font-semibold tracking-widest uppercase"
+            >
+              Tracklist
+            </h2>
+            <ol
+              class="border-border/50 divide-border/50 no-scrollbar min-h-0 flex-1 divide-y overflow-y-auto rounded-xl border"
+            >
+              {@render trackRows()}
+            </ol>
+          </div>
+        {/if}
+
+        <footer class="text-muted-foreground mt-8 hidden text-xs lg:block">
+          {@render sharedVia()}
+        </footer>
       </div>
+
+      <!-- Mobile lyrics card: a compact live preview right under the transport, expandable
+           to the fullscreen lyrics + play/pause overlay. -->
+      {#if showLyricsSection}
+        <section class="mt-8 w-full lg:hidden">
+          <LyricsCard expandable={canExpandLyrics} onExpand={() => (lyricsExpanded = true)}>
+            {#if activeTrack.isInstrumental || (lyricsReady && lyrics)}
+              {#key activeTrack.id}
+                <div class="flex h-full flex-col">
+                  <LyricsPanel
+                    variant="theater"
+                    songId={activeTrack.id}
+                    syncedLyrics={lyrics?.synced ?? undefined}
+                    plainLyrics={lyrics?.plain ?? undefined}
+                    isInstrumental={activeTrack.isInstrumental}
+                    currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
+                  />
+                </div>
+              {/key}
+            {:else if lyricsLoading}
+              <div class="text-muted-foreground flex h-full items-center gap-2 px-1 text-sm">
+                <Loader2 class="size-4 animate-spin" /> Loading lyrics…
+              </div>
+            {/if}
+          </LyricsCard>
+        </section>
+      {/if}
 
       {#if isAlbumShare}
-        <section class="mt-10 w-full">
+        <!-- Mobile tracklist -->
+        <section class="mt-10 w-full lg:hidden">
           <h2
             class="text-muted-foreground mb-2 px-1 text-xs font-semibold tracking-widest uppercase"
           >
             Tracklist
           </h2>
           <ol class="border-border/50 divide-border/50 divide-y rounded-xl border">
-            {#each tracks as track, i (track.id)}
-              {@const isRowLoaded = playerStore.currentSong?.id === track.id}
-              {@const isRowPlaying = isRowLoaded && playerStore.isPlaying}
-              <li>
-                <button
-                  type="button"
-                  onclick={() => playTrack(track)}
-                  class="hover:bg-foreground/5 group flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors"
-                >
-                  <span
-                    class="text-muted-foreground w-6 shrink-0 text-right text-xs tabular-nums group-hover:hidden {isRowLoaded
-                      ? 'hidden'
-                      : ''}"
-                  >
-                    {track.trackNumber ?? i + 1}
-                  </span>
-                  <span
-                    class="w-6 shrink-0 {isRowLoaded ? 'inline-flex' : 'hidden group-hover:inline-flex'} justify-end"
-                  >
-                    {#if isRowPlaying}
-                      <Pause class="text-primary size-3.5" fill="currentColor" />
-                    {:else}
-                      <Play class="text-primary size-3.5" fill="currentColor" />
-                    {/if}
-                  </span>
-                  <span
-                    class="min-w-0 flex-1 truncate text-sm {isRowLoaded
-                      ? 'text-primary font-medium'
-                      : ''}"
-                  >
-                    {track.title}
-                  </span>
-                  <span class="text-muted-foreground shrink-0 text-xs tabular-nums">
-                    {formatDuration(track.durationMs ? track.durationMs / 1000 : null)}
-                  </span>
-                </button>
-              </li>
-            {/each}
+            {@render trackRows()}
           </ol>
         </section>
       {/if}
 
+      <!-- Desktop lyrics column: theater lyrics fill the space beside the rail. -->
       {#if showLyricsSection}
-        <section class="mt-10 w-full">
-          <h2
-            class="text-muted-foreground mb-2 px-1 text-xs font-semibold tracking-widest uppercase"
-          >
-            Lyrics
-          </h2>
+        <div class="hidden min-h-0 w-full lg:flex lg:max-w-3xl lg:flex-1 lg:flex-col">
           {#if activeTrack.isInstrumental || (lyricsReady && lyrics)}
             {#key activeTrack.id}
-              <div class="flex h-[55dvh] flex-col">
+              <div class="flex min-h-0 flex-1 flex-col">
                 <LyricsPanel
                   variant="theater"
                   songId={activeTrack.id}
@@ -324,19 +348,48 @@
               </div>
             {/key}
           {:else if lyricsLoading}
-            <div class="text-muted-foreground flex items-center gap-2 px-1 py-6 text-sm">
+            <div
+              class="text-muted-foreground flex flex-1 items-center justify-center gap-2 text-sm"
+            >
               <Loader2 class="size-4 animate-spin" /> Loading lyrics…
             </div>
           {/if}
-        </section>
+        </div>
       {/if}
 
-      <footer class="text-muted-foreground mt-14 text-center text-xs">
-        Shared via
-        <a href="/" class="text-foreground/70 hover:text-foreground font-medium hover:underline">
-          MusicHoarder
-        </a>
+      <footer class="text-muted-foreground mt-14 text-center text-xs lg:hidden">
+        {@render sharedVia()}
       </footer>
     </main>
+
+    <!-- Mobile fullscreen lyrics overlay: only the lyrics + scrubber + play/pause. -->
+    {#if lyricsExpanded && canExpandLyrics}
+      <LyricsFullscreen
+        title={activeTrack.title}
+        artist={displayArtist}
+        coverTitle={payload.album.title ?? activeTrack.title}
+        {coverUrl}
+        {ambientUrl}
+        isActive={isCurrentlyLoaded}
+        isPlaying={isCurrentlyPlaying}
+        fallbackDuration={activeDurationSeconds}
+        onPlayToggle={handlePlayToggle}
+        onClose={() => (lyricsExpanded = false)}
+      >
+        {#key activeTrack.id}
+          <LyricsPanel
+            variant="theater"
+            songId={activeTrack.id}
+            syncedLyrics={lyrics?.synced ?? undefined}
+            plainLyrics={lyrics?.plain ?? undefined}
+            isInstrumental={activeTrack.isInstrumental}
+            currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
+            onSeek={(ms) => {
+              if (isCurrentlyLoaded) playerStore.seek(ms / 1000);
+            }}
+          />
+        {/key}
+      </LyricsFullscreen>
+    {/if}
   {/if}
 </div>

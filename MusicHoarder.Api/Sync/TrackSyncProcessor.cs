@@ -71,7 +71,14 @@ public class TrackSyncProcessor(
             || song.LibraryBuildStatus != LibraryBuildStatus.Done)
             return;
 
-        var state = await db.TrackSyncStates.FirstOrDefaultAsync(s => s.SongId == songId, ct);
+        // IgnoreQueryFilters: the push worker runs in a background scope with no logged-in user, so
+        // the owner-scoped TrackSyncState filter (Song.OwnerUserId == userId, userId = Guid.Empty
+        // here) would hide every existing outbox row. Without this the lookup returns null even when
+        // a row exists, and the insert below collides with the unique SongId index (23505) — which
+        // also defeats the retry backoff, re-firing forever. Owner scoping is enforced explicitly by
+        // the ownerLookup guard on the song above.
+        var state = await db.TrackSyncStates.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(s => s.SongId == songId, ct);
         if (state is null)
         {
             state = new TrackSyncState { SongId = songId, CreatedAtUtc = DateTime.UtcNow, UpdatedAtUtc = DateTime.UtcNow };
