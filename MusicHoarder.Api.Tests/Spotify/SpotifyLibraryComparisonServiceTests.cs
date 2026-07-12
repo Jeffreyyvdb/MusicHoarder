@@ -1,8 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Navidrome;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Spotify;
+using MusicHoarder.Api.Sync;
 using MusicHoarder.Api.Tests.Auth;
 
 namespace MusicHoarder.Api.Tests.Spotify;
@@ -459,6 +463,120 @@ public class SpotifyLibraryComparisonServiceTests
 
     #endregion
 
+    #region SyncLikedSongsMatchesAsync auto-like tests
+
+    [Fact]
+    public async Task SyncLikedSongsMatches_ExactMatch_AutoLikesAndEnqueuesSync()
+    {
+        await using var db = CreateDb();
+        SeedTracks(db, ("spotify:1", "Artist", "Title"));
+        var songId = db.Songs.Single().Id;
+
+        var liked = new SpotifyLikedSongsResponse(1, 0, 50, new[] { MakeLikedSong("spotify:1", "Artist", "Title") });
+        var navidrome = new RecordingLikeEnqueuer();
+        var trackSync = new RecordingTrackSyncEnqueuer();
+        var service = CreateService(db, new StubSpotifyApiService(liked), navidrome, trackSync);
+
+        await service.SyncLikedSongsMatchesAsync();
+
+        Assert.NotNull(db.Songs.Single().LikedAtUtc);
+        Assert.Equal(new[] { songId }, navidrome.Enqueued);
+        Assert.Equal(new[] { songId }, trackSync.Enqueued);
+    }
+
+    [Fact]
+    public async Task SyncLikedSongsMatches_NormalizedMatch_AutoLikes()
+    {
+        await using var db = CreateDb();
+        SeedTracks(db, (null, "Drake", "God's Plan"));
+
+        var liked = new SpotifyLikedSongsResponse(1, 0, 50, new[]
+        {
+            MakeLikedSong("no-id", "Drake feat. Lil Wayne", "God's Plan (Official Video)"),
+        });
+        var navidrome = new RecordingLikeEnqueuer();
+        var service = CreateService(db, new StubSpotifyApiService(liked), navidrome);
+
+        await service.SyncLikedSongsMatchesAsync();
+
+        Assert.NotNull(db.Songs.Single().LikedAtUtc);
+        Assert.Single(navidrome.Enqueued);
+    }
+
+    [Fact]
+    public async Task SyncLikedSongsMatches_FuzzyMatch_DoesNotAutoLike()
+    {
+        await using var db = CreateDb();
+        SeedTracks(db, (null, "Kendrik Lamar", "HUMBLE")); // misspelled → fuzzy PossibleMatch only
+
+        var liked = new SpotifyLikedSongsResponse(1, 0, 50, new[] { MakeLikedSong("no-id", "Kendrick Lamar", "HUMBLE") });
+        var navidrome = new RecordingLikeEnqueuer();
+        var service = CreateService(db, new StubSpotifyApiService(liked), navidrome);
+
+        await service.SyncLikedSongsMatchesAsync();
+
+        Assert.Null(db.Songs.Single().LikedAtUtc);
+        Assert.Empty(navidrome.Enqueued);
+    }
+
+    [Fact]
+    public async Task SyncLikedSongsMatches_NotInLibrary_DoesNotAutoLike()
+    {
+        await using var db = CreateDb();
+        SeedTracks(db, ("spotify:other", "Someone", "Else"));
+
+        var liked = new SpotifyLikedSongsResponse(1, 0, 50, new[] { MakeLikedSong("spotify:1", "Nobody", "Nothing") });
+        var navidrome = new RecordingLikeEnqueuer();
+        var service = CreateService(db, new StubSpotifyApiService(liked), navidrome);
+
+        await service.SyncLikedSongsMatchesAsync();
+
+        Assert.Null(db.Songs.Single().LikedAtUtc);
+        Assert.Empty(navidrome.Enqueued);
+    }
+
+    [Fact]
+    public async Task SyncLikedSongsMatches_AlreadyLiked_DoesNotReEnqueue()
+    {
+        await using var db = CreateDb();
+        SeedTracks(db, ("spotify:1", "Artist", "Title"));
+        var song = db.Songs.Single();
+        var likedAt = DateTime.UtcNow.AddDays(-3);
+        song.LikedAtUtc = likedAt;
+        await db.SaveChangesAsync();
+
+        var liked = new SpotifyLikedSongsResponse(1, 0, 50, new[] { MakeLikedSong("spotify:1", "Artist", "Title") });
+        var navidrome = new RecordingLikeEnqueuer();
+        var trackSync = new RecordingTrackSyncEnqueuer();
+        var service = CreateService(db, new StubSpotifyApiService(liked), navidrome, trackSync);
+
+        await service.SyncLikedSongsMatchesAsync();
+
+        Assert.Equal(likedAt, db.Songs.Single().LikedAtUtc); // timestamp preserved, not bumped
+        Assert.Empty(navidrome.Enqueued);                    // additive-only: no re-sync of an existing like
+        Assert.Empty(trackSync.Enqueued);
+    }
+
+    [Fact]
+    public async Task SyncLikedSongsMatches_AutoLikeDisabled_DoesNotLike()
+    {
+        await using var db = CreateDb();
+        SeedTracks(db, ("spotify:1", "Artist", "Title"));
+
+        var liked = new SpotifyLikedSongsResponse(1, 0, 50, new[] { MakeLikedSong("spotify:1", "Artist", "Title") });
+        var navidrome = new RecordingLikeEnqueuer();
+        var service = CreateService(db, new StubSpotifyApiService(liked), navidrome, autoLike: false);
+
+        await service.SyncLikedSongsMatchesAsync();
+
+        Assert.Null(db.Songs.Single().LikedAtUtc);
+        Assert.Empty(navidrome.Enqueued);
+        // The comparison row is still persisted — the sweep stays comparison-capable with auto-like off.
+        Assert.Equal(ComparisonMatchStatus.InLibrary, (ComparisonMatchStatus)db.SpotifyTrackLibraryMatches.Single().MatchStatus);
+    }
+
+    #endregion
+
     #region Helpers
 
     private static SpotifyTrackItem MakeLikedSong(string spotifyId, string artist, string title) =>
@@ -516,11 +634,36 @@ public class SpotifyLibraryComparisonServiceTests
         db.SaveChanges();
     }
 
-    private static SpotifyLibraryComparisonService CreateService(MusicHoarderDbContext db, ISpotifyApiService spotifyApi)
+    private static SpotifyLibraryComparisonService CreateService(
+        MusicHoarderDbContext db,
+        ISpotifyApiService spotifyApi,
+        INavidromeLikeEnqueuer? navidrome = null,
+        ITrackSyncEnqueuer? trackSync = null,
+        bool autoLike = true)
     {
         var scopeFactory = new TestScopeFactory(db);
         var logger = NullLogger<SpotifyLibraryComparisonService>.Instance;
-        return new SpotifyLibraryComparisonService(spotifyApi, scopeFactory, new TestOwnerLookupService(), logger);
+        var options = Microsoft.Extensions.Options.Options.Create(new SpotifyOptions { AutoLikeMatchedSongs = autoLike });
+        return new SpotifyLibraryComparisonService(
+            spotifyApi,
+            scopeFactory,
+            new TestOwnerLookupService(),
+            navidrome ?? new RecordingLikeEnqueuer(),
+            trackSync ?? new RecordingTrackSyncEnqueuer(),
+            options,
+            logger);
+    }
+
+    private sealed class RecordingLikeEnqueuer : INavidromeLikeEnqueuer
+    {
+        public List<int> Enqueued { get; } = [];
+        public void TryEnqueue(int songId, Guid ownerUserId) => Enqueued.Add(songId);
+    }
+
+    private sealed class RecordingTrackSyncEnqueuer : ITrackSyncEnqueuer
+    {
+        public List<int> Enqueued { get; } = [];
+        public void TryEnqueue(int songId, Guid ownerUserId) => Enqueued.Add(songId);
     }
 
     private sealed class StubSpotifyApiService(SpotifyLikedSongsResponse likedSongs) : ISpotifyApiService
