@@ -199,6 +199,30 @@ public class AlbumTimelineEndpointTests
     }
 
     [Fact]
+    public async Task WriteEventsAcrossTwoFolders_SameAlbumName_ProduceDistinctKeys()
+    {
+        // One album ("Discovery") whose tracks landed in two destination folders (e.g. after a
+        // move/rename). Each folder yields a write summary of the same kind + identical headline;
+        // keyed on the album NAME they collided into a duplicate `write:` key and crashed the
+        // frontend {#each} (svelte each_key_duplicate). Keys must be unique.
+        await using var db = NewContext();
+        var s1 = Song("/1.mp3", destinationPath: "/dest/Daft Punk/Discovery/1.mp3", builtAt: T0.AddHours(1));
+        var s2 = Song("/2.mp3", destinationPath: "/dest/Daft Punk (2)/Discovery/2.mp3", builtAt: T0.AddHours(1));
+        db.Songs.AddRange(s1, s2);
+        await db.SaveChangesAsync();
+        db.LibraryWriteEvents.AddRange(
+            WriteEventInFolder(s1.Id, "/dest/Daft Punk/Discovery", "Genre", null, "Electronic", T0.AddHours(2)),
+            WriteEventInFolder(s2.Id, "/dest/Daft Punk (2)/Discovery", "Genre", null, "Electronic", T0.AddHours(2)));
+        await db.SaveChangesAsync();
+
+        var timeline = await Timeline(db);
+
+        var keys = timeline.Events.Select(e => e.Key).ToList();
+        Assert.Equal(keys.Count, keys.Distinct().Count());
+        Assert.Equal(2, keys.Count(k => k.StartsWith("write:")));
+    }
+
+    [Fact]
     public async Task CoverWrite_MatchedByDestinationFolder_NotSongId()
     {
         await using var db = NewContext();
@@ -349,6 +373,22 @@ public class AlbumTimelineEndpointTests
         OldValue = oldValue,
         NewValue = newValue,
         IsAlbumIdentityField = true,
+    };
+
+    private static LibraryWriteEvent WriteEventInFolder(
+        int songId, string albumFolder, string field, string? oldValue, string? newValue, DateTime writtenAt) => new()
+    {
+        OwnerUserId = WellKnownUsers.OwnerId,
+        SongId = songId,
+        Kind = LibraryWriteEventKind.TrackTagsWritten,
+        WrittenAtUtc = writtenAt,
+        AlbumFolder = albumFolder,
+        Album = "Discovery",
+        AlbumArtist = "Daft Punk",
+        FieldName = field,
+        OldValue = oldValue,
+        NewValue = newValue,
+        IsAlbumIdentityField = false,
     };
 
     private static MusicHoarderDbContext NewContext() =>
