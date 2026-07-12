@@ -74,6 +74,7 @@ public sealed class AlbumSplitHealer(
                 .ToList();
 
             var identity = OverlayCanonicalArtist(reconciler.Reconcile(members), group.Key, members, canonicalArtists);
+            identity = await FreezeOscillatingAlbumArtistAsync(identity, members, ct);
             var needingCorrection = members.Count(s => s.ApplyIdentityCorrection(identity).Count > 0);
             if (needingCorrection == 0)
             {
@@ -110,6 +111,7 @@ public sealed class AlbumSplitHealer(
         {
             var members = group.ToList();
             var identity = OverlayCanonicalArtist(reconciler.Reconcile(members), group.Key, members, canonicalArtists);
+            identity = await FreezeOscillatingAlbumArtistAsync(identity, members, ct);
             var groupTouched = false;
 
             foreach (var song in members)
@@ -164,6 +166,79 @@ public sealed class AlbumSplitHealer(
         }
 
         return new AlbumSplitHealResult(groupsHealed, corrected, requeued);
+    }
+
+    // Anti-oscillation guard. AlbumGroupKey.For derives its artist key from AlbumArtist — the very
+    // field this healer rewrites — so an album-artist correction moves a song into a different logical
+    // group whose canonical overlay can elect the *other* spelling and flip it back on the next pass.
+    // Left unchecked this loops forever (observed on prod: one track's album-artist rewritten ~4,700
+    // times, alternating between two spellings, forcing a re-tag each flip). Once a group has been
+    // heal-assigned two or more distinct album-artist strings, that axis is contended: pin it to a
+    // single deterministic winner (ordinal-lowest of the contended spellings) so the election becomes a
+    // true fixed point and the requeue/re-tag churn stops. Every other identity field still converges
+    // normally, and a first-time correction (only one heal-assigned spelling on record) is untouched.
+    private async Task<AlbumIdentity> FreezeOscillatingAlbumArtistAsync(
+        AlbumIdentity identity, IReadOnlyList<SongMetadata> members, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(identity.AlbumArtist))
+        {
+            return identity;
+        }
+
+        // Only worth a lookup when the election would actually change some member's album-artist.
+        if (members.All(m => string.Equals(m.AlbumArtist, identity.AlbumArtist, StringComparison.Ordinal)))
+        {
+            return identity;
+        }
+
+        var memberIds = members.Select(m => m.Id).ToList();
+        var healedAlbumArtists = await db.SongMetadataChanges
+            .AsNoTracking()
+            .Where(c => memberIds.Contains(c.SongId)
+                && c.Source == ChangeSource
+                && c.FieldName == nameof(SongMetadata.AlbumArtist)
+                && c.NewValue != null)
+            .Select(c => c.NewValue!)
+            .Distinct()
+            .ToListAsync(ct);
+
+        // Fewer than two distinct heal-assigned spellings means no flip has happened yet — a normal
+        // first-time correction; let it through.
+        if (healedAlbumArtists.Count < 2)
+        {
+            return identity;
+        }
+
+        // Contended axis: freeze to the ordinal-lowest spelling — a stable fixed point the canonical
+        // overlay can no longer move. Include the current election so a not-yet-persisted candidate
+        // still participates.
+        var frozen = healedAlbumArtists
+            .Append(identity.AlbumArtist)
+            .OrderBy(v => v, StringComparer.Ordinal)
+            .First();
+
+        if (!string.Equals(frozen, identity.AlbumArtist, StringComparison.Ordinal))
+        {
+            logger.LogWarning(
+                "Album-artist oscillation detected across {Count} contended spellings for {Members} members; "
+                + "freezing to '{Frozen}'", healedAlbumArtists.Count, members.Count, frozen);
+        }
+
+        // Realign the release-artist mbid to travel with the frozen name (deterministic pick) so that
+        // field can't keep flipping and re-trigger requeues on its own.
+        var frozenMbid = members
+            .Where(m => TitleNormalizer.NormalizeForSearch(m.AlbumArtist)
+                    == TitleNormalizer.NormalizeForSearch(frozen)
+                && !string.IsNullOrWhiteSpace(m.AlbumArtistMusicBrainzId))
+            .Select(m => m.AlbumArtistMusicBrainzId!)
+            .OrderBy(v => v, StringComparer.Ordinal)
+            .FirstOrDefault();
+
+        return identity with
+        {
+            AlbumArtist = frozen,
+            AlbumArtistMusicBrainzId = frozenMbid ?? identity.AlbumArtistMusicBrainzId,
+        };
     }
 
     // Mirrors the builder's reconciliation predicate (LibraryBuilderService.BuildAlbumIdentityMapAsync):
