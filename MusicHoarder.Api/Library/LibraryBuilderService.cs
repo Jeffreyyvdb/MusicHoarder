@@ -325,7 +325,11 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
-internal record LibraryBuildTrackCandidate(int SongId, string DestinationPath, string AlbumFolderKey);
+// Identity is the reconciled album identity elected for this track's logical album (null when
+// reconciliation is disabled, or for a NeedsReview/unreleased track that keeps its own per-song tags).
+// It drives BOTH the destination folder (via DestinationPath, already resolved from it) and the tags.
+internal record LibraryBuildTrackCandidate(
+    int SongId, string DestinationPath, string AlbumFolderKey, AlbumIdentity? Identity);
 
 internal enum LibraryBuildOutcome
 {
@@ -377,9 +381,6 @@ public class LibraryBuilderService(
         var opts = options.Value;
 
         List<LibraryBuildTrackCandidate> candidates;
-        // Destination album folder -> the single album identity every track in it must be tagged with.
-        // Empty when reconciliation is disabled (ProcessTrackAsync then falls back to per-song tags).
-        var identityByFolder = new Dictionary<string, AlbumIdentity>(StringComparer.Ordinal);
         using (var scope = scopeFactory.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
@@ -395,11 +396,26 @@ public class LibraryBuilderService(
                 .Take(opts.LibraryBuilderBatchSize)
                 .ToListAsync(ct);
 
-            var pathDeduped = new List<(SongMetadata Song, string DestinationPath, string FolderKey)>();
+            // Elect one canonical AlbumIdentity per LOGICAL album (keyed by the stable AlbumGroupKey, not
+            // a folder path) over the FULL matched membership — BEFORE resolving destination paths. The
+            // folder is then derived from that election, so it's deterministic across runs regardless of
+            // which tracks are in this batch or how a single track's album-artist/album/year has drifted.
+            // This closes the chicken-and-egg where the reconciliation grouped on a folder path that
+            // itself depended on the unstable per-song album-artist.
+            var identityByLogicalAlbum = opts.EnableAlbumIdentityReconciliation
+                ? await BuildLogicalAlbumIdentityMapAsync(db, rawCandidates, ct)
+                : new Dictionary<AlbumGroupKey, AlbumIdentity>();
+
+            // Resolve each candidate's destination from its elected identity (folder deterministic), then
+            // collapse rows that resolve to the SAME path: the best copy wins the file, a same-title loser
+            // is retired as a duplicate (that alternation over one file is what kept some albums churning),
+            // and a different-title collision is deferred as before.
+            var pathDeduped = new List<(SongMetadata Song, string DestinationPath, string FolderKey, AlbumIdentity? Identity)>();
             var pathCollisionDuplicates = new Dictionary<int, int>();
             var collisionTitleThreshold = opts.IdentityTitleThreshold;
             foreach (var byPath in rawCandidates
-                .Select(s => (Song: s, DestinationPath: destinationPathResolver.ResolvePath(s)))
+                .Select(s => (Song: s, Identity: ResolveElectedIdentity(s, identityByLogicalAlbum)))
+                .Select(x => (x.Song, x.Identity, DestinationPath: destinationPathResolver.ResolvePath(x.Song, x.Identity)))
                 .GroupBy(x => x.DestinationPath, StringComparer.Ordinal))
             {
                 // Best copy for this exact destination path wins the file; rank as the position guard does.
@@ -409,7 +425,7 @@ public class LibraryBuilderService(
                     .ThenBy(x => x.Song.Id)
                     .ToList();
                 var winner = ranked[0];
-                pathDeduped.Add((winner.Song, winner.DestinationPath, Path.GetDirectoryName(winner.DestinationPath) ?? string.Empty));
+                pathDeduped.Add((winner.Song, winner.DestinationPath, Path.GetDirectoryName(winner.DestinationPath) ?? string.Empty, winner.Identity));
 
                 foreach (var loser in ranked.Skip(1))
                 {
@@ -448,11 +464,6 @@ public class LibraryBuilderService(
             }
 
             candidates = await ApplyPositionGuardAsync(db, pathDeduped, ct);
-
-            if (candidates.Count > 0 && opts.EnableAlbumIdentityReconciliation)
-            {
-                await BuildAlbumIdentityMapAsync(db, candidates, identityByFolder, ct);
-            }
         }
 
         if (candidates.Count == 0)
@@ -487,10 +498,9 @@ public class LibraryBuilderService(
                 try
                 {
                     LibraryBuildTrackResult result;
-                    identityByFolder.TryGetValue(candidate.AlbumFolderKey, out var albumIdentity);
                     using (await AcquireDestinationLockAsync(candidate.DestinationPath, token))
                     {
-                        result = await ProcessTrackAsync(candidate.SongId, candidate.DestinationPath, albumIdentity, runId, token);
+                        result = await ProcessTrackAsync(candidate.SongId, candidate.DestinationPath, candidate.Identity, runId, token);
                     }
 
                     switch (result.Outcome)
@@ -557,19 +567,19 @@ public class LibraryBuilderService(
     // DestinationPath or PreviousDestinationPath) and tracks without a track number bypass the guard.
     private async Task<List<LibraryBuildTrackCandidate>> ApplyPositionGuardAsync(
         MusicHoarderDbContext db,
-        List<(SongMetadata Song, string DestinationPath, string FolderKey)> candidates,
+        List<(SongMetadata Song, string DestinationPath, string FolderKey, AlbumIdentity? Identity)> candidates,
         CancellationToken ct)
     {
         var titleThreshold = options.Value.IdentityTitleThreshold;
         var accepted = new List<LibraryBuildTrackCandidate>();
-        var guarded = new List<(SongMetadata Song, string DestinationPath, string FolderKey)>();
+        var guarded = new List<(SongMetadata Song, string DestinationPath, string FolderKey, AlbumIdentity? Identity)>();
         foreach (var candidate in candidates)
         {
             var isFreshBuild = candidate.Song.DestinationPath is null && candidate.Song.PreviousDestinationPath is null;
             if (isFreshBuild && candidate.Song.TrackNumber is not null)
                 guarded.Add(candidate);
             else
-                accepted.Add(new LibraryBuildTrackCandidate(candidate.Song.Id, candidate.DestinationPath, candidate.FolderKey));
+                accepted.Add(new LibraryBuildTrackCandidate(candidate.Song.Id, candidate.DestinationPath, candidate.FolderKey, candidate.Identity));
         }
 
         if (guarded.Count == 0)
@@ -578,7 +588,7 @@ public class LibraryBuilderService(
         // Within the batch, one candidate per (position, ~title): the best copy builds now; a deferred
         // loser gets flagged against the built winner on a later sweep. Same-position candidates with
         // clearly different titles are unrelated songs and all build.
-        var survivors = new List<(SongMetadata Song, string DestinationPath, string FolderKey)>();
+        var survivors = new List<(SongMetadata Song, string DestinationPath, string FolderKey, AlbumIdentity? Identity)>();
         foreach (var group in guarded.GroupBy(c => PositionKey(c.Song.OwnerUserId, c.FolderKey, c.Song.DiscNumber, c.Song.TrackNumber!.Value)))
         {
             var ranked = group
@@ -586,7 +596,7 @@ public class LibraryBuilderService(
                 .ThenByDescending(c => c.Song.FileSizeBytes)
                 .ThenBy(c => c.Song.Id)
                 .ToList();
-            var kept = new List<(SongMetadata Song, string DestinationPath, string FolderKey)>();
+            var kept = new List<(SongMetadata Song, string DestinationPath, string FolderKey, AlbumIdentity? Identity)>();
             foreach (var candidate in ranked)
             {
                 if (kept.Any(k => TitlesMatch(k.Song.Title, candidate.Song.Title, titleThreshold)))
@@ -639,7 +649,7 @@ public class LibraryBuilderService(
                 : null;
             if (occupant is null)
             {
-                accepted.Add(new LibraryBuildTrackCandidate(candidate.Song.Id, candidate.DestinationPath, candidate.FolderKey));
+                accepted.Add(new LibraryBuildTrackCandidate(candidate.Song.Id, candidate.DestinationPath, candidate.FolderKey, candidate.Identity));
                 continue;
             }
 
@@ -648,7 +658,7 @@ public class LibraryBuilderService(
                 logger.LogWarning(
                     "Building song {SongId} into {Folder} disc {Disc} track {Track} even though song {OccupantId} already holds that position — the new copy is higher quality, the old file stays beside it",
                     candidate.Song.Id, candidate.FolderKey, candidate.Song.DiscNumber ?? 1, candidate.Song.TrackNumber, occupant.Id);
-                accepted.Add(new LibraryBuildTrackCandidate(candidate.Song.Id, candidate.DestinationPath, candidate.FolderKey));
+                accepted.Add(new LibraryBuildTrackCandidate(candidate.Song.Id, candidate.DestinationPath, candidate.FolderKey, candidate.Identity));
                 continue;
             }
 
@@ -676,39 +686,74 @@ public class LibraryBuilderService(
     private static string PositionKey(Guid ownerId, string folder, int? disc, int track)
         => $"{ownerId:N}|{folder}|{disc ?? 1}|{track}";
 
-    // Elects one album identity per destination folder represented in this batch. Crucially it elects
-    // from the FULL folder membership (every matched, buildable song that resolves to the folder), not
-    // just the batch slice — so an album whose tracks straddle batches still gets one stable identity.
-    // Unreleased tracks are excluded: they share a per-artist "Unreleased" folder with unrelated
-    // singles, so they keep their own (per-song) tags.
-    private async Task BuildAlbumIdentityMapAsync(
+    // Elects one album identity per LOGICAL album (AlbumGroupKey) represented in this batch. Crucially it
+    // elects from the FULL logical-album membership (every matched, buildable song of that logical album),
+    // not just the batch slice — so an album whose tracks straddle batches still gets one stable identity —
+    // AND it keys on the stable logical-album identity rather than a destination folder path. The old
+    // folder-keyed grouping was a chicken-and-egg: the folder is derived from the album-artist, which the
+    // election is what harmonizes, so a track drifting between album-artist spellings drifted between
+    // "folders" and the same album never settled on one identity. Keying on AlbumGroupKey (which is
+    // computed from the normalized album + artist, independent of the exact folder string) removes that.
+    // Unreleased tracks are excluded: they share a per-artist "Unreleased" folder with unrelated singles,
+    // so they keep their own (per-song) tags.
+    private async Task<Dictionary<AlbumGroupKey, AlbumIdentity>> BuildLogicalAlbumIdentityMapAsync(
         MusicHoarderDbContext db,
-        IReadOnlyList<LibraryBuildTrackCandidate> candidates,
-        Dictionary<string, AlbumIdentity> identityByFolder,
+        IReadOnlyList<SongMetadata> batchCandidates,
         CancellationToken ct)
     {
-        var batchFolders = candidates.Select(c => c.AlbumFolderKey).ToHashSet(StringComparer.Ordinal);
+        // Only the logical albums this batch actually touches (Matched, released tracks) get an election.
+        var batchKeys = batchCandidates
+            .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched && !s.IsUnreleased)
+            .Select(AlbumGroupKey.For)
+            .Where(k => k is not null)
+            .Select(k => k!)
+            .ToHashSet();
+
+        var map = new Dictionary<AlbumGroupKey, AlbumIdentity>();
+        if (batchKeys.Count == 0)
+        {
+            return map;
+        }
 
         var allMembers = await db.Songs
             .IgnoreQueryFilters()
             .AsNoTracking()
             .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
-            // Destination folder keys carry no owner segment, so without this a demo album with the
-            // same artist/album as an owner album would vote in the owner's identity election.
+            // AlbumGroupKey carries OwnerUserId, so a demo album can't cross into an owner's election;
+            // excluded anyway since demo rows never build.
             .ExcludingDemoTenant()
             .Where(s => !s.IsDuplicate && !s.IsUnreleased)
             .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched)
             .ToListAsync(ct);
 
         var grouped = allMembers
-            .Select(s => (Folder: Path.GetDirectoryName(destinationPathResolver.ResolvePath(s)) ?? string.Empty, Song: s))
-            .Where(x => batchFolders.Contains(x.Folder))
-            .GroupBy(x => x.Folder, StringComparer.Ordinal);
+            .Select(s => (Key: AlbumGroupKey.For(s), Song: s))
+            .Where(x => x.Key is not null && batchKeys.Contains(x.Key!))
+            .GroupBy(x => x.Key!, x => x.Song);
 
         foreach (var group in grouped)
         {
-            identityByFolder[group.Key] = albumIdentityReconciler.Reconcile(group.Select(x => x.Song).ToList());
+            map[group.Key] = albumIdentityReconciler.Reconcile(group.ToList());
         }
+
+        return map;
+    }
+
+    // The reconciled identity for a candidate's logical album, or null when reconciliation is disabled,
+    // the map has no election for it, or the track keeps its own per-song tags (NeedsReview/unreleased).
+    // A null identity makes ResolvePath / the tag writer fall back to the song's own album fields.
+    private static AlbumIdentity? ResolveElectedIdentity(
+        SongMetadata song, IReadOnlyDictionary<AlbumGroupKey, AlbumIdentity> identityByLogicalAlbum)
+    {
+        if (identityByLogicalAlbum.Count == 0
+            || song.EnrichmentStatus != EnrichmentStatus.Matched
+            || song.IsUnreleased)
+        {
+            return null;
+        }
+
+        var key = AlbumGroupKey.For(song);
+        return key is not null && identityByLogicalAlbum.TryGetValue(key, out var identity) ? identity : null;
     }
 
     private async Task<LibraryBuildTrackResult> ProcessTrackAsync(
@@ -720,24 +765,38 @@ public class LibraryBuilderService(
         var song = await db.Songs.IgnoreQueryFilters().FirstOrDefaultAsync(s => s.Id == songId, ct);
         if (song is null)
         {
-            // Row vanished between candidate selection and build (hard delete). BuildCandidates can't
-            // re-select a nonexistent row, so this can't loop — count it as a no-op failure.
-            logger.LogDebug("Skipping song {SongId}: row no longer exists", songId);
+            // Row vanished between the batch snapshot and here (only soft-delete is used, so this is rare).
+            // Nothing to persist; the query can't re-select a nonexistent row, so no loop.
+            logger.LogWarning("Skipping song {SongId}: row not found at build time", songId);
             return new LibraryBuildTrackResult(LibraryBuildOutcome.Failed);
         }
-        if (song.IsDeleted || song.EnrichmentStatus != EnrichmentStatus.Matched)
+
+        // The buildable predicate MUST mirror LibraryBuildQuery.BuildCandidates: Matched, plus
+        // NeedsReview when EnableBuildNeedsReview is on (issue #329 builds those into the library flagged
+        // "Needs Review"). Before this alignment the guard only accepted Matched, so every NeedsReview
+        // candidate the query fed us was rejected here and returned Failed WITHOUT persisting — the row's
+        // build state never changed, so the batch query re-selected it on the very next sweep and the
+        // builder hot-looped (built frozen, failed climbing, CPU burned; the reject was LogDebug so it was
+        // invisible at Info). Now those rows actually build; only a row that changed out from under the
+        // batch snapshot (a true race) falls through, and it is persisted as a bounded failure below so
+        // the #239 quarantine eventually stops re-selecting it — no state can loop the builder forever.
+        var buildable = !song.IsDeleted
+            && (song.EnrichmentStatus == EnrichmentStatus.Matched
+                || (options.Value.EnableBuildNeedsReview && song.EnrichmentStatus == EnrichmentStatus.NeedsReview));
+        if (!buildable)
         {
-            // The builder selected this row but a re-read finds it not buildable (e.g. enrichment flipped
-            // its status between the candidate query and now). Persist a bounded Failed so the #239
-            // quarantine (LibraryBuildQuery + MaxLibraryBuildAttempts) can stop it — otherwise the builder
-            // silently re-selects the same row every sweep and hot-loops with no backoff. A later
-            // re-match/requeue zeroes LibraryBuildAttempts, so a transient flip still recovers.
+            if (!song.IsDeleted)
+            {
+                // Selected by the batch snapshot but no longer buildable (enrichment status changed after
+                // selection). Persist a bounded failure so LibraryBuildAttempts advances toward the
+                // MaxLibraryBuildAttempts quarantine instead of the row being re-selected indefinitely.
+                song.MarkBuildFailed("Not buildable at build time (enrichment status changed after selection)");
+                await db.SaveChangesAsync(ct);
+            }
+
             logger.LogWarning(
-                "Library build skipped for {Track} (SongId={SongId}): not buildable on re-read "
-                + "(deleted={Deleted}, enrichment={Status}) — marking failed so it can't loop the builder",
-                song.TrackLabel, songId, song.IsDeleted, song.EnrichmentStatus);
-            song.MarkBuildFailed($"Not buildable at build time (deleted={song.IsDeleted}, enrichment={song.EnrichmentStatus})");
-            await db.SaveChangesAsync(ct);
+                "Skipping song {SongId}: not buildable at build time (deleted={Deleted}, status={Status})",
+                songId, song.IsDeleted, song.EnrichmentStatus);
             return new LibraryBuildTrackResult(LibraryBuildOutcome.Failed);
         }
 

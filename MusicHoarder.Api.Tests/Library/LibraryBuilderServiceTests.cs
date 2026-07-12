@@ -929,6 +929,105 @@ public class LibraryBuilderServiceTests
         Assert.False(fileSystem.File.Exists("/dest/Artist/2026 - Album/01 - Track.opus"));
     }
 
+    // --- NeedsReview guard (issue #329 hot-loop) ---
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_BuildsNeedsReviewTrack_WhenBuildNeedsReviewEnabled()
+    {
+        // With EnableBuildNeedsReview on, LibraryBuildQuery selects NeedsReview rows. The build MUST
+        // actually build them — before the guard was aligned it rejected them WITHOUT persisting, so the
+        // batch query re-selected them forever (built frozen, failed climbing 200/sec on prod, CPU burned).
+        var sourcePath = "/source/track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourcePath, 5, enrichmentStatus: EnrichmentStatus.NeedsReview));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter(), enableBuildNeedsReview: true);
+
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        var song = await db.Songs.SingleAsync();
+
+        Assert.Equal(1, result.Done);
+        Assert.Equal(0, result.Failed);
+        Assert.Equal(LibraryBuildStatus.Done, song.LibraryBuildStatus);
+        Assert.True(fileSystem.File.Exists("/dest/Artist/2026 - Album/01 - Track.mp3"));
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_LeavesNeedsReviewTrackUntouched_WhenBuildNeedsReviewDisabled()
+    {
+        // The query doesn't select NeedsReview when the flag is off, so the row is neither built nor
+        // failed — it just stays Pending. No spurious failure, no loop.
+        var sourcePath = "/source/track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourcePath, 5, enrichmentStatus: EnrichmentStatus.NeedsReview));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter(), enableBuildNeedsReview: false);
+
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        var song = await db.Songs.SingleAsync();
+
+        Assert.Equal(0, result.TotalTracks);
+        Assert.Equal(0, result.Failed);
+        Assert.Equal(LibraryBuildStatus.Pending, song.LibraryBuildStatus);
+        Assert.Equal(0, song.LibraryBuildAttempts);
+    }
+
+    // --- Deterministic album folder from elected identity (build hot-loop / split fix) ---
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_ConsolidatesYearDriftedAlbum_IntoOneFolder_AndStaysDone()
+    {
+        // Two tracks of ONE album whose per-song enrichment disagrees on the year (2011 vs 2012). Per-song
+        // routing would file them under different "year - Album" folders (a split that, with the heal loop
+        // re-electing each run, keeps relocating the file — the production flap). The folder must instead
+        // derive from the elected identity (year tie -> earliest, 2011), so both land in ONE folder and a
+        // second build finds nothing to do — the album settles.
+        var sourceA = "/source/a.mp3";
+        var sourceB = "/source/b.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourceA] = new("aaaaa"),
+            [sourceB] = new("bbbbb")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourceA, 5, title: "T1", trackNumber: 1, year: 2011));
+        db.Songs.Add(CreateMatchedSong(sourceB, 5, title: "T2", trackNumber: 2, year: 2012));
+        await db.SaveChangesAsync();
+
+        var tagWriter = new RecordingTagWriter();
+        var service = CreateService(db, fileSystem, tagWriter);
+
+        var first = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        var songs = await db.Songs.OrderBy(s => s.Id).ToListAsync();
+
+        Assert.Equal(2, first.Done);
+        Assert.All(songs, s => Assert.Equal(LibraryBuildStatus.Done, s.LibraryBuildStatus));
+        // Both files landed in the SAME elected-year folder, not one per drifted year.
+        Assert.All(songs, s => Assert.StartsWith("/dest/Artist/2011 - Album/", s.DestinationPath!, StringComparison.Ordinal));
+        Assert.All(tagWriter.IdentityBySource.Values, id => Assert.Equal(2011, id.Year));
+
+        // Nothing left to do: the album is settled, no relocation churn on the next sweep.
+        var second = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        Assert.Equal(0, second.TotalTracks);
+        var reloaded = await db.Songs.OrderBy(s => s.Id).ToListAsync();
+        Assert.All(reloaded, s => Assert.Null(s.PreviousDestinationPath));
+    }
+
+    // --- Post-selection race: a candidate flips to non-Matched before build (#330) ---
+
     [Fact]
     public async Task ProcessNextBatchAsync_TwoCopiesResolveToSameDestinationPath_RetiresLoserInSameSweep()
     {
@@ -966,7 +1065,8 @@ public class LibraryBuilderServiceTests
         // Reproduces the builder hot-loop: a candidate is selected while Matched, but a concurrent
         // enrichment change flips it before ProcessTrackAsync re-reads it. The build must PERSIST a
         // Failed (incrementing attempts) so the #239 quarantine can bound it — instead of silently
-        // returning Failed and letting the builder re-select the same row every sweep forever.
+        // returning Failed and letting the builder re-select the same row every sweep forever. Here the
+        // flip is to NeedsReview with EnableBuildNeedsReview off (the default), so it is not buildable.
         var sourcePath = "/source/track.mp3";
         var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
         {
@@ -1002,6 +1102,7 @@ public class LibraryBuilderServiceTests
         int batchSize = 100,
         bool enableAlbumIdentityReconciliation = true,
         IExternalCoverArtFetcher? externalFetcher = null,
+        bool enableBuildNeedsReview = false,
         IServiceScopeFactory? scopeFactoryOverride = null)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
@@ -1011,7 +1112,8 @@ public class LibraryBuilderServiceTests
             LibraryBuilderBatchSize = batchSize,
             LibraryBuilderWorkerConcurrency = 1,
             LibraryBuilderIdleDelaySeconds = 20,
-            EnableAlbumIdentityReconciliation = enableAlbumIdentityReconciliation
+            EnableAlbumIdentityReconciliation = enableAlbumIdentityReconciliation,
+            EnableBuildNeedsReview = enableBuildNeedsReview
         });
 
         var pathResolver = new DestinationPathResolver(options);
@@ -1052,7 +1154,10 @@ public class LibraryBuilderServiceTests
         string? musicBrainzReleaseId = null,
         int? totalTracks = null,
         int? totalDiscs = null,
-        Guid? owner = null)
+        Guid? owner = null,
+        string album = "Album",
+        int? year = 2026,
+        EnrichmentStatus enrichmentStatus = EnrichmentStatus.Matched)
     {
         return new SongMetadata
         {
@@ -1065,15 +1170,15 @@ public class LibraryBuilderServiceTests
             IndexedAtUtc = DateTime.UtcNow,
             Artist = artist,
             AlbumArtist = albumArtist,
-            Album = "Album",
+            Album = album,
             Title = title,
-            Year = 2026,
+            Year = year,
             TrackNumber = trackNumber,
             MusicBrainzReleaseId = musicBrainzReleaseId,
             TotalTracks = totalTracks,
             TotalDiscs = totalDiscs,
             IsUnreleased = isUnreleased,
-            EnrichmentStatus = EnrichmentStatus.Matched,
+            EnrichmentStatus = enrichmentStatus,
             LibraryBuildStatus = libraryBuildStatus
         };
     }

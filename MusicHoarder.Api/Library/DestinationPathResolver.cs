@@ -15,16 +15,35 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
         ? "Various Artists"
         : options.Value.CompilationFolderName;
 
-    public string ResolvePath(SongMetadata song)
+    public string ResolvePath(SongMetadata song) => ResolvePath(song, null);
+
+    /// <summary>
+    /// Resolves the destination path for a song, deriving the album-IDENTITY folder segments
+    /// (top/album-artist folder + "year - album" folder) from the reconciled
+    /// <paramref name="albumIdentity"/> when one is supplied, and the track-level file name from the
+    /// song. Passing the elected identity is what makes an album's folder DETERMINISTIC across build
+    /// runs: it no longer depends on the individual track's (drifting) album-artist / album / year, so
+    /// every track of one logical album resolves to the same folder regardless of which tracks are in
+    /// the current batch — closing the chicken-and-egg where the reconciliation grouped on a folder path
+    /// that itself depended on the unstable per-song album-artist. With <c>null</c> it reproduces the
+    /// pre-reconciliation per-song routing exactly.
+    /// </summary>
+    public string ResolvePath(SongMetadata song, AlbumIdentity? albumIdentity)
     {
         ArgumentNullException.ThrowIfNull(song);
 
         var title = NormalizeSegment(song.Title, "Unknown Title");
         var extension = NormalizeExtension(song.Extension);
 
-        var topFolder = IsVariousArtists(song)
+        // Album-identity fields come from the elected identity when present, else the song itself.
+        var isCompilation = albumIdentity?.IsCompilation ?? song.IsCompilation;
+        var albumArtist = albumIdentity is not null ? albumIdentity.AlbumArtist : song.AlbumArtist;
+        var albumTitle = albumIdentity is not null ? albumIdentity.Album : song.Album;
+        var year = albumIdentity is not null ? albumIdentity.Year : song.Year;
+
+        var topFolder = IsVariousArtists(isCompilation, albumArtist)
             ? NormalizeSegment(_compilationFolder, "Various Artists")
-            : ResolveAlbumArtist(song);
+            : ResolveAlbumArtistSegment(albumArtist, song.Artist);
 
         if (song.IsUnreleased)
         {
@@ -35,9 +54,9 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
                 $"{title}{extension}");
         }
 
-        var album = NormalizeSegment(song.Album, "Unknown Album");
-        var albumFolder = song.Year is > 0
-            ? $"{song.Year.Value} - {album}"
+        var album = NormalizeSegment(albumTitle, "Unknown Album");
+        var albumFolder = year is > 0
+            ? $"{year.Value} - {album}"
             : album;
 
         var fileName = $"{BuildTrackPrefix(song)}{title}{extension}";
@@ -106,9 +125,9 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
             : value[..MaxSegmentLength];
     }
 
-    private static string ResolveAlbumArtist(SongMetadata song)
+    private static string ResolveAlbumArtistSegment(string? albumArtist, string? trackArtist)
     {
-        var preferred = song.AlbumArtist ?? ArtistCreditNormalizer.GetPrimaryArtist(song.Artist) ?? song.Artist;
+        var preferred = albumArtist ?? ArtistCreditNormalizer.GetPrimaryArtist(trackArtist) ?? trackArtist;
         return NormalizeSegment(preferred, "Unknown Artist");
     }
 
@@ -122,8 +141,15 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
     /// logical-album grouping and the folder routing can never disagree.
     /// </summary>
     public static bool IsVariousArtists(SongMetadata song)
-        => song.IsCompilation
-            && (string.IsNullOrWhiteSpace(song.AlbumArtist) || IsVariousArtistsSentinel(song.AlbumArtist));
+        => IsVariousArtists(song.IsCompilation, song.AlbumArtist);
+
+    /// <summary>
+    /// Overload taking the album-identity fields directly, so the reconciled identity's compilation
+    /// flag / album-artist can drive the Various-Artists routing decision (not just the per-song row).
+    /// </summary>
+    public static bool IsVariousArtists(bool isCompilation, string? albumArtist)
+        => isCompilation
+            && (string.IsNullOrWhiteSpace(albumArtist) || IsVariousArtistsSentinel(albumArtist));
 
     /// <summary>
     /// The album-artist values providers use for genuine multi-artist releases. A track whose album
