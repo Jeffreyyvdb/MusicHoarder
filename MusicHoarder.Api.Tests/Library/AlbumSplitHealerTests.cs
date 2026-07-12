@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Library;
+using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -319,6 +320,105 @@ public class AlbumSplitHealerTests
         Assert.Equal(new AlbumSplitHealResult(0, 0, 0), result);
         Assert.Equal(2, await db.Songs.CountAsync(s => s.AlbumArtist == "Lauryn Hill"));
     }
+
+    [Fact]
+    public async Task HealAsync_ContendedAlbumArtist_FreezesToOrdinalLowestInsteadOfFlipping()
+    {
+        await using var db = NewContext();
+        // A canonical row would push these tracks' album-artist to the longer "…, The Alchemist"
+        // spelling. But the heal log already records BOTH spellings (a prior flip), so that axis is
+        // contended: the anti-oscillation guard must freeze it to the ordinal-lowest spelling
+        // ("Domo Genesis") and leave the already-frozen rows untouched instead of flipping them again.
+        var albumKey = TitleNormalizer.NormalizeForSearch("No Idols");
+        db.CanonicalAlbums.Add(new CanonicalAlbum
+        {
+            ArtistKey = AlbumGroupKey.ComputeArtistKey("Domo Genesis"),
+            AlbumKey = albumKey,
+            DisplayTitle = "No Idols",
+            DisplayArtist = "Domo Genesis, The Alchemist",
+            Year = 2023,
+            Status = CanonicalAlbumStatus.Fetched,
+        });
+        var s1 = NoIdolsSong("/n1.opus", "Fuck Everybody Else", 1, "Domo Genesis");
+        var s2 = NoIdolsSong("/n2.opus", "All Alone", 2, "Domo Genesis");
+        db.Songs.AddRange(s1, s2);
+        await db.SaveChangesAsync();
+        // Prior heal history: this album-artist has already been written both ways.
+        foreach (var id in new[] { s1.Id, s2.Id })
+        {
+            SeedHealChange(db, id, "Domo Genesis, The Alchemist", "Domo Genesis");
+            SeedHealChange(db, id, "Domo Genesis", "Domo Genesis, The Alchemist");
+        }
+        await db.SaveChangesAsync();
+
+        var result = await Healer(db).HealAsync();
+
+        Assert.Equal(new AlbumSplitHealResult(0, 0, 0), result);
+        Assert.All(await db.Songs.ToListAsync(), s => Assert.Equal("Domo Genesis", s.AlbumArtist));
+    }
+
+    [Fact]
+    public async Task HealAsync_CrossPointingCanonicals_ConvergeInsteadOfFlippingForever()
+    {
+        await using var db = NewContext();
+        // The pathological prod shape: two canonical rows for one album, each keyed to one spelling and
+        // pointing at the OTHER — so a naive heal swaps the two groups' album-artists on every pass,
+        // forever, re-tagging (and thus resurfacing) the album each time. The guard must drive it to a
+        // fixed point instead.
+        var albumKey = TitleNormalizer.NormalizeForSearch("No Idols");
+        db.CanonicalAlbums.Add(new CanonicalAlbum
+        {
+            ArtistKey = AlbumGroupKey.ComputeArtistKey("Domo Genesis"),
+            AlbumKey = albumKey,
+            DisplayTitle = "No Idols",
+            DisplayArtist = "Domo Genesis, The Alchemist",
+            Year = 2023,
+            Status = CanonicalAlbumStatus.Fetched,
+        });
+        db.CanonicalAlbums.Add(new CanonicalAlbum
+        {
+            ArtistKey = AlbumGroupKey.ComputeArtistKey("Domo Genesis, The Alchemist"),
+            AlbumKey = albumKey,
+            DisplayTitle = "No Idols",
+            DisplayArtist = "Domo Genesis",
+            Year = 2023,
+            Status = CanonicalAlbumStatus.Fetched,
+        });
+        db.Songs.AddRange(
+            NoIdolsSong("/n1.opus", "Fuck Everybody Else", 1, "Domo Genesis"),
+            NoIdolsSong("/n2.opus", "All Alone", 2, "Domo Genesis"),
+            NoIdolsSong("/n3.opus", "Me And My Bitch", 3, "Domo Genesis, The Alchemist"));
+        await db.SaveChangesAsync();
+
+        // Heal repeatedly, as each build cycle would. With the guard this reaches a fixed point within
+        // a few passes; without it SongsCorrected would never fall to zero.
+        AlbumSplitHealResult last = new(1, 1, 1);
+        for (var pass = 0; pass < 6 && last.SongsCorrected > 0; pass++)
+        {
+            last = await Healer(db).HealAsync();
+        }
+
+        Assert.Equal(0, last.SongsCorrected);
+        var songs = await db.Songs.ToListAsync();
+        Assert.All(songs, s => Assert.Equal("Domo Genesis", s.AlbumArtist));
+    }
+
+    private static SongMetadata NoIdolsSong(string path, string title, int trackNumber, string albumArtist) =>
+        Song(path, title, trackNumber, year: 2023, album: "No Idols",
+            artist: albumArtist, albumArtist: albumArtist);
+
+    private static void SeedHealChange(MusicHoarderDbContext db, int songId, string oldValue, string newValue) =>
+        db.SongMetadataChanges.Add(new SongMetadataChange
+        {
+            SongId = songId,
+            FieldName = nameof(SongMetadata.AlbumArtist),
+            OldValue = oldValue,
+            NewValue = newValue,
+            Source = "album-identity-heal",
+            Confidence = 1.0,
+            CreatedAtUtc = EnrichedAt,
+            AppliedAtUtc = EnrichedAt,
+        });
 
     // Both canonical rows the album-enrichment pipeline fetches for this album (one per artist-spelling
     // key) resolve to the same authoritative DisplayArtist — mirroring the observed prod data.
