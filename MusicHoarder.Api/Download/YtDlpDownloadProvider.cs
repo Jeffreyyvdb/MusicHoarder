@@ -29,6 +29,9 @@ public class YtDlpDownloadProvider(
         var opts = options.Value;
         var format = string.IsNullOrWhiteSpace(opts.DownloadAudioFormat) ? "opus" : opts.DownloadAudioFormat.Trim();
 
+        // yt-dlp rewrites the --cookies file on exit; when it's a read-only mount that write crashes the
+        // process. Hand it a writable temp copy (cleaned up in finally).
+        var cookiesPath = YtDlpCookies.PrepareWritableCopy(opts.YtDlpCookiesPath, logger);
         try
         {
             Directory.CreateDirectory(req.DestinationDirectory);
@@ -77,19 +80,16 @@ public class YtDlpDownloadProvider(
                 psi.ArgumentList.Add(opts.FfmpegPath);
             }
             // Authenticated cookies get past YouTube's datacenter-IP bot check ("Sign in to confirm
-            // you're not a bot"). Only pass it when the file actually exists — a dangling path makes
-            // yt-dlp hard-fail every download.
-            if (!string.IsNullOrWhiteSpace(opts.YtDlpCookiesPath))
+            // you're not a bot"). cookiesPath is a writable copy of the configured file (or null when
+            // unset/missing) so yt-dlp's cookie-save-on-exit can't crash on a read-only mount.
+            if (cookiesPath is not null)
             {
-                if (File.Exists(opts.YtDlpCookiesPath))
-                {
-                    psi.ArgumentList.Add("--cookies");
-                    psi.ArgumentList.Add(opts.YtDlpCookiesPath);
-                }
-                else
-                {
-                    logger.LogWarning("YtDlpCookiesPath is set but the file does not exist: {Path}", LogSanitizer.ForLog(opts.YtDlpCookiesPath));
-                }
+                psi.ArgumentList.Add("--cookies");
+                psi.ArgumentList.Add(cookiesPath);
+            }
+            else if (!string.IsNullOrWhiteSpace(opts.YtDlpCookiesPath))
+            {
+                logger.LogWarning("YtDlpCookiesPath is set but the file does not exist: {Path}", LogSanitizer.ForLog(opts.YtDlpCookiesPath));
             }
             // Power-user escape hatch: extra extractor-args / proxy flags without a code change.
             foreach (var extra in SplitArgs(opts.YtDlpExtraArgs))
@@ -131,6 +131,10 @@ public class YtDlpDownloadProvider(
             // Missing binary (Win32Exception / file-not-found) lands here — degrade gracefully.
             logger.LogWarning(ex, "yt-dlp download failed for '{Artist} - {Title}'", LogSanitizer.ForLog(req.Artist), LogSanitizer.ForLog(req.Title));
             return DownloadResult.Failed(ex.Message);
+        }
+        finally
+        {
+            YtDlpCookies.Cleanup(cookiesPath, opts.YtDlpCookiesPath);
         }
     }
 

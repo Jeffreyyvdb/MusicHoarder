@@ -52,6 +52,9 @@ public sealed class YouTubeMetadataResolver(
         if (string.IsNullOrWhiteSpace(url)) return YouTubeProbeOutcome.Failed(null, null);
         var opts = options.Value;
 
+        // yt-dlp rewrites the --cookies file on exit; a read-only mount makes that write crash it (after
+        // it already emitted the JSON). Give it a writable copy (cleaned up in finally).
+        var cookiesPath = YtDlpCookies.PrepareWritableCopy(opts.YtDlpCookiesPath, logger);
         try
         {
             var psi = new ProcessStartInfo(opts.YtDlpPath)
@@ -65,10 +68,10 @@ public sealed class YouTubeMetadataResolver(
             psi.ArgumentList.Add("--skip-download");
             psi.ArgumentList.Add("--no-playlist");
             psi.ArgumentList.Add("--no-warnings");
-            if (!string.IsNullOrWhiteSpace(opts.YtDlpCookiesPath) && File.Exists(opts.YtDlpCookiesPath))
+            if (cookiesPath is not null)
             {
                 psi.ArgumentList.Add("--cookies");
-                psi.ArgumentList.Add(opts.YtDlpCookiesPath);
+                psi.ArgumentList.Add(cookiesPath);
             }
             foreach (var extra in YtDlpDownloadProvider.SplitArgs(opts.YtDlpExtraArgs))
                 psi.ArgumentList.Add(extra);
@@ -85,20 +88,19 @@ public sealed class YouTubeMetadataResolver(
             await Task.WhenAll(outputTask, errorTask, process.WaitForExitAsync(token));
 
             var stderr = errorTask.Result.Trim();
-            if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(outputTask.Result))
-            {
-                // Surface the TAIL of stderr: yt-dlp's "ERROR:" line and a Python traceback's actual
-                // exception both live at the end, so head-truncation would hide the root cause.
-                logger.LogInformation(
-                    "yt-dlp probe exited {Code} for {Url}: {Error}",
-                    process.ExitCode, LogSanitizer.ForLog(url), LogSanitizer.ForLog(Tail(stderr)));
-                return YouTubeProbeOutcome.Failed(Classify(stderr), Tail(stderr));
-            }
 
-            var parsed = Parse(outputTask.Result);
-            return parsed is null
-                ? YouTubeProbeOutcome.Failed("Read the video but couldn't parse its metadata.", null)
-                : YouTubeProbeOutcome.Success(parsed);
+            // Trust parseable stdout regardless of exit code: yt-dlp can emit the full JSON and THEN crash
+            // on exit (e.g. saving a read-only cookies file), so a non-zero exit doesn't mean no result.
+            var parsed = string.IsNullOrWhiteSpace(outputTask.Result) ? null : Parse(outputTask.Result);
+            if (parsed is not null)
+                return YouTubeProbeOutcome.Success(parsed);
+
+            // Surface the TAIL of stderr: yt-dlp's "ERROR:" line and a Python traceback's actual exception
+            // both live at the end, so head-truncation would hide the root cause.
+            logger.LogInformation(
+                "yt-dlp probe exited {Code} for {Url}: {Error}",
+                process.ExitCode, LogSanitizer.ForLog(url), LogSanitizer.ForLog(Tail(stderr)));
+            return YouTubeProbeOutcome.Failed(Classify(stderr), Tail(stderr));
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -120,6 +122,10 @@ public sealed class YouTubeMetadataResolver(
         {
             logger.LogWarning(ex, "yt-dlp probe failed for {Url}", LogSanitizer.ForLog(url));
             return YouTubeProbeOutcome.Failed(null, ex.Message);
+        }
+        finally
+        {
+            YtDlpCookies.Cleanup(cookiesPath, opts.YtDlpCookiesPath);
         }
     }
 
@@ -146,6 +152,8 @@ public sealed class YouTubeMetadataResolver(
             return "That video is unavailable.";
         if (Has("HTTP Error 429") || Has("Too Many Requests"))
             return "YouTube is rate-limiting this server. Try again shortly.";
+        if (Has("Read-only file system") && Has("cookies"))
+            return "yt-dlp couldn't write back the cookies file (read-only mount). The server needs a writable cookies copy.";
         return null;
     }
 
