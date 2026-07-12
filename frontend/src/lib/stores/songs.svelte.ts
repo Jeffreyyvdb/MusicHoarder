@@ -9,7 +9,14 @@
  * the detail panel is still open elsewhere.
  */
 
-import { fetchSongs, openProgressStream, type ApiSong, type ProgressSnapshot } from '$lib/api-client';
+import {
+  fetchSongs,
+  likeSong,
+  openProgressStream,
+  unlikeSong,
+  type ApiSong,
+  type ProgressSnapshot
+} from '$lib/api-client';
 
 let songs = $state<ApiSong[]>([]);
 let isLoading = $state(false);
@@ -95,6 +102,40 @@ function stopLive(): void {
   }
 }
 
+// ── likes + plays (optimistic local mutation) ────────────────────────────────
+
+function findSong(id: number): ApiSong | undefined {
+  return songs.find((s) => s.id === id);
+}
+
+/**
+ * Toggle a song's liked state. Mutates the store row optimistically (rows are
+ * deep `$state` proxies, so every view reacts) and reverts on API failure —
+ * callers surface the thrown error (e.g. demo read-only) however they like.
+ */
+async function toggleLike(id: number): Promise<void> {
+  const song = findSong(id);
+  if (!song) return;
+  const previous = song.likedAtUtc ?? null;
+  const liking = !previous;
+  song.likedAtUtc = liking ? new Date().toISOString() : null;
+  try {
+    const result = liking ? await likeSong(id) : await unlikeSong(id);
+    song.likedAtUtc = result.likedAtUtc;
+  } catch (err) {
+    song.likedAtUtc = previous;
+    throw err;
+  }
+}
+
+/** Reflect a play reported by the player without waiting for the next full refetch. */
+function notePlayed(id: number): void {
+  const song = findSong(id);
+  if (!song) return;
+  song.playCount = (song.playCount ?? 0) + 1;
+  song.lastPlayedAtUtc = new Date().toISOString();
+}
+
 /**
  * Drop all cached data and tear down the live stream. The `(app)` group runs
  * SSR-off, so this module is a singleton that survives a logout → login in the
@@ -133,5 +174,7 @@ export const songsStore = {
   ensureLoaded,
   startLive,
   stopLive,
+  toggleLike,
+  notePlayed,
   reset
 };

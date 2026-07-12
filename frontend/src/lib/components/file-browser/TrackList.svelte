@@ -1,13 +1,9 @@
 <script lang="ts">
-  import { ArrowDown, ArrowUp, Clock, FileText, ListMusic, Pause, Play, Shuffle } from '@lucide/svelte';
+  import { untrack } from 'svelte';
+  import { ArrowDown, ArrowUp, Clock, FileText, Heart, ListMusic, Pause, Play, Shuffle } from '@lucide/svelte';
+  import { toast } from 'svelte-sonner';
   import Cover from '$lib/components/file-browser/Cover.svelte';
-  import {
-    formatDuration,
-    formatFileSize,
-    formatTotalDuration,
-    formatFamily,
-    type FormatFamily
-  } from '$lib/formatters';
+  import { formatDuration, formatFileSize, formatTotalDuration, formatFamily } from '$lib/formatters';
   import {
     albumKeyForSong,
     coverUrlForSong,
@@ -16,6 +12,7 @@
     type ApiSong
   } from '$lib/api-client';
   import { playerStore } from '$lib/stores/player.svelte';
+  import { songsStore } from '$lib/stores/songs.svelte';
   import { cn, shuffle } from '$lib/utils';
 
   type Props = {
@@ -30,6 +27,8 @@
      * The Shuffle / Clear-filters actions move into the filter-chips row instead.
      */
     hideHeading?: boolean;
+    /** Initial sort ('liked' = recently liked first, used by the Liked songs page). */
+    initialSortKey?: SortKey;
   };
   const {
     songs,
@@ -37,15 +36,16 @@
     isLoading,
     selectedId = null,
     onSelect,
-    hideHeading = false
+    hideHeading = false,
+    initialSortKey = 'added'
   }: Props = $props();
 
-  type SortKey = 'added' | 'title' | 'artist' | 'album' | 'year' | 'size' | 'match' | 'dur';
+  type SortKey = 'added' | 'liked' | 'title' | 'artist' | 'album' | 'year' | 'size' | 'match' | 'dur';
   const STRING_KEYS: SortKey[] = ['title', 'artist', 'album'];
 
-  let sortKey = $state<SortKey>('added');
+  // Deliberately the initial value only — the user's header clicks own the sort after mount.
+  let sortKey = $state<SortKey>(untrack(() => initialSortKey));
   let sortDir = $state<'asc' | 'desc'>('desc');
-  let fmt = $state<'all' | FormatFamily>('all');
   let lyricsOnly = $state(false);
 
   const UNKNOWN_ARTIST = 'Unknown Artist';
@@ -72,20 +72,6 @@
     return `/library?album=${encodeURIComponent(albumKeyForSong(s))}`;
   }
 
-  // Per-family hue (oklch) for the chip dot + row format pill. OTHER stays neutral.
-  const FAMILY_HUE: Record<Exclude<FormatFamily, 'OTHER'>, number> = {
-    FLAC: 150,
-    MP3: 60,
-    AAC: 280,
-    WAV: 20,
-    OGG: 200
-  };
-  function familyDot(f: 'all' | FormatFamily): string {
-    if (f === 'all') return 'background: linear-gradient(135deg, oklch(0.65 0.12 230), oklch(0.65 0.12 30));';
-    if (f === 'OTHER') return 'background: var(--muted-foreground);';
-    return `background: oklch(0.62 0.14 ${FAMILY_HUE[f]});`;
-  }
-
   const filtered = $derived.by(() => {
     let r = songs;
     const q = searchQuery.trim().toLowerCase();
@@ -97,7 +83,6 @@
           (s.album ?? '').toLowerCase().includes(q)
       );
     }
-    if (fmt !== 'all') r = r.filter((s) => formatFamily(s.extension) === fmt);
     if (lyricsOnly) r = r.filter(hasLyrics);
     return r;
   });
@@ -120,6 +105,8 @@
           return s.durationSeconds ?? 0;
         case 'match':
           return matchValue(s);
+        case 'liked':
+          return s.likedAtUtc ? Date.parse(s.likedAtUtc) : 0;
         case 'added':
         default:
           return songAddedTime(s);
@@ -148,27 +135,6 @@
     }
   }
 
-  // Format chips: "All formats" + one per distinct family present, in a stable order.
-  const FAMILY_ORDER: FormatFamily[] = ['FLAC', 'MP3', 'AAC', 'WAV', 'OGG', 'OTHER'];
-  const familyCounts = $derived.by(() => {
-    const m = new Map<FormatFamily, number>();
-    for (const s of songs) {
-      const f = formatFamily(s.extension);
-      m.set(f, (m.get(f) ?? 0) + 1);
-    }
-    return m;
-  });
-  const formatChips = $derived.by(() => {
-    const chips: { id: 'all' | FormatFamily; label: string; count: number }[] = [
-      { id: 'all', label: 'All formats', count: songs.length }
-    ];
-    for (const f of FAMILY_ORDER) {
-      const count = familyCounts.get(f);
-      if (count) chips.push({ id: f, label: f === 'OTHER' ? 'Other' : f, count });
-    }
-    return chips;
-  });
-
   const stats = $derived.by(() => ({
     count: filtered.length,
     totalSec: filtered.reduce((n, s) => n + (s.durationSeconds ?? 0), 0),
@@ -176,13 +142,23 @@
   }));
 
   const albumCount = $derived(new Set(songs.map((s) => albumKeyForSong(s))).size);
-  const hasFilters = $derived(fmt !== 'all' || lyricsOnly);
+  const hasFilters = $derived(lyricsOnly);
 
   function playFrom(target: ApiSong) {
     const list = sorted;
     const queue = list.map((s) => toPlayerSong(s, artistOf(s)));
     const index = list.findIndex((s) => s.id === target.id);
     void playerStore.playSong(toPlayerSong(target, artistOf(target)), queue, index);
+  }
+
+  async function toggleLike(song: ApiSong) {
+    try {
+      await songsStore.toggleLike(song.id);
+    } catch (err) {
+      toast.error('Could not update liked songs', {
+        description: err instanceof Error ? err.message : undefined
+      });
+    }
   }
 
   function shuffleTracks() {
@@ -238,7 +214,6 @@
   $effect(() => {
     // referenced for reactivity
     void searchQuery;
-    void fmt;
     void lyricsOnly;
     void sortKey;
     void sortDir;
@@ -268,7 +243,6 @@
     <button
       type="button"
       onclick={() => {
-        fmt = 'all';
         lyricsOnly = false;
       }}
       class="text-muted-foreground hover:border-primary hover:text-primary rounded-md border px-2 py-1 text-[11px] transition-colors"
@@ -320,25 +294,6 @@
 
   <!-- Filter chips -->
   <div class="border-border flex flex-wrap items-center gap-2 border-b px-4 py-3 md:px-6">
-    {#each formatChips as chip (chip.id)}
-      <button
-        type="button"
-        onclick={() => (fmt = chip.id)}
-        class={cn(
-          'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors',
-          fmt === chip.id
-            ? 'border-foreground/15 bg-muted text-foreground'
-            : 'border-border text-muted-foreground hover:text-foreground'
-        )}
-      >
-        <span class="inline-block size-2 rounded-full" style={familyDot(chip.id)}></span>
-        {chip.label}
-        <span class="font-mono opacity-70">{chip.count.toLocaleString()}</span>
-      </button>
-    {/each}
-
-    <span class="bg-border mx-1 h-4 w-px"></span>
-
     <button
       type="button"
       onclick={() => (lyricsOnly = !lyricsOnly)}
@@ -369,10 +324,10 @@
   <div
     class={cn(
       'border-border text-muted-foreground grid shrink-0 items-center gap-3 border-b px-5 py-2.5',
-      'grid-cols-[40px_40px_minmax(0,1fr)_52px]',
-      '@xl:grid-cols-[40px_40px_minmax(0,1.5fr)_minmax(0,1fr)_56px_52px]',
-      '@3xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_44px_56px_52px]',
-      '@5xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.9fr)_52px_104px_72px_128px_52px]'
+      'grid-cols-[40px_40px_minmax(0,1fr)_28px_52px]',
+      '@xl:grid-cols-[40px_40px_minmax(0,1.5fr)_minmax(0,1fr)_56px_28px_52px]',
+      '@3xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_44px_56px_28px_52px]',
+      '@5xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.9fr)_52px_104px_72px_128px_28px_52px]'
     )}
   >
     <span class="text-right text-[11px] font-medium">#</span>
@@ -384,6 +339,7 @@
     <span class="text-muted-foreground hidden text-[11px] font-medium @xl:block">Format</span>
     <span class="hidden @5xl:block">{@render sortHead('size', 'Size')}</span>
     <span class="hidden @5xl:block">{@render sortHead('match', 'Match')}</span>
+    <span></span>
     <button
       type="button"
       onclick={() => toggleSort('dur')}
@@ -425,6 +381,7 @@
           {@const isLoaded = playerStore.currentSong?.id === song.id}
           {@const isCurrentlyPlaying = isLoaded && playerStore.isPlaying}
           {@const isSelected = selectedId === song.id}
+          {@const isLiked = Boolean(song.likedAtUtc)}
           <div
             role="button"
             tabindex="0"
@@ -432,10 +389,10 @@
             onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && onSelect(song)}
             class={cn(
               'group border-border/40 absolute right-0 left-0 grid cursor-pointer items-center gap-3 border-b px-3',
-              'grid-cols-[40px_40px_minmax(0,1fr)_52px]',
-              '@xl:grid-cols-[40px_40px_minmax(0,1.5fr)_minmax(0,1fr)_56px_52px]',
-              '@3xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_44px_56px_52px]',
-              '@5xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.9fr)_52px_104px_72px_128px_52px]',
+              'grid-cols-[40px_40px_minmax(0,1fr)_28px_52px]',
+              '@xl:grid-cols-[40px_40px_minmax(0,1.5fr)_minmax(0,1fr)_56px_28px_52px]',
+              '@3xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_44px_56px_28px_52px]',
+              '@5xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.9fr)_52px_104px_72px_128px_28px_52px]',
               'hover:bg-accent/50 active:bg-accent/70',
               isSelected && 'bg-primary/10',
               isLoaded && 'text-primary'
@@ -556,6 +513,24 @@
               </span>
               <span class="text-muted-foreground min-w-[28px] text-right font-mono text-[10.5px]">{mv.toFixed(2)}</span>
             </span>
+            <!-- like -->
+            <button
+              type="button"
+              onclick={(e) => {
+                e.stopPropagation();
+                void toggleLike(song);
+              }}
+              aria-label={isLiked ? 'Remove from liked songs' : 'Add to liked songs'}
+              aria-pressed={isLiked}
+              class={cn(
+                'grid place-items-center transition-all active:scale-90',
+                isLiked
+                  ? 'text-primary'
+                  : 'text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-foreground'
+              )}
+            >
+              <Heart class="size-3.5" fill={isLiked ? 'currentColor' : 'none'} />
+            </button>
             <!-- duration -->
             <span class="text-muted-foreground text-right font-mono text-[11px]">
               {formatDuration(song.durationSeconds)}
