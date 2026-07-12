@@ -159,6 +159,71 @@ public class SharesEndpointsTests
     }
 
     [Fact]
+    public async Task GetSharedSongLyrics_TranscribedOnly_FallsBackToTranscription()
+    {
+        // The usual reason to transcribe is that LRCLIB had nothing — the share must present
+        // the AI lyrics even though PreferredLyricsSource is still the Lrclib default.
+        var options = NewOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            var song = Song(1, TestUsers.OwnerId, "Discovery", "Daft Punk");
+            song.TranscribedSyncedLyrics = "[00:01.00] ai line";
+            song.TranscribedPlainLyrics = "ai line";
+            seed.Songs.Add(song);
+            seed.SongShares.Add(Share(1, songId: 1, ShareScope.Song, "tok"));
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = AnonymousContext(options);
+
+        var payload = Value(await SharesEndpoints.GetSharePayload("tok", db, CancellationToken.None));
+        var track = Assert.Single(Tracks(payload));
+        Assert.True(GetProperty<bool>(track, "HasSyncedLyrics"));
+        Assert.True(GetProperty<bool>(track, "HasPlainLyrics"));
+
+        var lyrics = Value(await SharesEndpoints.GetSharedSongLyrics("tok", 1, db, CancellationToken.None));
+        Assert.Equal("[00:01.00] ai line", GetProperty<string?>(lyrics, "Synced"));
+        Assert.Equal("ai line", GetProperty<string?>(lyrics, "Plain"));
+    }
+
+    [Fact]
+    public async Task GetSharedSongLyrics_PreferredTranscribed_WinsOverLrclib()
+    {
+        var options = NewOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            var song = Song(1, TestUsers.OwnerId, "Discovery", "Daft Punk", syncedLyrics: "[00:01.00] lrclib line");
+            song.TranscribedSyncedLyrics = "[00:01.00] ai line";
+            song.PreferredLyricsSource = PreferredLyricsSource.Transcribed;
+            seed.Songs.Add(song);
+            seed.SongShares.Add(Share(1, songId: 1, ShareScope.Song, "tok"));
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = AnonymousContext(options);
+        var lyrics = Value(await SharesEndpoints.GetSharedSongLyrics("tok", 1, db, CancellationToken.None));
+        Assert.Equal("[00:01.00] ai line", GetProperty<string?>(lyrics, "Synced"));
+    }
+
+    [Fact]
+    public async Task GetSharedSongLyrics_BothExist_DefaultPrefersLrclib()
+    {
+        var options = NewOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            var song = Song(1, TestUsers.OwnerId, "Discovery", "Daft Punk", syncedLyrics: "[00:01.00] lrclib line");
+            song.TranscribedSyncedLyrics = "[00:01.00] ai line";
+            seed.Songs.Add(song);
+            seed.SongShares.Add(Share(1, songId: 1, ShareScope.Song, "tok"));
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = AnonymousContext(options);
+        var lyrics = Value(await SharesEndpoints.GetSharedSongLyrics("tok", 1, db, CancellationToken.None));
+        Assert.Equal("[00:01.00] lrclib line", GetProperty<string?>(lyrics, "Synced"));
+    }
+
+    [Fact]
     public async Task StreamSharedSong_InScope_StreamsFile()
     {
         var tempFile = Path.Combine(Path.GetTempPath(), $"mh-share-test-{Guid.NewGuid():N}.mp3");

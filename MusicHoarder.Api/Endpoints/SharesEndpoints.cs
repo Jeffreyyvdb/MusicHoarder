@@ -163,8 +163,8 @@ public static class SharesEndpoints
                 s.DiscNumber,
                 DurationMs = s.DurationMs ?? s.DurationSeconds * 1000,
                 s.HasCoverArt,
-                HasSyncedLyrics = !string.IsNullOrWhiteSpace(s.EffectiveSyncedLyrics),
-                HasPlainLyrics = !string.IsNullOrWhiteSpace(s.EffectivePlainLyrics),
+                HasSyncedLyrics = !string.IsNullOrWhiteSpace(s.DisplaySyncedLyrics),
+                HasPlainLyrics = !string.IsNullOrWhiteSpace(s.DisplayPlainLyrics),
                 IsInstrumental = s.IsInstrumental == true,
             }),
         });
@@ -199,11 +199,14 @@ public static class SharesEndpoints
         if (song is null)
             return ShareNotFound();
 
+        // Display* (not Effective*): the share page shows what the in-app viewer shows, including
+        // the fall-back to an AI transcription when LRCLIB found nothing — without changing what
+        // the library builder embeds into files.
         return Results.Ok(new
         {
             song.Id,
-            Synced = song.EffectiveSyncedLyrics,
-            Plain = song.EffectivePlainLyrics,
+            Synced = song.DisplaySyncedLyrics,
+            Plain = song.DisplayPlainLyrics,
             IsInstrumental = song.IsInstrumental == true,
         });
     }
