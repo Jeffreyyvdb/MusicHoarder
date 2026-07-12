@@ -135,6 +135,25 @@ web form:
   provider chain quietly falls through to yt-dlp. Etiquette: share a folder in your slskd config —
   zero-share accounts get queued or banned by many peers — and leave MusicHoarder's built-in
   search rate limit alone unless you know why you're raising it.
+- **Streaming-FLAC acquisition (`spotiflac`)** — *legally grey, off by default.* MusicHoarder can
+  fetch true-lossless FLAC for wishlist downloads via an **acquisition sidecar** (a small FastAPI
+  wrapper around the [`SpotiFLAC`](https://pypi.org/project/SpotiFLAC/) module, in
+  [`sidecars/spotiflac/`](../sidecars/spotiflac/)). It relays through third-party servers to pull
+  lossless audio without a streaming account, which is against those services' terms — enable it only
+  where that's acceptable to you. MusicHoarder never talks to a streaming service directly and nothing
+  about the sidecar is compiled into its image; it calls the sidecar's HTTP API as an opaque endpoint,
+  exactly like slskd. The sidecar service already ships in `docker-compose.yml` **behind a Compose
+  profile**, so enabling it is pure `.env` — no compose editing (works even for a read-only
+  Git-synced compose). Set: `COMPOSE_PROFILES=spotiflac` (starts the sidecar container, pulled from
+  GHCR), `SPOTIFLAC_SIDECAR_URL=http://spotiflac:8000`, and put `spotiflac` first in the chain —
+  `DOWNLOAD_PROVIDER_1=spotiflac`, `DOWNLOAD_PROVIDER_2=slskd`, `DOWNLOAD_PROVIDER_3=yt-dlp` — then
+  `docker compose up -d`. Leave `COMPOSE_PROFILES` unset and the sidecar never starts and the provider
+  reports "not found", so it's inert for everyone who doesn't opt in. The sidecar shares the API's
+  download staging volume at the same path, so the FLAC it writes is visible to the API. A track with
+  no lossless source upstream falls through to slskd/yt-dlp; a downed sidecar fails the item and
+  retries next sweep. You can point it at self-hosted Tidal/Qobuz backends
+  (`SPOTIFLAC_TIDAL_CUSTOM_API` / `SPOTIFLAC_QOBUZ_LOCAL_API_URL`) instead of its built-in community
+  relay — see [`sidecars/spotiflac/README.md`](../sidecars/spotiflac/README.md).
 - **Instance sync** — one MusicHoarder (e.g. your homelab) can push every finished track to
   another (e.g. a public VPS) over plain HTTPS: after a track's library build completes, the
   pusher asks the receiver "do you have this track, at what quality?" (by audio fingerprint /

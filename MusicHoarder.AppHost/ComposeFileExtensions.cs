@@ -304,6 +304,40 @@ internal static class ComposeFileExtensions
         api.Environment["Auth__DemoUserEmail"] = "${DEMO_USER_EMAIL:-demo@musichoarder.local}";
         api.Environment["Resend__FromAddress"] = "${RESEND_FROM_ADDRESS:-noreply@musichoarder.local}";
 
+        // Optional streaming-FLAC acquisition sidecar (spotiflac). Profile-gated so it is inert unless
+        // the operator opts in with COMPOSE_PROFILES=spotiflac — safe to ship in the shared self-host
+        // compose (a git-synced instance enables it via .env alone, no compose edit). Pulls its own
+        // GHCR image and shares the API's download staging volume at the same path so the FLAC it
+        // writes is visible to the API. Only self-host ships the service; prod/preview carry just the
+        // inert StreamingFlac__SidecarUrl env. The build-from-source override layers `build:` on it.
+        file.Services["spotiflac"] = new Service
+        {
+            Name = "spotiflac",
+            Image = "ghcr.io/jeffreyyvdb/musichoarder/spotiflac:${SPOTIFLAC_VERSION:-latest}",
+            Restart = "always",
+            PullPolicy = "always",
+            Profiles = ["spotiflac"],
+            Networks = ["aspire"],
+            Environment = new()
+            {
+                // Optional self-hosted backends instead of the module's built-in community relay.
+                ["SPOTIFLAC_TIDAL_CUSTOM_API"] = "${SPOTIFLAC_TIDAL_CUSTOM_API:-}",
+                ["SPOTIFLAC_QOBUZ_LOCAL_API_URL"] = "${SPOTIFLAC_QOBUZ_LOCAL_API_URL:-}",
+            },
+            Volumes =
+            [
+                new Volume { Name = "musichoarder-downloads", Type = "volume", Source = "musichoarder-downloads", Target = "/data/downloads" },
+            ],
+            Healthcheck = new Healthcheck
+            {
+                Test = ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"],
+                Interval = "30s",
+                Timeout = "10s",
+                Retries = 3,
+                StartPeriod = "20s",
+            },
+        };
+
         api.DependsOn.Clear();
         frontend.DependsOn.Clear();
     }
@@ -328,8 +362,14 @@ internal static class ComposeFileExtensions
         api.Environment["Slskd__BaseUrl"] = "${SLSKD_URL:-}";
         api.Environment["Slskd__ApiKey"] = "${SLSKD_API_KEY:-}";
         api.Environment["Slskd__DownloadsDirectory"] = "${SLSKD_DOWNLOADS_DIR:-}";
+        // Optional streaming-FLAC acquisition sidecar (spotiflac). Blank → the "spotiflac" chain entry
+        // reports NotFound and downloads fall through, so this default is safe on instances that never
+        // run the (separate, off-by-default) sidecar. Operators opt in by setting the URL and adding
+        // "spotiflac" to the provider chain (e.g. DOWNLOAD_PROVIDER_1=spotiflac).
+        api.Environment["StreamingFlac__SidecarUrl"] = "${SPOTIFLAC_SIDECAR_URL:-}";
         api.Environment["MusicEnricher__DownloadProviders__0"] = "${DOWNLOAD_PROVIDER_1:-slskd}";
         api.Environment["MusicEnricher__DownloadProviders__1"] = "${DOWNLOAD_PROVIDER_2:-yt-dlp}";
+        api.Environment["MusicEnricher__DownloadProviders__2"] = "${DOWNLOAD_PROVIDER_3:-}";
         // Instance sync: role is pure config on one shared build — Push on the private instance,
         // Receive on the public one, Off (the default) everywhere else. The key gates the
         // internet-facing receive endpoints, so generate a long random one (openssl rand -base64 48).

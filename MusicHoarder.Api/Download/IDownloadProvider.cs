@@ -4,6 +4,12 @@ namespace MusicHoarder.Api.Download;
 /// A single track to acquire. <paramref name="DestinationDirectory"/> is the absolute directory the
 /// file must be written into (the writable download staging dir, which the scanner indexes so the file
 /// is ingested by the normal pipeline).
+/// <para>
+/// <paramref name="SpotifyTrackId"/> is optional and only used by providers that acquire from a
+/// streaming-service URL (e.g. the "spotiflac" provider builds
+/// <c>https://open.spotify.com/track/{id}</c> from it). yt-dlp / slskd ignore it and match on
+/// artist/title/album instead.
+/// </para>
 /// </summary>
 public record DownloadRequest(
     string Artist,
@@ -11,7 +17,8 @@ public record DownloadRequest(
     string? Album,
     string? Isrc,
     int DurationMs,
-    string DestinationDirectory);
+    string DestinationDirectory,
+    string? SpotifyTrackId = null);
 
 /// <summary>
 /// Outcome of a download attempt. <paramref name="NotFound"/> distinguishes "no result for this
