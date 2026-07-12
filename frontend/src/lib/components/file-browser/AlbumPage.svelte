@@ -570,9 +570,11 @@
       </div>
     </div>
 
-    <!-- Action bar -->
+    <!-- Action bar. The buttons keep their size (shrink-0) and would otherwise clip on
+         narrow viewports, so the row scrolls horizontally (hidden scrollbar) like the
+         section sub-nav — every control stays reachable instead of being cut off. -->
     <div
-      class="border-border flex items-center gap-3 border-b bg-gradient-to-b from-black/5 to-transparent px-6 py-5 sm:px-9 dark:from-white/5"
+      class="no-scrollbar border-border flex items-center gap-3 overflow-x-auto border-b bg-gradient-to-b from-black/5 to-transparent px-6 py-5 sm:px-9 dark:from-white/5"
     >
       <button
         type="button"
