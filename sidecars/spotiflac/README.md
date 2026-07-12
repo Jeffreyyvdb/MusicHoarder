@@ -73,6 +73,10 @@ Instead of the built-in community relay, point at your own instances:
 
 ## Notes
 
+- **Write path is confined.** All writes are restricted to `SPOTIFLAC_STAGING_DIR` (default
+  `/data/downloads`, which matches the API's `MusicEnricher__DownloadDirectory` in the self-host
+  compose) and the filename is limited to a safe charset. If you run the API with a non-default
+  download dir, set `SPOTIFLAC_STAGING_DIR` on the sidecar to match.
 - **Pin the module.** It ships frequently (v1.3.1 as of Jul 2026); bump `requirements.txt` deliberately.
 - The `SpotiFLAC()` return value is undocumented, so the wrapper decides success by checking the output
   file exists and is non-empty. If the module API changes, adjust `_run_spotiflac` / `_looks_like_no_source`.
