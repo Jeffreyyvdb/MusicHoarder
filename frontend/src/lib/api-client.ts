@@ -90,6 +90,20 @@ export interface ApiSong {
   spotifyId?: string | null
   acoustIdTrackId?: string | null
   lrclibId?: string | null
+  /** Genres, ';'-joined multi-value (e.g. "Hip Hop; Rap"). */
+  genre?: string | null
+  /** Full release date as an ISO string (YYYY-MM-DD or partial); {@link year} is the coarse form. */
+  releaseDate?: string | null
+  /** Original (first) release date of the release-group, ISO string. */
+  originalReleaseDate?: string | null
+  label?: string | null
+  catalogNumber?: string | null
+  /** Album barcode / UPC. */
+  upc?: string | null
+  composer?: string | null
+  copyright?: string | null
+  artistSort?: string | null
+  albumArtistSort?: string | null
   enrichmentStatus?: string | number | null
   /** When the scanner first indexed the file (always set). */
   indexedAtUtc?: string | null
@@ -289,6 +303,14 @@ export interface AlbumSummary {
   byteSize: number
   /** First non-null genre encountered; null otherwise. */
   genre: string | null
+  /** First non-null record label encountered. */
+  label: string | null
+  /** First non-null catalog number encountered. */
+  catalogNumber: string | null
+  /** First non-null barcode / UPC encountered. */
+  upc: string | null
+  /** First non-null full release date (ISO string) encountered. */
+  releaseDate: string | null
   /** First non-null musicBrainzReleaseId encountered. */
   musicBrainzReleaseId: string | null
   /** First non-null albumArt URL encountered. */
@@ -353,6 +375,10 @@ export function buildAlbumsFromSongs(songs: ApiSong[]): AlbumSummary[] {
         durationSeconds: 0,
         byteSize: 0,
         genre: null,
+        label: null,
+        catalogNumber: null,
+        upc: null,
+        releaseDate: null,
         musicBrainzReleaseId: null,
         coverUrl: null,
         addedAtUtc: null,
@@ -366,6 +392,11 @@ export function buildAlbumsFromSongs(songs: ApiSong[]): AlbumSummary[] {
     entry.durationSeconds += song.durationSeconds ?? 0
     entry.byteSize += song.fileSizeBytes ?? 0
     if (song.year && (!entry.year || song.year < entry.year)) entry.year = song.year
+    entry.genre ??= nonEmpty(song.genre)
+    entry.label ??= nonEmpty(song.label)
+    entry.catalogNumber ??= nonEmpty(song.catalogNumber)
+    entry.upc ??= nonEmpty(song.upc)
+    entry.releaseDate ??= nonEmpty(song.releaseDate)
     if (!entry.musicBrainzReleaseId && song.musicBrainzReleaseId) {
       entry.musicBrainzReleaseId = song.musicBrainzReleaseId
     }

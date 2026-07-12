@@ -33,6 +33,16 @@ public sealed record WrittenTagSet(
     string? AlbumArtistMusicBrainzId,
     string? ReleaseTypes,
     string? IsCompilation,
+    string? Genre,
+    string? ReleaseDate,
+    string? OriginalReleaseDate,
+    string? Label,
+    string? CatalogNumber,
+    string? Upc,
+    string? Composer,
+    string? Copyright,
+    string? ArtistSort,
+    string? AlbumArtistSort,
     string? Lyrics)
 {
     private const string VariousArtists = "Various Artists";
@@ -57,6 +67,18 @@ public sealed record WrittenTagSet(
         (nameof(AlbumArtistMusicBrainzId), true, s => s.AlbumArtistMusicBrainzId),
         (nameof(ReleaseTypes), true, s => s.ReleaseTypes),
         (nameof(IsCompilation), true, s => s.IsCompilation),
+        // Descriptive fields written from the song row (not the reconciled identity), so classified
+        // track-level for the feed even though several are album-level in nature.
+        (nameof(Genre), false, s => s.Genre),
+        (nameof(ReleaseDate), false, s => s.ReleaseDate),
+        (nameof(OriginalReleaseDate), false, s => s.OriginalReleaseDate),
+        (nameof(Label), false, s => s.Label),
+        (nameof(CatalogNumber), false, s => s.CatalogNumber),
+        (nameof(Upc), false, s => s.Upc),
+        (nameof(Composer), false, s => s.Composer),
+        (nameof(Copyright), false, s => s.Copyright),
+        (nameof(ArtistSort), false, s => s.ArtistSort),
+        (nameof(AlbumArtistSort), false, s => s.AlbumArtistSort),
         ("Lyrics", false, s => s.Lyrics),
     ];
 
@@ -89,6 +111,17 @@ public sealed record WrittenTagSet(
             AlbumArtistMusicBrainzId: NullIfEmpty(identity.AlbumArtistMusicBrainzId),
             ReleaseTypes: NullIfEmpty(identity.ReleaseTypes),
             IsCompilation: compilation ? "true" : "false",
+            Genre: NullIfEmpty(song.Genre),
+            ReleaseDate: NullIfEmpty(song.ReleaseDate),
+            OriginalReleaseDate: NullIfEmpty(song.OriginalReleaseDate),
+            Label: NullIfEmpty(song.Label),
+            CatalogNumber: NullIfEmpty(song.CatalogNumber),
+            Upc: NullIfEmpty(song.Upc),
+            Composer: NullIfEmpty(song.Composer),
+            Copyright: NullIfEmpty(song.Copyright),
+            ArtistSort: NullIfEmpty(song.ArtistSort),
+            // Mirror the writer: compilations sort under "Various Artists".
+            AlbumArtistSort: compilation ? VariousArtists : NullIfEmpty(song.AlbumArtistSort),
             Lyrics: HasLyrics(song) ? "present" : null);
     }
 

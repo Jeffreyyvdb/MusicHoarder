@@ -176,7 +176,15 @@ public class MusicBrainzWebEnrichmentProvider(
             IsCompilation: rec.IsCompilation ? true : null,
             ReleaseTypePrimary: rec.ReleaseTypePrimary,
             ReleaseTypes: rec.ReleaseTypes,
-            DurationSeconds: rec.LengthMs is int len && len > 0 ? len / 1000 : null);
+            DurationSeconds: rec.LengthMs is int len && len > 0 ? len / 1000 : null,
+            Genre: rec.Genre,
+            ReleaseDate: rec.ReleaseDate,
+            OriginalReleaseDate: rec.OriginalReleaseDate,
+            Label: rec.Label,
+            CatalogNumber: rec.CatalogNumber,
+            Upc: rec.Barcode,
+            ArtistSort: rec.ArtistSort,
+            AlbumArtistSort: rec.AlbumArtistSort);
     }
 
     private static (double Score, List<string> Warnings) Score(

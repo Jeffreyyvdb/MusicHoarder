@@ -206,8 +206,33 @@ public sealed class SpotifyCatalogSearchService(
             if (string.IsNullOrEmpty(id)) return null;
 
             var name = root.TryGetProperty("name", out var nEl) && nEl.ValueKind == JsonValueKind.String ? nEl.GetString() : null;
-            int? year = root.TryGetProperty("release_date", out var rdEl) && rdEl.ValueKind == JsonValueKind.String
-                ? ReleaseDateParser.ParseYear(rdEl.GetString()) : null;
+            var releaseDateStr = root.TryGetProperty("release_date", out var rdEl) && rdEl.ValueKind == JsonValueKind.String
+                ? rdEl.GetString() : null;
+            int? year = ReleaseDateParser.ParseYear(releaseDateStr);
+
+            var label = root.TryGetProperty("label", out var lblEl) && lblEl.ValueKind == JsonValueKind.String
+                ? lblEl.GetString() : null;
+
+            string? upc = null;
+            if (root.TryGetProperty("external_ids", out var extIds) && extIds.ValueKind == JsonValueKind.Object &&
+                extIds.TryGetProperty("upc", out var upcEl) && upcEl.ValueKind == JsonValueKind.String)
+                upc = upcEl.GetString();
+
+            // Keep the © copyright line; drop the ℗ phonogram line (SpotiFLAC's rule).
+            string? copyright = null;
+            if (root.TryGetProperty("copyrights", out var copyrightsEl) && copyrightsEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var c in copyrightsEl.EnumerateArray())
+                {
+                    if (c.ValueKind != JsonValueKind.Object) continue;
+                    var type = c.TryGetProperty("type", out var tEl) && tEl.ValueKind == JsonValueKind.String ? tEl.GetString() : null;
+                    var text = c.TryGetProperty("text", out var txtEl) && txtEl.ValueKind == JsonValueKind.String ? txtEl.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(text)) continue;
+                    // Prefer the © (type "C") line; remember any line as a fallback if no © is present.
+                    if (string.Equals(type, "C", StringComparison.OrdinalIgnoreCase)) { copyright = text; break; }
+                    copyright ??= text;
+                }
+            }
 
             string? artist = null;
             if (root.TryGetProperty("artists", out var arts) && arts.ValueKind == JsonValueKind.Array)
@@ -236,7 +261,12 @@ public sealed class SpotifyCatalogSearchService(
                 }
             }
 
-            return new SpotifyAlbumDetail(id!, name, string.IsNullOrWhiteSpace(artist) ? null : artist, year, imageUrl, tracks);
+            return new SpotifyAlbumDetail(
+                id!, name, string.IsNullOrWhiteSpace(artist) ? null : artist, year, imageUrl, tracks,
+                ReleaseDate: ReleaseDateParser.Normalize(releaseDateStr),
+                Label: string.IsNullOrWhiteSpace(label) ? null : label!.Trim(),
+                Upc: string.IsNullOrWhiteSpace(upc) ? null : upc!.Trim(),
+                Copyright: string.IsNullOrWhiteSpace(copyright) ? null : copyright!.Trim());
         }
         catch (JsonException)
         {

@@ -1,4 +1,5 @@
 using MusicHoarder.Api.Matching;
+using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Enrichment;
@@ -30,6 +31,9 @@ public static class MetadataMerger
     {
         "Album", "Year", "TrackNumber", "DiscNumber", "TotalDiscs", "TotalTracks",
         "ReleaseTypePrimary", "ReleaseTypes",
+        // Descriptive album-level fields: a recording appearing on a release doesn't corroborate its
+        // label/catalog/barcode, so these follow the same per-field corroboration gate.
+        "Label", "CatalogNumber", "Upc", "Copyright", "AlbumArtistSort", "ReleaseDate", "OriginalReleaseDate",
     };
 
     public static IReadOnlyList<FieldChange> ApplyMatch(
@@ -62,6 +66,24 @@ public static class MetadataMerger
         MergeText(song, "Artists", song.Artists, winner.Artists, v => song.Artists = v, highConsensus, changes);
         MergeText(song, "ReleaseTypePrimary", song.ReleaseTypePrimary, winner.ReleaseTypePrimary, v => song.ReleaseTypePrimary = v, Upgrade("ReleaseTypePrimary"), changes);
         MergeText(song, "ReleaseTypes", song.ReleaseTypes, winner.ReleaseTypes, v => song.ReleaseTypes = v, Upgrade("ReleaseTypes"), changes);
+
+        // Descriptive metadata. These are enrichment-sourced (the row starts null), so the initial
+        // fill always applies; the gating below only decides rare re-enrichment conflicts. Album-level
+        // descriptive fields (label/catalog/upc/copyright/album-artist-sort) are gated on the same
+        // per-field corroboration as the other album-level fields; genre/composer/artist-sort are
+        // recording-level and gated on the blanket consensus flag.
+        MergeText(song, "Genre", song.Genre, winner.Genre, v => song.Genre = v, highConsensus, changes);
+        MergeText(song, "Composer", song.Composer, winner.Composer, v => song.Composer = v, highConsensus, changes);
+        MergeText(song, "ArtistSort", song.ArtistSort, winner.ArtistSort, v => song.ArtistSort = v, highConsensus, changes);
+        MergeText(song, "Label", song.Label, winner.Label, v => song.Label = v, Upgrade("Label"), changes);
+        MergeText(song, "CatalogNumber", song.CatalogNumber, winner.CatalogNumber, v => song.CatalogNumber = v, Upgrade("CatalogNumber"), changes);
+        MergeText(song, "Upc", song.Upc, winner.Upc, v => song.Upc = v, Upgrade("Upc"), changes);
+        MergeText(song, "Copyright", song.Copyright, winner.Copyright, v => song.Copyright = v, Upgrade("Copyright"), changes);
+        MergeText(song, "AlbumArtistSort", song.AlbumArtistSort, winner.AlbumArtistSort, v => song.AlbumArtistSort = v, Upgrade("AlbumArtistSort"), changes);
+        // Release dates prefer the more *precise* ISO value (a full YYYY-MM-DD beats a bare year) even
+        // over an existing good value — SpotiFLAC's "keep the longest candidate" rule.
+        MergeReleaseDate(song, "ReleaseDate", song.ReleaseDate, winner.ReleaseDate, v => song.ReleaseDate = v, Upgrade("ReleaseDate"), changes);
+        MergeReleaseDate(song, "OriginalReleaseDate", song.OriginalReleaseDate, winner.OriginalReleaseDate, v => song.OriginalReleaseDate = v, Upgrade("OriginalReleaseDate"), changes);
         MergeNumber(song, "Year", song.Year, winner.Year, v => song.Year = v, Upgrade("Year"), changes);
         MergeNumber(song, "TrackNumber", song.TrackNumber, winner.TrackNumber, v => song.TrackNumber = v, Upgrade("TrackNumber"), changes);
         MergeNumber(song, "DiscNumber", song.DiscNumber, winner.DiscNumber, v => song.DiscNumber = v, Upgrade("DiscNumber"), changes);
@@ -117,6 +139,54 @@ public static class MetadataMerger
         else
         {
             changes.Add(new FieldChange(field, existing, incoming, Applied: false)); // proposed
+        }
+    }
+
+    /// <summary>
+    /// Merges an ISO release-date string, preferring the more <i>precise</i> value: a full
+    /// <c>YYYY-MM-DD</c> supersedes a bare <c>YYYY</c> even when the existing value is otherwise good,
+    /// because it's strictly more information about the same release (SpotiFLAC's "keep the longest
+    /// candidate" rule). A less-precise or equal-precision incoming value is a no-op. When the two
+    /// disagree on the leading year, the normal <paramref name="mayUpgrade"/> gate applies.
+    /// </summary>
+    private static void MergeReleaseDate(
+        SongMetadata song, string field, string? existing, string? incoming,
+        Action<string?> set, bool mayUpgrade, List<FieldChange> changes)
+    {
+        if (string.IsNullOrWhiteSpace(incoming))
+            return;
+
+        if (string.IsNullOrWhiteSpace(existing))
+        {
+            set(incoming);
+            changes.Add(new FieldChange(field, existing, incoming, Applied: true));
+            return;
+        }
+
+        if (string.Equals(existing, incoming, StringComparison.Ordinal))
+            return;
+
+        // Same release (leading year agrees) but incoming carries more precision → always upgrade.
+        var sameYear = ReleaseDateParser.ParseYear(existing) is int y && ReleaseDateParser.ParseYear(incoming) == y;
+        if (sameYear && incoming.Trim().Length > existing.Trim().Length)
+        {
+            set(incoming);
+            changes.Add(new FieldChange(field, existing, incoming, Applied: true));
+            return;
+        }
+
+        if (sameYear)
+            return; // equal or lower precision on the same year — keep the curated value
+
+        // Genuinely different year: defer to the standard upgrade gate.
+        if (mayUpgrade)
+        {
+            set(incoming);
+            changes.Add(new FieldChange(field, existing, incoming, Applied: true));
+        }
+        else
+        {
+            changes.Add(new FieldChange(field, existing, incoming, Applied: false));
         }
     }
 

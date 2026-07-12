@@ -938,7 +938,7 @@
         <div class="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
           Release
         </div>
-        <div class="text-foreground mt-1 text-[13px]">{album.year ?? '—'}</div>
+        <div class="text-foreground mt-1 text-[13px]">{album.releaseDate ?? album.year ?? '—'}</div>
       </div>
       <div>
         <div class="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
@@ -946,6 +946,30 @@
         </div>
         <div class="text-foreground mt-1 text-[13px]">{album.genre ?? '—'}</div>
       </div>
+      {#if album.label}
+        <div>
+          <div class="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
+            Label
+          </div>
+          <div class="text-foreground mt-1 text-[13px]">{album.label}</div>
+        </div>
+      {/if}
+      {#if album.catalogNumber}
+        <div>
+          <div class="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
+            Catalog #
+          </div>
+          <div class="text-foreground mt-1 font-mono text-[12px]">{album.catalogNumber}</div>
+        </div>
+      {/if}
+      {#if album.upc}
+        <div>
+          <div class="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
+            Barcode
+          </div>
+          <div class="text-foreground mt-1 font-mono text-[12px]">{album.upc}</div>
+        </div>
+      {/if}
       <div class="col-span-2 min-w-0 sm:col-span-3 md:col-span-1">
         <div class="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
           MusicBrainz ID

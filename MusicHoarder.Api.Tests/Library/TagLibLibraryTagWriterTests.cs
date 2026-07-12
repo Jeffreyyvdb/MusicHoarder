@@ -253,6 +253,39 @@ public class TagLibLibraryTagWriterTests : IDisposable
     }
 
     [Fact]
+    public async Task WriteTags_Flac_WritesDescriptiveMetadata()
+    {
+        var path = CopyFixture("silence.flac");
+        var song = BasicSong();
+        song.Genre = "Hip Hop; Rap";
+        song.Composer = "J. Doe";
+        song.Copyright = "© 2019 Def Jam";
+        song.ArtistSort = "Artist, An";
+        song.AlbumArtistSort = "Artist, An";
+        song.Label = "Def Jam";
+        song.CatalogNumber = "CAT-1";
+        song.Upc = "00602577";
+        song.ReleaseDate = "2019-03-15";
+        song.OriginalReleaseDate = "2018";
+
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song, Identity(song));
+
+        using var file = TagLib.File.Create(path);
+        var xiph = (TagLib.Ogg.XiphComment)file.GetTag(TagLib.TagTypes.Xiph);
+
+        Assert.Equal(["Hip Hop", "Rap"], file.Tag.Genres);
+        Assert.Equal(["J. Doe"], file.Tag.Composers);
+        Assert.Equal("© 2019 Def Jam", file.Tag.Copyright);
+        Assert.Equal(["Def Jam"], xiph.GetField("LABEL"));
+        Assert.Equal(["CAT-1"], xiph.GetField("CATALOGNUMBER"));
+        Assert.Equal(["00602577"], xiph.GetField("BARCODE"));
+        Assert.Equal(["2019-03-15"], xiph.GetField("DATE"));
+        Assert.Equal(["2018"], xiph.GetField("ORIGINALDATE"));
+        Assert.Equal(["Artist, An"], xiph.GetField("ARTISTSORT"));
+        Assert.Equal(["Artist, An"], xiph.GetField("ALBUMARTISTSORT"));
+    }
+
+    [Fact]
     public async Task WriteTags_Mp3_PreservesEmbeddedPicture()
     {
         // Embedded art must survive the build: the byte-copy keeps it and the tag writer never

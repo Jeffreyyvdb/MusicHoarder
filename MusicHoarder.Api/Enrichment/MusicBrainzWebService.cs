@@ -26,7 +26,16 @@ public record MusicBrainzRecording(
     string? ReleaseTypes = null,
     bool IsCompilation = false,
     int? TotalDiscs = null,
-    int? TotalTracks = null);
+    int? TotalTracks = null,
+    // --- Descriptive metadata (SpotiFLAC-inspired) ---
+    string? Genre = null,
+    string? ReleaseDate = null,
+    string? OriginalReleaseDate = null,
+    string? Label = null,
+    string? CatalogNumber = null,
+    string? Barcode = null,
+    string? ArtistSort = null,
+    string? AlbumArtistSort = null);
 
 /// <summary>The full canonical tracklist of a single MusicBrainz release (all discs/media flattened).</summary>
 public record MusicBrainzRelease(
@@ -88,7 +97,7 @@ public sealed class MusicBrainzWebService(
     public async Task<MusicBrainzRecording?> LookupByRecordingIdAsync(string mbid, CancellationToken ct = default)
     {
         var dto = await GetAsync<RecordingDto>(
-            $"recording/{Uri.EscapeDataString(mbid)}?inc=artist-credits+releases+release-groups+media+isrcs&fmt=json", ct);
+            $"recording/{Uri.EscapeDataString(mbid)}?inc=artist-credits+releases+release-groups+media+isrcs+genres+labels&fmt=json", ct);
         return dto is null ? null : MapRecording(dto);
     }
 
@@ -96,7 +105,7 @@ public sealed class MusicBrainzWebService(
     {
         var normalized = isrc.Trim().ToUpperInvariant().Replace("-", "", StringComparison.Ordinal);
         var dto = await GetAsync<IsrcDto>(
-            $"isrc/{Uri.EscapeDataString(normalized)}?inc=artist-credits+releases+release-groups+media&fmt=json", ct);
+            $"isrc/{Uri.EscapeDataString(normalized)}?inc=artist-credits+releases+release-groups+media+genres+labels&fmt=json", ct);
         if (dto?.Recordings is null or { Count: 0 })
             return null;
 
@@ -215,6 +224,16 @@ public sealed class MusicBrainzWebService(
             ? m.Sum(x => x.TrackCount ?? 0) is var sum && sum > 0 ? sum : (int?)null
             : null;
 
+        // Genre: the recording's curated genres (highest-count first, Title Cased, capped at 5), falling
+        // back to freeform tags when no genre is set — SpotiFLAC's MusicBrainz-tag approach.
+        var genre = BuildGenre(r.Genres) ?? BuildGenre(r.Tags);
+
+        // Label + catalog number off the release's first label-info entry that names a label.
+        var labelInfo = release?.LabelInfo?.FirstOrDefault(li => !string.IsNullOrWhiteSpace(li.Label?.Name));
+        var catalogNumber = release?.LabelInfo?
+            .Select(li => li.CatalogNumber)
+            .FirstOrDefault(c => !string.IsNullOrWhiteSpace(c));
+
         return new MusicBrainzRecording(
             Id: r.Id,
             Title: r.Title ?? string.Empty,
@@ -235,8 +254,54 @@ public sealed class MusicBrainzWebService(
             ReleaseTypes: releaseTypes,
             IsCompilation: secondaryTypes.Contains("compilation"),
             TotalDiscs: totalDiscs,
-            TotalTracks: totalTracks);
+            TotalTracks: totalTracks,
+            Genre: genre,
+            ReleaseDate: ReleaseDateParser.Normalize(release?.Date),
+            OriginalReleaseDate: ReleaseDateParser.Normalize(releaseGroup?.FirstReleaseDate),
+            Label: labelInfo?.Label?.Name,
+            CatalogNumber: string.IsNullOrWhiteSpace(catalogNumber) ? null : catalogNumber,
+            Barcode: string.IsNullOrWhiteSpace(release?.Barcode) ? null : release!.Barcode,
+            ArtistSort: BuildArtistSortCredit(r.ArtistCredit),
+            AlbumArtistSort: r.ArtistCredit is { Count: > 0 } ? NullIfBlank(r.ArtistCredit[0].Artist?.SortName) : null);
     }
+
+    /// <summary>
+    /// Genres/tags → a ';'-joined multi-value string: highest count first, Title Cased, capped at 5,
+    /// de-duplicated. Returns null when there are none.
+    /// </summary>
+    private static string? BuildGenre(List<GenreDto>? genres)
+    {
+        if (genres is null or { Count: 0 })
+            return null;
+
+        var names = genres
+            .Where(g => !string.IsNullOrWhiteSpace(g.Name))
+            .OrderByDescending(g => g.Count ?? 0)
+            .Select(g => TitleCase(g.Name!.Trim()))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(5)
+            .ToList();
+
+        return names.Count == 0 ? null : MultiValue.Join(names);
+    }
+
+    private static string TitleCase(string value)
+        => System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(value.ToLowerInvariant());
+
+    // The sort-name credit (ARTISTSORT): each credited artist's sort-name concatenated with the same
+    // join phrases as the display credit, so "The Beatles feat. Billy Preston" sorts as
+    // "Beatles, The feat. Preston, Billy". Falls back to the display name when a sort-name is absent.
+    private static string? BuildArtistSortCredit(List<ArtistCreditDto>? credits)
+    {
+        if (credits is null or { Count: 0 })
+            return null;
+
+        var sort = string.Concat(credits.Select(c =>
+            (c.Artist?.SortName ?? c.Name ?? c.Artist?.Name ?? string.Empty) + (c.JoinPhrase ?? string.Empty))).Trim();
+        return NullIfBlank(sort);
+    }
+
+    private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static MusicBrainzRelease MapRelease(ReleaseDetailDto r)
     {
@@ -335,6 +400,12 @@ public sealed class MusicBrainzWebService(
 
         [JsonPropertyName("isrcs")]
         public List<string>? Isrcs { get; set; }
+
+        [JsonPropertyName("genres")]
+        public List<GenreDto>? Genres { get; set; }
+
+        [JsonPropertyName("tags")]
+        public List<GenreDto>? Tags { get; set; }
     }
 
     private sealed class ArtistCreditDto
@@ -356,6 +427,34 @@ public sealed class MusicBrainzWebService(
 
         [JsonPropertyName("name")]
         public string? Name { get; set; }
+
+        [JsonPropertyName("sort-name")]
+        public string? SortName { get; set; }
+    }
+
+    // Shared by MusicBrainz `genres` and `tags` — both are {name, count} lists.
+    private sealed class GenreDto
+    {
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
+
+        [JsonPropertyName("count")]
+        public int? Count { get; set; }
+    }
+
+    private sealed class LabelInfoDto
+    {
+        [JsonPropertyName("catalog-number")]
+        public string? CatalogNumber { get; set; }
+
+        [JsonPropertyName("label")]
+        public LabelDto? Label { get; set; }
+    }
+
+    private sealed class LabelDto
+    {
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
     }
 
     private sealed class ReleaseDto
@@ -368,6 +467,12 @@ public sealed class MusicBrainzWebService(
 
         [JsonPropertyName("date")]
         public string? Date { get; set; }
+
+        [JsonPropertyName("barcode")]
+        public string? Barcode { get; set; }
+
+        [JsonPropertyName("label-info")]
+        public List<LabelInfoDto>? LabelInfo { get; set; }
 
         [JsonPropertyName("release-group")]
         public ReleaseGroupDto? ReleaseGroup { get; set; }
@@ -386,6 +491,9 @@ public sealed class MusicBrainzWebService(
 
         [JsonPropertyName("secondary-types")]
         public List<string?>? SecondaryTypes { get; set; }
+
+        [JsonPropertyName("first-release-date")]
+        public string? FirstReleaseDate { get; set; }
     }
 
     private sealed class MediaDto

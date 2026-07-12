@@ -574,13 +574,24 @@
     return sources;
   });
 
+  // Optional descriptive rows: only shown when a value exists, so a track that never got these
+  // enrichment fields doesn't gain a wall of "—" placeholders.
+  const optionalRow = (label: string, value: string | null | undefined): [string, string, string?][] =>
+    value && value.trim() ? [[label, value.trim()]] : [];
+
   const metadataRows = $derived<[string, string, string?][]>([
     ['Title', trackTitle],
     ['Artist', trackArtist, artistHref],
     ['Album', album.title, albumHref],
     ['Track', `${trackN} / ${totalTracks}`],
     ['Year', album.year != null ? String(album.year) : '—'],
-    ['Genre', album.genre ?? '—'],
+    ...optionalRow('Release date', song.releaseDate),
+    ['Genre', song.genre ?? album.genre ?? '—'],
+    ...optionalRow('Composer', song.composer),
+    ...optionalRow('Label', song.label ?? album.label),
+    ...optionalRow('Catalog #', song.catalogNumber ?? album.catalogNumber),
+    ...optionalRow('Barcode', song.upc ?? album.upc),
+    ...optionalRow('Copyright', song.copyright),
     ['MusicBrainz ID', song.musicBrainzId ?? '—'],
     ['MusicBrainz release', song.musicBrainzReleaseId ?? album.musicBrainzReleaseId ?? '—'],
     ['AcoustID', song.acoustIdTrackId ?? '—'],

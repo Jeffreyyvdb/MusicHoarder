@@ -38,6 +38,32 @@ public class WrittenTagSetTests
     }
 
     [Fact]
+    public void Diff_SurfacesDescriptiveFieldChanges()
+    {
+        var before = Song(artist: "Alice");
+        var after = Song(artist: "Alice");
+        after.Genre = "Jazz";
+        after.Label = "Blue Note";
+        after.CatalogNumber = "BN-1";
+        after.Upc = "0123456789";
+        after.ReleaseDate = "1959-08-17";
+        after.Composer = "M. Davis";
+        after.Copyright = "© 1959 Blue Note";
+
+        var changes = WrittenTagSet.Diff(
+            WrittenTagSet.From(before, AlbumIdentity.FromSong(before)),
+            WrittenTagSet.From(after, AlbumIdentity.FromSong(after)));
+
+        Assert.Contains(changes, c => c is { Field: "Genre", Old: null, New: "Jazz" });
+        Assert.Contains(changes, c => c is { Field: "Label", Old: null, New: "Blue Note" });
+        Assert.Contains(changes, c => c is { Field: "CatalogNumber", Old: null, New: "BN-1" });
+        Assert.Contains(changes, c => c is { Field: "Upc", Old: null, New: "0123456789" });
+        Assert.Contains(changes, c => c is { Field: "ReleaseDate", Old: null, New: "1959-08-17" });
+        Assert.Contains(changes, c => c is { Field: "Composer", Old: null, New: "M. Davis" });
+        Assert.Contains(changes, c => c is { Field: "Copyright", Old: null, New: "© 1959 Blue Note" });
+    }
+
+    [Fact]
     public void FromOriginal_UsesCapturedOriginalArtists()
     {
         var song = Song(artist: "Alice & Bob", artists: "Alice; Bob");
