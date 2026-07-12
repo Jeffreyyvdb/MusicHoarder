@@ -36,8 +36,13 @@ public class WishlistItem
     public int? WishlistSourceId { get; set; }
     public WishlistSource? WishlistSource { get; set; }
 
+    /// <summary>Spotify track id. Null for Deezer-sourced items with no resolved Spotify equivalent.</summary>
     [MaxLength(64)]
-    public string SpotifyTrackId { get; set; } = string.Empty;
+    public string? SpotifyTrackId { get; set; }
+
+    /// <summary>Deezer track id; set for items sourced from a Deezer discover playlist.</summary>
+    [MaxLength(64)]
+    public string? DeezerTrackId { get; set; }
 
     [MaxLength(512)]
     public string Title { get; set; } = string.Empty;

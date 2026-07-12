@@ -131,8 +131,8 @@ public partial class SpotifyLibraryComparisonService(
         var ids = await db.WishlistItems
             .IgnoreQueryFilters()
             .AsNoTracking()
-            .Where(w => w.OwnerUserId == ownerId && spotifyIds.Contains(w.SpotifyTrackId))
-            .Select(w => w.SpotifyTrackId)
+            .Where(w => w.OwnerUserId == ownerId && w.SpotifyTrackId != null && spotifyIds.Contains(w.SpotifyTrackId))
+            .Select(w => w.SpotifyTrackId!)
             .ToListAsync(ct);
         return new HashSet<string>(ids, StringComparer.Ordinal);
     }

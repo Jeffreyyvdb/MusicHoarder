@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MusicHoarder.Api.Persistence;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MusicHoarder.Api.Persistence.Migrations
 {
     [DbContext(typeof(MusicHoarderDbContext))]
-    partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260712101403_AddDeezerDiscoverSources")]
+    partial class AddDeezerDiscoverSources
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -907,9 +910,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<DateTime?>("LibraryBuiltAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<bool?>("LikeLastSyncedValue")
-                        .HasColumnType("boolean");
-
                     b.Property<DateTime?>("LikedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -938,9 +938,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("MusicBrainzReleaseId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("NavidromeSongId")
                         .HasColumnType("text");
 
                     b.Property<string>("OriginalAlbum")
@@ -1441,9 +1438,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.Property<string>("SyncedFingerprint")
                         .HasColumnType("text");
-
-                    b.Property<bool>("SyncedLiked")
-                        .HasColumnType("boolean");
 
                     b.Property<DateTime>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");

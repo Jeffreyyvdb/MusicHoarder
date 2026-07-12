@@ -5,6 +5,7 @@
     Activity,
     ChartColumnBig,
     ChevronRight,
+    Compass,
     Copy,
     Disc3,
     FolderTree,
@@ -64,6 +65,7 @@
     | 'artists'
     | 'tracks'
     | 'liked'
+    | 'discover'
     | 'spotify'
     | 'wishlist'
     | 'playlists';
@@ -205,6 +207,7 @@
         { id: 'artists', label: 'Artists', href: '/artists', icon: Users, count: () => artistCount },
         { id: 'tracks', label: 'All tracks', href: '/tracks', icon: ListMusic, count: () => totalTracks },
         { id: 'liked', label: 'Liked songs', href: '/liked', icon: Heart, count: () => likedCount },
+        { id: 'discover', label: 'Discover', href: '/discover', icon: Compass },
         { id: 'spotify', label: 'Spotify', href: '/spotify', icon: Music2 },
         { id: 'wishlist', label: 'Wishlist', href: '/wishlist', icon: Gift },
         { id: 'playlists', label: 'Playlists', href: '/playlists', icon: ListVideo }
@@ -263,6 +266,8 @@
         return pathname === '/tracks';
       case 'liked':
         return pathname === '/liked';
+      case 'discover':
+        return pathname.startsWith('/discover');
       case 'spotify':
         return pathname.startsWith('/spotify');
       case 'wishlist':

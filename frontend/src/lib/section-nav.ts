@@ -43,6 +43,7 @@ const ROUTE_MAP: Record<string, Resolved> = {
   '/artists': { tabs: [...LIBRARY_SUBNAV], active: 'artists' },
   '/tracks': { tabs: [...LIBRARY_SUBNAV], active: 'tracks' },
   '/liked': { tabs: [...LIBRARY_SUBNAV], active: 'liked' },
+  '/discover': { tabs: [...LIBRARY_SUBNAV], active: 'discover' },
   '/spotify': { tabs: [...LIBRARY_SUBNAV], active: 'spotify' }
 };
 
@@ -77,6 +78,7 @@ export function resolveActiveSection(pathname: string): ActiveSection | null {
     path.startsWith('/artists') ||
     path.startsWith('/tracks') ||
     path.startsWith('/liked') ||
+    path.startsWith('/discover') ||
     path.startsWith('/spotify')
   )
     return 'library';

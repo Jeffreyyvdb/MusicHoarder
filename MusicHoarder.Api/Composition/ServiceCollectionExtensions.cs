@@ -452,6 +452,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<SpotifyTokenRefreshHealth>();
         services.AddHostedService<SpotifyTokenRefreshService>();
         services.AddHostedService<SpotifyLibraryMatchBackgroundService>();
+        services.AddSingleton<ISpotifyIsrcResolver, SpotifyIsrcResolver>();
         services.AddScoped<IWishlistService, WishlistService>();
         services.AddHostedService<WishlistSyncBackgroundService>();
 
