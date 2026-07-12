@@ -255,9 +255,14 @@
 
     const byId = new Map(owned.map((s) => [s.id, s]));
     const used = new Set<number>();
-    const rows: DisplayRow[] = tl.tracks.map((t) => {
+    // Keys must be unique for the keyed {#each}: a contested/merged canonical tracklist can carry
+    // two entries with the same disc+track (dup `miss:` key), and imperfect matching can point two
+    // canonical tracks at the same owned song (dup `song:` key) — both crash Svelte with
+    // each_key_duplicate. So the missing key is disambiguated by the canonical index, and an owned
+    // song already claimed by an earlier track falls through to a canonical (missing) slot.
+    const rows: DisplayRow[] = tl.tracks.map((t, idx) => {
       const song = t.ownedSongId != null ? (byId.get(t.ownedSongId) ?? null) : null;
-      if (song) {
+      if (song && !used.has(song.id)) {
         used.add(song.id);
         return {
           kind: 'owned',
@@ -270,7 +275,7 @@
       }
       return {
         kind: 'missing',
-        key: `miss:${t.discNumber}:${t.trackNumber}`,
+        key: `miss:${idx}`,
         disc: t.discNumber,
         n: t.trackNumber,
         title: (t.title ?? '').trim() || 'Unknown track',
@@ -284,6 +289,7 @@
     let bonusN = tl.tracks.length;
     for (const song of owned) {
       if (used.has(song.id)) continue;
+      used.add(song.id);
       bonusN += 1;
       rows.push({
         kind: 'owned',
