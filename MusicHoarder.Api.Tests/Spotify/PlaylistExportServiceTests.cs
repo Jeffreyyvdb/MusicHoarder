@@ -4,9 +4,11 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Library;
+using MusicHoarder.Api.Navidrome;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Spotify;
+using MusicHoarder.Api.Sync;
 using MusicHoarder.Api.Tests.Auth;
 
 namespace MusicHoarder.Api.Tests.Spotify;
@@ -312,7 +314,11 @@ public class PlaylistExportServiceTests
     {
         var scopeFactory = new TestScopeFactory(db);
         var owner = new TestOwnerLookupService();
-        var comparison = new SpotifyLibraryComparisonService(api, scopeFactory, owner, NullLogger<SpotifyLibraryComparisonService>.Instance);
+        var comparison = new SpotifyLibraryComparisonService(
+            api, scopeFactory, owner,
+            new NoOpLikeEnqueuer(), new NoOpTrackSyncEnqueuer(),
+            Microsoft.Extensions.Options.Options.Create(new SpotifyOptions()),
+            NullLogger<SpotifyLibraryComparisonService>.Instance);
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
             DestinationDirectory = destinationRoot,
@@ -374,6 +380,16 @@ public class PlaylistExportServiceTests
             if (Directory.Exists(Root))
                 Directory.Delete(Root, recursive: true);
         }
+    }
+
+    private sealed class NoOpLikeEnqueuer : INavidromeLikeEnqueuer
+    {
+        public void TryEnqueue(int songId, Guid ownerUserId) { }
+    }
+
+    private sealed class NoOpTrackSyncEnqueuer : ITrackSyncEnqueuer
+    {
+        public void TryEnqueue(int songId, Guid ownerUserId) { }
     }
 
     #endregion

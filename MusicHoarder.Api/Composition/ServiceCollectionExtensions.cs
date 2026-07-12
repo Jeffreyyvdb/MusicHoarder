@@ -500,7 +500,11 @@ public static class ServiceCollectionExtensions
             var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
             var logger = sp.GetRequiredService<ILogger<SpotifyLibraryComparisonService>>();
             var ownerLookup = sp.GetRequiredService<IOwnerLookupService>();
-            return new SpotifyLibraryComparisonService(spotifyApi, scopeFactory, ownerLookup, logger);
+            var navidromeLikeEnqueuer = sp.GetRequiredService<INavidromeLikeEnqueuer>();
+            var trackSyncEnqueuer = sp.GetRequiredService<ITrackSyncEnqueuer>();
+            var spotifyOptions = sp.GetRequiredService<IOptions<SpotifyOptions>>();
+            return new SpotifyLibraryComparisonService(
+                spotifyApi, scopeFactory, ownerLookup, navidromeLikeEnqueuer, trackSyncEnqueuer, spotifyOptions, logger);
         });
 
         // Export Spotify Liked Songs + playlists to on-disk .m3u8 files for Navidrome/Plex/Jellyfin.
