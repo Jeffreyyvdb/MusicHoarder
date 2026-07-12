@@ -95,11 +95,40 @@ public class SpotifyApiEnrichmentProvider(
         if (best is null)
             return new ProviderNoMatch();
 
+        // Best-effort album-detail fetch for the winning candidate only — supplies the descriptive
+        // album-level fields (Copyright, Label, UPC, full release date) the track search omits. Any
+        // failure (including a rate limit on this secondary call) is swallowed: the core match already
+        // succeeded, and these fields are optional extras.
+        var album = await TryGetAlbumDetailAsync(clientId, clientSecret, best.Candidate.AlbumId, ct);
+
         return CatalogMatchResolver.Finalize(
             best.Score,
             best.Warnings,
             new CatalogMatchResolver.MatchThresholds(opts.SpotifyApiMinConfidence, opts.SpotifyApiMatchedThreshold),
-            status => BuildResult(song, best.Candidate, best.Score, best.Warnings, status));
+            status => BuildResult(song, best.Candidate, best.Score, best.Warnings, status, album));
+    }
+
+    private async Task<SpotifyAlbumDetail?> TryGetAlbumDetailAsync(
+        string clientId, string clientSecret, string? albumId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(albumId))
+            return null;
+
+        try
+        {
+            return await catalogSearch.GetAlbumAsync(clientId, clientSecret, albumId!, ct);
+        }
+        catch (ProviderRateLimitedException)
+        {
+            // Don't fail (or defer) the whole match for the optional descriptive extras.
+            logger.LogDebug("Spotify album-detail fetch rate limited for album {AlbumId}; skipping copyright/label", albumId);
+            return null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogDebug(ex, "Spotify album-detail fetch failed for album {AlbumId}", albumId);
+            return null;
+        }
     }
 
     private EnrichmentProviderResult BuildResult(
@@ -107,7 +136,8 @@ public class SpotifyApiEnrichmentProvider(
         SpotifyCatalogTrack track,
         double score,
         List<string> warnings,
-        EnrichmentStatus status)
+        EnrichmentStatus status,
+        SpotifyAlbumDetail? album = null)
     {
         var effectiveArtist = string.IsNullOrWhiteSpace(track.Artist) ? song.Artist : track.Artist;
         // Album-artist is an album-level field: never synthesize it from the *track* artist credit,
@@ -140,7 +170,13 @@ public class SpotifyApiEnrichmentProvider(
             IsCompilation: string.Equals(track.AlbumType, "compilation", StringComparison.OrdinalIgnoreCase) ? true : null,
             ReleaseTypePrimary: string.IsNullOrWhiteSpace(track.AlbumType) ? null : track.AlbumType,
             ReleaseTypes: string.IsNullOrWhiteSpace(track.AlbumType) ? null : track.AlbumType,
-            DurationSeconds: track.DurationMs > 0 ? track.DurationMs / 1000 : null);
+            DurationSeconds: track.DurationMs > 0 ? track.DurationMs / 1000 : null,
+            // Descriptive album-level fields from the album detail (fetched only for the winning match).
+            // Copyright is Spotify-only; the rest are corroborating sources for the MusicBrainz values.
+            ReleaseDate: album?.ReleaseDate,
+            Label: album?.Label,
+            Upc: album?.Upc,
+            Copyright: album?.Copyright);
     }
 
     private static string BuildSearchQuery(string artist, string title, string? album)

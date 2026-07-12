@@ -27,7 +27,17 @@ public record EnrichmentMatchData(
     int? TotalTracks = null,
     bool? IsCompilation = null,
     string? ReleaseTypePrimary = null,
-    string? ReleaseTypes = null);
+    string? ReleaseTypes = null,
+    string? Genre = null,
+    string? ReleaseDate = null,
+    string? OriginalReleaseDate = null,
+    string? Label = null,
+    string? CatalogNumber = null,
+    string? Upc = null,
+    string? Composer = null,
+    string? Copyright = null,
+    string? ArtistSort = null,
+    string? AlbumArtistSort = null);
 
 public class SongMetadata
 {
@@ -83,6 +93,43 @@ public class SongMetadata
 
     /// <summary>Full release type, ';'-joined lowercase primary + secondaries (e.g. "album; compilation").</summary>
     public string? ReleaseTypes { get; set; }
+
+    // --- Descriptive metadata (enrichment-sourced; SpotiFLAC-inspired) ---
+    //
+    // Populated by the enrichment providers (chiefly MusicBrainz; Copyright from Spotify), never by the
+    // scanner, so there is no captured-original to restore — ResetEnrichment nulls them like the other
+    // enrichment-derived fields. All are ';'-joined multi-value where the tag is multi-valued (Genre),
+    // otherwise a single value. Written to the destination file by TagLibLibraryTagWriter.
+
+    /// <summary>Genres, ';'-joined multi-value (e.g. "Hip Hop; Rap"). See <see cref="Metadata.MultiValue"/>.</summary>
+    public string? Genre { get; set; }
+
+    /// <summary>Full release date as an ISO string (YYYY-MM-DD, or a partial "YYYY"/"YYYY-MM"); <see cref="Year"/> stays the coarse int form.</summary>
+    public string? ReleaseDate { get; set; }
+
+    /// <summary>Original (first) release date of the release-group, ISO string — the ORIGINALDATE tag; distinguishes a reissue from the first pressing.</summary>
+    public string? OriginalReleaseDate { get; set; }
+
+    /// <summary>Record label / publisher (album-level).</summary>
+    public string? Label { get; set; }
+
+    /// <summary>Label catalog number (album-level).</summary>
+    public string? CatalogNumber { get; set; }
+
+    /// <summary>Album barcode / UPC (album-level).</summary>
+    public string? Upc { get; set; }
+
+    /// <summary>Composer / songwriter credit (track-level).</summary>
+    public string? Composer { get; set; }
+
+    /// <summary>Copyright line — the © line, not the ℗ phonogram line (album-level).</summary>
+    public string? Copyright { get; set; }
+
+    /// <summary>Sort name for the display artist (ARTISTSORT), e.g. "Beatles, The".</summary>
+    public string? ArtistSort { get; set; }
+
+    /// <summary>Sort name for the album artist (ALBUMARTISTSORT).</summary>
+    public string? AlbumArtistSort { get; set; }
 
     public int? DurationSeconds { get; set; }
     public int? DurationMs { get; set; }
@@ -537,6 +584,16 @@ public class SongMetadata
         if (match.IsCompilation is not null) IsCompilation = match.IsCompilation.Value;
         if (!string.IsNullOrWhiteSpace(match.ReleaseTypePrimary)) ReleaseTypePrimary = match.ReleaseTypePrimary;
         if (!string.IsNullOrWhiteSpace(match.ReleaseTypes)) ReleaseTypes = match.ReleaseTypes;
+        if (!string.IsNullOrWhiteSpace(match.Genre)) Genre = match.Genre;
+        if (!string.IsNullOrWhiteSpace(match.ReleaseDate)) ReleaseDate = match.ReleaseDate;
+        if (!string.IsNullOrWhiteSpace(match.OriginalReleaseDate)) OriginalReleaseDate = match.OriginalReleaseDate;
+        if (!string.IsNullOrWhiteSpace(match.Label)) Label = match.Label;
+        if (!string.IsNullOrWhiteSpace(match.CatalogNumber)) CatalogNumber = match.CatalogNumber;
+        if (!string.IsNullOrWhiteSpace(match.Upc)) Upc = match.Upc;
+        if (!string.IsNullOrWhiteSpace(match.Composer)) Composer = match.Composer;
+        if (!string.IsNullOrWhiteSpace(match.Copyright)) Copyright = match.Copyright;
+        if (!string.IsNullOrWhiteSpace(match.ArtistSort)) ArtistSort = match.ArtistSort;
+        if (!string.IsNullOrWhiteSpace(match.AlbumArtistSort)) AlbumArtistSort = match.AlbumArtistSort;
         MusicBrainzId = match.MusicBrainzId ?? MusicBrainzId;
         MusicBrainzReleaseId = match.MusicBrainzReleaseId ?? MusicBrainzReleaseId;
         MusicBrainzReleaseGroupId = match.MusicBrainzReleaseGroupId ?? MusicBrainzReleaseGroupId;
@@ -630,6 +687,18 @@ public class SongMetadata
         MusicBrainzReleaseGroupId = null;
         AlbumArtistMusicBrainzId = null;
         ArtistMusicBrainzIds = null;
+
+        // Descriptive metadata is enrichment-sourced (no captured original to restore), so clear it.
+        Genre = null;
+        ReleaseDate = null;
+        OriginalReleaseDate = null;
+        Label = null;
+        CatalogNumber = null;
+        Upc = null;
+        Composer = null;
+        Copyright = null;
+        ArtistSort = null;
+        AlbumArtistSort = null;
 
         ProviderAttempts.Clear();
 

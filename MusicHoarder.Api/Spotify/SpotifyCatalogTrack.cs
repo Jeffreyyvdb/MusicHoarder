@@ -25,7 +25,13 @@ public record SpotifyAlbumDetail(
     string? Artist,
     int? Year,
     string? ImageUrl,
-    IReadOnlyList<SpotifyAlbumTrackItem> Tracks);
+    IReadOnlyList<SpotifyAlbumTrackItem> Tracks,
+    // Descriptive album-level fields. Copyright is the © line (the ℗ phonogram line is dropped);
+    // Spotify is the only source MusicHoarder has for it.
+    string? ReleaseDate = null,
+    string? Label = null,
+    string? Upc = null,
+    string? Copyright = null);
 
 public record SpotifyAlbumTrackItem(
     int DiscNumber,

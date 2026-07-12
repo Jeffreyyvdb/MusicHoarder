@@ -29,6 +29,8 @@ public class RebuildOnMetadataChangeInterceptorTests
     [InlineData(nameof(SongMetadata.SyncedLyrics))]
     [InlineData(nameof(SongMetadata.Title))]
     [InlineData(nameof(SongMetadata.IsCompilation))]
+    [InlineData(nameof(SongMetadata.Genre))]
+    [InlineData(nameof(SongMetadata.Label))]
     public async Task TagRelevantChangeOnBuiltSong_ResetsBuild(string field)
     {
         await using var db = NewContext(autoStartPipeline: true);
@@ -40,6 +42,8 @@ public class RebuildOnMetadataChangeInterceptorTests
             case nameof(SongMetadata.SyncedLyrics): song.SyncedLyrics = "[00:01.00] late line"; break;
             case nameof(SongMetadata.Title): song.Title = "Renamed Title"; break;
             case nameof(SongMetadata.IsCompilation): song.IsCompilation = true; break;
+            case nameof(SongMetadata.Genre): song.Genre = "Jazz"; break;
+            case nameof(SongMetadata.Label): song.Label = "Blue Note"; break;
         }
         await db.SaveChangesAsync();
 

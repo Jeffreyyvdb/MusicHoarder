@@ -26,4 +26,26 @@ public static class ReleaseDateParser
             ? year
             : null;
     }
+
+    /// <summary>
+    /// Normalizes a provider release-date string to a clean ISO value: trimmed, any time component
+    /// dropped, and validated to begin with a plausible year. Returns the leading <c>YYYY[-MM[-DD]]</c>
+    /// portion (whatever precision the source carried) or <c>null</c> when the value is missing or its
+    /// leading four characters aren't a plausible year. Keeps partial dates rather than forcing a full one.
+    /// </summary>
+    public static string? Normalize(string? releaseDate)
+    {
+        if (string.IsNullOrWhiteSpace(releaseDate))
+            return null;
+
+        // Drop any time component ("2019-03-15T00:00:00Z" → "2019-03-15") and surrounding whitespace.
+        var value = releaseDate.Trim();
+        var tIndex = value.IndexOf('T');
+        if (tIndex > 0)
+            value = value[..tIndex];
+        value = value.Trim();
+
+        // Must begin with a plausible year to be meaningful.
+        return ParseYear(value) is null ? null : value;
+    }
 }

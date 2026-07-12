@@ -186,6 +186,56 @@ public class MetadataMergerTests
         Assert.Contains(changes, c => c is { Field: "Year", Applied: false });
     }
 
+    [Fact]
+    public void DescriptiveFields_AreApplied_OnEmptyExisting()
+    {
+        var song = Song(artist: "A", title: "T");
+        var changes = Merge(
+            song,
+            Winner(artist: "A", title: "T",
+                genre: "Hip Hop; Rap", releaseDate: "2019-03-15", originalReleaseDate: "2018",
+                label: "Def Jam", catalogNumber: "CAT-1", upc: "00602577", composer: "J. Doe",
+                copyright: "© 2019 Def Jam", artistSort: "Artist, The", albumArtistSort: "Artist, The"),
+            confidence: 0.92, providers: 1);
+
+        Assert.Equal("Hip Hop; Rap", song.Genre);
+        Assert.Equal("2019-03-15", song.ReleaseDate);
+        Assert.Equal("2018", song.OriginalReleaseDate);
+        Assert.Equal("Def Jam", song.Label);
+        Assert.Equal("CAT-1", song.CatalogNumber);
+        Assert.Equal("00602577", song.Upc);
+        Assert.Equal("J. Doe", song.Composer);
+        Assert.Equal("© 2019 Def Jam", song.Copyright);
+        Assert.Equal("Artist, The", song.ArtistSort);
+        Assert.Equal("Artist, The", song.AlbumArtistSort);
+        Assert.Contains(changes, c => c is { Field: "Genre", Applied: true });
+        Assert.Contains(changes, c => c is { Field: "Label", Applied: true });
+    }
+
+    [Fact]
+    public void ReleaseDate_PrefersMorePreciseValue_OverBareYear()
+    {
+        var song = Song(artist: "A", title: "T");
+        song.ReleaseDate = "2019"; // e.g. from a prior enrichment
+
+        Merge(song, Winner(artist: "A", title: "T", releaseDate: "2019-03-15"), confidence: 0.5, providers: 1);
+
+        // Same year, more precision → upgraded even at low confidence.
+        Assert.Equal("2019-03-15", song.ReleaseDate);
+    }
+
+    [Fact]
+    public void ReleaseDate_KeepsMorePreciseValue_AgainstBareYear()
+    {
+        var song = Song(artist: "A", title: "T");
+        song.ReleaseDate = "2019-03-15";
+
+        Merge(song, Winner(artist: "A", title: "T", releaseDate: "2019"), confidence: 0.99, providers: 3);
+
+        // Incoming is less precise on the same year → keep the fuller date.
+        Assert.Equal("2019-03-15", song.ReleaseDate);
+    }
+
     // --- helpers ---
 
     private static IReadOnlySet<string> Fields(params string[] fields) => new HashSet<string>(fields);
@@ -200,13 +250,19 @@ public class MetadataMergerTests
         string? albumArtist = null, string? artists = null, string? releaseGroupId = null,
         string? albumArtistMbid = null, string? releaseTypePrimary = null, string? releaseTypes = null,
         int? discNumber = null, int? totalDiscs = null, int? totalTracks = null, bool? isCompilation = null,
-        string? album = null)
+        string? album = null,
+        string? genre = null, string? releaseDate = null, string? originalReleaseDate = null,
+        string? label = null, string? catalogNumber = null, string? upc = null,
+        string? composer = null, string? copyright = null, string? artistSort = null, string? albumArtistSort = null)
         => new(artist, albumArtist ?? artist, title, year, null, mbid, null, spotifyId, null, isrc,
             "TestProvider", 0.9, [], EnrichmentStatus.Matched,
             Album: album, Artists: artists, ArtistMusicBrainzIds: null,
             AlbumArtistMusicBrainzId: albumArtistMbid, MusicBrainzReleaseGroupId: releaseGroupId,
             DiscNumber: discNumber, TotalDiscs: totalDiscs, TotalTracks: totalTracks,
-            IsCompilation: isCompilation, ReleaseTypePrimary: releaseTypePrimary, ReleaseTypes: releaseTypes);
+            IsCompilation: isCompilation, ReleaseTypePrimary: releaseTypePrimary, ReleaseTypes: releaseTypes,
+            Genre: genre, ReleaseDate: releaseDate, OriginalReleaseDate: originalReleaseDate,
+            Label: label, CatalogNumber: catalogNumber, Upc: upc,
+            Composer: composer, Copyright: copyright, ArtistSort: artistSort, AlbumArtistSort: albumArtistSort);
 
     private static SongMetadata Song(string? artist, string? title) => new()
     {

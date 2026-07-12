@@ -47,6 +47,16 @@ public static class EnrichmentProviderResultExtensions
             candidate.TotalTracks,
             candidate.IsCompilation,
             candidate.ReleaseTypePrimary,
-            candidate.ReleaseTypes);
+            candidate.ReleaseTypes,
+            candidate.Genre,
+            candidate.ReleaseDate,
+            candidate.OriginalReleaseDate,
+            candidate.Label,
+            candidate.CatalogNumber,
+            candidate.Upc,
+            candidate.Composer,
+            candidate.Copyright,
+            candidate.ArtistSort,
+            candidate.AlbumArtistSort);
     }
 }

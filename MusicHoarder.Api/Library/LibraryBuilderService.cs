@@ -87,6 +87,17 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
         // Embed lyrics: the user's preferred source (AI transcription or LRCLIB), synced over plain.
         tag.Lyrics = NullIfEmpty(song.EffectiveSyncedLyrics) ?? NullIfEmpty(song.EffectivePlainLyrics) ?? string.Empty;
 
+        // Descriptive metadata the generic Tag exposes natively (writes the correct per-format frame:
+        // GENRE/TCON/©gen, COMPOSER/TCOM/©wrt, COPYRIGHT/TCOP/cprt, ARTISTSORT/TSOP/soar,
+        // ALBUMARTISTSORT/TSO2/soaa). Multi-values become real repeated frames; empty clears the frame.
+        tag.Genres = MusicHoarder.Api.Metadata.MultiValue.Split(song.Genre);
+        tag.Composers = MusicHoarder.Api.Metadata.MultiValue.Split(song.Composer);
+        tag.Copyright = NullIfEmpty(song.Copyright);
+        // Sort names align positionally with the single-value display ARTIST / the album artist.
+        tag.PerformersSort = NullIfEmpty(song.ArtistSort) is string artistSort ? [artistSort] : [];
+        var albumArtistSort = compilation ? VariousArtists : NullIfEmpty(song.AlbumArtistSort);
+        tag.AlbumArtistsSort = albumArtistSort is null ? [] : [albumArtistSort];
+
         // Multi-value / freeform fields the generic Tag doesn't expose. create:false so we only
         // touch the file's native tag (the generic sets above already created it) — never an
         // ID3 tag on a FLAC, which is non-spec and breaks some players.
@@ -127,6 +138,18 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
             ? []
             : artistIds;
 
+        // Album-identity descriptive fields (single values). Empty arrays clear the frame on re-tag.
+        var label = SingleOrEmpty(song.Label);
+        var catalogNumber = SingleOrEmpty(song.CatalogNumber);
+        var barcode = SingleOrEmpty(song.Upc);
+        // Full-precision release dates. A present value overrides the year-only DATE the generic Tag
+        // already wrote; absent, we leave that year in place (never clear it back).
+        var releaseDate = NullIfEmpty(song.ReleaseDate);
+        var originalDate = NullIfEmpty(song.OriginalReleaseDate);
+        var originalYear = originalDate is not null
+            ? MusicHoarder.Api.Metadata.ReleaseDateParser.ParseYear(originalDate)?.ToString()
+            : null;
+
         if (file.GetTag(TagLib.TagTypes.Id3v2, false) is TagLib.Id3v2.Tag id3)
         {
             SetId3UserText(id3, "ARTISTS", artists);
@@ -134,6 +157,11 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
             SetId3UserText(id3, "MusicBrainz Album Type", releaseTypes);
             SetId3Text(id3, "TCMP", compilation ? ["1"] : []);
             if (alignedArtistIds.Length > 0) SetId3UserText(id3, "MusicBrainz Artist Id", alignedArtistIds);
+            SetId3Text(id3, "TPUB", label);                       // publisher / label
+            SetId3UserText(id3, "CATALOGNUMBER", catalogNumber);
+            SetId3UserText(id3, "BARCODE", barcode);
+            if (releaseDate is not null) SetId3Text(id3, "TDRC", [releaseDate]);   // recording/release date
+            if (originalDate is not null) SetId3Text(id3, "TDOR", [originalDate]); // original release date
         }
 
         if (file.GetTag(TagLib.TagTypes.Xiph, false) is TagLib.Ogg.XiphComment xiph)
@@ -143,6 +171,12 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
             SetXiph(xiph, "RELEASETYPE", releaseTypes);
             SetXiph(xiph, "COMPILATION", compilation ? ["1"] : []);
             if (alignedArtistIds.Length > 0) SetXiph(xiph, "MUSICBRAINZ_ARTISTID", alignedArtistIds);
+            SetXiph(xiph, "LABEL", label);
+            SetXiph(xiph, "CATALOGNUMBER", catalogNumber);
+            SetXiph(xiph, "BARCODE", barcode);
+            if (releaseDate is not null) SetXiph(xiph, "DATE", [releaseDate]);
+            if (originalDate is not null) SetXiph(xiph, "ORIGINALDATE", [originalDate]);
+            if (originalYear is not null) SetXiph(xiph, "ORIGINALYEAR", [originalYear]);
         }
 
         if (file.GetTag(TagLib.TagTypes.Apple, false) is TagLib.Mpeg4.AppleTag apple)
@@ -152,8 +186,16 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
             SetDash(apple, "MusicBrainz Album Type", releaseTypes);
             apple.IsCompilation = compilation;
             if (alignedArtistIds.Length > 0) SetDash(apple, "MusicBrainz Artist Id", alignedArtistIds);
+            SetDash(apple, "LABEL", label);
+            SetDash(apple, "CATALOGNUMBER", catalogNumber);
+            SetDash(apple, "BARCODE", barcode);
+            if (originalDate is not null) SetDash(apple, "ORIGINALDATE", [originalDate]);
         }
     }
+
+    /// <summary>A single tag value as a one-element array, or empty (to clear the frame) when blank.</summary>
+    private static string[] SingleOrEmpty(string? value)
+        => NullIfEmpty(value) is string v ? [v] : [];
 
     /// <summary>
     /// Writes (or clears) an iTunes freeform dash atom, mirroring the empty-array handling of the
