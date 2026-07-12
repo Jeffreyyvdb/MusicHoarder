@@ -685,9 +685,26 @@ public class LibraryBuilderService(
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
         var song = await db.Songs.IgnoreQueryFilters().FirstOrDefaultAsync(s => s.Id == songId, ct);
-        if (song is null || song.IsDeleted || song.EnrichmentStatus != EnrichmentStatus.Matched)
+        if (song is null)
         {
-            logger.LogDebug("Skipping song {SongId}: not buildable (missing/deleted/not-matched)", songId);
+            // Row vanished between candidate selection and build (hard delete). BuildCandidates can't
+            // re-select a nonexistent row, so this can't loop — count it as a no-op failure.
+            logger.LogDebug("Skipping song {SongId}: row no longer exists", songId);
+            return new LibraryBuildTrackResult(LibraryBuildOutcome.Failed);
+        }
+        if (song.IsDeleted || song.EnrichmentStatus != EnrichmentStatus.Matched)
+        {
+            // The builder selected this row but a re-read finds it not buildable (e.g. enrichment flipped
+            // its status between the candidate query and now). Persist a bounded Failed so the #239
+            // quarantine (LibraryBuildQuery + MaxLibraryBuildAttempts) can stop it — otherwise the builder
+            // silently re-selects the same row every sweep and hot-loops with no backoff. A later
+            // re-match/requeue zeroes LibraryBuildAttempts, so a transient flip still recovers.
+            logger.LogWarning(
+                "Library build skipped for {Track} (SongId={SongId}): not buildable on re-read "
+                + "(deleted={Deleted}, enrichment={Status}) — marking failed so it can't loop the builder",
+                song.TrackLabel, songId, song.IsDeleted, song.EnrichmentStatus);
+            song.MarkBuildFailed($"Not buildable at build time (deleted={song.IsDeleted}, enrichment={song.EnrichmentStatus})");
+            await db.SaveChangesAsync(ct);
             return new LibraryBuildTrackResult(LibraryBuildOutcome.Failed);
         }
 
