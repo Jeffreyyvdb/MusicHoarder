@@ -87,10 +87,12 @@ public sealed class YouTubeMetadataResolver(
             var stderr = errorTask.Result.Trim();
             if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(outputTask.Result))
             {
+                // Surface the TAIL of stderr: yt-dlp's "ERROR:" line and a Python traceback's actual
+                // exception both live at the end, so head-truncation would hide the root cause.
                 logger.LogInformation(
                     "yt-dlp probe exited {Code} for {Url}: {Error}",
-                    process.ExitCode, LogSanitizer.ForLog(url), LogSanitizer.ForLog(Truncate(stderr)));
-                return YouTubeProbeOutcome.Failed(Classify(stderr), Truncate(stderr));
+                    process.ExitCode, LogSanitizer.ForLog(url), LogSanitizer.ForLog(Tail(stderr)));
+                return YouTubeProbeOutcome.Failed(Classify(stderr), Tail(stderr));
             }
 
             var parsed = Parse(outputTask.Result);
@@ -209,5 +211,11 @@ public sealed class YouTubeMetadataResolver(
             ? el.GetString()
             : null;
 
-    private static string Truncate(string s) => s.Length <= 300 ? s : s[..300];
+    /// <summary>Last ~800 chars of stderr — the salient error (yt-dlp "ERROR:" / traceback exception)
+    /// is at the end, so we keep the tail rather than the head.</summary>
+    private static string Tail(string s)
+    {
+        s = s.Trim();
+        return s.Length <= 800 ? s : "…" + s[^800..];
+    }
 }
