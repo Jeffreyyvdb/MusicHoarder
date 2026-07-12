@@ -490,6 +490,9 @@ public class SpotifyApiEnrichmentProviderTests
 
         public Task<SpotifyAlbumDetail?> GetAlbumAsync(string clientId, string clientSecret, string albumId, CancellationToken ct = default)
             => Task.FromResult<SpotifyAlbumDetail?>(null);
+
+        public Task<string?> SearchTrackIdByIsrcAsync(string clientId, string clientSecret, string isrc, CancellationToken ct = default)
+            => Task.FromResult<string?>(null);
     }
 
     private sealed class DbOnlyScopeFactory(MusicHoarderDbContext db) : IServiceScopeFactory

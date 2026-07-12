@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MusicHoarder.Api.Persistence;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MusicHoarder.Api.Persistence.Migrations
 {
     [DbContext(typeof(MusicHoarderDbContext))]
-    partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260712101403_AddDeezerDiscoverSources")]
+    partial class AddDeezerDiscoverSources
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -794,16 +797,10 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<string>("AlbumArtistMusicBrainzId")
                         .HasColumnType("text");
 
-                    b.Property<string>("AlbumArtistSort")
-                        .HasColumnType("text");
-
                     b.Property<string>("Artist")
                         .HasColumnType("text");
 
                     b.Property<string>("ArtistMusicBrainzIds")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ArtistSort")
                         .HasColumnType("text");
 
                     b.Property<string>("Artists")
@@ -811,15 +808,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.Property<int?>("Bitrate")
                         .HasColumnType("integer");
-
-                    b.Property<string>("CatalogNumber")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Composer")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Copyright")
-                        .HasColumnType("text");
 
                     b.Property<DateTime?>("DeletedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -865,9 +853,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<string>("Fingerprint")
                         .HasColumnType("text");
 
-                    b.Property<string>("Genre")
-                        .HasColumnType("text");
-
                     b.Property<bool>("HasCoverArt")
                         .HasColumnType("boolean");
 
@@ -893,9 +878,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<string>("Isrc")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Label")
                         .HasColumnType("text");
 
                     b.Property<int>("LastEnrichmentAlgorithmVersion")
@@ -928,9 +910,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<DateTime?>("LibraryBuiltAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<bool?>("LikeLastSyncedValue")
-                        .HasColumnType("boolean");
-
                     b.Property<DateTime?>("LikedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -961,9 +940,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<string>("MusicBrainzReleaseId")
                         .HasColumnType("text");
 
-                    b.Property<string>("NavidromeSongId")
-                        .HasColumnType("text");
-
                     b.Property<string>("OriginalAlbum")
                         .HasColumnType("text");
 
@@ -992,9 +968,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("OriginalMusicBrainzId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("OriginalReleaseDate")
                         .HasColumnType("text");
 
                     b.Property<string>("OriginalReleaseTypePrimary")
@@ -1034,9 +1007,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .HasColumnType("integer");
 
                     b.Property<string>("PreviousDestinationPath")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ReleaseDate")
                         .HasColumnType("text");
 
                     b.Property<string>("ReleaseTypePrimary")
@@ -1084,9 +1054,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.Property<int>("TranscriptionStatus")
                         .HasColumnType("integer");
-
-                    b.Property<string>("Upc")
-                        .HasColumnType("text");
 
                     b.Property<int?>("Year")
                         .HasColumnType("integer");
@@ -1471,9 +1438,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.Property<string>("SyncedFingerprint")
                         .HasColumnType("text");
-
-                    b.Property<bool>("SyncedLiked")
-                        .HasColumnType("boolean");
 
                     b.Property<DateTime>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");

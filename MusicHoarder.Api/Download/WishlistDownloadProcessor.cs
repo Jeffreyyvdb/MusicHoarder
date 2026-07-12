@@ -42,7 +42,9 @@ public class WishlistDownloadProcessor(
 
         if (batch.Count == 0) return (0, 0);
 
-        var trackIds = batch.Select(w => w.SpotifyTrackId).ToList();
+        // Only Spotify-keyed items participate in the in-library match cache; Deezer-sourced items with a
+        // null Spotify id simply have no cache row and go straight to download.
+        var trackIds = batch.Where(w => w.SpotifyTrackId != null).Select(w => w.SpotifyTrackId!).ToList();
         var matches = await db.SpotifyTrackLibraryMatches
             .IgnoreQueryFilters()
             .Where(m => m.OwnerUserId == ownerId && trackIds.Contains(m.SpotifyTrackId))
@@ -57,7 +59,7 @@ public class WishlistDownloadProcessor(
         var toDownload = new List<WishlistItem>();
         foreach (var item in batch)
         {
-            if (matches.TryGetValue(item.SpotifyTrackId, out var match) && match.MatchStatus == inLibrary)
+            if (item.SpotifyTrackId is { } sid && matches.TryGetValue(sid, out var match) && match.MatchStatus == inLibrary)
                 owned.Add((item, match.MatchedSongId));
             else
                 toDownload.Add(item);

@@ -1,6 +1,13 @@
-import { Disc3, Heart, LayoutGrid, ListMusic, Music2, Users } from '@lucide/svelte';
+import { Compass, Disc3, Heart, LayoutGrid, ListMusic, Music2, Users } from '@lucide/svelte';
 
-export type LibrarySubNavId = 'overview' | 'albums' | 'artists' | 'tracks' | 'liked' | 'spotify';
+export type LibrarySubNavId =
+  | 'overview'
+  | 'albums'
+  | 'artists'
+  | 'tracks'
+  | 'liked'
+  | 'discover'
+  | 'spotify';
 
 // Order + labels + hrefs + icons for the v2 Library sub-nav. Shared so the bar
 // stays identical wherever it's rendered (LibraryV2 and the Spotify page) — the
@@ -12,5 +19,6 @@ export const LIBRARY_SUBNAV = [
   { id: 'artists', label: 'Artists', href: '/artists', icon: Users },
   { id: 'tracks', label: 'All tracks', href: '/tracks', icon: ListMusic },
   { id: 'liked', label: 'Liked', href: '/liked', icon: Heart },
+  { id: 'discover', label: 'Discover', href: '/discover', icon: Compass },
   { id: 'spotify', label: 'Spotify', href: '/spotify', icon: Music2 }
 ] as const;

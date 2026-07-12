@@ -171,6 +171,29 @@ public sealed class SpotifyCatalogSearchService(
         return json is null ? null : ParseAlbum(json);
     }
 
+    public async Task<string?> SearchTrackIdByIsrcAsync(string clientId, string clientSecret, string isrc, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(isrc)) return null;
+        var q = Uri.EscapeDataString($"isrc:{isrc}");
+        var json = await GetApiJsonAsync(clientId, clientSecret, $"{ApiSearchUrl}?q={q}&type=track&limit=1", ct);
+        if (json is null) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("tracks", out var tracks) &&
+                tracks.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in items.EnumerateArray())
+                {
+                    if (item.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String)
+                        return id.GetString();
+                }
+            }
+        }
+        catch (JsonException) { /* fall through */ }
+        return null;
+    }
+
     private static SpotifyAlbumDetail? ParseAlbum(string json)
     {
         try

@@ -47,6 +47,7 @@ public static class WishlistEndpoints
                     .Select(w => new WishlistItemDto(
                         w.Id,
                         w.SpotifyTrackId,
+                        w.DeezerTrackId,
                         w.Title,
                         w.Artist,
                         w.Album,
@@ -80,7 +81,9 @@ public static class WishlistEndpoints
                     .Select(s => new WishlistSourceDto(
                         s.Id,
                         s.SourceType.ToString(),
+                        s.SourceType == WishlistSourceType.DeezerPlaylist ? "deezer" : "spotify",
                         s.SpotifyPlaylistId,
+                        s.DeezerPlaylistId,
                         s.Name,
                         s.ImageUrl,
                         s.AutoSync,
@@ -102,18 +105,23 @@ public static class WishlistEndpoints
                 ILoggerFactory loggerFactory,
                 CancellationToken ct) =>
             {
-                if (!Enum.TryParse(body.Type, ignoreCase: true, out WishlistSourceType type))
-                    return Results.BadRequest(new { message = "type must be 'LikedSongs' or 'Playlist'." });
+                // Accept both the Spotify shape ({ type, playlistId }) and the Deezer discover shape
+                // ({ sourceType, deezerPlaylistId }); the front-ends differ by provider.
+                var typeStr = body.SourceType ?? body.Type;
+                if (!Enum.TryParse(typeStr, ignoreCase: true, out WishlistSourceType type))
+                    return Results.BadRequest(new { message = "type must be 'LikedSongs', 'Playlist' or 'DeezerPlaylist'." });
+
+                var playlistId = type == WishlistSourceType.DeezerPlaylist ? body.DeezerPlaylistId : body.PlaylistId;
 
                 try
                 {
                     // Create the source row synchronously (fast), then snapshot its tracks off the
-                    // request path: a large library is dozens of sequential Spotify calls and would
+                    // request path: a large library is dozens of sequential provider calls and would
                     // blow past the gateway timeout (504). The snapshot persists per page, so items
                     // appear on the wishlist progressively; auto-synced sources also self-heal on the
                     // periodic WishlistSyncBackgroundService tick if this run is interrupted.
                     var ownerId = currentUser.UserId;
-                    var source = await wishlist.CreateOrUpdateSourceAsync(ownerId, type, body.PlaylistId, body.AutoSync ?? false, ct);
+                    var source = await wishlist.CreateOrUpdateSourceAsync(ownerId, type, playlistId, body.AutoSync ?? false, ct);
 
                     var sourceId = source.Id;
                     _ = Task.Run(async () =>
@@ -167,7 +175,7 @@ public static class WishlistEndpoints
                 }
             })
             .WithName("AddWishlistSource")
-            .WithSummary("Add Liked Songs or a playlist as a wishlist source; tracks snapshot in the background.");
+            .WithSummary("Add Liked Songs, a Spotify playlist, or a Deezer discover playlist as a wishlist source; tracks snapshot in the background.");
 
         group.MapPatch("/sources/{id:int}", async (
                 int id,
@@ -271,7 +279,8 @@ public static class WishlistEndpoints
 
 public sealed record WishlistItemDto(
     int Id,
-    string SpotifyTrackId,
+    string? SpotifyTrackId,
+    string? DeezerTrackId,
     string Title,
     string Artist,
     string? Album,
@@ -299,7 +308,9 @@ public sealed record WishlistItemsResponse(
 public sealed record WishlistSourceDto(
     int Id,
     string SourceType,
+    string Provider,
     string? SpotifyPlaylistId,
+    string? DeezerPlaylistId,
     string Name,
     string? ImageUrl,
     bool AutoSync,
@@ -307,6 +318,11 @@ public sealed record WishlistSourceDto(
     DateTime CreatedAtUtc,
     int ItemCount);
 
-public sealed record AddWishlistSourceRequest(string Type, string? PlaylistId, bool? AutoSync);
+public sealed record AddWishlistSourceRequest(
+    string? Type,
+    string? SourceType,
+    string? PlaylistId,
+    string? DeezerPlaylistId,
+    bool? AutoSync);
 
 public sealed record PatchWishlistSourceRequest(bool? AutoSync);

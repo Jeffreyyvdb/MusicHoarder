@@ -33,3 +33,40 @@ public record DeezerAlbumTrackItem(
     string? Title,
     int DurationMs,
     string? Id);
+
+/// <summary>A Deezer editorial genre (<c>GET /genre</c>). Id 0 is the catch-all "All".</summary>
+public record DeezerGenre(long Id, string Name, string? PictureUrl);
+
+/// <summary>
+/// A discover playlist as returned by chart / search / playlist lookup. <see cref="Checksum"/> is
+/// Deezer's tracklist fingerprint (present on the full <c>GET /playlist/{id}</c> only) — used to skip
+/// re-syncing an unchanged subscribed playlist.
+/// </summary>
+public record DeezerPlaylistSummary(
+    string Id,
+    string Title,
+    string? Description,
+    string? CoverUrl,
+    int TrackCount,
+    string? CreatorName,
+    string? Checksum);
+
+/// <summary>
+/// A lightweight track from a playlist tracklist (<c>GET /playlist/{id}/tracks</c>). Carries no ISRC /
+/// release year / track position — those come from <see cref="IDeezerCatalogService.LookupByIdAsync"/>.
+/// </summary>
+public record DeezerPlaylistTrack(
+    string Id,
+    string Title,
+    string Artist,
+    string? Album,
+    int DurationMs,
+    string? CoverUrl);
+
+/// <summary>
+/// A playlist's fetched tracklist plus whether it was paged to completion. <see cref="IsComplete"/> is
+/// false when a page fetch failed mid-run (a transient error) or the fetch was capped by a caller-supplied
+/// max. Callers that persist a skip-if-unchanged checksum must only advance it on a complete fetch, else
+/// the never-fetched tail stays hidden until the upstream playlist changes.
+/// </summary>
+public record DeezerPlaylistTracksResult(IReadOnlyList<DeezerPlaylistTrack> Tracks, bool IsComplete);

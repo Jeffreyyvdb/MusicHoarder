@@ -160,6 +160,23 @@ interface SongsResponse {
 }
 
 
+/**
+ * Error thrown by {@link requestJson} for any non-2xx response. Carries the machine-readable
+ * `code` from the API's `{ error, message }` body (e.g. "spotify_editorial_blocked",
+ * "invalid_url", "demo_read_only") so callers can branch on the failure kind, while `.message`
+ * stays the human-readable text for banners. `code` is null when the body had no `error` field.
+ */
+export class ApiError extends Error {
+  readonly code: string | null
+  readonly status: number
+  constructor(message: string, code: string | null, status: number) {
+    super(message)
+    this.name = "ApiError"
+    this.code = code
+    this.status = status
+  }
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase()
   const isBodyMethod = method !== "GET" && method !== "HEAD"
@@ -177,12 +194,14 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     let detail = ""
+    let code: string | null = null
     try {
       const body = await response.json() as Record<string, unknown>
+      if (typeof body.error === "string") code = body.error
       // The demo account is read-only: every mutation is rejected with this code by the API's
       // DemoReadOnlyMiddleware. Surface a human message instead of the raw error code.
       if (body.error === "demo_read_only") {
-        throw new Error("This action is disabled — the demo account is read-only.")
+        throw new ApiError("This action is disabled — the demo account is read-only.", "demo_read_only", response.status)
       }
       // Other error codes (e.g. "owner_required") read as raw JSON in error banners —
       // fall back to the code itself as readable text.
@@ -190,10 +209,10 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
         (body.message as string) ??
         (typeof body.error === "string" ? body.error.replaceAll("_", " ") : JSON.stringify(body))
     } catch (err) {
-      if (err instanceof Error && err.message.includes("read-only")) throw err
+      if (err instanceof ApiError) throw err
       // ignore parse errors
     }
-    throw new Error(detail || `Request failed for ${path}: ${response.status}`)
+    throw new ApiError(detail || `Request failed for ${path}: ${response.status}`, code, response.status)
   }
 
   return (await response.json()) as T
@@ -1585,11 +1604,14 @@ export type WishlistItemStatus =
   | "Failed"
   | "NotFound"
 
-export type WishlistSourceType = "LikedSongs" | "Playlist"
+export type WishlistSourceType = "LikedSongs" | "Playlist" | "DeezerPlaylist"
 
 export interface WishlistItem {
   id: number
-  spotifyTrackId: string
+  /** Null for Deezer-sourced items — use {@link deezerTrackId} instead. */
+  spotifyTrackId: string | null
+  /** Set for tracks sourced from a Deezer playlist; null for Spotify-sourced items. */
+  deezerTrackId?: string | null
   title: string
   artist: string
   album?: string | null
@@ -1620,6 +1642,10 @@ export interface WishlistSource {
   id: number
   sourceType: WishlistSourceType
   spotifyPlaylistId?: string | null
+  /** Set for Deezer-playlist sources; null for Spotify sources. */
+  deezerPlaylistId?: string | null
+  /** Which upstream this source syncs from. */
+  provider: "spotify" | "deezer"
   name: string
   imageUrl?: string | null
   autoSync: boolean
@@ -1646,11 +1672,20 @@ export async function fetchWishlistSources(): Promise<{ sources: WishlistSource[
 
 export async function addWishlistSource(
   type: WishlistSourceType,
-  options: { playlistId?: string; autoSync?: boolean } = {}
+  options: { playlistId?: string; deezerPlaylistId?: string; autoSync?: boolean } = {}
 ): Promise<AddWishlistSourceResult> {
+  // Send both `type`/`sourceType` and `playlistId`/`deezerPlaylistId` so the request satisfies the
+  // established Spotify shape and the new Deezer contract regardless of which field names the API
+  // binds — a Deezer subscribe carries `deezerPlaylistId`, a Spotify one carries `playlistId`.
   return requestJson<AddWishlistSourceResult>("/api/wishlist/sources", {
     method: "POST",
-    body: JSON.stringify({ type, playlistId: options.playlistId, autoSync: options.autoSync ?? false }),
+    body: JSON.stringify({
+      type,
+      sourceType: type,
+      playlistId: options.playlistId,
+      deezerPlaylistId: options.deezerPlaylistId,
+      autoSync: options.autoSync ?? false,
+    }),
   })
 }
 
@@ -1679,6 +1714,87 @@ export async function retryFailedWishlistItems(): Promise<{ reset: number }> {
 
 export async function triggerWishlistDownload(): Promise<{ jobId: string }> {
   return requestJson<{ jobId: string }>("/api/wishlist/download", { method: "POST" })
+}
+
+// ── Discover (editorial / chart playlists, sourced from Deezer) ────────────────
+// Spotify's API blocks editorial playlists for personal apps, so the browse/chart/search
+// catalog comes from Deezer. Subscribing routes through the existing wishlist source pipeline
+// (see addWishlistSource with type "DeezerPlaylist").
+
+export interface DiscoverGenre {
+  id: number
+  name: string
+  pictureUrl: string | null
+}
+
+export interface DiscoverPlaylistSummary {
+  id: string
+  title: string
+  description: string | null
+  coverUrl: string | null
+  trackCount: number
+  creatorName: string | null
+  /** True when the user already subscribes to this playlist (a wishlist source exists). */
+  subscribed: boolean
+  /** The wishlist source id when subscribed — needed to unsubscribe / toggle auto-sync. */
+  sourceId: number | null
+  /** The source's auto-sync flag when subscribed; null when not subscribed. */
+  autoSync: boolean | null
+}
+
+export interface DiscoverTrack {
+  deezerTrackId: string
+  title: string
+  artist: string
+  album: string | null
+  durationMs: number | null
+  coverUrl: string | null
+  inLibrary: boolean
+  inWishlist: boolean
+}
+
+export interface DiscoverPlaylistDetail {
+  playlist: DiscoverPlaylistSummary
+  tracks: DiscoverTrack[]
+}
+
+export type DiscoverResolveProvider = "deezer" | "spotify"
+
+export interface DiscoverResolveResult {
+  provider: DiscoverResolveProvider
+  playlistId: string
+  title: string
+  coverUrl: string | null
+  trackCount: number
+  subscribed: boolean
+}
+
+export async function fetchDiscoverGenres(): Promise<{ genres: DiscoverGenre[] }> {
+  return requestJson<{ genres: DiscoverGenre[] }>("/api/discover/genres")
+}
+
+export async function fetchDiscoverPlaylists(
+  params: { genreId?: number; search?: string; limit?: number } = {}
+): Promise<{ playlists: DiscoverPlaylistSummary[] }> {
+  const query = new URLSearchParams()
+  if (params.genreId != null) query.set("genreId", String(params.genreId))
+  if (params.search) query.set("search", params.search)
+  if (params.limit != null) query.set("limit", String(params.limit))
+  const qs = query.toString()
+  return requestJson<{ playlists: DiscoverPlaylistSummary[] }>(
+    `/api/discover/playlists${qs ? `?${qs}` : ""}`
+  )
+}
+
+export async function fetchDiscoverPlaylist(id: string): Promise<DiscoverPlaylistDetail> {
+  return requestJson<DiscoverPlaylistDetail>(`/api/discover/playlists/${encodeURIComponent(id)}`)
+}
+
+export async function resolveDiscoverUrl(url: string): Promise<DiscoverResolveResult> {
+  return requestJson<DiscoverResolveResult>("/api/discover/resolve", {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  })
 }
 
 // ── Soulseek & library sync API ───────────────────────────────────────────────
