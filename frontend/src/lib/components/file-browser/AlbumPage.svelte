@@ -28,6 +28,7 @@
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import AlbumTimelineDialog from '$lib/components/file-browser/AlbumTimelineDialog.svelte';
   import { albumTint } from '$lib/album-tint';
+  import { buildDisplayRows } from '$lib/album-rows';
   import {
     formatDuration,
     formatFileSize,
@@ -227,81 +228,7 @@
           : 'Re-tag — re-copy & re-tag this album’s files in place. Fixes albums split across multiple entries; no re-enrichment.'
   );
 
-  type DisplayRow =
-    | { kind: 'owned'; key: string; disc: number; n: number; song: ApiSong; durationSeconds: number | null }
-    | {
-        kind: 'missing';
-        key: string;
-        disc: number;
-        n: number;
-        title: string;
-        durationSeconds: number | null;
-        contested: boolean;
-      };
-
-  const displayRows = $derived.by<DisplayRow[]>(() => {
-    const owned = album?.songs ?? [];
-    const tl = tracklist;
-    if (!tl) {
-      return owned.map((song, idx) => ({
-        kind: 'owned',
-        key: `song:${song.id}`,
-        disc: 1,
-        n: song.trackNumber ?? idx + 1,
-        song,
-        durationSeconds: song.durationSeconds ?? null
-      }));
-    }
-
-    const byId = new Map(owned.map((s) => [s.id, s]));
-    const used = new Set<number>();
-    // Keys must be unique for the keyed {#each}: a contested/merged canonical tracklist can carry
-    // two entries with the same disc+track (dup `miss:` key), and imperfect matching can point two
-    // canonical tracks at the same owned song (dup `song:` key) — both crash Svelte with
-    // each_key_duplicate. So the missing key is disambiguated by the canonical index, and an owned
-    // song already claimed by an earlier track falls through to a canonical (missing) slot.
-    const rows: DisplayRow[] = tl.tracks.map((t, idx) => {
-      const song = t.ownedSongId != null ? (byId.get(t.ownedSongId) ?? null) : null;
-      if (song && !used.has(song.id)) {
-        used.add(song.id);
-        return {
-          kind: 'owned',
-          key: `song:${song.id}`,
-          disc: t.discNumber,
-          n: t.trackNumber,
-          song,
-          durationSeconds: song.durationSeconds ?? (t.durationMs != null ? t.durationMs / 1000 : null)
-        };
-      }
-      return {
-        kind: 'missing',
-        key: `miss:${idx}`,
-        disc: t.discNumber,
-        n: t.trackNumber,
-        title: (t.title ?? '').trim() || 'Unknown track',
-        durationSeconds: t.durationMs != null ? t.durationMs / 1000 : null,
-        contested: t.isContested
-      };
-    });
-
-    // Owned songs not matched to any canonical track (bonus tracks, alternate versions) — append so
-    // nothing the user actually owns disappears from the view.
-    let bonusN = tl.tracks.length;
-    for (const song of owned) {
-      if (used.has(song.id)) continue;
-      used.add(song.id);
-      bonusN += 1;
-      rows.push({
-        kind: 'owned',
-        key: `song:${song.id}`,
-        disc: 1,
-        n: song.trackNumber ?? bonusN,
-        song,
-        durationSeconds: song.durationSeconds ?? null
-      });
-    }
-    return rows;
-  });
+  const displayRows = $derived(buildDisplayRows(album?.songs, tracklist));
 
   /** Whether multiple discs are present, so we can show a disc prefix on track numbers. */
   const multiDisc = $derived(displayRows.some((r) => r.disc > 1));
