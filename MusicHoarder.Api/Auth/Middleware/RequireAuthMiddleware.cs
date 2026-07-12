@@ -17,6 +17,7 @@ public sealed class RequireAuthMiddleware
         // deliberately absent: it's a normal cookie-authed endpoint.
         "/api/sync/check",
         "/api/sync/upload",
+        "/api/sync/like",
         "/health",
         "/alive",
         "/openapi",
