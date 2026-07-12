@@ -69,6 +69,7 @@ services:
       Navidrome__BaseUrl: "${NAVIDROME_URL:-}"
       Navidrome__Username: "${NAVIDROME_USERNAME:-}"
       Navidrome__Password: "${NAVIDROME_PASSWORD:-}"
+      MusicEnricher__EnableBuildNeedsReview: "${ENABLE_BUILD_NEEDS_REVIEW:-false}"
       MusicEnricher__AutoStartPipeline: "false"
       Spotify__WishlistSyncIntervalMinutes: "0"
       WebAuthn__RpId: "${WEBAUTHN_RP_ID:-}"

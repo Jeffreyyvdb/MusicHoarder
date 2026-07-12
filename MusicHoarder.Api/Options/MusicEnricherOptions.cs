@@ -488,6 +488,19 @@ public class MusicEnricherOptions
     [Range(0.0, 1.0)]
     public double AutoUpgradeConfidence { get; set; } = 0.96;
 
+    /// <summary>
+    /// Build tracks that only reached <c>NeedsReview</c> (uncertain enrichment) instead of holding them
+    /// out of the library until a human approves. Off by default: the build gate is normally strict
+    /// <c>Matched</c>. When on, <c>NeedsReview</c> tracks are copied + tagged like any other, but flagged
+    /// in the file — <c>GROUPING = "Needs Review"</c> (indexable/filterable in Navidrome, so you can make
+    /// a self-emptying "Needs Review" smart playlist) plus a human-readable <c>COMMENT</c>. Approving or
+    /// correcting a track later clears the flag on the next re-tag. Trade-off: possibly-wrong metadata
+    /// (and therefore a possibly-wrong destination path) lands in the library until reviewed; correcting
+    /// artist/album then moves the file, which resets a path-derived Navidrome track identity — harmless
+    /// for never-played imports, but see the "needs review" flag before relying on play counts.
+    /// </summary>
+    public bool EnableBuildNeedsReview { get; set; } = false;
+
     /// <summary>Number of tracks processed per library-build cycle.</summary>
     [Range(1, 10000)]
     public int LibraryBuilderBatchSize { get; set; } = 100;

@@ -59,6 +59,11 @@ public sealed class RebuildOnMetadataChangeInterceptor(IOptionsMonitor<MusicEnri
         nameof(SongMetadata.AlbumArtistSort),
         nameof(SongMetadata.SyncedLyrics),
         nameof(SongMetadata.PlainLyrics),
+        // Not a tag value itself, but it drives the "Needs Review" GROUPING/COMMENT flag the writer
+        // stamps on tracks built via EnableBuildNeedsReview. Including it means approving a provisional
+        // track "as-is" (only EnrichmentStatus changes, no metadata edit) still re-tags the built file
+        // so the flag is cleared.
+        nameof(SongMetadata.EnrichmentStatus),
     ];
 
     public override InterceptionResult<int> SavingChanges(

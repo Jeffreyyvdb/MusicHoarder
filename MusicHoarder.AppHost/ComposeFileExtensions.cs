@@ -382,6 +382,10 @@ internal static class ComposeFileExtensions
         api.Environment["Navidrome__BaseUrl"] = "${NAVIDROME_URL:-}";
         api.Environment["Navidrome__Username"] = "${NAVIDROME_USERNAME:-}";
         api.Environment["Navidrome__Password"] = "${NAVIDROME_PASSWORD:-}";
+        // Build uncertain (NeedsReview) tracks into the library instead of holding them out until a human
+        // approves. Default off (strict-Matched builds only); set ENABLE_BUILD_NEEDS_REVIEW=true to opt in.
+        // Built provisional tracks are flagged GROUPING="Needs Review" in-file and get a "REVIEW" badge.
+        api.Environment["MusicEnricher__EnableBuildNeedsReview"] = "${ENABLE_BUILD_NEEDS_REVIEW:-false}";
     }
 
     /// <summary>

@@ -105,6 +105,7 @@ services:
       Navidrome__BaseUrl: "${NAVIDROME_URL:-}"
       Navidrome__Username: "${NAVIDROME_USERNAME:-}"
       Navidrome__Password: "${NAVIDROME_PASSWORD:-}"
+      MusicEnricher__EnableBuildNeedsReview: "${ENABLE_BUILD_NEEDS_REVIEW:-false}"
     ports:
       - "${API_PORT}"
     volumes:

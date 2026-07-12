@@ -7,6 +7,7 @@
   import {
     albumKeyForSong,
     coverUrlForSong,
+    mapEnrichmentStatus,
     songAddedTime,
     toPlayerSong,
     type ApiSong
@@ -451,6 +452,14 @@
                 {titleOf(song)}
               </div>
               <div class="text-muted-foreground mt-0.5 flex items-center gap-2 text-[11px]">
+                {#if mapEnrichmentStatus(song.enrichmentStatus) === 'needsreview'}
+                  <span
+                    title="Enrichment uncertain — needs review"
+                    class="rounded bg-amber-500/15 px-1 py-0.5 font-mono text-[9px] font-semibold tracking-wider text-amber-600 dark:text-amber-500"
+                  >
+                    REVIEW
+                  </span>
+                {/if}
                 {#if hasLyrics(song)}
                   <span class="bg-muted text-muted-foreground rounded px-1 py-0.5 font-mono text-[9px] font-semibold tracking-wider">
                     LRC
