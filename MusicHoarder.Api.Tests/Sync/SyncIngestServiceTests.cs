@@ -245,6 +245,65 @@ public class SyncIngestServiceTests : IDisposable
 
     // ── Helpers ─────────────────────────────────────────────────────────────
 
+    [Fact]
+    public async Task ApplyLike_MatchesByFingerprint_SetsLikedAtUtc()
+    {
+        await using var db = CreateDbContext();
+        db.Songs.Add(Song(1, "/lib/a.flac", fingerprint: "FP-1"));
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var likedAt = new DateTime(2026, 7, 5, 10, 0, 0, DateTimeKind.Utc);
+        var response = await service.ApplyLikeAsync(
+            new SyncLikeRequest("FP-1", null, null, "Artist", "Song", 200_000, likedAt), default);
+
+        Assert.True(response.Matched);
+        Assert.Equal(1, response.SongId);
+        Assert.Equal(likedAt, (await db.Songs.SingleAsync()).LikedAtUtc);
+    }
+
+    [Fact]
+    public async Task ApplyLike_Unlike_ClearsLikedAtUtc()
+    {
+        await using var db = CreateDbContext();
+        var song = Song(1, "/lib/a.flac", mbid: "MB-1");
+        song.LikedAtUtc = DateTime.UtcNow;
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var response = await service.ApplyLikeAsync(
+            new SyncLikeRequest(null, null, "MB-1", null, null, null, LikedAtUtc: null), default);
+
+        Assert.True(response.Matched);
+        Assert.Null((await db.Songs.SingleAsync()).LikedAtUtc);
+    }
+
+    [Fact]
+    public async Task ApplyLike_NoMatch_ReturnsMatchedFalse()
+    {
+        await using var db = CreateDbContext();
+        var service = CreateService(db);
+
+        var response = await service.ApplyLikeAsync(
+            new SyncLikeRequest("FP-nope", null, null, "X", "Y", 100_000, DateTime.UtcNow), default);
+
+        Assert.False(response.Matched);
+        Assert.Null(response.SongId);
+    }
+
+    [Fact]
+    public async Task Ingest_Create_AppliesPayloadLike()
+    {
+        await using var db = CreateDbContext();
+        var service = CreateService(db);
+        var likedAt = new DateTime(2026, 7, 6, 9, 0, 0, DateTimeKind.Utc);
+
+        await service.IngestAsync(Payload(fingerprint: "FP-new", likedAtUtc: likedAt), Bytes(64), default);
+
+        Assert.Equal(likedAt, (await db.Songs.SingleAsync()).LikedAtUtc);
+    }
+
     private static SongMetadata Song(
         int id, string path, string extension = ".mp3", int? bitrate = 320, string? fingerprint = null,
         string? acoustId = null, string? mbid = null, string? artist = "Artist", string? title = "Song",
@@ -271,7 +330,7 @@ public class SyncIngestServiceTests : IDisposable
 
     private static SyncTrackPayload Payload(
         string? fingerprint = null, string? acoustId = null, string? mbid = null,
-        string extension = ".flac", int? bitrate = 900)
+        string extension = ".flac", int? bitrate = 900, DateTime? likedAtUtc = null)
         => new(
             FileName: "Some Artist - Some Song" + extension,
             Extension: extension,
@@ -308,7 +367,8 @@ public class SyncIngestServiceTests : IDisposable
             PlainLyrics: "la la la",
             SyncedLyrics: "[00:01.00] la la la",
             IsInstrumental: false,
-            LyricsStatus: LyricsStatus.Fetched);
+            LyricsStatus: LyricsStatus.Fetched,
+            LikedAtUtc: likedAtUtc);
 
     private static MemoryStream Bytes(int count) => new(Enumerable.Repeat((byte)7, count).ToArray());
 

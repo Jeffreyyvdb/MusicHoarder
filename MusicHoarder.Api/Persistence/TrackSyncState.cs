@@ -32,6 +32,13 @@ public class TrackSyncState
     /// <summary>The fingerprint that was current when this song last synced/skipped.</summary>
     public string? SyncedFingerprint { get; set; }
 
+    /// <summary>
+    /// The song's liked state (<see cref="SongMetadata.LikedAtUtc"/> != null) as last pushed to the
+    /// remote. A like toggle doesn't change the fingerprint, so this is what re-arms the sweep to
+    /// propagate a like-only change (a metadata push, no file re-upload).
+    /// </summary>
+    public bool SyncedLiked { get; set; }
+
     public int Attempts { get; set; }
 
     /// <summary>Earliest next retry for a Failed row (exponential backoff). Null = retry any time.</summary>

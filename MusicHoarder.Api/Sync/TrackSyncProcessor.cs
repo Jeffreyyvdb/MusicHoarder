@@ -48,7 +48,9 @@ public class TrackSyncProcessor(
                 || st.Status == TrackSyncStatus.Pending
                 || (st.Status == TrackSyncStatus.Uploading && st.UpdatedAtUtc < uploadingCutoff)
                 || ((st.Status == TrackSyncStatus.Synced || st.Status == TrackSyncStatus.SkippedRemoteBetter)
-                    && st.SyncedFingerprint != s.Fingerprint)
+                    && (st.SyncedFingerprint != s.Fingerprint
+                        // A like toggle doesn't touch the fingerprint — re-arm to propagate it.
+                        || st.SyncedLiked != (s.LikedAtUtc != null)))
                 || (st.Status == TrackSyncStatus.Failed
                     && st.Attempts < opts.MaxAttempts
                     && (st.NextAttemptAtUtc == null || st.NextAttemptAtUtc <= now))
@@ -107,7 +109,11 @@ public class TrackSyncProcessor(
 
             if (check.Verdict == SyncVerdict.PresentSameOrBetter)
             {
+                // File is already there at >= quality — no re-upload. A like change still needs to
+                // land, so send a metadata-only like push when it diverged from what we last synced.
+                await PushLikeIfChangedAsync(song, state, ct);
                 state.MarkSkippedRemoteBetter(song.Fingerprint, check.SongId, check.RemoteQualityScore);
+                state.SyncedLiked = song.IsLiked;
                 await db.SaveChangesAsync(ct);
                 return;
             }
@@ -117,6 +123,7 @@ public class TrackSyncProcessor(
                 throw new InvalidOperationException("sync upload returned no body");
 
             state.MarkSynced(song.Fingerprint, upload.SongId, upload.QualityScore);
+            state.SyncedLiked = song.IsLiked; // the payload carried LikedAtUtc, so the remote has it now
             await db.SaveChangesAsync(ct);
             logger.LogInformation("Synced song {SongId} '{Artist} - {Title}' → remote {RemoteId} ({Outcome})",
                 song.Id, LogSanitizer.ForLog(song.Artist), LogSanitizer.ForLog(song.Title),
@@ -132,6 +139,27 @@ public class TrackSyncProcessor(
             await db.SaveChangesAsync(CancellationToken.None);
             logger.LogWarning(ex, "Sync push failed for song {SongId} (attempt {Attempts})", songId, state.Attempts);
         }
+    }
+
+    /// <summary>
+    /// Sends a metadata-only like update when the song's like diverged from what was last pushed.
+    /// A throw propagates to <see cref="ProcessSongAsync"/>'s catch → the row fails with backoff and
+    /// retries, so <see cref="TrackSyncState.SyncedLiked"/> is only advanced once the push succeeds.
+    /// </summary>
+    private async Task PushLikeIfChangedAsync(SongMetadata song, TrackSyncState state, CancellationToken ct)
+    {
+        if (state.SyncedLiked == song.IsLiked)
+            return;
+
+        var response = await pushClient.PushLikeAsync(new SyncLikeRequest(
+            song.Fingerprint, song.AcoustIdTrackId, song.MusicBrainzId,
+            song.Artist, song.Title, song.DurationMs, song.LikedAtUtc), ct);
+        if (response is null)
+            throw new InvalidOperationException("sync like returned no body");
+
+        logger.LogInformation("Synced like ({Liked}) for song {SongId} '{Artist} - {Title}' → remote {RemoteId} (matched={Matched})",
+            song.IsLiked, song.Id, LogSanitizer.ForLog(song.Artist), LogSanitizer.ForLog(song.Title),
+            response.SongId, response.Matched);
     }
 
     /// <summary>
@@ -191,6 +219,7 @@ public class TrackSyncProcessor(
             PlainLyrics: song.EffectivePlainLyrics,
             SyncedLyrics: song.EffectiveSyncedLyrics,
             IsInstrumental: song.IsInstrumental,
-            LyricsStatus: song.LyricsStatus);
+            LyricsStatus: song.LyricsStatus,
+            LikedAtUtc: song.LikedAtUtc);
     }
 }

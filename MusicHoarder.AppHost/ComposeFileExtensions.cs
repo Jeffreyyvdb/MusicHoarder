@@ -337,6 +337,11 @@ internal static class ComposeFileExtensions
         api.Environment["Sync__ApiKey"] = "${SYNC_API_KEY:-}";
         api.Environment["Sync__RemoteBaseUrl"] = "${SYNC_REMOTE_URL:-}";
         api.Environment["Sync__SyncedSourceDirectory"] = "${SYNC_SOURCE_DIR:-/data/synced-source}";
+        // Two-way like/favorite sync with Navidrome (Subsonic). Inert unless all three creds are set;
+        // point BaseUrl at the Navidrome origin reachable from the API container.
+        api.Environment["Navidrome__BaseUrl"] = "${NAVIDROME_URL:-}";
+        api.Environment["Navidrome__Username"] = "${NAVIDROME_USERNAME:-}";
+        api.Environment["Navidrome__Password"] = "${NAVIDROME_PASSWORD:-}";
     }
 
     /// <summary>

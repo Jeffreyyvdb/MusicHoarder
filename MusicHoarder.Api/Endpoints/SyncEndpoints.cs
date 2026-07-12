@@ -28,8 +28,23 @@ public static class SyncEndpoints
 
         m2m.MapPost("/check", Check);
         m2m.MapPost("/upload", Upload).DisableAntiforgery();
+        m2m.MapPost("/like", Like);
 
         group.MapGet("/status", Status).RequireOwner();
+    }
+
+    private static async Task<IResult> Like(
+        SyncLikeRequest request, ISyncIngestService ingest, CancellationToken ct)
+    {
+        var hasIdentity = !string.IsNullOrWhiteSpace(request.Fingerprint)
+            || !string.IsNullOrWhiteSpace(request.AcoustIdTrackId)
+            || !string.IsNullOrWhiteSpace(request.MusicBrainzId)
+            || (!string.IsNullOrWhiteSpace(request.Artist) && !string.IsNullOrWhiteSpace(request.Title));
+        if (!hasIdentity)
+            return Results.UnprocessableEntity(new { error = "request_has_no_identity" });
+
+        var response = await ingest.ApplyLikeAsync(request, ct);
+        return Results.Ok(response);
     }
 
     private static async Task<IResult> Check(

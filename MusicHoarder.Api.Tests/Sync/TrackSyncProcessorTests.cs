@@ -174,6 +174,84 @@ public class TrackSyncProcessorTests : IDisposable
         Assert.Empty(await db.TrackSyncStates.ToListAsync());
     }
 
+    // ── Like propagation ────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Sweep_ReArmsSyncedRow_WhenLikeChanged()
+    {
+        await using var db = CreateDbContext();
+        var liked = BuiltSong(1, fingerprint: "FP");
+        liked.LikedAtUtc = DateTime.UtcNow;              // liked now, but state says not-synced-liked
+        var unchanged = BuiltSong(2, fingerprint: "FP");  // not liked, state says not-synced-liked
+        db.Songs.AddRange(liked, unchanged);
+        db.TrackSyncStates.AddRange(
+            SyncedState(1, "FP"),   // SyncedLiked defaults false → diverges from liked=true → re-arm
+            SyncedState(2, "FP"));  // false == false → no re-arm
+        await db.SaveChangesAsync();
+
+        var candidates = await CreateProcessor(db, new FakePushClient()).FindSweepCandidatesAsync(100, default);
+
+        Assert.Equal([1], candidates);
+    }
+
+    [Fact]
+    public async Task Process_FilePresent_LikeChanged_PushesLikeOnly_NoUpload()
+    {
+        await using var db = CreateDbContext();
+        var song = BuiltSong(1, destinationPath: MakeTempFile());
+        song.LikedAtUtc = DateTime.UtcNow;
+        db.Songs.Add(song);
+        db.TrackSyncStates.Add(SyncedState(1, "FP")); // SyncedLiked=false, remote has the file
+        await db.SaveChangesAsync();
+        var client = new FakePushClient { CheckResult = new SyncCheckResponse(SyncVerdict.PresentSameOrBetter, 42, 10, "mbid") };
+
+        await CreateProcessor(db, client).ProcessSongAsync(1, default);
+
+        Assert.Equal(0, client.Uploads);                 // no file re-upload
+        var push = Assert.Single(client.LikePushes);
+        Assert.NotNull(push.LikedAtUtc);                 // like carried
+        var state = await db.TrackSyncStates.SingleAsync();
+        Assert.True(state.SyncedLiked);                  // advanced only after the push succeeded
+    }
+
+    [Fact]
+    public async Task Process_FilePresent_LikeUnchanged_DoesNotPushLike()
+    {
+        await using var db = CreateDbContext();
+        db.Songs.Add(BuiltSong(1, destinationPath: MakeTempFile())); // not liked
+        var state = SyncedState(1, "FP");
+        state.SyncedLiked = false;  // matches "not liked"
+        db.TrackSyncStates.Add(state);
+        await db.SaveChangesAsync();
+        var client = new FakePushClient { CheckResult = new SyncCheckResponse(SyncVerdict.PresentSameOrBetter, 42, 10, "mbid") };
+
+        await CreateProcessor(db, client).ProcessSongAsync(1, default);
+
+        Assert.Empty(client.LikePushes);
+    }
+
+    [Fact]
+    public async Task Process_Upload_CarriesLike_AndRecordsSyncedLiked()
+    {
+        await using var db = CreateDbContext();
+        var dest = MakeTempFile();
+        var song = BuiltSong(1, destinationPath: dest);
+        song.LikedAtUtc = DateTime.UtcNow;
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+        var client = new FakePushClient
+        {
+            CheckResult = new SyncCheckResponse(SyncVerdict.NotPresent, null, null, null),
+            UploadResult = new SyncUploadResponse(SyncUploadOutcome.Created, 55, 10),
+        };
+
+        await CreateProcessor(db, client).ProcessSongAsync(1, default);
+
+        Assert.NotNull(client.LastUploadedPayload!.LikedAtUtc); // like rides along in the file push
+        Assert.Empty(client.LikePushes);                        // no separate like call needed
+        Assert.True((await db.TrackSyncStates.SingleAsync()).SyncedLiked);
+    }
+
     // ── Enqueuer gate ───────────────────────────────────────────────────────
 
     [Fact]
@@ -287,6 +365,8 @@ public class TrackSyncProcessorTests : IDisposable
         public int Checks { get; private set; }
         public int Uploads { get; private set; }
         public string? LastUploadedFile { get; private set; }
+        public SyncTrackPayload? LastUploadedPayload { get; private set; }
+        public List<SyncLikeRequest> LikePushes { get; } = [];
 
         public Task<SyncCheckResponse?> CheckAsync(SyncCheckRequest request, CancellationToken ct)
         {
@@ -300,7 +380,15 @@ public class TrackSyncProcessorTests : IDisposable
             Uploads++;
             if (Throw is not null) throw Throw;
             LastUploadedFile = filePath;
+            LastUploadedPayload = payload;
             return Task.FromResult(UploadResult);
+        }
+
+        public Task<SyncLikeResponse?> PushLikeAsync(SyncLikeRequest request, CancellationToken ct)
+        {
+            LikePushes.Add(request);
+            if (Throw is not null) throw Throw;
+            return Task.FromResult<SyncLikeResponse?>(new SyncLikeResponse(Matched: true, SongId: 99));
         }
     }
 }

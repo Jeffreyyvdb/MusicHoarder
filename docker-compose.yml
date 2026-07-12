@@ -64,6 +64,9 @@ services:
       Sync__ApiKey: "${SYNC_API_KEY:-}"
       Sync__RemoteBaseUrl: "${SYNC_REMOTE_URL:-}"
       Sync__SyncedSourceDirectory: "${SYNC_SOURCE_DIR:-/data/synced-source}"
+      Navidrome__BaseUrl: "${NAVIDROME_URL:-}"
+      Navidrome__Username: "${NAVIDROME_USERNAME:-}"
+      Navidrome__Password: "${NAVIDROME_PASSWORD:-}"
     ports:
       - "5050:8080"
     volumes:

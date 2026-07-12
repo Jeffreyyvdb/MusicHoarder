@@ -193,6 +193,42 @@ public class SongMetadata
     public int PlayCount { get; set; }
     public DateTime? LastPlayedAtUtc { get; set; }
 
+    // --- Navidrome like sync (two-way with Subsonic "starred") ---
+    //
+    // Sync bookkeeping for keeping LikedAtUtc in sync with a Navidrome server. Like the like itself,
+    // these survive re-enrichment/rebuilds and never re-tag the destination file.
+
+    /// <summary>
+    /// The liked state agreed with Navidrome at the last successful reconcile — the base of the
+    /// three-way merge that tells a local like/unlike apart from a remote one. Null until the song has
+    /// ever participated in a like sync.
+    /// </summary>
+    public bool? LikeLastSyncedValue { get; set; }
+
+    /// <summary>
+    /// Cached Navidrome (Subsonic) <c>media_file</c> id, resolved during sync by path/MBID/fuzzy
+    /// match. An optimization for star/unstar; the reconciler re-resolves it when null.
+    /// </summary>
+    public string? NavidromeSongId { get; set; }
+
+    /// <summary>Whether this song is liked — the boolean view of <see cref="LikedAtUtc"/> the like sync uses.</summary>
+    public bool IsLiked => LikedAtUtc is not null;
+
+    /// <summary>
+    /// Sets or clears the like, stamping <see cref="LikedAtUtc"/> when it flips to liked and clearing it
+    /// when it flips to unliked. Idempotent (keeps the existing timestamp). Returns true when the liked
+    /// state actually changed. Used by the like sync's Navidrome → MH pull direction.
+    /// </summary>
+    public bool SetLiked(bool liked)
+    {
+        if (liked == IsLiked) return false;
+        LikedAtUtc = liked ? DateTime.UtcNow : null;
+        return true;
+    }
+
+    /// <summary>Records the like value the sync has reconciled with Navidrome (the merge base).</summary>
+    public void MarkLikeSynced(bool liked) => LikeLastSyncedValue = liked;
+
     // --- Provider attempts ---
 
     public ICollection<SongProviderAttempt> ProviderAttempts { get; set; } = new List<SongProviderAttempt>();
