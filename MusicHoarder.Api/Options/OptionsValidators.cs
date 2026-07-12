@@ -79,6 +79,27 @@ public sealed class NavidromeOptionsValidator : IValidateOptions<NavidromeOption
 }
 
 /// <summary>
+/// Validation for <see cref="StreamingFlacOptions"/>: fully blank (feature off) always boots; once a
+/// sidecar URL is set it must be an absolute HTTP(S) URL so a typo fails fast instead of the provider
+/// silently erroring on every track.
+/// </summary>
+public sealed class StreamingFlacOptionsValidator : IValidateOptions<StreamingFlacOptions>
+{
+    public ValidateOptionsResult Validate(string? name, StreamingFlacOptions o)
+    {
+        if (string.IsNullOrWhiteSpace(o.SidecarUrl))
+            return ValidateOptionsResult.Success;
+
+        if (!Uri.TryCreate(o.SidecarUrl, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            return ValidateOptionsResult.Fail(
+                "StreamingFlac:SidecarUrl must be an absolute http(s) URL, e.g. http://spotiflac:8000.");
+
+        return ValidateOptionsResult.Success;
+    }
+}
+
+/// <summary>
 /// Cross-field validation for <see cref="QualityGradingOptions"/>: the reasoning-token budget must leave
 /// room for the JSON answer within the output-token budget, or responses get truncated mid-object.
 /// </summary>

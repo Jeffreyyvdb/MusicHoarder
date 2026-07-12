@@ -17,3 +17,9 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+
+  # Only built when the spotiflac profile is active (COMPOSE_PROFILES=spotiflac); otherwise ignored.
+  spotiflac:
+    build:
+      context: ./sidecars/spotiflac
+      dockerfile: Dockerfile

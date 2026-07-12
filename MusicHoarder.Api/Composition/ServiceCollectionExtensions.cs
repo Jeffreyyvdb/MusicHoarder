@@ -26,6 +26,7 @@ using MusicHoarder.Api.Settings;
 using MusicHoarder.Api.Snapshots;
 using MusicHoarder.Api.Soulseek;
 using MusicHoarder.Api.Spotify;
+using MusicHoarder.Api.StreamingFlac;
 using MusicHoarder.Api.Sync;
 using MusicHoarder.Api.Version;
 using MusicHoarder.Api.Wishlist;
@@ -65,6 +66,13 @@ public static class ServiceCollectionExtensions
             .BindConfiguration(SlskdOptions.SectionName)
             .ValidateDataAnnotations()
             .ValidateOnStart();
+
+        services
+            .AddOptions<StreamingFlacOptions>()
+            .BindConfiguration(StreamingFlacOptions.SectionName)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<StreamingFlacOptions>, StreamingFlacOptionsValidator>();
 
         services
             .AddOptions<SyncOptions>()
@@ -229,10 +237,18 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IOptionsMonitor<SlskdOptions>>(),
             sp.GetRequiredService<ILogger<SlskdClient>>()));
         services.AddSingleton<SlskdFileFetcher>();
+        // Optional streaming-FLAC acquisition sidecar (spotiflac). Off unless StreamingFlac:SidecarUrl
+        // is set — the provider then reports NotFound so the chain falls through. Infinite client
+        // timeout: an /acquire call can take minutes, so the per-call linked CTS owns the deadline.
+        services.AddSingleton<StreamingFlacSidecarClient>(sp => new StreamingFlacSidecarClient(
+            new HttpClient { Timeout = Timeout.InfiniteTimeSpan },
+            sp.GetRequiredService<IOptionsMonitor<StreamingFlacOptions>>(),
+            sp.GetRequiredService<ILogger<StreamingFlacSidecarClient>>()));
         // yt-dlp stays first: ResolveProviders falls back to the first registered provider when the
         // configured chain resolves to nothing, and that fallback has always been yt-dlp.
         services.AddSingleton<IDownloadProvider, YtDlpDownloadProvider>();
         services.AddSingleton<IDownloadProvider, SlskdDownloadProvider>();
+        services.AddSingleton<IDownloadProvider, StreamingFlacDownloadProvider>();
         services.AddScoped<WishlistDownloadProcessor>();
         services.AddHostedService<DownloadBackgroundService>();
 

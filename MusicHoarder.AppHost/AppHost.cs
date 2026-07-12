@@ -97,6 +97,12 @@ var slskdApiKey = builder.AddParameter("slskd-api-key", builder.Configuration["P
 var slskdDownloadsDirectory = builder.AddParameter("slskd-downloads-directory", builder.Configuration["Parameters:slskd-downloads-directory"] ?? "")
     .WithDescription("slskd's completed-downloads directory as seen from the API process (in dev: the host path slskd writes to).");
 
+// Optional streaming-FLAC acquisition sidecar (the "spotiflac" download provider). The sidecar is a
+// separate, self-hosted, off-by-default service (never provisioned here); MusicHoarder only calls its
+// HTTP contract. Blank → the integration is off and the "spotiflac" provider reports NotFound.
+var streamingFlacSidecarUrl = builder.AddParameter("streaming-flac-sidecar-url", builder.Configuration["Parameters:streaming-flac-sidecar-url"] ?? "")
+    .WithDescription("Base URL of a self-hosted streaming-FLAC acquisition sidecar (e.g. http://spotiflac:8000). Blank → integration off.");
+
 var ownerEmail = builder.AddParameter("owner-email")
     .WithDescription("Email of the owner (admin) account. Used by magic-link sign-in.");
 var demoUserEmail = builder.AddParameter("demo-user-email")
@@ -155,6 +161,7 @@ var api = builder.AddProject<Projects.MusicHoarder_Api>("api")
     .WithEnvironment("Slskd__BaseUrl", slskdBaseUrl)
     .WithEnvironment("Slskd__ApiKey", slskdApiKey)
     .WithEnvironment("Slskd__DownloadsDirectory", slskdDownloadsDirectory)
+    .WithEnvironment("StreamingFlac__SidecarUrl", streamingFlacSidecarUrl)
     .WithExternalHttpEndpoints()
     .WithUrl("/scalar", "Scalar");
 #pragma warning disable ASPIRECOMPUTE003
