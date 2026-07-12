@@ -230,6 +230,23 @@ public class SongMetadata
             ? TranscribedPlainLyrics
             : PlainLyrics;
 
+    /// <summary>
+    /// The lyrics read-only display surfaces (the public share page) present — mirrors the in-app
+    /// viewer: the AI transcription when the user chose it via <see cref="PreferredLyricsSource"/>
+    /// OR when it is the only version that exists (the usual reason to transcribe is that LRCLIB
+    /// had nothing), otherwise the LRCLIB version. The source is picked as a whole so one
+    /// version's synced lines are never mixed with the other's plain text. Unlike
+    /// <see cref="EffectiveSyncedLyrics"/> this never affects what is embedded into files.
+    /// </summary>
+    public string? DisplaySyncedLyrics => UseTranscribedForDisplay ? TranscribedSyncedLyrics : SyncedLyrics;
+
+    public string? DisplayPlainLyrics => UseTranscribedForDisplay ? TranscribedPlainLyrics : PlainLyrics;
+
+    private bool UseTranscribedForDisplay =>
+        (!string.IsNullOrWhiteSpace(TranscribedSyncedLyrics) || !string.IsNullOrWhiteSpace(TranscribedPlainLyrics))
+        && (PreferredLyricsSource == PreferredLyricsSource.Transcribed
+            || (string.IsNullOrWhiteSpace(SyncedLyrics) && string.IsNullOrWhiteSpace(PlainLyrics)));
+
     // --- Guard properties ---
 
     public bool IsDeleted => DeletedAtUtc.HasValue;
