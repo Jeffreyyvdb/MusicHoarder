@@ -929,6 +929,40 @@ public class LibraryBuilderServiceTests
         Assert.False(fileSystem.File.Exists("/dest/Artist/2026 - Album/01 - Track.opus"));
     }
 
+    [Fact]
+    public async Task ProcessNextBatchAsync_MarksFailedWithoutLooping_WhenCandidateFlipsToNonMatchedBeforeBuild()
+    {
+        // Reproduces the builder hot-loop: a candidate is selected while Matched, but a concurrent
+        // enrichment change flips it before ProcessTrackAsync re-reads it. The build must PERSIST a
+        // Failed (incrementing attempts) so the #239 quarantine can bound it — instead of silently
+        // returning Failed and letting the builder re-select the same row every sweep forever.
+        var sourcePath = "/source/track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourcePath, 5));
+        await db.SaveChangesAsync();
+
+        var tagWriter = new RecordingTagWriter();
+        // Flip the song to NeedsReview from the per-track scope onward, modeling enrichment mutating the
+        // row after the builder already selected it as a Matched candidate.
+        var scopeFactory = new FlipStatusScopeFactory(db, tagWriter, EnrichmentStatus.NeedsReview);
+        var service = CreateService(db, fileSystem, tagWriter, scopeFactoryOverride: scopeFactory);
+
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        var song = await db.Songs.SingleAsync();
+        Assert.Equal(0, result.Done);
+        Assert.Equal(1, result.Failed);
+        Assert.Equal(LibraryBuildStatus.Failed, song.LibraryBuildStatus);   // persisted, not a silent skip
+        Assert.Equal(1, song.LibraryBuildAttempts);                          // feeds the #239 quarantine
+        Assert.False(string.IsNullOrEmpty(song.LibraryBuildError));
+        Assert.Empty(tagWriter.Paths);                                       // never attempted a tag write
+    }
+
     private static LibraryBuilderService CreateService(
         MusicHoarderDbContext db,
         IFileSystem fileSystem,
@@ -936,7 +970,8 @@ public class LibraryBuilderServiceTests
         IEmbeddedPictureReader? embeddedReader = null,
         int batchSize = 100,
         bool enableAlbumIdentityReconciliation = true,
-        IExternalCoverArtFetcher? externalFetcher = null)
+        IExternalCoverArtFetcher? externalFetcher = null,
+        IServiceScopeFactory? scopeFactoryOverride = null)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
@@ -949,7 +984,7 @@ public class LibraryBuilderServiceTests
         });
 
         var pathResolver = new DestinationPathResolver(options);
-        var scopeFactory = new SingleScopeFactory(db, tagWriter);
+        var scopeFactory = scopeFactoryOverride ?? new SingleScopeFactory(db, tagWriter);
 
         var cleaner = new LibraryDestinationCleaner(fileSystem);
 
@@ -1114,6 +1149,27 @@ public class LibraryBuilderServiceTests
         : IServiceScopeFactory
     {
         public IServiceScope CreateScope() => new SingleScope(new SingleScopeProvider(db, tagWriter));
+    }
+
+    // Hands out the shared context, but from the SECOND scope onward first flips the (single) song's
+    // enrichment status — modeling enrichment mutating a row after the builder selected it as a
+    // candidate (scope 1: candidate query) but before ProcessTrackAsync re-reads it (scope 2+).
+    private sealed class FlipStatusScopeFactory(
+        MusicHoarderDbContext db, ILibraryTagWriter tagWriter, EnrichmentStatus flipTo)
+        : IServiceScopeFactory
+    {
+        private int scopeCount;
+
+        public IServiceScope CreateScope()
+        {
+            if (Interlocked.Increment(ref scopeCount) >= 2)
+            {
+                var song = db.Songs.IgnoreQueryFilters().First();
+                song.EnrichmentStatus = flipTo;
+                db.SaveChanges();
+            }
+            return new SingleScope(new SingleScopeProvider(db, tagWriter));
+        }
     }
 
     private sealed class SingleScope(IServiceProvider provider) : IServiceScope
