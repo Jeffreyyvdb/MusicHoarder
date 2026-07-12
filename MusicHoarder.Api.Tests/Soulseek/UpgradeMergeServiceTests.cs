@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Audio;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -205,29 +207,82 @@ public class UpgradeMergeServiceTests : IDisposable
         Assert.Null(song.DuplicateOfId);
     }
 
+    // ── Same-recording fingerprint gate ─────────────────────────────────────
+
+    // Real fpcalc fingerprints: FpA128 and FpAFlac are the same recording (mp3 vs flac); FpBFlac differs.
+    private const string FpA128 =
+        "AQAAU4ulRFHUIH70Qs0zJcHXIXyG7UefZUvxjxiVTuHw8Af1K8aj4JZ0vAo-LkeY0lqQ7BlzfFmOJo3RjjxKZiEafcafQueEH4-oG88U4dlh4Uek6IGuG5aSM0V1F7nw4LsQn1AUJWoaVLrxMwgPJruY4RXGJRKc7PiRz1DFI86JE3sOPpaCOVF05NCP_ME6pQmaKbGigmGOHD_eR8EthNKio0m0NcKe43hcPLMqjEzQ6-Af_AiS4z-e4_iOP0d_HCCIMsgIYgBQQHgiDBMCGEaMQlQoIQhDDENiCEDVGWkcsIJZELAiZBgBhARSUFUZA1QZgBmQggiGGROGCQ4QUcACEQ";
+    private const string FpAFlac =
+        "AQAAU4ulRFHUIH70Qs0zJcHXIXwmbKfRZ9lS_CNGpVM4PPxB_YrxKLglHa-Cj8sRprQWJHvGHF-Wo0ljtCOPklmIRp_xp9A54ccj6sYzRXh2WPgRKXqg64al5ExR3UUuPPguxCcURYmaBpVu_AzCg8kuZniFcYkEJzt-5DNU8Yhz4sSeg4-lYE4UHTn0I3-wTmmCZkqsqGCYI8eP91FwC6G06GgSbY2w5zgeF8-sCiMT9Dr4Bz-C5PiP5zi-48_RHwcgiDJIEAOAAsITYZgQwDBiFKJCCUEYYhgSQwCqzkjjgBXMgoAVIcMIICSQgqrKGKDKAMyAFEQwzJgwTHCAiAIWiA";
+    private const string FpBFlac =
+        "AQAAU5ESSYmkRFISHId56DhyUMd3HEfOQ8R35DCOVDbOgsqHGxJO-PjxHY5I4mEWA4-P4yN8_EN6vKLRk0SWwydO6McP48cb6NrxgML_4BJxuPjxXYK-4QcPfTmMUyIs44dzFv8Fo99A9IL_ouPx4wdzg_pxHXJx4jmqQ3tWHHZqAGGdMlQwwywTDkhLgdXKcAeEIR4Z4QwQADjCgDMCGUIFAYZSgYSwgAtjJQQAAEaUUNQZAARF1BkAAAA";
+
+    [Fact]
+    public async Task Merge_RejectsDifferentRecording_ByFingerprint()
+    {
+        await using var db = CreateDbContext();
+        var newFile = WriteStagingFile("wrong-song.flac", bytes: 2048);
+        // Duration agrees and it's a "better" FLAC — only the fingerprint reveals it's a different track.
+        db.Songs.AddRange(
+            TargetSong(10, WriteStagingFile("old.opus"), extension: ".opus", bitrate: 128, fingerprint: FpA128),
+            ProvisionalSong(11, newFile, extension: ".flac", bitrate: 900, fingerprint: FpBFlac));
+        db.UpgradeRequests.Add(AwaitingIngest(1, songId: 10, downloadedPath: newFile));
+        await db.SaveChangesAsync();
+
+        await CreateService(db).SweepAsync(default);
+
+        var request = await db.UpgradeRequests.SingleAsync();
+        Assert.Equal(UpgradeRequestStatus.Failed, request.Status);
+        Assert.Contains("different recording", request.Error);
+        var song = Assert.Single(await db.Songs.IgnoreQueryFilters().ToListAsync());
+        Assert.Equal(".opus", song.Extension); // target untouched
+        Assert.False(File.Exists(newFile));    // rejected download cleaned up
+    }
+
+    [Fact]
+    public async Task Merge_AcceptsSameRecording_AcrossCodecs()
+    {
+        await using var db = CreateDbContext();
+        var newFile = WriteStagingFile("better.flac", bytes: 2048);
+        db.Songs.AddRange(
+            TargetSong(10, WriteStagingFile("old.opus"), extension: ".opus", bitrate: 128, fingerprint: FpA128),
+            ProvisionalSong(11, newFile, extension: ".flac", bitrate: 900, fingerprint: FpAFlac));
+        db.UpgradeRequests.Add(AwaitingIngest(1, songId: 10, downloadedPath: newFile));
+        await db.SaveChangesAsync();
+
+        var merged = await CreateService(db).SweepAsync(default);
+
+        Assert.Equal(1, merged);
+        var song = Assert.Single(await db.Songs.IgnoreQueryFilters().ToListAsync());
+        Assert.Equal(".flac", song.Extension); // upgrade applied
+        Assert.Equal(UpgradeRequestStatus.Completed, (await db.UpgradeRequests.SingleAsync()).Status);
+    }
+
     // ── Strictly-better candidate filter ────────────────────────────────────
 
     [Fact]
     public void FilterStrictlyBetter_EnforcesTierFloorAndScoreImprovement()
     {
-        var opusSong = TargetSong(1, "/x/a.opus", extension: ".opus", bitrate: 128);
-        var flacSong = TargetSong(2, "/x/b.flac", extension: ".flac", bitrate: 900);
+        static UpgradeFloor Floor(SongMetadata s) =>
+            new(AudioQuality.TierFor(s.Extension), AudioQuality.Score(s), s.DurationMs);
+        var opusFloor = Floor(TargetSong(1, "/x/a.opus", extension: ".opus", bitrate: 128));
+        var flacFloor = Floor(TargetSong(2, "/x/b.flac", extension: ".flac", bitrate: 900));
 
         SlskdCandidate Candidate(string ext, int? bitrate) => new(
             "peer", new SlskdFile($@"a\song{ext}", 1000, bitrate, 200, null), true, 0, 100);
 
         // For a lossy target: higher-bitrate lossy and any lossless qualify; lower lossy doesn't.
-        var forOpus = SoulseekUpgradeService.FilterStrictlyBetter(
-            [Candidate(".mp3", 320), Candidate(".flac", null), Candidate(".opus", 96)], opusSong);
+        var forOpus = SlskdDownloadProvider.FilterStrictlyBetter(
+            [Candidate(".mp3", 320), Candidate(".flac", null), Candidate(".opus", 96)], opusFloor);
         Assert.Equal(2, forOpus.Count);
 
         // For a lossless target: fat lossy never qualifies; same-tier same-score doesn't either.
-        var forFlac = SoulseekUpgradeService.FilterStrictlyBetter(
-            [Candidate(".mp3", 320), Candidate(".flac", 900)], flacSong);
+        var forFlac = SlskdDownloadProvider.FilterStrictlyBetter(
+            [Candidate(".mp3", 320), Candidate(".flac", 900)], flacFloor);
         Assert.Empty(forFlac);
 
         // Higher-bitrate FLAC over FLAC does qualify.
-        var better = SoulseekUpgradeService.FilterStrictlyBetter([Candidate(".flac", 1411)], flacSong);
+        var better = SlskdDownloadProvider.FilterStrictlyBetter([Candidate(".flac", 1411)], flacFloor);
         Assert.Single(better);
     }
 

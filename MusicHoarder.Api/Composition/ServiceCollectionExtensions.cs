@@ -245,21 +245,30 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IOptionsMonitor<StreamingFlacOptions>>(),
             sp.GetRequiredService<ILogger<StreamingFlacSidecarClient>>()));
         // yt-dlp stays first: ResolveProviders falls back to the first registered provider when the
-        // configured chain resolves to nothing, and that fallback has always been yt-dlp.
+        // configured chain resolves to nothing, and that fallback has always been yt-dlp. yt-dlp is
+        // download-only (it can't produce lossless, so it's not an IUpgradeProvider). slskd + spotiflac
+        // register their single instance under BOTH interfaces so the download chain and the upgrade
+        // chain share one object.
         services.AddSingleton<IDownloadProvider, YtDlpDownloadProvider>();
-        services.AddSingleton<IDownloadProvider, SlskdDownloadProvider>();
-        services.AddSingleton<IDownloadProvider, StreamingFlacDownloadProvider>();
+        services.AddSingleton<SlskdDownloadProvider>();
+        services.AddSingleton<IDownloadProvider>(sp => sp.GetRequiredService<SlskdDownloadProvider>());
+        services.AddSingleton<IUpgradeProvider>(sp => sp.GetRequiredService<SlskdDownloadProvider>());
+        services.AddSingleton<StreamingFlacDownloadProvider>();
+        services.AddSingleton<IDownloadProvider>(sp => sp.GetRequiredService<StreamingFlacDownloadProvider>());
+        services.AddSingleton<IUpgradeProvider>(sp => sp.GetRequiredService<StreamingFlacDownloadProvider>());
         services.AddScoped<WishlistDownloadProcessor>();
         services.AddHostedService<DownloadBackgroundService>();
         // Single-track URL import: resolves a pasted YouTube video's metadata via a yt-dlp probe.
         services.AddSingleton<Import.IYouTubeMetadataResolver, Import.YouTubeMetadataResolver>();
 
-        // Manual Soulseek quality upgrades: search/download worker + the merge sweep that swaps a
-        // verified better file into the target row (Id-preserving).
-        services.AddSingleton<SoulseekUpgradeChannel>();
-        services.AddScoped<SoulseekUpgradeService>();
+        // Quality upgrades (manual + automatic): search/download worker over the IUpgradeProvider
+        // chain, the merge sweep that swaps a verified better file into the target row (Id-preserving),
+        // and the periodic auto-sweep that queues lossy library tracks.
+        services.AddSingleton<QualityUpgradeChannel>();
+        services.AddScoped<QualityUpgradeService>();
         services.AddScoped<UpgradeMergeService>();
-        services.AddHostedService<SoulseekUpgradeBackgroundService>();
+        services.AddScoped<AutomaticUpgradeSweep>();
+        services.AddHostedService<QualityUpgradeBackgroundService>();
 
         // Instance sync (receive side): ingest applies pushed tracks; the endpoint filter is the
         // machine-to-machine auth gate. Both are inert unless Sync:Mode=Receive.

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Audio;
 using MusicHoarder.Api.Logging;
 using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Options;
@@ -25,9 +26,20 @@ public sealed class StreamingFlacDownloadProvider(
     ISpotifyCatalogSearchService catalogSearch,
     IOptions<SpotifyOptions> spotifyOptions,
     IOptionsMonitor<StreamingFlacOptions> options,
-    ILogger<StreamingFlacDownloadProvider> logger) : IDownloadProvider
+    ILogger<StreamingFlacDownloadProvider> logger) : IDownloadProvider, IUpgradeProvider
 {
     public string Name => "spotiflac";
+
+    /// <summary>The sidecar only ever produces lossless FLAC, so it can upgrade a lossy target but can't
+    /// improve on one that's already lossless — skip those rather than download a same-tier file the
+    /// merge would reject.</summary>
+    public bool CanUpgrade(UpgradeFloor floor) =>
+        options.CurrentValue.IsConfigured && floor.Tier < AudioCodecTier.Lossless;
+
+    /// <summary>Acquisition is identical to a wishlist download (the sidecar yields a verified FLAC);
+    /// the merge stage confirms it actually beats the target and is the same recording.</summary>
+    public Task<DownloadResult> DownloadBetterAsync(DownloadRequest req, UpgradeFloor floor, CancellationToken ct) =>
+        DownloadAsync(req, ct);
 
     public async Task<DownloadResult> DownloadAsync(DownloadRequest req, CancellationToken ct)
     {
