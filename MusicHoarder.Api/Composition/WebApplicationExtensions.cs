@@ -32,6 +32,7 @@ public static class WebApplicationExtensions
         app.MapSnapshotsEndpoints();
         app.MapSpotifyEndpoints();
         app.MapWishlistEndpoints();
+        app.MapDiscoverEndpoints();
         app.MapSyncEndpoints();
         app.MapSoulseekEndpoints();
         app.MapPlaylistsEndpoints();

@@ -83,6 +83,30 @@ public class SpotifyApiService(
         return new SpotifyPlaylistTracksResponse(total, offset, limit, items);
     }
 
+    public async Task<SpotifyPlaylistLookupResult> GetPlaylistAsync(string playlistId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(playlistId))
+            return new SpotifyPlaylistLookupResult(false, null, false, "No playlist id supplied.");
+
+        // Direct playlist fetch works for any accessible playlist id, unlike scanning /me/playlists.
+        var fields = "id,name,description,images,owner(display_name),tracks(total)";
+        var url = $"{BaseUrl}/playlists/{Uri.EscapeDataString(playlistId)}?fields={Uri.EscapeDataString(fields)}";
+
+        try
+        {
+            var json = await SendAuthenticatedRequestAsync(url, ct);
+            using var doc = JsonDocument.Parse(json);
+            return new SpotifyPlaylistLookupResult(true, ParsePlaylist(doc.RootElement), false, null);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            // 404: Spotify blocks editorial/algorithmic playlists for personal API apps (since Nov 2024),
+            // or the playlist simply doesn't exist. Either way it's unreachable via the Web API.
+            return new SpotifyPlaylistLookupResult(false, null, true,
+                "Spotify blocks editorial and algorithmic playlists for personal API apps, or the playlist does not exist.");
+        }
+    }
+
     private async Task<string> SendAuthenticatedRequestAsync(string url, CancellationToken ct)
     {
         var accessToken = await GetAccessTokenAsync(ct);

@@ -343,6 +343,9 @@ public class PlaylistExportServiceTests
             var items = src.Items.Skip(offset).Take(limit).ToList();
             return Task.FromResult(new SpotifyPlaylistTracksResponse(src.Total, offset, limit, items));
         }
+
+        public Task<SpotifyPlaylistLookupResult> GetPlaylistAsync(string playlistId, CancellationToken ct = default) =>
+            Task.FromResult(new SpotifyPlaylistLookupResult(false, null, true, "not found"));
     }
 
     private sealed class TestScopeFactory(MusicHoarderDbContext db) : IServiceScopeFactory

@@ -9,6 +9,9 @@ public enum WishlistSourceType
 {
     LikedSongs,
     Playlist,
+
+    /// <summary>A Deezer editorial/discover playlist (keyed by <see cref="WishlistSource.DeezerPlaylistId"/>).</summary>
+    DeezerPlaylist,
 }
 
 /// <summary>
@@ -25,9 +28,20 @@ public class WishlistSource
 
     public WishlistSourceType SourceType { get; set; }
 
-    /// <summary>Spotify playlist id; null for <see cref="WishlistSourceType.LikedSongs"/>.</summary>
+    /// <summary>Spotify playlist id; null for <see cref="WishlistSourceType.LikedSongs"/> and Deezer sources.</summary>
     [MaxLength(64)]
     public string? SpotifyPlaylistId { get; set; }
+
+    /// <summary>Deezer playlist id; set only for <see cref="WishlistSourceType.DeezerPlaylist"/> sources.</summary>
+    [MaxLength(64)]
+    public string? DeezerPlaylistId { get; set; }
+
+    /// <summary>
+    /// Deezer's tracklist checksum from the last sync (<c>GET /playlist/{id}</c>). When it matches the
+    /// remote playlist's current checksum the sync skips paging the tracklist (nothing changed).
+    /// </summary>
+    [MaxLength(128)]
+    public string? RemoteChecksum { get; set; }
 
     [MaxLength(512)]
     public string Name { get; set; } = string.Empty;

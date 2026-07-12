@@ -216,6 +216,21 @@ public class MusicEnricherOptions
     [Range(1, 1440)]
     public int DeezerApiSearchCacheMinutes { get; set; } = 30;
 
+    /// <summary>How long to cache Deezer discover browse responses (genres, chart / search playlists,
+    /// playlist metadata + tracklists) in memory.</summary>
+    [Range(1, 1440)]
+    public int DeezerBrowseCacheMinutes { get; set; } = 10;
+
+    /// <summary>Default number of discover playlists to return from chart / search browse.</summary>
+    [Range(1, 100)]
+    public int DeezerBrowsePlaylistLimit { get; set; } = 30;
+
+    /// <summary>Max tracks fetched and returned for a single discover playlist detail view. The playlist's
+    /// real total is still reported in <c>trackCount</c>; this only bounds the tracklist paged in the
+    /// request path so a huge editorial playlist can't page thousands of tracks for a browse preview.</summary>
+    [Range(1, 10000)]
+    public int DiscoverDetailTrackLimit { get; set; } = 200;
+
     /// <summary>Minimum adjusted confidence to return any result from Deezer (&lt; this → no match).</summary>
     [Range(0.0, 1.0)]
     public double DeezerApiMinConfidence { get; set; } = 0.7;

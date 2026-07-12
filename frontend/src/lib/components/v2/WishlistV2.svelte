@@ -371,9 +371,18 @@
         <div class="divide-border divide-y">
           {#each sources as source (source.id)}
             <div class="hover:bg-secondary/40 flex items-center gap-3 rounded-md px-1 py-2.5 transition-colors">
-              <Music class="text-muted-foreground size-4 shrink-0" />
+              {#if source.imageUrl}
+                <img src={source.imageUrl} alt="" class="size-8 shrink-0 rounded object-cover" crossorigin="anonymous" />
+              {:else}
+                <Music class="text-muted-foreground size-4 shrink-0" />
+              {/if}
               <div class="min-w-0 flex-1">
-                <div class="truncate text-sm font-medium">{source.name}</div>
+                <div class="flex items-center gap-2">
+                  <span class="truncate text-sm font-medium">{source.name}</span>
+                  <Badge variant="outline" class="shrink-0 text-[10px]">
+                    {source.provider === 'deezer' ? 'Deezer' : 'Spotify'}
+                  </Badge>
+                </div>
                 <div class="text-muted-foreground text-xs">
                   {source.sourceType === 'LikedSongs' ? 'Liked Songs' : 'Playlist'} · {source.itemCount} tracks{source.lastSyncedAtUtc
                     ? ` · synced ${new Date(source.lastSyncedAtUtc).toLocaleString()}`

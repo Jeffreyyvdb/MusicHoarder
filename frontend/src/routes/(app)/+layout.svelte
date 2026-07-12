@@ -28,6 +28,7 @@
     '/artists': 'Artists',
     '/tracks': 'Tracks',
     '/liked': 'Liked songs',
+    '/discover': 'Discover',
     '/spotify': 'Spotify',
     '/wishlist': 'Wishlist',
     '/history': 'History',

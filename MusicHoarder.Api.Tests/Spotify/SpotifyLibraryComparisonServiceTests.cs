@@ -536,6 +536,9 @@ public class SpotifyLibraryComparisonServiceTests
 
         public Task<SpotifyPlaylistTracksResponse> GetPlaylistTracksAsync(string playlistId, int offset = 0, int limit = 50, CancellationToken ct = default) =>
             Task.FromResult(new SpotifyPlaylistTracksResponse(0, 0, 50, Array.Empty<SpotifyTrackItem>()));
+
+        public Task<SpotifyPlaylistLookupResult> GetPlaylistAsync(string playlistId, CancellationToken ct = default) =>
+            Task.FromResult(new SpotifyPlaylistLookupResult(false, null, true, "not found"));
     }
 
     private sealed class TestScopeFactory(MusicHoarderDbContext db) : IServiceScopeFactory

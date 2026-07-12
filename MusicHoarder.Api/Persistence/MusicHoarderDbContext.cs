@@ -225,6 +225,11 @@ public class MusicHoarderDbContext : DbContext
             // One source row per (user, kind, playlist). LikedSongs has a null playlist id, so a user
             // can only register their Liked Songs once; playlists are keyed by their Spotify id.
             entity.HasIndex(e => new { e.OwnerUserId, e.SourceType, e.SpotifyPlaylistId }).IsUnique();
+            // Deezer discover playlists are keyed by their Deezer id; the filtered unique index keeps
+            // one row per (user, kind, deezer playlist) without colliding with the null-Deezer rows above.
+            entity.HasIndex(e => new { e.OwnerUserId, e.SourceType, e.DeezerPlaylistId })
+                .IsUnique()
+                .HasFilter("\"DeezerPlaylistId\" IS NOT NULL");
 
             entity.HasQueryFilter(s => !hasUser || s.OwnerUserId == userId);
         });
@@ -232,8 +237,15 @@ public class MusicHoarderDbContext : DbContext
         modelBuilder.Entity<WishlistItem>(entity =>
         {
             entity.HasKey(e => e.Id);
-            // Natural cross-source dedupe: one wishlist row per (user, spotify track).
-            entity.HasIndex(e => new { e.OwnerUserId, e.SpotifyTrackId }).IsUnique();
+            // Natural cross-source dedupe: one wishlist row per (user, spotify track). Filtered so the
+            // many Deezer-sourced rows with a null Spotify id don't collide on the unique constraint.
+            entity.HasIndex(e => new { e.OwnerUserId, e.SpotifyTrackId })
+                .IsUnique()
+                .HasFilter("\"SpotifyTrackId\" IS NOT NULL");
+            // Cross-source dedupe by Deezer id (filtered — Spotify-sourced rows have a null Deezer id).
+            entity.HasIndex(e => new { e.OwnerUserId, e.DeezerTrackId })
+                .IsUnique()
+                .HasFilter("\"DeezerTrackId\" IS NOT NULL");
             // The download worker sweeps by owner + status.
             entity.HasIndex(e => new { e.OwnerUserId, e.Status });
 

@@ -100,23 +100,56 @@ public class WishlistSyncBackgroundServiceTests
         Assert.Equal("Idle", jobManager.GetStepSnapshot(JobType.Download).Status);
     }
 
+    [Fact]
+    public async Task SyncOnce_SpotifyDisconnected_StillSyncsDeezerAutoSyncSource()
+    {
+        // A Deezer-only user: Spotify isn't connected, but their subscribed Deezer playlist must still
+        // resync (Deezer uses the free public API, not the Spotify account).
+        var jobManager = new JobManager();
+        var deezer = new MusicHoarder.Api.Tests.Deezer.FakeDeezerCatalogService();
+        deezer.Playlists["pl1"] = new MusicHoarder.Api.Deezer.DeezerPlaylistSummary(
+            "pl1", "RapCaviar", null, null, 1, null, "chk-1");
+        deezer.PlaylistTracks["pl1"] =
+            [new MusicHoarder.Api.Deezer.DeezerPlaylistTrack("d1", "Song One", "Artist A", null, 200_000, null)];
+
+        var (svc, db) = BuildService(jobManager, enableDownloads: false, autoDownload: false,
+            liked: [], spotifyConnected: false, deezer: deezer,
+            seedExtra: ctx => ctx.WishlistSources.Add(new WishlistSource
+            {
+                OwnerUserId = Owner,
+                SourceType = WishlistSourceType.DeezerPlaylist,
+                DeezerPlaylistId = "pl1",
+                Name = "RapCaviar",
+                AutoSync = true,
+                CreatedAtUtc = DateTime.UtcNow,
+            }));
+
+        var added = await svc.SyncOnceAsync(full: true, CancellationToken.None);
+
+        Assert.Equal(1, added);
+        Assert.Equal(1, await db.WishlistItems.IgnoreQueryFilters().CountAsync());
+    }
+
     private static (WishlistSyncBackgroundService Svc, MusicHoarderDbContext Db) BuildService(
         JobManager jobManager, bool enableDownloads, bool autoDownload, List<SpotifyTrackItem> liked,
-        ICurrentUserAccessor? scopeUser = null)
+        ICurrentUserAccessor? scopeUser = null, bool spotifyConnected = true,
+        MusicHoarder.Api.Tests.Deezer.FakeDeezerCatalogService? deezer = null,
+        Action<MusicHoarderDbContext>? seedExtra = null)
     {
         var dbOptions = new DbContextOptionsBuilder<MusicHoarderDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
             .Options;
 
-        // Seed a connected Spotify settings row and an auto-synced Liked Songs source.
+        // Seed an (optionally connected) Spotify settings row and an auto-synced Liked Songs source.
         using (var seed = new MusicHoarderDbContext(dbOptions))
         {
-            seed.SpotifySettings.Add(new SpotifySettings
-            {
-                OwnerUserId = Owner,
-                AccessToken = "access",
-                RefreshToken = "refresh",
-            });
+            if (spotifyConnected)
+                seed.SpotifySettings.Add(new SpotifySettings
+                {
+                    OwnerUserId = Owner,
+                    AccessToken = "access",
+                    RefreshToken = "refresh",
+                });
             seed.WishlistSources.Add(new WishlistSource
             {
                 OwnerUserId = Owner,
@@ -125,6 +158,7 @@ public class WishlistSyncBackgroundServiceTests
                 AutoSync = true,
                 CreatedAtUtc = DateTime.UtcNow,
             });
+            seedExtra?.Invoke(seed);
             seed.SaveChanges();
         }
 
@@ -135,6 +169,9 @@ public class WishlistSyncBackgroundServiceTests
             ? new MusicHoarderDbContext(dbOptions)
             : new MusicHoarderDbContext(dbOptions, scopeUser));
         services.AddSingleton<ISpotifyApiService>(api);
+        services.AddSingleton<MusicHoarder.Api.Deezer.IDeezerCatalogService>(
+            deezer ?? new MusicHoarder.Api.Tests.Deezer.FakeDeezerCatalogService());
+        services.AddSingleton<ISpotifyIsrcResolver, MusicHoarder.Api.Tests.Deezer.FakeSpotifyIsrcResolver>();
         services.AddScoped<IWishlistService, WishlistService>();
         var provider = services.BuildServiceProvider();
 
@@ -192,5 +229,8 @@ public class WishlistSyncBackgroundServiceTests
 
         public Task<SpotifyPlaylistTracksResponse> GetPlaylistTracksAsync(string playlistId, int offset = 0, int limit = 50, CancellationToken ct = default) =>
             Task.FromResult(new SpotifyPlaylistTracksResponse(0, offset, limit, []));
+
+        public Task<SpotifyPlaylistLookupResult> GetPlaylistAsync(string playlistId, CancellationToken ct = default) =>
+            Task.FromResult(new SpotifyPlaylistLookupResult(false, null, true, "not found"));
     }
 }
