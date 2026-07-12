@@ -38,7 +38,7 @@ public class YtDlpDownloadProvider(
             var stem = Guid.NewGuid().ToString("N");
             var outputTemplate = Path.Combine(req.DestinationDirectory, stem + ".%(ext)s");
 
-            var query = BuildSearchQuery(req);
+            var target = BuildTarget(req);
 
             var psi = new ProcessStartInfo(opts.YtDlpPath)
             {
@@ -96,7 +96,7 @@ public class YtDlpDownloadProvider(
                 psi.ArgumentList.Add(extra);
             psi.ArgumentList.Add("-o");
             psi.ArgumentList.Add(outputTemplate);
-            psi.ArgumentList.Add(query);
+            psi.ArgumentList.Add(target);
 
             using var process = new Process { StartInfo = psi };
             process.Start();
@@ -115,11 +115,11 @@ public class YtDlpDownloadProvider(
             // No file came out. Distinguish "nothing matched" from a real failure.
             if (process.ExitCode == 0 || LooksLikeNoResults(stderr))
             {
-                logger.LogInformation("yt-dlp found no result for '{Query}': {Error}", LogSanitizer.ForLog(query), LogSanitizer.ForLog(Truncate(stderr)));
+                logger.LogInformation("yt-dlp found no result for '{Target}': {Error}", LogSanitizer.ForLog(target), LogSanitizer.ForLog(Truncate(stderr)));
                 return DownloadResult.Missing(stderr.Length == 0 ? "no results" : Truncate(stderr));
             }
 
-            logger.LogWarning("yt-dlp exited {Code} for '{Query}': {Error}", process.ExitCode, LogSanitizer.ForLog(query), LogSanitizer.ForLog(Truncate(stderr)));
+            logger.LogWarning("yt-dlp exited {Code} for '{Target}': {Error}", process.ExitCode, LogSanitizer.ForLog(target), LogSanitizer.ForLog(Truncate(stderr)));
             return DownloadResult.Failed($"exited {process.ExitCode}: {Truncate(stderr)}");
         }
         catch (OperationCanceledException)
@@ -133,6 +133,14 @@ public class YtDlpDownloadProvider(
             return DownloadResult.Failed(ex.Message);
         }
     }
+
+    /// <summary>
+    /// The yt-dlp target argument: a single-track URL import (<see cref="DownloadRequest.SourceUrl"/>,
+    /// e.g. a pasted YouTube video) downloads that exact URL; everything else searches YouTube by
+    /// artist/title. <c>--no-playlist</c> keeps a "watch?v=…&amp;list=…" link to just the one video.
+    /// </summary>
+    internal static string BuildTarget(DownloadRequest req) =>
+        string.IsNullOrWhiteSpace(req.SourceUrl) ? BuildSearchQuery(req) : req.SourceUrl.Trim();
 
     internal static string BuildSearchQuery(DownloadRequest req)
     {

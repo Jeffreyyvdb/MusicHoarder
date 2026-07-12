@@ -482,6 +482,9 @@ public class SpotifyApiEnrichmentProviderTests
             return handler(query);
         }
 
+        public Task<SpotifyCatalogTrack?> GetTrackAsync(string clientId, string clientSecret, string trackId, CancellationToken ct = default)
+            => Task.FromResult<SpotifyCatalogTrack?>(null);
+
         public Task<string?> GetTrackAlbumIdAsync(string clientId, string clientSecret, string trackId, CancellationToken ct = default)
             => Task.FromResult<string?>(null);
 

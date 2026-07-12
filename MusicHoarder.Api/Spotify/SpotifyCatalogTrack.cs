@@ -16,7 +16,8 @@ public record SpotifyCatalogTrack(
     int? DiscNumber = null,
     string? AlbumType = null,
     int? TotalTracks = null,
-    string? AlbumId = null);
+    string? AlbumId = null,
+    string? AlbumArtUrl = null);
 
 /// <summary>A Spotify album with its full tracklist (from <c>GET /v1/albums/{id}</c>).</summary>
 public record SpotifyAlbumDetail(

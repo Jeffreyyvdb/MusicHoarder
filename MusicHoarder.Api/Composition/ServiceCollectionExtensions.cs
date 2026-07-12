@@ -251,6 +251,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDownloadProvider, StreamingFlacDownloadProvider>();
         services.AddScoped<WishlistDownloadProcessor>();
         services.AddHostedService<DownloadBackgroundService>();
+        // Single-track URL import: resolves a pasted YouTube video's metadata via a yt-dlp probe.
+        services.AddSingleton<Import.IYouTubeMetadataResolver, Import.YouTubeMetadataResolver>();
 
         // Manual Soulseek quality upgrades: search/download worker + the merge sweep that swaps a
         // verified better file into the target row (Id-preserving).

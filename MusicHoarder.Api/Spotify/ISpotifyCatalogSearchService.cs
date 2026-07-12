@@ -11,6 +11,9 @@ public interface ISpotifyCatalogSearchService
         string query,
         CancellationToken ct = default);
 
+    /// <summary>Fetches a single track's full metadata (<c>GET /v1/tracks/{id}</c>); null if not found.</summary>
+    Task<SpotifyCatalogTrack?> GetTrackAsync(string clientId, string clientSecret, string trackId, CancellationToken ct = default);
+
     /// <summary>Resolves the album id that a track belongs to (<c>GET /v1/tracks/{id}</c>).</summary>
     Task<string?> GetTrackAlbumIdAsync(string clientId, string clientSecret, string trackId, CancellationToken ct = default);
 

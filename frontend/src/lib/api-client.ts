@@ -1716,6 +1716,59 @@ export async function triggerWishlistDownload(): Promise<{ jobId: string }> {
   return requestJson<{ jobId: string }>("/api/wishlist/download", { method: "POST" })
 }
 
+// ── Add from URL (single-track import) ─────────────────────────────────────────
+// Paste a Spotify track or YouTube video URL → resolve to editable metadata → queue a download.
+// The download flows through the normal pipeline and (on a Push instance) auto-syncs to the public
+// receiver once built.
+
+export type ImportSource = "spotify" | "youtube"
+
+export interface ImportResolveResult {
+  source: ImportSource
+  title: string
+  artist: string
+  album: string | null
+  durationMs: number
+  coverUrl: string | null
+  spotifyTrackId: string | null
+  isrc: string | null
+  sourceUrl: string | null
+}
+
+export interface ImportTrackPayload {
+  source: ImportSource
+  title: string
+  artist: string
+  album?: string | null
+  durationMs?: number | null
+  coverUrl?: string | null
+  spotifyTrackId?: string | null
+  isrc?: string | null
+  sourceUrl?: string | null
+}
+
+export interface ImportTrackResult {
+  wishlistItemId: number
+  jobStarted: boolean
+  jobId: string | null
+}
+
+/** Resolve a pasted Spotify/YouTube track URL into editable, download-ready metadata. */
+export async function resolveImportUrl(url: string): Promise<ImportResolveResult> {
+  return requestJson<ImportResolveResult>("/api/import/resolve", {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  })
+}
+
+/** Queue a resolved (possibly edited) track for download. */
+export async function importTrack(payload: ImportTrackPayload): Promise<ImportTrackResult> {
+  return requestJson<ImportTrackResult>("/api/import", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
 // ── Discover (editorial / chart playlists, sourced from Deezer) ────────────────
 // Spotify's API blocks editorial playlists for personal apps, so the browse/chart/search
 // catalog comes from Deezer. Subscribing routes through the existing wishlist source pipeline

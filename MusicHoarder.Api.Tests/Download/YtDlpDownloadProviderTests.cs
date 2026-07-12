@@ -90,6 +90,24 @@ public class YtDlpDownloadProviderTests
         Assert.Equal("ytsearch1:Some Song", YtDlpDownloadProvider.BuildSearchQuery(req));
     }
 
+    [Fact]
+    public void BuildTarget_UsesSourceUrlDirectly_ForUrlImports()
+    {
+        // A single-track URL import must download that exact URL, not an artist/title search — the only
+        // way to acquire a specific YouTube remix that has no streaming-service equivalent.
+        var req = new DownloadRequest("DJ Cool", "Summer Remix", null, null, 1000, "/tmp",
+            SourceUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+
+        Assert.Equal("https://www.youtube.com/watch?v=dQw4w9WgXcQ", YtDlpDownloadProvider.BuildTarget(req));
+    }
+
+    [Fact]
+    public void BuildTarget_FallsBackToSearch_WhenNoSourceUrl()
+    {
+        var req = new DownloadRequest("Artist", "Song", null, null, 1000, "/tmp");
+        Assert.Equal("ytsearch1:Artist Song", YtDlpDownloadProvider.BuildTarget(req));
+    }
+
     [Theory]
     [InlineData("ERROR: Unable to download webpage", true)]
     [InlineData("no results found", true)]
