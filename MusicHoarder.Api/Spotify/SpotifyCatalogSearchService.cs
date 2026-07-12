@@ -125,6 +125,23 @@ public sealed class SpotifyCatalogSearchService(
         return [];
     }
 
+    public async Task<SpotifyCatalogTrack?> GetTrackAsync(string clientId, string clientSecret, string trackId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(trackId)) return null;
+        var json = await GetApiJsonAsync(clientId, clientSecret, $"https://api.spotify.com/v1/tracks/{Uri.EscapeDataString(trackId)}", ct);
+        if (json is null) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            // A /v1/tracks/{id} object has the same shape as a search-result track item.
+            return ParseTrack(doc.RootElement);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     public async Task<string?> GetTrackAlbumIdAsync(string clientId, string clientSecret, string trackId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(trackId)) return null;
@@ -448,6 +465,7 @@ public sealed class SpotifyCatalogSearchService(
         string? albumType = null;
         int? totalTracks = null;
         string? albumId = null;
+        string? albumArtUrl = null;
         if (track.TryGetProperty("album", out var album) && album.ValueKind == JsonValueKind.Object)
         {
             if (album.TryGetProperty("name", out var alName) && alName.ValueKind == JsonValueKind.String)
@@ -464,6 +482,15 @@ public sealed class SpotifyCatalogSearchService(
 
             if (album.TryGetProperty("id", out var aid) && aid.ValueKind == JsonValueKind.String)
                 albumId = aid.GetString();
+
+            // First image is the largest (640px). Used by the single-track URL-import preview.
+            if (album.TryGetProperty("images", out var imgs) && imgs.ValueKind == JsonValueKind.Array)
+                foreach (var img in imgs.EnumerateArray())
+                    if (img.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String)
+                    {
+                        albumArtUrl = u.GetString();
+                        break;
+                    }
         }
 
         int? trackNumber = null;
@@ -482,6 +509,6 @@ public sealed class SpotifyCatalogSearchService(
         return new SpotifyCatalogTrack(
             id, name, artist, albumName, releaseYear, trackNumber, durationMs, isrc,
             Artists: artistsMulti, DiscNumber: discNumber, AlbumType: albumType, TotalTracks: totalTracks,
-            AlbumId: albumId);
+            AlbumId: albumId, AlbumArtUrl: albumArtUrl);
     }
 }

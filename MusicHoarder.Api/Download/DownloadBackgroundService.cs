@@ -125,9 +125,12 @@ public class DownloadBackgroundService(
                 jobManager.SignalComplete(jobId, wasCancelled);
 
                 // New files landed in the source tree — wake the scanner so the pipeline ingests them.
+                // Flag the scan to cascade all the way to the library even when AutoStartPipeline is off:
+                // a download/import is an explicit acquisition, so it shouldn't stall in manual mode.
                 if (!wasCancelled && producedFiles
                     && jobManager.TryStartJob(JobType.Scan, out var scanJobId, out _))
                 {
+                    jobManager.MarkForcePipelineCascade(scanJobId);
                     logger.LogInformation("Auto-triggered scan {ScanJobId} after download run {RunId}", scanJobId, jobId);
                 }
 

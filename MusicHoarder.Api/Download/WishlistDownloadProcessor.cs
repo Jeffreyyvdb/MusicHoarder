@@ -99,7 +99,7 @@ public class WishlistDownloadProcessor(
                 new ParallelOptions { MaxDegreeOfParallelism = opts.DownloadConcurrency, CancellationToken = ct },
                 async (item, token) =>
                 {
-                    var req = new DownloadRequest(item.Artist, item.Title, item.Album, item.Isrc, item.DurationMs, destinationDir, item.SpotifyTrackId);
+                    var req = new DownloadRequest(item.Artist, item.Title, item.Album, item.Isrc, item.DurationMs, destinationDir, item.SpotifyTrackId, item.SourceUrl);
                     // Provider chain: fall through to the next provider only on NotFound. A transient
                     // Error stops the chain — the item goes Failed and the next sweep retries from the
                     // top, so a flaky first provider can't silently burn the fallback's quota.

@@ -1,7 +1,12 @@
 <script lang="ts">
+  import { Plus } from '@lucide/svelte';
   import { page } from '$app/state';
   import * as Sidebar from '$lib/components/ui/sidebar';
+  import { Button } from '$lib/components/ui/button';
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
+  import AddFromUrlDialog from '$lib/components/v2/AddFromUrlDialog.svelte';
+
+  let addOpen = $state(false);
 
   // macOS-Music-style window title: the current section name rendered in the
   // bar itself, so wayfinding survives a collapsed sidebar and the mobile
@@ -51,6 +56,18 @@
     </span>
   {/if}
   <div class="ml-auto flex items-center gap-1.5">
+    <Button
+      variant="outline"
+      size="sm"
+      class="h-8 gap-1.5 px-2.5"
+      onclick={() => (addOpen = true)}
+      title="Add a track from a Spotify or YouTube URL"
+    >
+      <Plus class="size-4" />
+      <span class="hidden text-[12.5px] sm:inline">Add</span>
+    </Button>
     <ThemeToggle />
   </div>
 </header>
+
+<AddFromUrlDialog bind:open={addOpen} />

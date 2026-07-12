@@ -72,13 +72,17 @@ public class ScannerBackgroundService(
 
                 jobManager.SignalComplete(jobId);
 
-                if (options.Value.AutoStartPipeline
+                // Always consume the one-shot flag (even in auto mode) so it never leaks. A
+                // download/import-initiated scan cascades to fingerprint regardless of AutoStartPipeline
+                // so the explicitly-acquired track flows to the library instead of stalling in manual mode.
+                var forceCascade = jobManager.ConsumeForcePipelineCascade(jobId);
+                if ((options.Value.AutoStartPipeline || forceCascade)
                     && newOrChanged > 0
                     && jobManager.TryStartJob(JobType.Fingerprint, out var fpJobId, out _))
                 {
                     logger.LogInformation(
-                        "Auto-triggered fingerprint job {FpJobId} after scan {ScanJobId}",
-                        fpJobId, jobId);
+                        "Auto-triggered fingerprint job {FpJobId} after scan {ScanJobId}{Forced}",
+                        fpJobId, jobId, forceCascade && !options.Value.AutoStartPipeline ? " (acquisition-forced)" : "");
                 }
             }
             catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)

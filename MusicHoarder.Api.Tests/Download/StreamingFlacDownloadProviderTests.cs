@@ -230,6 +230,7 @@ public class StreamingFlacDownloadProviderTests : IDisposable
 
         public Task<IReadOnlyList<SpotifyCatalogTrack>> SearchTracksAsync(string clientId, string clientSecret, string query, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<SpotifyCatalogTrack>>([]);
+        public Task<SpotifyCatalogTrack?> GetTrackAsync(string clientId, string clientSecret, string trackId, CancellationToken ct = default) => Task.FromResult<SpotifyCatalogTrack?>(null);
         public Task<string?> GetTrackAlbumIdAsync(string clientId, string clientSecret, string trackId, CancellationToken ct = default) => Task.FromResult<string?>(null);
         public Task<string?> SearchAlbumIdAsync(string clientId, string clientSecret, string artist, string album, CancellationToken ct = default) => Task.FromResult<string?>(null);
         public Task<SpotifyAlbumDetail?> GetAlbumAsync(string clientId, string clientSecret, string albumId, CancellationToken ct = default) => Task.FromResult<SpotifyAlbumDetail?>(null);

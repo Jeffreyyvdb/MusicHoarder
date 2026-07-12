@@ -44,6 +44,15 @@ public class WishlistItem
     [MaxLength(64)]
     public string? DeezerTrackId { get; set; }
 
+    /// <summary>
+    /// Direct source URL for single-track URL imports (e.g. a pasted YouTube video). When set, the
+    /// downloader fetches this exact URL instead of searching by artist/title — the only way to acquire
+    /// a specific YouTube remix/edit that has no Spotify/streaming equivalent. Null for playlist-sourced
+    /// items, which resolve by identity through the provider chain.
+    /// </summary>
+    [MaxLength(2048)]
+    public string? SourceUrl { get; set; }
+
     [MaxLength(512)]
     public string Title { get; set; } = string.Empty;
 

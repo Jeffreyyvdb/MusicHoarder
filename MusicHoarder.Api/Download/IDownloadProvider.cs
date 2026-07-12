@@ -10,6 +10,12 @@ namespace MusicHoarder.Api.Download;
 /// <c>https://open.spotify.com/track/{id}</c> from it). yt-dlp / slskd ignore it and match on
 /// artist/title/album instead.
 /// </para>
+/// <para>
+/// <paramref name="SourceUrl"/> is an optional direct URL for a single-track URL import (e.g. a pasted
+/// YouTube video). When set, yt-dlp downloads that exact URL instead of searching by artist/title —
+/// required for content (remixes/edits) that has no streaming-service equivalent. Providers that can't
+/// use a raw URL ignore it.
+/// </para>
 /// </summary>
 public record DownloadRequest(
     string Artist,
@@ -18,7 +24,8 @@ public record DownloadRequest(
     string? Isrc,
     int DurationMs,
     string DestinationDirectory,
-    string? SpotifyTrackId = null);
+    string? SpotifyTrackId = null,
+    string? SourceUrl = null);
 
 /// <summary>
 /// Outcome of a download attempt. <paramref name="NotFound"/> distinguishes "no result for this
