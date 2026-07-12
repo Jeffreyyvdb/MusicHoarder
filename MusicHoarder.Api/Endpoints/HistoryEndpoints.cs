@@ -107,6 +107,7 @@ public static class HistoryEndpoints
         var trackEvents = events.Where(e => e.Kind == LibraryWriteEventKind.TrackTagsWritten).ToList();
         foreach (var albumGroup in trackEvents.GroupBy(e => e.AlbumFolder ?? ""))
         {
+            var albumFolder = albumGroup.Key;
             var albumArtist = albumGroup.First().AlbumArtist;
             var album = albumGroup.First().Album;
 
@@ -123,7 +124,7 @@ public static class HistoryEndpoints
                 var headline = releaseCount > 1
                     ? $"Album {Quote(album)} consolidated from {releaseCount} releases across {Plural(trackCount, "track")}"
                     : $"Album {Quote(album)} consolidated across {Plural(trackCount, "track")}";
-                summaries.Add(BuildSummary("consolidation", headline, albumArtist, album, trackCount, consolidation, titleById));
+                summaries.Add(BuildSummary("consolidation", headline, albumFolder, albumArtist, album, trackCount, consolidation, titleById));
             }
 
             // Artist rename: group by old → new.
@@ -134,7 +135,7 @@ public static class HistoryEndpoints
                 var headline = rename.Key.OldValue is null
                     ? $"Artist set to {Quote(rename.Key.NewValue)} on {Plural(trackCount, "track")}"
                     : $"Artist renamed {Quote(rename.Key.OldValue)} → {Quote(rename.Key.NewValue)} on {Plural(trackCount, "track")}";
-                summaries.Add(BuildSummary("artist-rename", headline, albumArtist, album, trackCount, rename.ToList(), titleById));
+                summaries.Add(BuildSummary("artist-rename", headline, albumFolder, albumArtist, album, trackCount, rename.ToList(), titleById));
             }
 
             // Year correction: group by old → new.
@@ -145,7 +146,7 @@ public static class HistoryEndpoints
                 var headline = year.Key.OldValue is null
                     ? $"Year set to {year.Key.NewValue} for {Quote(album)}"
                     : $"Year corrected {year.Key.OldValue} → {year.Key.NewValue} for {Quote(album)}";
-                summaries.Add(BuildSummary("year-correction", headline, albumArtist, album, trackCount, year.ToList(), titleById));
+                summaries.Add(BuildSummary("year-correction", headline, albumFolder, albumArtist, album, trackCount, year.ToList(), titleById));
             }
 
             // Everything else: a generic tag rewrite.
@@ -156,7 +157,7 @@ public static class HistoryEndpoints
                 summaries.Add(BuildSummary(
                     "tags",
                     $"Tags updated on {Plural(trackCount, "track")} of {Quote(album)}",
-                    albumArtist, album, trackCount, tags, titleById));
+                    albumFolder, albumArtist, album, trackCount, tags, titleById));
             }
         }
 
@@ -166,7 +167,7 @@ public static class HistoryEndpoints
     }
 
     private static HistorySummary BuildSummary(
-        string kind, string headline, string? albumArtist, string? album, int trackCount,
+        string kind, string headline, string? albumFolder, string? albumArtist, string? album, int trackCount,
         List<LibraryWriteEvent> source, IReadOnlyDictionary<int, string?> titleById)
     {
         var changes = source
@@ -174,7 +175,10 @@ public static class HistoryEndpoints
             .Select(e => ToRawChange(e, titleById))
             .ToList();
         return new HistorySummary(
-            Id: StableId(kind, album, headline, null),
+            // Keyed on the album FOLDER (what RollUp groups by), not the display name: one album can
+            // span two folders with the same name (rename/move), and name-keyed ids would collide —
+            // producing duplicate keys that crash the timeline/history {#each}.
+            Id: StableId(kind, albumFolder, headline, null),
             Kind: kind,
             Headline: headline,
             AlbumArtist: albumArtist,
