@@ -3,7 +3,9 @@ using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Contracts;
 using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Navidrome;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Sync;
 
 namespace MusicHoarder.Api.Endpoints;
 
@@ -79,25 +81,43 @@ public static class SongsEndpoints
         return app;
     }
 
-    internal static async Task<IResult> LikeSong(int id, MusicHoarderDbContext db, CancellationToken ct)
+    internal static async Task<IResult> LikeSong(
+        int id, MusicHoarderDbContext db, INavidromeLikeEnqueuer navidrome,
+        ITrackSyncEnqueuer trackSync, CancellationToken ct)
     {
         var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null, ct);
         if (song is null)
             return Results.NotFound(new { message = $"Song with id {id} not found." });
 
+        var wasLiked = song.IsLiked;
         song.LikedAtUtc ??= DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
+        // Propagate on the flip only (idempotent re-likes needn't re-sync). Both enqueuers are inert
+        // unless their feature is configured — Navidrome creds / sync Push mode respectively.
+        if (!wasLiked)
+        {
+            navidrome.TryEnqueue(song.Id, song.OwnerUserId);
+            trackSync.TryEnqueue(song.Id, song.OwnerUserId);
+        }
         return Results.Ok(new { song.Id, song.LikedAtUtc });
     }
 
-    internal static async Task<IResult> UnlikeSong(int id, MusicHoarderDbContext db, CancellationToken ct)
+    internal static async Task<IResult> UnlikeSong(
+        int id, MusicHoarderDbContext db, INavidromeLikeEnqueuer navidrome,
+        ITrackSyncEnqueuer trackSync, CancellationToken ct)
     {
         var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id, ct);
         if (song is null)
             return Results.NotFound(new { message = $"Song with id {id} not found." });
 
+        var wasLiked = song.IsLiked;
         song.LikedAtUtc = null;
         await db.SaveChangesAsync(ct);
+        if (wasLiked)
+        {
+            navidrome.TryEnqueue(song.Id, song.OwnerUserId);
+            trackSync.TryEnqueue(song.Id, song.OwnerUserId);
+        }
         return Results.Ok(new { song.Id, LikedAtUtc = (DateTime?)null });
     }
 

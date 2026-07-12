@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MusicHoarder.Api.Persistence;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MusicHoarder.Api.Persistence.Migrations
 {
     [DbContext(typeof(MusicHoarderDbContext))]
-    partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260712100547_AddTrackSyncSyncedLiked")]
+    partial class AddTrackSyncSyncedLiked
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1532,10 +1535,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("DeezerTrackId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
                     b.Property<string>("DownloadProvider")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
@@ -1565,6 +1564,7 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("SpotifyTrackId")
+                        .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
@@ -1588,13 +1588,8 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.HasIndex("WishlistSourceId");
 
-                    b.HasIndex("OwnerUserId", "DeezerTrackId")
-                        .IsUnique()
-                        .HasFilter("\"DeezerTrackId\" IS NOT NULL");
-
                     b.HasIndex("OwnerUserId", "SpotifyTrackId")
-                        .IsUnique()
-                        .HasFilter("\"SpotifyTrackId\" IS NOT NULL");
+                        .IsUnique();
 
                     b.HasIndex("OwnerUserId", "Status");
 
@@ -1615,10 +1610,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("DeezerPlaylistId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
                     b.Property<string>("ImageUrl")
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
@@ -1634,10 +1625,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<Guid>("OwnerUserId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("RemoteChecksum")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
                     b.Property<int>("SourceType")
                         .HasColumnType("integer");
 
@@ -1646,10 +1633,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .HasColumnType("character varying(64)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("OwnerUserId", "SourceType", "DeezerPlaylistId")
-                        .IsUnique()
-                        .HasFilter("\"DeezerPlaylistId\" IS NOT NULL");
 
                     b.HasIndex("OwnerUserId", "SourceType", "SpotifyPlaylistId")
                         .IsUnique();

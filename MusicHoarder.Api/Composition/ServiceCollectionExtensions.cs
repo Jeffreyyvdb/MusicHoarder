@@ -15,6 +15,7 @@ using MusicHoarder.Api.Enrichment.AlbumTracklist.Providers;
 using MusicHoarder.Api.Enrichment.Providers;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Library;
+using MusicHoarder.Api.Navidrome;
 using MusicHoarder.Api.Observability;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -71,6 +72,13 @@ public static class ServiceCollectionExtensions
             .ValidateDataAnnotations()
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<SyncOptions>, SyncOptionsValidator>();
+
+        services
+            .AddOptions<NavidromeOptions>()
+            .BindConfiguration(NavidromeOptions.SectionName)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<NavidromeOptions>, NavidromeOptionsValidator>();
 
         services
             .AddOptions<SpotifyOptions>()
@@ -250,6 +258,17 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<ILogger<SyncPushClient>>()));
         services.AddScoped<TrackSyncProcessor>();
         services.AddHostedService<TrackSyncBackgroundService>();
+
+        // Two-way like/favorite sync with Navidrome (Subsonic star/unstar). Inert unless configured.
+        // The Subsonic client uses an infinite HttpClient timeout; per-call CTS owns the deadline.
+        services.AddSingleton<INavidromeClient>(sp => new NavidromeSubsonicClient(
+            new HttpClient { Timeout = Timeout.InfiniteTimeSpan },
+            sp.GetRequiredService<IOptionsMonitor<NavidromeOptions>>(),
+            sp.GetRequiredService<ILogger<NavidromeSubsonicClient>>()));
+        services.AddSingleton<NavidromeLikeSyncChannel>();
+        services.AddSingleton<INavidromeLikeEnqueuer, NavidromeLikeEnqueuer>();
+        services.AddScoped<NavidromeLikeReconciler>();
+        services.AddHostedService<NavidromeLikeSyncBackgroundService>();
 
         // Multi-provider canonical album tracklists (full-album view, missing tracks greyed out).
         services.AddSingleton<IAlbumTracklistProvider, MusicBrainzAlbumTracklistProvider>();

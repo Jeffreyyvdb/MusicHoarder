@@ -90,4 +90,24 @@ public sealed record SyncTrackPayload(
     string? PlainLyrics,
     string? SyncedLyrics,
     bool? IsInstrumental,
-    LyricsStatus LyricsStatus);
+    LyricsStatus LyricsStatus,
+    // User signals — the pusher's like rides along so a full sync carries it. Optional so an older
+    // pusher (no field) deserializes as "not liked" rather than failing.
+    DateTime? LikedAtUtc = null);
+
+/// <summary>
+/// Metadata-only like update for a track already present on the remote (no file re-upload). Identity
+/// travels as the same portable ladder inputs as <see cref="SyncCheckRequest"/>; the receiver matches
+/// and sets its <see cref="SongMetadata.LikedAtUtc"/>. Pusher is authoritative (the sync is one-way,
+/// Push → Receive), so this simply overwrites the remote's like for the track.
+/// </summary>
+public sealed record SyncLikeRequest(
+    string? Fingerprint,
+    string? AcoustIdTrackId,
+    string? MusicBrainzId,
+    string? Artist,
+    string? Title,
+    int? DurationMs,
+    DateTime? LikedAtUtc);
+
+public sealed record SyncLikeResponse(bool Matched, int? SongId);

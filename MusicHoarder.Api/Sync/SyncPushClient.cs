@@ -14,6 +14,9 @@ public interface ISyncPushClient
 
     /// <summary>Uploads the file at <paramref name="filePath"/> with its metadata payload.</summary>
     Task<SyncUploadResponse?> UploadAsync(SyncTrackPayload payload, string filePath, CancellationToken ct);
+
+    /// <summary>Pushes a like-only change (no file) for a track already present on the remote.</summary>
+    Task<SyncLikeResponse?> PushLikeAsync(SyncLikeRequest request, CancellationToken ct);
 }
 
 /// <summary>
@@ -65,6 +68,20 @@ public sealed class SyncPushClient(
         using var response = await httpClient.SendAsync(message, timeout.Token);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<SyncUploadResponse>(JsonOpts, timeout.Token);
+    }
+
+    public async Task<SyncLikeResponse?> PushLikeAsync(SyncLikeRequest request, CancellationToken ct)
+    {
+        var opts = options.CurrentValue;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(opts.CheckTimeoutSeconds));
+
+        using var message = NewRequest(HttpMethod.Post, "/api/sync/like", opts);
+        message.Content = new StringContent(JsonSerializer.Serialize(request, JsonOpts), Encoding.UTF8, "application/json");
+
+        using var response = await httpClient.SendAsync(message, timeout.Token);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<SyncLikeResponse>(JsonOpts, timeout.Token);
     }
 
     private static HttpRequestMessage NewRequest(HttpMethod method, string path, SyncOptions opts)
