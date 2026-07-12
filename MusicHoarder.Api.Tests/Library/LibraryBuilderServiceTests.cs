@@ -1029,6 +1029,37 @@ public class LibraryBuilderServiceTests
     // --- Post-selection race: a candidate flips to non-Matched before build (#330) ---
 
     [Fact]
+    public async Task ProcessNextBatchAsync_TwoCopiesResolveToSameDestinationPath_RetiresLoserInSameSweep()
+    {
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            ["/source/a/track.mp3"] = new("small"),
+            ["/source/b/track.mp3"] = new("much-bigger-bytes")
+        });
+
+        await using var db = CreateDbContext();
+        // Same tags + same extension => byte-identical destination path, but two different source files
+        // (a re-download from another folder). Different encodings never share a fingerprint, so the
+        // fingerprint duplicate pass misses them and both reach the builder claiming the same file.
+        var small = CreateMatchedSong("/source/a/track.mp3", 5);
+        var big = CreateMatchedSong("/source/b/track.mp3", 500);
+        db.Songs.AddRange(small, big);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter());
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        // The bigger copy wins the single destination file; the loser is retired as a duplicate in the
+        // same sweep, so the two rows can never alternate over the file (the re-tag churn root cause).
+        Assert.Equal(1, result.TotalTracks);
+        Assert.Equal(1, result.Done);
+        Assert.Equal(LibraryBuildStatus.Done, (await db.Songs.SingleAsync(s => s.Id == big.Id)).LibraryBuildStatus);
+        var loser = await db.Songs.SingleAsync(s => s.Id == small.Id);
+        Assert.True(loser.IsDuplicate);
+        Assert.Equal(big.Id, loser.DuplicateOfId);
+    }
+
+    [Fact]
     public async Task ProcessNextBatchAsync_MarksFailedWithoutLooping_WhenCandidateFlipsToNonMatchedBeforeBuild()
     {
         // Reproduces the builder hot-loop: a candidate is selected while Matched, but a concurrent

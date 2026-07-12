@@ -406,24 +406,61 @@ public class LibraryBuilderService(
                 ? await BuildLogicalAlbumIdentityMapAsync(db, rawCandidates, ct)
                 : new Dictionary<AlbumGroupKey, AlbumIdentity>();
 
-            var uniqueDestinationPaths = new HashSet<string>(StringComparer.Ordinal);
+            // Resolve each candidate's destination from its elected identity (folder deterministic), then
+            // collapse rows that resolve to the SAME path: the best copy wins the file, a same-title loser
+            // is retired as a duplicate (that alternation over one file is what kept some albums churning),
+            // and a different-title collision is deferred as before.
             var pathDeduped = new List<(SongMetadata Song, string DestinationPath, string FolderKey, AlbumIdentity? Identity)>();
-            foreach (var candidateSong in rawCandidates)
+            var pathCollisionDuplicates = new Dictionary<int, int>();
+            var collisionTitleThreshold = opts.IdentityTitleThreshold;
+            foreach (var byPath in rawCandidates
+                .Select(s => (Song: s, Identity: ResolveElectedIdentity(s, identityByLogicalAlbum)))
+                .Select(x => (x.Song, x.Identity, DestinationPath: destinationPathResolver.ResolvePath(x.Song, x.Identity)))
+                .GroupBy(x => x.DestinationPath, StringComparer.Ordinal))
             {
-                var identity = ResolveElectedIdentity(candidateSong, identityByLogicalAlbum);
-                var destinationPath = destinationPathResolver.ResolvePath(candidateSong, identity);
-                if (uniqueDestinationPaths.Add(destinationPath))
+                // Best copy for this exact destination path wins the file; rank as the position guard does.
+                var ranked = byPath
+                    .OrderByDescending(x => IDuplicateDetectionService.QualityScore(x.Song))
+                    .ThenByDescending(x => x.Song.FileSizeBytes)
+                    .ThenBy(x => x.Song.Id)
+                    .ToList();
+                var winner = ranked[0];
+                pathDeduped.Add((winner.Song, winner.DestinationPath, Path.GetDirectoryName(winner.DestinationPath) ?? string.Empty, winner.Identity));
+
+                foreach (var loser in ranked.Skip(1))
                 {
-                    var folderKey = Path.GetDirectoryName(destinationPath) ?? string.Empty;
-                    pathDeduped.Add((candidateSong, destinationPath, folderKey, identity));
+                    // Same exact destination path + fuzzy-equal title == the same recording acquired more
+                    // than once (a different source folder / encoding, so fingerprint dedup missed it).
+                    // Retire the loser permanently as a duplicate of the winner so the two rows stop
+                    // alternating over one file — that alternation, driven by repeated re-tag requeues,
+                    // is what kept these albums churning. A different title that merely sanitizes to the
+                    // same path (e.g. two "Unknown Title" rows) is NOT the same song: defer it as before.
+                    if (winner.Song.OwnerUserId == loser.Song.OwnerUserId
+                        && TitlesMatch(winner.Song.Title, loser.Song.Title, collisionTitleThreshold))
+                    {
+                        pathCollisionDuplicates[loser.Song.Id] = winner.Song.Id;
+                    }
+                    else
+                    {
+                        logger.LogWarning(
+                            "Deferring song {SongId}: destination path collision in current batch for {DestinationPath}",
+                            loser.Song.Id, winner.DestinationPath);
+                    }
                 }
-                else
+            }
+
+            if (pathCollisionDuplicates.Count > 0)
+            {
+                var ids = pathCollisionDuplicates.Keys.ToList();
+                var rows = await db.Songs.IgnoreQueryFilters().Where(s => ids.Contains(s.Id)).ToListAsync(ct);
+                foreach (var row in rows)
                 {
-                    logger.LogWarning(
-                        "Deferring song {SongId}: destination path collision in current batch for {DestinationPath}",
-                        candidateSong.Id,
-                        destinationPath);
+                    logger.LogInformation(
+                        "Flagging song {SongId} as duplicate of {WinnerId}: both resolve to the same destination path",
+                        row.Id, pathCollisionDuplicates[row.Id]);
+                    row.MarkAsDuplicate(pathCollisionDuplicates[row.Id]);
                 }
+                await db.SaveChangesAsync(ct);
             }
 
             candidates = await ApplyPositionGuardAsync(db, pathDeduped, ct);

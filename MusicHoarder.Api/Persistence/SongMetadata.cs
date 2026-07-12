@@ -746,7 +746,11 @@ public class SongMetadata
     public void MarkBuildDone(string destinationPath)
     {
         LibraryBuildStatus = LibraryBuildStatus.Done;
-        LibraryBuiltAtUtc = DateTime.UtcNow;
+        // "Added to library" time — set once, on the FIRST successful build. A later in-place re-tag
+        // (RequeueForRetag, which keeps this timestamp) must NOT bump it: album-identity heals and other
+        // re-tags would otherwise resurface an old album at the top of every "recently added" view. A
+        // genuine re-add (ResetLibraryBuild clears it) sets a fresh time here.
+        LibraryBuiltAtUtc ??= DateTime.UtcNow;
         LibraryBuildError = null;
         LibraryBuildAttempts = 0;
         DestinationPath = destinationPath;
@@ -785,7 +789,9 @@ public class SongMetadata
     public void RequeueForRetag()
     {
         LibraryBuildStatus = LibraryBuildStatus.Pending;
-        LibraryBuiltAtUtc = null;
+        // Deliberately preserve LibraryBuiltAtUtc: a re-tag is the SAME track being rewritten in place,
+        // not a new addition, so it keeps its original "added to library" time (MarkBuildDone won't
+        // overwrite a non-null value). Only a real re-add via ResetLibraryBuild clears it.
         LibraryBuildLastAttemptedAtUtc = null;
         LibraryBuildAttempts = 0;
         LibraryBuildError = null;
