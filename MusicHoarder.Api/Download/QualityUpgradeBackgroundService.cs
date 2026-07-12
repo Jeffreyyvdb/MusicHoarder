@@ -1,25 +1,34 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Soulseek;
 
-namespace MusicHoarder.Api.Soulseek;
+namespace MusicHoarder.Api.Download;
 
 /// <summary>
-/// Drives the quality-upgrade lifecycle: consumes <see cref="SoulseekUpgradeChannel"/> for queued
-/// requests (search → download → AwaitingIngest), runs the periodic merge sweep that finishes
-/// requests once the pipeline has fingerprinted their downloads, and reclaims crash-stale
-/// Searching/Downloading rows on startup. A plain hosted service — never a JobManager step.
+/// Drives the quality-upgrade lifecycle end to end: consumes <see cref="QualityUpgradeChannel"/> for
+/// queued requests (search → download → AwaitingIngest), runs the periodic merge sweep that finishes
+/// requests once the pipeline has fingerprinted their downloads, runs the automatic sweep that queues
+/// lossy library tracks for upgrade, and reclaims crash-stale Searching/Downloading rows on startup.
+/// A plain hosted service — never a JobManager step (upgrade network work must not hold the pipeline's
+/// one-job lock; it only TRIGGERS Scan/Build jobs).
 /// </summary>
-public class SoulseekUpgradeBackgroundService(
+public class QualityUpgradeBackgroundService(
     IServiceScopeFactory scopeFactory,
-    SoulseekUpgradeChannel channel,
-    ILogger<SoulseekUpgradeBackgroundService> logger) : BackgroundService
+    QualityUpgradeChannel channel,
+    IOptionsMonitor<MusicEnricherOptions> options,
+    ILogger<QualityUpgradeBackgroundService> logger) : BackgroundService
 {
     private static readonly TimeSpan MergeSweepInterval = TimeSpan.FromSeconds(15);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await ResetStaleRequestsAsync(stoppingToken);
-        await Task.WhenAll(RunWorkerAsync(stoppingToken), RunMergeSweepLoopAsync(stoppingToken));
+        await Task.WhenAll(
+            RunWorkerAsync(stoppingToken),
+            RunMergeSweepLoopAsync(stoppingToken),
+            RunAutoSweepLoopAsync(stoppingToken));
     }
 
     /// <summary>
@@ -73,7 +82,7 @@ public class SoulseekUpgradeBackgroundService(
             try
             {
                 using var scope = scopeFactory.CreateScope();
-                var service = scope.ServiceProvider.GetRequiredService<SoulseekUpgradeService>();
+                var service = scope.ServiceProvider.GetRequiredService<QualityUpgradeService>();
                 await service.ProcessRequestAsync(requestId, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -106,14 +115,52 @@ public class SoulseekUpgradeBackgroundService(
                 logger.LogError(ex, "Upgrade merge sweep failed");
             }
 
+            if (!await DelayAsync(MergeSweepInterval, ct))
+                return;
+        }
+    }
+
+    /// <summary>
+    /// Periodically queues lossy library tracks for an automatic quality upgrade. The sweep itself is
+    /// gated on <see cref="MusicEnricherOptions.EnableAutomaticQualityUpgrades"/> and on a configured
+    /// upgrade provider, so this loop keeps ticking (cheaply) even when the feature is off — flipping
+    /// the flag takes effect on the next tick with no restart.
+    /// </summary>
+    private async Task RunAutoSweepLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
             try
             {
-                await Task.Delay(MergeSweepInterval, ct);
+                using var scope = scopeFactory.CreateScope();
+                var sweep = scope.ServiceProvider.GetRequiredService<AutomaticUpgradeSweep>();
+                await sweep.SweepAsync(ct);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 return;
             }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Automatic upgrade sweep failed");
+            }
+
+            var minutes = Math.Clamp(options.CurrentValue.QualityUpgradeSweepIntervalMinutes, 1, 1440);
+            if (!await DelayAsync(TimeSpan.FromMinutes(minutes), ct))
+                return;
+        }
+    }
+
+    private static async Task<bool> DelayAsync(TimeSpan delay, CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(delay, ct);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
         }
     }
 }

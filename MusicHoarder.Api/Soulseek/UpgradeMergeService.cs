@@ -98,6 +98,25 @@ public class UpgradeMergeService(
             return true;
         }
 
+        // Same-recording check: a peer can send a different track of similar length, which the duration
+        // gate alone can't catch. Compare the acoustic fingerprints (the downloaded file's, freshly
+        // computed by the pipeline, vs the target's). Fail-OPEN: a missing/undecodable fingerprint or a
+        // disabled threshold skips the gate rather than blocking a legitimate upgrade on a tooling gap.
+        var minSimilarity = enricherOptions.Value.QualityUpgradeFingerprintMinSimilarity;
+        if (minSimilarity > 0)
+        {
+            var similarity = Audio.ChromaprintComparer.Similarity(provisional.Fingerprint, target.Fingerprint);
+            if (similarity is { } sim && sim < minSimilarity)
+            {
+                await AbortMergeAsync(request, provisional, downloadedPath,
+                    $"downloaded file is a different recording (fingerprint similarity {sim:F3} < {minSimilarity:F3})", ct);
+                return true;
+            }
+            if (similarity is { } ok)
+                logger.LogInformation("Upgrade fingerprint check passed for song {SongId}: similarity {Similarity:F3}",
+                    target.Id, ok);
+        }
+
         var provisionalScore = AudioQuality.Score(provisional);
         var targetScore = AudioQuality.Score(target);
         if (provisionalScore <= targetScore

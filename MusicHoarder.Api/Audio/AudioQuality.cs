@@ -25,6 +25,15 @@ public static class AudioQuality
     // any bitrate difference.
     private const int BitrateCap = 100_000;
 
+    /// <summary>
+    /// Extensions whose <see cref="TierFor"/> is <see cref="AudioCodecTier.Lossy"/> — the single
+    /// source of truth for "is this file a lossy codec". Kept as an EF-translatable list (a plain
+    /// <c>Contains</c> over lowercase extensions) because the automatic-upgrade sweep selects lossy
+    /// candidates in a DB query, where the <see cref="TierFor"/> switch can't be translated.
+    /// </summary>
+    public static readonly string[] LossyExtensions =
+        [".mp3", ".m4a", ".aac", ".ogg", ".opus", ".wma"];
+
     public static AudioCodecTier TierFor(string? extension) => extension?.ToLowerInvariant() switch
     {
         ".flac" => AudioCodecTier.Lossless,

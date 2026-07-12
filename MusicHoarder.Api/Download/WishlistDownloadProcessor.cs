@@ -265,27 +265,10 @@ public class WishlistDownloadProcessor(
     /// </summary>
     public IReadOnlyList<IDownloadProvider> ResolveProviders()
     {
-        var opts = options.Value;
-        var names = opts.DownloadProviders is { Length: > 0 }
-            ? opts.DownloadProviders
-            : [opts.DownloadProvider];
-
-        var resolved = new List<IDownloadProvider>();
-        foreach (var name in names)
-        {
-            // Blank slots come from the compose chain's optional trailing entries (e.g. an unset
-            // DOWNLOAD_PROVIDER_3) — skip them silently rather than warning every sweep.
-            if (string.IsNullOrWhiteSpace(name))
-                continue;
-
-            var provider = downloadProviders.FirstOrDefault(
-                p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
-            if (provider is null)
-                logger.LogWarning("Unknown download provider '{Name}' in chain — skipping", name);
-            else if (!resolved.Contains(provider))
-                resolved.Add(provider);
-        }
-
+        var resolved = DownloadProviderChain.Resolve(
+            DownloadProviderChain.Names(options.Value), downloadProviders, p => p.Name, logger);
+        // An empty/unknown chain still needs something to run: fall back to the first registered
+        // provider (historically yt-dlp).
         if (resolved.Count == 0)
             resolved.Add(downloadProviders.First());
         return resolved;

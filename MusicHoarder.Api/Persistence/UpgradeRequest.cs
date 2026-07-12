@@ -16,6 +16,14 @@ public enum UpgradeRequestStatus
     Cancelled = 7,
 }
 
+/// <summary>What created the request: a user clicking "find better quality" vs the background
+/// auto-upgrade sweep. Telemetry/UI only — the worker and merge treat both identically.</summary>
+public enum UpgradeTrigger
+{
+    Manual = 0,
+    Auto = 1,
+}
+
 /// <summary>
 /// One manual "find a better copy of this track on Soulseek" request. The explicit
 /// <see cref="SongId"/> ↔ <see cref="DownloadedFilePath"/> link is the whole point: a downloaded
@@ -35,6 +43,9 @@ public class UpgradeRequest
     public Guid OwnerUserId { get; set; }
 
     public UpgradeRequestStatus Status { get; set; } = UpgradeRequestStatus.Queued;
+
+    /// <summary>Whether this request was queued manually or by the automatic upgrade sweep.</summary>
+    public UpgradeTrigger Trigger { get; set; } = UpgradeTrigger.Manual;
 
     /// <summary>Normalized path of the downloaded candidate in the download staging dir.</summary>
     public string? DownloadedFilePath { get; set; }

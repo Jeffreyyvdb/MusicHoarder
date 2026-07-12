@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Audio;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
+using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Soulseek;
@@ -51,12 +53,15 @@ public static class SoulseekEndpoints
         CreateUpgradeRequest body,
         MusicHoarderDbContext db,
         ICurrentUserAccessor currentUser,
-        SoulseekUpgradeChannel channel,
-        IOptionsMonitor<SlskdOptions> options,
+        QualityUpgradeChannel channel,
+        IEnumerable<IUpgradeProvider> upgradeProviders,
         CancellationToken ct)
     {
-        if (!options.CurrentValue.IsConfigured)
-            return Results.BadRequest(new { error = "slskd_not_configured" });
+        // Need at least one configured provider that can upgrade a lossy file (slskd or spotiflac);
+        // otherwise the request would just sit and fail.
+        var lossyProbe = new UpgradeFloor(AudioCodecTier.Lossy, AudioQuality.Score(".mp3", 0), null);
+        if (!upgradeProviders.Any(p => p.CanUpgrade(lossyProbe)))
+            return Results.BadRequest(new { error = "no_upgrade_provider_configured" });
 
         var ownerId = currentUser.User!.Id;
         List<int> songIds;

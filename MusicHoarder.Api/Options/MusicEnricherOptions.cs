@@ -732,4 +732,38 @@ public class MusicEnricherOptions
     /// anti-bot workarounds and proxies without a code change. Empty → none.
     /// </summary>
     public string YtDlpExtraArgs { get; set; } = string.Empty;
+
+    // ── Automatic quality upgrades ──────────────────────────────────────────
+    // A background sweep that re-acquires lossy library tracks as lossless via the configured
+    // DownloadProviders chain (spotiflac/slskd), reusing the manual-upgrade request→merge pipeline.
+    // Not to be confused with AutoDownloadWishlist (fetching new tracks) or AutoUpgradeConfidence
+    // (an enrichment-match threshold).
+
+    /// <summary>
+    /// Master switch for the automatic quality-upgrade sweep. Default ON, but inert unless a
+    /// lossless-capable download provider (slskd or spotiflac) is configured — with none, the sweep
+    /// no-ops, so this turns itself on the moment such a provider is wired up.
+    /// </summary>
+    public bool EnableAutomaticQualityUpgrades { get; set; } = true;
+
+    /// <summary>Max lossy tracks queued for upgrade per sweep pass — bounds external-service load.</summary>
+    [Range(1, 500)]
+    public int QualityUpgradeBatchSize { get; set; } = 10;
+
+    /// <summary>Minutes between automatic upgrade sweeps.</summary>
+    [Range(1, 1440)]
+    public int QualityUpgradeSweepIntervalMinutes { get; set; } = 60;
+
+    /// <summary>Days to wait before re-attempting a song whose last upgrade attempt found nothing (or
+    /// failed), so a track with no better source isn't re-searched every sweep.</summary>
+    [Range(0, 3650)]
+    public int QualityUpgradeCooldownDays { get; set; } = 30;
+
+    /// <summary>
+    /// Minimum acoustic-fingerprint similarity (0..1) the merge requires between a downloaded upgrade
+    /// and the track it would replace, guarding against a source that shares only duration. 0 disables
+    /// the check (duration-only). Fingerprints that can't be decoded skip the gate (fail-open).
+    /// </summary>
+    [Range(0, 1)]
+    public double QualityUpgradeFingerprintMinSimilarity { get; set; } = 0.75;
 }
