@@ -1,10 +1,12 @@
 # MusicHoarder
 
-**Fix your messy music library — automatically.**
+**Fix your messy music library — automatically — then browse, play, like, and grow it.**
 
-MusicHoarder is a self-hosted, open-source tool that scans a large, disorganized music collection
+MusicHoarder is a self-hosted, open-source app that scans a large, disorganized music collection
 (including NAS/SMB shares), identifies each track by its actual audio, enriches it with proper
 metadata, and builds a clean, consistently-organized copy — without ever touching your originals.
+Once it's clean, it's also a full music app: browse, play, like, get stats, discover new playlists,
+and grow your library from Spotify or Soulseek.
 
 [![CI](https://github.com/Jeffreyyvdb/MusicHoarder/actions/workflows/ci.yml/badge.svg)](https://github.com/Jeffreyyvdb/MusicHoarder/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -13,41 +15,109 @@ If you've ever ended up with thousands of files like `track_047.mp3`, duplicate 
 bitrates, missing artwork, and inconsistent folder names, this is for you. Point it at your source
 library, let it run, and review anything it isn't sure about.
 
-![MusicHoarder's library view — an album grid with pipeline controls (Scan / Fingerprint / Build) and a source/destination sidebar](docs/screenshots/library.png)
+![The Pipeline "Conveyor" — a live dashboard showing source files flowing through Scan → Fingerprint → Match → Decide → AI grade → Dedupe → Library, with a "Needs you" review queue](docs/screenshots/pipeline-conveyor.png)
 
 ## Features
 
-- **Audio fingerprinting** — identifies tracks by their sound (AcoustID/Chromaprint), not by
-  unreliable filenames or existing tags.
-- **Multi-source enrichment** — fills in artist, album, title, track number, year, and artwork from
-  **MusicBrainz**, **Spotify**, **Apple Music**, and **Deezer** (plus custom community trackers),
-  combining providers for confidence.
-- **Cover art** — resolves album artwork (Cover Art Archive, embedded pictures, provider images),
-  surfaces it throughout the app, and writes it into the destination library so players like
-  Navidrome show the real sleeve.
-- **Reconciled album tracklists** — shows the *full* tracklist for each album, cross-checked across
-  MusicBrainz, Spotify, Apple Music, and Deezer, with missing tracks greyed out so gaps are obvious.
-- **Synced lyrics** — fetches time-synced lyrics where available.
-- **Duplicate detection** — finds the same recording across formats/bitrates.
-- **Soulseek quality upgrades (optional)** — connect a self-run [slskd](https://github.com/slskd/slskd)
-  instance to fill wishlist tracks from Soulseek (falling back to yt-dlp) and to manually upgrade
-  existing tracks to better copies (e.g. Opus → FLAC) without losing enrichment, lyrics, or track ids.
-- **Instance sync (optional)** — push finished tracks from a private instance to a public one over
-  HTTPS, with a fingerprint-based existence check so only missing or better-quality files transfer,
-  and in-place replacement that keeps the remote's track ids stable.
-- **Non-destructive by design** — source files are read-only; everything is written as fresh,
-  cleanly-named copies in a separate destination library.
-- **Manual review** — anything the pipeline isn't confident about lands in a review queue instead of
-  being guessed at.
-- **Optional AI quality review** — an LLM pass can grade match/metadata quality to help you triage
-  what actually needs attention (OpenAI-compatible; defaults to OpenRouter).
-- **Web UI** — browse your library by album, track, artist, year, or folder with cover-art grids,
-  play tracks in a built-in waveform player, jump anywhere with a ⌘K command palette, watch scan &
-  enrich progress live, review matches, and inspect quality — with a polished mobile layout.
-- **Self-hosted** — runs on your own hardware via .NET Aspire (dev) or Docker Compose (prod); your
-  music never leaves your machine.
+### Identify, enrich & organize
 
-![Album and track detail — per-track match confidence, the Metadata / Lyrics / Fingerprint / Enrichment provenance panel, and a built-in player with waveform](docs/screenshots/player.png)
+- **Audio fingerprinting** — identifies each track by its actual sound (AcoustID/Chromaprint), not
+  by unreliable filenames or existing tags, so `track_047.mp3` gets recognized for what it is.
+- **Multi-provider enrichment with consensus** — every song is matched independently by up to six
+  sources — **AcoustID**, **MusicBrainz**, **Spotify**, **Apple Music**, **Deezer**, and community
+  trackers — and a consensus evaluator derives the verdict by agreement: when two or more providers
+  land on the same recording it auto-matches, a lone fingerprint hit only becomes a candidate, and
+  conflicting confident matches go to review. Every provider is individually toggleable, and the app
+  degrades gracefully when a credential is missing.
+- **Non-destructive, quality-aware tagging** — source files are always read-only; clean copies are
+  written to a separate destination library. Matching never blindly overwrites good tags — empty
+  fields are filled, a curated value that disagrees is kept and logged as a *proposed* change unless
+  a strong consensus justifies the upgrade, and every applied or proposed change is recorded.
+- **Whole-album reconciliation & healing** — because tracks are enriched independently, one real
+  album can split across release IDs, titles, years, or artist spellings. A build-time reconciler
+  elects one canonical identity per folder and tags every track with it, keeping albums whole in
+  players like Navidrome. It's build-time and reversible — your per-track enrichment is untouched.
+- **Canonical album tracklists** — cross-checks each album against MusicBrainz, Spotify, Apple
+  Music, and Deezer to build the *full* tracklist, so the album view shows every real track and
+  greys out the ones you're missing.
+- **Cover art** — resolves album artwork (folder image → embedded picture, then Cover Art Archive →
+  Deezer → iTunes when a file has none), validates it, and writes a single cover into each
+  destination folder so players show the real sleeve.
+- **Duplicate detection** — groups songs by identical fingerprint and elects the best copy (codec
+  tier and bitrate, then metadata trustworthiness, then file size) so only the best version is built.
+- **Synced lyrics** — fetches time-synced (karaoke-style) or plain lyrics from LRCLIB and embeds
+  them into the built file. *Optional, experimental:* when none exist, an OpenAI Whisper pass can
+  transcribe synced lyrics — stored separately so it never clobbers curated ones.
+- **Community trackers** *(optional)* — artist-scoped catalogs cover leaks, alternate versions, and
+  unreleased albums that mainstream services don't, gated to a per-artist allowlist.
+
+### Review & quality
+
+- **Manual review Inbox** — a three-tab review surface with live counts: **Tag review**
+  (low-confidence matches to approve, correct, or bulk-approve above a confidence threshold),
+  **Duplicates** (A/B compare of fingerprint twins), and **AI flagged** (matches the grader marked
+  Wrong or Questionable). Nothing is a dead end — unmatched and leaked tracks stay visible.
+- **Optional AI quality grading** — an LLM grades each match (and whole-album matches) with a 0–100
+  score, verdict, summary, and issue codes, powering rollups and flagged/verified buckets so you can
+  triage what actually needs attention. OpenAI-compatible; defaults to OpenRouter, works with a local
+  Ollama. Re-gradeable when the prompt or model changes.
+
+![The Inbox — a low-confidence match showing each provider's candidate with a confidence score, and a From → Will-write-to field diff before anything is written](docs/screenshots/inbox-review.png)
+
+### Browse, play & grow your library
+
+- **Web UI** — browse by album, artist, track, folder, or liked; play in a persistent
+  Apple-Music-style bar that survives navigation; jump anywhere with a ⌘K palette; open any track's
+  full-screen provenance panel (Metadata / Lyrics / Fingerprint / Enrichment) and pipeline timeline;
+  and watch every stage stream live — all fully responsive on mobile.
+- **Likes, play tracking & Liked Songs** — heart any track for a Spotify-style Liked Songs view;
+  playback is tracked (play count + last-played) to power most-played, recently-added, and
+  "never played" shelves.
+- **Stats & overview dashboards** — a "hoard at a glance" insights page (hero counts, pipeline and
+  wishlist funnels, metadata-coverage rings, top artists, format breakdowns) plus a personalized home
+  built from your real play and like history.
+- **Discover playlists** *(optional)* — browse Deezer-backed editorial and chart playlists by genre
+  or search, or paste a Spotify/Deezer playlist link, then subscribe so new tracks are wishlisted
+  and (with downloads enabled) fetched automatically.
+- **Spotify import & comparison** *(optional)* — connect a Spotify account (read-only) to browse
+  your Liked Songs and playlists with each track's local-library match shown, add any collection as
+  an auto-syncing wishlist source, and get a track-by-track in-library / missing comparison.
+- **Wishlist with auto-download** *(optional)* — turns wishlisted tracks into actual files via an
+  ordered chain: a self-run [slskd](https://github.com/slskd/slskd) (Soulseek) first, then a yt-dlp
+  fallback that keeps native Opus and stamps the authoritative identity so downloads enrich
+  correctly. Already-owned tracks are skipped; failures retry. Off by default.
+- **Playlist export** *(optional)* — mirror your Spotify Liked Songs or any playlist as a static
+  `.m3u8` file in the destination library, in order, so Navidrome/Plex/Jellyfin auto-import it.
+- **Public share links** — mint a revocable, chrome-free public page for a single track or a whole
+  album, with ambient artwork, in-page playback, and a live synced-lyrics theater view.
+- **Library history** — an audit log of every change written to the destination (album
+  consolidations, artist renames, year corrections, cover art, per-field tag diffs), so you can see
+  exactly "what Navidrome sees differently."
+
+![The Discover page — Deezer-backed editorial and chart playlists with genre filters, a paste-a-link box, and one-click subscribe](docs/screenshots/discover.png)
+
+### Optional integrations
+
+- **Navidrome two-way like sync** — keeps song likes in sync in both directions with a Navidrome
+  server via its Subsonic *starred* API (immediate push on toggle + periodic reconcile).
+- **Soulseek quality upgrades** — manually queue a search for a strictly-better copy of a track or
+  album on Soulseek (via slskd); the better file is swapped **in place**, keeping the track's id,
+  enrichment, and lyrics.
+- **Instance sync (NAS → VPS)** — push finished tracks from a private instance to a public one over
+  plain HTTPS. A portable fingerprint-based existence check means only missing or better-quality
+  files transfer, in-place replacement keeps the remote's track ids stable, and an at-least-once
+  outbox with retries survives crashes.
+
+### Platform
+
+- **Passwordless auth + read-only demo** — sign in by emailed magic link or WebAuthn passkey
+  (Touch ID / Windows Hello / security key), with Owner (full control) and Demo (read-only) roles. A
+  one-click **[Try the demo](https://musichoarder.app/login)** account browses and plays a seeded
+  library while every mutating action is denied.
+- **Self-hosted** — runs on your own hardware via .NET Aspire (dev) or Docker Compose (prod),
+  pulling prebuilt GHCR images. Your music never leaves your machine.
+
+![The Stats dashboard — hero counts (in library, covers added, lyrics added, hours of music), a pipeline funnel, a Spotify wishlist journey, and metadata-coverage rings](docs/screenshots/stats.png)
 
 ## How it works
 
@@ -56,29 +126,29 @@ in the status they handle:
 
 ```
 Source library
-   → Scan          index files (incl. SMB/NAS)
+   → Scan          index files (incl. SMB/NAS) and read embedded tags
    → Fingerprint   compute an audio fingerprint (fpcalc/Chromaprint)
-   → Enrich        identify via AcoustID fingerprint, then match against MusicBrainz,
-                   Spotify, Apple Music, Deezer + custom community trackers
-   → Dedupe        detect duplicate recordings
-   → Review        low-confidence matches wait for a human (optional AI quality review)
+   → Match         identify via AcoustID, then match against MusicBrainz,
+                   Spotify, Apple Music, Deezer + community trackers
+   → Decide        a consensus evaluator derives the verdict from all providers
+   → AI grade      (optional) an LLM scores the match/metadata quality
+   → Dedupe        detect duplicate recordings, keep the best copy
    → Build         copy + tag + organize into the destination library
 ```
 
-Confident matches flow straight through to a clean destination library; uncertain ones surface in
-the review UI. The source is never modified, and removed/missing files are soft-deleted rather than
-purged.
-
-![The review queue — an ambiguous match showing candidate results from each provider with confidence scores and a before/after field diff before anything is written](docs/screenshots/provenance-and-review.png)
+Confident matches flow straight through to a clean destination library; uncertain ones — and
+anything the AI grader flags — surface in the **Inbox** for a human decision. The source is never
+modified, and removed/missing files are soft-deleted rather than purged. The whole flow is visible
+live on the **Pipeline → Conveyor** dashboard.
 
 ## Tech stack
 
 | Project | Description |
 |---------|-------------|
-| `MusicHoarder.Api` | ASP.NET Core minimal API — endpoints, EF Core/PostgreSQL persistence, background services |
+| `MusicHoarder.Api` | ASP.NET Core minimal API — endpoints, EF Core/PostgreSQL persistence, and the background services that run the pipeline, enrichment providers, sync, and downloads |
 | `MusicHoarder.AppHost` | .NET Aspire AppHost — composes the API, frontend, and PostgreSQL for local dev |
 | `MusicHoarder.ServiceDefaults` | Shared cross-cutting defaults (health checks, OpenTelemetry, resilient HTTP) |
-| `frontend` | Svelte + Bun — library browser, live scan/enrich progress, review UI |
+| `frontend` | SvelteKit 2 + Svelte 5 + Bun — the full web app: library browser, built-in player, live pipeline/conveyor, review Inbox, Discover, Stats, and share pages |
 
 ---
 
@@ -116,7 +186,8 @@ dotnet user-secrets set "Parameters:destination-directory" "/tmp/musichoarder-de
 ```
 
 Drop a few audio files into your source directory, then trigger a scan from the UI (or let the
-pipeline auto-run) to watch them flow through.
+pipeline auto-run) to watch them flow through. Prefer to click around first? Open `/login` and hit
+**Try the demo** for a read-only, seeded library.
 
 ### Frontend (standalone)
 
@@ -155,12 +226,13 @@ using the `MusicEnricher__` prefix.
 | `MusicEnricher__EnrichmentWorkerConcurrency` | Parallel AcoustID lookups | No (default: `2`) |
 | `ConnectionStrings__musichoarderdb` | PostgreSQL connection string | Yes (injected by Aspire in dev) |
 
-Spotify metadata is optional and requires registering a Spotify app and configuring the OAuth relay.
-
-AI quality grading and the **experimental AI lyrics transcription** feature are also optional and
-configured separately (under the `QualityGrading__` and `LyricsTranscription__` prefixes). Lyrics
-transcription is **hidden in the UI unless `LyricsTranscription__ApiKey` is set** — see the
-[self-hosting guide](docs/SELF_HOSTING.md#optional-integrations).
+Everything in the **Optional integrations** and several **Browse & grow** features above are off
+until configured: Spotify (metadata + import) needs a registered Spotify app and the OAuth relay;
+Discover/wishlist auto-download needs slskd and/or yt-dlp; Navidrome sync, instance sync, AI quality
+grading, and the experimental AI lyrics transcription each have their own config sections
+(`QualityGrading__`, `LyricsTranscription__`, sync/Navidrome/slskd settings). Lyrics transcription is
+**hidden in the UI unless `LyricsTranscription__ApiKey` is set**. See the
+[self-hosting guide](docs/SELF_HOSTING.md#optional-integrations) for the full reference.
 
 ---
 
@@ -187,7 +259,8 @@ The app serves plain HTTP — put it behind your own reverse proxy for TLS and p
 
 **→ Full guide:** [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) — env reference, first login,
 reverse proxy, Portainer/TrueNAS, optional integrations (AcoustID, Spotify, AI grading, AI lyrics
-transcription, Umami), updating, backups, build-from-source, and troubleshooting.
+transcription, Navidrome sync, instance sync, Umami), updating, backups, build-from-source, and
+troubleshooting.
 
 ---
 
@@ -241,12 +314,11 @@ in the heavily-commented workflow files under [`.github/workflows/`](.github/wor
 `MusicEnricher__AcoustIdApiKey`, enrichment sets songs to `NeedsReview` rather than `Matched`, and
 the Library Builder skips them.
 
-### Library page modes
+### Library views
 
-The frontend Library page has two modes:
-
-- **Source** — all scanned songs.
-- **Destination** — only songs that completed the full pipeline (Matched → Copied/Tagged/Done).
+The Library **Overview / Albums / Artists / All tracks** views show what's in your destination
+library; the **Pipeline → Conveyor** dashboard shows the full source-to-destination flow, and the
+**Inbox** holds anything awaiting a human decision.
 
 ### EF Core migrations
 
