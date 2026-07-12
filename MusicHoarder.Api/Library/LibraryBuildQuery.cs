@@ -24,7 +24,8 @@ public static class LibraryBuildQuery
     /// can't be searched (no title/artist) never wait.
     /// </summary>
     public static IQueryable<SongMetadata> BuildCandidates(
-        IQueryable<SongMetadata> songs, DateTime? lyricsWaitCutoff, int maxBuildAttempts)
+        IQueryable<SongMetadata> songs, DateTime? lyricsWaitCutoff, int maxBuildAttempts,
+        bool buildNeedsReview = false)
     {
         var query = songs
             .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
@@ -32,7 +33,11 @@ public static class LibraryBuildQuery
             // building one would copy it into the owner's library and try to prune the mount path.
             .ExcludingDemoTenant()
             .Where(s => !s.IsDuplicate)
-            .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched)
+            // Normally only strict Matched tracks build. With MusicEnricher:EnableBuildNeedsReview on,
+            // uncertain NeedsReview tracks build too (flagged GROUPING="Needs Review" by the tag writer)
+            // so they still appear in the library; approving one later re-tags it and clears the flag.
+            .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched
+                || (buildNeedsReview && s.EnrichmentStatus == EnrichmentStatus.NeedsReview))
             .Where(s => s.LibraryBuildStatus != LibraryBuildStatus.Done
                 || s.DestinationPath == null
                 || s.PreviousDestinationPath != null)

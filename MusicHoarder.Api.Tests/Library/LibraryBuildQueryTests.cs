@@ -98,6 +98,33 @@ public class LibraryBuildQueryTests
         Assert.Equal(new[] { 1 }, eligible);
     }
 
+    [Fact]
+    public async Task BuildNeedsReview_IncludesNeedsReviewOnlyWhenEnabled()
+    {
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            // 1: normal Matched track — eligible either way.
+            Song(1, LyricsStatus.Fetched, enrichedAtUtc: Now),
+            // 2: NeedsReview — only eligible once the opt-in flag is on.
+            Song(2, LyricsStatus.Fetched, enrichedAtUtc: Now, enrichment: EnrichmentStatus.NeedsReview),
+            // 3: NeedsReview but a duplicate — the flag must not override the other exclusions.
+            Song(3, LyricsStatus.Fetched, enrichedAtUtc: Now,
+                enrichment: EnrichmentStatus.NeedsReview, isDuplicate: true),
+            // 4: still-Pending enrichment stays excluded even with the flag on.
+            Song(4, LyricsStatus.Fetched, enrichedAtUtc: Now, enrichment: EnrichmentStatus.Pending));
+        await db.SaveChangesAsync();
+
+        var withoutFlag = await LibraryBuildQuery
+            .BuildCandidates(db.Songs.IgnoreQueryFilters(), Cutoff, MaxAttempts, buildNeedsReview: false)
+            .Select(s => s.Id).OrderBy(id => id).ToListAsync();
+        Assert.Equal(new[] { 1 }, withoutFlag);
+
+        var withFlag = await LibraryBuildQuery
+            .BuildCandidates(db.Songs.IgnoreQueryFilters(), Cutoff, MaxAttempts, buildNeedsReview: true)
+            .Select(s => s.Id).OrderBy(id => id).ToListAsync();
+        Assert.Equal(new[] { 1, 2 }, withFlag);
+    }
+
     private static SongMetadata Song(
         int id,
         LyricsStatus lyricsStatus,

@@ -35,6 +35,12 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
     private const string VariousArtists = "Various Artists";
     private const string VariousArtistsMbid = "89ad4ac3-39f7-470e-963a-56509c546377";
 
+    // Flags written onto a provisional (NeedsReview) track built via EnableBuildNeedsReview. GROUPING is
+    // indexed/filterable by Navidrome, so a smart playlist on it collects everything still pending review
+    // and self-empties as tracks are approved; COMMENT is the human-readable hint for other players.
+    internal const string NeedsReviewGrouping = "Needs Review";
+    internal const string NeedsReviewComment = "MusicHoarder: enrichment uncertain — needs review.";
+
     static TagLibLibraryTagWriter()
     {
         // ID3v2.4 is required for real multi-value frames (v2.3 concatenates and loses them).
@@ -97,6 +103,16 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
         tag.PerformersSort = NullIfEmpty(song.ArtistSort) is string artistSort ? [artistSort] : [];
         var albumArtistSort = compilation ? VariousArtists : NullIfEmpty(song.AlbumArtistSort);
         tag.AlbumArtistsSort = albumArtistSort is null ? [] : [albumArtistSort];
+
+        // Provisional (NeedsReview) tracks are built — when EnableBuildNeedsReview is on — but flagged so
+        // they stay findable and clearable. Set our markers only while under review; on a later re-tag
+        // (e.g. after approval) remove exactly our own markers, leaving any grouping/comment that came
+        // from the source file untouched.
+        var needsReview = song.EnrichmentStatus == EnrichmentStatus.NeedsReview;
+        tag.Grouping = needsReview ? NeedsReviewGrouping
+            : tag.Grouping == NeedsReviewGrouping ? null : tag.Grouping;
+        tag.Comment = needsReview ? NeedsReviewComment
+            : tag.Comment == NeedsReviewComment ? null : tag.Comment;
 
         // Multi-value / freeform fields the generic Tag doesn't expose. create:false so we only
         // touch the file's native tag (the generic sets above already created it) — never an
@@ -373,7 +389,8 @@ public class LibraryBuilderService(
             var rawCandidates = await LibraryBuildQuery.BuildCandidates(
                     db.Songs.IgnoreQueryFilters().AsNoTracking(),
                     LibraryBuildQuery.LyricsWaitCutoff(opts),
-                    opts.MaxLibraryBuildAttempts)
+                    opts.MaxLibraryBuildAttempts,
+                    opts.EnableBuildNeedsReview)
                 .OrderBy(s => s.Id)
                 .Take(opts.LibraryBuilderBatchSize)
                 .ToListAsync(ct);
