@@ -38,7 +38,7 @@ jobs:
 
       # semantic-release v25+ requires Node ^22.14.0 || >=24.10.0. Bun's runtime reports
       # process.versions.node = 20.x, so the release step runs under Node via `npx`.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v6.4.0
         with:
           node-version: '24'
 
