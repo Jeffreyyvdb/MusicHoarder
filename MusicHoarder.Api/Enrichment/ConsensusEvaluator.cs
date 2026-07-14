@@ -37,7 +37,7 @@ public static class ConsensusEvaluator
         /// </summary>
         IReadOnlySet<string>? CorroboratedFields = null);
 
-    private sealed record Candidate(
+    internal sealed record Candidate(
         EnrichmentProvider Provider,
         EnrichmentProviderResult Result,
         ProviderIdentity Identity,
@@ -120,23 +120,7 @@ public static class ConsensusEvaluator
         // (Evaluate) which defers a non-Matched verdict only while the rate-limit is fresh. Here we
         // simply evaluate on whatever answered — a rate-limited attempt carries no MatchedDataJson,
         // so it never forms a candidate below.
-        var candidates = new List<Candidate>();
-        foreach (var attempt in attempts)
-        {
-            if (attempt.Status != ProviderAttemptStatus.Matched || attempt.MatchedDataJson is null)
-                continue;
-
-            var result = TryDeserialize(attempt.MatchedDataJson);
-            if (result is null)
-                continue;
-
-            candidates.Add(new Candidate(
-                attempt.Provider,
-                result,
-                ToIdentity(result),
-                IsNameBased(attempt.Provider),
-                result.MatchConfidence));
-        }
+        var candidates = BuildCandidates(attempts);
 
         // A provider has "had its turn" once it reached a terminal status — or once its rate-limit
         // has gone stale (waiting longer won't help), so the picture is treated as complete and a
@@ -157,142 +141,212 @@ public static class ConsensusEvaluator
                 anyFailed ? EnrichmentStatus.Failed : EnrichmentStatus.NeedsReview, null, 0, []);
         }
 
-        // 1) Multi-provider corroboration: cluster the candidates strong enough to vote.
+        // Only candidates confident enough to corroborate take part in the precedence ladder below.
         var strong = candidates.Where(c => c.Confidence >= corroborationFloor).ToList();
-        var bestCluster = BuildBestCluster(strong, identityOptions);
-        if (bestCluster is not null)
+
+        // Precedence ladder: each tier reaches a verdict or abstains (returns null) so the next tier
+        // decides. In order: (1) ≥2 providers agreeing on one identity, (2) a lone confident
+        // name-based provider, (3) a lone clean fingerprint (only once every provider has had its
+        // turn, so a name-based dissenter could weigh in first), otherwise (4) review / keep pending.
+        // (A confident community-tracker match is handled with top precedence above the ladder.)
+        return TryMultiProviderConsensus(
+                strong, song, identityOptions, preferOriginalRelease, relaxDownloadDurationMismatch)
+            ?? TrySoloNameBasedMatch(strong, identityOptions)
+            ?? (allAttempted ? TrySoloFingerprintMatch(strong, identityOptions) : null)
+            ?? FinalizeReviewOrPending(candidates, allAttempted);
+    }
+
+    /// <summary>
+    /// Materializes the vote-eligible candidates from the enabled providers' attempts: every attempt
+    /// that terminally matched and carries a deserializable payload becomes one <see cref="Candidate"/>.
+    /// A rate-limited attempt carries no <c>MatchedDataJson</c>, so it never forms a candidate.
+    /// </summary>
+    private static List<Candidate> BuildCandidates(IEnumerable<SongProviderAttempt> attempts)
+    {
+        var candidates = new List<Candidate>();
+        foreach (var attempt in attempts)
         {
-            var distinctProviders = bestCluster.Select(c => c.Provider).Distinct().ToList();
-            if (distinctProviders.Count >= 2)
-            {
-                var winner = bestCluster
-                    .OrderByDescending(c => c.IsNameBased)
-                    .ThenByDescending(c => c.Confidence)
-                    .First();
+            if (attempt.Status != ProviderAttemptStatus.Matched || attempt.MatchedDataJson is null)
+                continue;
 
-                // The cluster agreed on an identity, but that's not enough to auto-match if the
-                // identity itself contradicts the file. A blocking warning on the winner (e.g.
-                // title_mismatch / artist_mismatch) means the chosen recording disagrees with the
-                // file's own self-consistent tags — exactly the symptom of a wrong fingerprint that
-                // several providers echoed. Send it to review instead of silently overwriting.
-                //
-                // Exception for download-origin files (wishlist / Spotify-Like sync): they're fetched
-                // from YouTube and stamped with a known Spotify identity, so their audio length
-                // routinely differs from the canonical master (intro/outro/padding). When
-                // duration_mismatch is the *only* blocking warning and the cluster strongly
-                // corroborates the identity — AcoustID resolved the file's own audio to this recording,
-                // or ≥2 providers carry the same ISRC — the delta is padding, not a wrong match, so we
-                // let it auto-match (the warning stays on the row as advisory).
-                var blockingWarnings = winner.Result.MatchWarnings.Where(MatchWarnings.IsBlocking).ToList();
-                var durationIsAdvisory = relaxDownloadDurationMismatch
-                    && blockingWarnings.Count > 0
-                    && blockingWarnings.All(w => w == MatchWarnings.DurationMismatch)
-                    && HasStrongDurationCorroboration(bestCluster);
-                if (blockingWarnings.Count > 0 && !durationIsAdvisory)
-                {
-                    return new ConsensusResult(
-                        EnrichmentStatus.NeedsReview, winner.Result, CombineConfidence(bestCluster),
-                        distinctProviders);
-                }
+            var result = TryDeserialize(attempt.MatchedDataJson);
+            if (result is null)
+                continue;
 
-                // A clean, independent name-based provider that confidently landed on a *different*
-                // identity is a genuine conflict — not corroboration to ignore. (Apple Music matching
-                // the correct song at confidence 1.0 with no warnings shouldn't lose to a cluster that
-                // formed around a different, mistaken recording.) Defer to review rather than
-                // auto-matching the cluster over a clean dissenter.
-                var contradictedByClean = strong.Any(c =>
-                    !bestCluster.Any(m => ReferenceEquals(m, c))
-                    && c.IsNameBased
-                    && c.Result.RecommendedStatus == EnrichmentStatus.Matched
-                    && !MatchWarnings.AnyBlocking(c.Result.MatchWarnings)
-                    && !c.Identity.AgreesWith(winner.Identity, identityOptions));
-                if (contradictedByClean)
-                {
-                    return new ConsensusResult(
-                        EnrichmentStatus.NeedsReview, winner.Result, CombineConfidence(bestCluster),
-                        distinctProviders);
-                }
-
-                // The cluster agreed on the *recording*; it may still disagree on which *release*
-                // (original album vs. a later compilation) that recording belongs to. Re-derive the
-                // album-level fields by corroborating across the whole cluster instead of trusting
-                // the single identity winner, and tell the merger which of those fields ≥2 providers
-                // actually backed (so a good embedded album/year isn't overwritten on a lone vote).
-                var release = ReleaseSelector.Select(
-                    bestCluster.Select(c => c.Result).ToList(), song.Album, song.Year, preferOriginalRelease);
-                var finalWinner = OverlayDiscreteArtists(ApplyRelease(winner.Result, release), bestCluster);
-
-                return new ConsensusResult(
-                    EnrichmentStatus.Matched, finalWinner, CombineConfidence(bestCluster),
-                    distinctProviders, release.CorroboratedFields);
-            }
+            candidates.Add(CreateCandidate(attempt.Provider, result));
         }
 
-        // 2) A name-based provider that matched on its own tuned thresholds may stand alone —
-        //    but only if no other strong candidate landed on a *different* identity. Two name-based
-        //    providers that confidently disagree are a genuine conflict that belongs in review, not
-        //    an auto-match to whichever happened to score higher. (Candidates that agree would already
-        //    have been promoted as a multi-provider cluster in step 1, so any other strong candidate
-        //    reaching here necessarily contradicts.) Mirrors the fingerprint branch's guard below.
-        //    A candidate whose identity was only guessed from the file path (identity_unverified) is
-        //    excluded here: it must be corroborated by a second provider (the step-1 cluster) before
-        //    it can match, never auto-match on a lone path guess.
+        return candidates;
+    }
+
+    /// <summary>Builds a vote-eligible <see cref="Candidate"/> from a provider's deserialized match.</summary>
+    internal static Candidate CreateCandidate(EnrichmentProvider provider, EnrichmentProviderResult result)
+        => new(provider, result, ToIdentity(result), IsNameBased(provider), result.MatchConfidence);
+
+    /// <summary>
+    /// Tier 1 — multi-provider corroboration. Clusters the vote-eligible candidates by identity
+    /// agreement and, when the best cluster carries ≥2 distinct providers, promotes it to
+    /// <see cref="EnrichmentStatus.Matched"/> — re-deriving the album-level fields from the whole
+    /// cluster rather than the lone identity winner. It is instead sent to review when the identity
+    /// winner carries a blocking warning (the corroborated recording contradicts the file's own tags)
+    /// or when a clean name-based provider confidently landed on a different identity (a genuine
+    /// dissent, not corroboration to ignore). Abstains (returns null) when no cluster reaches two
+    /// distinct providers.
+    /// </summary>
+    private static ConsensusResult? TryMultiProviderConsensus(
+        List<Candidate> strong,
+        SongMetadata song,
+        IdentityMatchOptions identityOptions,
+        bool preferOriginalRelease,
+        bool relaxDownloadDurationMismatch)
+    {
+        var bestCluster = BuildBestCluster(strong, identityOptions);
+        if (bestCluster is null)
+            return null;
+
+        var distinctProviders = bestCluster.Select(c => c.Provider).Distinct().ToList();
+        if (distinctProviders.Count < 2)
+            return null;
+
+        var winner = bestCluster
+            .OrderByDescending(c => c.IsNameBased)
+            .ThenByDescending(c => c.Confidence)
+            .First();
+
+        // The cluster agreed on an identity, but that's not enough to auto-match if the identity
+        // itself contradicts the file. A blocking warning on the winner (e.g. title_mismatch /
+        // artist_mismatch) means the chosen recording disagrees with the file's own self-consistent
+        // tags — exactly the symptom of a wrong fingerprint that several providers echoed. Send it to
+        // review instead of silently overwriting.
+        //
+        // Exception for download-origin files (wishlist / Spotify-Like sync): they're fetched from
+        // YouTube and stamped with a known Spotify identity, so their audio length routinely differs
+        // from the canonical master (intro/outro/padding). When duration_mismatch is the *only*
+        // blocking warning and the cluster strongly corroborates the identity — AcoustID resolved the
+        // file's own audio to this recording, or ≥2 providers carry the same ISRC — the delta is
+        // padding, not a wrong match, so we let it auto-match (the warning stays on the row as advisory).
+        var blockingWarnings = winner.Result.MatchWarnings.Where(MatchWarnings.IsBlocking).ToList();
+        var durationIsAdvisory = relaxDownloadDurationMismatch
+            && blockingWarnings.Count > 0
+            && blockingWarnings.All(w => w == MatchWarnings.DurationMismatch)
+            && HasStrongDurationCorroboration(bestCluster);
+        if (blockingWarnings.Count > 0 && !durationIsAdvisory)
+        {
+            return new ConsensusResult(
+                EnrichmentStatus.NeedsReview, winner.Result, CombineConfidence(bestCluster),
+                distinctProviders);
+        }
+
+        // A clean, independent name-based provider that confidently landed on a *different* identity
+        // is a genuine conflict — not corroboration to ignore. (Apple Music matching the correct song
+        // at confidence 1.0 with no warnings shouldn't lose to a cluster that formed around a
+        // different, mistaken recording.) Defer to review rather than auto-matching the cluster over a
+        // clean dissenter.
+        var contradictedByClean = strong.Any(c =>
+            !bestCluster.Any(m => ReferenceEquals(m, c))
+            && c.IsNameBased
+            && c.Result.RecommendedStatus == EnrichmentStatus.Matched
+            && !MatchWarnings.AnyBlocking(c.Result.MatchWarnings)
+            && !c.Identity.AgreesWith(winner.Identity, identityOptions));
+        if (contradictedByClean)
+        {
+            return new ConsensusResult(
+                EnrichmentStatus.NeedsReview, winner.Result, CombineConfidence(bestCluster),
+                distinctProviders);
+        }
+
+        // The cluster agreed on the *recording*; it may still disagree on which *release* (original
+        // album vs. a later compilation) that recording belongs to. Re-derive the album-level fields
+        // by corroborating across the whole cluster instead of trusting the single identity winner,
+        // and tell the merger which of those fields ≥2 providers actually backed (so a good embedded
+        // album/year isn't overwritten on a lone vote).
+        var release = ReleaseSelector.Select(
+            bestCluster.Select(c => c.Result).ToList(), song.Album, song.Year, preferOriginalRelease);
+        var finalWinner = OverlayDiscreteArtists(ApplyRelease(winner.Result, release), bestCluster);
+
+        return new ConsensusResult(
+            EnrichmentStatus.Matched, finalWinner, CombineConfidence(bestCluster),
+            distinctProviders, release.CorroboratedFields);
+    }
+
+    /// <summary>
+    /// Tier 2 — a lone name-based provider (Spotify / MusicBrainz / Deezer / Apple Music) that matched
+    /// on its own tuned thresholds may stand alone, but only if no other strong candidate landed on a
+    /// *different* identity. Two name-based providers that confidently disagree are a genuine conflict
+    /// that belongs in review, not an auto-match to whichever happened to score higher. (Candidates
+    /// that agree would already have been promoted as a multi-provider cluster in tier 1, so any other
+    /// strong candidate reaching here necessarily contradicts.) A candidate whose identity was only
+    /// guessed from the file path (identity_unverified) is excluded: it must be corroborated by a
+    /// second provider before it can match. Abstains (returns null) when no clean solo name-based
+    /// match exists or one is contradicted.
+    /// </summary>
+    private static ConsensusResult? TrySoloNameBasedMatch(
+        List<Candidate> strong, IdentityMatchOptions identityOptions)
+    {
         var soloNameBased = strong
             .Where(c => c.IsNameBased
                 && c.Result.RecommendedStatus == EnrichmentStatus.Matched
                 && !c.Result.MatchWarnings.Contains(MatchWarnings.IdentityUnverified))
             .OrderByDescending(c => c.Confidence)
             .FirstOrDefault();
-        if (soloNameBased is not null)
-        {
-            var contradictedByOther = strong.Any(c =>
-                !ReferenceEquals(c, soloNameBased)
-                && !c.Identity.AgreesWith(soloNameBased.Identity, identityOptions));
+        if (soloNameBased is null)
+            return null;
 
-            if (!contradictedByOther)
-            {
-                return new ConsensusResult(
-                    EnrichmentStatus.Matched, soloNameBased.Result, soloNameBased.Confidence,
-                    [soloNameBased.Provider]);
-            }
-        }
+        var contradictedByOther = strong.Any(c =>
+            !ReferenceEquals(c, soloNameBased)
+            && !c.Identity.AgreesWith(soloNameBased.Identity, identityOptions));
 
-        // (A confident community-tracker match is handled with top precedence above.)
+        return contradictedByOther
+            ? null
+            : new ConsensusResult(
+                EnrichmentStatus.Matched, soloNameBased.Result, soloNameBased.Confidence,
+                [soloNameBased.Provider]);
+    }
 
-        // 3) A clean, *unambiguous* fingerprint match (AcoustID) is acoustically authoritative and
-        //    may stand alone — but only once every enabled provider has had its turn, so a
-        //    name-based corroborator/contradictor gets the chance to weigh in first. The validator
-        //    already recommended Matched (score >= threshold, no blocking warning), and we further
-        //    require a single candidate so an ambiguous fingerprint that resolved to several
-        //    recordings still goes to review.
-        if (allAttempted)
-        {
-            var soloFingerprint = strong
-                .Where(c => !c.IsNameBased
-                    && c.Result.RecommendedStatus == EnrichmentStatus.Matched
-                    && !c.Result.MatchWarnings.Contains("multiple_candidates"))
-                .OrderByDescending(c => c.Confidence)
-                .FirstOrDefault();
+    /// <summary>
+    /// Tier 3 — a clean, *unambiguous* fingerprint match (AcoustID) is acoustically authoritative and
+    /// may stand alone. The caller only reaches this tier once every enabled provider has had its
+    /// turn, so a name-based corroborator/contradictor already got the chance to weigh in. Requires a
+    /// single candidate (an ambiguous fingerprint that resolved to several recordings — flagged
+    /// multiple_candidates — still goes to review) and no strong name-based provider landing on a
+    /// different identity. Abstains (returns null) otherwise.
+    /// </summary>
+    private static ConsensusResult? TrySoloFingerprintMatch(
+        List<Candidate> strong, IdentityMatchOptions identityOptions)
+    {
+        var soloFingerprint = strong
+            .Where(c => !c.IsNameBased
+                && c.Result.RecommendedStatus == EnrichmentStatus.Matched
+                && !c.Result.MatchWarnings.Contains("multiple_candidates"))
+            .OrderByDescending(c => c.Confidence)
+            .FirstOrDefault();
+        if (soloFingerprint is null)
+            return null;
 
-            // Don't stand alone if a strong name-based provider landed on a *different* identity
-            // (e.g. a different version/recording) — that genuine conflict belongs in review.
-            var contradictedByNameBased = soloFingerprint is not null && strong.Any(c =>
-                c.IsNameBased && !c.Identity.AgreesWith(soloFingerprint.Identity, identityOptions));
+        // Don't stand alone if a strong name-based provider landed on a *different* identity
+        // (e.g. a different version/recording) — that genuine conflict belongs in review.
+        var contradictedByNameBased = strong.Any(c =>
+            c.IsNameBased && !c.Identity.AgreesWith(soloFingerprint.Identity, identityOptions));
 
-            if (soloFingerprint is not null && !contradictedByNameBased)
-            {
-                return new ConsensusResult(
-                    EnrichmentStatus.Matched, soloFingerprint.Result, soloFingerprint.Confidence,
-                    [soloFingerprint.Provider]);
-            }
-        }
+        return contradictedByNameBased
+            ? null
+            : new ConsensusResult(
+                EnrichmentStatus.Matched, soloFingerprint.Result, soloFingerprint.Confidence,
+                [soloFingerprint.Provider]);
+    }
 
-        // 4) Otherwise it needs review (once every provider has had its turn). Surface the
-        //    highest-confidence candidate so the review UI / bulk-approve can find it.
-        var reviewWinner = candidates.OrderByDescending(c => c.Confidence).First();
+    /// <summary>
+    /// Tier 4 — no tier above reached a verdict. Once every provider has had its turn the song needs
+    /// review, surfacing the highest-confidence candidate so the review UI / bulk-approve can find it;
+    /// until then it stays <see cref="EnrichmentStatus.Pending"/> so a not-yet-answered provider can
+    /// still corroborate.
+    /// </summary>
+    private static ConsensusResult FinalizeReviewOrPending(List<Candidate> candidates, bool allAttempted)
+    {
         if (!allAttempted)
             return new ConsensusResult(EnrichmentStatus.Pending, null, 0, []);
 
+        var reviewWinner = candidates.OrderByDescending(c => c.Confidence).First();
         return new ConsensusResult(
             EnrichmentStatus.NeedsReview, reviewWinner.Result, reviewWinner.Confidence,
             [reviewWinner.Provider]);
@@ -336,7 +390,7 @@ public static class ConsensusEvaluator
         return null;
     }
 
-    private static List<Candidate>? BuildBestCluster(List<Candidate> strong, IdentityMatchOptions opts)
+    internal static List<Candidate>? BuildBestCluster(List<Candidate> strong, IdentityMatchOptions opts)
     {
         if (strong.Count == 0)
             return null;
@@ -457,7 +511,7 @@ public static class ConsensusEvaluator
             .Any(g => g.Select(c => c.Provider).Distinct().Count() >= 2);
     }
 
-    private static double CombineConfidence(IEnumerable<Candidate> cluster)
+    internal static double CombineConfidence(IEnumerable<Candidate> cluster)
     {
         var inverse = 1.0;
         foreach (var c in cluster)
