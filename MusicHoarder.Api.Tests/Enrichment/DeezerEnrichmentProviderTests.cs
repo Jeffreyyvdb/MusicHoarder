@@ -219,6 +219,35 @@ public class DeezerEnrichmentProviderTests
     }
 
     [Fact]
+    public async Task TryEnrichAsync_AlbumNarrowedSearchEmpty_FallsBackToArtistTitleQuery()
+    {
+        // A tagged file with a known album first searches narrowed by that album; when that returns
+        // nothing the provider must retry with the un-narrowed artist+title query so recall never
+        // drops. Pins the two-query fallback the shared planner has to preserve.
+        var track = new DeezerCatalogTrack("deezer-1", "Lucid Dreams", "Juice WRLD", "Goodbye & Good Riddance", 2018, 3, 239_000, "USUM71807840");
+        var queries = new List<string>();
+        var catalog = new StubDeezerCatalog
+        {
+            OnSearch = q =>
+            {
+                queries.Add(q);
+                return q.Contains("Goodbye", StringComparison.OrdinalIgnoreCase) ? [] : [track];
+            },
+            OnLookupId = _ => track,
+        };
+        var provider = CreateProvider(catalog);
+        var song = Song(artist: "Juice WRLD", title: "Lucid Dreams", durationSec: 239, album: "Goodbye & Good Riddance");
+
+        var result = await provider.TryEnrichAsync(song);
+
+        Assert.IsType<ProviderMatched>(result);
+        Assert.Equal(2, catalog.SearchCalls);
+        Assert.Equal(2, queries.Count);
+        Assert.Contains("Goodbye", queries[0], StringComparison.OrdinalIgnoreCase);       // album-narrowed first
+        Assert.DoesNotContain("Goodbye", queries[1], StringComparison.OrdinalIgnoreCase); // un-narrowed fallback
+    }
+
+    [Fact]
     public async Task TryEnrichAsync_RateLimited_ReturnsProviderRateLimited()
     {
         var catalog = new StubDeezerCatalog
