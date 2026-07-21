@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Matching;
-using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Spotify;
@@ -139,14 +138,7 @@ public class SpotifyApiEnrichmentProvider(
         EnrichmentStatus status,
         SpotifyAlbumDetail? album = null)
     {
-        var effectiveArtist = string.IsNullOrWhiteSpace(track.Artist) ? song.Artist : track.Artist;
-        // Album-artist is an album-level field: never synthesize it from the *track* artist credit,
-        // which on compilations/collabs is a featured guest and for comma-names ("Tyler, The Creator")
-        // gets truncated by GetPrimaryArtist — both split one album into several. Preserve the song's
-        // curated album-artist; only fall back to the track's primary artist for genuinely untagged files.
-        var albumArtist = !string.IsNullOrWhiteSpace(song.AlbumArtist)
-            ? song.AlbumArtist
-            : ArtistCreditNormalizer.GetPrimaryArtist(effectiveArtist) ?? effectiveArtist;
+        var (effectiveArtist, albumArtist) = CatalogResultArtists.Resolve(song, track.Artist);
 
         return new EnrichmentProviderResult(
             Artist: effectiveArtist,

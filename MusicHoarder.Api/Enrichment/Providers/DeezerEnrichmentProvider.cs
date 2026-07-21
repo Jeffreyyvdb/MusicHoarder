@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Deezer;
 using MusicHoarder.Api.Matching;
-using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -27,8 +26,7 @@ public class DeezerEnrichmentProvider(
     public async Task<ProviderOutcome> TryEnrichAsync(SongMetadata song, CancellationToken ct = default)
     {
         var resolved = SongSearchText.ResolveDetailed(song, options.Value.SourceDirectory);
-        var (effectiveArtist, effectiveAlbum, effectiveTitle) = (resolved.Artist, resolved.Album, resolved.Title);
-        if (string.IsNullOrWhiteSpace(effectiveArtist) || string.IsNullOrWhiteSpace(effectiveTitle))
+        if (string.IsNullOrWhiteSpace(resolved.Artist) || string.IsNullOrWhiteSpace(resolved.Title))
         {
             logger.LogDebug("Deezer enrichment: no searchable artist/title (SongId={SongId})", song.Id);
             return new ProviderNoMatch();
@@ -53,18 +51,8 @@ public class DeezerEnrichmentProvider(
                 }
             }
 
-            // Untagged files query on the cleaned filename free-text; tagged files keep the discrete
-            // artist+title (+album) search. Album sharpens the search so the original pressing surfaces
-            // ahead of a compilation; fall back to artist+title so recall never drops.
-            var pathQuery = resolved.IdentityFromPath ? resolved.PathQuery : null;
-            var baseQuery = string.IsNullOrWhiteSpace(pathQuery)
-                ? $"{effectiveArtist} {effectiveTitle}".Trim()
-                : pathQuery!.Trim();
-            var tracks = string.IsNullOrWhiteSpace(effectiveAlbum) || !string.IsNullOrWhiteSpace(pathQuery)
-                ? await catalog.SearchTracksAsync(baseQuery, ct)
-                : await catalog.SearchTracksAsync($"{baseQuery} {effectiveAlbum}".Trim(), ct);
-            if (tracks.Count == 0 && string.IsNullOrWhiteSpace(pathQuery) && !string.IsNullOrWhiteSpace(effectiveAlbum))
-                tracks = await catalog.SearchTracksAsync(baseQuery, ct);
+            var tracks = await CatalogSearchPlanner.SearchAsync(
+                resolved, (query, token) => catalog.SearchTracksAsync(query, token), ct);
 
             if (tracks.Count == 0)
             {
@@ -115,14 +103,7 @@ public class DeezerEnrichmentProvider(
         List<string> warnings,
         EnrichmentStatus status)
     {
-        var effectiveArtist = string.IsNullOrWhiteSpace(track.Artist) ? song.Artist : track.Artist;
-        // Album-artist is an album-level field: never synthesize it from the *track* artist credit,
-        // which on compilations/collabs is a featured guest and for comma-names ("Tyler, The Creator")
-        // gets truncated by GetPrimaryArtist — both split one album into several. Preserve the song's
-        // curated album-artist; only fall back to the track's primary artist for genuinely untagged files.
-        var albumArtist = !string.IsNullOrWhiteSpace(song.AlbumArtist)
-            ? song.AlbumArtist
-            : ArtistCreditNormalizer.GetPrimaryArtist(effectiveArtist) ?? effectiveArtist;
+        var (effectiveArtist, albumArtist) = CatalogResultArtists.Resolve(song, track.Artist);
 
         return new EnrichmentProviderResult(
             Artist: effectiveArtist,
