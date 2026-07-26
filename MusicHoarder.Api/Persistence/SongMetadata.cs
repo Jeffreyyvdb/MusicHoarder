@@ -134,6 +134,29 @@ public class SongMetadata
     public int? DurationSeconds { get; set; }
     public int? DurationMs { get; set; }
     public required DateTime IndexedAtUtc { get; set; }
+
+    /// <summary>
+    /// When this track entered the collection — stamped ONCE, when the row is first created, and never
+    /// rewritten afterwards. This is the field "recently added" views must sort on.
+    ///
+    /// The two timestamps that look like they'd do the job don't: <see cref="IndexedAtUtc"/> is bumped
+    /// whenever the file changes on disk and gets re-indexed (an external tag edit is enough), and
+    /// <see cref="LibraryBuiltAtUtc"/> is cleared by <see cref="ResetLibraryBuild"/> — which a re-index,
+    /// a re-enrichment or a source upgrade all trigger. Either one makes an album the user has owned for
+    /// years jump to the top of "recently added" for no reason the user can see.
+    ///
+    /// Seeded from <c>min(file mtime, index time)</c>: a first bulk import would otherwise collapse the
+    /// whole back catalogue into one instant, whereas the filesystem usually still remembers roughly when
+    /// each file arrived. The <c>min</c> keeps a bogus future mtime from winning.
+    /// </summary>
+    public DateTime? AcquiredAtUtc { get; set; }
+
+    /// <summary>
+    /// The acquisition stamp to seed a freshly created row with — see <see cref="AcquiredAtUtc"/>.
+    /// </summary>
+    public static DateTime SeedAcquiredAt(DateTime lastModifiedUtc, DateTime indexedAtUtc) =>
+        lastModifiedUtc < indexedAtUtc ? lastModifiedUtc : indexedAtUtc;
+
     public string? Fingerprint { get; set; }
     public int? Bitrate { get; set; }
 

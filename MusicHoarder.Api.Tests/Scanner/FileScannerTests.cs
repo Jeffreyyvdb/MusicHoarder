@@ -47,6 +47,34 @@ public class FileScannerTests : IDisposable
         Assert.False(metadata!.HasCoverArt);
     }
 
+    [Fact]
+    public async Task ScanFile_SeedsAcquiredAt_FromFileMtime_WhenOlderThanTheScan()
+    {
+        // A file that's been sitting on disk for years is acquired then, not at first scan — otherwise
+        // an initial bulk import collapses the whole back catalogue into one instant.
+        var path = CopyFixture("silence.mp3");
+        var mtime = new DateTime(2019, 6, 1, 12, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(path, mtime);
+
+        var metadata = await CreateScanner().ScanFileAsync(path, tagsOnly: true);
+
+        Assert.NotNull(metadata);
+        Assert.Equal(mtime, metadata!.AcquiredAtUtc);
+        Assert.True(metadata.IndexedAtUtc > mtime);
+    }
+
+    [Fact]
+    public async Task ScanFile_SeedsAcquiredAt_FromScanTime_WhenMtimeIsInTheFuture()
+    {
+        var path = CopyFixture("silence.mp3");
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(30));
+
+        var metadata = await CreateScanner().ScanFileAsync(path, tagsOnly: true);
+
+        Assert.NotNull(metadata);
+        Assert.Equal(metadata!.IndexedAtUtc, metadata.AcquiredAtUtc);
+    }
+
     private static FileScanner CreateScanner() =>
         new(new FileSystem(), new NullFpcalcService(), NullLogger<FileScanner>.Instance);
 

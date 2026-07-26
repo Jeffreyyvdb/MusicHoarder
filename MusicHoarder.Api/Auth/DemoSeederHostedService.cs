@@ -412,6 +412,10 @@ public sealed class DemoSeederHostedService : IHostedService
         var now = DateTime.UtcNow;
         var destinationRoot = "/demo/destination";
 
+        // Seeds arrive album-ordered; stagger the acquisition stamps an hour apart so the demo's
+        // "recently added" ordering is stable and album-clustered instead of one arbitrary tie.
+        var seedIndex = 0;
+
         foreach (var seed in seeds)
         {
             var fileName = $"{seed.Track:00} {Sanitize(seed.Title)}.mp3";
@@ -428,6 +432,7 @@ public sealed class DemoSeederHostedService : IHostedService
                 Extension = ".mp3",
                 LastModifiedUtc = now,
                 IndexedAtUtc = now,
+                AcquiredAtUtc = now.AddHours(-seedIndex++),
                 Artist = seed.Artist,
                 AlbumArtist = seed.Artist,
                 Album = seed.Album,
@@ -498,6 +503,7 @@ public sealed class DemoSeederHostedService : IHostedService
                 FileSizeBytes = seed.FileSizeBytes,
                 LastModifiedUtc = now,
                 IndexedAtUtc = now,
+                AcquiredAtUtc = now,
                 Artist = string.IsNullOrEmpty(seed.EmbArtist) ? null : seed.EmbArtist,
                 Album = string.IsNullOrEmpty(seed.EmbAlbum) ? null : seed.EmbAlbum,
                 Title = string.IsNullOrEmpty(seed.EmbTitle) ? null : seed.EmbTitle,

@@ -21,6 +21,7 @@
   import {
     fetchSongs,
     buildAlbumsFromSongs,
+    mergeAlbumsByName,
     buildArtistGroups,
     artistLabelForSong,
     type ApiSong,
@@ -94,7 +95,10 @@
       });
   });
 
-  const albums = $derived<AlbumSummary[]>(loaded ? buildAlbumsFromSongs(songs) : []);
+  // Merged by name so searching an album split across destination folders offers one result.
+  const albums = $derived<AlbumSummary[]>(
+    loaded ? mergeAlbumsByName(buildAlbumsFromSongs(songs)) : []
+  );
   const artists = $derived<GroupSummary[]>(loaded ? buildArtistGroups(songs) : []);
 
   const q = $derived(query.trim().toLowerCase());

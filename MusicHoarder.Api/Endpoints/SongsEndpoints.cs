@@ -160,6 +160,7 @@ public static class SongsEndpoints
                 s.FileSizeBytes,
                 s.LastModifiedUtc,
                 s.IndexedAtUtc,
+                s.AcquiredAtUtc,
                 s.DeletedAtUtc,
                 s.Artist,
                 s.Artists,
@@ -236,7 +237,7 @@ public static class SongsEndpoints
         var projected = songs.Select(s => new
         {
             s.Id, s.SourcePath, s.FileName, s.Extension, s.FileSizeBytes,
-            s.LastModifiedUtc, s.IndexedAtUtc, s.DeletedAtUtc,
+            s.LastModifiedUtc, s.IndexedAtUtc, s.AcquiredAtUtc, s.DeletedAtUtc,
             s.Artist, s.Artists, s.AlbumArtist, s.Album, s.Title, s.Year, s.TrackNumber,
             s.DurationSeconds, s.DurationMs,
             s.Bitrate,

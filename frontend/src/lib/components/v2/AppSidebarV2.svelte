@@ -32,6 +32,7 @@
   import * as Sidebar from '$lib/components/ui/sidebar';
   import {
     buildAlbumsFromSongs,
+    mergeAlbumsByName,
     fetchOverview,
     fetchSongs,
     fetchStats,
@@ -139,7 +140,10 @@
       .map((s) => mapEnrichmentStatus(s.enrichmentStatus))
       .filter((s) => s === 'needsreview' || s === 'failed').length;
   });
-  const albumCount = $derived.by(() => (songs.length === 0 ? null : buildAlbumsFromSongs(builtSongs).length));
+  // Merged like the grid, so this badge and the grid's own "N albums" footer agree.
+  const albumCount = $derived.by(() =>
+    songs.length === 0 ? null : mergeAlbumsByName(buildAlbumsFromSongs(builtSongs)).length
+  );
   const likedCount = $derived.by(() =>
     songs.length === 0 ? null : builtSongs.filter((s) => s.likedAtUtc).length
   );

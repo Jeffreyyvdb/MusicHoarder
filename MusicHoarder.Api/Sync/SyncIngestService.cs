@@ -241,6 +241,7 @@ public sealed class SyncIngestService(
 
     private SongMetadata CreateSongRow(SyncTrackPayload payload, string finalPath, FileInfo fileInfo)
     {
+        var indexedAt = DateTime.UtcNow;
         var song = new SongMetadata
         {
             OwnerUserId = ownerLookup.OwnerUserId,
@@ -249,7 +250,10 @@ public sealed class SyncIngestService(
             FileName = Path.GetFileName(finalPath),
             Extension = Path.GetExtension(finalPath).ToLowerInvariant(),
             LastModifiedUtc = fileInfo.LastWriteTimeUtc,
-            IndexedAtUtc = DateTime.UtcNow,
+            IndexedAtUtc = indexedAt,
+            // A received track is acquired now — the file was just written locally, so its mtime is
+            // "now" too; the min() guards against a receiving clock skewed ahead of the file's stamp.
+            AcquiredAtUtc = SongMetadata.SeedAcquiredAt(fileInfo.LastWriteTimeUtc, indexedAt),
             Fingerprint = payload.Fingerprint,
             Bitrate = payload.Bitrate,
             DurationSeconds = payload.DurationSeconds,

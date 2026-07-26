@@ -107,6 +107,12 @@ export interface ApiSong {
   enrichmentStatus?: string | number | null
   /** When the scanner first indexed the file (always set). */
   indexedAtUtc?: string | null
+  /**
+   * When the track entered the collection — stamped once at first index and never rewritten. This is
+   * the field "recently added" sorts on: `indexedAtUtc` moves whenever the file changes on disk and
+   * `libraryBuiltAtUtc` is cleared by any rebuild, so both drag long-owned tracks back to the top.
+   */
+  acquiredAtUtc?: string | null
   /** When the track was copied/tagged into the destination library; null until built. */
   libraryBuiltAtUtc?: string | null
   /** Pipeline build state: Pending/Copied/Tagged/Done/Failed (number or string). */
@@ -293,6 +299,13 @@ export interface AlbumSummary {
    * Used as the `?album=` URL param and for client-side album lookup.
    */
   key: string
+  /**
+   * Every destination folder this card covers — `[key]` for a plain card, and all of the merged
+   * folders (representative first) for one produced by {@link mergeAlbumsByName}. Lets callers
+   * resolve a `?album=<folder>` deep-link that points at a folder which lost the representative
+   * election, and tells AlbumPage whether it may pass a single-folder hint to the backend.
+   */
+  folderKeys: string[]
   title: string
   artist: string
   year: number | null
@@ -317,6 +330,8 @@ export interface AlbumSummary {
   coverUrl: string | null
   /** Most recent "added" time across the album's tracks (ISO string); null if none known. */
   addedAtUtc: string | null
+  /** Sum of playCount across the album's tracks. */
+  playCount: number
   /** Songs ordered by track number then title. */
   songs: ApiSong[]
 }
@@ -338,18 +353,37 @@ function destinationFolderOf(song: ApiSong): string | null {
   return idx > 0 ? path.slice(0, idx) : path
 }
 
-/** Effective "added to library" time for a song: build time, falling back to index time. */
+/**
+ * When a song entered the collection, as an ISO string — {@link ApiSong.acquiredAtUtc} when the API
+ * has it.
+ *
+ * Rows predating that column fall back to the OLDEST of the two churn-prone stamps rather than
+ * preferring either: a re-index bumps `indexedAtUtc` while a rebuild clears and re-sets
+ * `libraryBuiltAtUtc`, so whichever survived un-bumped is the closer guess at the real date.
+ */
+export function songAddedIso(s: ApiSong): string | null {
+  if (s.acquiredAtUtc) return s.acquiredAtUtc
+  let oldest: string | null = null
+  let oldestMs = Number.POSITIVE_INFINITY
+  for (const candidate of [s.libraryBuiltAtUtc, s.indexedAtUtc]) {
+    if (!candidate) continue
+    const ms = Date.parse(candidate)
+    if (Number.isNaN(ms) || ms >= oldestMs) continue
+    oldest = candidate
+    oldestMs = ms
+  }
+  return oldest
+}
+
+/** Effective "added to library" time for a song, as epoch ms (0 when unknown). */
 export function songAddedTime(s: ApiSong): number {
-  const t = s.libraryBuiltAtUtc ?? s.indexedAtUtc
-  return t ? new Date(t).getTime() : 0
+  const iso = songAddedIso(s)
+  return iso ? new Date(iso).getTime() : 0
 }
 
 /** Sort albums newest-first by their `addedAtUtc`. Returns a new array. */
 export function sortAlbumsByRecency(albums: AlbumSummary[]): AlbumSummary[] {
-  return [...albums].sort(
-    (a, b) =>
-      new Date(b.addedAtUtc ?? 0).getTime() - new Date(a.addedAtUtc ?? 0).getTime(),
-  )
+  return sortAlbums(albums, "recent")
 }
 
 /**
@@ -368,6 +402,7 @@ export function buildAlbumsFromSongs(songs: ApiSong[]): AlbumSummary[] {
     if (!entry) {
       entry = {
         key,
+        folderKeys: [key],
         title,
         artist,
         year: song.year ?? null,
@@ -382,13 +417,17 @@ export function buildAlbumsFromSongs(songs: ApiSong[]): AlbumSummary[] {
         musicBrainzReleaseId: null,
         coverUrl: null,
         addedAtUtc: null,
+        playCount: 0,
         songs: [],
       }
       map.set(key, entry)
     }
     entry.trackCount += 1
-    const added = song.libraryBuiltAtUtc ?? song.indexedAtUtc
-    if (added && (!entry.addedAtUtc || added > entry.addedAtUtc)) entry.addedAtUtc = added
+    const added = songAddedIso(song)
+    if (added && (!entry.addedAtUtc || Date.parse(added) > Date.parse(entry.addedAtUtc))) {
+      entry.addedAtUtc = added
+    }
+    entry.playCount += song.playCount ?? 0
     entry.durationSeconds += song.durationSeconds ?? 0
     entry.byteSize += song.fileSizeBytes ?? 0
     if (song.year && (!entry.year || song.year < entry.year)) entry.year = song.year
@@ -403,21 +442,116 @@ export function buildAlbumsFromSongs(songs: ApiSong[]): AlbumSummary[] {
     if (!entry.coverUrl) entry.coverUrl = coverUrlForSong(song)
     entry.songs.push(song)
   }
-  for (const album of map.values()) {
-    album.songs.sort((a, b) => {
-      const na = a.trackNumber ?? Number.POSITIVE_INFINITY
-      const nb = b.trackNumber ?? Number.POSITIVE_INFINITY
-      if (na !== nb) return na - nb
-      const ta = (a.title ?? a.fileName).toLocaleLowerCase()
-      const tb = (b.title ?? b.fileName).toLocaleLowerCase()
-      return ta.localeCompare(tb)
-    })
+  for (const album of map.values()) album.songs.sort(byTrackNumberThenTitle)
+  return Array.from(map.values()).sort(byArtistThenTitle)
+}
+
+function byTrackNumberThenTitle(a: ApiSong, b: ApiSong): number {
+  const na = a.trackNumber ?? Number.POSITIVE_INFINITY
+  const nb = b.trackNumber ?? Number.POSITIVE_INFINITY
+  if (na !== nb) return na - nb
+  const ta = (a.title ?? a.fileName).toLocaleLowerCase()
+  const tb = (b.title ?? b.fileName).toLocaleLowerCase()
+  return ta.localeCompare(tb)
+}
+
+function byArtistThenTitle(a: AlbumSummary, b: AlbumSummary): number {
+  const artistCmp = a.artist.localeCompare(b.artist)
+  return artistCmp !== 0 ? artistCmp : a.title.localeCompare(b.title)
+}
+
+/**
+ * Fold cards that are the same album under a different destination folder into one.
+ *
+ * {@link buildAlbumsFromSongs} keys built songs on their destination folder, which mirrors what the
+ * music server shows — but it also means one album whose tracks disagree about the year or the
+ * artist spelling lands as two or three adjacent, near-identical cards. For *browsing* the library
+ * that reads as noise, so the grid merges by `${artistLower}::${titleLower}`.
+ *
+ * The largest constituent folder becomes the representative (its `key` keeps existing `?album=`
+ * links working, ties broken on the key so the choice is stable across refetches); `folderKeys`
+ * carries all of them so a link to a folder that lost can still be resolved.
+ */
+export function mergeAlbumsByName(albums: AlbumSummary[]): AlbumSummary[] {
+  const groups = new Map<string, AlbumSummary[]>()
+  for (const album of albums) {
+    const nameKey = `${album.artist.toLowerCase()}::${album.title.toLowerCase()}`
+    const group = groups.get(nameKey)
+    if (group) group.push(album)
+    else groups.set(nameKey, [album])
   }
-  return Array.from(map.values()).sort((a, b) => {
-    const artistCmp = a.artist.localeCompare(b.artist)
-    if (artistCmp !== 0) return artistCmp
-    return a.title.localeCompare(b.title)
-  })
+
+  const merged: AlbumSummary[] = []
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      merged.push(group[0])
+      continue
+    }
+    const ordered = [...group].sort(
+      (a, b) => b.trackCount - a.trackCount || a.key.localeCompare(b.key),
+    )
+    const [lead, ...rest] = ordered
+    const combined: AlbumSummary = {
+      ...lead,
+      folderKeys: ordered.map((a) => a.key),
+      songs: ordered.flatMap((a) => a.songs).sort(byTrackNumberThenTitle),
+    }
+    for (const other of rest) {
+      combined.trackCount += other.trackCount
+      combined.durationSeconds += other.durationSeconds
+      combined.byteSize += other.byteSize
+      combined.playCount += other.playCount
+      if (other.year && (!combined.year || other.year < combined.year)) combined.year = other.year
+      combined.genre ??= other.genre
+      combined.label ??= other.label
+      combined.catalogNumber ??= other.catalogNumber
+      combined.upc ??= other.upc
+      combined.releaseDate ??= other.releaseDate
+      combined.musicBrainzReleaseId ??= other.musicBrainzReleaseId
+      combined.coverUrl ??= other.coverUrl
+      if (
+        other.addedAtUtc &&
+        (!combined.addedAtUtc || Date.parse(other.addedAtUtc) > Date.parse(combined.addedAtUtc))
+      ) {
+        combined.addedAtUtc = other.addedAtUtc
+      }
+    }
+    merged.push(combined)
+  }
+  return merged.sort(byArtistThenTitle)
+}
+
+/** How the album grid is ordered. */
+export type AlbumSortKey = "recent" | "artist" | "title" | "year" | "played"
+
+export const ALBUM_SORT_OPTIONS: { key: AlbumSortKey; label: string }[] = [
+  { key: "recent", label: "Recently added" },
+  { key: "artist", label: "Artist A–Z" },
+  { key: "title", label: "Album title" },
+  { key: "year", label: "Year (newest)" },
+  { key: "played", label: "Most played" },
+]
+
+export function isAlbumSortKey(value: string | null | undefined): value is AlbumSortKey {
+  return ALBUM_SORT_OPTIONS.some((o) => o.key === value)
+}
+
+/**
+ * Order albums for the grid. Every comparator falls back to artist-then-title so albums that tie
+ * (no play count, no year, same day added) keep a stable, alphabetical order instead of the
+ * arbitrary one the grouping map happened to produce.
+ */
+export function sortAlbums(albums: AlbumSummary[], key: AlbumSortKey): AlbumSummary[] {
+  const added = (a: AlbumSummary) => (a.addedAtUtc ? Date.parse(a.addedAtUtc) : 0)
+  const compare: Record<AlbumSortKey, (a: AlbumSummary, b: AlbumSummary) => number> = {
+    recent: (a, b) => added(b) - added(a),
+    artist: () => 0,
+    title: (a, b) => a.title.localeCompare(b.title),
+    year: (a, b) => (b.year ?? 0) - (a.year ?? 0),
+    played: (a, b) => b.playCount - a.playCount,
+  }
+  const primary = compare[key]
+  return [...albums].sort((a, b) => primary(a, b) || byArtistThenTitle(a, b))
 }
 
 // ── Organize-by grouping (Artist / Year) ───────────────────────────────────────
