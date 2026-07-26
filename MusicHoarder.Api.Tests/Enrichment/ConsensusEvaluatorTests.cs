@@ -847,4 +847,77 @@ public class ConsensusEvaluatorTests
             RateLimitedSinceUtc = since,
         });
     }
+
+    // ── Extracted-unit tests ──────────────────────────────────────────────────────────────────
+    // These exercise the pure pieces the tiered decision ladder is built from, in isolation — no
+    // SongMetadata, provider attempts, or JSON round-trip required. They are the concrete payoff of
+    // decomposing EvaluateInternal: the clustering and confidence-combination calculations can now be
+    // unit-tested directly instead of only through the full Evaluate() surface.
+
+    [Fact]
+    public void CreateCandidate_DerivesNameBasedFlagAndConfidenceFromResult()
+    {
+        var nameBased = ConsensusEvaluator.CreateCandidate(
+            EnrichmentProvider.SpotifyAPI, Result("Adele", "Hello", spotifyId: "sp1", conf: 0.9));
+        Assert.True(nameBased.IsNameBased);
+        Assert.Equal(0.9, nameBased.Confidence, 3);
+
+        var fingerprint = ConsensusEvaluator.CreateCandidate(
+            EnrichmentProvider.AcoustID, Result("Adele", "Hello", mbid: "mb-1", conf: 0.7));
+        Assert.False(fingerprint.IsNameBased);
+        Assert.Equal(0.7, fingerprint.Confidence, 3);
+    }
+
+    [Fact]
+    public void CombineConfidence_CombinesIndependentVotesWithNoisyOr()
+    {
+        var votes = new[]
+        {
+            ConsensusEvaluator.CreateCandidate(EnrichmentProvider.SpotifyAPI, Result("A", "T", spotifyId: "s", conf: 0.5)),
+            ConsensusEvaluator.CreateCandidate(EnrichmentProvider.Deezer, Result("A", "T", conf: 0.5)),
+        };
+
+        // Two independent 0.5 votes: 1 - (1-0.5)(1-0.5) = 0.75.
+        Assert.Equal(0.75, ConsensusEvaluator.CombineConfidence(votes), 3);
+    }
+
+    [Fact]
+    public void CombineConfidence_ClampsToCeiling()
+    {
+        var votes = new[]
+        {
+            ConsensusEvaluator.CreateCandidate(EnrichmentProvider.SpotifyAPI, Result("A", "T", spotifyId: "s", conf: 0.99)),
+            ConsensusEvaluator.CreateCandidate(EnrichmentProvider.Deezer, Result("A", "T", conf: 0.99)),
+            ConsensusEvaluator.CreateCandidate(EnrichmentProvider.MusicBrainzWeb, Result("A", "T", conf: 0.99)),
+        };
+
+        // Combined confidence never reports certainty: capped at 0.99.
+        Assert.Equal(0.99, ConsensusEvaluator.CombineConfidence(votes), 3);
+    }
+
+    [Fact]
+    public void BuildBestCluster_GroupsByIdentityAgreementAndPicksLargestCluster()
+    {
+        var agreeingSpotify = ConsensusEvaluator.CreateCandidate(
+            EnrichmentProvider.SpotifyAPI, Result("Adele", "Hello", mbid: "mb-1", conf: 0.8));
+        var agreeingMusicBrainz = ConsensusEvaluator.CreateCandidate(
+            EnrichmentProvider.MusicBrainzWeb, Result("Adele", "Hello", mbid: "mb-1", conf: 0.7));
+        var dissenter = ConsensusEvaluator.CreateCandidate(
+            EnrichmentProvider.Deezer, Result("Other", "Song", mbid: "mb-9", conf: 0.9));
+
+        var cluster = ConsensusEvaluator.BuildBestCluster(
+            [dissenter, agreeingSpotify, agreeingMusicBrainz], Opts);
+
+        Assert.NotNull(cluster);
+        Assert.Equal(2, cluster!.Count);
+        Assert.Equal(
+            new[] { EnrichmentProvider.SpotifyAPI, EnrichmentProvider.MusicBrainzWeb }.OrderBy(p => p),
+            cluster.Select(c => c.Provider).OrderBy(p => p));
+    }
+
+    [Fact]
+    public void BuildBestCluster_NoCandidates_ReturnsNull()
+    {
+        Assert.Null(ConsensusEvaluator.BuildBestCluster([], Opts));
+    }
 }
