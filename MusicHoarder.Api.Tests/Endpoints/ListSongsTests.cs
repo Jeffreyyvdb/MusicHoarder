@@ -18,7 +18,7 @@ public class ListSongsTests
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.ListSongs(db);
+        var result = await ListSongsCaller.Invoke(db);
 
         var first = SingleSong(result);
         Assert.Equal("AQADtMkUhEL-fingerprint-sample", GetProperty<string?>(first, "Fingerprint"));
@@ -31,7 +31,7 @@ public class ListSongsTests
         db.Songs.Add(NewSong("/b.mp3", "b.mp3"));
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.ListSongs(db);
+        var result = await ListSongsCaller.Invoke(db);
 
         var first = SingleSong(result);
         Assert.Null(GetProperty<string?>(first, "Fingerprint"));

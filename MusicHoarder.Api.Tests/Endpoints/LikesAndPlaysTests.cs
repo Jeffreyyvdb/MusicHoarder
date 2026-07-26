@@ -161,7 +161,7 @@ public class LikesAndPlaysTests
 
         await using (var db2 = NewContext(options))
         {
-            var result = await SongsEndpoints.ListSongs(db2);
+            var result = await ListSongsCaller.Invoke(db2);
             var value = ResultValue(result);
             var songs = ((System.Collections.IEnumerable)value.GetType().GetProperty("Songs")!.GetValue(value)!)
                 .Cast<object>().ToList();

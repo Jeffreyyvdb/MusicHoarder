@@ -2,8 +2,11 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Contracts;
+using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Navidrome;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Sync;
 
@@ -133,7 +136,12 @@ public static class SongsEndpoints
         return Results.Ok(new { song.Id, song.PlayCount, song.LastPlayedAtUtc });
     }
 
-    internal static async Task<IResult> ListSongs(MusicHoarderDbContext db, bool includeDeleted = false, string? enrichmentStatus = null)
+    internal static async Task<IResult> ListSongs(
+        MusicHoarderDbContext db,
+        IOptions<MusicEnricherOptions> enricherOptions,
+        IOptions<SyncOptions> syncOptions,
+        bool includeDeleted = false,
+        string? enrichmentStatus = null)
     {
         var query = db.Songs.AsNoTracking();
         if (!includeDeleted)
@@ -144,6 +152,34 @@ public static class SongsEndpoints
         {
             query = query.Where(s => s.EnrichmentStatus == parsedStatus);
         }
+
+        // Provenance lookup: which wishlist item(s) point at each song, and what collection they came
+        // from. Two small owner-scoped reads (there are far fewer wishlist items than songs) rather
+        // than a join per row. Items that were SkippedOwned link too — that's how a track already in
+        // the library still reports the date it was liked on Spotify.
+        var wishlistSources = await db.WishlistSources
+            .AsNoTracking()
+            .Select(s => new { s.Id, s.SourceType, s.Name })
+            .ToDictionaryAsync(s => s.Id, s => (s.SourceType, s.Name));
+
+        var wishlistLinks = (await db.WishlistItems
+                .AsNoTracking()
+                .Where(w => w.DownloadedSongId != null)
+                .Select(w => new { SongId = w.DownloadedSongId!.Value, w.WishlistSourceId, w.SpotifyAddedAtUtc, w.SourceUrl })
+                .ToListAsync())
+            .GroupBy(w => w.SongId)
+            .ToDictionary(
+                g => g.Key,
+                g => SongOriginResolver.Best(g.Select(w =>
+                {
+                    var source = w.WishlistSourceId is { } id && wishlistSources.TryGetValue(id, out var s)
+                        ? ((WishlistSourceType?)s.SourceType, s.Name)
+                        : (null, null);
+                    return new WishlistLink(source.Item1, source.Item2, w.SourceUrl, w.SpotifyAddedAtUtc);
+                })));
+
+        var downloadDirectory = enricherOptions.Value.DownloadDirectory;
+        var syncedSourceDirectory = syncOptions.Value.SyncedSourceDirectory;
 
         var songs = await query
             .OrderBy(s => s.Artist ?? "")
@@ -234,8 +270,15 @@ public static class SongsEndpoints
             })
             .ToListAsync();
 
-        var projected = songs.Select(s => new
+        var projected = songs.Select(s =>
         {
+            var origin = SongOriginResolver.Resolve(
+                s.SourcePath,
+                wishlistLinks.TryGetValue(s.Id, out var link) ? link : null,
+                downloadDirectory,
+                syncedSourceDirectory);
+            return new
+            {
             s.Id, s.SourcePath, s.FileName, s.Extension, s.FileSizeBytes,
             s.LastModifiedUtc, s.IndexedAtUtc, s.AcquiredAtUtc, s.DeletedAtUtc,
             s.Artist, s.Artists, s.AlbumArtist, s.Album, s.Title, s.Year, s.TrackNumber,
@@ -267,7 +310,14 @@ public static class SongsEndpoints
             PreferredLyricsSource = s.PreferredLyricsSource.ToString(),
             s.LikedAtUtc,
             s.PlayCount,
-            s.LastPlayedAtUtc
+            s.LastPlayedAtUtc,
+            // Provenance — how the file got here, which collection asked for it, and Spotify's own
+            // save date (distinct from LikedAtUtc, which is the local heart).
+            OriginKind = origin.Kind.ToString(),
+            OriginSource = origin.Source.ToString(),
+            OriginDetail = origin.Detail,
+            SpotifyAddedAtUtc = origin.SpotifyAddedAtUtc,
+        };
         }).ToList();
 
         return Results.Ok(new
