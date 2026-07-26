@@ -225,6 +225,7 @@ public static class ServiceCollectionExtensions
         // idempotent — synthetic rows are skipped anyway).
         services.AddHostedService<DemoSeederHostedService>();
         services.AddHostedService<ScannerBackgroundService>();
+        services.AddHostedService<AutoScanBackgroundService>();
         services.AddHostedService<FingerprintBackgroundService>();
         services.AddHostedService<EnrichmentBackgroundService>();
         services.AddHostedService<LibraryBuilderBackgroundService>();

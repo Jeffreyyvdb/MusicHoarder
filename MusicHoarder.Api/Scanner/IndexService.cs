@@ -84,6 +84,24 @@ public class IndexService(
 
         logger.LogInformation("dEnumerating {Directory}…", directoryPath);
 
+        // Files still being written are left for a later scan. Without this an automatic scan that
+        // lands mid-copy indexes a truncated file: TagLib reads garbage (or nothing), and the row
+        // burns an enrichment attempt — complete with its provider cooldown — before the next scan
+        // notices the size/mtime moved and re-processes it. 0 disables the guard.
+        //
+        // Scoped to the user's source library, the only root written to by something we don't control.
+        // The download-staging and sync-receive roots are app-managed and are scanned the instant a
+        // file lands, carrying a one-shot force-cascade flag — deferring those would consume the flag
+        // and strand a just-acquired track outside the library.
+        var isSourceRoot = string.Equals(
+            rootPrefix,
+            NormalizeRootPrefix(opts.SourceDirectory ?? string.Empty),
+            StringComparison.Ordinal);
+        var settleCutoffUtc = opts.ScanSettleSeconds > 0 && isSourceRoot
+            ? DateTime.UtcNow.AddSeconds(-opts.ScanSettleSeconds)
+            : (DateTime?)null;
+        var unsettledCount = 0;
+
         foreach (var file in Directory.EnumerateFiles(directoryPath, "*.*", new EnumerationOptions
                  {
                      IgnoreInaccessible = true,
@@ -102,21 +120,27 @@ public class IndexService(
             if (HasHiddenSegment(file, rootPrefix))
                 continue;
 
+            // Counted as discovered even when unsettled: this set drives deletion reconciliation, so
+            // omitting a file that is merely being rewritten would soft-delete its existing row.
             allDiscoveredPaths.Add(file);
+
+            var fileInfo = new FileInfo(file);
+
+            if (settleCutoffUtc is { } cutoff && fileInfo.LastWriteTimeUtc > cutoff)
+            {
+                unsettledCount++;
+                continue;
+            }
 
             if (!existingSongs.TryGetValue(file, out var existing))
             {
                 filesToProcess.Add(file);
                 newFilePaths.Add(file);
             }
-            else
+            else if (!DateTimeIsEqualMicroseconds(existing.LastModifiedUtc, fileInfo.LastWriteTimeUtc)
+                     || existing.FileSizeBytes != fileInfo.Length)
             {
-                var fileInfo = new FileInfo(file);
-                if (!DateTimeIsEqualMicroseconds(existing.LastModifiedUtc, fileInfo.LastWriteTimeUtc)
-                    || existing.FileSizeBytes != fileInfo.Length)
-                {
-                    filesToProcess.Add(file);
-                }
+                filesToProcess.Add(file);
             }
         }
 
@@ -124,6 +148,11 @@ public class IndexService(
         var newCount = newFilePaths.Count;
         var changedCount = filesToProcess.Count - newCount;
         var skippedCount = totalDiscovered - filesToProcess.Count;
+
+        if (unsettledCount > 0)
+            logger.LogInformation(
+                "Deferred {Count} file(s) still being written (settled after {SettleSeconds}s) — a later scan picks them up",
+                unsettledCount, opts.ScanSettleSeconds);
 
         logger.LogInformation(
             "Discovery complete: {Total} total, {New} new, {Changed} changed, {Skipped} unchanged",

@@ -36,6 +36,15 @@ public class IngestRunMonitor(
         [JobType.Scan, JobType.Fingerprint, JobType.Enrich, JobType.Build];
 
     private Guid? _currentRunId;
+
+    /// <summary>
+    /// Pipeline counters as they stood when the current run opened. A run that finalizes with these
+    /// same counters moved nothing and is discarded instead of persisted — otherwise the periodic
+    /// source re-scan (see <c>AutoScanBackgroundService</c>) would write an empty run row every
+    /// interval, forever, into a table that is never pruned.
+    /// </summary>
+    private PipelineCounts? _openCounts;
+
     private readonly HashSet<JobType> _observedRunning = [];
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -145,6 +154,7 @@ public class IngestRunMonitor(
         {
             await UpdateRunAsync(closeId, finalize: true, ct);
             _currentRunId = null;
+            _openCounts = null;
             _observedRunning.Clear();
         }
     }
@@ -168,9 +178,18 @@ public class IngestRunMonitor(
         db.IngestRuns.Add(run);
         await db.SaveChangesAsync(ct);
 
+        // Baseline for the did-anything-happen check at finalize. Same query the refresh tick already
+        // runs every few seconds while a run is open, so the extra cost is noise.
+        _openCounts = await PipelineSnapshot.ComputeCountsAsync(ActiveSongs(db, run.OwnerUserId), ct);
+
         _currentRunId = run.Id;
         logger.LogInformation("Opened ingest run {RunId}", run.Id);
     }
+
+    private static IQueryable<SongMetadata> ActiveSongs(MusicHoarderDbContext db, Guid ownerId) =>
+        db.Songs
+            .IgnoreQueryFilters()
+            .Where(s => s.DeletedAtUtc == null && s.OwnerUserId == ownerId);
 
     private async Task UpdateRunAsync(Guid runId, bool finalize, CancellationToken ct)
     {
@@ -189,11 +208,28 @@ public class IngestRunMonitor(
         if (run.TriggerLabel is null && enrichmentChannel.CurrentLabel is { } label)
             run.TriggerLabel = label;
 
-        var active = db.Songs
-            .IgnoreQueryFilters()
-            .Where(s => s.DeletedAtUtc == null && s.OwnerUserId == ownerId);
+        var active = ActiveSongs(db, ownerId);
 
         var counts = await PipelineSnapshot.ComputeCountsAsync(active, ct);
+
+        // A run that ends clean with every counter exactly where it started moved nothing — the
+        // periodic re-scan finding no new files is the common case. Drop the row rather than
+        // accumulate an empty run every interval in a table nothing prunes. PipelineCounts is a
+        // record, so this is plain value equality.
+        //
+        // Only ever discard a Completed run: a failed or cancelled one is worth keeping precisely
+        // because it did nothing — that's the evidence an operator needs to see.
+        if (finalize
+            && _openCounts is { } openCounts
+            && counts == openCounts
+            && ResolveFinalStatus() == IngestRunStatus.Completed)
+        {
+            db.IngestRuns.Remove(run);
+            await db.SaveChangesAsync(ct);
+            logger.LogDebug("Discarded ingest run {RunId} — no pipeline counters changed", runId);
+            return;
+        }
+
         run.TracksDiscovered = counts.Discovered;
         run.TracksProcessed = counts.Processed;
         run.TracksFingerprinted = counts.Fingerprinted;

@@ -44,6 +44,25 @@ public class MusicEnricherOptions
     public bool AutoStartPipeline { get; set; } = true;
 
     /// <summary>
+    /// Minutes between automatic re-scans of the source library, so files dropped onto the share are
+    /// picked up without anyone clicking Scan. Without this a scan only fires on startup, on a source
+    /// offline→online edge, after a download, or manually — so a copy into an already-online library
+    /// stays invisible indefinitely. A re-scan that finds nothing is cheap: <c>IndexService</c> reads
+    /// no tags and writes nothing when every file matches on mtime+size. 0 disables the timer.
+    /// </summary>
+    [Range(0, 10080)]
+    public int AutoScanIntervalMinutes { get; set; } = 15;
+
+    /// <summary>
+    /// How long (seconds) a file must have been untouched before a scan will index it. Guards against
+    /// indexing a file that is still being copied in — a half-written file reads as corrupt tags and
+    /// burns an enrichment attempt (which carries a provider cooldown) before the next scan re-processes
+    /// it. Applies to every scan, manual ones included. 0 disables the guard.
+    /// </summary>
+    [Range(0, 3600)]
+    public int ScanSettleSeconds { get; set; } = 60;
+
+    /// <summary>
     /// How often (seconds) to probe whether the source/destination directories are
     /// reachable. Pipeline stages that touch the filesystem gate on the cached result,
     /// so an unreachable network share (e.g. laptop away from home) degrades gracefully

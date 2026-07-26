@@ -70,6 +70,8 @@ services:
       Navidrome__Username: "${NAVIDROME_USERNAME:-}"
       Navidrome__Password: "${NAVIDROME_PASSWORD:-}"
       MusicEnricher__EnableBuildNeedsReview: "${ENABLE_BUILD_NEEDS_REVIEW:-false}"
+      MusicEnricher__AutoScanIntervalMinutes: "${AUTO_SCAN_INTERVAL_MINUTES:-15}"
+      MusicEnricher__ScanSettleSeconds: "${SCAN_SETTLE_SECONDS:-60}"
       MusicEnricher__AutoStartPipeline: "false"
       Spotify__WishlistSyncIntervalMinutes: "0"
       WebAuthn__RpId: "${WEBAUTHN_RP_ID:-}"
