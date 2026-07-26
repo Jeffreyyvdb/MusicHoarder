@@ -157,6 +157,67 @@ export interface ApiSong {
   /** Times playback of this track was started (client-reported). */
   playCount?: number | null
   lastPlayedAtUtc?: string | null
+  /** How the file got here: already in the source library, downloaded by MusicHoarder, or instance-synced. */
+  originKind?: SongOriginKind | null
+  /** Which collection asked for it — the wishlist link behind a download. */
+  originSource?: SongOriginSource | null
+  /** Names the specific collection ("Liked Songs", a playlist name, a URL host) when there is one. */
+  originDetail?: string | null
+  /**
+   * When the track was saved on Spotify. This is Spotify's own timestamp, NOT {@link likedAtUtc}
+   * (the local heart) — it's what the Spotify filter orders by.
+   */
+  spotifyAddedAtUtc?: string | null
+}
+
+export type SongOriginKind = "Scanned" | "Downloaded" | "Synced"
+export type SongOriginSource =
+  | "None"
+  | "SpotifyLiked"
+  | "SpotifyPlaylist"
+  | "DeezerPlaylist"
+  | "DirectUrl"
+
+/** True when a wishlist link ties this track to Spotify — drives the "From Spotify" filter. */
+export function isSpotifySourced(s: ApiSong): boolean {
+  return s.originSource === "SpotifyLiked" || s.originSource === "SpotifyPlaylist"
+}
+
+/** Epoch ms of the Spotify save date, 0 when unknown (sorts such rows last). */
+export function spotifyAddedTime(s: ApiSong): number {
+  const ms = s.spotifyAddedAtUtc ? Date.parse(s.spotifyAddedAtUtc) : NaN
+  return Number.isNaN(ms) ? 0 : ms
+}
+
+/** Short label + long tooltip for the Source column. */
+export function songOriginLabel(s: ApiSong): { label: string; title: string } | null {
+  const detail = nonEmpty(s.originDetail)
+  switch (s.originSource) {
+    case "SpotifyLiked":
+    case "SpotifyPlaylist":
+      return {
+        label: "Spotify",
+        title: `From your Spotify ${detail ?? "library"}${
+          s.originKind === "Downloaded" ? " — downloaded by MusicHoarder" : " — already in your library"
+        }`,
+      }
+    case "DeezerPlaylist":
+      return { label: "Deezer", title: `From the Deezer playlist ${detail ?? "(unnamed)"}` }
+    case "DirectUrl":
+      return { label: "Link", title: `Added from a URL${detail ? ` (${detail})` : ""}` }
+    default:
+      break
+  }
+  switch (s.originKind) {
+    case "Downloaded":
+      return { label: "Download", title: "Downloaded by MusicHoarder" }
+    case "Synced":
+      return { label: "Synced", title: "Received from another MusicHoarder instance" }
+    case "Scanned":
+      return { label: "Library", title: "Found in your source library by a scan" }
+    default:
+      return null
+  }
 }
 
 interface SongsResponse {

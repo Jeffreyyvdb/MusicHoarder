@@ -1,14 +1,28 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { ArrowDown, ArrowUp, Clock, FileText, Heart, ListMusic, Pause, Play, Shuffle } from '@lucide/svelte';
+  import {
+    ArrowDown,
+    ArrowUp,
+    Clock,
+    FileText,
+    Heart,
+    ListMusic,
+    Music2,
+    Pause,
+    Play,
+    Shuffle
+  } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import { formatDuration, formatFileSize, formatTotalDuration, formatFamily } from '$lib/formatters';
   import {
     albumKeyForSong,
     coverUrlForSong,
+    isSpotifySourced,
     mapEnrichmentStatus,
     songAddedTime,
+    songOriginLabel,
+    spotifyAddedTime,
     toPlayerSong,
     type ApiSong
   } from '$lib/api-client';
@@ -41,13 +55,47 @@
     initialSortKey = 'added'
   }: Props = $props();
 
-  type SortKey = 'added' | 'liked' | 'title' | 'artist' | 'album' | 'year' | 'size' | 'match' | 'dur';
+  type SortKey =
+    | 'added'
+    | 'liked'
+    | 'spotify'
+    | 'title'
+    | 'artist'
+    | 'album'
+    | 'year'
+    | 'size'
+    | 'match'
+    | 'dur';
   const STRING_KEYS: SortKey[] = ['title', 'artist', 'album'];
+  const SORT_LABELS: Record<SortKey, string> = {
+    added: 'added',
+    liked: 'liked',
+    spotify: 'Spotify save date',
+    title: 'title',
+    artist: 'artist',
+    album: 'album',
+    year: 'year',
+    size: 'size',
+    match: 'match',
+    dur: 'duration'
+  };
 
   // Deliberately the initial value only — the user's header clicks own the sort after mount.
   let sortKey = $state<SortKey>(untrack(() => initialSortKey));
   let sortDir = $state<'asc' | 'desc'>('desc');
   let lyricsOnly = $state(false);
+  let spotifyOnly = $state(false);
+
+  /**
+   * The Spotify filter carries its own order: newest save first, matching how the tracks appear in
+   * Spotify itself. Turning it off restores the list's normal ordering rather than leaving the user
+   * on a sort key nothing else can reach.
+   */
+  function toggleSpotifyOnly() {
+    spotifyOnly = !spotifyOnly;
+    sortKey = spotifyOnly ? 'spotify' : initialSortKey;
+    sortDir = 'desc';
+  }
 
   const UNKNOWN_ARTIST = 'Unknown Artist';
 
@@ -85,6 +133,7 @@
       );
     }
     if (lyricsOnly) r = r.filter(hasLyrics);
+    if (spotifyOnly) r = r.filter(isSpotifySourced);
     return r;
   });
 
@@ -109,6 +158,8 @@
           return matchValue(s);
         case 'liked':
           return s.likedAtUtc ? Date.parse(s.likedAtUtc) : 0;
+        case 'spotify':
+          return spotifyAddedTime(s);
         case 'added':
         default:
           return songAddedTime(s);
@@ -145,7 +196,8 @@
   }));
 
   const albumCount = $derived(new Set(songs.map((s) => albumKeyForSong(s))).size);
-  const hasFilters = $derived(lyricsOnly);
+  const hasFilters = $derived(lyricsOnly || spotifyOnly);
+  const spotifyCount = $derived(songs.filter(isSpotifySourced).length);
 
   function playFrom(target: ApiSong) {
     const list = sorted;
@@ -218,6 +270,7 @@
     // referenced for reactivity
     void searchQuery;
     void lyricsOnly;
+    void spotifyOnly;
     void sortKey;
     void sortDir;
     if (scrollEl) scrollEl.scrollTop = 0;
@@ -247,6 +300,7 @@
       type="button"
       onclick={() => {
         lyricsOnly = false;
+        if (spotifyOnly) toggleSpotifyOnly();
       }}
       class="text-muted-foreground hover:border-primary hover:text-primary rounded-md border px-2 py-1 text-[11px] transition-colors"
     >
@@ -311,9 +365,30 @@
       With lyrics
     </button>
 
+    {#if spotifyCount > 0}
+      <button
+        type="button"
+        onclick={toggleSpotifyOnly}
+        aria-pressed={spotifyOnly}
+        title="Only tracks your Spotify liked songs / playlists asked for, newest save first"
+        class={cn(
+          'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors',
+          spotifyOnly
+            ? 'border-foreground/15 bg-muted text-foreground'
+            : 'border-border text-muted-foreground hover:text-foreground'
+        )}
+      >
+        <Music2 class="size-3" />
+        From Spotify
+        <span class="text-muted-foreground font-mono text-[10px]">{spotifyCount.toLocaleString()}</span>
+      </button>
+    {/if}
+
     <span class="text-muted-foreground ml-auto text-[11px]">
       Showing {sorted.length.toLocaleString()} of {songs.length.toLocaleString()} ·
-      {formatFileSize(stats.totalBytes)} · {formatTotalDuration(stats.totalSec)} · sorted by {sortKey}
+      {formatFileSize(stats.totalBytes)} · {formatTotalDuration(stats.totalSec)} · sorted by {SORT_LABELS[
+        sortKey
+      ]}
       {sortDir === 'asc' ? '↑' : '↓'}
     </span>
 
@@ -329,8 +404,8 @@
       'border-border text-muted-foreground grid shrink-0 items-center gap-3 border-b px-5 py-2.5',
       'grid-cols-[40px_40px_minmax(0,1fr)_28px_52px]',
       '@xl:grid-cols-[40px_40px_minmax(0,1.5fr)_minmax(0,1fr)_56px_28px_52px]',
-      '@3xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_44px_56px_28px_52px]',
-      '@5xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.9fr)_52px_104px_72px_128px_28px_52px]'
+      '@3xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_44px_56px_84px_28px_52px]',
+      '@5xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.9fr)_52px_104px_72px_128px_84px_28px_52px]'
     )}
   >
     <span class="text-right text-[11px] font-medium">#</span>
@@ -342,6 +417,7 @@
     <span class="text-muted-foreground hidden text-[11px] font-medium @xl:block">Format</span>
     <span class="hidden @5xl:block">{@render sortHead('size', 'Size')}</span>
     <span class="hidden @5xl:block">{@render sortHead('match', 'Match')}</span>
+    <span class="text-muted-foreground hidden text-[11px] font-medium @3xl:block">Source</span>
     <span></span>
     <button
       type="button"
@@ -385,6 +461,8 @@
           {@const isCurrentlyPlaying = isLoaded && playerStore.isPlaying}
           {@const isSelected = selectedId === song.id}
           {@const isLiked = Boolean(song.likedAtUtc)}
+          {@const origin = songOriginLabel(song)}
+          {@const isFromSpotify = isSpotifySourced(song)}
           <div
             role="button"
             tabindex="0"
@@ -394,8 +472,8 @@
               'group border-border/40 absolute right-0 left-0 grid cursor-pointer items-center gap-3 border-b px-3',
               'grid-cols-[40px_40px_minmax(0,1fr)_28px_52px]',
               '@xl:grid-cols-[40px_40px_minmax(0,1.5fr)_minmax(0,1fr)_56px_28px_52px]',
-              '@3xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_44px_56px_28px_52px]',
-              '@5xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.9fr)_52px_104px_72px_128px_28px_52px]',
+              '@3xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_44px_56px_84px_28px_52px]',
+              '@5xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.9fr)_52px_104px_72px_128px_84px_28px_52px]',
               'hover:bg-accent/50 active:bg-accent/70',
               isSelected && 'bg-primary/10',
               isLoaded && 'text-primary'
@@ -531,6 +609,24 @@
                 >
                   —
                 </span>
+              {/if}
+            </span>
+            <!-- source (where this track came from) -->
+            <span class="hidden min-w-0 @3xl:block">
+              {#if origin}
+                <span
+                  title={origin.title}
+                  class={cn(
+                    'inline-block max-w-full truncate rounded px-1.5 py-0.5 text-[10px] font-medium',
+                    isFromSpotify
+                      ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-400'
+                      : 'bg-muted text-muted-foreground'
+                  )}
+                >
+                  {origin.label}
+                </span>
+              {:else}
+                <span class="text-muted-foreground text-[11px]">—</span>
               {/if}
             </span>
             <!-- like -->
