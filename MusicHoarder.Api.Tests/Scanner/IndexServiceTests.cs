@@ -157,7 +157,85 @@ public class IndexServiceTests : IDisposable
         IndexedAtUtc = DateTime.UtcNow,
     };
 
-    private static IndexService CreateService(MusicHoarderDbContext db) => new(
+    [Fact]
+    public async Task Index_DefersFileStillBeingWritten()
+    {
+        // A file touched just now looks like a copy in flight — indexing it would read truncated tags
+        // and burn an enrichment attempt before the next scan noticed the size changed.
+        await File.WriteAllBytesAsync(Path.Combine(tempDir, "copying.mp3"), [1, 2, 3]);
+
+        await using var db = NewContext();
+        var result = await CreateService(db, settleSeconds: 300, sourceDirectory: tempDir).IndexAsync(Guid.NewGuid(), tempDir);
+
+        Assert.Equal(0, result.NewFiles);
+        Assert.Empty(await db.Songs.IgnoreQueryFilters().ToListAsync());
+    }
+
+    [Fact]
+    public async Task Index_PicksUpFileOnceItHasSettled()
+    {
+        var path = Path.Combine(tempDir, "settled.mp3");
+        await File.WriteAllBytesAsync(path, [1, 2, 3]);
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(-10));
+
+        await using var db = NewContext();
+        var result = await CreateService(db, settleSeconds: 300, sourceDirectory: tempDir).IndexAsync(Guid.NewGuid(), tempDir);
+
+        Assert.Equal(1, result.NewFiles);
+        Assert.Single(await db.Songs.IgnoreQueryFilters().ToListAsync());
+    }
+
+    [Fact]
+    public async Task Index_DoesNotSoftDeleteExistingRowWhileItsFileIsBeingRewritten()
+    {
+        // Deferred files must still count as "discovered" — otherwise deletion reconciliation would
+        // soft-delete the row for a file that is merely being rewritten in place.
+        var path = Path.Combine(tempDir, "rewriting.mp3");
+        await File.WriteAllBytesAsync(path, [1, 2, 3]);
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(-10));
+
+        await using var db = NewContext();
+        await CreateService(db, settleSeconds: 300, sourceDirectory: tempDir).IndexAsync(Guid.NewGuid(), tempDir);
+
+        // Now it's being rewritten: mtime moves to "just now", so the next scan defers it.
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow);
+        await CreateService(db, settleSeconds: 300, sourceDirectory: tempDir).IndexAsync(Guid.NewGuid(), tempDir);
+
+        var row = await db.Songs.IgnoreQueryFilters().SingleAsync();
+        Assert.Null(row.DeletedAtUtc);
+    }
+
+    [Fact]
+    public async Task Index_DoesNotDeferFilesOutsideTheSourceRoot()
+    {
+        // The download-staging and sync-receive roots are app-managed: a finished download triggers a
+        // scan immediately, carrying a one-shot force-cascade flag. Deferring it would consume that
+        // flag and strand the freshly acquired track outside the library.
+        await File.WriteAllBytesAsync(Path.Combine(tempDir, "justdownloaded.mp3"), [1, 2, 3]);
+
+        await using var db = NewContext();
+        var result = await CreateService(db, settleSeconds: 300, sourceDirectory: "/some/other/source")
+            .IndexAsync(Guid.NewGuid(), tempDir);
+
+        Assert.Equal(1, result.NewFiles);
+    }
+
+    [Fact]
+    public async Task Index_SettleWindowDisabledByZero()
+    {
+        await File.WriteAllBytesAsync(Path.Combine(tempDir, "fresh.mp3"), [1, 2, 3]);
+
+        await using var db = NewContext();
+        var result = await CreateService(db, settleSeconds: 0, sourceDirectory: tempDir).IndexAsync(Guid.NewGuid(), tempDir);
+
+        Assert.Equal(1, result.NewFiles);
+    }
+
+    // settleSeconds defaults to 0 (guard off) because these tests write a file and index it in the
+    // same breath; the settle window is exercised explicitly by the tests that pass a value. It only
+    // applies to the configured source root, so those tests also point sourceDirectory at the temp dir.
+    private static IndexService CreateService(
+        MusicHoarderDbContext db, int settleSeconds = 0, string sourceDirectory = "/source") => new(
         new StubFileScanner(),
         db,
         new ScanProgressTracker(),
@@ -165,8 +243,9 @@ public class IndexServiceTests : IDisposable
         new CoverArtResolver(new FileSystem(), new NoPictureReader()),
         Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
-            SourceDirectory = "/source",
+            SourceDirectory = sourceDirectory,
             DestinationDirectory = "/dest",
+            ScanSettleSeconds = settleSeconds,
         }),
         NullLogger<IndexService>.Instance);
 

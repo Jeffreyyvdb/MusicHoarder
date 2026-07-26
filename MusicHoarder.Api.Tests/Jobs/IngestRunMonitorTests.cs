@@ -80,6 +80,14 @@ public class IngestRunMonitorTests
     public async Task Finalizes_completed_run_with_counts_and_throughput()
     {
         var options = NewDbOptions();
+        var jobManager = new JobManager();
+        var monitor = NewMonitor(options, jobManager);
+
+        jobManager.TryStartJob(JobType.Scan, out var jobId, out _);
+        await monitor.TickAsync(CancellationToken.None); // open + observe scan running
+
+        // The songs land *during* the run, as a real scan would discover them — a run that finishes
+        // with the counters untouched is discarded rather than finalized.
         await using (var seed = new MusicHoarderDbContext(options))
         {
             seed.Songs.AddRange(
@@ -89,11 +97,6 @@ public class IngestRunMonitorTests
             await seed.SaveChangesAsync();
         }
 
-        var jobManager = new JobManager();
-        var monitor = NewMonitor(options, jobManager);
-
-        jobManager.TryStartJob(JobType.Scan, out var jobId, out _);
-        await monitor.TickAsync(CancellationToken.None); // open + observe scan running
         jobManager.SignalComplete(JobType.Scan, jobId);
         await monitor.TickAsync(CancellationToken.None); // finalize
 
@@ -107,6 +110,81 @@ public class IngestRunMonitorTests
         Assert.Equal(1, run.TracksReview);     // NeedsReview
         Assert.Equal(1, run.TracksFailed);     // Failed
         Assert.True(run.ThroughputPerSec >= 0);
+    }
+
+    [Fact]
+    public async Task Discards_a_completed_run_that_changed_nothing()
+    {
+        // The periodic source re-scan finding no new files is the common case; persisting it would
+        // add an empty row every interval to a table nothing prunes.
+        var options = NewDbOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.Songs.Add(OwnerSong("/src/a.mp3", EnrichmentStatus.Matched, LibraryBuildStatus.Done));
+            await seed.SaveChangesAsync();
+        }
+
+        var jobManager = new JobManager();
+        var monitor = NewMonitor(options, jobManager);
+
+        jobManager.TryStartJob(JobType.Scan, out var jobId, out _);
+        await monitor.TickAsync(CancellationToken.None);
+        jobManager.SignalComplete(JobType.Scan, jobId);
+        await monitor.TickAsync(CancellationToken.None);
+
+        await using var db = new MusicHoarderDbContext(options);
+        Assert.Empty(await db.IngestRuns.IgnoreQueryFilters().ToListAsync());
+    }
+
+    [Fact]
+    public async Task Keeps_a_failed_run_even_when_nothing_changed()
+    {
+        // A run that failed having done nothing is exactly the one an operator needs to see.
+        var options = NewDbOptions();
+        var jobManager = new JobManager();
+        var monitor = NewMonitor(options, jobManager);
+
+        jobManager.TryStartJob(JobType.Scan, out var jobId, out _);
+        await monitor.TickAsync(CancellationToken.None);
+        jobManager.SignalFailed(JobType.Scan, jobId);
+        await monitor.TickAsync(CancellationToken.None);
+
+        await using var db = new MusicHoarderDbContext(options);
+        var run = await db.IngestRuns.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(IngestRunStatus.Failed, run.Status);
+    }
+
+    [Fact]
+    public async Task Keeps_a_run_that_only_moved_a_song_between_stages()
+    {
+        // Nothing was discovered, but a track advanced — still real work, so the run is kept.
+        var options = NewDbOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.Songs.Add(OwnerSong("/src/a.mp3", EnrichmentStatus.Pending, LibraryBuildStatus.Pending));
+            await seed.SaveChangesAsync();
+        }
+
+        var jobManager = new JobManager();
+        var monitor = NewMonitor(options, jobManager);
+
+        jobManager.TryStartJob(JobType.Scan, out var jobId, out _);
+        await monitor.TickAsync(CancellationToken.None);
+
+        await using (var mutate = new MusicHoarderDbContext(options))
+        {
+            var song = await mutate.Songs.IgnoreQueryFilters().SingleAsync();
+            song.EnrichmentStatus = EnrichmentStatus.Matched;
+            await mutate.SaveChangesAsync();
+        }
+
+        jobManager.SignalComplete(JobType.Scan, jobId);
+        await monitor.TickAsync(CancellationToken.None);
+
+        await using var db = new MusicHoarderDbContext(options);
+        var run = await db.IngestRuns.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(IngestRunStatus.Completed, run.Status);
+        Assert.Equal(1, run.TracksEnriched);
     }
 
     [Fact]

@@ -57,10 +57,12 @@ await app.ApplyPendingMigrationsAsync();
     var me = app.Services.GetRequiredService<IOptions<MusicEnricherOptions>>().Value;
     var qg = app.Services.GetRequiredService<IOptions<QualityGradingOptions>>().Value;
     app.Logger.LogInformation(
-        "Capabilities — AutoStartPipeline={AutoStart}, SpotifyProvider={Spotify}, AcoustID={AcoustId}, " +
+        "Capabilities — AutoStartPipeline={AutoStart}, AutoScan={AutoScanMinutes}m(settle={SettleSeconds}s), " +
+        "SpotifyProvider={Spotify}, AcoustID={AcoustId}, " +
         "WishlistDownloads={Wishlist}(auto={AutoDl}), QualityGrading={Grading}(configured={GradingConfigured}), " +
         "CanonicalAlbumFetch={Canonical}, ExternalCoverArt={Cover}",
         me.AutoStartPipeline,
+        me.AutoScanIntervalMinutes, me.ScanSettleSeconds,
         me.EnableSpotifyApiProvider,
         !string.IsNullOrWhiteSpace(me.AcoustIdApiKey),
         me.EnableWishlistDownloads, me.AutoDownloadWishlist,

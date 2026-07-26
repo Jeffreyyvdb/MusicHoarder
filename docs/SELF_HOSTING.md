@@ -57,6 +57,8 @@ for you. See [`.env.example`](../.env.example) for the annotated source of truth
 | `LYRICS_TRANSCRIPTION_API_KEY` | — | Experimental AI lyrics transcription + compare. **Blank → the feature is hidden in the UI.** Groq recommended; see below. |
 | `LYRICS_TRANSCRIPTION_BASE_URL` / `_MODEL` / `_LLM_MODEL` | — | Transcription endpoint, Whisper model, and (optional) cleanup LLM for the above. |
 | `PUBLIC_UMAMI_*` | — | Optional self-hosted Umami analytics. |
+| `AUTO_SCAN_INTERVAL_MINUTES` | — | How often the source library is re-scanned so newly copied files are picked up without clicking Scan. Defaults to `15`; `0` disables it. |
+| `SCAN_SETTLE_SECONDS` | — | How long a file must sit untouched before a scan will index it, so a scan landing mid-copy doesn't index a half-written file. Defaults to `60`; `0` disables the guard. |
 
 ## First login
 
