@@ -386,6 +386,12 @@ internal static class ComposeFileExtensions
         // approves. Default off (strict-Matched builds only); set ENABLE_BUILD_NEEDS_REVIEW=true to opt in.
         // Built provisional tracks are flagged GROUPING="Needs Review" in-file and get a "REVIEW" badge.
         api.Environment["MusicEnricher__EnableBuildNeedsReview"] = "${ENABLE_BUILD_NEEDS_REVIEW:-false}";
+        // Periodic re-scan of the source library, so files copied onto the share are ingested without a
+        // manual Scan (otherwise a scan only fires on startup, on a source reconnect, or after a
+        // download). 0 disables. SCAN_SETTLE_SECONDS is how long a file must sit untouched before it's
+        // indexed — the guard that stops a scan landing mid-copy from indexing a truncated file.
+        api.Environment["MusicEnricher__AutoScanIntervalMinutes"] = "${AUTO_SCAN_INTERVAL_MINUTES:-15}";
+        api.Environment["MusicEnricher__ScanSettleSeconds"] = "${SCAN_SETTLE_SECONDS:-60}";
     }
 
     /// <summary>
