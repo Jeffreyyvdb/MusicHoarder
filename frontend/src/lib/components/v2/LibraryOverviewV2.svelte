@@ -6,6 +6,7 @@
     buildAlbumsFromSongs,
     buildArtistGroups,
     coverUrlForSong,
+    mergeAlbumsByName,
     sortAlbumsByRecency,
     toPlayerSong,
     type AlbumSummary,
@@ -27,7 +28,8 @@
   });
 
   const builtSongs = $derived(songs.filter(isBuiltSong));
-  const allAlbums = $derived(buildAlbumsFromSongs(builtSongs));
+  // Merged like the library grid, so a folder-split album isn't two near-identical shelf tiles.
+  const allAlbums = $derived(mergeAlbumsByName(buildAlbumsFromSongs(builtSongs)));
   const artistGroups = $derived(buildArtistGroups(builtSongs, { primaryOnly: true }));
 
   // ── per-visit random order that stays stable across live refetches ──────────

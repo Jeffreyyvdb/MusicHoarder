@@ -77,6 +77,7 @@ public class FileScanner(
                 fpcalcResult = (await fpcalcService.GetFingerprintAsync(filePath, ct)).Result;
             }
 
+            var indexedAt = DateTime.UtcNow;
             return new SongMetadata
             {
                 SourcePath = filePath,
@@ -95,7 +96,10 @@ public class FileScanner(
                 Fingerprint = fpcalcResult?.Fingerprint,
                 Bitrate = bitrate,
                 HasCoverArt = hasEmbeddedCover,
-                IndexedAtUtc = DateTime.UtcNow,
+                IndexedAtUtc = indexedAt,
+                // Only reaches the DB for a NEW row — IndexService never copies this onto an existing
+                // one, so a re-index of a changed file keeps the original acquisition time.
+                AcquiredAtUtc = SongMetadata.SeedAcquiredAt(lastModified, indexedAt),
                 DeletedAtUtc = null
             };
         }

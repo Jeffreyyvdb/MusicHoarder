@@ -227,8 +227,10 @@ function demoAlbum(
   genre: string,
   addedAtUtc: string
 ): AlbumSummary {
+  const key = `${artist.toLowerCase()}::${title.toLowerCase()}`;
   return {
-    key: `${artist.toLowerCase()}::${title.toLowerCase()}`,
+    key,
+    folderKeys: [key],
     title,
     artist,
     year,
@@ -243,6 +245,7 @@ function demoAlbum(
     musicBrainzReleaseId: null,
     coverUrl: null,
     addedAtUtc,
+    playCount: 0,
     songs: []
   };
 }

@@ -89,6 +89,16 @@
           <p class="text-muted-foreground truncate text-[11.5px]">
             {album.artist}{album.year ? ` · ${album.year}` : ''}
           </p>
+          {#if album.folderKeys.length > 1}
+            <!-- The card folds together several destination folders — say so rather than silently
+                 hiding that this album is split on disk. -->
+            <p
+              class="text-muted-foreground/80 truncate text-[10.5px]"
+              title={album.folderKeys.join('\n')}
+            >
+              {album.folderKeys.length} editions
+            </p>
+          {/if}
         </div>
       </a>
     {/each}

@@ -349,6 +349,9 @@ public class IndexService(
                 existing.Bitrate = metadata.Bitrate;
                 existing.HasCoverArt = metadata.HasCoverArt;
                 existing.IndexedAtUtc = metadata.IndexedAtUtc;
+                // Deliberately NOT overwritten: re-indexing a file whose bytes changed is the same track
+                // being refreshed, not a new acquisition. `??=` only fills rows predating the column.
+                existing.AcquiredAtUtc ??= metadata.AcquiredAtUtc;
                 existing.DeletedAtUtc = null;
 
                 // File content changed — clear stale downstream state so fingerprint

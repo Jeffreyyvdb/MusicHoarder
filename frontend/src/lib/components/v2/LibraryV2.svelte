@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { Heart, Play, Search, Shuffle, X } from '@lucide/svelte';
+  import { ArrowUpDown, Heart, Play, Search, Shuffle, X } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import AlbumPage from '$lib/components/file-browser/AlbumPage.svelte';
@@ -10,9 +10,14 @@
   import LibraryAlbumsGridV2 from '$lib/components/v2/LibraryAlbumsGridV2.svelte';
   import LibraryArtistsGridV2 from '$lib/components/v2/LibraryArtistsGridV2.svelte';
   import {
+    ALBUM_SORT_OPTIONS,
     buildAlbumsFromSongs,
     buildArtistGroups,
     fetchAlbumCanonicalStatuses,
+    isAlbumSortKey,
+    mergeAlbumsByName,
+    sortAlbums,
+    type AlbumSortKey,
     type AlbumStatusInfo,
     type AlbumSummary,
     type ApiSong,
@@ -26,7 +31,7 @@
   import { playerStore } from '$lib/stores/player.svelte';
   import { songsStore } from '$lib/stores/songs.svelte';
   import { songDetail } from '$lib/stores/song-detail.svelte';
-  import { shuffle } from '$lib/utils';
+  import { cn, shuffle } from '$lib/utils';
 
   // The song-detail panel is now the global SongDetailHost (mounted in the app
   // shell), so Library no longer hosts its own resizable side-pane / bottom
@@ -118,8 +123,10 @@
   const builtSongs = $derived(songs.filter(isBuiltSong));
   const browseScoped = $derived(applyBrowseFilter(builtSongs, browse));
 
-  const allAlbums = $derived(buildAlbumsFromSongs(builtSongs));
-  const scopedAlbums = $derived(buildAlbumsFromSongs(browseScoped));
+  // Same album under two destination folders (a year or artist-spelling disagreement between its
+  // tracks) is one card here — see mergeAlbumsByName.
+  const allAlbums = $derived(mergeAlbumsByName(buildAlbumsFromSongs(builtSongs)));
+  const scopedAlbums = $derived(mergeAlbumsByName(buildAlbumsFromSongs(browseScoped)));
 
   // Provider-link status per album (linked / localOnly / pending) for the grid corner badges.
   // One batch lookup, refreshed when the album set changes.
@@ -147,10 +154,22 @@
     return a.title.toLowerCase().includes(q) || a.artist.toLowerCase().includes(q);
   }
 
+  // Grid order. Defaults to recently-added (what people expect on entry, and now trustworthy — it
+  // reads the immutable acquisition stamp rather than the build time, which pipeline churn bumps).
+  let albumSort = $state<AlbumSortKey>(
+    untrack(() => {
+      const stored = sessionGet('mh-lib-album-sort');
+      return isAlbumSortKey(stored) ? stored : 'recent';
+    })
+  );
+  $effect(() => {
+    sessionSet('mh-lib-album-sort', albumSort);
+  });
+
   const filteredAlbums = $derived.by(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return scopedAlbums;
-    return scopedAlbums.filter((a) => albumMatchesQuery(a, q));
+    const matching = q ? scopedAlbums.filter((a) => albumMatchesQuery(a, q)) : scopedAlbums;
+    return sortAlbums(matching, albumSort);
   });
 
   // Artists view: default to lead/album artists only (the discrete multi-artist
@@ -205,17 +224,20 @@
   // ── album drilldown (reuses AlbumPage + TrackPanel) ─────────────────────────
   const openAlbum = $derived.by(() => {
     if (!albumKey) return null;
-    // Album keys are now destination-folder paths, but legacy/cross-page links (e.g. the
-    // album-quality page) still emit the older `artistLower::albumLower` shape. Fall back to
-    // matching by display artist+title, preferring the largest card (the canonical album rather
-    // than a split-off bootleg) when one name maps to several folders.
+    // Album keys are destination-folder paths, but a link can point at a folder that lost the
+    // merge's representative election (`folderKeys` covers those), and legacy/cross-page links
+    // (e.g. the album-quality page) still emit the older `artistLower::albumLower` shape. Fall
+    // back to matching by display artist+title, preferring the largest card (the canonical album
+    // rather than a split-off bootleg) when one name still maps to several cards.
+    const byFolder = (list: AlbumSummary[]) =>
+      list.find((a) => a.folderKeys.includes(albumKey)) ?? null;
     const byName = (list: AlbumSummary[]) =>
       list
         .filter((a) => `${a.artist.toLowerCase()}::${a.title.toLowerCase()}` === albumKey)
         .sort((a, b) => b.trackCount - a.trackCount)[0] ?? null;
     return (
-      filteredAlbums.find((a) => a.key === albumKey) ??
-      allAlbums.find((a) => a.key === albumKey) ??
+      byFolder(filteredAlbums) ??
+      byFolder(allAlbums) ??
       byName(filteredAlbums) ??
       byName(allAlbums) ??
       null
@@ -297,7 +319,26 @@
         ? ` · ${enrichedPct.toFixed(1)}% enriched`
         : ''}
     </div>
-    <div class="relative ml-auto w-[clamp(160px,32vw,280px)] shrink-0">
+    {#if tab === 'albums'}
+      <label class="ml-auto flex shrink-0 items-center gap-1.5">
+        <ArrowUpDown class="text-muted-foreground size-3.5" aria-hidden="true" />
+        <span class="sr-only">Sort albums by</span>
+        <select
+          bind:value={albumSort}
+          class="border-border bg-card focus-visible:ring-ring h-8 cursor-pointer rounded-full border pr-2 pl-2.5 text-[12.5px] outline-none focus-visible:ring-2"
+        >
+          {#each ALBUM_SORT_OPTIONS as option (option.key)}
+            <option value={option.key}>{option.label}</option>
+          {/each}
+        </select>
+      </label>
+    {/if}
+    <div
+      class={cn(
+        'relative w-[clamp(160px,32vw,280px)] shrink-0',
+        tab === 'albums' ? 'ml-2' : 'ml-auto'
+      )}
+    >
       <Search class="text-muted-foreground absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
       <input
         type="search"

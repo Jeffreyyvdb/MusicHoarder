@@ -61,10 +61,10 @@
   function hasLyrics(s: ApiSong): boolean {
     return Boolean(s.hasSyncedLyrics || s.hasPlainLyrics || s.lrclibId);
   }
-  // Mirror AlbumPage's deterministic synthetic confidence for songs lacking a stored value.
-  function matchValue(s: ApiSong): number {
-    if (typeof s.matchConfidence === 'number') return Math.max(0, Math.min(1, s.matchConfidence));
-    return 0.74 + ((s.id * 17) % 22) / 100;
+  /** Stored match confidence, or null when the pipeline never recorded one — never invented. */
+  function matchValue(s: ApiSong): number | null {
+    if (typeof s.matchConfidence !== 'number') return null;
+    return Math.max(0, Math.min(1, s.matchConfidence));
   }
   function artistHref(s: ApiSong): string {
     return `/library?artist=${encodeURIComponent(artistOf(s))}`;
@@ -90,7 +90,8 @@
 
   const sorted = $derived.by(() => {
     const r = [...filtered];
-    const pick = (s: ApiSong): string | number => {
+    // null = "not known for this track" (only Match today); those always sort last.
+    const pick = (s: ApiSong): string | number | null => {
       switch (sortKey) {
         case 'title':
           return titleOf(s).toLowerCase();
@@ -116,6 +117,7 @@
     r.sort((a, b) => {
       const av = pick(a);
       const bv = pick(b);
+      if (av == null || bv == null) return av == null ? (bv == null ? 0 : 1) : -1;
       if (typeof av === 'string' && typeof bv === 'string') {
         const c = av.localeCompare(bv);
         return sortDir === 'asc' ? c : -c;
@@ -517,10 +519,19 @@
             </span>
             <!-- match -->
             <span class="hidden items-center gap-2 @5xl:flex">
-              <span class="bg-foreground/10 h-1 flex-1 overflow-hidden rounded-full">
-                <span class="bg-foreground/35 block h-full rounded-full" style="width: {mv * 100}%;"></span>
-              </span>
-              <span class="text-muted-foreground min-w-[28px] text-right font-mono text-[10.5px]">{mv.toFixed(2)}</span>
+              {#if mv != null}
+                <span class="bg-foreground/10 h-1 flex-1 overflow-hidden rounded-full">
+                  <span class="bg-foreground/35 block h-full rounded-full" style="width: {mv * 100}%;"></span>
+                </span>
+                <span class="text-muted-foreground min-w-[28px] text-right font-mono text-[10.5px]">{mv.toFixed(2)}</span>
+              {:else}
+                <span
+                  class="text-muted-foreground flex-1 text-right font-mono text-[10.5px]"
+                  title="No match confidence recorded for this track"
+                >
+                  —
+                </span>
+              {/if}
             </span>
             <!-- like -->
             <button

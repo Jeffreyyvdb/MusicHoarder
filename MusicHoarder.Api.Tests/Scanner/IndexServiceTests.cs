@@ -99,6 +99,53 @@ public class IndexServiceTests : IDisposable
         Assert.Contains(rows, r => r.SourcePath.EndsWith("present.mp3")); // newly discovered
     }
 
+    [Fact]
+    public async Task Index_PreservesAcquiredAtUtc_WhenAChangedFileIsReindexed()
+    {
+        // The point of AcquiredAtUtc: an external tag edit makes the file "changed", which re-indexes the
+        // row — bumping IndexedAtUtc and clearing LibraryBuiltAtUtc. Neither may drag a long-owned track
+        // back to the top of "recently added".
+        var path = Path.Combine(tempDir, "track.mp3");
+        await File.WriteAllBytesAsync(path, [1, 2, 3]);
+
+        var acquired = new DateTime(2021, 3, 4, 5, 6, 7, DateTimeKind.Utc);
+        await using var db = NewContext();
+        var seeded = Seed(path.Replace('\\', '/'));
+        seeded.AcquiredAtUtc = acquired;
+        seeded.IndexedAtUtc = acquired;
+        seeded.FileSizeBytes = 999;                       // differs from disk → counts as changed
+        seeded.LibraryBuiltAtUtc = DateTime.UtcNow;
+        db.Songs.Add(seeded);
+        await db.SaveChangesAsync();
+
+        await CreateService(db).IndexAsync(Guid.NewGuid(), tempDir);
+
+        var row = await db.Songs.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(3, row.FileSizeBytes);               // it really was re-indexed
+        Assert.True(row.IndexedAtUtc > acquired);         // ...so the index stamp moved
+        Assert.Null(row.LibraryBuiltAtUtc);               // ...and the build stamp was cleared
+        Assert.Equal(acquired, row.AcquiredAtUtc);        // but the acquisition time stands still
+    }
+
+    [Fact]
+    public async Task Index_BackfillsAcquiredAtUtc_OnRowsPredatingTheColumn()
+    {
+        var path = Path.Combine(tempDir, "track.mp3");
+        await File.WriteAllBytesAsync(path, [1, 2, 3]);
+
+        await using var db = NewContext();
+        var seeded = Seed(path.Replace('\\', '/'));
+        seeded.AcquiredAtUtc = null;
+        seeded.FileSizeBytes = 999;
+        db.Songs.Add(seeded);
+        await db.SaveChangesAsync();
+
+        await CreateService(db).IndexAsync(Guid.NewGuid(), tempDir);
+
+        var row = await db.Songs.IgnoreQueryFilters().SingleAsync();
+        Assert.NotNull(row.AcquiredAtUtc);
+    }
+
     private static SongMetadata Seed(string sourcePath) => new()
     {
         OwnerUserId = WellKnownUsers.OwnerId,
@@ -214,16 +261,21 @@ public class IndexServiceTests : IDisposable
     private sealed class StubFileScanner : IFileScanner
     {
         public Task<SongMetadata?> ScanFileAsync(string filePath, bool tagsOnly = false, CancellationToken ct = default)
-            => Task.FromResult<SongMetadata?>(new SongMetadata
+        {
+            var lastModified = File.GetLastWriteTimeUtc(filePath);
+            var indexedAt = DateTime.UtcNow;
+            return Task.FromResult<SongMetadata?>(new SongMetadata
             {
                 SourcePath = filePath,
                 FileName = Path.GetFileName(filePath),
                 Extension = Path.GetExtension(filePath),
                 FileSizeBytes = 3,
-                LastModifiedUtc = DateTime.UtcNow,
-                IndexedAtUtc = DateTime.UtcNow,
+                LastModifiedUtc = lastModified,
+                IndexedAtUtc = indexedAt,
+                AcquiredAtUtc = SongMetadata.SeedAcquiredAt(lastModified, indexedAt),
                 HasCoverArt = false,
             });
+        }
     }
 
     private sealed class StubOwnerLookup : IOwnerLookupService

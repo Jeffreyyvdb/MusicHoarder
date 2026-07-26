@@ -96,7 +96,10 @@
     // backend matches canonical tracks against exactly the songs this page lists — matching against
     // the wider tag-based set can annotate a track with an unbuilt duplicate the page doesn't show,
     // which renders as a false MISSING row while the built copy drops to the bonus tail.
-    const folder = album?.songs.some((s) => s.destinationPath) ? album.key : null;
+    // A merged card spans several folders, so no single folder describes what's listed: fall back
+    // to the tag-based set, which is the wider one and covers all of them.
+    const singleFolder = (album?.folderKeys.length ?? 0) <= 1;
+    const folder = singleFolder && album?.songs.some((s) => s.destinationPath) ? album.key : null;
     tracklist = null;
     linkStatus = 'pending';
     albumGrade = null;
@@ -329,11 +332,10 @@
     return ext || '—';
   }
 
-  function trackMatchValue(s: ApiSong): number {
-    if (typeof s.matchConfidence === 'number') return Math.max(0, Math.min(1, s.matchConfidence));
-    // Deterministic synthetic value for songs without a stored confidence.
-    const seed = (s.id * 17) % 22;
-    return 0.74 + seed / 100;
+  /** Stored match confidence, or null when the pipeline never recorded one — never invented. */
+  function trackMatchValue(s: ApiSong): number | null {
+    if (typeof s.matchConfidence !== 'number') return null;
+    return Math.max(0, Math.min(1, s.matchConfidence));
   }
 
   const heroBackground = $derived.by(() => {
@@ -777,12 +779,21 @@
               {formatFileSize(song.fileSizeBytes)}
             </span>
             <span class="hidden items-center gap-2 sm:flex">
-              <span class="bg-foreground/10 h-1 flex-1 overflow-hidden rounded-full">
-                <span class="bg-foreground/35 block h-full rounded-full" style="width: {matchValue * 100}%;"></span>
-              </span>
-              <span class="text-muted-foreground min-w-[28px] text-right font-mono text-[11px]">
-                {matchValue.toFixed(2)}
-              </span>
+              {#if matchValue != null}
+                <span class="bg-foreground/10 h-1 flex-1 overflow-hidden rounded-full">
+                  <span class="bg-foreground/35 block h-full rounded-full" style="width: {matchValue * 100}%;"></span>
+                </span>
+                <span class="text-muted-foreground min-w-[28px] text-right font-mono text-[11px]">
+                  {matchValue.toFixed(2)}
+                </span>
+              {:else}
+                <span
+                  class="text-muted-foreground flex-1 text-right font-mono text-[11px]"
+                  title="No match confidence recorded for this track"
+                >
+                  —
+                </span>
+              {/if}
             </span>
             <span class="text-muted-foreground text-right font-mono text-[11px]">
               {formatDuration(row.durationSeconds)}

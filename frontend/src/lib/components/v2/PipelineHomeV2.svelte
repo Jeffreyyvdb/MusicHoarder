@@ -6,6 +6,7 @@
   import { Skeleton } from '$lib/components/ui/skeleton';
   import {
     buildAlbumsFromSongs,
+    mergeAlbumsByName,
     fetchDuplicates,
     fetchQualityOverview,
     fetchQualityProgress,
@@ -327,7 +328,7 @@
     if (!loaded) return [];
     const built = songs.filter(isBuiltSong);
     if (built.length === 0) return [];
-    return sortAlbumsByRecency(buildAlbumsFromSongs(built)).slice(0, 6);
+    return sortAlbumsByRecency(mergeAlbumsByName(buildAlbumsFromSongs(built))).slice(0, 6);
   });
 
   function albumInitials(title: string): string {
