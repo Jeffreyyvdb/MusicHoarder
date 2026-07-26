@@ -31,6 +31,19 @@ updates:
     ignore:
       - dependency-name: '@sveltejs/adapter-node'
         versions: ['5.5.5']
+      # TypeScript 7 is the native (Go) port: `require('typescript')` now
+      # resolves to a stub exporting only { version, versionMajorMinor }, and
+      # the classic compiler API lives behind unfinished `typescript/unstable/*`
+      # entrypoints. Every type-aware tool we run breaks on it —
+      # @typescript-eslint/typescript-estree dies at import time reading
+      # `ts.Extension.Cjs` off that stub ("Cannot read properties of undefined
+      # (reading 'Cjs')", PR #348), and its peer range is `<6.1.0`, so no
+      # released typescript-eslint accepts TS 7 at all. svelte-check /
+      # svelte2tsx are in the same boat. Hold at 5.x until typescript-eslint
+      # ships a TS 7-compatible major and svelte-check follows; then drop this
+      # entry and take the bump deliberately.
+      - dependency-name: 'typescript'
+        update-types: ['version-update:semver-major']
     # Patch + minor bumps are grouped per dependency-type so the weekly
     # delivery is at most two bun PRs (prod-deps, dev-deps) instead of one
     # per package. Majors stay ungrouped — they're rare and deserve
