@@ -87,6 +87,34 @@ public class AppleMusicEnrichmentProviderTests
     }
 
     [Fact]
+    public async Task TryEnrichAsync_AlbumNarrowedSearchEmpty_FallsBackToArtistTitleQuery()
+    {
+        // A tagged file with a known album first searches narrowed by that album; when that returns
+        // nothing the provider must retry with the un-narrowed artist+title query so recall never
+        // drops. Pins the two-query fallback the shared planner has to preserve.
+        var track = new AppleMusicCatalogTrack("12345", "Lucid Dreams", "Juice WRLD", "Goodbye & Good Riddance", 2018, 6, 239_000, null);
+        var queries = new List<string>();
+        var catalog = new StubAppleCatalog
+        {
+            OnSearch = q =>
+            {
+                queries.Add(q);
+                return q.Contains("Goodbye", StringComparison.OrdinalIgnoreCase) ? [] : [track];
+            },
+        };
+        var provider = CreateProvider(catalog);
+        var song = Song(artist: "Juice WRLD", title: "Lucid Dreams", durationSec: 239, album: "Goodbye & Good Riddance");
+
+        var result = await provider.TryEnrichAsync(song);
+
+        Assert.IsType<ProviderMatched>(result);
+        Assert.Equal(2, catalog.SearchCalls);
+        Assert.Equal(2, queries.Count);
+        Assert.Contains("Goodbye", queries[0], StringComparison.OrdinalIgnoreCase);       // album-narrowed first
+        Assert.DoesNotContain("Goodbye", queries[1], StringComparison.OrdinalIgnoreCase); // un-narrowed fallback
+    }
+
+    [Fact]
     public async Task TryEnrichAsync_RateLimited_ReturnsProviderRateLimited()
     {
         var catalog = new StubAppleCatalog
@@ -111,7 +139,7 @@ public class AppleMusicEnrichmentProviderTests
 
     private static SongMetadata Song(
         string? artist, string? title, int durationSec,
-        string sourcePath = "/s/a.mp3", string fileName = "a.mp3") => new()
+        string sourcePath = "/s/a.mp3", string fileName = "a.mp3", string? album = null) => new()
     {
         OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
         SourcePath = sourcePath,
@@ -122,6 +150,7 @@ public class AppleMusicEnrichmentProviderTests
         IndexedAtUtc = DateTime.UtcNow,
         Artist = artist,
         Title = title,
+        Album = album,
         DurationSeconds = durationSec,
         EnrichmentStatus = EnrichmentStatus.Pending,
     };
