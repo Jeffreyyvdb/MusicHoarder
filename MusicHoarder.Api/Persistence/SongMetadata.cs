@@ -365,6 +365,54 @@ public class SongMetadata
         && (PreferredLyricsSource == PreferredLyricsSource.Transcribed
             || (string.IsNullOrWhiteSpace(SyncedLyrics) && string.IsNullOrWhiteSpace(PlainLyrics)));
 
+    // --- AI lyrics pronunciation + translation (generated on demand from the display lyrics) ---
+    //
+    // An LLM-generated romanization/pronunciation guide (Arabizi for Arabic, pinyin, romaji, phonetic
+    // respelling for Latin-script languages) and English translation, kept line-aligned with the lyrics
+    // they were generated from so the viewer can stack them under the original. Display-only: these
+    // fields are deliberately NOT in RebuildOnMetadataChangeInterceptor.TagRelevantProperties and must
+    // never re-tag the destination file.
+
+    public string? RomanizedSyncedLyrics { get; set; }
+    public string? RomanizedPlainLyrics { get; set; }
+    public string? TranslatedSyncedLyrics { get; set; }
+    public string? TranslatedPlainLyrics { get; set; }
+
+    /// <summary>Dominant lyrics language detected during translation (ISO 639-1, e.g. "ar", "es", "en").</summary>
+    public string? DetectedLyricsLanguage { get; set; }
+
+    public LyricsTranslationStatus LyricsTranslationStatus { get; set; } = LyricsTranslationStatus.NotRequested;
+    public DateTime? LyricsTranslatedAtUtc { get; set; }
+    public string? LyricsTranslationModel { get; set; }
+    public string? LyricsTranslationError { get; set; }
+
+    /// <summary>
+    /// Fingerprint (<see cref="ComputeLyricsFingerprint"/>) of the lyrics the translation was generated
+    /// from. When the display lyrics later change (a re-transcription, a preferred-source flip), the
+    /// stored translation describes the OLD text — <see cref="IsLyricsTranslationStale"/> flags that so
+    /// the UI can regenerate instead of stacking mismatched lines.
+    /// </summary>
+    public string? LyricsTranslationSourceHash { get; set; }
+
+    /// <summary>The lyrics a translation would be generated from right now (synced preferred).</summary>
+    public string? CurrentLyricsForTranslation =>
+        !string.IsNullOrWhiteSpace(DisplaySyncedLyrics) ? DisplaySyncedLyrics : DisplayPlainLyrics;
+
+    /// <summary>True when a completed translation no longer matches the current display lyrics.</summary>
+    public bool IsLyricsTranslationStale =>
+        LyricsTranslationStatus == LyricsTranslationStatus.Completed
+        && LyricsTranslationSourceHash is not null
+        && ComputeLyricsFingerprint(CurrentLyricsForTranslation) != LyricsTranslationSourceHash;
+
+    public static string? ComputeLyricsFingerprint(string? lyrics)
+    {
+        if (string.IsNullOrWhiteSpace(lyrics))
+            return null;
+        var bytes = System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(lyrics.Trim()));
+        return Convert.ToHexString(bytes);
+    }
+
     // --- Guard properties ---
 
     public bool IsDeleted => DeletedAtUtc.HasValue;
@@ -926,6 +974,8 @@ public class SongMetadata
         PlainLyrics = null;
         IsInstrumental = null;
         LrclibId = null;
+        // The pronunciation/translation was generated from these lyrics — resetting them makes it stale.
+        ResetLyricsTranslation();
     }
 
     // --- AI transcription lifecycle ---
@@ -955,6 +1005,54 @@ public class SongMetadata
         TranscribedAtUtc = null;
         TranscriptionModel = null;
         TranscriptionError = null;
+    }
+
+    // --- AI pronunciation/translation lifecycle ---
+
+    /// <summary>
+    /// Stores the LLM-generated pronunciation + translation. All-null lyrics with an "en" language code
+    /// is a valid Completed outcome: the song was already English, so there was nothing to generate.
+    /// </summary>
+    public void ApplyLyricsTranslationResult(
+        string? romanizedSynced,
+        string? romanizedPlain,
+        string? translatedSynced,
+        string? translatedPlain,
+        string? languageCode,
+        string model,
+        string? sourceHash = null)
+    {
+        RomanizedSyncedLyrics = string.IsNullOrWhiteSpace(romanizedSynced) ? null : romanizedSynced;
+        RomanizedPlainLyrics = string.IsNullOrWhiteSpace(romanizedPlain) ? null : romanizedPlain;
+        TranslatedSyncedLyrics = string.IsNullOrWhiteSpace(translatedSynced) ? null : translatedSynced;
+        TranslatedPlainLyrics = string.IsNullOrWhiteSpace(translatedPlain) ? null : translatedPlain;
+        DetectedLyricsLanguage = string.IsNullOrWhiteSpace(languageCode) ? null : languageCode;
+        LyricsTranslationStatus = LyricsTranslationStatus.Completed;
+        LyricsTranslatedAtUtc = DateTime.UtcNow;
+        LyricsTranslationModel = model;
+        LyricsTranslationError = null;
+        LyricsTranslationSourceHash = sourceHash;
+    }
+
+    public void MarkLyricsTranslationFailed(string error)
+    {
+        LyricsTranslationStatus = LyricsTranslationStatus.Failed;
+        LyricsTranslationError = Truncate(error, MaxErrorLength);
+        LyricsTranslatedAtUtc = DateTime.UtcNow;
+    }
+
+    public void ResetLyricsTranslation()
+    {
+        LyricsTranslationStatus = LyricsTranslationStatus.NotRequested;
+        RomanizedSyncedLyrics = null;
+        RomanizedPlainLyrics = null;
+        TranslatedSyncedLyrics = null;
+        TranslatedPlainLyrics = null;
+        DetectedLyricsLanguage = null;
+        LyricsTranslatedAtUtc = null;
+        LyricsTranslationModel = null;
+        LyricsTranslationError = null;
+        LyricsTranslationSourceHash = null;
     }
 
     // --- Soft delete ---
@@ -1006,4 +1104,12 @@ public enum PreferredLyricsSource
 {
     Lrclib = 0,
     Transcribed = 1,
+}
+
+public enum LyricsTranslationStatus
+{
+    NotRequested = 0,
+    Pending = 1,
+    Completed = 2,
+    Failed = 3,
 }

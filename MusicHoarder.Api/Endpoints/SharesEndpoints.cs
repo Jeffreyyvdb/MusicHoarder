@@ -202,12 +202,24 @@ public static class SharesEndpoints
         // Display* (not Effective*): the share page shows what the in-app viewer shows, including
         // the fall-back to an AI transcription when LRCLIB found nothing — without changing what
         // the library builder embeds into files.
+        //
+        // Pronunciation/translation ride along only while FRESH: a stale doc was generated from
+        // different lyrics, so stacking it under the current lines would misalign for anonymous
+        // viewers who have no Regenerate button.
+        var translationFresh =
+            song.LyricsTranslationStatus == LyricsTranslationStatus.Completed
+            && !song.IsLyricsTranslationStale;
         return Results.Ok(new
         {
             song.Id,
             Synced = song.DisplaySyncedLyrics,
             Plain = song.DisplayPlainLyrics,
             IsInstrumental = song.IsInstrumental == true,
+            RomanizedSynced = translationFresh ? song.RomanizedSyncedLyrics : null,
+            RomanizedPlain = translationFresh ? song.RomanizedPlainLyrics : null,
+            TranslatedSynced = translationFresh ? song.TranslatedSyncedLyrics : null,
+            TranslatedPlain = translationFresh ? song.TranslatedPlainLyrics : null,
+            DetectedLanguage = translationFresh ? song.DetectedLyricsLanguage : null,
         });
     }
 

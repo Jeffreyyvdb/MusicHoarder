@@ -19,10 +19,11 @@ async function proxy(request: Request, pathSegments: string, search: string): Pr
   // the long-lived SSE progress feed (/api/enrichment/progress) streaming after headers
   // arrive, while preventing a busy API from making the proxy pend indefinitely.
   //
-  // AI lyrics transcription is a deliberate long-running synchronous action (ffmpeg transcode +
-  // a whole-song Whisper call), so it gets a much longer window — it's bounded server-side by
-  // LyricsTranscription:TimeoutSeconds. Aborting it early would also cancel the API-side work.
-  const isLongRunning = pathSegments.endsWith('/lyrics/transcribe');
+  // AI lyrics transcription and pronunciation/translation are deliberate long-running synchronous
+  // actions (ffmpeg + Whisper, or chunked LLM calls), so they get a much longer window — each is
+  // bounded server-side by its own TimeoutSeconds. Aborting early would also cancel the API-side work.
+  const isLongRunning =
+    pathSegments.endsWith('/lyrics/transcribe') || pathSegments.endsWith('/lyrics/translate');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), isLongRunning ? 240_000 : 10_000);
 
