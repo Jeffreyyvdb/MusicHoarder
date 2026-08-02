@@ -28,9 +28,33 @@ updates:
     # hydrates (sveltejs/kit#16095). Fixed upstream in 5.5.6 (#16114, which also
     # fixes a separate boot deadlock #16092); we run 5.5.7. Ignore exactly 5.5.5
     # so it can never come back; 5.5.6+ are allowed through normally.
+    #
+    # conventional-changelog-conventionalcommits v10 moved its writer
+    # templates into the separate @conventional-changelog/template package and
+    # changed the preset shape. @semantic-release/release-notes-generator (14.x,
+    # latest) still expects the v8/v9 shape, so under v10 it renders the release
+    # header and *nothing else* — every GitHub Release from v1.95.1 (2026-07-08,
+    # the push that merged the v10 bump) onward had an empty body. Stay on 9.x
+    # until release-notes-generator ships v10 support.
+    #
+    # TypeScript 7 is the native (Go) port: `require('typescript')` now
+    # resolves to a stub exporting only { version, versionMajorMinor }, and
+    # the classic compiler API lives behind unfinished `typescript/unstable/*`
+    # entrypoints. Every type-aware tool we run breaks on it —
+    # @typescript-eslint/typescript-estree dies at import time reading
+    # `ts.Extension.Cjs` off that stub ("Cannot read properties of undefined
+    # (reading 'Cjs')", PR #348), and its peer range is `<6.1.0`, so no
+    # released typescript-eslint accepts TS 7 at all. svelte-check /
+    # svelte2tsx are in the same boat. Hold at 5.x until typescript-eslint
+    # ships a TS 7-compatible major and svelte-check follows; then drop this
+    # entry and take the bump deliberately.
     ignore:
       - dependency-name: '@sveltejs/adapter-node'
         versions: ['5.5.5']
+      - dependency-name: 'conventional-changelog-conventionalcommits'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'typescript'
+        update-types: ['version-update:semver-major']
     # Patch + minor bumps are grouped per dependency-type so the weekly
     # delivery is at most two bun PRs (prod-deps, dev-deps) instead of one
     # per package. Majors stay ungrouped — they're rare and deserve
