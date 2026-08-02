@@ -37,6 +37,67 @@ public class ListSongsTests
         Assert.Null(GetProperty<string?>(first, "Fingerprint"));
     }
 
+    [Fact]
+    public async Task ListSongs_ClassifiesATrackerUnreleasedMatch()
+    {
+        await using var db = NewContext();
+        var song = NewSong("/leak.mp3", "leak.mp3");
+        song.MatchedBy = "YeTracker";
+        song.MatchWarnings = """["category:unreleased"]""";
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var result = await ListSongsCaller.Invoke(db);
+
+        var first = SingleSong(result);
+        Assert.Equal("Unreleased", GetProperty<string>(first, "ReleaseClassification"));
+    }
+
+    [Fact]
+    public async Task ListSongs_ClassifiesACommercialMatchAsReleased()
+    {
+        await using var db = NewContext();
+        var song = NewSong("/single.mp3", "single.mp3");
+        song.MatchedBy = "SpotifyAPI";
+        song.SpotifyId = "6f2Y5W6t1E";
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var result = await ListSongsCaller.Invoke(db);
+
+        var first = SingleSong(result);
+        Assert.Equal("Released", GetProperty<string>(first, "ReleaseClassification"));
+    }
+
+    [Fact]
+    public async Task ListSongs_ReviewWithNoCandidateAtAll_ClassifiesAsLikelyUnreleased()
+    {
+        await using var db = NewContext();
+        var song = NewSong("/nowhere.mp3", "nowhere.mp3");
+        song.EnrichmentStatus = EnrichmentStatus.NeedsReview;
+        song.EnrichedAtUtc = DateTime.UtcNow;
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var result = await ListSongsCaller.Invoke(db);
+
+        var first = SingleSong(result);
+        Assert.Equal("LikelyUnreleased", GetProperty<string>(first, "ReleaseClassification"));
+    }
+
+    [Fact]
+    public async Task ListSongs_UnmatchedSong_ClassifiesAsUnknown()
+    {
+        await using var db = NewContext();
+        db.Songs.Add(NewSong("/c.mp3", "c.mp3"));
+        await db.SaveChangesAsync();
+
+        var result = await ListSongsCaller.Invoke(db);
+
+        var first = SingleSong(result);
+        Assert.Equal("Unknown", GetProperty<string>(first, "ReleaseClassification"));
+    }
+
     private static object SingleSong(IResult result)
     {
         var value = result.GetType().GetProperty("Value")!.GetValue(result)!;

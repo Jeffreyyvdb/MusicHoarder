@@ -120,6 +120,12 @@ export interface ApiSong {
   matchedBy?: string | null
   matchConfidence?: number | null
   matchWarnings?: string[] | null
+  /**
+   * Whether this is a commercially released recording or unreleased material (leak, snippet, stem,
+   * session). Derived server-side by `ReleaseClassifier` — chiefly from the community-tracker
+   * category the enrichment match recorded. "Unknown" when nothing in the row says either way.
+   */
+  releaseClassification?: ReleaseClassification | null
   enrichmentError?: string | null
   originalMetadataCaptured?: boolean | null
   originalArtist?: string | null
@@ -169,6 +175,17 @@ export interface ApiSong {
    */
   spotifyAddedAtUtc?: string | null
 }
+
+/**
+ * "Unreleased" = a community tracker says so. "LikelyUnreleased" = every provider ran and none
+ * found anything, which is good circumstantial evidence but also catches badly-tagged files and
+ * genuinely obscure releases. "Unknown" = no evidence either way.
+ */
+export type ReleaseClassification =
+  | "Unknown"
+  | "Released"
+  | "Unreleased"
+  | "LikelyUnreleased"
 
 export type SongOriginKind = "Scanned" | "Downloaded" | "Synced"
 export type SongOriginSource =
