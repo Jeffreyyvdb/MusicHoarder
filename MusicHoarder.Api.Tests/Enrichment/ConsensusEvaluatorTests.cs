@@ -795,6 +795,50 @@ public class ConsensusEvaluatorTests
         Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
     }
 
+    // ── the state ReleaseClassifier reads as "nobody has ever heard of this recording" ──────────
+    // These pin the coupling: LikelyUnreleased keys on NeedsReview + a null MatchedBy, which is only
+    // reachable when every enabled provider terminated cleanly with zero candidates.
+
+    [Fact]
+    public void EveryProviderNoMatch_IsNeedsReviewWithNoWinner()
+    {
+        var song = Song();
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.NoMatch, null);
+        Add(song, EnrichmentProvider.Deezer, ProviderAttemptStatus.NoMatch, null);
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.SpotifyAPI, EnrichmentProvider.Deezer), Opts);
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
+        Assert.Null(r.Winner); // → ApplyConsensus leaves MatchedBy null
+    }
+
+    [Fact]
+    public void AProviderThatErrored_IsFailedNotNeedsReview()
+    {
+        var song = Song();
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.NoMatch, null);
+        Add(song, EnrichmentProvider.Deezer, ProviderAttemptStatus.Failed, null);
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.SpotifyAPI, EnrichmentProvider.Deezer), Opts);
+
+        Assert.Equal(EnrichmentStatus.Failed, r.Status);
+    }
+
+    [Fact]
+    public void AProviderThatNeverRan_KeepsThePictureIncomplete()
+    {
+        // e.g. no fingerprint, so AcoustID is skipped and writes no attempt at all.
+        var song = Song();
+        Add(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.NoMatch, null);
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.SpotifyAPI, EnrichmentProvider.AcoustID), Opts);
+
+        Assert.Equal(EnrichmentStatus.Pending, r.Status);
+    }
+
     private static SongMetadata Song() => new()
     {
         OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
