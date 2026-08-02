@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MusicHoarder.Api.Persistence;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MusicHoarder.Api.Persistence.Migrations
 {
     [DbContext(typeof(MusicHoarderDbContext))]
-    partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260802194605_AddSongDuplicateLinks")]
+    partial class AddSongDuplicateLinks
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -239,36 +242,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.ToTable("AlbumCoverFetchAttempts");
                 });
 
-            modelBuilder.Entity("MusicHoarder.Api.Persistence.ArtistAlias", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("AliasKey")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("CanonicalName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("OwnerUserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OwnerUserId", "AliasKey")
-                        .IsUnique();
-
-                    b.ToTable("ArtistAliases");
-                });
-
             modelBuilder.Entity("MusicHoarder.Api.Persistence.CanonicalAlbum", b =>
                 {
                     b.Property<int>("Id")
@@ -431,43 +404,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.HasIndex("CanonicalAlbumId", "DiscNumber", "TrackNumber");
 
                     b.ToTable("CanonicalAlbumTracks");
-                });
-
-            modelBuilder.Entity("MusicHoarder.Api.Persistence.DedupDismissal", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("KeyHigh")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("KeyLow")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("Kind")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("OwnerUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ScopeKey")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OwnerUserId", "Kind", "ScopeKey", "KeyLow", "KeyHigh")
-                        .IsUnique();
-
-                    b.ToTable("DedupDismissals");
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.DirectoryPreference", b =>
@@ -944,9 +880,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<string>("DestinationPath")
                         .HasColumnType("text");
 
-                    b.Property<string>("DetectedLyricsLanguage")
-                        .HasColumnType("text");
-
                     b.Property<int?>("DiscNumber")
                         .HasColumnType("integer");
 
@@ -1063,21 +996,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<int>("LyricsStatus")
                         .HasColumnType("integer");
 
-                    b.Property<DateTime?>("LyricsTranslatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("LyricsTranslationError")
-                        .HasColumnType("text");
-
-                    b.Property<string>("LyricsTranslationModel")
-                        .HasColumnType("text");
-
-                    b.Property<string>("LyricsTranslationSourceHash")
-                        .HasColumnType("text");
-
-                    b.Property<int>("LyricsTranslationStatus")
-                        .HasColumnType("integer");
-
                     b.Property<DateTime?>("ManuallyApprovedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -1183,12 +1101,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<string>("ReleaseTypes")
                         .HasColumnType("text");
 
-                    b.Property<string>("RomanizedPlainLyrics")
-                        .HasColumnType("text");
-
-                    b.Property<string>("RomanizedSyncedLyrics")
-                        .HasColumnType("text");
-
                     b.Property<string>("SourcePath")
                         .IsRequired()
                         .HasColumnType("text");
@@ -1228,12 +1140,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.Property<int>("TranscriptionStatus")
                         .HasColumnType("integer");
-
-                    b.Property<string>("TranslatedPlainLyrics")
-                        .HasColumnType("text");
-
-                    b.Property<string>("TranslatedSyncedLyrics")
-                        .HasColumnType("text");
 
                     b.Property<string>("Upc")
                         .HasColumnType("text");

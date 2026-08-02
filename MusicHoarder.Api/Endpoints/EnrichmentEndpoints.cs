@@ -328,6 +328,33 @@ public static class EnrichmentEndpoints
             .WithSummary("Dry-run report of split albums: logical albums whose tracks disagree on identity (release id / album / year / album artist), with the identity a self-heal pass would elect. Empty when the self-heal safeguard has converged everything.")
             .RequireOwner();
 
+        group.MapPost("/split-albums/heal", async (
+                IAlbumSplitHealer healer,
+                IDirectoryAvailability availability,
+                JobManager jobManager,
+                CancellationToken ct) =>
+            {
+                if (!availability.Current.AllAvailable)
+                    return Results.Conflict(new { message = "Source/destination directory is offline. Reconnect to your music library before healing." });
+
+                var result = await healer.HealAsync(ct);
+
+                // Wake the builder so re-queued rows re-tag now instead of on the next idle sweep.
+                // A 409 from an already-running build isn't an error — the re-queue still stands.
+                jobManager.TryStartJob(JobType.Build, out var jobId, out _);
+
+                return Results.Ok(new
+                {
+                    result.GroupsHealed,
+                    result.SongsCorrected,
+                    result.SongsRequeued,
+                    jobId,
+                });
+            })
+            .WithName("HealSplitAlbums")
+            .WithSummary("Run the split-album self-heal now: elect one identity per logical album, correct disagreeing tracks and re-queue built ones for re-tag. Same pass the builder runs when idle.")
+            .RequireOwner();
+
         group.MapGet("/missing-artist-credits", async (IArtistCreditHealer healer, CancellationToken ct) =>
             {
                 var gaps = await healer.DetectAsync(ct);

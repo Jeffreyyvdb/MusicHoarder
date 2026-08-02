@@ -175,6 +175,13 @@ public class SongMetadata
     public int? DuplicateOfId { get; set; }
     public SongMetadata? DuplicateOf { get; set; }
 
+    /// <summary>
+    /// When set, the user explicitly chose this song as the keeper of its duplicate group.
+    /// Detection re-runs rank a pinned song above any automatic quality election so a manual
+    /// choice is never overturned. Cleared on re-fingerprint (the audio identity changed).
+    /// </summary>
+    public DateTime? DuplicateKeeperPinnedAtUtc { get; set; }
+
     public string? Isrc { get; set; }
     public string? MusicBrainzId { get; set; }
     public string? MusicBrainzReleaseId { get; set; }
@@ -914,6 +921,7 @@ public class SongMetadata
         PreviousDestinationPath = null;
         IsDuplicate = false;
         DuplicateOfId = null;
+        DuplicateKeeperPinnedAtUtc = null;
         IsUnreleased = false;
         // A re-fingerprint invalidates everything we knew about prior writes; drop the snapshot so the
         // next build diffs from the source-original baseline rather than a stale written state.

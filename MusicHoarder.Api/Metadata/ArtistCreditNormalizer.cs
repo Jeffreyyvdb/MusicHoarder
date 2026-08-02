@@ -27,7 +27,12 @@ public static partial class ArtistCreditNormalizer
         return candidates.Count > 0 ? candidates[0] : normalized;
     }
 
-    private static List<string> SplitArtists(string artistCredit)
+    /// <summary>
+    /// Splits a display credit into its constituent artists using the first matching delimiter
+    /// (";" → feat./ft./featuring/with → " &amp; " → " x " → ", "). Callers must treat the result as
+    /// a guess for single-name credits containing a legitimate delimiter ("Earth, Wind &amp; Fire").
+    /// </summary>
+    public static List<string> SplitArtists(string artistCredit)
     {
         if (artistCredit.Contains(';'))
         {
@@ -58,9 +63,18 @@ public static partial class ArtistCreditNormalizer
         return [artistCredit];
     }
 
+    /// <summary>True when the credit contains an explicit featuring delimiter (feat./ft./featuring/
+    /// with) — the one split form that is unambiguous, unlike "&amp;"/","-joined names.</summary>
+    public static bool HasFeaturingDelimiter(string? value) =>
+        !string.IsNullOrWhiteSpace(value) && FeatRegex().IsMatch(value);
+
     [GeneratedRegex(@"\s+")]
     private static partial Regex MultiSpaceRegex();
 
-    [GeneratedRegex(@"\s+(feat\.|ft\.|featuring|with)\s+", RegexOptions.IgnoreCase)]
+    // Dot optional: "Domo Genesis Ft Tyler The Creator" is a featuring credit too. Keeps this in
+    // step with TitleNormalizer.FeaturingPattern, which already strips the dotless form — without
+    // that parity a dotless credit normalizes to the primary artist's key while refusing to split,
+    // and the artist-dedup view would offer a merge that deletes the featuring clause.
+    [GeneratedRegex(@"\s+(feat\.?|ft\.?|featuring|with)\s+", RegexOptions.IgnoreCase)]
     private static partial Regex FeatRegex();
 }
