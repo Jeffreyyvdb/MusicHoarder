@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MusicHoarder.Api.Persistence;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MusicHoarder.Api.Persistence.Migrations
 {
     [DbContext(typeof(MusicHoarderDbContext))]
-    partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260802192629_AddLyricsTranslationFields")]
+    partial class AddLyricsTranslationFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -953,9 +956,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("LyricsTranslationModel")
-                        .HasColumnType("text");
-
-                    b.Property<string>("LyricsTranslationSourceHash")
                         .HasColumnType("text");
 
                     b.Property<int>("LyricsTranslationStatus")

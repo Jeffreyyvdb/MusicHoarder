@@ -86,6 +86,10 @@ var lyricsTranscriptionModel = builder.AddParameter("lyrics-transcription-model"
 // QualityGrading OpenRouter creds with reasoning off — keep it a low-latency non-reasoning model.
 var lyricsTranscriptionLlmModel = builder.AddParameter("lyrics-transcription-llm-model", builder.Configuration["Parameters:lyrics-transcription-llm-model"] ?? "google/gemini-2.5-flash-lite")
     .WithDescription("LLM that segments AI-transcribed lyrics for no-lyrics songs (provider namespace, e.g. google/gemini-2.5-flash-lite).");
+// On-demand lyrics pronunciation (romanization) + English translation. Called over the QualityGrading
+// OpenRouter creds with reasoning off — needs strong multilingual coverage, so a Flash-class model.
+var lyricsTranslationModel = builder.AddParameter("lyrics-translation-model", builder.Configuration["Parameters:lyrics-translation-model"] ?? "google/gemini-2.5-flash")
+    .WithDescription("LLM that generates lyric pronunciation guides + English translations over the QualityGrading OpenRouter creds (provider namespace, e.g. google/gemini-2.5-flash).");
 
 // Soulseek via a user-operated slskd instance (never provisioned here — the user runs slskd
 // themselves; MusicHoarder only needs to reach its REST API and read its completed-downloads dir).
@@ -158,6 +162,7 @@ var api = builder.AddProject<Projects.MusicHoarder_Api>("api")
     .WithEnvironment("LyricsTranscription__BaseUrl", lyricsTranscriptionBaseUrl)
     .WithEnvironment("LyricsTranscription__Model", lyricsTranscriptionModel)
     .WithEnvironment("LyricsTranscription__LlmModel", lyricsTranscriptionLlmModel)
+    .WithEnvironment("LyricsTranslation__Model", lyricsTranslationModel)
     .WithEnvironment("Slskd__BaseUrl", slskdBaseUrl)
     .WithEnvironment("Slskd__ApiKey", slskdApiKey)
     .WithEnvironment("Slskd__DownloadsDirectory", slskdDownloadsDirectory)

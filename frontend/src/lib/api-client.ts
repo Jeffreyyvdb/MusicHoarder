@@ -1462,6 +1462,16 @@ export interface TrackLyricsResponse {
   transcribedAtUtc?: string | null
   transcriptionModel?: string | null
   preferredLyricsSource?: string | null
+  romanizedSynced?: string | null
+  romanizedPlain?: string | null
+  translatedSynced?: string | null
+  translatedPlain?: string | null
+  detectedLanguage?: string | null
+  lyricsTranslationStatus?: string | null
+  lyricsTranslatedAtUtc?: string | null
+  lyricsTranslationModel?: string | null
+  /** True when the stored translation was generated from lyrics that have since changed. */
+  lyricsTranslationStale?: boolean | null
 }
 
 export async function fetchTrackLyrics(trackId: number): Promise<TrackLyricsResponse> {
@@ -1472,7 +1482,7 @@ export async function fetchTrackLyrics(trackId: number): Promise<TrackLyricsResp
 export async function setPreferredLyricsSource(
   songId: number,
   source: "lrclib" | "transcribed"
-): Promise<{ id: number; preferredLyricsSource: string }> {
+): Promise<{ id: number; preferredLyricsSource: string; lyricsTranslationStale?: boolean | null }> {
   return requestJson(`/songs/${songId}/lyrics/preferred?source=${source}`, { method: "POST" })
 }
 
@@ -1484,6 +1494,8 @@ export interface TranscribeLyricsResponse {
   transcribedAtUtc?: string | null
   model?: string | null
   hasExistingLyrics?: boolean | null
+  /** True when the fresh transcription made an existing pronunciation/translation stale. */
+  lyricsTranslationStale?: boolean | null
 }
 
 /**
@@ -1492,6 +1504,27 @@ export interface TranscribeLyricsResponse {
  */
 export async function transcribeSongLyrics(songId: number): Promise<TranscribeLyricsResponse> {
   return requestJson<TranscribeLyricsResponse>(`/songs/${songId}/lyrics/transcribe`, { method: "POST" })
+}
+
+export interface TranslateLyricsResponse {
+  id: number
+  romanizedSynced?: string | null
+  romanizedPlain?: string | null
+  translatedSynced?: string | null
+  translatedPlain?: string | null
+  detectedLanguage?: string | null
+  lyricsTranslationStatus?: string | null
+  lyricsTranslatedAtUtc?: string | null
+  model?: string | null
+}
+
+/**
+ * Generate a pronunciation guide (romanization — Arabizi, pinyin, phonetic respelling…) and an English
+ * translation of the song's lyrics via LLM. Display-only: stored apart from the real lyrics and never
+ * written into file tags. An already-English song returns detectedLanguage "en" with all-null lyrics.
+ */
+export async function translateSongLyrics(songId: number): Promise<TranslateLyricsResponse> {
+  return requestJson<TranslateLyricsResponse>(`/songs/${songId}/lyrics/translate`, { method: "POST" })
 }
 
 export function getSongStreamUrl(songId: number): string {
@@ -2361,6 +2394,11 @@ export interface SettingsLyricsTranscriptionView {
   enabled: boolean
 }
 
+export interface SettingsLyricsTranslationView {
+  /** True when the OpenRouter creds (QualityGrading) + a translation model are configured on the server. */
+  enabled: boolean
+}
+
 export interface SettingsDownloadsView {
   /** Deploy-time feature switch: wishlist downloads available at all (yt-dlp + a writable download dir). */
   enabled: boolean
@@ -2374,6 +2412,7 @@ export interface SettingsResponse {
   spotify: SettingsSpotifyView
   qualityGrading: SettingsQualityGradingView
   lyricsTranscription: SettingsLyricsTranscriptionView
+  lyricsTranslation?: SettingsLyricsTranslationView
   downloads: SettingsDownloadsView
   updatedAtUtc: string | null
 }

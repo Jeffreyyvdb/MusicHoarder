@@ -6,6 +6,7 @@
   import LyricsCard from '$lib/components/file-browser/LyricsCard.svelte';
   import LyricsFullscreen from '$lib/components/file-browser/LyricsFullscreen.svelte';
   import LyricsPanel from '$lib/components/file-browser/LyricsPanel.svelte';
+  import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
   import { playerStore, type PlayerSong } from '$lib/stores/player.svelte';
   import { formatDuration } from '$lib/formatters';
   import {
@@ -123,6 +124,34 @@
     activeTrack != null &&
       (activeTrack.hasSyncedLyrics || activeTrack.hasPlainLyrics || activeTrack.isInstrumental)
   );
+
+  // Owner-generated pronunciation (romanization) + English translation, when present on the share.
+  // The API only sends FRESH documents (never stale ones), so stacking is always line-aligned.
+  let lyricsView = $state<'original' | 'pronunciation' | 'translation'>('original');
+  $effect(() => {
+    void activeTrack?.id;
+    lyricsView = 'original'; // reset the view when the presented track changes
+  });
+  const hasShareTranslation = $derived(
+    Boolean(
+      lyrics?.romanizedSynced ??
+        lyrics?.romanizedPlain ??
+        lyrics?.translatedSynced ??
+        lyrics?.translatedPlain
+    )
+  );
+  const secondarySynced = $derived.by(() => {
+    if (!hasShareTranslation) return undefined;
+    if (lyricsView === 'pronunciation') return lyrics?.romanizedSynced ?? undefined;
+    if (lyricsView === 'translation') return lyrics?.translatedSynced ?? undefined;
+    return undefined;
+  });
+  const secondaryPlain = $derived.by(() => {
+    if (!hasShareTranslation) return undefined;
+    if (lyricsView === 'pronunciation') return lyrics?.romanizedPlain ?? undefined;
+    if (lyricsView === 'translation') return lyrics?.translatedPlain ?? undefined;
+    return undefined;
+  });
   const lyricsReady = $derived(lyrics !== null && lyricsForId === activeTrack?.id);
   const canExpandLyrics = $derived(
     activeTrack != null && activeTrack.isInstrumental !== true && lyricsReady && lyrics !== null
@@ -202,6 +231,30 @@
   <a href="/" class="text-foreground/70 hover:text-foreground font-medium hover:underline">
     MusicHoarder
   </a>
+{/snippet}
+
+{#snippet lyricsViewToggle()}
+  {#if hasShareTranslation}
+    <div class="mb-3 flex w-full items-center justify-center">
+      <ToggleGroup.Root
+        type="single"
+        size="sm"
+        value={lyricsView}
+        onValueChange={(v) => {
+          if (v) lyricsView = v as typeof lyricsView;
+        }}
+        class="text-xs"
+      >
+        <ToggleGroup.Item value="original" aria-label="Original lyrics">Original</ToggleGroup.Item>
+        <ToggleGroup.Item value="pronunciation" aria-label="Pronunciation guide">
+          Pronunciation
+        </ToggleGroup.Item>
+        <ToggleGroup.Item value="translation" aria-label="English translation">
+          Translation
+        </ToggleGroup.Item>
+      </ToggleGroup.Root>
+    </div>
+  {/if}
 {/snippet}
 
 <!-- Public share page: no app chrome, no auth — just the shared music, presented with the
@@ -291,9 +344,10 @@
            to the fullscreen lyrics + play/pause overlay. -->
       {#if showLyricsSection}
         <section class="mt-8 w-full lg:hidden">
+          {@render lyricsViewToggle()}
           <LyricsCard expandable={canExpandLyrics} onExpand={() => (lyricsExpanded = true)}>
             {#if activeTrack.isInstrumental || (lyricsReady && lyrics)}
-              {#key activeTrack.id}
+              {#key `${activeTrack.id}-${lyricsView}`}
                 <div class="flex h-full flex-col">
                   <LyricsPanel
                     variant="theater"
@@ -302,6 +356,8 @@
                     plainLyrics={lyrics?.plain ?? undefined}
                     isInstrumental={activeTrack.isInstrumental}
                     currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
+                    {secondarySynced}
+                    {secondaryPlain}
                   />
                 </div>
               {/key}
@@ -332,7 +388,8 @@
       {#if showLyricsSection}
         <div class="hidden min-h-0 w-full lg:flex lg:max-w-3xl lg:flex-1 lg:flex-col">
           {#if activeTrack.isInstrumental || (lyricsReady && lyrics)}
-            {#key activeTrack.id}
+            {@render lyricsViewToggle()}
+            {#key `${activeTrack.id}-${lyricsView}`}
               <div class="flex min-h-0 flex-1 flex-col">
                 <LyricsPanel
                   variant="theater"
@@ -344,6 +401,8 @@
                   onSeek={(ms) => {
                     if (isCurrentlyLoaded) playerStore.seek(ms / 1000);
                   }}
+                  {secondarySynced}
+                  {secondaryPlain}
                 />
               </div>
             {/key}
@@ -376,7 +435,7 @@
         onPlayToggle={handlePlayToggle}
         onClose={() => (lyricsExpanded = false)}
       >
-        {#key activeTrack.id}
+        {#key `${activeTrack.id}-${lyricsView}`}
           <LyricsPanel
             variant="theater"
             songId={activeTrack.id}
@@ -387,6 +446,8 @@
             onSeek={(ms) => {
               if (isCurrentlyLoaded) playerStore.seek(ms / 1000);
             }}
+            {secondarySynced}
+            {secondaryPlain}
           />
         {/key}
       </LyricsFullscreen>

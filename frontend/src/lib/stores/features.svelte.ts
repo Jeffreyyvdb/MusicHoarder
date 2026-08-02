@@ -8,6 +8,9 @@ class FeaturesStore {
   /** AI lyrics transcription — true only when a transcription provider is configured on the server. */
   lyricsTranscription = $state(false);
 
+  /** Lyrics pronunciation + translation — true only when the OpenRouter creds are configured. */
+  lyricsTranslation = $state(false);
+
   #loaded = false;
 
   /** Loads the flags once (idempotent). Safe to call from any component on mount. */
@@ -17,6 +20,7 @@ class FeaturesStore {
     try {
       const settings = await fetchSettings();
       this.lyricsTranscription = settings.lyricsTranscription?.enabled ?? false;
+      this.lyricsTranslation = settings.lyricsTranslation?.enabled ?? false;
     } catch {
       this.#loaded = false; // allow a later retry
     }
