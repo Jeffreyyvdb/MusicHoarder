@@ -175,6 +175,28 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         if (consensus.Status is EnrichmentStatus.Matched or EnrichmentStatus.NeedsReview or EnrichmentStatus.Failed)
             song.LastEnrichmentAlgorithmVersion = EnrichmentAlgorithm.CurrentVersion;
 
+        // Route the winner's artist spellings through the owner's merge aliases BEFORE applying:
+        // a re-enrichment must not reintroduce a variant ("JAYZ") the user already merged away
+        // ("JAY-Z"). Whole-name and discrete-list mapping only — multi-artist display credits are
+        // left untouched (partial rewrites inside a joined credit are riskier than the drift).
+        if (consensus.Status == EnrichmentStatus.Matched && consensus.Winner is not null)
+        {
+            var aliases = await Library.ArtistAliasMap.LoadForOwnerAsync(dbContext, song.OwnerUserId, ct);
+            if (!aliases.IsEmpty)
+            {
+                var winner = consensus.Winner;
+                consensus = consensus with
+                {
+                    Winner = winner with
+                    {
+                        Artist = aliases.ResolveName(song.OwnerUserId, winner.Artist) ?? winner.Artist,
+                        AlbumArtist = aliases.ResolveName(song.OwnerUserId, winner.AlbumArtist) ?? winner.AlbumArtist,
+                        Artists = aliases.MapList(song.OwnerUserId, winner.Artists) ?? winner.Artists,
+                    },
+                };
+            }
+        }
+
         var matched = ApplyConsensus(song, consensus, dbContext);
         await dbContext.SaveChangesAsync(ct);
 

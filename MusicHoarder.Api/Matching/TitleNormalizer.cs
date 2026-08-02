@@ -31,6 +31,22 @@ public static partial class TitleNormalizer
     }
 
     /// <summary>
+    /// Aggressive variant for duplicate DETECTION only — never for grouping keys or folder paths.
+    /// <see cref="NormalizeForSearch"/> keys <c>AlbumGroupKey</c>, <c>CanonicalAlbum</c> and
+    /// destination folders; changing it would re-key the whole library, so the extra folding lives
+    /// here instead. On top of the search form: "&amp;" folds to "and" and a leading "the " is
+    /// stripped, so "The Blueprint 3" ≈ "Blueprint 3" and "B &amp; C" ≈ "B and C".
+    /// </summary>
+    public static string NormalizeForDedup(string? value)
+    {
+        // "&" must fold before NormalizeForSearch strips it as punctuation.
+        var result = NormalizeForSearch(value?.Replace("&", " and "));
+        if (result.StartsWith("the ", StringComparison.Ordinal))
+            result = result[4..];
+        return result;
+    }
+
+    /// <summary>
     /// Folds combining diacritical marks (é → e) and a small set of common
     /// Cyrillic/Latin lookalike glyphs to their Latin equivalents.
     /// </summary>

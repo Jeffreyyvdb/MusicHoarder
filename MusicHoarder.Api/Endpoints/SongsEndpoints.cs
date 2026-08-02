@@ -8,6 +8,7 @@ using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Navidrome;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Scanner;
 using MusicHoarder.Api.Sync;
 
 namespace MusicHoarder.Api.Endpoints;
@@ -52,7 +53,7 @@ public static class SongsEndpoints
 
         app.MapGet("/api/library/duplicates", ListDuplicates)
             .WithName("GetDuplicates")
-            .WithSummary("List all tracks flagged as duplicates, grouped by fingerprint.")
+            .WithSummary("List duplicate clusters (confirmed + suspected) with keeper election and per-member match evidence.")
             .WithTags("Library");
 
         app.MapPatch("/songs/{id:int}/manual-review", ManualReviewTrack)
@@ -783,92 +784,126 @@ public static class SongsEndpoints
             : Results.Bytes(cover.Bytes!, contentType: cover.ContentType);
     }
 
+    internal static string[] DescribeReasons(DuplicateMatchReason reasons)
+    {
+        var names = new List<string>(3);
+        if (reasons.HasFlag(DuplicateMatchReason.ExactFingerprint)) names.Add("exact-fingerprint");
+        if (reasons.HasFlag(DuplicateMatchReason.FingerprintSimilarity)) names.Add("fingerprint-similarity");
+        if (reasons.HasFlag(DuplicateMatchReason.AcoustIdTrack)) names.Add("acoustid");
+        if (reasons.HasFlag(DuplicateMatchReason.Isrc)) names.Add("isrc");
+        if (reasons.HasFlag(DuplicateMatchReason.Metadata)) names.Add("metadata");
+        return [.. names];
+    }
+
     private static async Task<IResult> ListDuplicates(MusicHoarderDbContext db)
     {
-        var duplicates = await db.Songs
+        // The per-user query filter scopes links to the caller; groups are derived here by
+        // union-find over Active links (there is no group entity).
+        var links = await db.SongDuplicateLinks
             .AsNoTracking()
-            .Where(s => s.DeletedAtUtc == null && s.IsDuplicate)
-            .OrderBy(s => s.Fingerprint)
-            .ThenByDescending(s => s.FileSizeBytes)
-            .Select(s => new
-            {
-                s.Id,
-                s.SourcePath,
-                s.FileName,
-                s.Extension,
-                s.FileSizeBytes,
-                s.Artist,
-                s.AlbumArtist,
-                s.Album,
-                s.Title,
-                s.Year,
-                s.TrackNumber,
-                s.DurationSeconds,
-                s.Bitrate,
-                s.Fingerprint,
-                s.IsDuplicate,
-                s.DuplicateOfId,
-                s.EnrichmentStatus,
-                QualityScore = s.Extension != null
-                    ? (s.Extension.ToLower() == ".flac" ? 1000 :
-                       s.Extension.ToLower() == ".wav" ? 900 :
-                       s.Extension.ToLower() == ".aiff" ? 900 :
-                       s.Bitrate ?? 0)
-                    : 0
-            })
+            .Where(l => l.Status == DuplicateLinkStatus.Active)
             .ToListAsync();
 
-        var bestIds = duplicates
-            .Select(d => d.DuplicateOfId)
-            .Where(id => id.HasValue)
-            .Select(id => id!.Value)
+        var songIds = links
+            .SelectMany(l => new[] { l.SongIdLow, l.SongIdHigh })
             .Distinct()
             .ToList();
 
-        var bestSongs = await db.Songs
+        var songs = await db.Songs
             .AsNoTracking()
-            .Where(s => bestIds.Contains(s.Id))
-            .Select(s => new
-            {
-                s.Id,
-                s.SourcePath,
-                s.FileName,
-                s.Extension,
-                s.FileSizeBytes,
-                s.Artist,
-                s.Album,
-                s.Title,
-                s.Bitrate,
-                s.Fingerprint,
-                QualityScore = s.Extension != null
-                    ? (s.Extension.ToLower() == ".flac" ? 1000 :
-                       s.Extension.ToLower() == ".wav" ? 900 :
-                       s.Extension.ToLower() == ".aiff" ? 900 :
-                       s.Bitrate ?? 0)
-                    : 0
-            })
+            .Where(s => songIds.Contains(s.Id) && s.DeletedAtUtc == null)
             .ToDictionaryAsync(s => s.Id);
 
-        var groups = duplicates
-            .GroupBy(d => d.Fingerprint)
-            .Select(g =>
+        // Links referencing a soft-deleted song are stale until the next detection run; skip them.
+        links = links.Where(l => songs.ContainsKey(l.SongIdLow) && songs.ContainsKey(l.SongIdHigh)).ToList();
+
+        // Union-find over all active links: suspected pairs join the cluster too, so a group shows
+        // its confirmed core plus any lower-confidence hangers-on in one card.
+        var parent = new Dictionary<int, int>();
+        int Find(int x)
+        {
+            if (!parent.TryGetValue(x, out var p)) { parent[x] = x; return x; }
+            if (p == x) return x;
+            var root = Find(p);
+            parent[x] = root;
+            return root;
+        }
+        foreach (var link in links)
+        {
+            var (ra, rb) = (Find(link.SongIdLow), Find(link.SongIdHigh));
+            if (ra != rb) parent[Math.Max(ra, rb)] = Math.Min(ra, rb);
+        }
+
+        var linksByCluster = links.ToLookup(l => Find(l.SongIdLow));
+
+        var groups = new List<object>();
+        var totalDuplicates = 0;
+
+        foreach (var cluster in parent.Keys.ToList().GroupBy(Find).OrderBy(g => g.Key))
+        {
+            var members = cluster.Select(id => songs[id]).ToList();
+            if (members.Count < 2)
+                continue;
+
+            var clusterLinks = linksByCluster[cluster.Key].ToList();
+            var confirmedIds = clusterLinks
+                .Where(l => l.Confidence == DuplicateConfidence.Confirmed)
+                .SelectMany(l => new[] { l.SongIdLow, l.SongIdHigh })
+                .ToHashSet();
+
+            var ranked = IDuplicateDetectionService.RankKeeperFirst(members);
+            var keeper = ranked[0];
+            totalDuplicates += members.Count(m => m.IsDuplicate);
+
+            var memberDtos = ranked.Select(m =>
             {
-                var bestId = g.First().DuplicateOfId;
-                var best = bestId.HasValue && bestSongs.TryGetValue(bestId.Value, out var b)
-                    ? (object)b
-                    : null;
+                var memberLinks = clusterLinks
+                    .Where(l => l.SongIdLow == m.Id || l.SongIdHigh == m.Id)
+                    .ToList();
+                var reasons = memberLinks.Aggregate(DuplicateMatchReason.None, (acc, l) => acc | l.Reasons);
+                var similarity = memberLinks.Max(l => l.Similarity);
                 return new
                 {
-                    Fingerprint = g.Key,
-                    Best = best,
-                    Duplicates = g.ToList()
+                    m.Id,
+                    m.SourcePath,
+                    m.FileName,
+                    m.Extension,
+                    m.FileSizeBytes,
+                    m.Artist,
+                    m.AlbumArtist,
+                    m.Album,
+                    m.Title,
+                    m.Year,
+                    m.TrackNumber,
+                    m.DurationSeconds,
+                    m.Bitrate,
+                    m.Fingerprint,
+                    m.IsDuplicate,
+                    m.DuplicateOfId,
+                    m.EnrichmentStatus,
+                    m.DestinationPath,
+                    IsBuilt = m.LibraryBuildStatus == LibraryBuildStatus.Done && m.DestinationPath != null,
+                    IsKeeper = m.Id == keeper.Id,
+                    IsPinned = m.DuplicateKeeperPinnedAtUtc != null,
+                    Confidence = confirmedIds.Contains(m.Id) ? "confirmed" : "suspected",
+                    Reasons = DescribeReasons(reasons),
+                    Similarity = similarity,
+                    QualityScore = IDuplicateDetectionService.QualityScore(m),
                 };
-            })
-            .ToList();
+            }).ToList();
+
+            groups.Add(new
+            {
+                GroupId = cluster.Key,
+                Confidence = confirmedIds.Count > 0 ? "confirmed" : "suspected",
+                Keeper = memberDtos[0],
+                Members = memberDtos,
+            });
+        }
 
         return Results.Ok(new
         {
-            TotalDuplicates = duplicates.Count,
+            TotalDuplicates = totalDuplicates,
             Groups = groups.Count,
             DuplicateGroups = groups
         });

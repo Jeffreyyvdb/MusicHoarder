@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MusicHoarder.Api.Persistence;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MusicHoarder.Api.Persistence.Migrations
 {
     [DbContext(typeof(MusicHoarderDbContext))]
-    partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260802195711_AddArtistAliasesAndDedupDismissals")]
+    partial class AddArtistAliasesAndDedupDismissals
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -944,9 +947,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<string>("DestinationPath")
                         .HasColumnType("text");
 
-                    b.Property<string>("DetectedLyricsLanguage")
-                        .HasColumnType("text");
-
                     b.Property<int?>("DiscNumber")
                         .HasColumnType("integer");
 
@@ -1063,21 +1063,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<int>("LyricsStatus")
                         .HasColumnType("integer");
 
-                    b.Property<DateTime?>("LyricsTranslatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("LyricsTranslationError")
-                        .HasColumnType("text");
-
-                    b.Property<string>("LyricsTranslationModel")
-                        .HasColumnType("text");
-
-                    b.Property<string>("LyricsTranslationSourceHash")
-                        .HasColumnType("text");
-
-                    b.Property<int>("LyricsTranslationStatus")
-                        .HasColumnType("integer");
-
                     b.Property<DateTime?>("ManuallyApprovedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -1183,12 +1168,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<string>("ReleaseTypes")
                         .HasColumnType("text");
 
-                    b.Property<string>("RomanizedPlainLyrics")
-                        .HasColumnType("text");
-
-                    b.Property<string>("RomanizedSyncedLyrics")
-                        .HasColumnType("text");
-
                     b.Property<string>("SourcePath")
                         .IsRequired()
                         .HasColumnType("text");
@@ -1228,12 +1207,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.Property<int>("TranscriptionStatus")
                         .HasColumnType("integer");
-
-                    b.Property<string>("TranslatedPlainLyrics")
-                        .HasColumnType("text");
-
-                    b.Property<string>("TranslatedSyncedLyrics")
-                        .HasColumnType("text");
 
                     b.Property<string>("Upc")
                         .HasColumnType("text");

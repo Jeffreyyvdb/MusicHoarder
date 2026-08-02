@@ -4,14 +4,18 @@
   import { cn } from '$lib/utils';
   import InboxTagReviewV2 from './inbox/InboxTagReviewV2.svelte';
   import InboxDuplicatesV2 from './inbox/InboxDuplicatesV2.svelte';
+  import InboxArtistsV2 from './inbox/InboxArtistsV2.svelte';
+  import InboxAlbumsV2 from './inbox/InboxAlbumsV2.svelte';
   import InboxAiFlaggedV2 from './inbox/InboxAiFlaggedV2.svelte';
 
-  type TabId = 'review' | 'dupes' | 'ai';
+  type TabId = 'review' | 'dupes' | 'artists' | 'albums' | 'ai';
 
   type Tab = { id: TabId; label: string };
   const TABS: Tab[] = [
     { id: 'review', label: 'Tag review' },
     { id: 'dupes', label: 'Duplicates' },
+    { id: 'artists', label: 'Artists' },
+    { id: 'albums', label: 'Albums' },
     { id: 'ai', label: 'AI flagged' }
   ];
 
@@ -19,7 +23,7 @@
   // browser back/forward all stay in sync. Falls back to Tag review.
   const tab = $derived.by<TabId>(() => {
     const t = page.url.searchParams.get('tab');
-    return t === 'dupes' || t === 'ai' ? t : 'review';
+    return t === 'dupes' || t === 'artists' || t === 'albums' || t === 'ai' ? t : 'review';
   });
 
   function selectTab(next: TabId) {
@@ -35,7 +39,13 @@
   }
 
   // Live per-tab counts reported up by each subtab (null while loading).
-  let counts = $state<Record<TabId, number | null>>({ review: null, dupes: null, ai: null });
+  let counts = $state<Record<TabId, number | null>>({
+    review: null,
+    dupes: null,
+    artists: null,
+    albums: null,
+    ai: null
+  });
 
   // Only reassign when the value actually changes — reallocating `counts` on
   // every report would re-render this component (and recreate the inline
@@ -46,7 +56,7 @@
     counts = { ...counts, [tab]: n };
   }
   const totalAwaiting = $derived.by(() => {
-    const vals = [counts.review, counts.dupes, counts.ai];
+    const vals = [counts.review, counts.dupes, counts.artists, counts.albums, counts.ai];
     if (vals.every((v) => v == null)) return null;
     return vals.reduce<number>((sum, v) => sum + (v ?? 0), 0);
   });
@@ -98,6 +108,10 @@
   <InboxTagReviewV2 oncount={(n) => reportCount('review', n)} />
 {:else if tab === 'dupes'}
   <InboxDuplicatesV2 oncount={(n) => reportCount('dupes', n)} />
+{:else if tab === 'artists'}
+  <InboxArtistsV2 oncount={(n) => reportCount('artists', n)} />
+{:else if tab === 'albums'}
+  <InboxAlbumsV2 oncount={(n) => reportCount('albums', n)} />
 {:else}
   <InboxAiFlaggedV2 oncount={(n) => reportCount('ai', n)} />
 {/if}
