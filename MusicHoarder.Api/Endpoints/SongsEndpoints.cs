@@ -248,6 +248,7 @@ public static class SongsEndpoints
                 s.OriginalMusicBrainzId,
                 s.OriginalSpotifyId,
                 s.OriginalMetadataCapturedAtUtc,
+                s.IsUnreleased,
                 s.IsDuplicate,
                 s.DuplicateOfId,
                 s.LibraryBuildStatus,
@@ -282,6 +283,7 @@ public static class SongsEndpoints
                 wishlistLinks.TryGetValue(s.Id, out var link) ? link : null,
                 downloadDirectory,
                 syncedSourceDirectory);
+            var matchWarnings = DeserializeWarnings(s.MatchWarnings);
             return new
             {
             s.Id, s.SourcePath, s.FileName, s.Extension, s.FileSizeBytes,
@@ -295,7 +297,12 @@ public static class SongsEndpoints
             s.Genre, s.ReleaseDate, s.OriginalReleaseDate, s.Label, s.CatalogNumber, s.Upc,
             s.Composer, s.Copyright, s.ArtistSort, s.AlbumArtistSort,
             s.EnrichmentStatus, s.MatchedBy, s.MatchConfidence,
-            MatchWarnings = DeserializeWarnings(s.MatchWarnings),
+            MatchWarnings = matchWarnings,
+            // Released vs unreleased (leak/snippet/stem), derived from the tracker category the
+            // enrichment match already recorded — see ReleaseClassifier.
+            ReleaseClassification = ReleaseClassifier
+                .Classify(s.IsUnreleased, s.EnrichmentStatus, s.MatchedBy, matchWarnings, s.Isrc, s.SpotifyId)
+                .ToString(),
             s.EnrichedAtUtc, s.EnrichmentError,
             s.OriginalMetadataCaptured, s.OriginalArtist, s.OriginalAlbumArtist,
             s.OriginalAlbum, s.OriginalTitle, s.OriginalYear, s.OriginalTrackNumber,
