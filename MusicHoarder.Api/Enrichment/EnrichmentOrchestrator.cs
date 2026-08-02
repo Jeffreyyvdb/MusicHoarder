@@ -31,6 +31,16 @@ public interface IEnrichmentOrchestrator
     /// re-tag so the destination file picks up the newly-fetched lyrics.
     /// </summary>
     Task<bool> FetchLyricsForSongAsync(int songId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Re-queries LRCLIB for a song whose lyrics already resolved to something improvable — not found,
+    /// failed, or unsynced-only — because LRCLIB is community-contributed and gains lyrics over time.
+    /// Honours the per-song backoff (<see cref="SongMetadata.LyricsNextRecheckAfterUtc"/>) unless
+    /// <paramref name="force"/> is set. Returns true only when the result was a genuine upgrade, in
+    /// which case an already-built song is re-queued for an in-place re-tag. A re-check never clears
+    /// lyrics the song already has.
+    /// </summary>
+    Task<bool> RecheckLyricsForSongAsync(int songId, bool force = false, CancellationToken ct = default);
 }
 
 public class EnrichmentOrchestrator : IEnrichmentOrchestrator
@@ -578,6 +588,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                 _logger.LogInformation("Lyrics: fetched ({Kind}) for {Track} (SongId={SongId})", kind, song.TrackLabel, song.Id);
             }
 
+            RecordLyricsAttempt(song);
             await dbContext.SaveChangesAsync(ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -587,8 +598,76 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         catch (Exception ex)
         {
             song.MarkLyricsFailed();
+            RecordLyricsAttempt(song);
             await dbContext.SaveChangesAsync(ct);
             _logger.LogWarning(ex, "Lyrics fetch failed for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
         }
+    }
+
+    public async Task<bool> RecheckLyricsForSongAsync(int songId, bool force = false, CancellationToken ct = default)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+
+        var song = await dbContext.Songs
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(s => s.Id == songId, ct);
+
+        if (song is null || !song.IsLyricsRecheckCandidate)
+            return false;
+
+        // A forced re-check (user pressed the button) ignores the backoff but still records the attempt,
+        // so hammering it doesn't reset the ladder for the sweep. A null schedule is due now — see
+        // EnrichmentQueries.WhereReadyForLyricsRecheck.
+        if (!force && song.LyricsNextRecheckAfterUtc > DateTime.UtcNow)
+            return false;
+
+        var wasBuilt = song.LibraryBuildStatus == LibraryBuildStatus.Done;
+        var improved = false;
+
+        try
+        {
+            var result = await _lrcLibService.FetchLyricsAsync(song, ct);
+
+            improved = result is not null
+                && song.TryApplyLyricsUpgrade(result.SyncedLyrics, result.PlainLyrics, result.IsInstrumental, result.LrclibId);
+
+            if (improved)
+            {
+                var kind = song.LyricsStatus == LyricsStatus.Instrumental
+                    ? "instrumental"
+                    : song.SyncedLyrics is not null ? "synced" : "plain";
+                _logger.LogInformation(
+                    "Lyrics re-check upgraded {Track} (SongId={SongId}) to {Kind} on attempt {Attempt}",
+                    song.TrackLabel, song.Id, kind, song.LyricsFetchAttempts + 1);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // A transient LRCLIB failure must not downgrade the stored lyrics — only the attempt is
+            // recorded, which pushes the next re-check out by one rung of the backoff.
+            _logger.LogWarning(ex, "Lyrics re-check failed for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
+        }
+
+        RecordLyricsAttempt(song);
+
+        if (improved && wasBuilt)
+            song.RequeueForRetag();
+
+        await dbContext.SaveChangesAsync(ct);
+        return improved;
+    }
+
+    private void RecordLyricsAttempt(SongMetadata song)
+    {
+        var opts = _options.Value;
+        song.RecordLyricsAttempt(
+            DateTime.UtcNow,
+            opts.LyricsRecheckCooldownDays,
+            opts.LyricsRecheckMaxCooldownDays);
     }
 }

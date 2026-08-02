@@ -89,6 +89,9 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => new { e.OwnerUserId, e.DeletedAtUtc });
             // Supports identifier-based lookups / dedupe by ISRC.
             entity.HasIndex(e => e.Isrc);
+            // Drives the lyrics backfill + re-check sweeps, which scan by lyrics state and take the
+            // longest-overdue re-checks first (EnrichmentQueries.WhereReadyForLyricsRecheck).
+            entity.HasIndex(e => new { e.DeletedAtUtc, e.LyricsStatus, e.LyricsNextRecheckAfterUtc });
 
             entity.HasOne(e => e.DuplicateOf)
                 .WithMany()

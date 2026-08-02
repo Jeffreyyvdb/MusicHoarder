@@ -36,6 +36,7 @@ public class EnrichmentBackgroundService(
             await EnqueueSongsMissingProvidersAsync(stoppingToken);
             await BackfillPendingSongsAsync(stoppingToken);
             await BackfillMissingLyricsAsync(stoppingToken);
+            await RecheckStaleLyricsAsync(stoppingToken);
             sweepTask = RunRetrySweepLoopAsync(stoppingToken);
         }
 
@@ -304,6 +305,7 @@ public class EnrichmentBackgroundService(
                 }
 
                 await BackfillMissingLyricsAsync(ct);
+                await RecheckStaleLyricsAsync(ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -376,6 +378,71 @@ public class EnrichmentBackgroundService(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(ex, "Lyrics backfill sweep failed");
+        }
+    }
+
+    /// <summary>
+    /// Re-queries LRCLIB for songs whose lyrics resolved to something a later query could improve —
+    /// <see cref="LyricsStatus.NotFound"/>, <see cref="LyricsStatus.Failed"/>, or unsynced-only. LRCLIB
+    /// is community-contributed and keeps growing, but nothing else in the pipeline ever asks a second
+    /// time, so a song that got no LRC on the day it was enriched would never get one. Each song carries
+    /// its own exponentially-backing-off schedule, and the batch cap keeps the speculative traffic well
+    /// under the first-time fetches above.
+    /// </summary>
+    internal async Task RecheckStaleLyricsAsync(CancellationToken ct)
+    {
+        var opts = options.Value;
+        if (!opts.EnableLyricsRecheckSweep)
+            return;
+
+        try
+        {
+            List<int> ids;
+            using (var scope = scopeFactory.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+                ids = await db.Songs
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .WhereReadyForLyricsRecheck(DateTime.UtcNow)
+                    // Never-checked songs (null schedule) first, then the longest-overdue, so nothing
+                    // starves behind a growing backlog.
+                    .OrderBy(s => s.LyricsNextRecheckAfterUtc)
+                    .ThenBy(s => s.Id)
+                    .Take(opts.LyricsRecheckBatchSize)
+                    .Select(s => s.Id)
+                    .ToListAsync(ct);
+            }
+
+            if (ids.Count == 0)
+                return;
+
+            var upgraded = 0;
+            using var gate = new SemaphoreSlim(opts.LyricsBackfillConcurrency);
+            await Task.WhenAll(ids.Select(async id =>
+            {
+                await gate.WaitAsync(ct);
+                try
+                {
+                    if (await orchestrator.RecheckLyricsForSongAsync(id, force: false, ct))
+                        Interlocked.Increment(ref upgraded);
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            }));
+
+            logger.LogInformation(
+                "Lyrics re-check sweep upgraded {Upgraded}/{Total} songs against LRCLIB",
+                upgraded, ids.Count);
+
+            if (upgraded > 0)
+                jobManager.TryStartJob(JobType.Build, out _, out _);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Lyrics re-check sweep failed");
         }
     }
 

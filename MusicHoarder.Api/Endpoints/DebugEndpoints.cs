@@ -97,6 +97,12 @@ public static class DebugEndpoints
             song.AcoustIdTrackId,
             HasSyncedLyrics = !string.IsNullOrEmpty(song.SyncedLyrics),
             HasPlainLyrics = !string.IsNullOrEmpty(song.PlainLyrics),
+            // Answers "why is there still no LRC for this track?": when LRCLIB was last asked, how
+            // many times, and when the backoff lets the sweep ask again.
+            song.LyricsStatus,
+            song.LyricsLastAttemptedAtUtc,
+            song.LyricsFetchAttempts,
+            song.LyricsNextRecheckAfterUtc,
         };
 
         return Results.Ok(new

@@ -1478,6 +1478,27 @@ export async function fetchTrackLyrics(trackId: number): Promise<TrackLyricsResp
   return requestJson<TrackLyricsResponse>(`/api/tracks/${trackId}/lyrics`)
 }
 
+export interface RecheckLyricsResponse {
+  id: number
+  /** True when LRCLIB returned something better than what was stored (first lyrics, or an LRC). */
+  updated: boolean
+  lyricsStatus: string
+  hasSyncedLyrics: boolean
+  hasPlainLyrics: boolean
+  lyricsLastAttemptedAtUtc?: string | null
+  lyricsNextRecheckAfterUtc?: string | null
+}
+
+/**
+ * Ask LRCLIB again for a track whose lyrics are missing or unsynced. LRCLIB is community-contributed
+ * and gains lyrics over time, and the background sweep only re-checks on a multi-day backoff — this is
+ * the "I can see it on lrclib.net right now" escape hatch. It can only ever add lyrics, never remove
+ * them, and re-tags the built file when it finds something.
+ */
+export async function recheckSongLyrics(songId: number): Promise<RecheckLyricsResponse> {
+  return requestJson<RecheckLyricsResponse>(`/songs/${songId}/lyrics/recheck`, { method: "POST" })
+}
+
 /** Choose which lyrics the synced viewer shows when both an LRCLIB version and an AI transcription exist. */
 export async function setPreferredLyricsSource(
   songId: number,
