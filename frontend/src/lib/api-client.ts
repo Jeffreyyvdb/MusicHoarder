@@ -2494,6 +2494,127 @@ export async function dismissDuplicates(songIds: number[]): Promise<void> {
   })
 }
 
+// ── Artist dedup (variant spellings + combined credits) ────────────────────────
+
+export interface ArtistNameStat {
+  name: string
+  songCount: number
+  musicBrainzIds: string[]
+}
+
+export interface ArtistDuplicateCluster {
+  suggestedCanonical: string
+  variants: ArtistNameStat[]
+  /** Why these clustered: "same name after normalization" | "same MusicBrainz artist id" | "similar spelling". */
+  evidence: string[]
+}
+
+export interface CombinedCreditCandidate {
+  credit: string
+  parts: string[]
+  songCount: number
+}
+
+export interface ArtistDuplicateReport {
+  clusters: ArtistDuplicateCluster[]
+  combinedCredits: CombinedCreditCandidate[]
+}
+
+export interface ArtistMergeResult {
+  songsUpdated: number
+  songsRequeued: number
+  aliasesStored: number
+}
+
+/** Clusters of artist-name spellings that likely refer to the same artist. */
+export async function fetchArtistDuplicates(): Promise<ArtistDuplicateReport> {
+  return requestJson<ArtistDuplicateReport>("/api/library/artists/duplicates")
+}
+
+/** Merge variant spellings onto a canonical artist name (rewrites tags, re-queues built files). */
+export async function mergeArtists(canonicalName: string, variantNames: string[]): Promise<ArtistMergeResult> {
+  return requestJson<ArtistMergeResult>("/api/library/artists/merge", {
+    method: "POST",
+    body: JSON.stringify({ canonicalName, variantNames }),
+  })
+}
+
+/** Backfill the discrete Artists list for songs whose display credit is a combined "A & B" string. */
+export async function splitArtistCredit(creditName: string): Promise<{ songsUpdated: number; songsRequeued: number }> {
+  return requestJson("/api/library/artists/split-credit", {
+    method: "POST",
+    body: JSON.stringify({ creditName }),
+  })
+}
+
+/** Mark artist-name spellings as NOT the same artist; persists across detections. */
+export async function dismissArtistDuplicates(names: string[]): Promise<void> {
+  await requestJson<unknown>("/api/library/artists/dismiss", {
+    method: "POST",
+    body: JSON.stringify({ names }),
+  })
+}
+
+// ── Album dedup (split groups + near-duplicate pairs) ──────────────────────────
+
+export interface AlbumSplitGroup {
+  artistKey: string
+  albumKey: string
+  memberCount: number
+  membersNeedingCorrection: number
+  distinctReleaseIds: string[]
+  distinctFolders: string[]
+  electedIdentity: {
+    album?: string | null
+    albumArtist?: string | null
+    year?: number | null
+    musicBrainzReleaseId?: string | null
+  }
+}
+
+export interface AlbumDuplicatePair {
+  artistKey: string
+  artistDisplay: string
+  albumA: string
+  songCountA: number
+  albumB: string
+  songCountB: number
+  fuzzyRatio?: number | null
+  /** "same title after normalization" | "similar title" */
+  evidence: string
+}
+
+/** Dry-run report of split albums (tracks of one logical album disagreeing on identity). */
+export async function fetchSplitAlbums(): Promise<{ count: number; groups: AlbumSplitGroup[] }> {
+  return requestJson("/api/enrichment/split-albums")
+}
+
+/** Run the split-album self-heal now (same pass the builder runs when idle). */
+export async function healSplitAlbums(): Promise<{ groupsHealed: number; songsCorrected: number; songsRequeued: number }> {
+  return requestJson("/api/enrichment/split-albums/heal", { method: "POST" })
+}
+
+/** Near-duplicate album pairs the exact grouping key misses ("The Blueprint 3" vs "Blueprint 3"). */
+export async function fetchAlbumDuplicates(): Promise<{ count: number; pairs: AlbumDuplicatePair[] }> {
+  return requestJson("/api/library/albums/duplicates")
+}
+
+/** Rewrite mergeAlbum's spelling onto keepAlbum so both halves share one grouping key. */
+export async function mergeAlbums(artist: string, keepAlbum: string, mergeAlbum: string): Promise<void> {
+  await requestJson<unknown>("/api/library/albums/merge", {
+    method: "POST",
+    body: JSON.stringify({ artist, keepAlbum, mergeAlbum }),
+  })
+}
+
+/** Mark two album titles as NOT the same album; persists across detections. */
+export async function dismissAlbumDuplicates(artist: string, albumA: string, albumB: string): Promise<void> {
+  await requestJson<unknown>("/api/library/albums/dismiss", {
+    method: "POST",
+    body: JSON.stringify({ artist, albumA, albumB }),
+  })
+}
+
 // ── Enrichment detail (candidate matches) ──────────────────────────────────────
 
 export interface EnrichmentCandidate {

@@ -56,6 +56,7 @@ public sealed class AlbumSplitHealer(
         // with the exact heal logic, but nothing is saved.
         var songs = await QueryEligible().AsNoTracking().ToListAsync(ct);
         var canonicalArtists = await LoadCanonicalArtistsAsync(ct);
+        var artistAliases = await ArtistAliasMap.LoadAsync(db, ct);
 
         var report = new List<AlbumSplitGroup>();
         foreach (var group in GroupByLogicalAlbum(songs))
@@ -75,6 +76,7 @@ public sealed class AlbumSplitHealer(
 
             var identity = OverlayCanonicalArtist(reconciler.Reconcile(members), group.Key, members, canonicalArtists);
             identity = await FreezeOscillatingAlbumArtistAsync(identity, members, ct);
+            identity = ApplyArtistAlias(identity, group.Key.OwnerUserId, artistAliases);
             var needingCorrection = members.Count(s => s.ApplyIdentityCorrection(identity).Count > 0);
             if (needingCorrection == 0)
             {
@@ -101,6 +103,7 @@ public sealed class AlbumSplitHealer(
     {
         var songs = await QueryEligible().ToListAsync(ct);
         var canonicalArtists = await LoadCanonicalArtistsAsync(ct);
+        var artistAliases = await ArtistAliasMap.LoadAsync(db, ct);
 
         var now = DateTime.UtcNow;
         var groupsHealed = 0;
@@ -112,6 +115,7 @@ public sealed class AlbumSplitHealer(
             var members = group.ToList();
             var identity = OverlayCanonicalArtist(reconciler.Reconcile(members), group.Key, members, canonicalArtists);
             identity = await FreezeOscillatingAlbumArtistAsync(identity, members, ct);
+            identity = ApplyArtistAlias(identity, group.Key.OwnerUserId, artistAliases);
             var groupTouched = false;
 
             foreach (var song in members)
@@ -239,6 +243,22 @@ public sealed class AlbumSplitHealer(
             AlbumArtist = frozen,
             AlbumArtistMusicBrainzId = frozenMbid ?? identity.AlbumArtistMusicBrainzId,
         };
+    }
+
+    // A user's artist merge outranks every other album-artist source — the canonical overlay, the
+    // majority vote, even the oscillation freeze. Without this final mapping the idle heal would
+    // rewrite AlbumArtist back to whatever spelling the canonical album or member majority carries,
+    // silently un-doing the merge on its next pass (and because merge writes aren't
+    // "album-identity-heal"-sourced, the freeze breaker would never trip on the ping-pong). The
+    // alias map is deterministic and stable, so this stays a fixed point across passes.
+    private static AlbumIdentity ApplyArtistAlias(
+        AlbumIdentity identity, Guid ownerUserId, ArtistAliasMap aliases)
+    {
+        if (aliases.IsEmpty || string.IsNullOrWhiteSpace(identity.AlbumArtist))
+            return identity;
+
+        var canonical = aliases.ResolveName(ownerUserId, identity.AlbumArtist);
+        return canonical is null ? identity : identity with { AlbumArtist = canonical };
     }
 
     // Mirrors the builder's reconciliation predicate (LibraryBuilderService.BuildAlbumIdentityMapAsync):

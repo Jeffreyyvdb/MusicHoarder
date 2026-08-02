@@ -73,8 +73,9 @@ public sealed class ArtistAliasMap
     }
 
     /// <summary>
-    /// Maps a <c>;</c>-separated discrete artist list segment-by-segment, de-duplicating segments
-    /// that collapse onto one canonical name. Returns null when nothing changed.
+    /// Maps a <c>;</c>-separated discrete artist list segment-by-segment. Segment COUNT is always
+    /// preserved (rename only, no de-dup) so a positionally-aligned ArtistMusicBrainzIds list stays
+    /// aligned. Returns null when nothing changed.
     /// </summary>
     public string? MapList(Guid ownerUserId, string? list)
     {
@@ -82,16 +83,16 @@ public sealed class ArtistAliasMap
             return null;
 
         var segments = MultiValue.Split(list);
-        var mapped = new List<string>(segments.Length);
         var changed = false;
-        foreach (var segment in segments)
+        for (var i = 0; i < segments.Length; i++)
         {
-            var canonical = ResolveName(ownerUserId, segment) ?? segment;
-            changed |= !string.Equals(canonical, segment, StringComparison.Ordinal);
-            if (!mapped.Contains(canonical, StringComparer.Ordinal))
-                mapped.Add(canonical);
+            var canonical = ResolveName(ownerUserId, segments[i]);
+            if (canonical is not null)
+            {
+                segments[i] = canonical;
+                changed = true;
+            }
         }
-        changed |= mapped.Count != segments.Length;
-        return changed ? MultiValue.Join(mapped) : null;
+        return changed ? MultiValue.Join(segments) : null;
     }
 }

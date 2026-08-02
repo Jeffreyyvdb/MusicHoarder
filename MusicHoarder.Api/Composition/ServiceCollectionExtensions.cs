@@ -203,6 +203,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAlbumIdentityReconciler, AlbumIdentityReconciler>();
         services.AddScoped<IAlbumSplitHealer, AlbumSplitHealer>();
         services.AddScoped<IArtistCreditHealer, ArtistCreditHealer>();
+        services.AddScoped<IArtistDuplicateService, ArtistDuplicateService>();
+        services.AddScoped<IAlbumDuplicateDetector, AlbumDuplicateDetector>();
         services.AddSingleton<ICanonicalAlbumConsolidator, CanonicalAlbumConsolidator>();
         services.AddSingleton<IFingerprintSimilarityGate, FingerprintSimilarityGate>();
         services.AddSingleton<IDuplicateDetectionService, DuplicateDetectionService>();
