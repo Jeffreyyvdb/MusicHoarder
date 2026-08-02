@@ -2413,9 +2413,12 @@ export async function fetchReviewQueue(filter: ReviewQueueFilter): Promise<ApiSo
   return result.songs ?? []
 }
 
-// ── Duplicates (ambiguous fingerprint clusters) ────────────────────────────────
+// ── Duplicates (acoustic + metadata clusters) ──────────────────────────────────
 
-/** One file inside a duplicate cluster (a "loser" copy flagged as IsDuplicate). */
+/** How confident the server is that a member/group really is the same recording. */
+export type DuplicateConfidence = "confirmed" | "suspected"
+
+/** One file inside a duplicate cluster, with its match evidence. */
 export interface DuplicateMember {
   id: number
   sourcePath: string
@@ -2434,30 +2437,29 @@ export interface DuplicateMember {
   isDuplicate: boolean
   duplicateOfId?: number | null
   enrichmentStatus?: string | number | null
-  /** Server-computed keep-priority (FLAC/WAV/AIFF rank above bitrate). */
-  qualityScore: number
-}
-
-/** The "kept" file the cluster's duplicates point at (the auto-resolver's pick). */
-export interface DuplicateBest {
-  id: number
-  sourcePath: string
-  fileName: string
-  extension?: string | null
-  fileSizeBytes: number
-  artist?: string | null
-  album?: string | null
-  title?: string | null
-  bitrate?: number | null
-  fingerprint?: string | null
+  destinationPath?: string | null
+  /** True when this copy was already built to the destination library. */
+  isBuilt: boolean
+  /** True for the server-elected keeper of the cluster. */
+  isKeeper: boolean
+  /** True when the user manually pinned this copy as the keeper. */
+  isPinned: boolean
+  confidence: DuplicateConfidence
+  /** Match evidence: exact-fingerprint | fingerprint-similarity | acoustid | isrc | metadata. */
+  reasons: string[]
+  /** Chromaprint similarity in [0,1] when the audio was compared; null otherwise. */
+  similarity?: number | null
+  /** Server-computed keep-priority (codec tier dominates, bitrate breaks ties). */
   qualityScore: number
 }
 
 export interface DuplicateGroup {
-  fingerprint: string | null
-  /** The kept copy; null when no DuplicateOfId was recorded for the cluster. */
-  best: DuplicateBest | null
-  duplicates: DuplicateMember[]
+  /** Stable cluster id (the lowest song id in the cluster). */
+  groupId: number
+  confidence: DuplicateConfidence
+  keeper: DuplicateMember
+  /** All cluster members, keeper first (server-ranked). */
+  members: DuplicateMember[]
 }
 
 export interface DuplicatesResponse {
@@ -2466,9 +2468,30 @@ export interface DuplicatesResponse {
   duplicateGroups: DuplicateGroup[]
 }
 
-/** All tracks flagged as duplicates, grouped by fingerprint (read-only — no resolve endpoint yet). */
+/** Duplicate clusters (confirmed + suspected) with keeper election and per-member evidence. */
 export async function fetchDuplicates(): Promise<DuplicatesResponse> {
   return requestJson<DuplicatesResponse>("/api/library/duplicates")
+}
+
+/** Re-run duplicate detection now (it also runs after every fingerprint pass). */
+export async function detectDuplicates(): Promise<void> {
+  await requestJson<unknown>("/api/library/duplicates/detect", { method: "POST" })
+}
+
+/** Choose the keeper of a cluster; the choice is pinned across detection re-runs. */
+export async function resolveDuplicates(keeperId: number, loserIds: number[]): Promise<void> {
+  await requestJson<unknown>("/api/library/duplicates/resolve", {
+    method: "POST",
+    body: JSON.stringify({ keeperId, loserIds }),
+  })
+}
+
+/** Mark songs as NOT duplicates of each other; persists across detection re-runs. */
+export async function dismissDuplicates(songIds: number[]): Promise<void> {
+  await requestJson<unknown>("/api/library/duplicates/dismiss", {
+    method: "POST",
+    body: JSON.stringify({ songIds }),
+  })
 }
 
 // ── Enrichment detail (candidate matches) ──────────────────────────────────────

@@ -1,6 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Audio;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Scanner;
 
@@ -101,8 +104,8 @@ public class DuplicateDetectionServiceTests
     {
         await using var db = CreateDbContext();
         db.Songs.AddRange(
-            CreateSong(1, "/a/track1.flac", ".flac", "FP_C", bitrate: null, size: 50_000_000),
-            CreateSong(2, "/b/track2.mp3", ".mp3", "FP_D", bitrate: 320, size: 10_000_000));
+            CreateSong(1, "/a/track1.flac", ".flac", "FP_C", bitrate: null, size: 50_000_000, title: "Track One"),
+            CreateSong(2, "/b/track2.mp3", ".mp3", "FP_D", bitrate: 320, size: 10_000_000, title: "Track Two"));
         await db.SaveChangesAsync();
 
         var service = CreateService(db);
@@ -173,6 +176,7 @@ public class DuplicateDetectionServiceTests
         await db.SaveChangesAsync();
 
         song1.Fingerprint = "FP_NEW";
+        song1.Title = "Different Track";
         await db.SaveChangesAsync();
 
         var service = CreateService(db);
@@ -220,6 +224,9 @@ public class DuplicateDetectionServiceTests
         var result2 = await service.DetectDuplicatesAsync();
         Assert.Equal(0, result2.DuplicatesFlagged);
         Assert.Equal(0, result2.DuplicatesCleared);
+
+        // Idempotent on the links table too: still exactly one row for the pair.
+        Assert.Equal(1, await db.SongDuplicateLinks.CountAsync());
     }
 
     [Fact]
@@ -227,11 +234,11 @@ public class DuplicateDetectionServiceTests
     {
         await using var db = CreateDbContext();
         db.Songs.AddRange(
-            CreateSong(1, "/a/track1.flac", ".flac", "FP_I", bitrate: null, size: 50_000_000),
-            CreateSong(2, "/b/track1.mp3", ".mp3", "FP_I", bitrate: 320, size: 10_000_000),
-            CreateSong(3, "/c/track2.flac", ".flac", "FP_J", bitrate: null, size: 40_000_000),
-            CreateSong(4, "/d/track2.mp3", ".mp3", "FP_J", bitrate: 128, size: 4_000_000),
-            CreateSong(5, "/e/unique.flac", ".flac", "FP_K", bitrate: null, size: 30_000_000));
+            CreateSong(1, "/a/track1.flac", ".flac", "FP_I", bitrate: null, size: 50_000_000, title: "Track One"),
+            CreateSong(2, "/b/track1.mp3", ".mp3", "FP_I", bitrate: 320, size: 10_000_000, title: "Track One"),
+            CreateSong(3, "/c/track2.flac", ".flac", "FP_J", bitrate: null, size: 40_000_000, title: "Track Two"),
+            CreateSong(4, "/d/track2.mp3", ".mp3", "FP_J", bitrate: 128, size: 4_000_000, title: "Track Two"),
+            CreateSong(5, "/e/unique.flac", ".flac", "FP_K", bitrate: null, size: 30_000_000, title: "Unique"));
         await db.SaveChangesAsync();
 
         var service = CreateService(db);
@@ -308,8 +315,8 @@ public class DuplicateDetectionServiceTests
     [Fact]
     public async Task DetectDuplicates_IgnoresDemoSongs()
     {
-        // The demo tenant's real-file rows (IsSynthetic == false) must stay out of the cross-owner
-        // fingerprint grouping entirely — a shared fingerprint must not flag either side.
+        // The demo tenant's real-file rows (IsSynthetic == false) must stay out of duplicate
+        // detection entirely — a shared fingerprint must not flag either side.
         await using var db = CreateDbContext();
         db.Songs.AddRange(
             CreateSong(1, "/a/track.flac", ".flac", "FP_N", bitrate: null, size: 50_000_000),
@@ -325,6 +332,271 @@ public class DuplicateDetectionServiceTests
         Assert.All(songs, s => Assert.False(s.IsDuplicate));
     }
 
+    // --- Detection v2: per-owner scoping, similarity confirmation, links table ---
+
+    [Fact]
+    public async Task DetectDuplicates_NeverGroupsAcrossOwners()
+    {
+        // Same fingerprint under two different (real) owners: never linked, never flagged.
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            CreateSong(1, "/a/track.flac", ".flac", "FP_X", bitrate: null, size: 50_000_000),
+            CreateSong(2, "/b/track.mp3", ".mp3", "FP_X", bitrate: 320, size: 10_000_000, owner: Guid.NewGuid()));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var result = await service.DetectDuplicatesAsync();
+
+        Assert.Equal(0, result.GroupsFound);
+        Assert.Equal(0, await db.SongDuplicateLinks.CountAsync());
+        var songs = await db.Songs.IgnoreQueryFilters().ToListAsync();
+        Assert.All(songs, s => Assert.False(s.IsDuplicate));
+    }
+
+    [Fact]
+    public async Task DetectDuplicates_MetadataBlock_ConfirmedByFingerprintSimilarity()
+    {
+        // Two encodings of one recording: fingerprints differ as strings but decode to similar
+        // frames — this is the FLAC-vs-MP3 case the old exact-match detection missed.
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            CreateSong(1, "/a/track.flac", ".flac", "ENC_A", bitrate: null, size: 50_000_000, durationSeconds: 200),
+            CreateSong(2, "/b/track.mp3", ".mp3", "ENC_B", bitrate: 320, size: 10_000_000, durationSeconds: 201));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, gate: new FakeGate(["ENC_A", "ENC_B"], similarity: 0.95));
+        var result = await service.DetectDuplicatesAsync();
+
+        Assert.Equal(1, result.GroupsFound);
+        var songs = await db.Songs.OrderBy(s => s.Id).ToListAsync();
+        Assert.False(songs[0].IsDuplicate);
+        Assert.True(songs[1].IsDuplicate);
+        Assert.Equal(1, songs[1].DuplicateOfId);
+
+        var link = Assert.Single(await db.SongDuplicateLinks.ToListAsync());
+        Assert.Equal(DuplicateConfidence.Confirmed, link.Confidence);
+        Assert.True(link.Reasons.HasFlag(DuplicateMatchReason.Metadata));
+        Assert.True(link.Reasons.HasFlag(DuplicateMatchReason.FingerprintSimilarity));
+        Assert.Equal(0.95, link.Similarity!.Value, precision: 3);
+    }
+
+    [Fact]
+    public async Task DetectDuplicates_MetadataOnly_MissingFingerprints_IsSuspectedNotFlagged()
+    {
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            CreateSong(1, "/a/track.mp3", ".mp3", null, bitrate: 320, size: 10_000_000, durationSeconds: 200),
+            CreateSong(2, "/b/track.mp3", ".mp3", null, bitrate: 128, size: 4_000_000, durationSeconds: 200));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var result = await service.DetectDuplicatesAsync();
+
+        // Surfaced for review, but IsDuplicate is untouched so build behavior can't change on a guess.
+        Assert.Equal(0, result.GroupsFound);
+        Assert.Equal(1, result.SuspectedPairs);
+        var songs = await db.Songs.ToListAsync();
+        Assert.All(songs, s => Assert.False(s.IsDuplicate));
+
+        var link = Assert.Single(await db.SongDuplicateLinks.ToListAsync());
+        Assert.Equal(DuplicateConfidence.Suspected, link.Confidence);
+        Assert.Equal(DuplicateMatchReason.Metadata, link.Reasons);
+        Assert.Null(link.Similarity);
+    }
+
+    [Fact]
+    public async Task DetectDuplicates_StrongQualifier_PreventsLiveVsStudioPairing()
+    {
+        // NormalizeForSearch strips "(Live)" so both titles share a metadata block key — the
+        // strong-qualifier gate must still keep them apart.
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            CreateSong(1, "/a/track.mp3", ".mp3", null, bitrate: 320, size: 10_000_000, title: "My Song", durationSeconds: 200),
+            CreateSong(2, "/b/track live.mp3", ".mp3", null, bitrate: 320, size: 10_000_000, title: "My Song (Live)", durationSeconds: 200));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var result = await service.DetectDuplicatesAsync();
+
+        Assert.Equal(0, result.SuspectedPairs);
+        Assert.Equal(0, await db.SongDuplicateLinks.CountAsync());
+    }
+
+    [Fact]
+    public async Task DetectDuplicates_LowSimilarity_DropsPairEntirely()
+    {
+        // Decodable fingerprints that strongly disagree are proof of different recordings — the
+        // pair isn't even surfaced as suspected, despite identical metadata.
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            CreateSong(1, "/a/track.flac", ".flac", "ENC_A", bitrate: null, size: 50_000_000, durationSeconds: 200),
+            CreateSong(2, "/b/track.mp3", ".mp3", "ENC_B", bitrate: 320, size: 10_000_000, durationSeconds: 200));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, gate: new FakeGate(["ENC_A", "ENC_B"], similarity: 0.30));
+        var result = await service.DetectDuplicatesAsync();
+
+        Assert.Equal(0, result.GroupsFound);
+        Assert.Equal(0, result.SuspectedPairs);
+        Assert.Equal(0, await db.SongDuplicateLinks.CountAsync());
+    }
+
+    [Fact]
+    public async Task DetectDuplicates_MidSimilarity_IsSuspected()
+    {
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            CreateSong(1, "/a/track.flac", ".flac", "ENC_A", bitrate: null, size: 50_000_000, durationSeconds: 200),
+            CreateSong(2, "/b/track.mp3", ".mp3", "ENC_B", bitrate: 320, size: 10_000_000, durationSeconds: 200));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, gate: new FakeGate(["ENC_A", "ENC_B"], similarity: 0.70));
+        var result = await service.DetectDuplicatesAsync();
+
+        Assert.Equal(0, result.GroupsFound);
+        Assert.Equal(1, result.SuspectedPairs);
+        var link = Assert.Single(await db.SongDuplicateLinks.ToListAsync());
+        Assert.Equal(DuplicateConfidence.Suspected, link.Confidence);
+        Assert.Equal(0.70, link.Similarity!.Value, precision: 3);
+    }
+
+    [Fact]
+    public async Task DetectDuplicates_DurationMismatch_PreventsMetadataPairing()
+    {
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            CreateSong(1, "/a/track.mp3", ".mp3", null, bitrate: 320, size: 10_000_000, durationSeconds: 200),
+            CreateSong(2, "/b/track.mp3", ".mp3", null, bitrate: 128, size: 4_000_000, durationSeconds: 210));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var result = await service.DetectDuplicatesAsync();
+
+        Assert.Equal(0, result.SuspectedPairs);
+        Assert.Equal(0, await db.SongDuplicateLinks.CountAsync());
+    }
+
+    [Fact]
+    public async Task DetectDuplicates_DismissedLink_SurvivesRerun_AndSuppressesFlagging()
+    {
+        await using var db = CreateDbContext();
+        var song1 = CreateSong(1, "/a/track.flac", ".flac", "FP_D1", bitrate: null, size: 50_000_000);
+        var song2 = CreateSong(2, "/b/track.mp3", ".mp3", "FP_D1", bitrate: 320, size: 10_000_000);
+        db.Songs.AddRange(song1, song2);
+        db.SongDuplicateLinks.Add(new SongDuplicateLink
+        {
+            OwnerUserId = song1.OwnerUserId,
+            SongIdLow = 1,
+            SongIdHigh = 2,
+            Status = DuplicateLinkStatus.Dismissed,
+            Confidence = DuplicateConfidence.Confirmed,
+            DetectedAtUtc = DateTime.UtcNow,
+            DismissedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var result = await service.DetectDuplicatesAsync();
+
+        // Exact-fingerprint evidence exists, but the user said "not duplicates" — respected forever.
+        Assert.Equal(0, result.GroupsFound);
+        Assert.Equal(0, result.DuplicatesFlagged);
+        var link = Assert.Single(await db.SongDuplicateLinks.ToListAsync());
+        Assert.Equal(DuplicateLinkStatus.Dismissed, link.Status);
+        var songs = await db.Songs.ToListAsync();
+        Assert.All(songs, s => Assert.False(s.IsDuplicate));
+    }
+
+    [Fact]
+    public async Task DetectDuplicates_PinnedKeeper_OverridesQualityElection()
+    {
+        await using var db = CreateDbContext();
+        var flac = CreateSong(1, "/a/track.flac", ".flac", "FP_P1", bitrate: null, size: 50_000_000);
+        var mp3 = CreateSong(2, "/b/track.mp3", ".mp3", "FP_P1", bitrate: 320, size: 10_000_000);
+        mp3.DuplicateKeeperPinnedAtUtc = DateTime.UtcNow;
+        db.Songs.AddRange(flac, mp3);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        await service.DetectDuplicatesAsync();
+
+        var songs = await db.Songs.OrderBy(s => s.Id).ToListAsync();
+        Assert.True(songs[0].IsDuplicate);
+        Assert.Equal(2, songs[0].DuplicateOfId);
+        Assert.False(songs[1].IsDuplicate);
+    }
+
+    [Fact]
+    public async Task DetectDuplicates_SharedAcoustId_PairsDespiteDifferentMetadata()
+    {
+        // A mistagged copy (different title/artist) still pairs via the shared AcoustID track id and
+        // is confirmed by fingerprint similarity.
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            CreateSong(1, "/a/proper.flac", ".flac", "ENC_A", bitrate: null, size: 50_000_000,
+                title: "Proper Title", artist: "Proper Artist", acoustIdTrackId: "acoustid-123"),
+            CreateSong(2, "/b/mistagged.mp3", ".mp3", "ENC_B", bitrate: 320, size: 10_000_000,
+                title: "Wrong Title", artist: "Wrong Artist", acoustIdTrackId: "acoustid-123"));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, gate: new FakeGate(["ENC_A", "ENC_B"], similarity: 0.92));
+        var result = await service.DetectDuplicatesAsync();
+
+        Assert.Equal(1, result.GroupsFound);
+        var link = Assert.Single(await db.SongDuplicateLinks.ToListAsync());
+        Assert.True(link.Reasons.HasFlag(DuplicateMatchReason.AcoustIdTrack));
+        Assert.True(link.Reasons.HasFlag(DuplicateMatchReason.FingerprintSimilarity));
+    }
+
+    [Fact]
+    public async Task DetectDuplicates_SharedIsrc_WithoutFingerprints_IsSuspectedOnly()
+    {
+        // ISRC alone never auto-confirms — dirty tags share ISRCs.
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            CreateSong(1, "/a/a.mp3", ".mp3", null, bitrate: 320, size: 10_000_000,
+                title: "Title A", artist: "Artist A", isrc: "USABC1234567"),
+            CreateSong(2, "/b/b.mp3", ".mp3", null, bitrate: 128, size: 4_000_000,
+                title: "Title B", artist: "Artist B", isrc: "us-abc-12-34567"));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var result = await service.DetectDuplicatesAsync();
+
+        Assert.Equal(0, result.GroupsFound);
+        Assert.Equal(1, result.SuspectedPairs);
+        var link = Assert.Single(await db.SongDuplicateLinks.ToListAsync());
+        Assert.Equal(DuplicateMatchReason.Isrc, link.Reasons);
+        Assert.Equal(DuplicateConfidence.Suspected, link.Confidence);
+        var songs = await db.Songs.ToListAsync();
+        Assert.All(songs, s => Assert.False(s.IsDuplicate));
+    }
+
+    [Fact]
+    public async Task DetectDuplicates_StaleActiveLink_IsRemoved()
+    {
+        await using var db = CreateDbContext();
+        var song1 = CreateSong(1, "/a/one.mp3", ".mp3", "FP_S1", bitrate: 320, size: 10_000_000, title: "One");
+        var song2 = CreateSong(2, "/b/two.mp3", ".mp3", "FP_S2", bitrate: 320, size: 10_000_000, title: "Two");
+        db.Songs.AddRange(song1, song2);
+        db.SongDuplicateLinks.Add(new SongDuplicateLink
+        {
+            OwnerUserId = song1.OwnerUserId,
+            SongIdLow = 1,
+            SongIdHigh = 2,
+            Status = DuplicateLinkStatus.Active,
+            Confidence = DuplicateConfidence.Confirmed,
+            Reasons = DuplicateMatchReason.ExactFingerprint,
+            DetectedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        await service.DetectDuplicatesAsync();
+
+        Assert.Equal(0, await db.SongDuplicateLinks.CountAsync());
+    }
+
     private static SongMetadata CreateSong(
         int id,
         string sourcePath,
@@ -332,7 +604,12 @@ public class DuplicateDetectionServiceTests
         string? fingerprint,
         int? bitrate,
         long size,
-        Guid? owner = null)
+        Guid? owner = null,
+        string title = "Test Track",
+        string artist = "Test Artist",
+        int? durationSeconds = null,
+        string? acoustIdTrackId = null,
+        string? isrc = null)
     {
         return new SongMetadata
         {
@@ -345,16 +622,24 @@ public class DuplicateDetectionServiceTests
             IndexedAtUtc = DateTime.UtcNow,
             Fingerprint = fingerprint,
             Bitrate = bitrate,
-            Artist = "Test Artist",
-            Title = "Test Track"
+            Artist = artist,
+            Title = title,
+            DurationSeconds = durationSeconds,
+            AcoustIdTrackId = acoustIdTrackId,
+            Isrc = isrc,
         };
     }
 
-    private static DuplicateDetectionService CreateService(MusicHoarderDbContext db)
+    private static DuplicateDetectionService CreateService(
+        MusicHoarderDbContext db,
+        IFingerprintSimilarityGate? gate = null,
+        MusicEnricherOptions? options = null)
     {
         var scopeFactory = new TestScopeFactory(db);
         return new DuplicateDetectionService(
             scopeFactory,
+            gate ?? new FingerprintSimilarityGate(),
+            new TestOptionsMonitor(options ?? new MusicEnricherOptions()),
             NullLogger<DuplicateDetectionService>.Instance);
     }
 
@@ -364,6 +649,33 @@ public class DuplicateDetectionServiceTests
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
             .Options;
         return new MusicHoarderDbContext(options);
+    }
+
+    /// <summary>Decodes only the listed fingerprint strings; every comparison returns the fixed
+    /// similarity. Lets tests steer the confirm/suspect/reject verdict without real Chromaprints.</summary>
+    private sealed class FakeGate(IEnumerable<string> decodable, double similarity) : IFingerprintSimilarityGate
+    {
+        private readonly HashSet<string> _decodable = [.. decodable];
+
+        public bool TryDecode(string? compressed, out uint[] frames)
+        {
+            if (compressed is not null && _decodable.Contains(compressed))
+            {
+                frames = [1u];
+                return true;
+            }
+            frames = [];
+            return false;
+        }
+
+        public double Similarity(uint[] a, uint[] b) => similarity;
+    }
+
+    private sealed class TestOptionsMonitor(MusicEnricherOptions value) : IOptionsMonitor<MusicEnricherOptions>
+    {
+        public MusicEnricherOptions CurrentValue => value;
+        public MusicEnricherOptions Get(string? name) => value;
+        public IDisposable? OnChange(Action<MusicEnricherOptions, string?> listener) => null;
     }
 
     private sealed class TestScopeFactory(MusicHoarderDbContext db) : IServiceScopeFactory

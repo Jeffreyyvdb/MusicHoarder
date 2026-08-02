@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.AppleMusic;
 using MusicHoarder.Api.Artwork;
+using MusicHoarder.Api.Audio;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.CoverArtArchive;
@@ -203,6 +204,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAlbumSplitHealer, AlbumSplitHealer>();
         services.AddScoped<IArtistCreditHealer, ArtistCreditHealer>();
         services.AddSingleton<ICanonicalAlbumConsolidator, CanonicalAlbumConsolidator>();
+        services.AddSingleton<IFingerprintSimilarityGate, FingerprintSimilarityGate>();
         services.AddSingleton<IDuplicateDetectionService, DuplicateDetectionService>();
         services.AddSingleton<IEmbeddedPictureReader, TagLibEmbeddedPictureReader>();
         services.AddScoped<ICoverArtResolver, CoverArtResolver>();
