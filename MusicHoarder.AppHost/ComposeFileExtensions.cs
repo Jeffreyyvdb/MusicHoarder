@@ -356,6 +356,7 @@ internal static class ComposeFileExtensions
         api.Environment["LyricsTranscription__BaseUrl"] = "${LYRICS_TRANSCRIPTION_BASE_URL:-https://api.groq.com/openai/v1}";
         api.Environment["LyricsTranscription__Model"] = "${LYRICS_TRANSCRIPTION_MODEL:-whisper-large-v3}";
         api.Environment["LyricsTranscription__LlmModel"] = "${LYRICS_TRANSCRIPTION_LLM_MODEL:-google/gemini-2.5-flash-lite}";
+        api.Environment["LyricsTranslation__Model"] = "${LYRICS_TRANSLATION_MODEL:-google/gemini-2.5-flash}";
         // Soulseek via user-operated slskd. All blank → integration off; the "slskd" chain entry then
         // reports NotFound and every wishlist download falls through to yt-dlp, so these defaults are
         // safe on instances (e.g. the public VPS) that never configure slskd.

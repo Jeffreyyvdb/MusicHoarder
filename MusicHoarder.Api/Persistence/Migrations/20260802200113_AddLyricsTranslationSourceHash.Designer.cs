@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MusicHoarder.Api.Persistence;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MusicHoarder.Api.Persistence.Migrations
 {
     [DbContext(typeof(MusicHoarderDbContext))]
-    partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260802200113_AddLyricsTranslationSourceHash")]
+    partial class AddLyricsTranslationSourceHash
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -239,36 +242,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.ToTable("AlbumCoverFetchAttempts");
                 });
 
-            modelBuilder.Entity("MusicHoarder.Api.Persistence.ArtistAlias", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("AliasKey")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("CanonicalName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("OwnerUserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OwnerUserId", "AliasKey")
-                        .IsUnique();
-
-                    b.ToTable("ArtistAliases");
-                });
-
             modelBuilder.Entity("MusicHoarder.Api.Persistence.CanonicalAlbum", b =>
                 {
                     b.Property<int>("Id")
@@ -431,43 +404,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.HasIndex("CanonicalAlbumId", "DiscNumber", "TrackNumber");
 
                     b.ToTable("CanonicalAlbumTracks");
-                });
-
-            modelBuilder.Entity("MusicHoarder.Api.Persistence.DedupDismissal", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("KeyHigh")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("KeyLow")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("Kind")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("OwnerUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ScopeKey")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OwnerUserId", "Kind", "ScopeKey", "KeyLow", "KeyHigh")
-                        .IsUnique();
-
-                    b.ToTable("DedupDismissals");
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.DirectoryPreference", b =>
@@ -841,53 +777,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.ToTable("RuntimeSettings");
                 });
 
-            modelBuilder.Entity("MusicHoarder.Api.Persistence.SongDuplicateLink", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("Confidence")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("DetectedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("DismissedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("OwnerUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Reasons")
-                        .HasColumnType("integer");
-
-                    b.Property<double?>("Similarity")
-                        .HasColumnType("double precision");
-
-                    b.Property<int>("SongIdHigh")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("SongIdLow")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OwnerUserId");
-
-                    b.HasIndex("SongIdHigh");
-
-                    b.HasIndex("SongIdLow", "SongIdHigh")
-                        .IsUnique();
-
-                    b.ToTable("SongDuplicateLinks");
-                });
-
             modelBuilder.Entity("MusicHoarder.Api.Persistence.SongMetadata", b =>
                 {
                     b.Property<int>("Id")
@@ -949,9 +838,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.Property<int?>("DiscNumber")
                         .HasColumnType("integer");
-
-                    b.Property<DateTime?>("DuplicateKeeperPinnedAtUtc")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int?>("DuplicateOfId")
                         .HasColumnType("integer");
@@ -1918,21 +1804,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Song");
-                });
-
-            modelBuilder.Entity("MusicHoarder.Api.Persistence.SongDuplicateLink", b =>
-                {
-                    b.HasOne("MusicHoarder.Api.Persistence.SongMetadata", null)
-                        .WithMany()
-                        .HasForeignKey("SongIdHigh")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("MusicHoarder.Api.Persistence.SongMetadata", null)
-                        .WithMany()
-                        .HasForeignKey("SongIdLow")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.SongMetadata", b =>

@@ -18,6 +18,7 @@ public static class SettingsEndpoints
                 IOptions<SpotifyOptions> spotifyOptions,
                 IOptions<QualityGradingOptions> qualityOptions,
                 IOptions<LyricsTranscriptionOptions> lyricsTranscriptionOptions,
+                IOptions<LyricsTranslationOptions> lyricsTranslationOptions,
                 ICurrentUserAccessor currentUser,
                 CancellationToken ct) =>
             {
@@ -55,6 +56,12 @@ public static class SettingsEndpoints
                     // (key + base URL) is configured on the server, so the UI can hide it entirely otherwise.
                     LyricsTranscription: new LyricsTranscriptionView(
                         Enabled: lyricsTranscriptionOptions.Value.IsConfigured),
+                    // Lyrics pronunciation + translation rides on the QualityGrading OpenRouter creds,
+                    // so it's "enabled" only when those are configured (and the feature isn't switched off).
+                    LyricsTranslation: new LyricsTranslationView(
+                        Enabled: lyricsTranslationOptions.Value.Enabled
+                            && qualityConfigured
+                            && !string.IsNullOrWhiteSpace(lyricsTranslationOptions.Value.Model)),
                     // Wishlist downloads: Enabled is the deploy-time feature switch (yt-dlp + a writable
                     // download dir); AutoDownload is the runtime toggle the owner flips from the UI. The
                     // UI shows the toggle only when the feature is enabled.
@@ -123,6 +130,7 @@ public sealed record SettingsResponse(
     SpotifyView Spotify,
     QualityGradingView QualityGrading,
     LyricsTranscriptionView LyricsTranscription,
+    LyricsTranslationView LyricsTranslation,
     DownloadsView Downloads,
     DateTime? UpdatedAtUtc);
 
@@ -131,6 +139,7 @@ public sealed record ProvidersView(bool AcoustId, bool MusicBrainzWeb, bool Spot
 public sealed record SpotifyView(string OAuthRedirectBaseUrl, IReadOnlyList<string> Scopes);
 public sealed record QualityGradingView(bool Enabled, bool Configured);
 public sealed record LyricsTranscriptionView(bool Enabled);
+public sealed record LyricsTranslationView(bool Enabled);
 public sealed record DownloadsView(bool Enabled, bool AutoDownload);
 
 public sealed record SettingsUpdateRequest(ProvidersUpdate? Providers, QualityGradingUpdate? QualityGrading, DownloadsUpdate? Downloads);

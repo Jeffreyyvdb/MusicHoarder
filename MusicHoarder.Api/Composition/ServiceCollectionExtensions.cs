@@ -63,6 +63,12 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
 
         services
+            .AddOptions<LyricsTranslationOptions>()
+            .BindConfiguration(LyricsTranslationOptions.SectionName)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services
             .AddOptions<SlskdOptions>()
             .BindConfiguration(SlskdOptions.SectionName)
             .ValidateDataAnnotations()
@@ -421,6 +427,14 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IOptions<MusicEnricherOptions>>(),
                 sp.GetRequiredService<ILogger<LyricsTranscriptionService>>());
         });
+
+        // On-demand lyrics pronunciation + translation. Same OpenRouter creds as QualityGrading with its
+        // own cheap multilingual model; the service bounds each call via LyricsTranslationOptions.TimeoutSeconds.
+        services.AddSingleton<ILyricsTranslationService>(sp => new LyricsTranslationService(
+            new HttpClient { Timeout = Timeout.InfiniteTimeSpan },
+            sp.GetRequiredService<IOptionsMonitor<QualityGradingOptions>>(),
+            sp.GetRequiredService<IOptionsMonitor<LyricsTranslationOptions>>(),
+            sp.GetRequiredService<ILogger<LyricsTranslationService>>()));
 
         services.AddSingleton<ISpotifyCatalogSearchService>(sp =>
         {

@@ -30,6 +30,12 @@ export interface ShareLyrics {
   synced?: string | null
   plain?: string | null
   isInstrumental: boolean
+  /** LLM pronunciation guide + English translation — present only when fresh (never stale docs). */
+  romanizedSynced?: string | null
+  romanizedPlain?: string | null
+  translatedSynced?: string | null
+  translatedPlain?: string | null
+  detectedLanguage?: string | null
 }
 
 /**

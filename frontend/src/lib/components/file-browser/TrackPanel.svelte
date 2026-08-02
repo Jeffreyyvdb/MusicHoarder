@@ -5,6 +5,7 @@
     CheckCircle2,
     Copy,
     History,
+    Languages,
     Loader2,
     RotateCcw,
     Heart,
@@ -17,6 +18,7 @@
   import { Button } from '$lib/components/ui/button';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import * as Tabs from '$lib/components/ui/tabs/index.js';
+  import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
   import LyricsPanel from '$lib/components/file-browser/LyricsPanel.svelte';
   import LyricsCard from '$lib/components/file-browser/LyricsCard.svelte';
   import LyricsFullscreen from '$lib/components/file-browser/LyricsFullscreen.svelte';
@@ -37,6 +39,7 @@
     copyQualitySongDossier,
     fetchTrackLyrics,
     transcribeSongLyrics,
+    translateSongLyrics,
     setPreferredLyricsSource,
     soulseek,
     type ApiSong,
@@ -123,6 +126,24 @@
   let preferSaving = $state(false);
   // Plain (non-reactive) guard so re-syncing on song change can't loop the effect below.
   let aiLoadedForSongId: number | null = null;
+
+  // --- AI lyrics pronunciation (romanization) + English translation (display-only) ---
+  type LyricsTranslation = {
+    romanizedSynced?: string;
+    romanizedPlain?: string;
+    translatedSynced?: string;
+    translatedPlain?: string;
+    language?: string;
+    model?: string;
+    at?: string;
+  };
+  let translation = $state<LyricsTranslation | null>(null);
+  let lyricsView = $state<'original' | 'pronunciation' | 'translation'>('original');
+  let translateState = $state<'idle' | 'loading' | 'success' | 'error'>('idle');
+  let translateError = $state<string | null>(null);
+  // True when the stored translation was generated from lyrics that have since changed. Actions
+  // that change the display lyrics (re-transcribe, preferred-source flip) auto-regenerate.
+  let translationStale = $state(false);
 
   // Provider attempts (real candidate matches) are loaded lazily when the
   // Fingerprint tab is first viewed, and refetched when the song changes.
@@ -370,9 +391,9 @@
     }
   }
 
-  // Load any existing AI transcription when the song changes, and reset transient state so a prior
-  // song's transcription never bleeds into the next (the panel instance is reused across songs).
-  // Keyed on the plain `aiLoadedForSongId` (not $state) so it can't re-trigger itself.
+  // Load any existing AI transcription + pronunciation/translation when the song changes, and reset
+  // transient state so a prior song's data never bleeds into the next (the panel instance is reused
+  // across songs). Keyed on the plain `aiLoadedForSongId` (not $state) so it can't re-trigger itself.
   $effect(() => {
     const id = song.id;
     if (aiLoadedForSongId === id) return;
@@ -381,8 +402,15 @@
     transcribeState = 'idle';
     transcribeError = null;
     showCompare = false;
+    translation = null;
+    lyricsView = 'original';
+    translateState = 'idle';
+    translateError = null;
+    translationStale = false;
     preferredSource = song.preferredLyricsSource === 'Transcribed' ? 'transcribed' : 'lrclib';
-    if (!song.hasTranscribedLyrics) return;
+    // The songs list carries no translation flag, so any song with lyrics may have one — one small
+    // fetch covers both the transcription and the translation.
+    if (!song.hasTranscribedLyrics && !song.hasSyncedLyrics && !song.hasPlainLyrics) return;
     fetchTrackLyrics(id)
       .then((d) => {
         if (aiLoadedForSongId !== id) return; // navigated away while in flight
@@ -393,6 +421,18 @@
             model: d.transcriptionModel ?? undefined,
             at: d.transcribedAtUtc ?? undefined
           };
+        }
+        if (d.lyricsTranslationStatus === 'Completed') {
+          translation = {
+            romanizedSynced: d.romanizedSynced ?? undefined,
+            romanizedPlain: d.romanizedPlain ?? undefined,
+            translatedSynced: d.translatedSynced ?? undefined,
+            translatedPlain: d.translatedPlain ?? undefined,
+            language: d.detectedLanguage ?? undefined,
+            model: d.lyricsTranslationModel ?? undefined,
+            at: d.lyricsTranslatedAtUtc ?? undefined
+          };
+          translationStale = d.lyricsTranslationStale === true;
         }
       })
       .catch(() => {});
@@ -412,6 +452,13 @@
       };
       transcribeState = 'success';
       setTimeout(() => (transcribeState = 'idle'), 3000);
+      // The new transcription may have replaced the lyrics an existing pronunciation/translation
+      // was generated from — regenerate so the stacked lines never describe the old text. (False
+      // also syncs: re-transcribing back to matching text makes the stored docs fresh again.)
+      if (translation != null) {
+        translationStale = r.lyricsTranslationStale === true;
+        if (translationStale) void handleTranslate();
+      }
     } catch (err) {
       transcribeState = 'error';
       transcribeError = err instanceof Error ? err.message : 'Transcription failed';
@@ -422,11 +469,71 @@
     }
   }
 
+  async function handleTranslate() {
+    if (translateState === 'loading') return;
+    translateState = 'loading';
+    translateError = null;
+    try {
+      const r = await translateSongLyrics(song.id);
+      translation = {
+        romanizedSynced: r.romanizedSynced ?? undefined,
+        romanizedPlain: r.romanizedPlain ?? undefined,
+        translatedSynced: r.translatedSynced ?? undefined,
+        translatedPlain: r.translatedPlain ?? undefined,
+        language: r.detectedLanguage ?? undefined,
+        model: r.model ?? undefined,
+        at: r.lyricsTranslatedAtUtc ?? undefined
+      };
+      if (lyricsView === 'original' && (r.romanizedSynced || r.romanizedPlain)) {
+        lyricsView = 'pronunciation'; // show the fresh result right away
+      }
+      translationStale = false;
+      translateState = 'success';
+      setTimeout(() => (translateState = 'idle'), 3000);
+    } catch (err) {
+      translateState = 'error';
+      translateError = err instanceof Error ? err.message : 'Translation failed';
+      setTimeout(() => {
+        translateState = 'idle';
+        translateError = null;
+      }, 6000);
+    }
+  }
+
   // The experimental AI lyrics feature is only shown when a transcription provider is configured server-side.
   $effect(() => {
     void featuresStore.ensureLoaded();
   });
   const lyricsFeatureEnabled = $derived(featuresStore.lyricsTranscription);
+  const translationFeatureEnabled = $derived(featuresStore.lyricsTranslation);
+
+  // An already-English song completes with a language code but no generated documents.
+  const translationIsEnglish = $derived(
+    translation != null &&
+      translation.language === 'en' &&
+      !translation.romanizedSynced &&
+      !translation.romanizedPlain &&
+      !translation.translatedSynced &&
+      !translation.translatedPlain
+  );
+  const hasTranslation = $derived(translation != null && !translationIsEnglish);
+
+  // Secondary document stacked under the original lines, picked by the current lyrics view. The
+  // translation was generated from the *display* lyrics, so it isn't offered inside the compare
+  // split, and a STALE document (generated from since-changed lyrics) is never stacked — its lines
+  // would misalign with what's on screen.
+  const secondarySynced = $derived.by(() => {
+    if (comparingLyrics || !hasTranslation || translationStale) return undefined;
+    if (lyricsView === 'pronunciation') return translation?.romanizedSynced;
+    if (lyricsView === 'translation') return translation?.translatedSynced;
+    return undefined;
+  });
+  const secondaryPlain = $derived.by(() => {
+    if (comparingLyrics || !hasTranslation || translationStale) return undefined;
+    if (lyricsView === 'pronunciation') return translation?.romanizedPlain;
+    if (lyricsView === 'translation') return translation?.translatedPlain;
+    return undefined;
+  });
 
   // Comparison only makes sense once an AI transcription exists alongside LRCLIB lyrics.
   const canCompareLyrics = $derived(lyricsFeatureEnabled && aiLyrics != null && hasLyrics);
@@ -451,7 +558,14 @@
     preferredSource = source; // optimistic
     preferSaving = true;
     try {
-      await setPreferredLyricsSource(song.id, source);
+      const r = await setPreferredLyricsSource(song.id, source);
+      // The flip changed which lyrics are displayed — regenerate a now-stale translation so the
+      // stacked pronunciation/translation always matches what's on screen. (False also syncs:
+      // flipping back to the source the translation was generated from makes it fresh again.)
+      if (translation != null) {
+        translationStale = r.lyricsTranslationStale === true;
+        if (translationStale) void handleTranslate();
+      }
     } catch {
       preferredSource = previous; // revert on failure
     } finally {
@@ -828,8 +942,53 @@
             {@render transport()}
           </div>
           <div class="mt-8 w-full">
+            {#if song.isInstrumental !== true && translationFeatureEnabled && (hasLyrics || aiLyrics != null)}
+              <!-- Compact pronunciation/translation controls (the desktop control bar is lg-only). -->
+              <div class="mb-3 flex w-full flex-wrap items-center justify-center gap-2">
+                {#if hasTranslation}
+                  <ToggleGroup.Root
+                    type="single"
+                    size="sm"
+                    value={lyricsView}
+                    onValueChange={(v) => {
+                      if (v) lyricsView = v as typeof lyricsView;
+                    }}
+                    class="text-xs"
+                  >
+                    <ToggleGroup.Item value="original" aria-label="Original lyrics">Original</ToggleGroup.Item>
+                    <ToggleGroup.Item value="pronunciation" aria-label="Pronunciation guide">
+                      Pronunciation
+                    </ToggleGroup.Item>
+                    <ToggleGroup.Item value="translation" aria-label="English translation">
+                      Translation
+                    </ToggleGroup.Item>
+                  </ToggleGroup.Root>
+                {:else if translationIsEnglish}
+                  <span class="text-muted-foreground text-xs">Lyrics are already in English.</span>
+                {:else}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    class={cn(translateState === 'error' && 'text-destructive')}
+                    disabled={translateState === 'loading'}
+                    onclick={handleTranslate}
+                  >
+                    {#if translateState === 'loading'}
+                      <Loader2 class="mr-1.5 size-3.5 animate-spin" />
+                      Generating…
+                    {:else if translateState === 'error'}
+                      <AlertCircle class="mr-1.5 size-3.5" />
+                      Failed
+                    {:else}
+                      <Languages class="mr-1.5 size-3.5" />
+                      Pronunciation & translation
+                    {/if}
+                  </Button>
+                {/if}
+              </div>
+            {/if}
             <LyricsCard expandable={lyricsExpandable} onExpand={() => (lyricsExpanded = true)}>
-              {#key showAiInViewer ? `ai-${aiLyrics?.at}` : 'lrclib'}
+              {#key `${showAiInViewer ? `ai-${aiLyrics?.at}` : 'lrclib'}-${lyricsView}`}
                 <div class="flex h-full flex-col">
                   <LyricsPanel
                     variant="theater"
@@ -841,6 +1000,8 @@
                     hasPlainLyrics={showAiInViewer ? Boolean(aiLyrics?.plain) : (song.hasPlainLyrics ?? false)}
                     isInstrumental={song.isInstrumental ?? undefined}
                     currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
+                    {secondarySynced}
+                    {secondaryPlain}
                   />
                 </div>
               {/key}
@@ -851,9 +1012,10 @@
 
       <!-- Desktop: AI-lyrics tooling + the big theater viewer -->
       <div class="hidden min-h-0 flex-1 flex-col gap-2 lg:flex">
-      {#if song.isInstrumental !== true && lyricsFeatureEnabled}
-        <!-- Control bar: transcribe / re-transcribe, and (when both exist) toggle the comparison view.
-             Hidden entirely unless the AI transcription feature is configured on the server. -->
+      {#if song.isInstrumental !== true && (lyricsFeatureEnabled || translationFeatureEnabled)}
+        <!-- Control bar: transcribe / re-transcribe, pronunciation + translation, and (when both
+             LRCLIB and an AI transcription exist) toggle the comparison view. Hidden entirely
+             unless at least one AI lyrics feature is configured on the server. -->
         <div
           class={cn(
             'mx-auto flex w-full items-center justify-between gap-2 px-1',
@@ -861,7 +1023,13 @@
           )}
         >
           <div class="text-muted-foreground flex min-w-0 items-center gap-1.5 text-xs">
-            {#if canCompareLyrics}
+            {#if translationStale && hasTranslation && translateState !== 'loading'}
+              <Languages class="size-3.5 shrink-0 text-amber-600 dark:text-amber-500" />
+              <span class="truncate">Lyrics changed — pronunciation & translation are outdated. Regenerate to refresh.</span>
+            {:else if translationIsEnglish}
+              <Languages class="text-primary size-3.5 shrink-0" />
+              <span class="truncate">Lyrics are already in English.</span>
+            {:else if canCompareLyrics}
               <Sparkles class="text-primary size-3.5 shrink-0" />
               <span class="truncate">
                 Player shows: {preferredSource === 'transcribed' ? `AI · ${aiLyrics?.model ?? 'whisper'}` : 'LRCLIB'}
@@ -869,8 +1037,10 @@
             {:else if aiLyrics}
               <Sparkles class="text-primary size-3.5 shrink-0" />
               <span class="truncate">AI transcription{aiLyrics.model ? ` · ${aiLyrics.model}` : ''}</span>
-            {:else}
+            {:else if lyricsFeatureEnabled}
               <span class="truncate">Transcribe the audio with AI to compare against LRCLIB.</span>
+            {:else}
+              <span class="truncate">Generate a pronunciation guide + English translation to sing along.</span>
             {/if}
           </div>
           <div class="flex shrink-0 items-center gap-2">
@@ -883,34 +1053,88 @@
                 {comparingLyrics ? 'Done' : 'Compare'}
               </Button>
             {/if}
-            <Button
-              variant="outline"
-              size="sm"
-              class={cn(
-                transcribeState === 'success' && 'text-primary',
-                transcribeState === 'error' && 'text-destructive'
-              )}
-              disabled={transcribeState === 'loading'}
-              onclick={handleTranscribe}
-            >
-              {#if transcribeState === 'loading'}
-                <Loader2 class="mr-1.5 size-3.5 animate-spin" />
-                Transcribing…
-              {:else if transcribeState === 'success'}
-                <CheckCircle2 class="mr-1.5 size-3.5" />
-                Done
-              {:else if transcribeState === 'error'}
-                <AlertCircle class="mr-1.5 size-3.5" />
-                Failed
-              {:else}
-                <Sparkles class="mr-1.5 size-3.5" />
-                {aiLyrics ? 'Re-transcribe' : 'Transcribe with AI'}
-              {/if}
-            </Button>
+            {#if translationFeatureEnabled && (hasLyrics || aiLyrics != null)}
+              <Button
+                variant="outline"
+                size="sm"
+                class={cn(
+                  translateState === 'success' && 'text-primary',
+                  translateState === 'error' && 'text-destructive'
+                )}
+                disabled={translateState === 'loading'}
+                onclick={handleTranslate}
+              >
+                {#if translateState === 'loading'}
+                  <Loader2 class="mr-1.5 size-3.5 animate-spin" />
+                  Generating…
+                {:else if translateState === 'success'}
+                  <CheckCircle2 class="mr-1.5 size-3.5" />
+                  Done
+                {:else if translateState === 'error'}
+                  <AlertCircle class="mr-1.5 size-3.5" />
+                  Failed
+                {:else}
+                  <Languages class="mr-1.5 size-3.5" />
+                  {translation ? 'Regenerate' : 'Pronunciation & translation'}
+                {/if}
+              </Button>
+            {/if}
+            {#if lyricsFeatureEnabled}
+              <Button
+                variant="outline"
+                size="sm"
+                class={cn(
+                  transcribeState === 'success' && 'text-primary',
+                  transcribeState === 'error' && 'text-destructive'
+                )}
+                disabled={transcribeState === 'loading'}
+                onclick={handleTranscribe}
+              >
+                {#if transcribeState === 'loading'}
+                  <Loader2 class="mr-1.5 size-3.5 animate-spin" />
+                  Transcribing…
+                {:else if transcribeState === 'success'}
+                  <CheckCircle2 class="mr-1.5 size-3.5" />
+                  Done
+                {:else if transcribeState === 'error'}
+                  <AlertCircle class="mr-1.5 size-3.5" />
+                  Failed
+                {:else}
+                  <Sparkles class="mr-1.5 size-3.5" />
+                  {aiLyrics ? 'Re-transcribe' : 'Transcribe with AI'}
+                {/if}
+              </Button>
+            {/if}
           </div>
         </div>
         {#if transcribeError}
           <p class="text-destructive mx-auto w-full max-w-3xl px-1 text-[11px]">{transcribeError}</p>
+        {/if}
+        {#if translateError}
+          <p class="text-destructive mx-auto w-full max-w-3xl px-1 text-[11px]">{translateError}</p>
+        {/if}
+        {#if hasTranslation && !comparingLyrics}
+          <!-- Original / Pronunciation / Translation view toggle: Pronunciation and Translation
+               stack the generated line under each original line, Apple-Music style. -->
+          <div class="mx-auto flex w-full max-w-3xl items-center justify-center px-1">
+            <ToggleGroup.Root
+              type="single"
+              size="sm"
+              value={lyricsView}
+              onValueChange={(v) => {
+                if (v) lyricsView = v as typeof lyricsView;
+              }}
+              class="text-xs"
+            >
+              <ToggleGroup.Item value="original" aria-label="Original lyrics">Original</ToggleGroup.Item>
+              <ToggleGroup.Item value="pronunciation" aria-label="Pronunciation guide">
+                Pronunciation
+              </ToggleGroup.Item>
+              <ToggleGroup.Item value="translation" aria-label="English translation">
+                Translation
+              </ToggleGroup.Item>
+            </ToggleGroup.Root>
+          </div>
         {/if}
       {/if}
 
@@ -992,7 +1216,7 @@
       {:else}
         <!-- Big synced viewer showing the chosen default (AI when preferred / only option, else LRCLIB). -->
         <div class="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col">
-          {#key showAiInViewer ? `ai-${aiLyrics?.at}` : 'lrclib'}
+          {#key `${showAiInViewer ? `ai-${aiLyrics?.at}` : 'lrclib'}-${lyricsView}`}
             <LyricsPanel
               variant="theater"
               songId={song.id}
@@ -1005,6 +1229,8 @@
               currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
               onSeek={isCurrentlyLoaded ? (timeMs: number) => playerStore.seek(timeMs / 1000) : undefined}
               lrclibUrl={showAiInViewer ? undefined : lrclibWebUrl(trackArtist, trackTitle)}
+              {secondarySynced}
+              {secondaryPlain}
             />
           {/key}
         </div>
@@ -1292,7 +1518,7 @@
       onPlayToggle={handlePlayToggle}
       onClose={() => (lyricsExpanded = false)}
     >
-      {#key showAiInViewer ? `ai-${aiLyrics?.at}` : 'lrclib'}
+      {#key `${showAiInViewer ? `ai-${aiLyrics?.at}` : 'lrclib'}-${lyricsView}`}
         <LyricsPanel
           variant="theater"
           songId={song.id}
@@ -1304,6 +1530,8 @@
           isInstrumental={song.isInstrumental ?? undefined}
           currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
           onSeek={isCurrentlyLoaded ? (timeMs: number) => playerStore.seek(timeMs / 1000) : undefined}
+          {secondarySynced}
+          {secondaryPlain}
         />
       {/key}
     </LyricsFullscreen>

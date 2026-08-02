@@ -35,6 +35,13 @@
      * no gutter, transparent over an ambient backdrop, minimal chrome.
      */
     variant?: 'panel' | 'theater';
+    /**
+     * Secondary lyrics document (pronunciation guide or translation) rendered stacked beneath each
+     * original line. Generated server-side from the same lines with identical timestamps, so it
+     * aligns 1:1 with the original by index (timeMs lookup as a fallback).
+     */
+    secondarySynced?: string;
+    secondaryPlain?: string;
   };
 
   const {
@@ -48,7 +55,9 @@
     currentTimeMs,
     onSeek,
     lrclibUrl,
-    variant = 'panel'
+    variant = 'panel',
+    secondarySynced,
+    secondaryPlain
   }: Props = $props();
 
   const theater = $derived(variant === 'theater');
@@ -134,6 +143,34 @@
   });
 
   const isTracking = $derived(hasParsedLines && currentTimeMs != null && currentTimeMs >= 0);
+
+  // Secondary (pronunciation/translation) lines, aligned to the primary parsed lines. Index
+  // alignment is the primary path — the server copies the original timestamps verbatim, so both
+  // documents expand identically through parseLrc; the timeMs map is a belt-and-braces fallback
+  // for originals with timestamp-only lines the generator dropped.
+  const parsedSecondary = $derived(
+    secondarySynced && Boolean(loadedSynced) && showSynced ? parseLrc(secondarySynced) : null
+  );
+  const secondaryByIndex = $derived.by(() => {
+    if (!parsedLines || parsedLines.length === 0 || !parsedSecondary || parsedSecondary.length === 0)
+      return null;
+    if (parsedSecondary.length === parsedLines.length) return parsedSecondary.map((l) => l.text);
+    const byTime = new Map(parsedSecondary.map((l) => [l.timeMs, l.text]));
+    return parsedLines.map((l) => byTime.get(l.timeMs) ?? '');
+  });
+
+  // Untimed fallback pairing: the generator dropped blank lines, so the j-th secondary line
+  // belongs to the j-th non-blank primary line.
+  const pairedFallbackLines = $derived.by(() => {
+    if (!secondaryPlain || !fallbackText) return null;
+    const primary = fallbackText.split('\n');
+    const secondary = secondaryPlain.split('\n');
+    let j = 0;
+    return primary.map((text) => ({
+      text,
+      secondary: text.trim().length > 0 ? (secondary[j++] ?? '') : ''
+    }));
+  });
 
   $effect(() => {
     void parsedLines; // re-center when the track / lyric set changes
@@ -294,9 +331,46 @@
                   {formatLrcTime(line.timeMs)}
                 </span>
               {/if}
-              <span class={cn('flex-1', !line.text && 'select-none opacity-0')}>
-                {line.text || '·'}
+              <span class="flex min-w-0 flex-1 flex-col">
+                <span class={cn(!line.text && 'select-none opacity-0')}>
+                  {line.text || '·'}
+                </span>
+                {#if secondaryByIndex?.[i] && secondaryByIndex[i] !== line.text}
+                  <span
+                    class={cn(
+                      theater
+                        ? 'text-lg leading-snug font-semibold tracking-normal sm:text-xl'
+                        : 'text-xs',
+                      isActive ? 'opacity-80' : 'opacity-55'
+                    )}
+                  >
+                    {secondaryByIndex[i]}
+                  </span>
+                {/if}
               </span>
+            </div>
+          {/each}
+        </div>
+      {:else if pairedFallbackLines}
+        <div class={cn('font-sans leading-relaxed', !theater && 'text-sm')}>
+          {#each pairedFallbackLines as pair, i (i)}
+            <div class={cn('flex flex-col', theater ? 'py-1.5' : 'py-0.5')}>
+              <span
+                class={cn(
+                  theater && 'text-2xl leading-snug font-bold text-foreground/80 sm:text-[28px]',
+                  !pair.text && 'select-none'
+                )}>{pair.text || ' '}</span>
+              {#if pair.secondary && pair.secondary !== pair.text}
+                <span
+                  class={cn(
+                    theater
+                      ? 'text-lg leading-snug font-semibold text-foreground/60 sm:text-xl'
+                      : 'text-muted-foreground text-xs'
+                  )}
+                >
+                  {pair.secondary}
+                </span>
+              {/if}
             </div>
           {/each}
         </div>

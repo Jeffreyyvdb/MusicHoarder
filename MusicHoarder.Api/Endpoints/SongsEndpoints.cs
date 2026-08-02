@@ -31,6 +31,10 @@ public static class SongsEndpoints
             .WithName("SetPreferredLyrics")
             .WithSummary("Choose which lyrics (lrclib | transcribed) the synced viewer shows when both exist.")
             .WithTags("Lyrics");
+        app.MapPost("/songs/{id:int}/lyrics/translate", TranslateLyrics)
+            .WithName("TranslateSongLyrics")
+            .WithSummary("Generate a pronunciation guide (romanization) + English translation of this song's lyrics via LLM. Display-only; never written to file tags.")
+            .WithTags("Lyrics");
         app.MapPost("/enrichment/reset", ResetEnrichmentBatch).WithName("ResetEnrichmentBatch");
         app.MapPost("/songs/{id:int}/reset-enrichment", ResetSongEnrichment).WithName("ResetSongEnrichment");
         app.MapPost("/songs/{id:int}/unlock", UnlockSong)
@@ -331,24 +335,10 @@ public static class SongsEndpoints
 
     private static async Task<IResult> GetTrackLyrics(int id, MusicHoarderDbContext db)
     {
+        // Full entity (not a projection) so the staleness check can use the Display*/hash computed props.
         var song = await db.Songs
             .AsNoTracking()
-            .Where(s => s.Id == id && s.DeletedAtUtc == null)
-            .Select(s => new
-            {
-                s.Id,
-                s.LyricsStatus,
-                s.SyncedLyrics,
-                s.PlainLyrics,
-                s.IsInstrumental,
-                s.TranscribedSyncedLyrics,
-                s.TranscribedPlainLyrics,
-                s.TranscriptionStatus,
-                s.TranscribedAtUtc,
-                s.TranscriptionModel,
-                s.PreferredLyricsSource,
-            })
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null);
 
         if (song is null)
             return Results.NotFound(new { message = $"Track with id {id} not found." });
@@ -366,6 +356,15 @@ public static class SongsEndpoints
             song.TranscribedAtUtc,
             song.TranscriptionModel,
             PreferredLyricsSource = song.PreferredLyricsSource.ToString(),
+            RomanizedSynced = song.RomanizedSyncedLyrics,
+            RomanizedPlain = song.RomanizedPlainLyrics,
+            TranslatedSynced = song.TranslatedSyncedLyrics,
+            TranslatedPlain = song.TranslatedPlainLyrics,
+            DetectedLanguage = song.DetectedLyricsLanguage,
+            LyricsTranslationStatus = song.LyricsTranslationStatus.ToString(),
+            song.LyricsTranslatedAtUtc,
+            song.LyricsTranslationModel,
+            LyricsTranslationStale = song.IsLyricsTranslationStale,
         });
     }
 
@@ -428,6 +427,9 @@ public static class SongsEndpoints
                 song.TranscribedAtUtc,
                 Model = song.TranscriptionModel,
                 HasExistingLyrics = song.LyricsStatus == LyricsStatus.Fetched,
+                // The fresh transcription may have changed the display lyrics out from under an
+                // existing pronunciation/translation — the client auto-regenerates when true.
+                LyricsTranslationStale = song.IsLyricsTranslationStale,
             });
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -440,6 +442,69 @@ public static class SongsEndpoints
             await db.SaveChangesAsync(CancellationToken.None);
             return Results.Json(
                 new { message = "Transcription failed.", error = ex.Message },
+                statusCode: StatusCodes.Status502BadGateway);
+        }
+    }
+
+    private static async Task<IResult> TranslateLyrics(
+        int id,
+        MusicHoarderDbContext db,
+        ILyricsTranslationService translator,
+        CancellationToken ct)
+    {
+        if (!translator.IsConfigured)
+            return Results.Json(
+                new { message = "Lyrics translation is not configured. Set QualityGrading:ApiKey/BaseUrl (and optionally LyricsTranslation:Model)." },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+
+        var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null, ct);
+        if (song is null)
+            return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+        if (song.IsInstrumental == true)
+            return Results.UnprocessableEntity(new { message = "Track is marked instrumental — nothing to translate." });
+
+        // Translate whatever the viewer shows (LRCLIB or the chosen/only AI transcription).
+        var synced = song.DisplaySyncedLyrics;
+        var plain = song.DisplayPlainLyrics;
+        if (string.IsNullOrWhiteSpace(synced) && string.IsNullOrWhiteSpace(plain))
+            return Results.UnprocessableEntity(new { message = "No lyrics to translate — fetch or transcribe lyrics first." });
+
+        try
+        {
+            var result = await translator.TranslateAsync(synced, plain, song.Artist, song.Title, ct);
+            // Display-only: stored apart from the real lyrics and never re-tags the destination file.
+            // The source fingerprint makes the translation self-invalidating when the lyrics change.
+            song.ApplyLyricsTranslationResult(
+                result.RomanizedSynced, result.RomanizedPlain,
+                result.TranslatedSynced, result.TranslatedPlain,
+                result.LanguageCode, result.Model,
+                SongMetadata.ComputeLyricsFingerprint(song.CurrentLyricsForTranslation));
+            await db.SaveChangesAsync(ct);
+
+            return Results.Ok(new
+            {
+                song.Id,
+                RomanizedSynced = song.RomanizedSyncedLyrics,
+                RomanizedPlain = song.RomanizedPlainLyrics,
+                TranslatedSynced = song.TranslatedSyncedLyrics,
+                TranslatedPlain = song.TranslatedPlainLyrics,
+                DetectedLanguage = song.DetectedLyricsLanguage,
+                LyricsTranslationStatus = song.LyricsTranslationStatus.ToString(),
+                song.LyricsTranslatedAtUtc,
+                Model = song.LyricsTranslationModel,
+            });
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            song.MarkLyricsTranslationFailed(ex.Message);
+            await db.SaveChangesAsync(CancellationToken.None);
+            return Results.Json(
+                new { message = "Lyrics translation failed.", error = ex.Message },
                 statusCode: StatusCodes.Status502BadGateway);
         }
     }
@@ -477,6 +542,9 @@ public static class SongsEndpoints
             song.Id,
             PreferredLyricsSource = song.PreferredLyricsSource.ToString(),
             retagQueued,
+            // Flipping the source changes the display lyrics — an existing pronunciation/translation
+            // may now describe the other variant; the client auto-regenerates when true.
+            LyricsTranslationStale = song.IsLyricsTranslationStale,
         });
     }
 
