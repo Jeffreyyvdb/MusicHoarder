@@ -482,20 +482,8 @@
           >
             <!-- # / play -->
             <span class="text-muted-foreground relative grid place-items-center text-right">
-              {#if isLoaded}
-                <span
-                  class={cn('mh-eq text-primary group-hover:opacity-0', isCurrentlyPlaying && 'is-playing')}
-                  aria-hidden="true"
-                >
-                  <i></i><i></i><i></i>
-                </span>
-              {:else}
-                <span
-                  class="font-mono text-[11px] tabular-nums transition-opacity group-hover:opacity-0"
-                >
-                  {String(i + 1).padStart(3, '0')}
-                </span>
-              {/if}
+              <!-- Button first so the index/equalizer can hide off its `peer` focus state:
+                   exactly one of the two is ever visible. -->
               <button
                 type="button"
                 onclick={(e) => {
@@ -503,10 +491,7 @@
                   playFrom(song);
                 }}
                 aria-label={isCurrentlyPlaying ? 'Pause track' : 'Play track'}
-                class={cn(
-                  'text-primary absolute inset-0 grid place-items-center opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 group-focus-within:opacity-100',
-                  isCurrentlyPlaying && 'group-hover:opacity-100'
-                )}
+                class="peer text-primary absolute inset-0 grid place-items-center opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
               >
                 {#if isCurrentlyPlaying}
                   <Pause class="size-3.5" fill="currentColor" />
@@ -514,6 +499,23 @@
                   <Play class="size-3.5" fill="currentColor" />
                 {/if}
               </button>
+              {#if isLoaded}
+                <span
+                  class={cn(
+                    'mh-eq text-primary group-hover:opacity-0 peer-focus-visible:opacity-0',
+                    isCurrentlyPlaying && 'is-playing'
+                  )}
+                  aria-hidden="true"
+                >
+                  <i></i><i></i><i></i>
+                </span>
+              {:else}
+                <span
+                  class="font-mono text-[11px] tabular-nums transition-opacity group-hover:opacity-0 peer-focus-visible:opacity-0"
+                >
+                  {String(i + 1).padStart(3, '0')}
+                </span>
+              {/if}
             </span>
 
             <!-- cover -->
