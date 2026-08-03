@@ -2692,6 +2692,35 @@ export async function dismissAlbumDuplicates(artist: string, albumA: string, alb
   })
 }
 
+// ── Dedup action history (merges / splits / heals, with revert) ────────────────
+
+export interface DedupAction {
+  /** artist-merge | album-merge | artist-credit-split | album-identity-heal */
+  source: string
+  createdAtUtc: string
+  /** Stable batch id for revert calls. */
+  batchTicks: number
+  songCount: number
+  changeCount: number
+  /** Human labels like `AlbumArtist → "Kanye West" (348 songs)`. */
+  highlights: string[]
+  reverted: boolean
+  revertible: boolean
+}
+
+/** Recent dedup actions, newest first (reconstructed from the metadata-change audit log). */
+export async function fetchDedupActions(): Promise<{ count: number; actions: DedupAction[] }> {
+  return requestJson("/api/library/dedup/actions")
+}
+
+/** Revert one dedup action: restores old values and re-queues built files for re-tag. */
+export async function revertDedupAction(source: string, batchTicks: number): Promise<void> {
+  await requestJson<unknown>("/api/library/dedup/actions/revert", {
+    method: "POST",
+    body: JSON.stringify({ source, batchTicks }),
+  })
+}
+
 // ── Enrichment detail (candidate matches) ──────────────────────────────────────
 
 export interface EnrichmentCandidate {
