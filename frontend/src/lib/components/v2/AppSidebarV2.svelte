@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { afterNavigate } from '$app/navigation';
   import { page } from '$app/state';
   import {
@@ -34,15 +35,14 @@
     buildAlbumsFromSongs,
     mergeAlbumsByName,
     fetchOverview,
-    fetchSongs,
     fetchStats,
     mapEnrichmentStatus,
     type ApiOverview,
-    type ApiSong,
     type ApiStats
   } from '$lib/api-client';
   import { signOutAndReset } from '$lib/auth/sign-out';
   import { isBuiltSong } from '$lib/album-sections';
+  import { songsStore } from '$lib/stores/songs.svelte';
   import { cn } from '$lib/utils';
 
   // The running build's version (clean semver), surfaced by the root layout load.
@@ -98,20 +98,24 @@
 
   let overview = $state<ApiOverview | null>(null);
   let stats = $state<ApiStats | null>(null);
-  let songs = $state<ApiSong[]>([]);
+
+  // The sidebar is mounted on every app page and only needs counts, so it reads
+  // the shared songs store instead of pulling its own copy of the library. That
+  // makes this the one place the dataset is warmed, and everything else that
+  // resolves a song from it — the command palette, the song-detail overlay —
+  // finds it already loaded instead of waiting on a fetch of its own.
+  const songs = $derived(songsStore.songs);
 
   $effect(() => {
+    // untrack: ensureLoaded reads the same isLoading flag its own fetch writes,
+    // and a tracked read would re-run this effect (and its overview/stats calls).
+    untrack(() => songsStore.ensureLoaded());
     let cancelled = false;
     void (async () => {
-      const [ovRes, stRes, songsRes] = await Promise.allSettled([
-        fetchOverview(),
-        fetchStats(),
-        fetchSongs()
-      ]);
+      const [ovRes, stRes] = await Promise.allSettled([fetchOverview(), fetchStats()]);
       if (cancelled) return;
       if (ovRes.status === 'fulfilled') overview = ovRes.value;
       if (stRes.status === 'fulfilled') stats = stRes.value;
-      if (songsRes.status === 'fulfilled') songs = songsRes.value;
     })();
     return () => {
       cancelled = true;

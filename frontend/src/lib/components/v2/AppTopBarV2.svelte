@@ -6,6 +6,7 @@
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
   import AddFromUrlDialog from '$lib/components/v2/AddFromUrlDialog.svelte';
   import { commandPalette } from '$lib/stores/command-palette.svelte';
+  import { songsStore } from '$lib/stores/songs.svelte';
 
   let addOpen = $state(false);
 
@@ -71,6 +72,8 @@
       size="sm"
       class="h-8 gap-1.5 px-2.5"
       onclick={() => commandPalette.setOpen(true)}
+      onpointerenter={() => songsStore.ensureLoaded()}
+      onfocus={() => songsStore.ensureLoaded()}
       aria-label="Search everywhere"
       title="Search everywhere ({shortcutHint})"
     >

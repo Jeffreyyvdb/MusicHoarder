@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import {
     Disc,
@@ -19,17 +20,17 @@
   } from '@lucide/svelte';
   import * as Command from '$lib/components/ui/command';
   import {
-    fetchSongs,
     buildAlbumsFromSongs,
     mergeAlbumsByName,
     buildArtistGroups,
-    artistLabelForSong,
     type ApiSong,
     type AlbumSummary,
     type GroupSummary
   } from '$lib/api-client';
   import { isBuiltSong } from '$lib/album-sections';
   import { commandPalette } from '$lib/stores/command-palette.svelte';
+  import { songDetail } from '$lib/stores/song-detail.svelte';
+  import { songsStore } from '$lib/stores/songs.svelte';
 
   // Cap each result group so typing stays snappy on large libraries.
   const MAX_PER_GROUP = 8;
@@ -65,41 +66,49 @@
   }
 
   let query = $state('');
-  let songs = $state<ApiSong[]>([]);
-  let loaded = $state(false);
-  let loading = $state(false);
-  // Non-reactive guard so a failed fetch doesn't retry-loop while the palette
-  // stays open; it resets when the palette closes so the next open retries.
-  let attemptedThisOpen = false;
 
-  // Lazy-load the full song list the first time the palette opens, then cache it
-  // for the rest of the session. Mirrors how the browse pages call fetchSongs().
+  // The palette reads the shared songs store rather than fetching its own copy:
+  // one full-library download per session, already warm on any page that has
+  // shown the library, and the exact rows the detail panel resolves against —
+  // so picking a track can open it with no further request.
+  const songs = $derived(songsStore.songs);
+  const loading = $derived(songsStore.isLoading && songs.length === 0);
+
+  // Warm the store the first time the palette opens (a no-op once loaded).
+  // untrack: ensureLoaded reads the same isLoading flag the fetch writes, and a
+  // tracked read here would re-fire this effect on its own write.
   $effect(() => {
-    if (!commandPalette.open) {
-      attemptedThisOpen = false;
-      return;
-    }
-    if (loaded || loading || attemptedThisOpen) return;
-    attemptedThisOpen = true;
-    loading = true;
-    void fetchSongs()
-      .then((loadedSongs) => {
-        songs = loadedSongs;
-        loaded = true;
-      })
-      .catch(() => {
-        // Leave loaded=false so the next open retries.
-      })
-      .finally(() => {
-        loading = false;
-      });
+    if (commandPalette.open) untrack(() => songsStore.ensureLoaded());
   });
 
+  // Only built songs can be opened/browsed from here, so scope every index to
+  // them once instead of filtering per keystroke. Everything below is `$derived`
+  // and therefore lazy — none of it runs while the dialog is closed.
+  const builtSongs = $derived(songs.filter(isBuiltSong));
+
   // Merged by name so searching an album split across destination folders offers one result.
-  const albums = $derived<AlbumSummary[]>(
-    loaded ? mergeAlbumsByName(buildAlbumsFromSongs(songs)) : []
+  // Built from the same set as the Library page, so the `?album=` keys line up.
+  const albums = $derived<AlbumSummary[]>(mergeAlbumsByName(buildAlbumsFromSongs(builtSongs)));
+  const artists = $derived<GroupSummary[]>(buildArtistGroups(builtSongs));
+
+  // Per-entity lowercase haystacks, rebuilt only when the dataset changes. Without
+  // these every keystroke re-lowercased three fields per song across the library.
+  type Indexed<T> = { value: T; haystack: string };
+
+  const trackIndex = $derived<Indexed<ApiSong>[]>(
+    builtSongs.map((s) => ({
+      value: s,
+      haystack: [s.title ?? s.fileName, s.artist ?? s.albumArtist ?? '', s.album ?? '']
+        .join(' ')
+        .toLowerCase()
+    }))
   );
-  const artists = $derived<GroupSummary[]>(loaded ? buildArtistGroups(songs) : []);
+  const albumIndex = $derived<Indexed<AlbumSummary>[]>(
+    albums.map((a) => ({ value: a, haystack: [a.title, a.artist].join(' ').toLowerCase() }))
+  );
+  const artistIndex = $derived<Indexed<GroupSummary>[]>(
+    artists.map((a) => ({ value: a, haystack: a.label.toLowerCase() }))
+  );
 
   const q = $derived(query.trim().toLowerCase());
   const hasQuery = $derived(q.length > 0);
@@ -110,38 +119,20 @@
     )
   );
 
-  // Artists whose tracks reached the destination library. An artist counts as
-  // "library" if any of its tracks is built; everything else is source-only.
-  const builtArtistKeys = $derived(
-    new Set(songs.filter(isBuiltSong).map(artistLabelForSong))
-  );
+  /** First `MAX_PER_GROUP` hits, stopping early — the groups are capped anyway. */
+  function topMatches<T>(index: Indexed<T>[], needle: string): T[] {
+    const out: T[] = [];
+    for (const entry of index) {
+      if (!entry.haystack.includes(needle)) continue;
+      out.push(entry.value);
+      if (out.length >= MAX_PER_GROUP) break;
+    }
+    return out;
+  }
 
-  const artistMatches = $derived(
-    hasQuery ? artists.filter((a) => a.label.toLowerCase().includes(q)) : []
-  );
-  const libraryArtists = $derived(
-    artistMatches.filter((a) => builtArtistKeys.has(a.key)).slice(0, MAX_PER_GROUP)
-  );
-
-  const albumMatches = $derived(
-    hasQuery
-      ? albums.filter((a) => a.title.toLowerCase().includes(q) || a.artist.toLowerCase().includes(q))
-      : []
-  );
-  const libraryAlbums = $derived(
-    albumMatches.filter((a) => a.songs.some(isBuiltSong)).slice(0, MAX_PER_GROUP)
-  );
-
-  const trackMatches = $derived.by(() => {
-    if (!hasQuery) return [] as ApiSong[];
-    return songs.filter((s) => {
-      const title = (s.title ?? s.fileName).toLowerCase();
-      const artist = (s.artist ?? s.albumArtist ?? '').toLowerCase();
-      const album = (s.album ?? '').toLowerCase();
-      return title.includes(q) || artist.includes(q) || album.includes(q);
-    });
-  });
-  const libraryTracks = $derived(trackMatches.filter(isBuiltSong).slice(0, MAX_PER_GROUP));
+  const libraryArtists = $derived(hasQuery ? topMatches(artistIndex, q) : []);
+  const libraryAlbums = $derived(hasQuery ? topMatches(albumIndex, q) : []);
+  const libraryTracks = $derived(hasQuery ? topMatches(trackIndex, q) : []);
 
   const hasLibraryResults = $derived(
     libraryArtists.length > 0 || libraryAlbums.length > 0 || libraryTracks.length > 0
@@ -151,10 +142,23 @@
     return s.artist ?? s.albumArtist ?? 'Unknown Artist';
   }
 
-  function navigate(href: string) {
+  function dismiss() {
     commandPalette.setOpen(false);
     query = '';
+  }
+
+  function navigate(href: string) {
+    dismiss();
     void goto(href);
+  }
+
+  // Tracks open the global song-detail overlay in place. It's mounted in the app
+  // shell alongside this palette, and it resolves against the same rows we just
+  // searched, so it paints immediately — no route change, no album drilldown, and
+  // none of the requests either of those fan out.
+  function openTrack(song: ApiSong) {
+    dismiss();
+    songDetail.open(song.id);
   }
 </script>
 
@@ -168,76 +172,76 @@
 >
   <Command.Input bind:value={query} placeholder="Search tracks, albums, artists, pages…" />
   <Command.List class="max-h-[60vh]">
-    {#if loading && !loaded}
+    <!-- The page commands are local, so they stay usable while the library
+         dataset is still in flight — only the library groups wait. -->
+    {#if hasQuery && !hasLibraryResults && navMatches.length === 0 && !loading}
+      <Command.Empty>No results for “{query}”.</Command.Empty>
+    {/if}
+
+    {#if navMatches.length > 0}
+      <Command.Group heading={hasQuery ? 'Pages' : 'Jump to'}>
+        {#each navMatches as cmd (cmd.href)}
+          <Command.Item value={`nav-${cmd.href}`} onSelect={() => navigate(cmd.href)}>
+            <cmd.icon class="text-muted-foreground" />
+            <span>{cmd.label}</span>
+          </Command.Item>
+        {/each}
+      </Command.Group>
+    {/if}
+
+    {#if loading}
       <div class="text-muted-foreground flex items-center gap-2 px-3 py-6 text-sm">
         <Loader2 class="size-4 animate-spin" />
         Loading library…
       </div>
-    {:else}
-      {#if hasQuery && !hasLibraryResults && navMatches.length === 0}
-        <Command.Empty>No results for “{query}”.</Command.Empty>
-      {/if}
+    {/if}
 
-      {#if navMatches.length > 0}
-        <Command.Group heading={hasQuery ? 'Pages' : 'Jump to'}>
-          {#each navMatches as cmd (cmd.href)}
-            <Command.Item value={`nav-${cmd.href}`} onSelect={() => navigate(cmd.href)}>
-              <cmd.icon class="text-muted-foreground" />
-              <span>{cmd.label}</span>
-            </Command.Item>
-          {/each}
-        </Command.Group>
-      {/if}
+    {#if libraryArtists.length > 0}
+      <Command.Group heading="Artists">
+        {#each libraryArtists as artist (artist.key)}
+          <Command.Item
+            value={`lib-artist-${artist.key}`}
+            onSelect={() => navigate(`/library?artist=${encodeURIComponent(artist.key)}`)}
+          >
+            <Mic2 class="text-muted-foreground" />
+            <span class="min-w-0 flex-1 truncate">{artist.label}</span>
+            <span class="text-muted-foreground shrink-0 pl-3 text-xs">
+              {artist.trackCount} {artist.trackCount === 1 ? 'track' : 'tracks'}
+            </span>
+          </Command.Item>
+        {/each}
+      </Command.Group>
+    {/if}
 
-      {#if libraryArtists.length > 0}
-        <Command.Group heading="Artists">
-          {#each libraryArtists as artist (artist.key)}
-            <Command.Item
-              value={`lib-artist-${artist.key}`}
-              onSelect={() => navigate(`/library?artist=${encodeURIComponent(artist.key)}`)}
+    {#if libraryAlbums.length > 0}
+      <Command.Group heading="Albums">
+        {#each libraryAlbums as album (album.key)}
+          <Command.Item
+            value={`lib-album-${album.key}`}
+            onSelect={() => navigate(`/library?album=${encodeURIComponent(album.key)}`)}
+          >
+            <Disc3 class="text-muted-foreground" />
+            <span class="min-w-0 flex-1 truncate">{album.title}</span>
+            <span class="text-muted-foreground min-w-0 truncate pl-3 text-right text-xs"
+              >{album.artist}</span
             >
-              <Mic2 class="text-muted-foreground" />
-              <span class="min-w-0 flex-1 truncate">{artist.label}</span>
-              <span class="text-muted-foreground shrink-0 pl-3 text-xs">
-                {artist.trackCount} {artist.trackCount === 1 ? 'track' : 'tracks'}
-              </span>
-            </Command.Item>
-          {/each}
-        </Command.Group>
-      {/if}
+          </Command.Item>
+        {/each}
+      </Command.Group>
+    {/if}
 
-      {#if libraryAlbums.length > 0}
-        <Command.Group heading="Albums">
-          {#each libraryAlbums as album (album.key)}
-            <Command.Item
-              value={`lib-album-${album.key}`}
-              onSelect={() => navigate(`/library?album=${encodeURIComponent(album.key)}`)}
-            >
-              <Disc3 class="text-muted-foreground" />
-              <span class="min-w-0 flex-1 truncate">{album.title}</span>
-              <span class="text-muted-foreground min-w-0 truncate pl-3 text-right text-xs">{album.artist}</span>
-            </Command.Item>
-          {/each}
-        </Command.Group>
-      {/if}
-
-      {#if libraryTracks.length > 0}
-        <Command.Group heading="Tracks">
-          {#each libraryTracks as track (track.id)}
-            <Command.Item
-              value={`lib-track-${track.id}`}
-              onSelect={() => navigate(`/library?song=${track.id}`)}
-            >
-              <Music class="text-muted-foreground" />
-              <span class="min-w-0 flex-1 truncate">{track.title ?? track.fileName}</span>
-              <span class="text-muted-foreground min-w-0 truncate pl-3 text-right text-xs">
-                {trackArtist(track)}{track.album ? ` · ${track.album}` : ''}
-              </span>
-            </Command.Item>
-          {/each}
-        </Command.Group>
-      {/if}
-
+    {#if libraryTracks.length > 0}
+      <Command.Group heading="Tracks">
+        {#each libraryTracks as track (track.id)}
+          <Command.Item value={`lib-track-${track.id}`} onSelect={() => openTrack(track)}>
+            <Music class="text-muted-foreground" />
+            <span class="min-w-0 flex-1 truncate">{track.title ?? track.fileName}</span>
+            <span class="text-muted-foreground min-w-0 truncate pl-3 text-right text-xs">
+              {trackArtist(track)}{track.album ? ` · ${track.album}` : ''}
+            </span>
+          </Command.Item>
+        {/each}
+      </Command.Group>
     {/if}
   </Command.List>
 </Command.Dialog>
