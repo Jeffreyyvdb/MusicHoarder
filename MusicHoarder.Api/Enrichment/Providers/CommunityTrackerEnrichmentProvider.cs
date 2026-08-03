@@ -21,10 +21,26 @@ public abstract class CommunityTrackerEnrichmentProvider(
 {
     private const double FuzzyThreshold = 85.0;
 
+    /// <summary>
+    /// Allowlist entries whose normalized form is shorter than this are matched by exact equality
+    /// only, never fuzzily. <see cref="FuzzyTextMatch.Ratio"/> is a weighted ratio: when one side is
+    /// much shorter than the other it falls back to a 0.9-scaled partial ratio, so a two-letter
+    /// entry like "Ye" scores 90 — above <see cref="MusicEnricherOptions.IdentityArtistThreshold"/>
+    /// (85) — against <i>any</i> artist whose name merely contains those letters. That opened the
+    /// Kanye tracker for "Yeat", "Yebba", "Yeule" and "Yeah Yeah Yeahs", and a tracker hit also
+    /// labels the song unreleased. Substring containment carries no signal at that length, so short
+    /// entries must match a credited artist outright.
+    /// </summary>
+    private const int MinFuzzyAllowlistEntryLength = 5;
+
     public abstract string Name { get; }
     public abstract int Priority { get; }
 
-    /// <summary>Artist names/aliases this tracker covers; the gate opens only on a fuzzy match.</summary>
+    /// <summary>
+    /// Artist names/aliases this tracker covers. The gate opens on a fuzzy match against the credit
+    /// or any credited artist — except for entries shorter than
+    /// <see cref="MinFuzzyAllowlistEntryLength"/>, which must match exactly.
+    /// </summary>
     protected abstract IReadOnlyList<string> ArtistAllowlist { get; }
 
     protected MusicEnricherOptions Options => options.Value;
@@ -109,13 +125,41 @@ public abstract class CommunityTrackerEnrichmentProvider(
         if (string.IsNullOrWhiteSpace(artist))
             return false;
 
+        // Compare the whole credit AND each credited artist: a collaboration ("Ye, Ty Dolla $ign")
+        // must still open the gate for the tracker's artist, which the exact-equality rule below
+        // would otherwise reject.
+        var credits = new List<string> { artist! };
+        credits.AddRange(ArtistCreditNormalizer.SplitArtists(artist!));
+
         foreach (var allowed in ArtistAllowlist)
         {
-            if (FuzzyTextMatch.Ratio(artist, allowed) is double ratio && ratio >= Options.IdentityArtistThreshold)
-                return true;
+            var allowedKey = AllowlistKey(allowed);
+            if (allowedKey.Length == 0)
+                continue;
+
+            foreach (var credit in credits)
+            {
+                var matched = allowedKey.Length < MinFuzzyAllowlistEntryLength
+                    ? string.Equals(AllowlistKey(credit), allowedKey, StringComparison.Ordinal)
+                    : FuzzyTextMatch.Ratio(credit, allowed) is double ratio && ratio >= Options.IdentityArtistThreshold;
+
+                if (matched)
+                    return true;
+            }
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Comparison key for exact allowlist matching. Mirrors <see cref="FuzzyTextMatch.Ratio"/>'s
+    /// fallback so a symbol-only alias ("¥$") — which normalizes away entirely — still compares on
+    /// its casefolded raw text instead of collapsing to the empty string and matching everything.
+    /// </summary>
+    private static string AllowlistKey(string? value)
+    {
+        var normalized = TitleNormalizer.NormalizeForSearch(value);
+        return normalized.Length > 0 ? normalized : value?.Trim().ToLowerInvariant() ?? string.Empty;
     }
 
     private EnrichmentProviderResult BuildResult(
