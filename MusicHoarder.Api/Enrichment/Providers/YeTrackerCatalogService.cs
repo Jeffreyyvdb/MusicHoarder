@@ -79,10 +79,22 @@ public sealed class YeTrackerCatalogService : ITrackerCatalogService
                     TrackTitles: row.AltTitles ?? [],
                     Category: row.Category,
                     Era: row.Era,
-                    CreditedArtists: CreditedArtist,
+                    // Single-artist catalog, so Ye is the default credit — except on the Remixes
+                    // tab, where the performer is somebody else entirely.
+                    CreditedArtists: string.IsNullOrWhiteSpace(row.CreditedArtists)
+                        ? CreditedArtist
+                        : row.CreditedArtists,
                     Producers: row.Producers,
                     DurationSeconds: row.DurationSeconds,
-                    Year: row.Year)));
+                    Year: row.Year,
+                    Availability: row.Availability,
+                    Quality: row.Quality,
+                    Version: row.Version,
+                    OgFilenames: row.OgFilenames ?? [],
+                    Featured: row.Featured,
+                    SpotifyId: row.SpotifyId,
+                    TrackType: row.Type,
+                    IsAiGenerated: row.AiGenerated ?? false)));
             }
 
             logger.LogInformation("Loaded {Count} yetracker songs from {Path}", entries.Count, path);
@@ -113,7 +125,9 @@ public sealed class YeTrackerCatalogService : ITrackerCatalogService
         public static Entry From(TrackerSong song)
         {
             var keys = new List<string> { Normalize(song.Name) };
-            foreach (var alias in song.TrackTitles)
+            // Alias titles, then the OG filenames — an untagged leak is usually named after the
+            // latter, so it has to reach the coarse filter or the candidate is never scored at all.
+            foreach (var alias in song.TrackTitles.Concat(song.OgFilenames ?? []))
             {
                 var k = Normalize(alias);
                 if (k.Length > 0 && !keys.Contains(k))
@@ -144,5 +158,14 @@ public sealed class YeTrackerCatalogService : ITrackerCatalogService
         [JsonPropertyName("producers")] public string? Producers { get; set; }
         [JsonPropertyName("durationSeconds")] public double? DurationSeconds { get; set; }
         [JsonPropertyName("year")] public int? Year { get; set; }
+        [JsonPropertyName("availability")] public string? Availability { get; set; }
+        [JsonPropertyName("quality")] public string? Quality { get; set; }
+        [JsonPropertyName("version")] public int? Version { get; set; }
+        [JsonPropertyName("ogFilenames")] public List<string>? OgFilenames { get; set; }
+        [JsonPropertyName("featured")] public string? Featured { get; set; }
+        [JsonPropertyName("creditedArtists")] public string? CreditedArtists { get; set; }
+        [JsonPropertyName("type")] public string? Type { get; set; }
+        [JsonPropertyName("spotifyId")] public string? SpotifyId { get; set; }
+        [JsonPropertyName("aiGenerated")] public bool? AiGenerated { get; set; }
     }
 }

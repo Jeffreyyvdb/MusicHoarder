@@ -6,7 +6,29 @@ using MusicHoarder.Api.Options;
 
 namespace MusicHoarder.Api.Enrichment.Providers;
 
-/// <summary>A song candidate returned by the community tracker, flattened to the fields we match on.</summary>
+/// <summary>
+/// A song candidate returned by the community tracker, flattened to the fields we match on.
+/// The trailing members are only populated by trackers that publish them (today: the yetracker
+/// catalog); matching treats each as an optional signal so trackers without them behave as before.
+/// </summary>
+/// <param name="Availability">
+/// How much of the song circulates — "OG File"/"Full" (complete), "Snippet"/"Partial"/"Beat Only"/
+/// "Stem Bounce" (fragment), or "Confirmed"/"Rumored" (known to exist, never leaked).
+/// </param>
+/// <param name="Quality">Best circulating fidelity ("Lossless", "CD Quality", "Recording", …).</param>
+/// <param name="Version">The <c>[Vn]</c> ordinal, the main disambiguator between same-title leaks.</param>
+/// <param name="OgFilenames">Filenames the leaked file itself carries — often how untagged files are named.</param>
+/// <param name="Featured">Guest credit exactly as the tracker wrote it ("Ty Dolla $ign &amp; Lil Durk").</param>
+/// <param name="SpotifyId">Spotify track id, for the released material the tracker links out to.</param>
+/// <param name="TrackType">
+/// The tracker's classification of a released track — "Album Track", "Single", "Feature",
+/// "Production", "Other". Feature/Production tracks appear on somebody else's album, so their era
+/// is Ye's career era rather than the album they belong to.
+/// </param>
+/// <param name="IsAiGenerated">
+/// True when the tracker lists this as an AI-generated fake. Such an entry must never be applied to
+/// a file as if it were real metadata — it exists so a file that matches one can be flagged.
+/// </param>
 public sealed record TrackerSong(
     int Id,
     string Name,
@@ -16,7 +38,15 @@ public sealed record TrackerSong(
     string? CreditedArtists,
     string? Producers,
     double? DurationSeconds,
-    int? Year);
+    int? Year,
+    string? Availability = null,
+    string? Quality = null,
+    int? Version = null,
+    IReadOnlyList<string>? OgFilenames = null,
+    string? Featured = null,
+    string? SpotifyId = null,
+    string? TrackType = null,
+    bool IsAiGenerated = false);
 
 public interface ITrackerCatalogService
 {
