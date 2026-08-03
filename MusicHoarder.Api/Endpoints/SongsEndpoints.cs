@@ -642,24 +642,11 @@ public static class SongsEndpoints
         if (change.AppliedAtUtc is null || change.RevertedAtUtc is not null)
             return Results.UnprocessableEntity(new { message = "Only an applied, not-yet-reverted change can be reverted." });
 
-        ApplyFieldValue(song, change.FieldName, change.OldValue);
+        SongFieldReverter.Apply(song, change.FieldName, change.OldValue);
         change.RevertedAtUtc = DateTime.UtcNow;
         await db.SaveChangesAsync();
 
         return Results.Ok(new { song.Id, change.FieldName, revertedTo = change.OldValue });
-    }
-
-    private static void ApplyFieldValue(SongMetadata song, string field, string? value)
-    {
-        switch (field)
-        {
-            case "Artist": song.Artist = value; break;
-            case "AlbumArtist": song.AlbumArtist = value; break;
-            case "Title": song.Title = value; break;
-            case "Album": song.Album = value; break;
-            case "Year": song.Year = int.TryParse(value, out var y) ? y : null; break;
-            case "TrackNumber": song.TrackNumber = int.TryParse(value, out var t) ? t : null; break;
-        }
     }
 
     internal static async Task<IResult> StreamSong(int id, MusicHoarderDbContext db)

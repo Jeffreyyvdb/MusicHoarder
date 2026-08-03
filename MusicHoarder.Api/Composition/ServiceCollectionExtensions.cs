@@ -211,6 +211,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IArtistCreditHealer, ArtistCreditHealer>();
         services.AddScoped<IArtistDuplicateService, ArtistDuplicateService>();
         services.AddScoped<IAlbumDuplicateDetector, AlbumDuplicateDetector>();
+        services.AddScoped<IDedupActionHistory, DedupActionHistoryService>();
         services.AddSingleton<ICanonicalAlbumConsolidator, CanonicalAlbumConsolidator>();
         services.AddSingleton<IFingerprintSimilarityGate, FingerprintSimilarityGate>();
         services.AddSingleton<IDuplicateDetectionService, DuplicateDetectionService>();
