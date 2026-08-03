@@ -1,12 +1,22 @@
 <script lang="ts">
-  import { Plus } from '@lucide/svelte';
+  import { Plus, Search } from '@lucide/svelte';
   import { page } from '$app/state';
   import * as Sidebar from '$lib/components/ui/sidebar';
   import { Button } from '$lib/components/ui/button';
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
   import AddFromUrlDialog from '$lib/components/v2/AddFromUrlDialog.svelte';
+  import { commandPalette } from '$lib/stores/command-palette.svelte';
 
   let addOpen = $state(false);
+
+  // Cmd/Ctrl+K is the primary way into the palette, but there's no keyboard on
+  // mobile — so the top bar carries a tap target on every page. The shortcut
+  // hint only renders where a modifier key actually exists (md and up).
+  const shortcutHint = $derived(
+    typeof navigator !== 'undefined' && /mac|iphone|ipad|ipod/i.test(navigator.platform)
+      ? '⌘K'
+      : 'Ctrl K'
+  );
 
   // macOS-Music-style window title: the current section name rendered in the
   // bar itself, so wayfinding survives a collapsed sidebar and the mobile
@@ -56,6 +66,22 @@
     </span>
   {/if}
   <div class="ml-auto flex items-center gap-1.5">
+    <Button
+      variant="outline"
+      size="sm"
+      class="h-8 gap-1.5 px-2.5"
+      onclick={() => commandPalette.setOpen(true)}
+      aria-label="Search everywhere"
+      title="Search everywhere ({shortcutHint})"
+    >
+      <Search class="size-4" />
+      <span class="hidden text-[12.5px] sm:inline">Search</span>
+      <kbd
+        class="border-border bg-muted text-muted-foreground hidden rounded border px-1 font-sans text-[10px] leading-[1.4] font-medium md:inline"
+      >
+        {shortcutHint}
+      </kbd>
+    </Button>
     <Button
       variant="outline"
       size="sm"
