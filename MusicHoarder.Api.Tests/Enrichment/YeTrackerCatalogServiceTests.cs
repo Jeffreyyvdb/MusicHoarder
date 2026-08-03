@@ -64,4 +64,16 @@ public class YeTrackerCatalogServiceTests
 
         Assert.Empty(await catalog.SearchAsync("Bohemian Rhapsody"));
     }
+
+    [Fact]
+    public async Task SearchAsync_MatchesOnOgFilename()
+    {
+        // An untagged leak is usually named after the OG filename and nothing else, so that name has
+        // to reach the coarse filter — otherwise the candidate is never scored at all.
+        var catalog = Catalog(20, Song("Diamonds [V4]") with { OgFilenames = ["DIAMONDSAD122_01"] });
+
+        var results = await catalog.SearchAsync("DIAMONDSAD122_01");
+
+        Assert.Contains(results, r => r.Name == "Diamonds [V4]");
+    }
 }

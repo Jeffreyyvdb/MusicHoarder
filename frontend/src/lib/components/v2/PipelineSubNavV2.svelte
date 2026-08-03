@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Component } from 'svelte';
-  import { cn } from '$lib/utils';
+  import { cn, scrollStripToActive } from '$lib/utils';
 
   type Tab = {
     id: string;
@@ -24,17 +24,32 @@
   };
 
   const { tabs, active, running = false, meta }: Props = $props();
+
+  // On a phone this bar overflows (six library tabs don't fit 360px), so the
+  // active tab can start off-screen after a route change — scroll it into view.
+  let scroller = $state<HTMLElement | null>(null);
+  $effect(() => {
+    const el = scroller;
+    void active;
+    void tabs;
+    if (!el) return;
+    const frame = requestAnimationFrame(() =>
+      scrollStripToActive(el, el.querySelector<HTMLElement>('[data-active]'))
+    );
+    return () => cancelAnimationFrame(frame);
+  });
 </script>
 
 <nav
-  class="no-scrollbar border-border flex shrink-0 items-center overflow-x-auto border-b px-4 py-2 sm:px-7"
+  bind:this={scroller}
+  class="no-scrollbar border-border flex shrink-0 items-center overflow-x-auto scroll-px-4 border-b px-4 py-1.5 sm:px-7 sm:py-2"
   aria-label="Pipeline views"
 >
   <!-- Apple-style segmented control (same idiom as the song-panel tabs): a soft
        capsule track with the active segment as a raised pill. The bar stays
        count-less and dimension-stable (constraint) — switching tabs only moves
        the pill, never resizes the bar. -->
-  <div class="bg-foreground/5 flex shrink-0 items-center gap-1 rounded-full p-1">
+  <div class="bg-foreground/5 mr-4 flex shrink-0 items-center gap-1 rounded-full p-1 sm:mr-0">
     {#each tabs as tab (tab.id)}
       {@const isActive = tab.id === active}
       <a

@@ -69,6 +69,9 @@
         <!-- Offline-normalized yetracker (Kanye West) catalog, loaded at runtime by
              YeTrackerCatalogService from AppContext.BaseDirectory. Regenerate via tools/yetracker-import. -->
         <Content Update="Data\yetracker.json" CopyToOutputDirectory="PreserveNewest" />
+        <Content Update="Data\yetracker-tracklists.json" CopyToOutputDirectory="PreserveNewest" />
+        <!-- Artwork catalog: no runtime consumer yet, kept alongside the others for later use. -->
+        <Content Update="Data\yetracker-art.json" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
 </Project>

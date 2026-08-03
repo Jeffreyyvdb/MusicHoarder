@@ -338,11 +338,13 @@
   <AlbumPage album={openAlbum} {isLoading} />
 {:else}
   <!-- Slim toolbar: section identity comes from the tab row above; just a quiet
-       stat line + a compact search pill so covers start near the top (Apple). -->
-  <header
-    class="border-border flex shrink-0 items-center gap-3 border-b px-4 py-2.5 sm:px-7"
-  >
-    <div class="text-muted-foreground min-w-0 truncate text-xs">
+       stat line + a compact search pill so covers start near the top (Apple).
+       The stat line only appears once the row is genuinely wide (lg) — below
+       that it rendered as "9,025 trac…" while starving the search box. The row
+       wraps rather than squeezing: on a phone the search keeps a usable width
+       and drops to its own line when the filters leave it no room. -->
+  <header class="border-border flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 sm:gap-3 sm:px-7 sm:py-2.5">
+    <div class="text-muted-foreground hidden min-w-0 flex-1 truncate text-xs lg:block">
       {totalTracks.toLocaleString()} tracks · {artistCount.toLocaleString()} artists{enrichedPct !=
       null
         ? ` · ${enrichedPct.toFixed(1)}% enriched`
@@ -356,7 +358,7 @@
         aria-pressed={unreleasedOnly}
         title={unreleasedTitle}
         class={cn(
-          'focus-visible:ring-ring ml-auto h-8 shrink-0 rounded-full border px-3 text-[12.5px] whitespace-nowrap transition-colors outline-none focus-visible:ring-2',
+          'focus-visible:ring-ring h-8 shrink-0 rounded-full border px-3 text-[12.5px] whitespace-nowrap transition-colors outline-none focus-visible:ring-2',
           unreleasedOnly
             ? 'border-primary bg-primary/10 text-primary font-medium'
             : 'border-border bg-card text-muted-foreground hover:text-foreground'
@@ -367,12 +369,12 @@
       </button>
     {/if}
     {#if tab === 'albums'}
-      <label class={cn('flex shrink-0 items-center gap-1.5', canFilterUnreleased ? 'ml-2' : 'ml-auto')}>
-        <ArrowUpDown class="text-muted-foreground size-3.5" aria-hidden="true" />
+      <label class="flex shrink-0 items-center gap-1.5">
+        <ArrowUpDown class="text-muted-foreground hidden size-3.5 sm:block" aria-hidden="true" />
         <span class="sr-only">Sort albums by</span>
         <select
           bind:value={albumSort}
-          class="border-border bg-card focus-visible:ring-ring h-8 cursor-pointer rounded-full border pr-2 pl-2.5 text-[12.5px] outline-none focus-visible:ring-2"
+          class="border-border bg-card focus-visible:ring-ring h-8 max-w-[7.5rem] cursor-pointer rounded-full border pr-2 pl-2.5 text-[12.5px] outline-none focus-visible:ring-2 sm:max-w-none"
         >
           {#each ALBUM_SORT_OPTIONS as option (option.key)}
             <option value={option.key}>{option.label}</option>
@@ -380,12 +382,7 @@
         </select>
       </label>
     {/if}
-    <div
-      class={cn(
-        'relative w-[clamp(160px,32vw,280px)] shrink-0',
-        tab === 'albums' || canFilterUnreleased ? 'ml-2' : 'ml-auto'
-      )}
-    >
+    <div class="relative min-w-[10rem] flex-1 lg:w-[clamp(160px,32vw,280px)] lg:flex-none">
       <Search class="text-muted-foreground absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
       <input
         type="search"

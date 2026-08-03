@@ -130,15 +130,25 @@
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col">
-  <header class="flex items-center justify-between gap-4 border-b border-border px-6 py-4">
-    <div>
+  <!-- Stacks on a phone: side-by-side, the copy was squeezed into half the width
+       and ran to eight lines beside a single button. -->
+  <header
+    class="border-border flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6 sm:py-4"
+  >
+    <div class="min-w-0">
       <h1 class="text-lg font-semibold">Pipeline performance</h1>
-      <p class="text-sm text-muted-foreground">
+      <p class="text-muted-foreground text-sm">
         Quality of every enrichment version over time. One point per pipeline version, updated as your
         library is processed; compare two to see which songs regressed.
       </p>
     </div>
-    <Button onclick={capture} disabled={capturing} variant="outline" size="sm">
+    <Button
+      onclick={capture}
+      disabled={capturing}
+      variant="outline"
+      size="sm"
+      class="w-full shrink-0 sm:w-auto"
+    >
       <Camera class="mr-2 size-4" />
       {capturing ? 'Capturing…' : 'Capture now'}
     </Button>

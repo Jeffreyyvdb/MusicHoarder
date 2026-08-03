@@ -57,7 +57,7 @@
   import { songsStore } from '$lib/stores/songs.svelte';
   import { featuresStore } from '$lib/stores/features.svelte';
   import { toast } from 'svelte-sonner';
-  import { cn } from '$lib/utils';
+  import { cn, scrollStripToActive } from '$lib/utils';
   import type { LyricsStatus } from '$lib/types';
 
   type Props = {
@@ -83,6 +83,21 @@
   ];
 
   let activeTab = $state<TabId>('metadata');
+
+  // The tab strip scrolls horizontally when it doesn't fit (phones), so keep the
+  // active tab in view — otherwise switching to Enrichment, or opening the panel
+  // straight on Lyrics, can leave the highlighted tab off-screen.
+  let tabsScroller = $state<HTMLElement | null>(null);
+  $effect(() => {
+    const scroller = tabsScroller;
+    void activeTab;
+    if (!scroller) return;
+    const frame = requestAnimationFrame(() =>
+      scrollStripToActive(scroller, scroller.querySelector<HTMLElement>('[data-state="active"]'))
+    );
+    return () => cancelAnimationFrame(frame);
+  });
+
   let resetState = $state<'idle' | 'loading' | 'success' | 'error'>('idle');
   let resetError = $state<string | null>(null);
   let enrichState = $state<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -735,22 +750,38 @@
        mobile (art + title) / a persistent left rail on desktop (art + transport),
        beside the active tab's content; transport pinned at the bottom on mobile. -->
   <Tabs.Root bind:value={activeTab} class="flex min-h-0 flex-1 flex-col">
-    <!-- Top bar: close (left) + centered segmented tabs -->
-    <div class="relative flex shrink-0 items-center justify-center px-3 py-3 sm:px-5">
+    <!-- Top bar: close (left) + segmented tabs + like/share (right). All three
+         sit in normal flow — the tab strip used to be centred with the buttons
+         absolutely positioned over it, which on a phone let the widest tab slide
+         underneath the like button. The strip now takes the space that's left
+         and scrolls horizontally instead, centring itself when it fits. -->
+    <div class="flex shrink-0 items-center gap-1 px-2 py-2.5 sm:gap-2 sm:px-5 sm:py-3">
       <Button
         variant="ghost"
         size="icon"
         onclick={onClose}
-        class="bg-foreground/5 hover:bg-foreground/10 absolute left-3 size-9 rounded-full sm:left-5"
+        class="bg-foreground/5 hover:bg-foreground/10 size-9 shrink-0 rounded-full"
         aria-label="Close"
       >
         <X class="size-4" />
       </Button>
+      <div bind:this={tabsScroller} class="no-scrollbar min-w-0 flex-1 overflow-x-auto">
+        <Tabs.List class="bg-foreground/5 mx-auto h-auto w-max gap-1 rounded-full p-1">
+          {#each TAB_DEFS as tab (tab.value)}
+            <Tabs.Trigger
+              value={tab.value}
+              class="text-muted-foreground hover:text-foreground data-[state=active]:bg-background data-[state=active]:text-foreground shrink-0 rounded-full border-0 bg-transparent px-3 py-1.5 text-xs font-medium whitespace-nowrap shadow-none transition-colors data-[state=active]:shadow-sm sm:px-4 sm:text-[13px]"
+            >
+              {tab.label}
+            </Tabs.Trigger>
+          {/each}
+        </Tabs.List>
+      </div>
       <Button
         variant="ghost"
         size="icon"
         onclick={toggleLike}
-        class="bg-foreground/5 hover:bg-foreground/10 absolute right-[52px] size-9 rounded-full active:scale-90 sm:right-[60px]"
+        class="bg-foreground/5 hover:bg-foreground/10 size-9 shrink-0 rounded-full active:scale-90"
         aria-label={isLiked ? 'Remove from liked songs' : 'Add to liked songs'}
         aria-pressed={isLiked}
         title={isLiked ? 'Remove from liked songs' : 'Add to liked songs'}
@@ -762,7 +793,7 @@
         size="icon"
         onclick={shareSong}
         disabled={shareState === 'loading'}
-        class="bg-foreground/5 hover:bg-foreground/10 absolute right-3 size-9 rounded-full sm:right-5"
+        class="bg-foreground/5 hover:bg-foreground/10 size-9 shrink-0 rounded-full"
         aria-label="Share song — copy a public link"
         title="Share — copy a public link that plays this song for anyone, no account needed."
       >
@@ -772,16 +803,6 @@
           <Share2 class="size-4" />
         {/if}
       </Button>
-      <Tabs.List class="bg-foreground/5 h-auto gap-1 rounded-full p-1">
-        {#each TAB_DEFS as tab (tab.value)}
-          <Tabs.Trigger
-            value={tab.value}
-            class="text-muted-foreground hover:text-foreground data-[state=active]:bg-background data-[state=active]:text-foreground rounded-full border-0 bg-transparent px-3 py-1.5 text-xs font-medium shadow-none transition-colors data-[state=active]:shadow-sm sm:px-4 sm:text-[13px]"
-          >
-            {tab.label}
-          </Tabs.Trigger>
-        {/each}
-      </Tabs.List>
     </div>
 
     <!-- Body: compact header (mobile) / left rail (desktop) + tab content + transport -->
@@ -878,13 +899,16 @@
     <Tabs.Content value="metadata" class="flex min-h-0 flex-1 flex-col">
       <ScrollArea class="min-h-0 flex-1">
         <div class="mx-auto w-full max-w-2xl py-2">
-          <div class="grid grid-cols-[140px_minmax(0,1fr)] gap-x-3 gap-y-0.5">
+          <!-- Narrower label column on a phone (140px left the value column too
+               tight to hold a title on one line), and both cells carry the row
+               padding so a wrapped value can't drift out of line with its label. -->
+          <div class="grid grid-cols-[6.25rem_minmax(0,1fr)] gap-x-3 gap-y-0.5 sm:grid-cols-[140px_minmax(0,1fr)]">
             {#each metadataRows as [k, v, href] (k)}
               <div class="text-muted-foreground py-1.5 text-[11.5px]">{k}</div>
               {#if href}
-                <a href={href} onclick={onClose} class="hover:text-foreground font-mono text-[12px] break-all hover:underline">{v}</a>
+                <a href={href} onclick={onClose} class="hover:text-foreground py-1.5 font-mono text-[12px] break-all hover:underline">{v}</a>
               {:else}
-                <div class="font-mono text-[12px] break-all">{v}</div>
+                <div class="py-1.5 font-mono text-[12px] break-all">{v}</div>
               {/if}
             {/each}
           </div>
