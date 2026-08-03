@@ -11,6 +11,7 @@
     type AlbumDuplicatePair
   } from '$lib/api-client';
   import { Button } from '$lib/components/ui/button';
+  import InboxDedupHistoryV2 from './InboxDedupHistoryV2.svelte';
 
   type Props = { oncount?: (n: number | null) => void };
   const { oncount }: Props = $props();
@@ -89,18 +90,21 @@
     </div>
   </div>
 {:else if total === 0}
-  <div class="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-    <span class="bg-primary/10 text-primary grid size-12 place-items-center rounded-full">
-      <Check class="size-6" />
-    </span>
-    <div class="text-[15px] font-semibold">No album issues found</div>
-    <p class="text-muted-foreground max-w-sm text-[12.5px]">
-      Split albums (tracks disagreeing on identity) and near-duplicate titles
-      ("The Blueprint 3" vs "Blueprint 3") show up here with one-click fixes.
-    </p>
-    {#if healSummary}
-      <p class="text-muted-foreground text-[12px]">{healSummary}</p>
-    {/if}
+  <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[calc(1rem_+_var(--mh-content-pad))] sm:px-6">
+    <div class="flex flex-col items-center gap-3 p-8 text-center">
+      <span class="bg-primary/10 text-primary grid size-12 place-items-center rounded-full">
+        <Check class="size-6" />
+      </span>
+      <div class="text-[15px] font-semibold">No album issues found</div>
+      <p class="text-muted-foreground max-w-sm text-[12.5px]">
+        Split albums (tracks disagreeing on identity) and near-duplicate titles
+        ("The Blueprint 3" vs "Blueprint 3") show up here with one-click fixes.
+      </p>
+      {#if healSummary}
+        <p class="text-muted-foreground text-[12px]">{healSummary}</p>
+      {/if}
+    </div>
+    <InboxDedupHistoryV2 />
   </div>
 {:else}
   <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[calc(1rem_+_var(--mh-content-pad))] sm:px-6">
@@ -211,5 +215,6 @@
         {/each}
       </div>
     {/if}
+    <InboxDedupHistoryV2 />
   </div>
 {/if}
