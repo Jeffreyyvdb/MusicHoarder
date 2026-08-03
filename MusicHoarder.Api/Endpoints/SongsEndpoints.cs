@@ -8,6 +8,7 @@ using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Navidrome;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Scanner;
 using MusicHoarder.Api.Sync;
 
 namespace MusicHoarder.Api.Endpoints;
@@ -25,6 +26,10 @@ public static class SongsEndpoints
         app.MapPost("/songs/{id:int}/lyrics/transcribe", TranscribeLyrics)
             .WithName("TranscribeLyrics")
             .WithSummary("Experimental: transcribe a song's audio via OpenAI Whisper into a synced LRC, stored separately from LRCLIB lyrics for comparison.")
+            .WithTags("Lyrics");
+        app.MapPost("/songs/{id:int}/lyrics/recheck", RecheckLyrics)
+            .WithName("RecheckSongLyrics")
+            .WithSummary("Ask LRCLIB again for a song whose lyrics are missing or unsynced — LRCLIB gains lyrics over time. Ignores the automatic backoff; never clears lyrics already stored.")
             .WithTags("Lyrics");
         app.MapPost("/songs/{id:int}/lyrics/preferred", SetPreferredLyrics)
             .WithName("SetPreferredLyrics")
@@ -52,7 +57,7 @@ public static class SongsEndpoints
 
         app.MapGet("/api/library/duplicates", ListDuplicates)
             .WithName("GetDuplicates")
-            .WithSummary("List all tracks flagged as duplicates, grouped by fingerprint.")
+            .WithSummary("List duplicate clusters (confirmed + suspected) with keeper election and per-member match evidence.")
             .WithTags("Library");
 
         app.MapPatch("/songs/{id:int}/manual-review", ManualReviewTrack)
@@ -247,6 +252,7 @@ public static class SongsEndpoints
                 s.OriginalMusicBrainzId,
                 s.OriginalSpotifyId,
                 s.OriginalMetadataCapturedAtUtc,
+                s.IsUnreleased,
                 s.IsDuplicate,
                 s.DuplicateOfId,
                 s.LibraryBuildStatus,
@@ -281,6 +287,7 @@ public static class SongsEndpoints
                 wishlistLinks.TryGetValue(s.Id, out var link) ? link : null,
                 downloadDirectory,
                 syncedSourceDirectory);
+            var matchWarnings = DeserializeWarnings(s.MatchWarnings);
             return new
             {
             s.Id, s.SourcePath, s.FileName, s.Extension, s.FileSizeBytes,
@@ -294,7 +301,12 @@ public static class SongsEndpoints
             s.Genre, s.ReleaseDate, s.OriginalReleaseDate, s.Label, s.CatalogNumber, s.Upc,
             s.Composer, s.Copyright, s.ArtistSort, s.AlbumArtistSort,
             s.EnrichmentStatus, s.MatchedBy, s.MatchConfidence,
-            MatchWarnings = DeserializeWarnings(s.MatchWarnings),
+            MatchWarnings = matchWarnings,
+            // Released vs unreleased (leak/snippet/stem), derived from the tracker category the
+            // enrichment match already recorded — see ReleaseClassifier.
+            ReleaseClassification = ReleaseClassifier
+                .Classify(s.IsUnreleased, s.EnrichmentStatus, s.MatchedBy, matchWarnings, s.Isrc, s.SpotifyId)
+                .ToString(),
             s.EnrichedAtUtc, s.EnrichmentError,
             s.OriginalMetadataCaptured, s.OriginalArtist, s.OriginalAlbumArtist,
             s.OriginalAlbum, s.OriginalTitle, s.OriginalYear, s.OriginalTrackNumber,
@@ -367,6 +379,58 @@ public static class SongsEndpoints
         });
     }
 
+    /// <summary>
+    /// Manual "look again" for a song LRCLIB had nothing (or only unsynced lyrics) for when it was
+    /// enriched. The background sweep does this on a multi-day backoff; this is the escape hatch for
+    /// when the user can see the lyrics on lrclib.net right now.
+    /// </summary>
+    private static async Task<IResult> RecheckLyrics(
+        int id,
+        MusicHoarderDbContext db,
+        IEnrichmentOrchestrator orchestrator,
+        CancellationToken ct)
+    {
+        var song = await db.Songs
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null, ct);
+
+        if (song is null)
+            return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+        // A song that never had its first fetch belongs to the normal fetch path, not the re-check one.
+        var updated = song.IsReadyForLyricsFetch
+            ? await orchestrator.FetchLyricsForSongAsync(id, ct)
+            : song.IsLyricsRecheckCandidate
+                ? await orchestrator.RecheckLyricsForSongAsync(id, force: true, ct)
+                : false;
+
+        if (!updated && !song.IsReadyForLyricsFetch && !song.IsLyricsRecheckCandidate)
+        {
+            var reason = song.LyricsStatus switch
+            {
+                LyricsStatus.Instrumental => "Track is marked instrumental — LRCLIB has nothing to add.",
+                LyricsStatus.Fetched => "Track already has synced lyrics.",
+                _ => "Track is not eligible for a lyrics fetch (it needs a title, an artist, and a resolved enrichment match).",
+            };
+            return Results.UnprocessableEntity(new { message = reason });
+        }
+
+        var refreshed = await db.Songs
+            .AsNoTracking()
+            .FirstAsync(s => s.Id == id, ct);
+
+        return Results.Ok(new
+        {
+            refreshed.Id,
+            Updated = updated,
+            LyricsStatus = refreshed.LyricsStatus.ToString(),
+            HasSyncedLyrics = !string.IsNullOrWhiteSpace(refreshed.SyncedLyrics),
+            HasPlainLyrics = !string.IsNullOrWhiteSpace(refreshed.PlainLyrics),
+            refreshed.LyricsLastAttemptedAtUtc,
+            refreshed.LyricsNextRecheckAfterUtc,
+        });
+    }
+
     private static async Task<IResult> TranscribeLyrics(
         int id,
         MusicHoarderDbContext db,
@@ -388,11 +452,7 @@ public static class SongsEndpoints
         if (song.IsInstrumental == true)
             return Results.UnprocessableEntity(new { message = "Track is marked instrumental — nothing to transcribe." });
 
-        // Prefer the read-only source original; fall back to the built destination copy (mirrors StreamSong).
-        var filePath =
-            (!string.IsNullOrEmpty(song.SourcePath) && File.Exists(song.SourcePath)) ? song.SourcePath :
-            (!string.IsNullOrEmpty(song.DestinationPath) && File.Exists(song.DestinationPath)) ? song.DestinationPath :
-            null;
+        var filePath = ResolveAudioFilePath(song);
 
         if (filePath is null)
             return Results.UnprocessableEntity(new
@@ -547,7 +607,10 @@ public static class SongsEndpoints
         });
     }
 
-    private static async Task<IResult> ResetEnrichmentBatch(EnrichmentResetRequest request, MusicHoarderDbContext db)
+    internal static async Task<IResult> ResetEnrichmentBatch(
+        EnrichmentResetRequest request,
+        MusicHoarderDbContext db,
+        EnrichmentPipelineChannel channel)
     {
         var target = request.Target?.Trim().ToLowerInvariant();
 
@@ -564,11 +627,18 @@ public static class SongsEndpoints
         if (query is null)
             return Results.BadRequest(new { message = "Invalid target. Use all|pending|matched|needsReview|failed." });
 
-        var songs = await query.ToListAsync();
+        // ProviderAttempts must be loaded: ResetEnrichment clears the collection, and on an
+        // unloaded navigation that Clear() is a silent no-op that leaves every attempt row behind.
+        var songs = await query.Include(s => s.ProviderAttempts).ToListAsync();
         foreach (var song in songs)
             song.ResetEnrichment(request.RestoreOriginalMetadata);
 
         await db.SaveChangesAsync();
+
+        // Nothing else enqueues a Pending song: the retry sweep only picks up songs whose provider
+        // attempts have come off cooldown, and the pending backfill runs on startup. Without this the
+        // reset rows sit in Pending — out of the destination library and out of every review queue.
+        channel.EnqueueRange(songs.Select(s => s.Id), $"Reset — {target}");
 
         return Results.Ok(new
         {
@@ -578,9 +648,17 @@ public static class SongsEndpoints
         });
     }
 
-    private static async Task<IResult> ResetSongEnrichment(int id, MusicHoarderDbContext db, bool restoreOriginalMetadata = true, bool force = false)
+    internal static async Task<IResult> ResetSongEnrichment(
+        int id,
+        MusicHoarderDbContext db,
+        EnrichmentPipelineChannel channel,
+        bool restoreOriginalMetadata = true,
+        bool force = false)
     {
-        var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id);
+        // ProviderAttempts must be loaded — see ResetEnrichmentBatch.
+        var song = await db.Songs
+            .Include(s => s.ProviderAttempts)
+            .FirstOrDefaultAsync(s => s.Id == id);
         if (song is null)
             return Results.NotFound(new { message = $"Song with id {id} not found." });
 
@@ -597,6 +675,9 @@ public static class SongsEndpoints
 
         await db.SaveChangesAsync();
 
+        // Queue it now — see ResetEnrichmentBatch for why nothing else will.
+        channel.Enqueue(song.Id, $"Reset — {song.FileName}");
+
         return Results.Ok(new
         {
             song.Id,
@@ -605,7 +686,7 @@ public static class SongsEndpoints
             song.LibraryBuildStatus,
             song.IsManuallyApproved,
             RestoredOriginalMetadata = restoreOriginalMetadata && song.OriginalMetadataCaptured,
-            Message = "Song enrichment has been reset. It will be re-enriched in the next enrichment cycle."
+            Message = "Song enrichment has been reset and queued for re-enrichment."
         });
     }
 
@@ -634,24 +715,11 @@ public static class SongsEndpoints
         if (change.AppliedAtUtc is null || change.RevertedAtUtc is not null)
             return Results.UnprocessableEntity(new { message = "Only an applied, not-yet-reverted change can be reverted." });
 
-        ApplyFieldValue(song, change.FieldName, change.OldValue);
+        SongFieldReverter.Apply(song, change.FieldName, change.OldValue);
         change.RevertedAtUtc = DateTime.UtcNow;
         await db.SaveChangesAsync();
 
         return Results.Ok(new { song.Id, change.FieldName, revertedTo = change.OldValue });
-    }
-
-    private static void ApplyFieldValue(SongMetadata song, string field, string? value)
-    {
-        switch (field)
-        {
-            case "Artist": song.Artist = value; break;
-            case "AlbumArtist": song.AlbumArtist = value; break;
-            case "Title": song.Title = value; break;
-            case "Album": song.Album = value; break;
-            case "Year": song.Year = int.TryParse(value, out var y) ? y : null; break;
-            case "TrackNumber": song.TrackNumber = int.TryParse(value, out var t) ? t : null; break;
-        }
     }
 
     internal static async Task<IResult> StreamSong(int id, MusicHoarderDbContext db)
@@ -665,10 +733,14 @@ public static class SongsEndpoints
         return StreamSongFile(song);
     }
 
-    /// <summary>Prefers the source file, falls back to the built destination copy.</summary>
+    /// <summary>
+    /// Prefers the built destination copy (identical audio, but carries the corrected tags,
+    /// embedded cover and lyrics — what players should surface); falls back to the source file
+    /// for songs that haven't been built yet.
+    /// </summary>
     internal static string? ResolveAudioFilePath(SongMetadata song) =>
-        (!string.IsNullOrEmpty(song.SourcePath) && File.Exists(song.SourcePath)) ? song.SourcePath :
         (!string.IsNullOrEmpty(song.DestinationPath) && File.Exists(song.DestinationPath)) ? song.DestinationPath :
+        (!string.IsNullOrEmpty(song.SourcePath) && File.Exists(song.SourcePath)) ? song.SourcePath :
         null;
 
     /// <summary>
@@ -783,92 +855,126 @@ public static class SongsEndpoints
             : Results.Bytes(cover.Bytes!, contentType: cover.ContentType);
     }
 
+    internal static string[] DescribeReasons(DuplicateMatchReason reasons)
+    {
+        var names = new List<string>(3);
+        if (reasons.HasFlag(DuplicateMatchReason.ExactFingerprint)) names.Add("exact-fingerprint");
+        if (reasons.HasFlag(DuplicateMatchReason.FingerprintSimilarity)) names.Add("fingerprint-similarity");
+        if (reasons.HasFlag(DuplicateMatchReason.AcoustIdTrack)) names.Add("acoustid");
+        if (reasons.HasFlag(DuplicateMatchReason.Isrc)) names.Add("isrc");
+        if (reasons.HasFlag(DuplicateMatchReason.Metadata)) names.Add("metadata");
+        return [.. names];
+    }
+
     private static async Task<IResult> ListDuplicates(MusicHoarderDbContext db)
     {
-        var duplicates = await db.Songs
+        // The per-user query filter scopes links to the caller; groups are derived here by
+        // union-find over Active links (there is no group entity).
+        var links = await db.SongDuplicateLinks
             .AsNoTracking()
-            .Where(s => s.DeletedAtUtc == null && s.IsDuplicate)
-            .OrderBy(s => s.Fingerprint)
-            .ThenByDescending(s => s.FileSizeBytes)
-            .Select(s => new
-            {
-                s.Id,
-                s.SourcePath,
-                s.FileName,
-                s.Extension,
-                s.FileSizeBytes,
-                s.Artist,
-                s.AlbumArtist,
-                s.Album,
-                s.Title,
-                s.Year,
-                s.TrackNumber,
-                s.DurationSeconds,
-                s.Bitrate,
-                s.Fingerprint,
-                s.IsDuplicate,
-                s.DuplicateOfId,
-                s.EnrichmentStatus,
-                QualityScore = s.Extension != null
-                    ? (s.Extension.ToLower() == ".flac" ? 1000 :
-                       s.Extension.ToLower() == ".wav" ? 900 :
-                       s.Extension.ToLower() == ".aiff" ? 900 :
-                       s.Bitrate ?? 0)
-                    : 0
-            })
+            .Where(l => l.Status == DuplicateLinkStatus.Active)
             .ToListAsync();
 
-        var bestIds = duplicates
-            .Select(d => d.DuplicateOfId)
-            .Where(id => id.HasValue)
-            .Select(id => id!.Value)
+        var songIds = links
+            .SelectMany(l => new[] { l.SongIdLow, l.SongIdHigh })
             .Distinct()
             .ToList();
 
-        var bestSongs = await db.Songs
+        var songs = await db.Songs
             .AsNoTracking()
-            .Where(s => bestIds.Contains(s.Id))
-            .Select(s => new
-            {
-                s.Id,
-                s.SourcePath,
-                s.FileName,
-                s.Extension,
-                s.FileSizeBytes,
-                s.Artist,
-                s.Album,
-                s.Title,
-                s.Bitrate,
-                s.Fingerprint,
-                QualityScore = s.Extension != null
-                    ? (s.Extension.ToLower() == ".flac" ? 1000 :
-                       s.Extension.ToLower() == ".wav" ? 900 :
-                       s.Extension.ToLower() == ".aiff" ? 900 :
-                       s.Bitrate ?? 0)
-                    : 0
-            })
+            .Where(s => songIds.Contains(s.Id) && s.DeletedAtUtc == null)
             .ToDictionaryAsync(s => s.Id);
 
-        var groups = duplicates
-            .GroupBy(d => d.Fingerprint)
-            .Select(g =>
+        // Links referencing a soft-deleted song are stale until the next detection run; skip them.
+        links = links.Where(l => songs.ContainsKey(l.SongIdLow) && songs.ContainsKey(l.SongIdHigh)).ToList();
+
+        // Union-find over all active links: suspected pairs join the cluster too, so a group shows
+        // its confirmed core plus any lower-confidence hangers-on in one card.
+        var parent = new Dictionary<int, int>();
+        int Find(int x)
+        {
+            if (!parent.TryGetValue(x, out var p)) { parent[x] = x; return x; }
+            if (p == x) return x;
+            var root = Find(p);
+            parent[x] = root;
+            return root;
+        }
+        foreach (var link in links)
+        {
+            var (ra, rb) = (Find(link.SongIdLow), Find(link.SongIdHigh));
+            if (ra != rb) parent[Math.Max(ra, rb)] = Math.Min(ra, rb);
+        }
+
+        var linksByCluster = links.ToLookup(l => Find(l.SongIdLow));
+
+        var groups = new List<object>();
+        var totalDuplicates = 0;
+
+        foreach (var cluster in parent.Keys.ToList().GroupBy(Find).OrderBy(g => g.Key))
+        {
+            var members = cluster.Select(id => songs[id]).ToList();
+            if (members.Count < 2)
+                continue;
+
+            var clusterLinks = linksByCluster[cluster.Key].ToList();
+            var confirmedIds = clusterLinks
+                .Where(l => l.Confidence == DuplicateConfidence.Confirmed)
+                .SelectMany(l => new[] { l.SongIdLow, l.SongIdHigh })
+                .ToHashSet();
+
+            var ranked = IDuplicateDetectionService.RankKeeperFirst(members);
+            var keeper = ranked[0];
+            totalDuplicates += members.Count(m => m.IsDuplicate);
+
+            var memberDtos = ranked.Select(m =>
             {
-                var bestId = g.First().DuplicateOfId;
-                var best = bestId.HasValue && bestSongs.TryGetValue(bestId.Value, out var b)
-                    ? (object)b
-                    : null;
+                var memberLinks = clusterLinks
+                    .Where(l => l.SongIdLow == m.Id || l.SongIdHigh == m.Id)
+                    .ToList();
+                var reasons = memberLinks.Aggregate(DuplicateMatchReason.None, (acc, l) => acc | l.Reasons);
+                var similarity = memberLinks.Max(l => l.Similarity);
                 return new
                 {
-                    Fingerprint = g.Key,
-                    Best = best,
-                    Duplicates = g.ToList()
+                    m.Id,
+                    m.SourcePath,
+                    m.FileName,
+                    m.Extension,
+                    m.FileSizeBytes,
+                    m.Artist,
+                    m.AlbumArtist,
+                    m.Album,
+                    m.Title,
+                    m.Year,
+                    m.TrackNumber,
+                    m.DurationSeconds,
+                    m.Bitrate,
+                    m.Fingerprint,
+                    m.IsDuplicate,
+                    m.DuplicateOfId,
+                    m.EnrichmentStatus,
+                    m.DestinationPath,
+                    IsBuilt = m.LibraryBuildStatus == LibraryBuildStatus.Done && m.DestinationPath != null,
+                    IsKeeper = m.Id == keeper.Id,
+                    IsPinned = m.DuplicateKeeperPinnedAtUtc != null,
+                    Confidence = confirmedIds.Contains(m.Id) ? "confirmed" : "suspected",
+                    Reasons = DescribeReasons(reasons),
+                    Similarity = similarity,
+                    QualityScore = IDuplicateDetectionService.QualityScore(m),
                 };
-            })
-            .ToList();
+            }).ToList();
+
+            groups.Add(new
+            {
+                GroupId = cluster.Key,
+                Confidence = confirmedIds.Count > 0 ? "confirmed" : "suspected",
+                Keeper = memberDtos[0],
+                Members = memberDtos,
+            });
+        }
 
         return Results.Ok(new
         {
-            TotalDuplicates = duplicates.Count,
+            TotalDuplicates = totalDuplicates,
             Groups = groups.Count,
             DuplicateGroups = groups
         });

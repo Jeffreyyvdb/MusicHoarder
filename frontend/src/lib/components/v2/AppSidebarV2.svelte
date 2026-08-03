@@ -60,6 +60,8 @@
     | 'performance'
     | 'review'
     | 'dupes'
+    | 'dupe-artists'
+    | 'dupe-albums'
     | 'aiflag'
     | 'overview'
     | 'albums'
@@ -197,6 +199,8 @@
       sub: [
         { id: 'review', label: 'Tag review', href: '/inbox?tab=review', icon: Tags, count: () => reviewCount },
         { id: 'dupes', label: 'Duplicates', href: '/inbox?tab=dupes', icon: Copy },
+        { id: 'dupe-artists', label: 'Artists', href: '/inbox?tab=artists', icon: Users },
+        { id: 'dupe-albums', label: 'Albums', href: '/inbox?tab=albums', icon: Disc3 },
         { id: 'aiflag', label: 'AI flagged', href: '/inbox?tab=ai', icon: Sparkles }
       ]
     },
@@ -260,6 +264,10 @@
         return onInbox && inboxTab === 'review';
       case 'dupes':
         return onInbox && inboxTab === 'dupes';
+      case 'dupe-artists':
+        return onInbox && inboxTab === 'artists';
+      case 'dupe-albums':
+        return onInbox && inboxTab === 'albums';
       case 'overview':
         return pathname === '/overview';
       case 'albums':

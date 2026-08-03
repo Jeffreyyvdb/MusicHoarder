@@ -326,8 +326,12 @@ public class IndexService(
         var ownerId = ownerLookup.OwnerUserId;
         var paths = new HashSet<string>(batch.Select(m => m.SourcePath), StringComparer.Ordinal);
 
+        // ProviderAttempts is included because the changed-file branch below calls ResetEnrichment,
+        // which clears that collection — on an unloaded navigation the Clear() is a silent no-op and
+        // the stale attempts survive, so the providers never re-run against the new file content.
         var existingByPath = await dbContext.Songs
             .IgnoreQueryFilters()
+            .Include(s => s.ProviderAttempts)
             .Where(s => s.OwnerUserId == ownerId && !s.IsSynthetic && paths.Contains(s.SourcePath))
             .ToDictionaryAsync(s => s.SourcePath, ct);
 

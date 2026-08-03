@@ -24,6 +24,7 @@
     type GroupSummary
   } from '$lib/api-client';
   import { isBuiltSong } from '$lib/album-sections';
+  import { isAnyUnreleasedSong, isUnreleasedSong } from '$lib/release-status';
   import { parseBrowseFilter, applyBrowseFilter, browseFilterLabel } from '$lib/browse-filter';
   import { formatTotalDuration } from '$lib/formatters';
   import { toPlayerSong } from '$lib/api-client';
@@ -121,10 +122,38 @@
 
   // ── derivations (only clean/built songs make up the library) ────────────────
   const builtSongs = $derived(songs.filter(isBuiltSong));
-  const browseScoped = $derived(applyBrowseFilter(builtSongs, browse));
+
+  // "Unreleased only": leaks/snippets/stems, as classified by the API. Persisted like the other
+  // view toggles, and shared by every tab so switching between albums/artists/tracks keeps the
+  // same scope. Only offered when the library actually holds unreleased material.
+  let unreleasedOnly = $state(untrack(() => sessionGet('mh-lib-unreleased-only')) === '1');
+  $effect(() => {
+    sessionSet('mh-lib-unreleased-only', unreleasedOnly ? '1' : '0');
+  });
+  // The filter spans both tiers, but they're counted apart for the tooltip — a tracker saying
+  // "unreleased" is a far stronger claim than nothing having been found.
+  const unreleasedCount = $derived(builtSongs.filter(isAnyUnreleasedSong).length);
+  const trackerUnreleasedCount = $derived(builtSongs.filter(isUnreleasedSong).length);
+  const likelyUnreleasedCount = $derived(unreleasedCount - trackerUnreleasedCount);
+  const canFilterUnreleased = $derived(unreleasedCount > 0);
+  // Guard the stored preference: a library that no longer has unreleased tracks (or an API too old
+  // to classify them) must not silently render as empty.
+  const releaseScoped = $derived(
+    unreleasedOnly && canFilterUnreleased ? builtSongs.filter(isAnyUnreleasedSong) : builtSongs
+  );
+
+  const unreleasedTitle = $derived(
+    likelyUnreleasedCount === 0
+      ? `Show only unreleased tracks (${trackerUnreleasedCount.toLocaleString()} confirmed by a community tracker)`
+      : `Show only unreleased tracks — ${trackerUnreleasedCount.toLocaleString()} confirmed by a community tracker, ${likelyUnreleasedCount.toLocaleString()} with no catalog match anywhere`
+  );
+
+  const browseScoped = $derived(applyBrowseFilter(releaseScoped, browse));
 
   // Same album under two destination folders (a year or artist-spelling disagreement between its
   // tracks) is one card here — see mergeAlbumsByName.
+  // `allAlbums` stays unscoped: it's the drilldown/deep-link resolver, so an ?album= link must
+  // still resolve while a filter is on.
   const allAlbums = $derived(mergeAlbumsByName(buildAlbumsFromSongs(builtSongs)));
   const scopedAlbums = $derived(mergeAlbumsByName(buildAlbumsFromSongs(browseScoped)));
 
@@ -183,7 +212,7 @@
   });
 
   const artistGroups = $derived(
-    buildArtistGroups(builtSongs, { primaryOnly: artistMode === 'primary' })
+    buildArtistGroups(releaseScoped, { primaryOnly: artistMode === 'primary' })
   );
   const filteredArtists = $derived.by(() => {
     const q = query.trim().toLowerCase();
@@ -196,7 +225,7 @@
   const tracksScoped = $derived(browseScoped);
 
   // Liked tab: hearted songs, newest like first (the TrackList's 'liked' sort).
-  const likedSongs = $derived(builtSongs.filter((s) => Boolean(s.likedAtUtc)));
+  const likedSongs = $derived(releaseScoped.filter((s) => Boolean(s.likedAtUtc)));
   const likedDurationSec = $derived(
     likedSongs.reduce((n, s) => n + (s.durationSeconds ?? 0), 0)
   );
@@ -218,7 +247,7 @@
     if (queue.length > 0) void playerStore.playSong(queue[0], queue, 0);
   }
 
-  const totalTracks = $derived(builtSongs.length);
+  const totalTracks = $derived(releaseScoped.length);
   const artistCount = $derived(artistGroups.length);
 
   // ── album drilldown (reuses AlbumPage + TrackPanel) ─────────────────────────
@@ -291,10 +320,10 @@
     return `/library?artist=${encodeURIComponent(g.key)}`;
   }
 
+  // Pipeline-health stat — always library-wide, so it doesn't move with the view filters.
   const enrichedPct = $derived.by(() => {
-    if (totalTracks === 0) return null;
-    const matched = builtSongs.length;
-    return (matched / Math.max(1, songs.length)) * 100;
+    if (builtSongs.length === 0) return null;
+    return (builtSongs.length / Math.max(1, songs.length)) * 100;
   });
 
   function clearArtistFilter() {
@@ -319,8 +348,26 @@
         ? ` · ${enrichedPct.toFixed(1)}% enriched`
         : ''}
     </div>
+    {#if canFilterUnreleased}
+      <!-- Leaks/snippets/stems, per the API's release classification. -->
+      <button
+        type="button"
+        onclick={() => (unreleasedOnly = !unreleasedOnly)}
+        aria-pressed={unreleasedOnly}
+        title={unreleasedTitle}
+        class={cn(
+          'focus-visible:ring-ring ml-auto h-8 shrink-0 rounded-full border px-3 text-[12.5px] whitespace-nowrap transition-colors outline-none focus-visible:ring-2',
+          unreleasedOnly
+            ? 'border-primary bg-primary/10 text-primary font-medium'
+            : 'border-border bg-card text-muted-foreground hover:text-foreground'
+        )}
+      >
+        Unreleased
+        <span class="tabular-nums opacity-60">{unreleasedCount.toLocaleString()}</span>
+      </button>
+    {/if}
     {#if tab === 'albums'}
-      <label class="ml-auto flex shrink-0 items-center gap-1.5">
+      <label class={cn('flex shrink-0 items-center gap-1.5', canFilterUnreleased ? 'ml-2' : 'ml-auto')}>
         <ArrowUpDown class="text-muted-foreground size-3.5" aria-hidden="true" />
         <span class="sr-only">Sort albums by</span>
         <select
@@ -336,7 +383,7 @@
     <div
       class={cn(
         'relative w-[clamp(160px,32vw,280px)] shrink-0',
-        tab === 'albums' ? 'ml-2' : 'ml-auto'
+        tab === 'albums' || canFilterUnreleased ? 'ml-2' : 'ml-auto'
       )}
     >
       <Search class="text-muted-foreground absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />

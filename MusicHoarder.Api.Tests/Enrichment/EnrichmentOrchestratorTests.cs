@@ -728,6 +728,122 @@ public class EnrichmentOrchestratorTests
         Assert.Equal(1, lrcLib.CallCount);
     }
 
+    // --- Lyrics re-check: LRCLIB gains lyrics over time, so improvable outcomes are asked again ---
+
+    [Fact]
+    public async Task RecheckLyrics_UpgradesPlainOnlyToSynced_AndRetagsTheBuiltFile()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db);
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        song.ApplyLyricsResult(null, "Hello", instrumental: false);   // plain only, no LRC at the time
+        song.LibraryBuildStatus = LibraryBuildStatus.Done;
+        song.DestinationPath = "/dest/Artist/Album/Title.mp3";
+        await db.SaveChangesAsync();
+
+        // Someone contributed an LRC since.
+        var lrcLib = new StubLrcLibService(_ =>
+            Task.FromResult<LyricsResult?>(new LyricsResult("[00:00.00]Hello", "Hello", false, 99)));
+        var orchestrator = CreateOrchestratorWithProviders(db, [], lrcLibService: lrcLib);
+
+        Assert.True(await orchestrator.RecheckLyricsForSongAsync(song.Id));
+
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal("[00:00.00]Hello", updated.SyncedLyrics);
+        Assert.Equal(LyricsStatus.Fetched, updated.LyricsStatus);
+        // The destination file was tagged without the LRC — it has to be rewritten in place.
+        Assert.Equal(LibraryBuildStatus.Pending, updated.LibraryBuildStatus);
+        Assert.Equal("/dest/Artist/Album/Title.mp3", updated.PreviousDestinationPath);
+        // Synced lyrics are terminal: never re-checked again.
+        Assert.Null(updated.LyricsNextRecheckAfterUtc);
+    }
+
+    [Fact]
+    public async Task RecheckLyrics_StillNothingOnLrclib_KeepsLyricsAndBacksOff()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db);
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        song.ApplyLyricsResult(null, "Hello", instrumental: false);
+        song.LibraryBuildStatus = LibraryBuildStatus.Done;
+        await db.SaveChangesAsync();
+
+        var lrcLib = new StubLrcLibService(_ => Task.FromResult<LyricsResult?>(null));
+        var orchestrator = CreateOrchestratorWithProviders(db, [], lrcLibService: lrcLib);
+
+        Assert.False(await orchestrator.RecheckLyricsForSongAsync(song.Id));
+
+        var updated = await db.Songs.SingleAsync();
+        // A later empty response must never take away the lyrics we already had.
+        Assert.Equal("Hello", updated.PlainLyrics);
+        Assert.Equal(LyricsStatus.Fetched, updated.LyricsStatus);
+        Assert.Equal(LibraryBuildStatus.Done, updated.LibraryBuildStatus);   // no pointless re-tag
+        Assert.Equal(1, updated.LyricsFetchAttempts);
+        Assert.NotNull(updated.LyricsNextRecheckAfterUtc);
+    }
+
+    [Fact]
+    public async Task RecheckLyrics_FetchThrows_LeavesLyricsIntact()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db);
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        song.ApplyLyricsResult(null, "Hello", instrumental: false);
+        await db.SaveChangesAsync();
+
+        var lrcLib = new StubLrcLibService(_ => throw new HttpRequestException("lrclib down"));
+        var orchestrator = CreateOrchestratorWithProviders(db, [], lrcLibService: lrcLib);
+
+        Assert.False(await orchestrator.RecheckLyricsForSongAsync(song.Id));
+
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal("Hello", updated.PlainLyrics);
+        Assert.Equal(LyricsStatus.Fetched, updated.LyricsStatus);   // not downgraded to Failed
+        Assert.Equal(1, updated.LyricsFetchAttempts);
+    }
+
+    [Fact]
+    public async Task RecheckLyrics_HonoursTheBackoffUnlessForced()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db);
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        song.MarkLyricsNotFound();
+        song.LyricsNextRecheckAfterUtc = DateTime.UtcNow.AddDays(5);
+        await db.SaveChangesAsync();
+
+        var lrcLib = new StubLrcLibService(_ =>
+            Task.FromResult<LyricsResult?>(new LyricsResult("[00:00.00]Hello", "Hello", false)));
+        var orchestrator = CreateOrchestratorWithProviders(db, [], lrcLibService: lrcLib);
+
+        Assert.False(await orchestrator.RecheckLyricsForSongAsync(song.Id));
+        Assert.Equal(0, lrcLib.CallCount);
+
+        // The user pressing "check again" skips the wait.
+        Assert.True(await orchestrator.RecheckLyricsForSongAsync(song.Id, force: true));
+        Assert.Equal(1, lrcLib.CallCount);
+        Assert.Equal("[00:00.00]Hello", (await db.Songs.SingleAsync()).SyncedLyrics);
+    }
+
+    [Fact]
+    public async Task RecheckLyrics_SkipsSongsWithNothingToImprove()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db);
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        song.ApplyLyricsResult("[00:00.00]Hello", "Hello", instrumental: false);
+        await db.SaveChangesAsync();
+
+        var lrcLib = new StubLrcLibService(_ =>
+            Task.FromResult<LyricsResult?>(new LyricsResult("[00:00.00]Other", "Other", false)));
+        var orchestrator = CreateOrchestratorWithProviders(db, [], lrcLibService: lrcLib);
+
+        Assert.False(await orchestrator.RecheckLyricsForSongAsync(song.Id, force: true));
+
+        Assert.Equal(0, lrcLib.CallCount);
+        Assert.Equal("[00:00.00]Hello", (await db.Songs.SingleAsync()).SyncedLyrics);
+    }
+
     [Fact]
     public async Task ProcessSong_MatchPreservesExistingArtist_WhenMatchArtistIsBlank()
     {

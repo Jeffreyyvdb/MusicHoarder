@@ -72,6 +72,37 @@ internal static class EnrichmentQueries
     }
 
     /// <summary>
+    /// Filters to songs whose lyrics outcome is worth asking LRCLIB about again and whose backoff has
+    /// elapsed — the DB-side mirror of <see cref="SongMetadata.IsLyricsRecheckCandidate"/> combined with
+    /// <see cref="SongMetadata.LyricsNextRecheckAfterUtc"/>. Covers the two states nothing else revisits:
+    /// a song LRCLIB 404'd on (<see cref="LyricsStatus.NotFound"/>) and one that came back with unsynced
+    /// lyrics only, both of which can gain an LRC later since LRCLIB is community-contributed. Failed
+    /// fetches ride along. Excludes deleted, synthetic, and demo rows.
+    ///
+    /// A null <c>LyricsNextRecheckAfterUtc</c> counts as due: it means the song's lyrics resolved before
+    /// this sweep existed, so the whole pre-existing library enters the backoff ladder on its first pass
+    /// without needing a migration-time backfill. (Null also marks a *resolved* song — but those are not
+    /// candidates in the first place, so it is unambiguous here.)
+    /// </summary>
+    public static IQueryable<SongMetadata> WhereReadyForLyricsRecheck(
+        this IQueryable<SongMetadata> query, DateTime now)
+    {
+        return query
+            .Where(s => s.LyricsNextRecheckAfterUtc == null || s.LyricsNextRecheckAfterUtc <= now)
+            .Where(s => s.DeletedAtUtc == null)
+            .Where(s => !s.IsSynthetic)
+            .ExcludingDemoTenant()
+            .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched
+                || s.EnrichmentStatus == EnrichmentStatus.NeedsReview)
+            .Where(s => !string.IsNullOrWhiteSpace(s.Title))
+            .Where(s => !string.IsNullOrWhiteSpace(s.Artist))
+            .Where(s => s.LyricsStatus == LyricsStatus.NotFound
+                || s.LyricsStatus == LyricsStatus.Failed
+                || (s.LyricsStatus == LyricsStatus.Fetched
+                    && (s.SyncedLyrics == null || s.SyncedLyrics == string.Empty)));
+    }
+
+    /// <summary>
     /// Returns IDs of songs with a retryable provider attempt: either a rate-limited attempt
     /// whose <see cref="SongProviderAttempt.RetryAfterUtc"/> has elapsed, or a terminal
     /// NoMatch/Failed attempt whose cooldown (<see cref="SongProviderAttempt.NextRetryAfterUtc"/>)

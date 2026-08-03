@@ -35,6 +35,9 @@ public class MusicHoarderDbContext : DbContext
     }
 
     public DbSet<SongMetadata> Songs { get; set; } = null!;
+    public DbSet<SongDuplicateLink> SongDuplicateLinks { get; set; } = null!;
+    public DbSet<ArtistAlias> ArtistAliases { get; set; } = null!;
+    public DbSet<DedupDismissal> DedupDismissals { get; set; } = null!;
     public DbSet<SongProviderAttempt> SongProviderAttempts { get; set; } = null!;
     public DbSet<CanonicalAlbum> CanonicalAlbums { get; set; } = null!;
     public DbSet<AlbumCoverFetchAttempt> AlbumCoverFetchAttempts { get; set; } = null!;
@@ -86,6 +89,9 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => new { e.OwnerUserId, e.DeletedAtUtc });
             // Supports identifier-based lookups / dedupe by ISRC.
             entity.HasIndex(e => e.Isrc);
+            // Drives the lyrics backfill + re-check sweeps, which scan by lyrics state and take the
+            // longest-overdue re-checks first (EnrichmentQueries.WhereReadyForLyricsRecheck).
+            entity.HasIndex(e => new { e.DeletedAtUtc, e.LyricsStatus, e.LyricsNextRecheckAfterUtc });
 
             entity.HasOne(e => e.DuplicateOf)
                 .WithMany()
@@ -95,6 +101,43 @@ public class MusicHoarderDbContext : DbContext
             // Global query filter: scope every read to the current user. Background services
             // bypass via .IgnoreQueryFilters().
             entity.HasQueryFilter(s => !hasUser || s.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<SongDuplicateLink>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // Pairs are stored in canonical (low, high) order, so this uniquely keys the pair.
+            entity.HasIndex(e => new { e.SongIdLow, e.SongIdHigh }).IsUnique();
+            entity.HasIndex(e => e.OwnerUserId);
+
+            // A link is meaningless without both songs; songs are soft-deleted in practice, so
+            // Cascade only fires on the rare hard delete (e.g. upgrade-merge provisional rows).
+            entity.HasOne<SongMetadata>()
+                .WithMany()
+                .HasForeignKey(e => e.SongIdLow)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<SongMetadata>()
+                .WithMany()
+                .HasForeignKey(e => e.SongIdHigh)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<ArtistAlias>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.OwnerUserId, e.AliasKey }).IsUnique();
+
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<DedupDismissal>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.OwnerUserId, e.Kind, e.ScopeKey, e.KeyLow, e.KeyHigh }).IsUnique();
+
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
         });
 
         modelBuilder.Entity<SongProviderAttempt>(entity =>

@@ -608,6 +608,40 @@ public class MusicEnricherOptions
     public int LyricsBackfillConcurrency { get; set; } = 4;
 
     /// <summary>
+    /// LRCLIB is a community database that keeps growing, but a song's lyrics outcome is otherwise
+    /// recorded once and never revisited: a track that 404'd stays <see cref="LyricsStatus.NotFound"/>
+    /// forever, and one that only had unsynced lyrics stays <see cref="LyricsStatus.Fetched"/> even
+    /// after someone contributes an LRC. This sweep re-queries those two cases (plus failed fetches) on
+    /// an exponential backoff and re-tags any already-built file that gains lyrics. Gated by
+    /// <see cref="AutoStartPipeline"/> like the other sweeps. Set false to disable. Default on.
+    /// </summary>
+    public bool EnableLyricsRecheckSweep { get; set; } = true;
+
+    /// <summary>
+    /// Delay before the *first* lyrics re-check; each further attempt doubles it, capped by
+    /// <see cref="LyricsRecheckMaxCooldownDays"/> (see <c>SongMetadata.ComputeLyricsRecheckDelayDays</c>).
+    /// Lyrics get contributed to LRCLIB over weeks, not minutes, so this is deliberately coarse.
+    /// Default 7 days.
+    /// </summary>
+    [Range(1, 365)]
+    public int LyricsRecheckCooldownDays { get; set; } = 7;
+
+    /// <summary>
+    /// Ceiling on the backoff above, so a song whose lyrics LRCLIB will probably never carry still gets
+    /// an occasional look instead of drifting to a decade-long interval. Default 90 days.
+    /// </summary>
+    [Range(1, 3650)]
+    public int LyricsRecheckMaxCooldownDays { get; set; } = 90;
+
+    /// <summary>
+    /// Maximum songs re-checked per sweep pass. Kept well below <see cref="LyricsBackfillBatchSize"/>:
+    /// re-checks are speculative (most return the same "no lyrics" answer), so they should never crowd
+    /// out first-time fetches or hammer LRCLIB. Default 50.
+    /// </summary>
+    [Range(1, 5000)]
+    public int LyricsRecheckBatchSize { get; set; } = 50;
+
+    /// <summary>
     /// Harmonize album-identity tags (release id, album name, year, disc count, compilation, release
     /// types, album-artist mbids) across all tracks that build into the same destination album folder,
     /// so a single on-disk album isn't split by a server's MusicBrainz-release grouping key (e.g.
@@ -811,4 +845,47 @@ public class MusicEnricherOptions
     /// </summary>
     [Range(0, 1)]
     public double QualityUpgradeFingerprintMinSimilarity { get; set; } = 0.75;
+
+    // --- Duplicate detection ---
+
+    /// <summary>
+    /// Minimum acoustic-fingerprint similarity (0..1) for a candidate pair to be auto-confirmed as
+    /// duplicates (and flagged via <c>IsDuplicate</c>). Deliberately stricter than
+    /// <see cref="QualityUpgradeFingerprintMinSimilarity"/>: an upgrade merge is user-initiated per
+    /// track, while a confirmed duplicate silently drops a file from the build.
+    /// </summary>
+    [Range(0, 1)]
+    public double DuplicateFingerprintMinSimilarity { get; set; } = 0.85;
+
+    /// <summary>
+    /// Similarity (0..1) below which a decodable candidate pair is dropped entirely — two
+    /// fingerprints that strongly disagree are affirmative evidence of different recordings, so the
+    /// pair isn't even surfaced as suspected. Pairs scoring between this and
+    /// <see cref="DuplicateFingerprintMinSimilarity"/> surface as suspected for manual review.
+    /// </summary>
+    [Range(0, 1)]
+    public double DuplicateFingerprintRejectSimilarity { get; set; } = 0.55;
+
+    /// <summary>Max duration delta (seconds) for two same-metadata songs to pair as duplicate
+    /// candidates. Identifier-based candidates (shared AcoustID/ISRC) get twice this slack.</summary>
+    [Range(0, 60)]
+    public int DuplicateDurationToleranceSeconds { get; set; } = 3;
+
+    /// <summary>
+    /// Largest metadata/identifier block that will be pairwise-expanded during candidate generation.
+    /// A pathological block (e.g. hundreds of untitled tracks sharing one normalized key) is skipped
+    /// with a warning instead of generating O(n²) comparisons.
+    /// </summary>
+    [Range(2, 1000)]
+    public int DuplicateMaxBlockSize { get; set; } = 50;
+
+    /// <summary>Fuzzy ratio (0–100) above which two distinct artist spellings are suggested as the
+    /// same artist in the artist-duplicates view.</summary>
+    [Range(0, 100)]
+    public double ArtistMergeFuzzyThreshold { get; set; } = 92;
+
+    /// <summary>Fuzzy ratio (0–100) above which two album titles under one artist are suggested as
+    /// the same album in the album-duplicates view.</summary>
+    [Range(0, 100)]
+    public double AlbumMergeFuzzyThreshold { get; set; } = 90;
 }
