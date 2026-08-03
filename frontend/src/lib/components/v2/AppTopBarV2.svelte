@@ -25,8 +25,11 @@
     if (
       path === '/library' ||
       path.startsWith('/library/') ||
+      path.startsWith('/overview') ||
       path.startsWith('/artists') ||
       path.startsWith('/tracks') ||
+      path.startsWith('/liked') ||
+      path.startsWith('/discover') ||
       path.startsWith('/spotify') ||
       path.startsWith('/wishlist') ||
       path.startsWith('/playlists')

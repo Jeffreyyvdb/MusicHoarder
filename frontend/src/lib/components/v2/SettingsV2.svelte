@@ -1,7 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { cn } from '$lib/utils';
+  import { cn, scrollStripToActive } from '$lib/utils';
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
@@ -77,6 +77,18 @@
     url.searchParams.set('tab', id);
     void goto(`${url.pathname}${url.search}`, { replaceState: true, keepFocus: true, noScroll: true });
   }
+
+  // The tab strip overflows on a phone, so keep the active section in view.
+  let tabScroller = $state<HTMLElement | null>(null);
+  $effect(() => {
+    const el = tabScroller;
+    void activeTab;
+    if (!el) return;
+    const frame = requestAnimationFrame(() =>
+      scrollStripToActive(el, el.querySelector<HTMLElement>('[data-active]'))
+    );
+    return () => cancelAnimationFrame(frame);
+  });
 
   // ── account ────────────────────────────────────────────────────────────────────
   const user = $derived(
@@ -452,7 +464,7 @@
 </script>
 
 <!-- Page header (mirrors PipelineHomeV2's header rhythm) -->
-<header class="border-border flex shrink-0 items-end justify-between gap-4 border-b px-4 py-4 sm:px-7 sm:py-5">
+<header class="border-border flex shrink-0 items-end justify-between gap-4 border-b px-4 py-3 sm:px-7 sm:py-5">
   <div class="min-w-0">
     <h1 class="text-2xl font-semibold tracking-tight">Settings</h1>
     <p class="text-muted-foreground mt-1 max-w-2xl text-sm">
@@ -463,8 +475,12 @@
 
 <!-- Tab bar — Apple-style segmented control, matching the section sub-nav and
      the song-panel tabs (one tab idiom app-wide). -->
-<nav class="no-scrollbar border-border flex shrink-0 items-center overflow-x-auto border-b px-4 py-2 sm:px-7" aria-label="Settings sections">
-  <div class="bg-foreground/5 flex shrink-0 items-center gap-1 rounded-full p-1">
+<nav
+  bind:this={tabScroller}
+  class="no-scrollbar border-border flex shrink-0 items-center overflow-x-auto scroll-px-4 border-b px-4 py-1.5 sm:px-7 sm:py-2"
+  aria-label="Settings sections"
+>
+  <div class="bg-foreground/5 mr-4 flex shrink-0 items-center gap-1 rounded-full p-1 sm:mr-0">
     {#each TABS as tab (tab.id)}
       {@const isActive = tab.id === activeTab}
       <button

@@ -349,52 +349,65 @@
     </div>
   {/if}
 
-  <!-- Filter chips -->
-  <div class="border-border flex flex-wrap items-center gap-2 border-b px-4 py-3 md:px-6">
-    <button
-      type="button"
-      onclick={() => (lyricsOnly = !lyricsOnly)}
-      class={cn(
-        'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors',
-        lyricsOnly
-          ? 'border-foreground/15 bg-muted text-foreground'
-          : 'border-border text-muted-foreground hover:text-foreground'
-      )}
+  <!-- Filter chips. One row on every width: the chips scroll sideways on a phone
+       rather than wrapping the toolbar onto three lines (which cost a third of
+       the screen before the first track), and the long summary collapses to a
+       bare "shown of total" count that still answers "did my search match?". -->
+  <div class="border-border flex items-center gap-2 border-b px-4 py-2 md:px-6 md:py-3">
+    <div
+      class="no-scrollbar flex min-w-0 flex-1 items-center gap-2 overflow-x-auto md:flex-wrap md:overflow-visible"
     >
-      <FileText class="size-3" />
-      With lyrics
-    </button>
-
-    {#if spotifyCount > 0}
       <button
         type="button"
-        onclick={toggleSpotifyOnly}
-        aria-pressed={spotifyOnly}
-        title="Only tracks your Spotify liked songs / playlists asked for, newest save first"
+        onclick={() => (lyricsOnly = !lyricsOnly)}
         class={cn(
-          'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors',
-          spotifyOnly
+          'flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] whitespace-nowrap transition-colors',
+          lyricsOnly
             ? 'border-foreground/15 bg-muted text-foreground'
             : 'border-border text-muted-foreground hover:text-foreground'
         )}
       >
-        <Music2 class="size-3" />
-        From Spotify
-        <span class="text-muted-foreground font-mono text-[10px]">{spotifyCount.toLocaleString()}</span>
+        <FileText class="size-3" />
+        With lyrics
       </button>
-    {/if}
 
-    <span class="text-muted-foreground ml-auto text-[11px]">
-      Showing {sorted.length.toLocaleString()} of {songs.length.toLocaleString()} ·
-      {formatFileSize(stats.totalBytes)} · {formatTotalDuration(stats.totalSec)} · sorted by {SORT_LABELS[
-        sortKey
-      ]}
-      {sortDir === 'asc' ? '↑' : '↓'}
+      {#if spotifyCount > 0}
+        <button
+          type="button"
+          onclick={toggleSpotifyOnly}
+          aria-pressed={spotifyOnly}
+          title="Only tracks your Spotify liked songs / playlists asked for, newest save first"
+          class={cn(
+            'flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] whitespace-nowrap transition-colors',
+            spotifyOnly
+              ? 'border-foreground/15 bg-muted text-foreground'
+              : 'border-border text-muted-foreground hover:text-foreground'
+          )}
+        >
+          <Music2 class="size-3" />
+          From Spotify
+          <span class="text-muted-foreground font-mono text-[10px]">{spotifyCount.toLocaleString()}</span>
+        </button>
+      {/if}
+
+      <span class="text-muted-foreground ml-auto hidden text-[11px] whitespace-nowrap md:inline">
+        Showing {sorted.length.toLocaleString()} of {songs.length.toLocaleString()} ·
+        {formatFileSize(stats.totalBytes)} · {formatTotalDuration(stats.totalSec)} · sorted by {SORT_LABELS[
+          sortKey
+        ]}
+        {sortDir === 'asc' ? '↑' : '↓'}
+      </span>
+    </div>
+
+    <span class="text-muted-foreground shrink-0 text-[11px] tabular-nums md:hidden">
+      {sorted.length.toLocaleString()} / {songs.length.toLocaleString()}
     </span>
 
     {#if hideHeading}
       <!-- No header band, so the title-bar actions live here instead. -->
-      {@render headerActions()}
+      <div class="flex shrink-0 items-center gap-2">
+        {@render headerActions()}
+      </div>
     {/if}
   </div>
 
