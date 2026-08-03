@@ -286,6 +286,38 @@ public class YeTrackerEnrichmentProviderTests
         Assert.Null(matched.Result.Artists);
     }
 
+    // --- artist allowlist ---
+
+    [Theory]
+    [InlineData("Yeat")]                  // the real regression: "Yeat, EsDeeKid" got a YeTracker match
+    [InlineData("Yeat, EsDeeKid")]
+    [InlineData("Yeat & Drake")]
+    [InlineData("Yebba")]
+    [InlineData("Yeule")]
+    [InlineData("Yeah Yeah Yeahs")]
+    [InlineData("Ye Ali")]
+    public void CanHandle_ArtistMerelyContainingYe_IsFalse(string artist)
+    {
+        // FuzzyTextMatch.Ratio is a weighted ratio: against the two-letter alias "Ye" every one of
+        // these scores 90 (partial-ratio fallback), clearing the 85 threshold. Short allowlist
+        // entries must therefore match exactly — otherwise the tracker not only enriches an
+        // unrelated artist, it also stamps the song as unreleased.
+        var provider = Create();
+        Assert.False(provider.CanHandle(Song(artist: artist, title: "Made It On Our Own")));
+    }
+
+    [Theory]
+    [InlineData("Ye, Ty Dolla $ign")]
+    [InlineData("Kanye West, Ty Dolla $ign")]
+    [InlineData("Kanye West & Jay-Z")]
+    [InlineData("Ye feat. Charlie Wilson")]
+    [InlineData("Kanyé West")]
+    public void CanHandle_KanyeCollaborations_AreTrue(string artist)
+    {
+        var provider = Create();
+        Assert.True(provider.CanHandle(Song(artist: artist, title: "Famous")));
+    }
+
     // --- helpers ---
 
     /// <summary>A yetracker-shaped candidate: no length (most leaks have none) unless given one.</summary>

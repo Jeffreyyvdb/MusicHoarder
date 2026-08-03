@@ -54,6 +54,28 @@ public class YeTrackerAlbumTracklistProviderTests
         Assert.Null(await provider.FetchAsync(Query("Taylor Swift", "Yandhi")));
     }
 
+    [Theory]
+    [InlineData("Yeat")]
+    [InlineData("Yebba")]
+    [InlineData("Yeah Yeah Yeahs")]
+    public async Task ArtistMerelyContainingYe_IsNotAnswered(string albumArtist)
+    {
+        // Same trap as the enrichment gate: a plain fuzzy ratio scores 90 for the two-letter "Ye"
+        // alias against any name containing those letters, which would staple Ye's running order
+        // onto an unrelated artist's album.
+        var provider = Create(Tracklist("Yandhi", "Yandhi", [(1, "Alien"), (2, "Chakras")]));
+
+        Assert.Null(await provider.FetchAsync(Query(albumArtist, "Yandhi")));
+    }
+
+    [Fact]
+    public async Task KanyeCollaboration_StillOpensTheGate()
+    {
+        var provider = Create(Tracklist("Yandhi", "Yandhi", [(1, "Alien"), (2, "Chakras")]));
+
+        Assert.NotNull(await provider.FetchAsync(Query("Ye, Ty Dolla $ign", "Yandhi")));
+    }
+
     [Fact]
     public async Task UnknownAlbum_ReturnsNull()
     {

@@ -32,7 +32,11 @@ public abstract partial class CommunityTrackerEnrichmentProvider(
     public abstract string Name { get; }
     public abstract int Priority { get; }
 
-    /// <summary>Artist names/aliases this tracker covers; the gate opens only on a fuzzy match.</summary>
+    /// <summary>
+    /// Artist names/aliases this tracker covers. The gate opens on a fuzzy match against the credit
+    /// or any credited artist — except for entries shorter than
+    /// <see cref="TrackerArtistAllowlist.MinFuzzyEntryLength"/>, which must match exactly.
+    /// </summary>
     protected abstract IReadOnlyList<string> ArtistAllowlist { get; }
 
     protected MusicEnricherOptions Options => options.Value;
@@ -132,18 +136,7 @@ public abstract partial class CommunityTrackerEnrichmentProvider(
     }
 
     private bool MatchesArtistAllowlist(string? artist)
-    {
-        if (string.IsNullOrWhiteSpace(artist))
-            return false;
-
-        foreach (var allowed in ArtistAllowlist)
-        {
-            if (FuzzyTextMatch.Ratio(artist, allowed) is double ratio && ratio >= Options.IdentityArtistThreshold)
-                return true;
-        }
-
-        return false;
-    }
+        => TrackerArtistAllowlist.Matches(artist, ArtistAllowlist, Options.IdentityArtistThreshold);
 
     private EnrichmentProviderResult BuildResult(
         SongMetadata song,

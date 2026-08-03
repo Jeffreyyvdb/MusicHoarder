@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Options;
-using MusicHoarder.Api.Matching;
+using MusicHoarder.Api.Enrichment.Providers;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -46,19 +46,12 @@ public sealed class YeTrackerAlbumTracklistProvider(
         return Task.FromResult<AlbumTracklistCandidate?>(candidate);
     }
 
+    /// <summary>
+    /// Same gate as the enrichment provider, via the shared <see cref="TrackerArtistAllowlist"/> —
+    /// a plain fuzzy ratio here would let the two-letter "Ye" alias answer for Yeat, Yebba and
+    /// Yeule, attaching Ye's running order to their albums.
+    /// </summary>
     private bool MatchesArtistAllowlist(string? artist)
-    {
-        if (string.IsNullOrWhiteSpace(artist))
-            return false;
-
-        foreach (var allowed in options.Value.YeTrackerArtistAllowlist)
-        {
-            if (FuzzyTextMatch.Ratio(artist, allowed) is double ratio
-                && ratio >= options.Value.IdentityArtistThreshold)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
+        => TrackerArtistAllowlist.Matches(
+            artist, options.Value.YeTrackerArtistAllowlist, options.Value.IdentityArtistThreshold);
 }
