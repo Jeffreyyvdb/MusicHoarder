@@ -101,9 +101,12 @@ public class TrackSyncProcessor(
             }
 
             var extension = Path.GetExtension(filePath).ToLowerInvariant();
+            // The upload artifact's byte size rides along so the remote can spot a stale/corrupted
+            // managed copy of the same fingerprint (PresentDifferentBytes → re-upload heals it).
             var check = await pushClient.CheckAsync(new SyncCheckRequest(
                 song.Fingerprint, song.AcoustIdTrackId, song.MusicBrainzId,
-                song.Artist, song.Title, song.DurationMs, extension, song.Bitrate), ct);
+                song.Artist, song.Title, song.DurationMs, extension, song.Bitrate,
+                new FileInfo(filePath).Length), ct);
             if (check is null)
                 throw new InvalidOperationException("sync check returned no body");
 

@@ -174,6 +174,64 @@ public class TrackSyncProcessorTests : IDisposable
         Assert.Empty(await db.TrackSyncStates.ToListAsync());
     }
 
+    [Fact]
+    public async Task Process_CheckCarriesUploadFileByteSize()
+    {
+        await using var db = CreateDbContext();
+        db.Songs.Add(BuiltSong(1, fingerprint: "FP1", destinationPath: MakeTempFile())); // 32 bytes on disk
+        await db.SaveChangesAsync();
+        var client = new FakePushClient
+        {
+            CheckResult = new SyncCheckResponse(SyncVerdict.PresentSameOrBetter, 42, 400_900, "fingerprint"),
+        };
+
+        await CreateProcessor(db, client).ProcessSongAsync(1, default);
+
+        // The remote compares this against its managed copy to spot stale bytes.
+        Assert.Equal(32, client.LastCheckRequest!.FileSizeBytes);
+    }
+
+    [Fact]
+    public async Task Process_RemoteDifferentBytes_ReUploadsAndMarksSynced()
+    {
+        // PresentDifferentBytes = the remote holds this fingerprint but with the wrong bytes
+        // (stale/corrupted managed copy) — treat like a missing track and re-upload.
+        await using var db = CreateDbContext();
+        db.Songs.Add(BuiltSong(1, fingerprint: "FP1", destinationPath: MakeTempFile()));
+        await db.SaveChangesAsync();
+        var client = new FakePushClient
+        {
+            CheckResult = new SyncCheckResponse(SyncVerdict.PresentDifferentBytes, 42, 400_900, "fingerprint"),
+            UploadResult = new SyncUploadResponse(SyncUploadOutcome.Replaced, 42, 400_900),
+        };
+
+        await CreateProcessor(db, client).ProcessSongAsync(1, default);
+
+        Assert.Equal(1, client.Uploads);
+        var state = await db.TrackSyncStates.SingleAsync();
+        Assert.Equal(TrackSyncStatus.Synced, state.Status);
+        Assert.Equal(42, state.RemoteSongId);
+    }
+
+    [Fact]
+    public async Task Requeue_ReArmsSettledRow_AndSweepPicksItUp()
+    {
+        await using var db = CreateDbContext();
+        db.Songs.Add(BuiltSong(1, fingerprint: "FP"));
+        var state = SyncedState(1, "FP"); // fingerprint unchanged → the sweep would never re-arm this
+        db.TrackSyncStates.Add(state);
+        await db.SaveChangesAsync();
+
+        var before = await CreateProcessor(db, new FakePushClient()).FindSweepCandidatesAsync(100, default);
+        Assert.Empty(before);
+
+        state.Requeue();
+        await db.SaveChangesAsync();
+
+        var after = await CreateProcessor(db, new FakePushClient()).FindSweepCandidatesAsync(100, default);
+        Assert.Equal([1], after);
+    }
+
     // ── Like propagation ────────────────────────────────────────────────────
 
     [Fact]
@@ -364,6 +422,7 @@ public class TrackSyncProcessorTests : IDisposable
         public Exception? Throw { get; set; }
         public int Checks { get; private set; }
         public int Uploads { get; private set; }
+        public SyncCheckRequest? LastCheckRequest { get; private set; }
         public string? LastUploadedFile { get; private set; }
         public SyncTrackPayload? LastUploadedPayload { get; private set; }
         public List<SyncLikeRequest> LikePushes { get; } = [];
@@ -371,6 +430,7 @@ public class TrackSyncProcessorTests : IDisposable
         public Task<SyncCheckResponse?> CheckAsync(SyncCheckRequest request, CancellationToken ct)
         {
             Checks++;
+            LastCheckRequest = request;
             if (Throw is not null) throw Throw;
             return Task.FromResult(CheckResult);
         }
