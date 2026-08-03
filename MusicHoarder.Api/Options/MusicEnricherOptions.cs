@@ -425,6 +425,32 @@ public class MusicEnricherOptions
     [Range(0.0, 1.0)]
     public double TrackerMatchedThreshold { get; set; } = 0.85;
 
+    /// <summary>
+    /// Skip tracker candidates the tracker itself says have never leaked ("Confirmed", "Rumored").
+    /// Those entries document a song's existence, not a circulating file — so a file on disk can
+    /// never legitimately be one, and leaving them in the pool is pure false-positive surface.
+    /// </summary>
+    public bool TrackerSkipUnobtainable { get; set; } = true;
+
+    /// <summary>
+    /// Confidence added when the file's <c>[Vn]</c> marker equals the candidate's version. Same-title
+    /// versions tie on title score, so this (with the duration tiebreak) is what picks the right one.
+    /// </summary>
+    [Range(0.0, 1.0)]
+    public double TrackerVersionMatchBonus { get; set; } = 0.05;
+
+    /// <summary>Confidence multiplier when the file and candidate both carry a <c>[Vn]</c> marker and they disagree.</summary>
+    [Range(0.0, 1.0)]
+    public double TrackerVersionMismatchPenalty { get; set; } = 0.75;
+
+    /// <summary>
+    /// Minimum fuzzy ratio (0–100) for a tracker "OG filename" to stand in for a title match. Leaks
+    /// usually circulate under that filename, so for an untagged file it's often the only real signal —
+    /// but it's a weaker identity than a title, so it has to be near-exact.
+    /// </summary>
+    [Range(0.0, 100.0)]
+    public double TrackerOgFilenameMinRatio { get; set; } = 90.0;
+
     // --- Kanye West "yetracker" community tracker (local JSON catalog, no API) ---
 
     /// <summary>
