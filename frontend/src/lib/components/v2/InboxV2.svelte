@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { cn } from '$lib/utils';
+  import { cn, scrollStripToActive } from '$lib/utils';
   import InboxTagReviewV2 from './inbox/InboxTagReviewV2.svelte';
   import InboxDuplicatesV2 from './inbox/InboxDuplicatesV2.svelte';
   import InboxArtistsV2 from './inbox/InboxArtistsV2.svelte';
@@ -38,6 +38,18 @@
     void goto(url.pathname + url.search, { replaceState: true, noScroll: true, keepFocus: true });
   }
 
+  // The queue strip overflows on a phone, so keep the active queue in view.
+  let tabScroller = $state<HTMLElement | null>(null);
+  $effect(() => {
+    const el = tabScroller;
+    void tab;
+    if (!el) return;
+    const frame = requestAnimationFrame(() =>
+      scrollStripToActive(el, el.querySelector<HTMLElement>('[data-active]'))
+    );
+    return () => cancelAnimationFrame(frame);
+  });
+
   // Live per-tab counts reported up by each subtab (null while loading).
   let counts = $state<Record<TabId, number | null>>({
     review: null,
@@ -63,7 +75,7 @@
 </script>
 
 <!-- Header -->
-<header class="border-border flex shrink-0 items-end justify-between gap-4 border-b px-4 py-4 sm:px-7 sm:py-5">
+<header class="border-border flex shrink-0 items-end justify-between gap-4 border-b px-4 py-3 sm:px-7 sm:py-5">
   <div class="min-w-0">
     <h1 class="text-xl font-semibold tracking-tight sm:text-2xl">Inbox</h1>
     <p class="text-muted-foreground mt-1 max-w-2xl text-[13px]">
@@ -77,8 +89,12 @@
 
 <!-- Subtabs — Apple-style segmented control, matching the section sub-nav and
      the song-panel tabs (one tab idiom app-wide). -->
-<nav class="no-scrollbar border-border flex shrink-0 items-center overflow-x-auto border-b px-4 py-2 sm:px-7" aria-label="Inbox queues">
-  <div class="bg-foreground/5 flex shrink-0 items-center gap-1 rounded-full p-1">
+<nav
+  bind:this={tabScroller}
+  class="no-scrollbar border-border flex shrink-0 items-center overflow-x-auto scroll-px-4 border-b px-4 py-1.5 sm:px-7 sm:py-2"
+  aria-label="Inbox queues"
+>
+  <div class="bg-foreground/5 mr-4 flex shrink-0 items-center gap-1 rounded-full p-1 sm:mr-0">
     {#each TABS as t (t.id)}
       {@const isActive = t.id === tab}
       {@const count = counts[t.id]}
