@@ -28,6 +28,7 @@ public static class WebApplicationExtensions
         app.MapDuplicatesEndpoints();
         app.MapArtistDedupEndpoints();
         app.MapAlbumDedupEndpoints();
+        app.MapDedupActionsEndpoints();
         app.MapSharesEndpoints();
         app.MapAlbumsEndpoints();
         app.MapQualityEndpoints();
