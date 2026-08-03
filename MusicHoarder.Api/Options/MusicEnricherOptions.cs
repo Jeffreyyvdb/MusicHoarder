@@ -582,6 +582,40 @@ public class MusicEnricherOptions
     public int LyricsBackfillConcurrency { get; set; } = 4;
 
     /// <summary>
+    /// LRCLIB is a community database that keeps growing, but a song's lyrics outcome is otherwise
+    /// recorded once and never revisited: a track that 404'd stays <see cref="LyricsStatus.NotFound"/>
+    /// forever, and one that only had unsynced lyrics stays <see cref="LyricsStatus.Fetched"/> even
+    /// after someone contributes an LRC. This sweep re-queries those two cases (plus failed fetches) on
+    /// an exponential backoff and re-tags any already-built file that gains lyrics. Gated by
+    /// <see cref="AutoStartPipeline"/> like the other sweeps. Set false to disable. Default on.
+    /// </summary>
+    public bool EnableLyricsRecheckSweep { get; set; } = true;
+
+    /// <summary>
+    /// Delay before the *first* lyrics re-check; each further attempt doubles it, capped by
+    /// <see cref="LyricsRecheckMaxCooldownDays"/> (see <c>SongMetadata.ComputeLyricsRecheckDelayDays</c>).
+    /// Lyrics get contributed to LRCLIB over weeks, not minutes, so this is deliberately coarse.
+    /// Default 7 days.
+    /// </summary>
+    [Range(1, 365)]
+    public int LyricsRecheckCooldownDays { get; set; } = 7;
+
+    /// <summary>
+    /// Ceiling on the backoff above, so a song whose lyrics LRCLIB will probably never carry still gets
+    /// an occasional look instead of drifting to a decade-long interval. Default 90 days.
+    /// </summary>
+    [Range(1, 3650)]
+    public int LyricsRecheckMaxCooldownDays { get; set; } = 90;
+
+    /// <summary>
+    /// Maximum songs re-checked per sweep pass. Kept well below <see cref="LyricsBackfillBatchSize"/>:
+    /// re-checks are speculative (most return the same "no lyrics" answer), so they should never crowd
+    /// out first-time fetches or hammer LRCLIB. Default 50.
+    /// </summary>
+    [Range(1, 5000)]
+    public int LyricsRecheckBatchSize { get; set; } = 50;
+
+    /// <summary>
     /// Harmonize album-identity tags (release id, album name, year, disc count, compilation, release
     /// types, album-artist mbids) across all tracks that build into the same destination album folder,
     /// so a single on-disk album isn't split by a server's MusicBrainz-release grouping key (e.g.
