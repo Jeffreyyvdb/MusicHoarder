@@ -555,7 +555,10 @@ public static class SongsEndpoints
         });
     }
 
-    private static async Task<IResult> ResetEnrichmentBatch(EnrichmentResetRequest request, MusicHoarderDbContext db)
+    internal static async Task<IResult> ResetEnrichmentBatch(
+        EnrichmentResetRequest request,
+        MusicHoarderDbContext db,
+        EnrichmentPipelineChannel channel)
     {
         var target = request.Target?.Trim().ToLowerInvariant();
 
@@ -572,11 +575,18 @@ public static class SongsEndpoints
         if (query is null)
             return Results.BadRequest(new { message = "Invalid target. Use all|pending|matched|needsReview|failed." });
 
-        var songs = await query.ToListAsync();
+        // ProviderAttempts must be loaded: ResetEnrichment clears the collection, and on an
+        // unloaded navigation that Clear() is a silent no-op that leaves every attempt row behind.
+        var songs = await query.Include(s => s.ProviderAttempts).ToListAsync();
         foreach (var song in songs)
             song.ResetEnrichment(request.RestoreOriginalMetadata);
 
         await db.SaveChangesAsync();
+
+        // Nothing else enqueues a Pending song: the retry sweep only picks up songs whose provider
+        // attempts have come off cooldown, and the pending backfill runs on startup. Without this the
+        // reset rows sit in Pending — out of the destination library and out of every review queue.
+        channel.EnqueueRange(songs.Select(s => s.Id), $"Reset — {target}");
 
         return Results.Ok(new
         {
@@ -586,9 +596,17 @@ public static class SongsEndpoints
         });
     }
 
-    private static async Task<IResult> ResetSongEnrichment(int id, MusicHoarderDbContext db, bool restoreOriginalMetadata = true, bool force = false)
+    internal static async Task<IResult> ResetSongEnrichment(
+        int id,
+        MusicHoarderDbContext db,
+        EnrichmentPipelineChannel channel,
+        bool restoreOriginalMetadata = true,
+        bool force = false)
     {
-        var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id);
+        // ProviderAttempts must be loaded — see ResetEnrichmentBatch.
+        var song = await db.Songs
+            .Include(s => s.ProviderAttempts)
+            .FirstOrDefaultAsync(s => s.Id == id);
         if (song is null)
             return Results.NotFound(new { message = $"Song with id {id} not found." });
 
@@ -605,6 +623,9 @@ public static class SongsEndpoints
 
         await db.SaveChangesAsync();
 
+        // Queue it now — see ResetEnrichmentBatch for why nothing else will.
+        channel.Enqueue(song.Id, $"Reset — {song.FileName}");
+
         return Results.Ok(new
         {
             song.Id,
@@ -613,7 +634,7 @@ public static class SongsEndpoints
             song.LibraryBuildStatus,
             song.IsManuallyApproved,
             RestoredOriginalMetadata = restoreOriginalMetadata && song.OriginalMetadataCaptured,
-            Message = "Song enrichment has been reset. It will be re-enriched in the next enrichment cycle."
+            Message = "Song enrichment has been reset and queued for re-enrichment."
         });
     }
 

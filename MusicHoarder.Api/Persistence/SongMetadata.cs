@@ -741,6 +741,21 @@ public class SongMetadata
         ManuallyApprovedAtUtc = null;
     }
 
+    /// <summary>
+    /// Puts the song back to <see cref="EnrichmentStatus.Pending"/> and drops every enrichment-derived
+    /// value, including the <see cref="ProviderAttempts"/> that decide which providers re-run.
+    /// <para>
+    /// <b>Callers must load the song with <c>.Include(s =&gt; s.ProviderAttempts)</c>.</b> On an unloaded
+    /// navigation the <c>Clear()</c> below is a silent no-op: the attempt rows survive, the orchestrator
+    /// skips every provider that already has a Matched attempt (and every NoMatch/Failed one still on
+    /// cooldown), and the song can sit in Pending — invisible in the destination library — until its
+    /// cooldowns elapse.
+    /// </para>
+    /// <para>
+    /// Resetting only makes the song <i>eligible</i> for enrichment; it does not queue it. Callers
+    /// outside the sweeps must also enqueue it on <see cref="Enrichment.EnrichmentPipelineChannel"/>.
+    /// </para>
+    /// </summary>
     public void ResetEnrichment(bool restoreOriginal = true, bool force = false)
     {
         // Honor a manual-approval lock unless explicitly forced (e.g. an "unlock & reset" action).
