@@ -1,23 +1,11 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
-  import { signInAsDemo } from '$lib/api-client';
   import { Button } from '$lib/components/ui/button';
   import CommandBlock from '$lib/components/landing/CommandBlock.svelte';
+  import { createPrimaryCta } from '$lib/components/landing/cta.svelte';
   import { githubUrl, installCommand } from '$lib/components/landing/landing-demo-data';
   import { ExternalLink } from '@lucide/svelte';
 
-  let launching = $state(false);
-
-  async function startDemo() {
-    if (launching) return;
-    launching = true;
-    try {
-      await signInAsDemo();
-      await goto('/pipeline');
-    } catch {
-      await goto('/login');
-    }
-  }
+  const cta = createPrimaryCta({ signedOutLabel: 'Try the live demo' });
 </script>
 
 <section id="get-started" class="relative mx-auto max-w-[1280px] scroll-mt-8 px-6 py-14 md:px-14">
@@ -49,7 +37,7 @@
     />
 
     <div class="mt-7 flex flex-wrap justify-center gap-3">
-      <Button size="lg" onclick={startDemo} disabled={launching}>Try the live demo</Button>
+      <Button size="lg" onclick={cta.activate} disabled={cta.busy}>{cta.label}</Button>
       <Button
         size="lg"
         variant="outline"

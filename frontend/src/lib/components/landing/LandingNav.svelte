@@ -1,24 +1,16 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { goto } from '$app/navigation';
-  import { signInAsDemo } from '$lib/api-client';
   import { Button } from '$lib/components/ui/button';
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
+  import { createPrimaryCta } from '$lib/components/landing/cta.svelte';
 
   const version = $derived(page.data.appVersion as string | null | undefined);
+  const signedIn = $derived(Boolean(page.data.sessionRole));
 
-  let launching = $state(false);
-
-  async function startDemo() {
-    if (launching) return;
-    launching = true;
-    try {
-      await signInAsDemo();
-      await goto('/pipeline');
-    } catch {
-      await goto('/login');
-    }
-  }
+  const cta = createPrimaryCta({
+    signedOutLabel: 'Try the live demo',
+    shortSignedOutLabel: 'Live demo'
+  });
 </script>
 
 <nav class="mx-auto flex max-w-[1280px] items-center justify-between px-4 py-6 md:px-14">
@@ -84,22 +76,24 @@
       GitHub
     </a>
     <ThemeToggle />
+    {#if !signedIn}
+      <Button
+        variant="ghost"
+        size="sm"
+        href="/login"
+        class="h-10 px-3 md:h-7 md:px-2.5"
+      >
+        Sign in
+      </Button>
+    {/if}
     <Button
-      variant="ghost"
       size="sm"
-      href="/login"
+      onclick={cta.activate}
+      disabled={cta.busy}
       class="h-10 px-3 md:h-7 md:px-2.5"
     >
-      Sign in
-    </Button>
-    <Button
-      size="sm"
-      onclick={startDemo}
-      disabled={launching}
-      class="h-10 px-3 md:h-7 md:px-2.5"
-    >
-      <span class="sm:hidden">Live demo</span>
-      <span class="hidden sm:inline">Try the live demo</span>
+      <span class="sm:hidden">{cta.shortLabel}</span>
+      <span class="hidden sm:inline">{cta.label}</span>
     </Button>
   </div>
 </nav>
