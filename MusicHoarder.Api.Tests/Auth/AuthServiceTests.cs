@@ -101,6 +101,36 @@ public class AuthServiceTests
     }
 
     [Fact]
+    public async Task CreateDeviceSession_creates_separate_session_for_user()
+    {
+        var (svc, ctx) = MakeService();
+        var web = await svc.StartDemoSessionAsync(null, null, default);
+        Assert.NotNull(web);
+
+        var device = await svc.CreateDeviceSessionAsync(WellKnownUsers.DemoId, "2.2.2.2", "ios-app", default);
+
+        Assert.NotNull(device);
+        Assert.NotEqual(web!.Id, device!.Id);
+        await using var db = ctx();
+        var stored = await db.Sessions.FirstAsync(s => s.Id == device.Id);
+        Assert.Equal(WellKnownUsers.DemoId, stored.UserId);
+        Assert.Equal("ios-app", stored.UserAgent);
+        Assert.True(stored.ExpiresAtUtc > DateTime.UtcNow);
+    }
+
+    [Fact]
+    public async Task CreateDeviceSession_unknown_user_returns_null()
+    {
+        var (svc, ctx) = MakeService();
+
+        var device = await svc.CreateDeviceSessionAsync(Guid.NewGuid(), null, null, default);
+
+        Assert.Null(device);
+        await using var db = ctx();
+        Assert.Empty(await db.Sessions.ToListAsync());
+    }
+
+    [Fact]
     public async Task Revoke_invalidates_session()
     {
         var (svc, ctx) = MakeService();
