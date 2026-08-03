@@ -125,6 +125,8 @@ public class DestinationPathResolverTests
     [Fact]
     public void ResolvePath_WithMissingArtistAndTitle_UsesFallbacks()
     {
+        // A missing title falls back to the source file name's stem — NOT a shared "Unknown Title"
+        // (which would collide every titleless track of an album onto one destination path).
         var resolver = CreateResolver();
         var song = CreateSong(
             artist: "  ",
@@ -137,7 +139,49 @@ public class DestinationPathResolverTests
         var path = resolver.ResolvePath(song);
 
         Assert.Equal(
-            Path.Combine(DestinationRoot, "Unknown Artist", "Test Album", "Unknown Title.mp3"),
+            Path.Combine(DestinationRoot, "Unknown Artist", "Test Album", "song.mp3"),
+            path);
+    }
+
+    [Fact]
+    public void ResolvePath_TitlelessTracksWithDistinctFileNames_ResolveToDistinctPaths()
+    {
+        // Regression: untagged tracker files (no title, no track number) built via
+        // EnableBuildNeedsReview must not all collapse onto ".../Unknown Title.mp3" — that shared
+        // path made each build silently overwrite the previous track's file and pushed the
+        // meaningless "Unknown Title" name through instance sync.
+        var resolver = CreateResolver();
+        var first = CreateSong(
+            artist: "Juice WRLD", albumArtist: "Juice WRLD", album: "Affliction (sessions)",
+            title: null, year: 2016, trackNumber: null);
+        first.FileName = "2MININHELL Pt. 2 (Lose Me).mp3";
+        var second = CreateSong(
+            artist: "Juice WRLD", albumArtist: "Juice WRLD", album: "Affliction (sessions)",
+            title: null, year: 2016, trackNumber: null);
+        second.FileName = "Fuck It Up (feat. King Jefe).mp3";
+
+        var firstPath = resolver.ResolvePath(first);
+        var secondPath = resolver.ResolvePath(second);
+
+        Assert.Equal(
+            Path.Combine(DestinationRoot, "Juice WRLD", "2016 - Affliction (sessions)", "2MININHELL Pt. 2 (Lose Me).mp3"),
+            firstPath);
+        Assert.NotEqual(firstPath, secondPath);
+    }
+
+    [Fact]
+    public void ResolvePath_TitlelessTrackWithUnusableFileName_FallsBackToUnknownTitle()
+    {
+        var resolver = CreateResolver();
+        var song = CreateSong(
+            artist: "Artist", albumArtist: null, album: "Album",
+            title: "   ", year: null, trackNumber: null);
+        song.FileName = "???.mp3"; // sanitizes to an empty stem
+
+        var path = resolver.ResolvePath(song);
+
+        Assert.Equal(
+            Path.Combine(DestinationRoot, "Artist", "Album", "Unknown Title.mp3"),
             path);
     }
 

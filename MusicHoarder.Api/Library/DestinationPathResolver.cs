@@ -32,7 +32,7 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
     {
         ArgumentNullException.ThrowIfNull(song);
 
-        var title = NormalizeSegment(song.Title, "Unknown Title");
+        var title = NormalizeSegment(song.Title, TitleFallback(song));
         var extension = NormalizeExtension(song.Extension);
 
         // Album-identity fields come from the elected identity when present, else the song itself.
@@ -92,6 +92,19 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
         }
 
         return cleaned;
+    }
+
+    /// <summary>
+    /// A track can reach the build with no title at all (untagged tracker/unreleased files stay
+    /// NeedsReview and are built via EnableBuildNeedsReview). A shared "Unknown Title" name would
+    /// make every such track of an album folder resolve to the SAME destination path, silently
+    /// overwriting each other's files — so fall back to the source file name's stem, the one piece
+    /// of identity an untagged file always carries. "Unknown Title" remains the last resort only.
+    /// </summary>
+    private static string TitleFallback(SongMetadata song)
+    {
+        var stem = Sanitize(Path.GetFileNameWithoutExtension(song.FileName));
+        return string.IsNullOrWhiteSpace(stem) ? "Unknown Title" : stem;
     }
 
     private static string NormalizeSegment(string? value, string fallback)

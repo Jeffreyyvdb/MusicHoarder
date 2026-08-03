@@ -116,6 +116,50 @@ public class SyncIngestServiceTests : IDisposable
         Assert.Equal(SyncVerdict.PresentSameOrBetter, sameOrBetter.Verdict);
     }
 
+    [Fact]
+    public async Task Check_SameFingerprintDifferentBytes_ManagedRow_ReturnsPresentDifferentBytes()
+    {
+        // Same fingerprint + same quality but different byte size on a MANAGED synced row means the
+        // local copy is stale/corrupted (the shared-destination-path bug shipped one file's bytes
+        // under many songs' metadata) — ask the pusher to re-upload.
+        await using var db = CreateDbContext();
+        var managed = Song(1, $"{syncedDir.Replace('\\', '/')}/Artist/track [aaaa].flac",
+            extension: ".flac", bitrate: 900, fingerprint: "FP1");
+        db.Songs.Add(managed); // FileSizeBytes = 1000
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var differentBytes = await service.CheckAsync(
+            new SyncCheckRequest("FP1", null, null, null, null, null, ".flac", 900, FileSizeBytes: 2222), default);
+        Assert.Equal(SyncVerdict.PresentDifferentBytes, differentBytes.Verdict);
+        Assert.Equal(1, differentBytes.SongId);
+
+        var sameBytes = await service.CheckAsync(
+            new SyncCheckRequest("FP1", null, null, null, null, null, ".flac", 900, FileSizeBytes: 1000), default);
+        Assert.Equal(SyncVerdict.PresentSameOrBetter, sameBytes.Verdict);
+
+        // An older pusher that doesn't send the size keeps the pre-repair behavior.
+        var noSize = await service.CheckAsync(
+            new SyncCheckRequest("FP1", null, null, null, null, null, ".flac", 900), default);
+        Assert.Equal(SyncVerdict.PresentSameOrBetter, noSize.Verdict);
+    }
+
+    [Fact]
+    public async Task Check_DifferentBytes_UnmanagedRow_StaysSameOrBetter()
+    {
+        // A locally-scanned original legitimately differs in size from the pusher's artifact
+        // (different encode of the same audio) — sync must never "repair" those away.
+        await using var db = CreateDbContext();
+        db.Songs.Add(Song(1, "/lib/a.flac", extension: ".flac", bitrate: 900, fingerprint: "FP1"));
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var response = await service.CheckAsync(
+            new SyncCheckRequest("FP1", null, null, null, null, null, ".flac", 900, FileSizeBytes: 2222), default);
+
+        Assert.Equal(SyncVerdict.PresentSameOrBetter, response.Verdict);
+    }
+
     // ── Upload: create ──────────────────────────────────────────────────────
 
     [Fact]
@@ -207,6 +251,33 @@ public class SyncIngestServiceTests : IDisposable
         Assert.Null(song.DestinationPath);
         Assert.Equal("/dest/Old Artist/song.opus", song.PreviousDestinationPath);
         Assert.True(File.Exists(song.SourcePath));
+    }
+
+    [Fact]
+    public async Task Ingest_SameFingerprintDifferentBytes_ManagedRow_ReplacesInPlace()
+    {
+        // The upload-side twin of the PresentDifferentBytes verdict: equal quality would normally
+        // skip as identical, but a managed synced row whose bytes diverged gets replaced in place —
+        // new file (named from the pushed FileName), old managed file deleted, same row id.
+        await using var db = CreateDbContext();
+        var oldManagedPath = Path.Combine(syncedDir, "Artist", "Unknown Title [aaaa].flac");
+        Directory.CreateDirectory(Path.GetDirectoryName(oldManagedPath)!);
+        await File.WriteAllBytesAsync(oldManagedPath, new byte[16]);
+        var managed = Song(9, oldManagedPath.Replace('\\', '/'), extension: ".flac", bitrate: 900, fingerprint: "FP1");
+        db.Songs.Add(managed); // FileSizeBytes = 1000 ≠ payload's 64
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var response = await service.IngestAsync(
+            Payload(fingerprint: "FP1", extension: ".flac", bitrate: 900, fileSizeBytes: 64), Bytes(64), default);
+
+        Assert.Equal(SyncUploadOutcome.Replaced, response.Outcome);
+        Assert.Equal(9, response.SongId);
+        var song = await db.Songs.IgnoreQueryFilters().SingleAsync();
+        Assert.False(File.Exists(oldManagedPath));
+        Assert.True(File.Exists(song.SourcePath));
+        Assert.StartsWith("Some Artist - Some Song", song.FileName);
+        Assert.Equal(64, song.FileSizeBytes);
     }
 
     [Fact]
@@ -330,11 +401,12 @@ public class SyncIngestServiceTests : IDisposable
 
     private static SyncTrackPayload Payload(
         string? fingerprint = null, string? acoustId = null, string? mbid = null,
-        string extension = ".flac", int? bitrate = 900, DateTime? likedAtUtc = null)
+        string extension = ".flac", int? bitrate = 900, DateTime? likedAtUtc = null,
+        long fileSizeBytes = 128)
         => new(
             FileName: "Some Artist - Some Song" + extension,
             Extension: extension,
-            FileSizeBytes: 128,
+            FileSizeBytes: fileSizeBytes,
             Bitrate: bitrate,
             DurationSeconds: 200,
             DurationMs: 200_000,

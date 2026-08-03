@@ -16,13 +16,25 @@ public sealed record SyncCheckRequest(
     string? Title,
     int? DurationMs,
     string Extension,
-    int? Bitrate);
+    int? Bitrate,
+    // Byte size of the file the pusher would upload. Optional so an older pusher (no field) keeps
+    // the pre-repair behavior. Lets the receiver detect that its managed copy holds different bytes
+    // than the pusher's artifact for the same fingerprint (a stale/corrupted synced file) and ask
+    // for a re-upload even when quality scores tie.
+    long? FileSizeBytes = null);
 
 public enum SyncVerdict
 {
     NotPresent = 0,
     PresentLowerQuality = 1,
     PresentSameOrBetter = 2,
+
+    /// <summary>
+    /// The remote holds this exact track (same fingerprint) at the same quality, but its managed
+    /// synced file has a different byte size than the pusher's artifact — the copy is stale or
+    /// corrupted and should be re-uploaded (replace-in-place).
+    /// </summary>
+    PresentDifferentBytes = 3,
 }
 
 public sealed record SyncCheckResponse(

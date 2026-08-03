@@ -31,6 +31,9 @@ public static class SyncEndpoints
         m2m.MapPost("/like", Like);
 
         group.MapGet("/status", Status).RequireOwner();
+        group.MapPost("/requeue", Requeue)
+            .WithSummary("Re-arm every settled outbox row (Synced/SkippedRemoteBetter/Failed) so the push sweep re-verifies each track against the remote. Tracks the remote already holds just re-check; missing or byte-different remote copies re-upload.")
+            .RequireOwner();
     }
 
     private static async Task<IResult> Like(
@@ -123,6 +126,33 @@ public static class SyncEndpoints
         await using var stream = file.OpenReadStream();
         var response = await ingest.IngestAsync(payload, stream, ct);
         return Results.Ok(response);
+    }
+
+    /// <summary>
+    /// Push-side maintenance: flips every settled outbox row back to Pending. The sweep then runs
+    /// each track through check → (upload) again, which is how remote copies that went missing or
+    /// stale (e.g. the shared-"Unknown Title"-destination bug pushed one file's bytes under many
+    /// songs' metadata) get healed — the byte-size probe answers PresentDifferentBytes and the
+    /// re-upload replaces the remote file in place.
+    /// </summary>
+    internal static async Task<IResult> Requeue(
+        IOptionsMonitor<SyncOptions> options, MusicHoarderDbContext db, CancellationToken ct)
+    {
+        if (options.CurrentValue.Mode != SyncMode.Push)
+            return Results.Conflict(new { message = "Sync requeue only applies to a push-mode instance." });
+
+        // The per-user query filter scopes rows to the calling owner. Loop instead of ExecuteUpdate:
+        // the volume is small (one row per built track) and the InMemory test provider lacks bulk ops.
+        var rows = await db.TrackSyncStates
+            .Where(s => s.Status == TrackSyncStatus.Synced
+                || s.Status == TrackSyncStatus.SkippedRemoteBetter
+                || s.Status == TrackSyncStatus.Failed)
+            .ToListAsync(ct);
+        foreach (var row in rows)
+            row.Requeue();
+        await db.SaveChangesAsync(ct);
+
+        return Results.Accepted("/api/sync/status", new { requeued = rows.Count });
     }
 
     private static async Task<IResult> Status(

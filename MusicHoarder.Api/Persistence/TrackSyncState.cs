@@ -97,6 +97,20 @@ public class TrackSyncState
         UpdatedAtUtc = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Manual re-verify: back to Pending so the sweep re-checks this track against the remote.
+    /// Cheap for tracks the remote already holds (check → skip) — only tracks whose remote copy is
+    /// missing or holds different bytes (see <c>SyncVerdict.PresentDifferentBytes</c>) re-upload.
+    /// </summary>
+    public void Requeue()
+    {
+        Status = TrackSyncStatus.Pending;
+        Attempts = 0;
+        NextAttemptAtUtc = null;
+        LastError = null;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
     /// <summary>True when the sweep may hand this row to the worker again.</summary>
     public bool IsRetryable(int maxAttempts) =>
         Status == TrackSyncStatus.Failed

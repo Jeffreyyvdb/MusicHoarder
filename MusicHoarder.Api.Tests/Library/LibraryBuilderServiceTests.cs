@@ -1094,6 +1094,110 @@ public class LibraryBuilderServiceTests
         Assert.Empty(tagWriter.Paths);                                       // never attempted a tag write
     }
 
+    [Fact]
+    public async Task ProcessNextBatchAsync_CrossBatchPathCollision_DifferentTitles_FailsBoundedWithoutOverwriting()
+    {
+        // A titleless candidate resolving (via its file-name fallback) onto a path a DIFFERENT
+        // already-built song holds must neither overwrite that file nor mark itself Done pointing at
+        // the other song's bytes — it fails bounded (visible + attempts-capped).
+        var occupantDestination = "/dest/Artist/2026 - Album/Track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            ["/source/a/occupant.mp3"] = new("AAAAA"),
+            [occupantDestination] = new("AAAAA"),
+            ["/source/b/Track.mp3"] = new("BBBBBBB"),
+        });
+
+        await using var db = CreateDbContext();
+        var occupant = CreateMatchedSong("/source/a/occupant.mp3", 5, title: "Track", libraryBuildStatus: LibraryBuildStatus.Done);
+        occupant.TrackNumber = null;
+        occupant.DestinationPath = occupantDestination;
+        var candidate = CreateMatchedSong("/source/b/Track.mp3", 7);
+        candidate.Title = null;
+        candidate.TrackNumber = null;
+        db.Songs.AddRange(occupant, candidate);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter());
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        var storedCandidate = await db.Songs.SingleAsync(s => s.Id == candidate.Id);
+        var storedOccupant = await db.Songs.SingleAsync(s => s.Id == occupant.Id);
+        Assert.Equal(LibraryBuildStatus.Failed, storedCandidate.LibraryBuildStatus);
+        Assert.Contains("collision", storedCandidate.LibraryBuildError, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, storedCandidate.LibraryBuildAttempts);
+        Assert.False(storedCandidate.IsDuplicate);
+        Assert.Equal(LibraryBuildStatus.Done, storedOccupant.LibraryBuildStatus);
+        Assert.Equal("AAAAA", fileSystem.File.ReadAllText(occupantDestination));
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_CrossBatchPathCollision_SameTitle_RetiresCandidateAsDuplicate()
+    {
+        // Same title on the occupied path == the same recording acquired twice; the already-built
+        // (same-or-better) copy keeps the file and the candidate retires as its duplicate. No track
+        // numbers, so the position guard can't be the thing catching this.
+        var occupantDestination = "/dest/Artist/2026 - Album/Track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            ["/source/a/occupant.mp3"] = new("AAAAAAAAAA"),
+            [occupantDestination] = new("AAAAAAAAAA"),
+            ["/source/b/other.mp3"] = new("BBBBB"),
+        });
+
+        await using var db = CreateDbContext();
+        var occupant = CreateMatchedSong("/source/a/occupant.mp3", 10, title: "Track", libraryBuildStatus: LibraryBuildStatus.Done);
+        occupant.TrackNumber = null;
+        occupant.DestinationPath = occupantDestination;
+        var candidate = CreateMatchedSong("/source/b/other.mp3", 5, title: "Track");
+        candidate.TrackNumber = null;
+        db.Songs.AddRange(occupant, candidate);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter());
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        var storedCandidate = await db.Songs.SingleAsync(s => s.Id == candidate.Id);
+        var storedOccupant = await db.Songs.SingleAsync(s => s.Id == occupant.Id);
+        Assert.True(storedCandidate.IsDuplicate);
+        Assert.Equal(occupant.Id, storedCandidate.DuplicateOfId);
+        Assert.False(storedOccupant.IsDuplicate);
+        Assert.Equal("AAAAAAAAAA", fileSystem.File.ReadAllText(occupantDestination));
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_CrossBatchPathCollision_BetterCandidate_RetiresOccupantAndBuilds()
+    {
+        var occupantDestination = "/dest/Artist/2026 - Album/Track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            ["/source/a/occupant.mp3"] = new("AAAAA"),
+            [occupantDestination] = new("AAAAA"),
+            ["/source/b/other.mp3"] = new("BBBBBBBBBB"),
+        });
+
+        await using var db = CreateDbContext();
+        var occupant = CreateMatchedSong("/source/a/occupant.mp3", 5, title: "Track", libraryBuildStatus: LibraryBuildStatus.Done);
+        occupant.TrackNumber = null;
+        occupant.DestinationPath = occupantDestination;
+        var candidate = CreateMatchedSong("/source/b/other.mp3", 10, title: "Track");
+        candidate.TrackNumber = null;
+        db.Songs.AddRange(occupant, candidate);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter());
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        var storedCandidate = await db.Songs.SingleAsync(s => s.Id == candidate.Id);
+        var storedOccupant = await db.Songs.SingleAsync(s => s.Id == occupant.Id);
+        Assert.Equal(1, result.Done);
+        Assert.Equal(LibraryBuildStatus.Done, storedCandidate.LibraryBuildStatus);
+        Assert.Equal(occupantDestination, storedCandidate.DestinationPath);
+        Assert.True(storedOccupant.IsDuplicate);
+        Assert.Equal(candidate.Id, storedOccupant.DuplicateOfId);
+        Assert.Equal("BBBBBBBBBB", fileSystem.File.ReadAllText(occupantDestination));
+    }
+
     private static LibraryBuilderService CreateService(
         MusicHoarderDbContext db,
         IFileSystem fileSystem,

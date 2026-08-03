@@ -463,6 +463,8 @@ public class LibraryBuilderService(
                 await db.SaveChangesAsync(ct);
             }
 
+            pathDeduped = await ApplyCrossBatchPathGuardAsync(db, pathDeduped, ct);
+
             candidates = await ApplyPositionGuardAsync(db, pathDeduped, ct);
         }
 
@@ -551,6 +553,102 @@ public class LibraryBuilderService(
         metrics.RecordTerminal("build_failed", failed);
 
         return new LibraryBuildBatchResult(candidates.Count, done, failed, duration);
+    }
+
+    // The in-batch path grouping above can only see THIS batch: a candidate can equally resolve to a
+    // path a DIFFERENT live row already holds from an earlier run (classically two files whose names
+    // sanitize to the same segment). Without this guard ProcessTrackAsync either silently overwrites
+    // that row's file in place, or — when the byte sizes happen to match — skips the copy and marks the
+    // candidate Done pointing at the other song's bytes. Same-title occupants are the same recording
+    // acquired twice: the better copy keeps the file, the other row retires as its duplicate (terminal,
+    // so the pending-work poll agrees). A different-title collision is a bounded build failure — visible
+    // in the UI, and the attempts cap keeps the sweep from re-selecting it forever.
+    private async Task<List<(SongMetadata Song, string DestinationPath, string FolderKey, AlbumIdentity? Identity)>> ApplyCrossBatchPathGuardAsync(
+        MusicHoarderDbContext db,
+        List<(SongMetadata Song, string DestinationPath, string FolderKey, AlbumIdentity? Identity)> candidates,
+        CancellationToken ct)
+    {
+        if (candidates.Count == 0)
+            return candidates;
+
+        var resolvedPaths = candidates.Select(c => c.DestinationPath).ToList();
+        var batchIds = candidates.Select(c => c.Song.Id).ToHashSet();
+        var occupants = (await db.Songs
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic && !s.IsDuplicate
+                    && s.DestinationPath != null && resolvedPaths.Contains(s.DestinationPath))
+                .ToListAsync(ct))
+            .Where(s => !batchIds.Contains(s.Id))
+            .GroupBy(s => s.DestinationPath!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g
+                .OrderByDescending(IDuplicateDetectionService.QualityScore)
+                .ThenByDescending(s => s.FileSizeBytes)
+                .ThenBy(s => s.Id)
+                .First(), StringComparer.Ordinal);
+        if (occupants.Count == 0)
+            return candidates;
+
+        var titleThreshold = options.Value.IdentityTitleThreshold;
+        var survivors = new List<(SongMetadata Song, string DestinationPath, string FolderKey, AlbumIdentity? Identity)>();
+        var retiredDuplicates = new Dictionary<int, int>(); // retiring row id -> winner id
+        var collisionFailures = new Dictionary<int, string>();
+        foreach (var candidate in candidates)
+        {
+            if (!occupants.TryGetValue(candidate.DestinationPath, out var occupant))
+            {
+                survivors.Add(candidate);
+                continue;
+            }
+
+            if (candidate.Song.OwnerUserId == occupant.OwnerUserId
+                && TitlesMatch(candidate.Song.Title, occupant.Title, titleThreshold))
+            {
+                var candidateWins =
+                    IDuplicateDetectionService.QualityScore(candidate.Song) > IDuplicateDetectionService.QualityScore(occupant)
+                    || (IDuplicateDetectionService.QualityScore(candidate.Song) == IDuplicateDetectionService.QualityScore(occupant)
+                        && candidate.Song.FileSizeBytes > occupant.FileSizeBytes);
+                if (candidateWins)
+                {
+                    retiredDuplicates[occupant.Id] = candidate.Song.Id;
+                    survivors.Add(candidate);
+                }
+                else
+                {
+                    retiredDuplicates[candidate.Song.Id] = occupant.Id;
+                }
+                continue;
+            }
+
+            collisionFailures[candidate.Song.Id] =
+                $"Destination path collision: song {occupant.Id} already holds {candidate.DestinationPath}";
+            logger.LogWarning(
+                "Failing song {SongId} this run: song {OccupantId} already built {DestinationPath} and the titles don't match",
+                candidate.Song.Id, occupant.Id, candidate.DestinationPath);
+        }
+
+        if (retiredDuplicates.Count > 0 || collisionFailures.Count > 0)
+        {
+            var affectedIds = retiredDuplicates.Keys.Concat(collisionFailures.Keys).ToList();
+            var rows = await db.Songs.IgnoreQueryFilters().Where(s => affectedIds.Contains(s.Id)).ToListAsync(ct);
+            foreach (var row in rows)
+            {
+                if (retiredDuplicates.TryGetValue(row.Id, out var winnerId))
+                {
+                    logger.LogInformation(
+                        "Flagging song {SongId} as duplicate of {WinnerId}: both resolve to the same already-built destination path",
+                        row.Id, winnerId);
+                    row.MarkAsDuplicate(winnerId);
+                }
+                else
+                {
+                    row.MarkBuildFailed(collisionFailures[row.Id]);
+                }
+            }
+            await db.SaveChangesAsync(ct);
+        }
+
+        return survivors;
     }
 
     // A destination album folder can hold only one file per (disc, track) position — a re-encode of an

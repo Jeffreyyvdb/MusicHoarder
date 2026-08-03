@@ -46,7 +46,9 @@ public sealed class SyncIngestService(
         var candidateScore = AudioQuality.Score(request.Extension, request.Bitrate);
         var verdict = candidateScore > remoteScore
             ? SyncVerdict.PresentLowerQuality
-            : SyncVerdict.PresentSameOrBetter;
+            : NeedsByteRepair(existing, request.Fingerprint, request.FileSizeBytes)
+                ? SyncVerdict.PresentDifferentBytes
+                : SyncVerdict.PresentSameOrBetter;
         return new SyncCheckResponse(verdict, existing.Id, remoteScore, matchedBy);
     }
 
@@ -62,7 +64,11 @@ public sealed class SyncIngestService(
         if (existing is not null)
         {
             var existingScore = AudioQuality.Score(existing);
-            if (candidateScore <= existingScore)
+            // A same-or-better local copy normally wins — EXCEPT when the local copy is a managed
+            // synced file whose bytes no longer match the pusher's artifact for the same fingerprint
+            // (stale/corrupted): then the pusher is authoritative and the upload replaces in place.
+            if (candidateScore <= existingScore
+                && !NeedsByteRepair(existing, payload.Fingerprint, payload.FileSizeBytes))
             {
                 var identical = !string.IsNullOrEmpty(payload.Fingerprint)
                     && string.Equals(existing.Fingerprint, payload.Fingerprint, StringComparison.Ordinal);
@@ -134,6 +140,31 @@ public sealed class SyncIngestService(
             request.LikedAtUtc is not null, existing.Id, LogSanitizer.ForLog(request.Artist),
             LogSanitizer.ForLog(request.Title), matchedBy);
         return new SyncLikeResponse(Matched: true, SongId: existing.Id);
+    }
+
+    /// <summary>
+    /// True when the local row holds the SAME track (equal fingerprint) but its managed synced file
+    /// has different bytes than what the pusher would send — the historical shared-destination-path
+    /// bug shipped one file's bytes under many songs' metadata, and this is how those rows heal:
+    /// the pusher re-checks (see the push-side requeue), the size mismatch surfaces, and the upload
+    /// replaces the file in place. Restricted to rows whose source lives under
+    /// <see cref="SyncOptions.SyncedSourceDirectory"/> — locally-scanned originals are never
+    /// repaired away by sync (a different encode of the same fingerprint legitimately differs in size).
+    /// </summary>
+    private bool NeedsByteRepair(SongMetadata existing, string? fingerprint, long? fileSizeBytes)
+    {
+        if (fileSizeBytes is not > 0 || string.IsNullOrEmpty(fingerprint))
+            return false;
+        if (!string.Equals(existing.Fingerprint, fingerprint, StringComparison.Ordinal))
+            return false;
+        if (existing.FileSizeBytes == fileSizeBytes.Value)
+            return false;
+
+        var managedDir = options.CurrentValue.SyncedSourceDirectory;
+        if (string.IsNullOrWhiteSpace(managedDir))
+            return false;
+        var managedRoot = NormalizePath(managedDir).TrimEnd('/') + "/";
+        return NormalizePath(existing.SourcePath).StartsWith(managedRoot, StringComparison.Ordinal);
     }
 
     /// <summary>
