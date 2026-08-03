@@ -317,6 +317,25 @@ public class SongMetadata
     public bool? IsInstrumental { get; set; }
     public LyricsStatus LyricsStatus { get; set; } = LyricsStatus.NotFetched;
 
+    /// <summary>When LRCLIB was last queried for this song (any outcome). Diagnostics only.</summary>
+    public DateTime? LyricsLastAttemptedAtUtc { get; set; }
+
+    /// <summary>
+    /// How many times LRCLIB has been queried for this song. Drives the exponential backoff between
+    /// re-checks so a track LRCLIB genuinely doesn't carry is asked about ever more rarely.
+    /// </summary>
+    public int LyricsFetchAttempts { get; set; }
+
+    /// <summary>
+    /// When this song may be re-queried against LRCLIB, or null when it never should be. LRCLIB is a
+    /// community database that grows over time: a track that 404'd (or that only had unsynced lyrics)
+    /// when we first asked may have gained an LRC since, and nothing else in the pipeline would ever
+    /// ask again — the backfill sweep only covers <see cref="LyricsStatus.NotFetched"/>. Set by
+    /// <see cref="ScheduleLyricsRecheck"/> on every attempt; the SQL mirror of the eligibility rule
+    /// lives in <c>EnrichmentQueries.WhereReadyForLyricsRecheck</c>.
+    /// </summary>
+    public DateTime? LyricsNextRecheckAfterUtc { get; set; }
+
     // --- AI lyrics transcription (experimental; stored SEPARATELY from the LRCLIB lyrics above) ---
     //
     // An AI transcription of the song's audio (OpenAI whisper-1) kept apart from SyncedLyrics/PlainLyrics
@@ -990,6 +1009,89 @@ public class SongMetadata
         LyricsStatus = LyricsStatus.Failed;
     }
 
+    // --- Lyrics re-check (LRCLIB grows over time) ---
+
+    /// <summary>
+    /// True when a *later* LRCLIB query could still improve this song's lyrics: it 404'd, the fetch
+    /// errored, or it returned unsynced lyrics only and an LRC may have been contributed since.
+    /// Songs confirmed instrumental, songs that already have synced lyrics, and songs still at
+    /// <see cref="LyricsStatus.NotFetched"/> (owned by the backfill sweep, which fetches immediately
+    /// rather than after a cooldown) are deliberately excluded.
+    /// </summary>
+    public bool IsLyricsRecheckCandidate =>
+        !IsDeleted
+        && (EnrichmentStatus == EnrichmentStatus.Matched || EnrichmentStatus == EnrichmentStatus.NeedsReview)
+        && !string.IsNullOrWhiteSpace(Title)
+        && !string.IsNullOrWhiteSpace(Artist)
+        && (LyricsStatus == LyricsStatus.NotFound
+            || LyricsStatus == LyricsStatus.Failed
+            || (LyricsStatus == LyricsStatus.Fetched && string.IsNullOrWhiteSpace(SyncedLyrics)));
+
+    /// <summary>
+    /// Records a completed LRCLIB attempt and schedules the next one. The delay doubles per attempt
+    /// (<see cref="ComputeLyricsRecheckDelayDays"/>) so a track LRCLIB genuinely doesn't carry is asked
+    /// about ever more rarely instead of forever on a fixed interval — LRCLIB is a free community
+    /// service. Clears the schedule outright once the outcome is terminal (synced lyrics or
+    /// instrumental), so a resolved song never queues again.
+    /// </summary>
+    public void RecordLyricsAttempt(DateTime nowUtc, int baseCooldownDays, int maxCooldownDays)
+    {
+        LyricsLastAttemptedAtUtc = nowUtc;
+        LyricsFetchAttempts++;
+        LyricsNextRecheckAfterUtc = IsLyricsRecheckCandidate
+            ? nowUtc.AddDays(ComputeLyricsRecheckDelayDays(LyricsFetchAttempts, baseCooldownDays, maxCooldownDays))
+            : null;
+    }
+
+    /// <summary>
+    /// Exponential backoff for lyrics re-checks: <c>base * 2^(attempts-1)</c>, capped at <paramref name="maxCooldownDays"/>.
+    /// The shift is bounded before it is applied so a long-lived song can't overflow the exponent.
+    /// </summary>
+    public static int ComputeLyricsRecheckDelayDays(int attempts, int baseCooldownDays, int maxCooldownDays)
+    {
+        if (maxCooldownDays < baseCooldownDays)
+            maxCooldownDays = baseCooldownDays;
+
+        var exponent = Math.Clamp(attempts - 1, 0, 20);
+        var delay = (long)baseCooldownDays << exponent;
+        return (int)Math.Min(delay, maxCooldownDays);
+    }
+
+    /// <summary>
+    /// Applies an LRCLIB re-check result, but only when it is strictly better than what is already
+    /// stored — returning true when it was applied. A re-check must never *lose* lyrics: LRCLIB search
+    /// results shift over time, so a later query returning nothing (or a bare instrumental flag) for a
+    /// song we already have plain lyrics for is treated as noise and ignored rather than clearing them.
+    /// Anything that would leave the song unchanged returns false so the caller skips the re-tag.
+    /// </summary>
+    public bool TryApplyLyricsUpgrade(string? syncedLyrics, string? plainLyrics, bool instrumental, int? lrclibId = null)
+    {
+        // Already the best outcome LRCLIB can give us — nothing to upgrade.
+        if (!string.IsNullOrWhiteSpace(SyncedLyrics))
+            return false;
+
+        var hasPlain = !string.IsNullOrWhiteSpace(PlainLyrics);
+
+        if (instrumental)
+        {
+            // Only trust an instrumental verdict when we're not holding real lyrics for the track.
+            if (hasPlain)
+                return false;
+
+            ApplyLyricsResult(null, null, true, lrclibId);
+            return true;
+        }
+
+        var gainedSynced = !string.IsNullOrWhiteSpace(syncedLyrics);
+        var gainedPlain = !hasPlain && !string.IsNullOrWhiteSpace(plainLyrics);
+        if (!gainedSynced && !gainedPlain)
+            return false;
+
+        // Keep the plain lyrics we already have if this response carried only the synced form.
+        ApplyLyricsResult(syncedLyrics, plainLyrics ?? PlainLyrics, false, lrclibId);
+        return true;
+    }
+
     public void ResetLyrics()
     {
         LyricsStatus = LyricsStatus.NotFetched;
@@ -997,6 +1099,11 @@ public class SongMetadata
         PlainLyrics = null;
         IsInstrumental = null;
         LrclibId = null;
+        // Back to NotFetched means the backfill sweep fetches immediately, so the re-check backoff
+        // starts from scratch rather than inheriting the old song's cooldown.
+        LyricsLastAttemptedAtUtc = null;
+        LyricsFetchAttempts = 0;
+        LyricsNextRecheckAfterUtc = null;
         // The pronunciation/translation was generated from these lyrics — resetting them makes it stale.
         ResetLyricsTranslation();
     }

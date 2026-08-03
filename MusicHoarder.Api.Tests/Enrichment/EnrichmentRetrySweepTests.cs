@@ -447,6 +447,76 @@ public class EnrichmentRetrySweepTests
         Assert.Empty(orchestrator.FetchedSongIds);
     }
 
+    [Fact]
+    public async Task LyricsRecheck_PicksUpImprovableOutcomesOnly()
+    {
+        await using var db = CreateDb();
+        // Improvable: LRCLIB may have gained lyrics (or an LRC) since these resolved.
+        var notFound = AddSong(db, EnrichmentStatus.Matched);
+        notFound.LyricsStatus = LyricsStatus.NotFound;
+        var failed = AddSong(db, EnrichmentStatus.Matched);
+        failed.LyricsStatus = LyricsStatus.Failed;
+        var plainOnly = AddSong(db, EnrichmentStatus.NeedsReview);
+        plainOnly.LyricsStatus = LyricsStatus.Fetched;
+        plainOnly.PlainLyrics = "a line";
+
+        // Terminal or owned by another sweep.
+        var synced = AddSong(db, EnrichmentStatus.Matched);
+        synced.LyricsStatus = LyricsStatus.Fetched;
+        synced.SyncedLyrics = "[00:01.00] a line";
+        var instrumental = AddSong(db, EnrichmentStatus.Matched);
+        instrumental.LyricsStatus = LyricsStatus.Instrumental;
+        var neverFetched = AddSong(db, EnrichmentStatus.Matched);   // backfill sweep's job
+        var demo = AddSong(db, EnrichmentStatus.Matched, owner: MusicHoarder.Api.Auth.WellKnownUsers.DemoId);
+        demo.LyricsStatus = LyricsStatus.NotFound;
+        await db.SaveChangesAsync();
+
+        var orchestrator = new RecordingOrchestrator();
+        var service = CreateService(db, orchestrator);
+
+        await service.RecheckStaleLyricsAsync(CancellationToken.None);
+
+        Assert.Equal(
+            new[] { notFound.Id, failed.Id, plainOnly.Id }.OrderBy(x => x),
+            orchestrator.RecheckedSongIds.OrderBy(x => x));
+    }
+
+    [Fact]
+    public async Task LyricsRecheck_SkipsSongsStillWithinTheirBackoff()
+    {
+        await using var db = CreateDb();
+        var due = AddSong(db, EnrichmentStatus.Matched);
+        due.LyricsStatus = LyricsStatus.NotFound;
+        due.LyricsNextRecheckAfterUtc = DateTime.UtcNow.AddMinutes(-1);
+        var notDue = AddSong(db, EnrichmentStatus.Matched);
+        notDue.LyricsStatus = LyricsStatus.NotFound;
+        notDue.LyricsNextRecheckAfterUtc = DateTime.UtcNow.AddDays(3);
+        await db.SaveChangesAsync();
+
+        var orchestrator = new RecordingOrchestrator();
+        var service = CreateService(db, orchestrator);
+
+        await service.RecheckStaleLyricsAsync(CancellationToken.None);
+
+        Assert.Equal([due.Id], orchestrator.RecheckedSongIds);
+    }
+
+    [Fact]
+    public async Task LyricsRecheck_Disabled_ChecksNothing()
+    {
+        await using var db = CreateDb();
+        var song = AddSong(db, EnrichmentStatus.Matched);
+        song.LyricsStatus = LyricsStatus.NotFound;
+        await db.SaveChangesAsync();
+
+        var orchestrator = new RecordingOrchestrator();
+        var service = CreateService(db, orchestrator, enableLyricsRecheck: false);
+
+        await service.RecheckStaleLyricsAsync(CancellationToken.None);
+
+        Assert.Empty(orchestrator.RecheckedSongIds);
+    }
+
     private static SongMetadata AddSong(MusicHoarderDbContext db, EnrichmentStatus status, Guid? owner = null)
     {
         var song = new SongMetadata
@@ -506,13 +576,15 @@ public class EnrichmentRetrySweepTests
     private static EnrichmentBackgroundService CreateService(
         MusicHoarderDbContext db,
         IEnrichmentOrchestrator orchestrator,
-        bool enableLyricsBackfill = true)
+        bool enableLyricsBackfill = true,
+        bool enableLyricsRecheck = true)
     {
         var opts = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
             SourceDirectory = "/source",
             DestinationDirectory = "/dest",
             EnableLyricsBackfillSweep = enableLyricsBackfill,
+            EnableLyricsRecheckSweep = enableLyricsRecheck,
         });
 
         return new EnrichmentBackgroundService(
@@ -529,7 +601,9 @@ public class EnrichmentRetrySweepTests
     private sealed class RecordingOrchestrator : IEnrichmentOrchestrator
     {
         private readonly List<int> _fetched = [];
+        private readonly List<int> _rechecked = [];
         public IReadOnlyList<int> FetchedSongIds => _fetched;
+        public IReadOnlyList<int> RecheckedSongIds => _rechecked;
 
         public Task<EnrichmentOutcome> ProcessSongAsync(int songId, CancellationToken ct = default)
             => Task.FromResult(EnrichmentOutcome.Skipped);
@@ -542,6 +616,12 @@ public class EnrichmentRetrySweepTests
             lock (_fetched) _fetched.Add(songId);
             return Task.FromResult(false);
         }
+
+        public Task<bool> RecheckLyricsForSongAsync(int songId, bool force = false, CancellationToken ct = default)
+        {
+            lock (_rechecked) _rechecked.Add(songId);
+            return Task.FromResult(false);
+        }
     }
 
     private sealed class StubOrchestrator(IReadOnlySet<EnrichmentProvider> enabled) : IEnrichmentOrchestrator
@@ -552,6 +632,9 @@ public class EnrichmentRetrySweepTests
         public Task<IReadOnlySet<EnrichmentProvider>> GetEnabledProviderEnumsAsync(CancellationToken ct = default) => Task.FromResult(enabled);
 
         public Task<bool> FetchLyricsForSongAsync(int songId, CancellationToken ct = default) => Task.FromResult(false);
+
+        public Task<bool> RecheckLyricsForSongAsync(int songId, bool force = false, CancellationToken ct = default)
+            => Task.FromResult(false);
     }
 
     private sealed class SimpleScopeFactory(MusicHoarderDbContext db) : IServiceScopeFactory

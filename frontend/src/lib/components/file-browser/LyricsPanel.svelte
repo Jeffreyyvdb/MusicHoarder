@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { LyricsStatus } from '$lib/types';
-  import { fetchTrackLyrics } from '$lib/api-client';
+  import { fetchTrackLyrics, recheckSongLyrics } from '$lib/api-client';
   import { Button } from '$lib/components/ui/button';
   import { Badge } from '$lib/components/ui/badge';
   import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
@@ -12,6 +12,7 @@
     FileText,
     Loader2,
     Music,
+    RefreshCw,
     Timer
   } from '@lucide/svelte';
   import { cn } from '$lib/utils';
@@ -87,7 +88,38 @@
     loadedSynced = syncedLyricsFromProps;
     loadedPlain = plainLyricsFromProps;
     loadState = 'idle';
+    recheckState = 'idle';
+    statusOverride = null;
   });
+
+  // --- Manual LRCLIB re-check ---
+  //
+  // LRCLIB keeps gaining lyrics, so a track that had none (or only unsynced ones) when it was
+  // enriched can have an LRC today. The background sweep picks that up on a multi-day backoff;
+  // this button is for when the user can already see the lyrics on lrclib.net. The endpoint only
+  // ever adds lyrics, so there is nothing to undo.
+  let recheckState = $state<'idle' | 'checking' | 'unchanged'>('idle');
+  let statusOverride = $state<LyricsStatus | null>(null);
+  const effectiveStatus = $derived(statusOverride ?? lyricsStatus);
+
+  async function recheckLyrics() {
+    if (songId === null || recheckState === 'checking') return;
+    recheckState = 'checking';
+    try {
+      const result = await recheckSongLyrics(songId);
+      if (!result.updated) {
+        recheckState = 'unchanged';
+        return;
+      }
+      const lyrics = await fetchTrackLyrics(songId);
+      loadedSynced = lyrics.synced ?? undefined;
+      loadedPlain = lyrics.plain ?? undefined;
+      statusOverride = result.lyricsStatus as LyricsStatus;
+      recheckState = 'idle';
+    } catch {
+      recheckState = 'unchanged';
+    }
+  }
 
   let containerEl: HTMLDivElement | undefined = $state();
 
@@ -190,6 +222,29 @@
   const showSyncedToggle = $derived(Boolean(loadedSynced) && Boolean(loadedPlain));
 </script>
 
+{#snippet recheckButton(label: string)}
+  <Button
+    variant="outline"
+    size="sm"
+    class="gap-1.5"
+    disabled={recheckState === 'checking' || songId === null}
+    onclick={recheckLyrics}
+  >
+    {#if recheckState === 'checking'}
+      <Loader2 class="size-3.5 animate-spin" />
+      Checking LRCLIB…
+    {:else}
+      <RefreshCw class="size-3.5" />
+      {label}
+    {/if}
+  </Button>
+  {#if recheckState === 'unchanged'}
+    <p class="text-muted-foreground text-xs">
+      LRCLIB still has nothing new for this track.
+    </p>
+  {/if}
+{/snippet}
+
 {#if isInstrumental}
   <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 py-8 text-center">
     <Music class="text-muted-foreground size-10 opacity-40" />
@@ -213,23 +268,24 @@
   <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 py-8 text-center">
     <FileText class="text-muted-foreground size-10 opacity-50" />
     <p class="text-muted-foreground text-sm">
-      {#if lyricsStatus === 'NotFound'}
+      {#if effectiveStatus === 'NotFound'}
         No lyrics found in LRCLIB for this track.
-      {:else if lyricsStatus === 'Failed'}
+      {:else if effectiveStatus === 'Failed'}
         Lyrics fetch encountered an error.
       {:else}
         Lyrics have not been fetched yet — they are enriched automatically after a successful
         metadata match.
       {/if}
     </p>
-    <LyricsStatusBadge status={lyricsStatus} />
+    <LyricsStatusBadge status={effectiveStatus} />
+    {@render recheckButton('Check LRCLIB again')}
   </div>
 {:else}
   <div class="flex min-h-0 flex-1 flex-col gap-3">
     {#if !theater}
     <div class="flex flex-wrap items-center justify-between gap-2">
       <div class="flex min-w-0 items-center gap-2">
-        <LyricsStatusBadge status={lyricsStatus} />
+        <LyricsStatusBadge status={effectiveStatus} />
         {#if hasSynced}
           <span
             title="Synced lyrics (LRC)"
@@ -275,6 +331,17 @@
         </Badge>
       {/if}
     </div>
+    {/if}
+
+    <!--
+      Unsynced lyrics are not a dead end: LRCLIB is community-contributed, so someone may have
+      added an LRC for this track since it was enriched. Offered in both variants — the theater
+      view is where a missing LRC is actually noticed.
+    -->
+    {#if !hasSynced}
+      <div class={cn('flex flex-wrap items-center gap-2', theater && 'justify-center px-1 sm:px-6')}>
+        {@render recheckButton('Look for synced lyrics')}
+      </div>
     {/if}
 
     <div

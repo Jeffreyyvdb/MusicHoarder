@@ -27,6 +27,10 @@ public static class SongsEndpoints
             .WithName("TranscribeLyrics")
             .WithSummary("Experimental: transcribe a song's audio via OpenAI Whisper into a synced LRC, stored separately from LRCLIB lyrics for comparison.")
             .WithTags("Lyrics");
+        app.MapPost("/songs/{id:int}/lyrics/recheck", RecheckLyrics)
+            .WithName("RecheckSongLyrics")
+            .WithSummary("Ask LRCLIB again for a song whose lyrics are missing or unsynced — LRCLIB gains lyrics over time. Ignores the automatic backoff; never clears lyrics already stored.")
+            .WithTags("Lyrics");
         app.MapPost("/songs/{id:int}/lyrics/preferred", SetPreferredLyrics)
             .WithName("SetPreferredLyrics")
             .WithSummary("Choose which lyrics (lrclib | transcribed) the synced viewer shows when both exist.")
@@ -372,6 +376,58 @@ public static class SongsEndpoints
             song.LyricsTranslatedAtUtc,
             song.LyricsTranslationModel,
             LyricsTranslationStale = song.IsLyricsTranslationStale,
+        });
+    }
+
+    /// <summary>
+    /// Manual "look again" for a song LRCLIB had nothing (or only unsynced lyrics) for when it was
+    /// enriched. The background sweep does this on a multi-day backoff; this is the escape hatch for
+    /// when the user can see the lyrics on lrclib.net right now.
+    /// </summary>
+    private static async Task<IResult> RecheckLyrics(
+        int id,
+        MusicHoarderDbContext db,
+        IEnrichmentOrchestrator orchestrator,
+        CancellationToken ct)
+    {
+        var song = await db.Songs
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null, ct);
+
+        if (song is null)
+            return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+        // A song that never had its first fetch belongs to the normal fetch path, not the re-check one.
+        var updated = song.IsReadyForLyricsFetch
+            ? await orchestrator.FetchLyricsForSongAsync(id, ct)
+            : song.IsLyricsRecheckCandidate
+                ? await orchestrator.RecheckLyricsForSongAsync(id, force: true, ct)
+                : false;
+
+        if (!updated && !song.IsReadyForLyricsFetch && !song.IsLyricsRecheckCandidate)
+        {
+            var reason = song.LyricsStatus switch
+            {
+                LyricsStatus.Instrumental => "Track is marked instrumental — LRCLIB has nothing to add.",
+                LyricsStatus.Fetched => "Track already has synced lyrics.",
+                _ => "Track is not eligible for a lyrics fetch (it needs a title, an artist, and a resolved enrichment match).",
+            };
+            return Results.UnprocessableEntity(new { message = reason });
+        }
+
+        var refreshed = await db.Songs
+            .AsNoTracking()
+            .FirstAsync(s => s.Id == id, ct);
+
+        return Results.Ok(new
+        {
+            refreshed.Id,
+            Updated = updated,
+            LyricsStatus = refreshed.LyricsStatus.ToString(),
+            HasSyncedLyrics = !string.IsNullOrWhiteSpace(refreshed.SyncedLyrics),
+            HasPlainLyrics = !string.IsNullOrWhiteSpace(refreshed.PlainLyrics),
+            refreshed.LyricsLastAttemptedAtUtc,
+            refreshed.LyricsNextRecheckAfterUtc,
         });
     }
 
