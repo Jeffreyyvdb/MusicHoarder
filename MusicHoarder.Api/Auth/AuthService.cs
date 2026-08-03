@@ -136,6 +136,23 @@ public sealed class AuthService : IAuthService
         return session;
     }
 
+    public async Task<Session?> CreateDeviceSessionAsync(Guid userId, string? ip, string? userAgent, CancellationToken ct)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+        var nowUtc = DateTime.UtcNow;
+
+        var user = await db.Users
+            .FirstOrDefaultAsync(u => u.Id == userId && !u.IsDisabled, ct)
+            .ConfigureAwait(false);
+        if (user is null) return null;
+
+        var session = CreateSession(userId, ip, userAgent, nowUtc);
+        db.Sessions.Add(session);
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        return session;
+    }
+
     public async Task<(Session Session, User User)?> ResolveSessionAsync(Guid sessionId, CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();

@@ -452,11 +452,7 @@ public static class SongsEndpoints
         if (song.IsInstrumental == true)
             return Results.UnprocessableEntity(new { message = "Track is marked instrumental — nothing to transcribe." });
 
-        // Prefer the read-only source original; fall back to the built destination copy (mirrors StreamSong).
-        var filePath =
-            (!string.IsNullOrEmpty(song.SourcePath) && File.Exists(song.SourcePath)) ? song.SourcePath :
-            (!string.IsNullOrEmpty(song.DestinationPath) && File.Exists(song.DestinationPath)) ? song.DestinationPath :
-            null;
+        var filePath = ResolveAudioFilePath(song);
 
         if (filePath is null)
             return Results.UnprocessableEntity(new
@@ -737,10 +733,14 @@ public static class SongsEndpoints
         return StreamSongFile(song);
     }
 
-    /// <summary>Prefers the source file, falls back to the built destination copy.</summary>
+    /// <summary>
+    /// Prefers the built destination copy (identical audio, but carries the corrected tags,
+    /// embedded cover and lyrics — what players should surface); falls back to the source file
+    /// for songs that haven't been built yet.
+    /// </summary>
     internal static string? ResolveAudioFilePath(SongMetadata song) =>
-        (!string.IsNullOrEmpty(song.SourcePath) && File.Exists(song.SourcePath)) ? song.SourcePath :
         (!string.IsNullOrEmpty(song.DestinationPath) && File.Exists(song.DestinationPath)) ? song.DestinationPath :
+        (!string.IsNullOrEmpty(song.SourcePath) && File.Exists(song.SourcePath)) ? song.SourcePath :
         null;
 
     /// <summary>
