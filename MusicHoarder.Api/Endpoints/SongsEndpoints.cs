@@ -27,6 +27,10 @@ public static class SongsEndpoints
             .WithName("TranscribeLyrics")
             .WithSummary("Experimental: transcribe a song's audio via OpenAI Whisper into a synced LRC, stored separately from LRCLIB lyrics for comparison.")
             .WithTags("Lyrics");
+        app.MapPost("/songs/{id:int}/lyrics/recheck", RecheckLyrics)
+            .WithName("RecheckSongLyrics")
+            .WithSummary("Ask LRCLIB again for a song whose lyrics are missing or unsynced — LRCLIB gains lyrics over time. Ignores the automatic backoff; never clears lyrics already stored.")
+            .WithTags("Lyrics");
         app.MapPost("/songs/{id:int}/lyrics/preferred", SetPreferredLyrics)
             .WithName("SetPreferredLyrics")
             .WithSummary("Choose which lyrics (lrclib | transcribed) the synced viewer shows when both exist.")
@@ -375,6 +379,58 @@ public static class SongsEndpoints
         });
     }
 
+    /// <summary>
+    /// Manual "look again" for a song LRCLIB had nothing (or only unsynced lyrics) for when it was
+    /// enriched. The background sweep does this on a multi-day backoff; this is the escape hatch for
+    /// when the user can see the lyrics on lrclib.net right now.
+    /// </summary>
+    private static async Task<IResult> RecheckLyrics(
+        int id,
+        MusicHoarderDbContext db,
+        IEnrichmentOrchestrator orchestrator,
+        CancellationToken ct)
+    {
+        var song = await db.Songs
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null, ct);
+
+        if (song is null)
+            return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+        // A song that never had its first fetch belongs to the normal fetch path, not the re-check one.
+        var updated = song.IsReadyForLyricsFetch
+            ? await orchestrator.FetchLyricsForSongAsync(id, ct)
+            : song.IsLyricsRecheckCandidate
+                ? await orchestrator.RecheckLyricsForSongAsync(id, force: true, ct)
+                : false;
+
+        if (!updated && !song.IsReadyForLyricsFetch && !song.IsLyricsRecheckCandidate)
+        {
+            var reason = song.LyricsStatus switch
+            {
+                LyricsStatus.Instrumental => "Track is marked instrumental — LRCLIB has nothing to add.",
+                LyricsStatus.Fetched => "Track already has synced lyrics.",
+                _ => "Track is not eligible for a lyrics fetch (it needs a title, an artist, and a resolved enrichment match).",
+            };
+            return Results.UnprocessableEntity(new { message = reason });
+        }
+
+        var refreshed = await db.Songs
+            .AsNoTracking()
+            .FirstAsync(s => s.Id == id, ct);
+
+        return Results.Ok(new
+        {
+            refreshed.Id,
+            Updated = updated,
+            LyricsStatus = refreshed.LyricsStatus.ToString(),
+            HasSyncedLyrics = !string.IsNullOrWhiteSpace(refreshed.SyncedLyrics),
+            HasPlainLyrics = !string.IsNullOrWhiteSpace(refreshed.PlainLyrics),
+            refreshed.LyricsLastAttemptedAtUtc,
+            refreshed.LyricsNextRecheckAfterUtc,
+        });
+    }
+
     private static async Task<IResult> TranscribeLyrics(
         int id,
         MusicHoarderDbContext db,
@@ -396,11 +452,7 @@ public static class SongsEndpoints
         if (song.IsInstrumental == true)
             return Results.UnprocessableEntity(new { message = "Track is marked instrumental — nothing to transcribe." });
 
-        // Prefer the read-only source original; fall back to the built destination copy (mirrors StreamSong).
-        var filePath =
-            (!string.IsNullOrEmpty(song.SourcePath) && File.Exists(song.SourcePath)) ? song.SourcePath :
-            (!string.IsNullOrEmpty(song.DestinationPath) && File.Exists(song.DestinationPath)) ? song.DestinationPath :
-            null;
+        var filePath = ResolveAudioFilePath(song);
 
         if (filePath is null)
             return Results.UnprocessableEntity(new
@@ -555,7 +607,10 @@ public static class SongsEndpoints
         });
     }
 
-    private static async Task<IResult> ResetEnrichmentBatch(EnrichmentResetRequest request, MusicHoarderDbContext db)
+    internal static async Task<IResult> ResetEnrichmentBatch(
+        EnrichmentResetRequest request,
+        MusicHoarderDbContext db,
+        EnrichmentPipelineChannel channel)
     {
         var target = request.Target?.Trim().ToLowerInvariant();
 
@@ -572,11 +627,18 @@ public static class SongsEndpoints
         if (query is null)
             return Results.BadRequest(new { message = "Invalid target. Use all|pending|matched|needsReview|failed." });
 
-        var songs = await query.ToListAsync();
+        // ProviderAttempts must be loaded: ResetEnrichment clears the collection, and on an
+        // unloaded navigation that Clear() is a silent no-op that leaves every attempt row behind.
+        var songs = await query.Include(s => s.ProviderAttempts).ToListAsync();
         foreach (var song in songs)
             song.ResetEnrichment(request.RestoreOriginalMetadata);
 
         await db.SaveChangesAsync();
+
+        // Nothing else enqueues a Pending song: the retry sweep only picks up songs whose provider
+        // attempts have come off cooldown, and the pending backfill runs on startup. Without this the
+        // reset rows sit in Pending — out of the destination library and out of every review queue.
+        channel.EnqueueRange(songs.Select(s => s.Id), $"Reset — {target}");
 
         return Results.Ok(new
         {
@@ -586,9 +648,17 @@ public static class SongsEndpoints
         });
     }
 
-    private static async Task<IResult> ResetSongEnrichment(int id, MusicHoarderDbContext db, bool restoreOriginalMetadata = true, bool force = false)
+    internal static async Task<IResult> ResetSongEnrichment(
+        int id,
+        MusicHoarderDbContext db,
+        EnrichmentPipelineChannel channel,
+        bool restoreOriginalMetadata = true,
+        bool force = false)
     {
-        var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id);
+        // ProviderAttempts must be loaded — see ResetEnrichmentBatch.
+        var song = await db.Songs
+            .Include(s => s.ProviderAttempts)
+            .FirstOrDefaultAsync(s => s.Id == id);
         if (song is null)
             return Results.NotFound(new { message = $"Song with id {id} not found." });
 
@@ -605,6 +675,9 @@ public static class SongsEndpoints
 
         await db.SaveChangesAsync();
 
+        // Queue it now — see ResetEnrichmentBatch for why nothing else will.
+        channel.Enqueue(song.Id, $"Reset — {song.FileName}");
+
         return Results.Ok(new
         {
             song.Id,
@@ -613,7 +686,7 @@ public static class SongsEndpoints
             song.LibraryBuildStatus,
             song.IsManuallyApproved,
             RestoredOriginalMetadata = restoreOriginalMetadata && song.OriginalMetadataCaptured,
-            Message = "Song enrichment has been reset. It will be re-enriched in the next enrichment cycle."
+            Message = "Song enrichment has been reset and queued for re-enrichment."
         });
     }
 
@@ -642,24 +715,11 @@ public static class SongsEndpoints
         if (change.AppliedAtUtc is null || change.RevertedAtUtc is not null)
             return Results.UnprocessableEntity(new { message = "Only an applied, not-yet-reverted change can be reverted." });
 
-        ApplyFieldValue(song, change.FieldName, change.OldValue);
+        SongFieldReverter.Apply(song, change.FieldName, change.OldValue);
         change.RevertedAtUtc = DateTime.UtcNow;
         await db.SaveChangesAsync();
 
         return Results.Ok(new { song.Id, change.FieldName, revertedTo = change.OldValue });
-    }
-
-    private static void ApplyFieldValue(SongMetadata song, string field, string? value)
-    {
-        switch (field)
-        {
-            case "Artist": song.Artist = value; break;
-            case "AlbumArtist": song.AlbumArtist = value; break;
-            case "Title": song.Title = value; break;
-            case "Album": song.Album = value; break;
-            case "Year": song.Year = int.TryParse(value, out var y) ? y : null; break;
-            case "TrackNumber": song.TrackNumber = int.TryParse(value, out var t) ? t : null; break;
-        }
     }
 
     internal static async Task<IResult> StreamSong(int id, MusicHoarderDbContext db)
@@ -673,10 +733,14 @@ public static class SongsEndpoints
         return StreamSongFile(song);
     }
 
-    /// <summary>Prefers the source file, falls back to the built destination copy.</summary>
+    /// <summary>
+    /// Prefers the built destination copy (identical audio, but carries the corrected tags,
+    /// embedded cover and lyrics — what players should surface); falls back to the source file
+    /// for songs that haven't been built yet.
+    /// </summary>
     internal static string? ResolveAudioFilePath(SongMetadata song) =>
-        (!string.IsNullOrEmpty(song.SourcePath) && File.Exists(song.SourcePath)) ? song.SourcePath :
         (!string.IsNullOrEmpty(song.DestinationPath) && File.Exists(song.DestinationPath)) ? song.DestinationPath :
+        (!string.IsNullOrEmpty(song.SourcePath) && File.Exists(song.SourcePath)) ? song.SourcePath :
         null;
 
     /// <summary>

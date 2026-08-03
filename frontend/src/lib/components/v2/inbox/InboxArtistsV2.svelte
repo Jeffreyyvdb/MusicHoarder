@@ -11,6 +11,7 @@
   } from '$lib/api-client';
   import { Button } from '$lib/components/ui/button';
   import { cn } from '$lib/utils';
+  import InboxDedupHistoryV2 from './InboxDedupHistoryV2.svelte';
 
   type Props = { oncount?: (n: number | null) => void };
   const { oncount }: Props = $props();
@@ -91,15 +92,18 @@
     </div>
   </div>
 {:else if total === 0}
-  <div class="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-    <span class="bg-primary/10 text-primary grid size-12 place-items-center rounded-full">
-      <Check class="size-6" />
-    </span>
-    <div class="text-[15px] font-semibold">No artist duplicates found</div>
-    <p class="text-muted-foreground max-w-sm text-[12.5px]">
-      Variant spellings of one artist ("JAY-Z" / "JAYZ") and combined credits registered as a single
-      artist ("A &amp; B") show up here with a one-click fix.
-    </p>
+  <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[calc(1rem_+_var(--mh-content-pad))] sm:px-6">
+    <div class="flex flex-col items-center gap-3 p-8 text-center">
+      <span class="bg-primary/10 text-primary grid size-12 place-items-center rounded-full">
+        <Check class="size-6" />
+      </span>
+      <div class="text-[15px] font-semibold">No artist duplicates found</div>
+      <p class="text-muted-foreground max-w-sm text-[12.5px]">
+        Variant spellings of one artist ("JAY-Z" / "JAYZ") and combined credits registered as a single
+        artist ("A &amp; B") show up here with a one-click fix.
+      </p>
+    </div>
+    <InboxDedupHistoryV2 />
   </div>
 {:else}
   <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[calc(1rem_+_var(--mh-content-pad))] sm:px-6">
@@ -202,5 +206,6 @@
         {/each}
       {/if}
     </div>
+    <InboxDedupHistoryV2 />
   </div>
 {/if}

@@ -19,6 +19,14 @@ public interface IAuthService
     /// <summary>Starts a session for the demo user (no link required — exposed publicly).</summary>
     Task<Session?> StartDemoSessionAsync(string? ip, string? userAgent, CancellationToken ct);
 
+    /// <summary>
+    /// Creates a fresh session for an already-authenticated user, used to mint bearer tokens for
+    /// native clients. A separate row from the caller's own session, so revoking the browser
+    /// session doesn't log the device out (and vice versa). Returns <c>null</c> when the user is
+    /// unknown or disabled.
+    /// </summary>
+    Task<Session?> CreateDeviceSessionAsync(Guid userId, string? ip, string? userAgent, CancellationToken ct);
+
     /// <summary>Loads + refreshes a session if needed. Returns null when not valid.</summary>
     Task<(Session Session, User User)?> ResolveSessionAsync(Guid sessionId, CancellationToken ct);
 

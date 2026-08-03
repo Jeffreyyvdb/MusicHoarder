@@ -146,6 +146,28 @@ public class SongMediaEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task StreamSong_BothExist_PrefersDestination()
+    {
+        // The built copy carries the corrected tags + embedded cover/lyrics, so players must get
+        // it over the raw source original.
+        var sourcePath = TempFile("source.mp3");
+        var destPath = TempFile("dest.mp3");
+
+        await using var db = NewContext();
+        var song = NewSong(sourcePath, "source.mp3");
+        song.DestinationPath = destPath;
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var result = await SongsEndpoints.StreamSong(song.Id, db);
+
+        var streamResult = Assert.IsType<FileStreamHttpResult>(result);
+        Assert.Equal(destPath, ((FileStream)streamResult.FileStream).Name);
+
+        await streamResult.FileStream.DisposeAsync();
+    }
+
+    [Fact]
     public async Task StreamSong_BothPathsAbsent_Returns404()
     {
         await using var db = NewContext();

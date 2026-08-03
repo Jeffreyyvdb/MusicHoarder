@@ -1495,6 +1495,27 @@ export async function fetchTrackLyrics(trackId: number): Promise<TrackLyricsResp
   return requestJson<TrackLyricsResponse>(`/api/tracks/${trackId}/lyrics`)
 }
 
+export interface RecheckLyricsResponse {
+  id: number
+  /** True when LRCLIB returned something better than what was stored (first lyrics, or an LRC). */
+  updated: boolean
+  lyricsStatus: string
+  hasSyncedLyrics: boolean
+  hasPlainLyrics: boolean
+  lyricsLastAttemptedAtUtc?: string | null
+  lyricsNextRecheckAfterUtc?: string | null
+}
+
+/**
+ * Ask LRCLIB again for a track whose lyrics are missing or unsynced. LRCLIB is community-contributed
+ * and gains lyrics over time, and the background sweep only re-checks on a multi-day backoff — this is
+ * the "I can see it on lrclib.net right now" escape hatch. It can only ever add lyrics, never remove
+ * them, and re-tags the built file when it finds something.
+ */
+export async function recheckSongLyrics(songId: number): Promise<RecheckLyricsResponse> {
+  return requestJson<RecheckLyricsResponse>(`/songs/${songId}/lyrics/recheck`, { method: "POST" })
+}
+
 /** Choose which lyrics the synced viewer shows when both an LRCLIB version and an AI transcription exist. */
 export async function setPreferredLyricsSource(
   songId: number,
@@ -2668,6 +2689,35 @@ export async function dismissAlbumDuplicates(artist: string, albumA: string, alb
   await requestJson<unknown>("/api/library/albums/dismiss", {
     method: "POST",
     body: JSON.stringify({ artist, albumA, albumB }),
+  })
+}
+
+// ── Dedup action history (merges / splits / heals, with revert) ────────────────
+
+export interface DedupAction {
+  /** artist-merge | album-merge | artist-credit-split | album-identity-heal */
+  source: string
+  createdAtUtc: string
+  /** Stable batch id for revert calls. */
+  batchTicks: number
+  songCount: number
+  changeCount: number
+  /** Human labels like `AlbumArtist → "Kanye West" (348 songs)`. */
+  highlights: string[]
+  reverted: boolean
+  revertible: boolean
+}
+
+/** Recent dedup actions, newest first (reconstructed from the metadata-change audit log). */
+export async function fetchDedupActions(): Promise<{ count: number; actions: DedupAction[] }> {
+  return requestJson("/api/library/dedup/actions")
+}
+
+/** Revert one dedup action: restores old values and re-queues built files for re-tag. */
+export async function revertDedupAction(source: string, batchTicks: number): Promise<void> {
+  await requestJson<unknown>("/api/library/dedup/actions/revert", {
+    method: "POST",
+    body: JSON.stringify({ source, batchTicks }),
   })
 }
 

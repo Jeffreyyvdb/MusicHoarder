@@ -67,6 +67,60 @@ public static class AuthEndpoints
             })
             .WithName("AuthConsume");
 
+        // Native-client variant of /consume: exchanges a magic-link token for a bearer access
+        // token instead of a cookie. The token is the same protected session id the cookie
+        // carries, so it hits the same server-side Session row (revocable, sliding lifetime).
+        group.MapPost("/token", async (
+                ConsumeBody body,
+                HttpContext ctx,
+                IAuthService authService,
+                ISessionCookieService cookieService,
+                CancellationToken ct) =>
+            {
+                if (string.IsNullOrWhiteSpace(body.Token))
+                    return Results.BadRequest(new { error = "token_required" });
+
+                var session = await authService.ConsumeLinkAsync(
+                    body.Token,
+                    ctx.Connection.RemoteIpAddress?.ToString(),
+                    ctx.Request.Headers.UserAgent.ToString(),
+                    ct);
+                if (session is null)
+                    return Results.Json(new { error = "invalid_token" }, statusCode: 400);
+
+                return Results.Ok(new AccessTokenResponse(
+                    cookieService.Protect(session.Id), "Bearer", session.ExpiresAtUtc));
+            })
+            .WithName("AuthTokenExchange");
+
+        // Mints a bearer token from an existing authenticated session (e.g. the web UI showing a
+        // QR code / copyable token to pair a device). A separate Session row, so web logout
+        // doesn't kill the device. Demo sessions never get here (DemoReadOnlyMiddleware blocks
+        // the POST).
+        group.MapPost("/device-token", async (
+                HttpContext ctx,
+                ICurrentUserAccessor accessor,
+                IAuthService authService,
+                ISessionCookieService cookieService,
+                CancellationToken ct) =>
+            {
+                var user = accessor.User;
+                if (user is null)
+                    return Results.Json(new { error = "unauthenticated" }, statusCode: 401);
+
+                var session = await authService.CreateDeviceSessionAsync(
+                    user.Id,
+                    ctx.Connection.RemoteIpAddress?.ToString(),
+                    ctx.Request.Headers.UserAgent.ToString(),
+                    ct);
+                if (session is null)
+                    return Results.Json(new { error = "user_unavailable" }, statusCode: 403);
+
+                return Results.Ok(new AccessTokenResponse(
+                    cookieService.Protect(session.Id), "Bearer", session.ExpiresAtUtc));
+            })
+            .WithName("AuthDeviceToken");
+
         group.MapPost("/demo-login", async (
                 HttpContext ctx,
                 IAuthService authService,
@@ -107,7 +161,14 @@ public static class AuthEndpoints
                 ISessionCookieService cookieService,
                 CancellationToken ct) =>
             {
-                if (ctx.Request.Cookies.TryGetValue(cookieService.CookieName, out var raw) && !string.IsNullOrEmpty(raw))
+                // Cookie (browser) or bearer token (native client) — revoke whichever carried
+                // this request's session.
+                string? raw = null;
+                if (ctx.Request.Cookies.TryGetValue(cookieService.CookieName, out var cookie) && !string.IsNullOrEmpty(cookie))
+                    raw = cookie;
+                raw ??= BearerToken.TryRead(ctx);
+
+                if (raw is not null)
                 {
                     var sessionId = cookieService.Unprotect(raw);
                     if (sessionId is not null)
@@ -152,3 +213,6 @@ public static class AuthEndpoints
 
 public sealed record RequestLinkBody(string Email);
 public sealed record ConsumeBody(string Token);
+
+/// <summary>Bearer token issued to native clients; send as <c>Authorization: Bearer …</c>.</summary>
+public sealed record AccessTokenResponse(string AccessToken, string TokenType, DateTime ExpiresAtUtc);
