@@ -1491,8 +1491,20 @@ export interface TrackLyricsResponse {
   lyricsTranslationStale?: boolean | null
 }
 
+// Opening the track panel mounts several LyricsPanel variants (card, fullscreen,
+// desktop, mobile) that each ask for the same track, so the identical in-flight
+// GETs are collapsed into one. Only in-flight requests share a promise — the
+// entry is dropped once it settles, so a re-check or a later open still refetches.
+const inFlightTrackLyrics = new Map<number, Promise<TrackLyricsResponse>>()
+
 export async function fetchTrackLyrics(trackId: number): Promise<TrackLyricsResponse> {
-  return requestJson<TrackLyricsResponse>(`/api/tracks/${trackId}/lyrics`)
+  const pending = inFlightTrackLyrics.get(trackId)
+  if (pending) return pending
+  const request = requestJson<TrackLyricsResponse>(`/api/tracks/${trackId}/lyrics`).finally(() => {
+    inFlightTrackLyrics.delete(trackId)
+  })
+  inFlightTrackLyrics.set(trackId, request)
+  return request
 }
 
 export interface RecheckLyricsResponse {
