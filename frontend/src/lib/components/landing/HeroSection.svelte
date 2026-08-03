@@ -1,22 +1,10 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
-  import { signInAsDemo } from '$lib/api-client';
   import { Button } from '$lib/components/ui/button';
   import CommandBlock from '$lib/components/landing/CommandBlock.svelte';
+  import { createPrimaryCta } from '$lib/components/landing/cta.svelte';
   import { demoHeroLog, githubUrl, installCommand } from '$lib/components/landing/landing-demo-data';
 
-  let launching = $state(false);
-
-  async function tryDemo() {
-    if (launching) return;
-    launching = true;
-    try {
-      await signInAsDemo();
-      await goto('/pipeline');
-    } catch {
-      await goto('/login');
-    }
-  }
+  const cta = createPrimaryCta({ signedOutLabel: 'Try the live demo' });
 </script>
 
 <section
@@ -52,7 +40,7 @@
     <CommandBlock text={installCommand} label="your-server : ~" class="mb-6 max-w-[560px]" />
 
     <div class="mb-6 flex flex-wrap items-center gap-3">
-      <Button size="lg" onclick={tryDemo} disabled={launching}>Try the live demo</Button>
+      <Button size="lg" onclick={cta.activate} disabled={cta.busy}>{cta.label}</Button>
       <a
         href={githubUrl}
         target="_blank"
