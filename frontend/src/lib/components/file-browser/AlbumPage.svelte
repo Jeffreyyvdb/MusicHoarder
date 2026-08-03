@@ -720,26 +720,15 @@
             )}
           >
             <span class="text-muted-foreground relative grid place-items-center text-right">
-              {#if isCurrentlyLoaded}
-                <span
-                  class={cn('mh-eq text-primary group-hover:opacity-0', isCurrentlyPlaying && 'is-playing')}
-                  aria-hidden="true"
-                >
-                  <i></i><i></i><i></i>
-                </span>
-              {:else}
-                <span class="font-mono text-sm tabular-nums transition-opacity group-hover:opacity-0">
-                  {numLabel}
-                </span>
-              {/if}
+              <!-- Button first so the index/equalizer can hide off its `peer` focus state:
+                   exactly one of the two is ever visible. -->
               <button
                 type="button"
                 onclick={(e) => playTrack(song, e)}
                 aria-label={isCurrentlyPlaying ? 'Pause track' : 'Play track'}
                 class={cn(
-                  'absolute inset-0 grid place-items-center opacity-0 transition-[opacity,scale] duration-100 ease-out group-hover:opacity-100 focus-visible:opacity-100 group-focus-within:opacity-100 active:scale-[0.97]',
-                  isCurrentlyLoaded ? 'text-primary' : 'text-foreground',
-                  isCurrentlyPlaying && 'group-hover:opacity-100'
+                  'peer absolute inset-0 grid place-items-center opacity-0 transition-[opacity,scale] duration-100 ease-out group-hover:opacity-100 focus-visible:opacity-100 active:scale-[0.97]',
+                  isCurrentlyLoaded ? 'text-primary' : 'text-foreground'
                 )}
               >
                 {#if isCurrentlyPlaying}
@@ -748,6 +737,23 @@
                   <Play class="size-4" fill="currentColor" />
                 {/if}
               </button>
+              {#if isCurrentlyLoaded}
+                <span
+                  class={cn(
+                    'mh-eq text-primary group-hover:opacity-0 peer-focus-visible:opacity-0',
+                    isCurrentlyPlaying && 'is-playing'
+                  )}
+                  aria-hidden="true"
+                >
+                  <i></i><i></i><i></i>
+                </span>
+              {:else}
+                <span
+                  class="font-mono text-sm tabular-nums transition-opacity group-hover:opacity-0 peer-focus-visible:opacity-0"
+                >
+                  {numLabel}
+                </span>
+              {/if}
             </span>
 
             <div class="min-w-0">
