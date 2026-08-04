@@ -1,8 +1,6 @@
-using FuzzySharp;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
-using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Navidrome;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -19,7 +17,6 @@ public partial class SpotifyLibraryComparisonService(
     IOptions<SpotifyOptions> spotifyOptions,
     ILogger<SpotifyLibraryComparisonService> logger) : ISpotifyLibraryComparisonService
 {
-    private const double FuzzyThreshold = 85.0;
     public const string SourceLikedSync = "liked_sync";
     public const string SourceApiPage = "api_page";
     public const string SourcePlaylistExport = "playlist_export";
@@ -58,7 +55,7 @@ public partial class SpotifyLibraryComparisonService(
             if (string.IsNullOrWhiteSpace(song.SpotifyId))
                 continue;
 
-            var (status, matched, confidence) = FindBestMatch(song, index);
+            var (status, matched, confidence) = SpotifyTrackLibraryMatcher.FindBestMatch(song, index);
             var row = ToPersistedRow(song, status, matched, confidence, source, now);
             if (existingById.TryGetValue(song.SpotifyId, out var existing))
                 CopyMatchOntoExisting(existing, row);
@@ -195,7 +192,7 @@ public partial class SpotifyLibraryComparisonService(
                 if (string.IsNullOrWhiteSpace(song.SpotifyId))
                     continue;
 
-                var (status, matched, confidence) = FindBestMatch(song, index);
+                var (status, matched, confidence) = SpotifyTrackLibraryMatcher.FindBestMatch(song, index);
                 switch (status)
                 {
                     case ComparisonMatchStatus.InLibrary: inLibrary++; break;
@@ -493,108 +490,5 @@ public partial class SpotifyLibraryComparisonService(
 
         logger.LogDebug("Loaded {Count} library tracks for comparison", tracks.Count);
         return new TrackIndex(tracks);
-    }
-
-    internal static (ComparisonMatchStatus Status, ComparisonMatchedTrack? Track, double? Confidence)
-        FindBestMatch(SpotifyTrackItem likedSong, TrackIndex index)
-    {
-        if (index.BySpotifyId.TryGetValue(likedSong.SpotifyId, out var exactMatch))
-        {
-            return (ComparisonMatchStatus.InLibrary, ToMatchedTrack(exactMatch), 1.0);
-        }
-
-        var normalizedArtist = Normalize(likedSong.Artist);
-        var normalizedTitle = Normalize(likedSong.Title);
-        var key = $"{normalizedArtist}\0{normalizedTitle}";
-
-        if (index.ByNormalizedArtistTitle.TryGetValue(key, out var normalizedMatch))
-        {
-            return (ComparisonMatchStatus.InLibrary, ToMatchedTrack(normalizedMatch), 0.95);
-        }
-
-        TrackIndexEntry? bestFuzzy = null;
-        double bestScore = 0;
-
-        foreach (var entry in index.Entries)
-        {
-            if (string.IsNullOrWhiteSpace(entry.NormalizedArtist) || string.IsNullOrWhiteSpace(entry.NormalizedTitle))
-                continue;
-
-            var artistScore = Fuzz.WeightedRatio(normalizedArtist, entry.NormalizedArtist);
-            var titleScore = Fuzz.WeightedRatio(normalizedTitle, entry.NormalizedTitle);
-
-            if (artistScore >= FuzzyThreshold && titleScore >= FuzzyThreshold)
-            {
-                var combinedScore = (artistScore + titleScore) / 200.0;
-                if (combinedScore > bestScore)
-                {
-                    bestScore = combinedScore;
-                    bestFuzzy = entry;
-                }
-            }
-        }
-
-        if (bestFuzzy is not null)
-        {
-            return (ComparisonMatchStatus.PossibleMatch, ToMatchedTrack(bestFuzzy), Math.Round(bestScore, 2));
-        }
-
-        return (ComparisonMatchStatus.NotInLibrary, null, null);
-    }
-
-    private static ComparisonMatchedTrack ToMatchedTrack(TrackIndexEntry entry) =>
-        new(entry.Id, entry.Title, entry.Artist, entry.EnrichmentStatus.ToString());
-
-    // Delegates to the shared normalizer so all providers + library comparison agree on
-    // case/punctuation/feat./diacritic handling.
-    internal static string Normalize(string? s) => TitleNormalizer.NormalizeForSearch(s);
-}
-
-internal sealed class TrackIndexEntry
-{
-    public int Id { get; }
-    public string? SpotifyId { get; }
-    public string? Artist { get; }
-    public string? Title { get; }
-    public EnrichmentStatus EnrichmentStatus { get; }
-    public string NormalizedArtist { get; }
-    public string NormalizedTitle { get; }
-
-    public TrackIndexEntry(int id, string? spotifyId, string? artist, string? title, EnrichmentStatus enrichmentStatus)
-    {
-        Id = id;
-        SpotifyId = spotifyId;
-        Artist = artist;
-        Title = title;
-        EnrichmentStatus = enrichmentStatus;
-        NormalizedArtist = SpotifyLibraryComparisonService.Normalize(artist);
-        NormalizedTitle = SpotifyLibraryComparisonService.Normalize(title);
-    }
-}
-
-internal sealed class TrackIndex
-{
-    public IReadOnlyList<TrackIndexEntry> Entries { get; }
-    public Dictionary<string, TrackIndexEntry> BySpotifyId { get; }
-    public Dictionary<string, TrackIndexEntry> ByNormalizedArtistTitle { get; }
-
-    public TrackIndex(IReadOnlyList<TrackIndexEntry> entries)
-    {
-        Entries = entries;
-
-        BySpotifyId = new Dictionary<string, TrackIndexEntry>(StringComparer.OrdinalIgnoreCase);
-        ByNormalizedArtistTitle = new Dictionary<string, TrackIndexEntry>(StringComparer.Ordinal);
-
-        foreach (var entry in entries)
-        {
-            if (!string.IsNullOrWhiteSpace(entry.SpotifyId))
-                BySpotifyId.TryAdd(entry.SpotifyId, entry);
-
-            if (!string.IsNullOrWhiteSpace(entry.NormalizedArtist) && !string.IsNullOrWhiteSpace(entry.NormalizedTitle))
-            {
-                var key = $"{entry.NormalizedArtist}\0{entry.NormalizedTitle}";
-                ByNormalizedArtistTitle.TryAdd(key, entry);
-            }
-        }
     }
 }
