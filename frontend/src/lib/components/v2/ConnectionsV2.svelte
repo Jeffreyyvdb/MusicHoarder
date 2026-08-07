@@ -16,6 +16,11 @@
     type SyncStatus
   } from '$lib/api-client';
 
+  // Every status route here is RequireOwner, which 403s a demo session even on a GET. Without
+  // this the demo shows four "Status unavailable" rows, which reads as a broken page rather than
+  // one you're simply not entitled to see.
+  let { isDemo = false }: { isDemo?: boolean } = $props();
+
   // Every integration in one place. Until now each was reported somewhere different — Spotify on
   // its own page, Soulseek and library sync buried in Settings, and Navidrome nowhere at all
   // (it had no endpoint), so a user could not tell whether their likes were syncing.
@@ -44,6 +49,7 @@
   }
 
   $effect(() => {
+    if (isDemo) return;
     void loadAll();
   });
 
@@ -77,6 +83,15 @@
 
   <ScrollArea class="min-h-0 flex-1">
     <div class="flex flex-col gap-5 px-4 py-5 sm:px-7">
+      {#if isDemo}
+        <section class="border-border bg-card rounded-lg border px-5 py-4">
+          <h2 class="text-[13px] font-semibold">Owner only</h2>
+          <p class="text-muted-foreground mt-1 text-[11.5px]">
+            Connection status reports on the server's own credentials and network reach, so it's
+            limited to the account that owns this instance. The demo can't see it.
+          </p>
+        </section>
+      {:else}
       <section class="border-border bg-card rounded-lg border">
         <div class="divide-border divide-y">
           <!-- Spotify -->
@@ -278,6 +293,7 @@
             {/each}
           </div>
         </section>
+      {/if}
       {/if}
     </div>
   </ScrollArea>
