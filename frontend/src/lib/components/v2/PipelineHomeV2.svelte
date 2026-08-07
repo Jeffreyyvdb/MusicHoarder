@@ -25,6 +25,8 @@
   } from '$lib/api-client';
   import { isBuiltSong } from '$lib/album-sections';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
+  import PipelineStepControlsV2 from '$lib/components/v2/PipelineStepControlsV2.svelte';
+  import PipelineStuckCardV2 from '$lib/components/v2/PipelineStuckCardV2.svelte';
   import { cn } from '$lib/utils';
 
   // The demo account is read-only — hide the mutating Rescan control (the backend rejects it
@@ -692,6 +694,12 @@
         {/if}
       </div>
     </section>
+
+    <!-- Step control + stuck counts — the machinery the conveyor above visualises. Kept in
+         their own components so this file doesn't keep growing. -->
+    <PipelineStepControlsV2 {isDemo} />
+
+    <PipelineStuckCardV2 />
 
     <!-- Needs you — a divided list, not widget boxes. -->
     <section aria-label="Needs you">

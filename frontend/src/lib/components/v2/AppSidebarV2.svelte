@@ -121,6 +121,49 @@
     return match?.item?.id === item.id;
   }
 
+  // ── group expand/collapse ─────────────────────────────────────────────────
+  // All four groups open at once is 26 rows — 886px of content, which only fits above a
+  // 1200px-tall viewport. Below that the tail of Manage sits under the fold, so the machinery
+  // is reachable in principle and hidden in practice. Collapsing to the group you're actually
+  // in brings the worst case down to four headers plus one group's items.
+  //
+  // Deliberately multi-expand rather than a strict accordion: an accordion would snap Listen
+  // shut the moment you visited Manage, which fights someone comparing two groups.
+  const EXPANDED_KEY = 'mh:sidebar:expanded';
+
+  function readExpanded(): string[] {
+    // The (app) group is ssr=false, so localStorage exists at init — read it synchronously
+    // rather than in an $effect, which would race the auto-expand effect below and clobber it.
+    if (typeof localStorage === 'undefined') return [];
+    try {
+      const parsed: unknown = JSON.parse(localStorage.getItem(EXPANDED_KEY) ?? '[]');
+      return Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
+
+  let expanded = $state<string[]>(readExpanded());
+
+  // Landing on a group's route opens that group — otherwise arriving from the command palette
+  // or the mobile bar drops you on a page whose siblings are all hidden. untrack because this
+  // reads the same state it writes, and a tracked read would loop.
+  $effect(() => {
+    const id = match?.group.id;
+    if (!id) return;
+    untrack(() => {
+      if (!expanded.includes(id)) expanded = [...expanded, id];
+    });
+  });
+
+  $effect(() => {
+    localStorage.setItem(EXPANDED_KEY, JSON.stringify(expanded));
+  });
+
+  function toggleGroup(id: string): void {
+    expanded = expanded.includes(id) ? expanded.filter((g) => g !== id) : [...expanded, id];
+  }
+
   function fmtCount(n: number | string | null | undefined): string {
     if (n == null) return '…';
     return typeof n === 'number' ? n.toLocaleString() : n;
@@ -180,74 +223,96 @@
            item did — a track page, or the library's source view. -->
       {@const headerActive = groupActive && match?.item == null}
       {@const badge = BADGES[group.id]?.()}
+      {@const open = expanded.includes(group.id)}
       <Sidebar.Group class="p-0">
-        <a
-          href={group.href}
-          data-active={groupActive || undefined}
-          class={cn(
-            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
-            'text-sidebar-foreground hover:bg-sidebar-accent',
-            'focus-visible:ring-sidebar-ring outline-none focus-visible:ring-2'
-          )}
-        >
-          <group.icon
-            class={cn('size-4 shrink-0', headerActive ? 'text-primary' : 'text-muted-foreground')}
-          />
-          <span
+        <!-- The link and the disclosure are siblings, not nested: a <button> inside an <a> is
+             invalid HTML, and keeping them apart means the chevron never swallows a click meant
+             for the destination. -->
+        <div class="flex w-full items-center">
+          <a
+            href={group.href}
+            data-active={groupActive || undefined}
             class={cn(
-              'text-nav flex-1 font-semibold tracking-[-0.005em]',
-              headerActive && 'text-primary'
-            )}>{group.label}</span>
-          {#if group.live && indexing}
-            <span class="bg-primary mh-v2-pulse size-[7px] shrink-0 rounded-full"></span>
-          {/if}
-          {#if badge != null && badge > 0}
-            <!-- Attention badge: one small filled circle in the accent, iOS
-                 style. Amber stays reserved for the offline warning. -->
+              'flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
+              'text-sidebar-foreground hover:bg-sidebar-accent',
+              'focus-visible:ring-sidebar-ring outline-none focus-visible:ring-2'
+            )}
+          >
+            <group.icon
+              class={cn('size-4 shrink-0', headerActive ? 'text-primary' : 'text-muted-foreground')}
+            />
             <span
-              class="bg-primary text-primary-foreground text-nav-badge grid h-[17px] min-w-[17px] shrink-0 place-items-center rounded-full px-1 leading-none font-semibold tabular-nums"
-            >{badge.toLocaleString()}</span>
-          {/if}
-        </a>
-        <Sidebar.GroupContent class="mt-0.5 flex flex-col gap-px">
-          {#each group.items as item (item.id)}
-            {@const active = itemActive(item)}
-            {@const count = COUNTS[item.id]?.()}
-            <a
-              href={item.href}
-              data-active={active || undefined}
               class={cn(
-                'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 transition-colors',
-                'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground',
-                'data-[active=true]:text-primary data-[active=true]:font-medium',
-                'focus-visible:ring-sidebar-ring outline-none focus-visible:ring-2'
-              )}
-            >
-              <item.icon
+                'text-nav flex-1 truncate font-semibold tracking-[-0.005em]',
+                headerActive && 'text-primary'
+              )}>{group.label}</span>
+            {#if group.live && indexing}
+              <span class="bg-primary mh-v2-pulse size-[7px] shrink-0 rounded-full"></span>
+            {/if}
+            {#if badge != null && badge > 0}
+              <!-- Attention badge: one small filled circle in the accent, iOS
+                   style. Amber stays reserved for the offline warning. -->
+              <span
+                class="bg-primary text-primary-foreground text-nav-badge grid h-[17px] min-w-[17px] shrink-0 place-items-center rounded-full px-1 leading-none font-semibold tabular-nums"
+              >{badge.toLocaleString()}</span>
+            {/if}
+          </a>
+          <button
+            type="button"
+            onclick={() => toggleGroup(group.id)}
+            aria-expanded={open}
+            aria-controls="nav-group-{group.id}"
+            aria-label="{open ? 'Collapse' : 'Expand'} {group.label}"
+            class={cn(
+              'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground',
+              'focus-visible:ring-sidebar-ring grid size-6 shrink-0 place-items-center rounded-md',
+              'outline-none transition-colors focus-visible:ring-2'
+            )}
+          >
+            <ChevronRight class={cn('size-3.5 transition-transform', open && 'rotate-90')} />
+          </button>
+        </div>
+        {#if open}
+          <Sidebar.GroupContent id="nav-group-{group.id}" class="mt-0.5 flex flex-col gap-px">
+            {#each group.items as item (item.id)}
+              {@const active = itemActive(item)}
+              {@const count = COUNTS[item.id]?.()}
+              <a
+                href={item.href}
+                data-active={active || undefined}
                 class={cn(
-                  'size-3.5 shrink-0',
-                  item.live && indexing
-                    ? 'text-primary'
-                    : active
-                      ? 'text-primary'
-                      : 'text-muted-foreground/70'
+                  'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 transition-colors',
+                  'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground',
+                  'data-[active=true]:text-primary data-[active=true]:font-medium',
+                  'focus-visible:ring-sidebar-ring outline-none focus-visible:ring-2'
                 )}
-              />
-              {#if item.live && indexing}
-                <span class="bg-primary mh-v2-pulse size-1.5 shrink-0 rounded-full"></span>
-              {/if}
-              <span class="text-nav flex-1 truncate">{item.label}</span>
-              {#if count != null}
-                <span
+              >
+                <item.icon
                   class={cn(
-                    'text-nav-count tabular-nums',
-                    active ? 'text-sidebar-foreground/70' : 'text-muted-foreground/70'
+                    'size-3.5 shrink-0',
+                    item.live && indexing
+                      ? 'text-primary'
+                      : active
+                        ? 'text-primary'
+                        : 'text-muted-foreground/70'
                   )}
-                >{fmtCount(count)}</span>
-              {/if}
-            </a>
-          {/each}
-        </Sidebar.GroupContent>
+                />
+                {#if item.live && indexing}
+                  <span class="bg-primary mh-v2-pulse size-1.5 shrink-0 rounded-full"></span>
+                {/if}
+                <span class="text-nav flex-1 truncate">{item.label}</span>
+                {#if count != null}
+                  <span
+                    class={cn(
+                      'text-nav-count tabular-nums',
+                      active ? 'text-sidebar-foreground/70' : 'text-muted-foreground/70'
+                    )}
+                  >{fmtCount(count)}</span>
+                {/if}
+              </a>
+            {/each}
+          </Sidebar.GroupContent>
+        {/if}
       </Sidebar.Group>
     {/each}
   </Sidebar.Content>

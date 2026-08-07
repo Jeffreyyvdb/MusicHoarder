@@ -1400,6 +1400,86 @@ export async function fetchJobStatus(): Promise<JobStatusResponse> {
   return requestJson<JobStatusResponse>("/api/enrichment/status")
 }
 
+/**
+ * Two counts of tracks the pipeline has set aside. They are not the same kind of problem:
+ *
+ * - `quarantined` — matched tracks that burned through `MaxLibraryBuildAttempts`. The builder
+ *   will never pick them up again on its own; this needs a human.
+ * - `lyricsHeld` — tracks held back *only* by the lyrics-before-build gate. Self-clearing: it
+ *   resolves once lyrics land or the track ages past the cutoff. Not a problem to chase.
+ *
+ * The endpoint returns counts only — there is no list of songs behind it.
+ */
+export interface StuckCounts {
+  quarantined: number
+  lyricsHeld: number
+}
+
+export async function fetchStuckCounts(): Promise<StuckCounts> {
+  return requestJson<StuckCounts>("/api/enrichment/stuck")
+}
+
+// ── Ingest runs (history) ────────────────────────────────────────────────────
+// Restored in Sprint 02. This section was deleted in #137 along with the v1 /runs page, but the
+// backend ledger (Endpoints/RunsEndpoints.cs, table IngestRuns) kept being written the whole
+// time — so every run since then is already there to read.
+//
+// Note these two are the only routes in the app NOT under /api. The proxy forwards
+// `${API_PREFIX}${path}` verbatim, so "/runs" resolves; just don't assume an /api prefix.
+
+/**
+ * `interrupted` is emitted by the backend for a run the process never finished (a restart
+ * mid-run). The pre-#137 type omitted it, so an interrupted run fell through every status
+ * check — hence its inclusion here.
+ */
+export type ApiRunStatus = "running" | "completed" | "cancelled" | "failed" | "interrupted"
+
+export interface ApiRun {
+  id: string
+  status: ApiRunStatus
+  startedAtUtc: string
+  endedAtUtc?: string | null
+  sourcePath: string
+  destinationPath: string
+  triggerLabel?: string | null
+  tracksDiscovered: number
+  tracksProcessed: number
+  tracksFingerprinted: number
+  tracksEnriched: number
+  tracksCopied: number
+  tracksReview: number
+  tracksFailed: number
+  throughputPerSec: number
+  /** Null while the run is still open — there is no end time to measure against yet. */
+  durationSeconds?: number | null
+}
+
+export interface ApiRunLogLine {
+  id: string
+  type: ApiOverviewActivity["type"]
+  track: string
+  artist: string
+  time: string
+}
+
+export interface ApiRunDetail extends ApiRun {
+  /** Detail-only, and capped at 20 entries by the backend — never the full log. */
+  logTail: ApiRunLogLine[] | null
+}
+
+/** The 50 most recent runs, newest first. The cap is the backend's; there is no paging. */
+export async function fetchRuns(): Promise<ApiRun[]> {
+  return requestJson<ApiRun[]>("/runs")
+}
+
+export async function fetchRun(id: string): Promise<ApiRunDetail | null> {
+  try {
+    return await requestJson<ApiRunDetail>(`/runs/${id}`)
+  } catch {
+    return null
+  }
+}
+
 export interface LibraryAvailability {
   sourceAvailable: boolean
   destinationAvailable: boolean
@@ -1873,6 +1953,25 @@ export async function fetchSpotifyStatus(): Promise<SpotifyStatusResponse> {
   return requestJson<SpotifyStatusResponse>("/api/spotify/status")
 }
 
+/**
+ * How much of your Spotify liked-songs library you actually own, as measured by the background
+ * matching sweep. Read straight from persisted columns — this never calls Spotify.
+ *
+ * `updatedAtUtc` is null when the sweep has never run, and that case matters: the counts are then
+ * all zero, which would otherwise read as "you own none of them" rather than "not measured yet".
+ */
+export interface SpotifyComparisonSummary {
+  total: number
+  inLibrary: number
+  possibleMatch: number
+  notInLibrary: number
+  updatedAtUtc?: string | null
+}
+
+export async function fetchSpotifyComparisonSummary(): Promise<SpotifyComparisonSummary> {
+  return requestJson<SpotifyComparisonSummary>("/api/spotify/liked-songs/comparison/summary")
+}
+
 export async function fetchSpotifyConnectUrl(): Promise<SpotifyConnectResponse> {
   return requestJson<SpotifyConnectResponse>("/api/spotify/connect")
 }
@@ -2248,6 +2347,24 @@ export interface SongUpgradeView {
 export const sync = {
   getStatus(): Promise<SyncStatus> {
     return requestJson<SyncStatus>("/api/sync/status")
+  },
+}
+
+/**
+ * Navidrome like-sync status. `enabled` and `configured` are separate on purpose: the backend's
+ * IsConfigured folds the Enabled flag together with the credentials, so on its own it can't tell
+ * "turned off" from "never set up" — and those need different advice.
+ */
+export interface NavidromeStatus {
+  enabled: boolean
+  configured: boolean
+  connected: boolean
+  baseUrl?: string | null
+}
+
+export const navidrome = {
+  getStatus(): Promise<NavidromeStatus> {
+    return requestJson<NavidromeStatus>("/api/navidrome/status")
   },
 }
 

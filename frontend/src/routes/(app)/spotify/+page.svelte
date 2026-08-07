@@ -35,6 +35,7 @@
     KeyRound,
     Play
   } from '@lucide/svelte';
+  import SpotifyGapCard from '$lib/components/spotify/SpotifyGapCard.svelte';
   import SpotifyTrackRow from '$lib/components/spotify/SpotifyTrackRow.svelte';
   import PlaylistCard from '$lib/components/spotify/PlaylistCard.svelte';
   import PaginationControls from '$lib/components/spotify/PaginationControls.svelte';
@@ -520,6 +521,10 @@
               {wishlistBanner.message}
             </div>
           {/if}
+
+          <!-- How much of this you already own — computed by a background sweep, previously
+               persisted and never shown anywhere. -->
+          <SpotifyGapCard />
 
           <!-- Filter -->
           <div class="border-border flex items-center gap-3 border-b px-4 py-3 md:px-6">
