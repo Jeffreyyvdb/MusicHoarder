@@ -122,46 +122,58 @@
   }
 
   // ── group expand/collapse ─────────────────────────────────────────────────
-  // All four groups open at once is 26 rows — 886px of content, which only fits above a
-  // 1200px-tall viewport. Below that the tail of Manage sits under the fold, so the machinery
-  // is reachable in principle and hidden in practice. Collapsing to the group you're actually
-  // in brings the worst case down to four headers plus one group's items.
+  // All four groups open at once is 26 rows — 886px of content against 674px of room at a
+  // 900px-tall viewport. The tail of Manage then sits under the fold, so the machinery is
+  // reachable in principle and hidden in practice.
   //
-  // Deliberately multi-expand rather than a strict accordion: an accordion would snap Listen
-  // shut the moment you visited Manage, which fights someone comparing two groups.
-  const EXPANDED_KEY = 'mh:sidebar:expanded';
+  // The group you're in is open; everything else is closed unless you pinned it. Pinning is
+  // tracked separately from the active group ON PURPOSE: a single "expanded" list that the
+  // active group got added to would accumulate as you browsed — visit four groups and all four
+  // stay open, which is exactly the pile this replaced.
+  const PINNED_KEY = 'mh:sidebar:pinned';
 
-  function readExpanded(): string[] {
+  function readPinned(): string[] {
     // The (app) group is ssr=false, so localStorage exists at init — read it synchronously
-    // rather than in an $effect, which would race the auto-expand effect below and clobber it.
+    // rather than in an $effect, which would race the render.
     if (typeof localStorage === 'undefined') return [];
     try {
-      const parsed: unknown = JSON.parse(localStorage.getItem(EXPANDED_KEY) ?? '[]');
+      const parsed: unknown = JSON.parse(localStorage.getItem(PINNED_KEY) ?? '[]');
       return Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : [];
     } catch {
       return [];
     }
   }
 
-  let expanded = $state<string[]>(readExpanded());
+  /** Groups held open across navigation because the user opened them deliberately. */
+  let pinned = $state<string[]>(readPinned());
+  /** The active group, collapsed by hand. Session-only, and cleared when you navigate away. */
+  let activeCollapsed = $state<string | null>(null);
 
-  // Landing on a group's route opens that group — otherwise arriving from the command palette
-  // or the mobile bar drops you on a page whose siblings are all hidden. untrack because this
-  // reads the same state it writes, and a tracked read would loop.
+  const activeGroupId = $derived(match?.group.id ?? null);
+
   $effect(() => {
-    const id = match?.group.id;
-    if (!id) return;
+    // Leaving the group forgets that you'd collapsed it — coming back should open it again.
+    const id = activeGroupId;
     untrack(() => {
-      if (!expanded.includes(id)) expanded = [...expanded, id];
+      if (activeCollapsed !== null && activeCollapsed !== id) activeCollapsed = null;
     });
   });
 
   $effect(() => {
-    localStorage.setItem(EXPANDED_KEY, JSON.stringify(expanded));
+    localStorage.setItem(PINNED_KEY, JSON.stringify(pinned));
   });
 
+  function isOpen(id: string): boolean {
+    if (id === activeGroupId) return activeCollapsed !== id;
+    return pinned.includes(id);
+  }
+
   function toggleGroup(id: string): void {
-    expanded = expanded.includes(id) ? expanded.filter((g) => g !== id) : [...expanded, id];
+    if (id === activeGroupId) {
+      activeCollapsed = activeCollapsed === id ? null : id;
+      return;
+    }
+    pinned = pinned.includes(id) ? pinned.filter((g) => g !== id) : [...pinned, id];
   }
 
   function fmtCount(n: number | string | null | undefined): string {
@@ -223,7 +235,7 @@
            item did — a track page, or the library's source view. -->
       {@const headerActive = groupActive && match?.item == null}
       {@const badge = BADGES[group.id]?.()}
-      {@const open = expanded.includes(group.id)}
+      {@const open = isOpen(group.id)}
       <Sidebar.Group class="p-0">
         <!-- The link and the disclosure are siblings, not nested: a <button> inside an <a> is
              invalid HTML, and keeping them apart means the chevron never swallows a click meant
