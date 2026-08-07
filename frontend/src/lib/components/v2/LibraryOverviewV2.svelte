@@ -291,7 +291,7 @@
                   interactive
                   class="!h-auto !w-full aspect-square !rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.15)]"
                 />
-                <div class="min-w-0 text-center">
+                <div class="w-full min-w-0 text-center">
                   <p class="truncate text-[12.5px] font-medium">{group.label}</p>
                   <p class="text-muted-foreground truncate text-[11px]">
                     {group.albumCount} album{group.albumCount === 1 ? '' : 's'}
