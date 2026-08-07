@@ -66,7 +66,7 @@
   );
 </script>
 
-<main class="flex min-h-0 flex-1 flex-col overflow-hidden">
+<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
   <div class="border-border border-b px-4 py-4 sm:px-7 sm:py-5">
     <h1 class="text-2xl font-semibold tracking-tight">Connections</h1>
     <p class="text-muted-foreground mt-1 text-xs">
@@ -281,4 +281,4 @@
       {/if}
     </div>
   </ScrollArea>
-</main>
+</div>

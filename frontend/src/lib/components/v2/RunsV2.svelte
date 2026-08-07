@@ -115,7 +115,7 @@
   }
 </script>
 
-<main class="flex min-h-0 flex-1 flex-col overflow-hidden">
+<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
   <div class="border-border flex items-end justify-between border-b px-4 py-4 sm:px-7 sm:py-5">
     <div>
       <h1 class="text-2xl font-semibold tracking-tight">Ingest history</h1>
@@ -332,4 +332,4 @@
       {/if}
     </aside>
   </div>
-</main>
+</div>
