@@ -157,10 +157,15 @@
   shouldFilter={false}
   title="Search everywhere"
   description="Search tracks, albums, artists, and jump to any page."
-  class="sm:max-w-2xl"
+  class="top-[10vh] sm:max-w-2xl"
 >
   <Command.Input bind:value={query} placeholder="Search tracks, albums, artists, pages…" />
-  <Command.List class="max-h-[60vh]">
+  <!-- top-[10vh] + this cap keeps the whole panel inside the viewport; the shadcn default
+       (top-1/3 with a 60vh list) ran off the bottom of the page.
+       The checked-state indicator every command item renders is dead weight here — nothing
+       in the palette is checkable — and its `ml-auto` fought the trailing meta column's own
+       auto margin, leaving each row's group label at a different x. -->
+  <Command.List class="max-h-[65vh] [&_.cn-command-item-indicator]:hidden">
     <!-- The page commands are local, so they stay usable while the library
          dataset is still in flight — only the library groups wait. -->
     {#if hasQuery && !hasLibraryResults && navMatches.length === 0 && !loading}
@@ -172,10 +177,10 @@
         {#each navMatches as cmd (cmd.href)}
           <Command.Item value={`nav-${cmd.href}`} onSelect={() => navigate(cmd.href)}>
             <cmd.icon class="text-muted-foreground" />
-            <span>{cmd.label}</span>
+            <span class="min-w-0 flex-1 truncate">{cmd.label}</span>
             <!-- The group disambiguates the two "Artists" and the two "Albums" — one of each
                  is a library view, the other an Inbox review queue. -->
-            <span class="text-muted-foreground ml-auto text-xs">{cmd.group}</span>
+            <span class="text-muted-foreground shrink-0 pl-3 text-xs">{cmd.group}</span>
           </Command.Item>
         {/each}
       </Command.Group>
