@@ -7,6 +7,7 @@
   import AddFromUrlDialog from '$lib/components/v2/AddFromUrlDialog.svelte';
   import { commandPalette } from '$lib/stores/command-palette.svelte';
   import { songsStore } from '$lib/stores/songs.svelte';
+  import { resolveNav } from '$lib/nav';
 
   let addOpen = $state(false);
 
@@ -19,40 +20,11 @@
       : 'Ctrl K'
   );
 
-  // macOS-Music-style window title: the current section name rendered in the
-  // bar itself, so wayfinding survives a collapsed sidebar and the mobile
-  // off-canvas drawer. Section grouping mirrors AppSidebarV2's NAV.
-  function sectionTitle(pathname: string): string | null {
-    const path = pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
-    if (
-      path === '/pipeline' ||
-      path.startsWith('/directories') ||
-      path.startsWith('/quality') ||
-      path.startsWith('/album-quality') ||
-      path.startsWith('/performance')
-    )
-      return 'Pipeline';
-    if (path.startsWith('/inbox')) return 'Inbox';
-    if (
-      path === '/library' ||
-      path.startsWith('/library/') ||
-      path.startsWith('/overview') ||
-      path.startsWith('/artists') ||
-      path.startsWith('/tracks') ||
-      path.startsWith('/liked') ||
-      path.startsWith('/discover') ||
-      path.startsWith('/spotify') ||
-      path.startsWith('/wishlist') ||
-      path.startsWith('/playlists')
-    )
-      return 'Library';
-    if (path.startsWith('/stats')) return 'Stats';
-    if (path.startsWith('/history')) return 'History';
-    if (path.startsWith('/settings')) return 'Settings';
-    return null;
-  }
-
-  const title = $derived(sectionTitle(page.url.pathname));
+  // macOS-Music-style window title: the current group name rendered in the bar
+  // itself, so wayfinding survives a collapsed sidebar and the mobile off-canvas
+  // drawer. Resolved from the shared nav, so it can never name a different group
+  // than the sidebar highlights.
+  const title = $derived(resolveNav(page.url)?.group.label ?? null);
 </script>
 
 <!--
@@ -65,7 +37,7 @@
 >
   <Sidebar.Trigger class="-ml-1 size-9 md:size-7" />
   {#if title}
-    <span class="text-foreground min-w-0 truncate text-[13px] font-semibold tracking-[-0.01em]">
+    <span class="text-foreground text-nav min-w-0 truncate font-semibold tracking-[-0.01em]">
       {title}
     </span>
   {/if}
@@ -81,9 +53,9 @@
       title="Search everywhere ({shortcutHint})"
     >
       <Search class="size-4" />
-      <span class="hidden text-[12.5px] sm:inline">Search</span>
+      <span class="text-nav-sm hidden sm:inline">Search</span>
       <kbd
-        class="border-border bg-muted text-muted-foreground hidden rounded border px-1 font-sans text-[10px] leading-[1.4] font-medium md:inline"
+        class="border-border bg-muted text-muted-foreground text-nav-badge hidden rounded border px-1 font-sans leading-[1.4] font-medium md:inline"
       >
         {shortcutHint}
       </kbd>
@@ -96,7 +68,7 @@
       title="Add a track from a Spotify or YouTube URL"
     >
       <Plus class="size-4" />
-      <span class="hidden text-[12.5px] sm:inline">Add</span>
+      <span class="text-nav-sm hidden sm:inline">Add</span>
     </Button>
     <ThemeToggle />
   </div>

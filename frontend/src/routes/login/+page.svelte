@@ -5,10 +5,12 @@
   import { Label } from '$lib/components/ui/label';
   import { requestMagicLink, signInAsDemo, loginWithPasskey } from '$lib/api-client';
   import { isPasskeySupported } from '$lib/webauthn-client';
+  import { APP_HOME } from '$lib/app-home';
   import { LogIn, Mail, Loader2, CheckCircle2, AlertCircle, ExternalLink, Sparkles, KeyRound } from '@lucide/svelte';
 
-  // After sign-in, land on the pipeline conveyor home.
-  const landingRoute = () => '/pipeline';
+  // After sign-in, land on the app home — shared with the magic-link callback and the
+  // landing-page CTAs so every door opens onto the same screen.
+  const landingRoute = () => APP_HOME;
 
   let email = $state('');
   let isSending = $state(false);

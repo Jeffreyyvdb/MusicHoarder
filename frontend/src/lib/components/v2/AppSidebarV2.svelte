@@ -2,35 +2,9 @@
   import { untrack } from 'svelte';
   import { afterNavigate } from '$app/navigation';
   import { page } from '$app/state';
-  import {
-    Activity,
-    ChartColumnBig,
-    ChevronRight,
-    Compass,
-    Copy,
-    Disc3,
-    FolderTree,
-    Gauge,
-    Gift,
-    Heart,
-    History,
-    Inbox,
-    LayoutGrid,
-    Library,
-    ListMusic,
-    ListVideo,
-    LogOut,
-    Music,
-    Music2,
-    Settings,
-    Sparkles,
-    Tags,
-    TrendingUp,
-    Users,
-    Workflow,
-    type Icon as IconType
-  } from '@lucide/svelte';
+  import { ChevronRight, LogOut, Music } from '@lucide/svelte';
   import * as Sidebar from '$lib/components/ui/sidebar';
+  import { NAV_GROUPS, resolveNav, type NavItem } from '$lib/nav';
   import {
     buildAlbumsFromSongs,
     mergeAlbumsByName,
@@ -49,53 +23,9 @@
   const version = $derived(page.data.appVersion as string | null | undefined);
 
   // ── v2 information architecture ───────────────────────────────────────────
-  // Four flat sections, each with its sub-items listed flush beneath (the
-  // shadcn "sidebar-04" docs style). For Phase 0 every sub-item deep-links into
-  // the EXISTING v1 route so nothing is lost; later phases repoint them to the
-  // new /pipeline · /inbox routes.
-  type SubKey =
-    | 'conveyor'
-    | 'folders'
-    | 'quality'
-    | 'performance'
-    | 'review'
-    | 'dupes'
-    | 'dupe-artists'
-    | 'dupe-albums'
-    | 'aiflag'
-    | 'overview'
-    | 'albums'
-    | 'artists'
-    | 'tracks'
-    | 'liked'
-    | 'discover'
-    | 'spotify'
-    | 'wishlist'
-    | 'playlists';
-
-  type SubItem = {
-    id: SubKey;
-    label: string;
-    href: string;
-    icon: typeof IconType;
-    /** Show a live pulse dot (e.g. the conveyor). */
-    live?: boolean;
-    /** Numeric/string count rendered on the right. */
-    count?: () => number | string | null;
-  };
-
-  type SectionId = 'stats' | 'pipeline' | 'inbox' | 'library' | 'history' | 'settings';
-
-  type Section = {
-    id: SectionId;
-    label: string;
-    href: string;
-    icon: typeof IconType;
-    live?: boolean;
-    badge?: () => number | null;
-    sub: SubItem[];
-  };
-
+  // Four groups — Listen / Inbox / Add / Manage — each with its items listed flush beneath
+  // (the shadcn "sidebar-04" docs style). The groups, their items and the active-route rules
+  // all live in $lib/nav; this component only renders them and attaches the live counts.
   let overview = $state<ApiOverview | null>(null);
   let stats = $state<ApiStats | null>(null);
 
@@ -123,9 +53,9 @@
   });
 
   // ── derived counts ────────────────────────────────────────────────────────
-  // The Library section reflects the clean output only, so every Library count
-  // below is over built (LibraryBuildStatus.Done + destinationPath) songs —
-  // matching what LibraryV2 actually lists. Storage/review figures stay over all
+  // The Listen group reflects the clean output only, so every Listen count below
+  // is over built (LibraryBuildStatus.Done + destinationPath) songs — matching
+  // what LibraryV2 actually lists. Storage/review figures stay over all
   // songs/stats (those are pipeline, not library, numbers).
   const builtSongs = $derived(songs.filter(isBuiltSong));
   const totalTracks = $derived(songs.length === 0 ? null : builtSongs.length);
@@ -172,133 +102,23 @@
       .join('\n')
   );
 
-  const NAV: Section[] = [
-    {
-      // Single entry — a read-only "hoard at a glance" stats dashboard.
-      id: 'stats',
-      label: 'Stats',
-      href: '/stats',
-      icon: ChartColumnBig,
-      sub: []
-    },
-    {
-      id: 'pipeline',
-      label: 'Pipeline',
-      href: '/pipeline',
-      icon: Workflow,
-      live: true,
-      sub: [
-        { id: 'conveyor', label: 'Conveyor', href: '/pipeline', icon: Activity, live: true },
-        { id: 'folders', label: 'By folder', href: '/directories', icon: FolderTree },
-        { id: 'quality', label: 'AI quality', href: '/quality', icon: Gauge },
-        { id: 'performance', label: 'Performance over time', href: '/performance', icon: TrendingUp }
-      ]
-    },
-    {
-      id: 'inbox',
-      label: 'Inbox',
-      href: '/inbox',
-      icon: Inbox,
-      badge: () => reviewCount,
-      sub: [
-        { id: 'review', label: 'Tag review', href: '/inbox?tab=review', icon: Tags, count: () => reviewCount },
-        { id: 'dupes', label: 'Duplicates', href: '/inbox?tab=dupes', icon: Copy },
-        { id: 'dupe-artists', label: 'Artists', href: '/inbox?tab=artists', icon: Users },
-        { id: 'dupe-albums', label: 'Albums', href: '/inbox?tab=albums', icon: Disc3 },
-        { id: 'aiflag', label: 'AI flagged', href: '/inbox?tab=ai', icon: Sparkles }
-      ]
-    },
-    {
-      id: 'library',
-      label: 'Library',
-      href: '/library',
-      icon: Library,
-      sub: [
-        { id: 'overview', label: 'Overview', href: '/overview', icon: LayoutGrid },
-        { id: 'albums', label: 'Albums', href: '/library', icon: Disc3, count: () => albumCount },
-        { id: 'artists', label: 'Artists', href: '/artists', icon: Users, count: () => artistCount },
-        { id: 'tracks', label: 'All tracks', href: '/tracks', icon: ListMusic, count: () => totalTracks },
-        { id: 'liked', label: 'Liked songs', href: '/liked', icon: Heart, count: () => likedCount },
-        { id: 'discover', label: 'Discover', href: '/discover', icon: Compass },
-        { id: 'spotify', label: 'Spotify', href: '/spotify', icon: Music2 },
-        { id: 'wishlist', label: 'Wishlist', href: '/wishlist', icon: Gift },
-        { id: 'playlists', label: 'Playlists', href: '/playlists', icon: ListVideo }
-      ]
-    },
-    {
-      // Single entry — a global feed of changes MusicHoarder wrote to the destination library.
-      id: 'history',
-      label: 'History',
-      href: '/history',
-      icon: History,
-      sub: []
-    },
-    {
-      // Single entry — settings lives entirely on /settings, no sidebar sub-pages.
-      id: 'settings',
-      label: 'Settings',
-      href: '/settings',
-      icon: Settings,
-      sub: []
-    }
-  ];
+  // Counts stay here rather than in $lib/nav: that module is pure data with no store access,
+  // which is what lets the tests import it. Keyed by item id.
+  const COUNTS: Record<string, () => number | string | null> = {
+    albums: () => albumCount,
+    artists: () => artistCount,
+    tracks: () => totalTracks,
+    liked: () => likedCount,
+    review: () => reviewCount
+  };
+  // The one group that carries an attention badge on its header.
+  const BADGES: Record<string, () => number | null> = { inbox: () => reviewCount };
 
-  const pathname = $derived(page.url.pathname);
+  // Single matcher, shared with the mobile bar, the tab strip and the top-bar title.
+  const match = $derived(resolveNav(page.url));
 
-  // Active state keyed on the current v1 route. Library albums vs source view
-  // both live under /library — only the album root counts as "Albums".
-  const isSourceView = $derived(page.url.searchParams.get('view') === 'source');
-  // Which Inbox subtab is selected (defaults to Tag review when on /inbox).
-  const inboxTab = $derived(page.url.searchParams.get('tab') ?? 'review');
-  const onInbox = $derived(pathname.startsWith('/inbox'));
-
-  function subActive(item: SubItem): boolean {
-    switch (item.id) {
-      case 'conveyor':
-        return pathname === '/pipeline';
-      case 'folders':
-        return pathname.startsWith('/directories');
-      case 'quality':
-        return pathname.startsWith('/quality');
-      case 'performance':
-        return pathname.startsWith('/performance');
-      case 'aiflag':
-        return onInbox && inboxTab === 'ai';
-      case 'review':
-        return onInbox && inboxTab === 'review';
-      case 'dupes':
-        return onInbox && inboxTab === 'dupes';
-      case 'dupe-artists':
-        return onInbox && inboxTab === 'artists';
-      case 'dupe-albums':
-        return onInbox && inboxTab === 'albums';
-      case 'overview':
-        return pathname === '/overview';
-      case 'albums':
-        return (pathname === '/library' || pathname.startsWith('/library/')) && !isSourceView;
-      case 'artists':
-        return pathname.startsWith('/artists');
-      case 'tracks':
-        return pathname === '/tracks';
-      case 'liked':
-        return pathname === '/liked';
-      case 'discover':
-        return pathname.startsWith('/discover');
-      case 'spotify':
-        return pathname.startsWith('/spotify');
-      case 'wishlist':
-        return pathname.startsWith('/wishlist');
-      case 'playlists':
-        return pathname.startsWith('/playlists');
-      default:
-        return false;
-    }
-  }
-
-  function sectionActive(section: Section): boolean {
-    // Sections with no sub-items (Settings) highlight on their own route.
-    if (section.sub.length === 0) return pathname.startsWith(section.href);
-    return section.sub.some((s) => subActive(s));
+  function itemActive(item: NavItem): boolean {
+    return match?.item?.id === item.id;
   }
 
   function fmtCount(n: number | string | null | undefined): string {
@@ -352,47 +172,47 @@
   </Sidebar.Header>
 
   <Sidebar.Content class="gap-3.5 px-2 py-1.5">
-    {#each NAV as section (section.id)}
-      {@const secActive = sectionActive(section)}
-      {@const leafActive = secActive && section.sub.length === 0}
-      {@const badge = section.badge?.()}
+    {#each NAV_GROUPS as group (group.id)}
+      {@const groupActive = match?.group.id === group.id}
+      <!-- Only one nav level carries emphasis at a time: when an item is active it alone is
+           highlighted and the group header stays neutral (it is already "expanded" by being
+           on that route). The header takes the emphasis only where the group matched but no
+           item did — a track page, or the library's source view. -->
+      {@const headerActive = groupActive && match?.item == null}
+      {@const badge = BADGES[group.id]?.()}
       <Sidebar.Group class="p-0">
         <a
-          href={section.href}
-          data-active={secActive || undefined}
+          href={group.href}
+          data-active={groupActive || undefined}
           class={cn(
             'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
             'text-sidebar-foreground hover:bg-sidebar-accent',
             'focus-visible:ring-sidebar-ring outline-none focus-visible:ring-2'
           )}
         >
-          <!-- Only one nav level carries emphasis at a time: when a sub-item is
-               active it alone is highlighted, and the section header stays
-               neutral (it is already "expanded" by being on that route). -->
-          <section.icon
-            class={cn('size-4 shrink-0', leafActive ? 'text-primary' : 'text-muted-foreground')}
+          <group.icon
+            class={cn('size-4 shrink-0', headerActive ? 'text-primary' : 'text-muted-foreground')}
           />
           <span
             class={cn(
-              'flex-1 text-[13px] font-semibold tracking-[-0.005em]',
-              leafActive && 'text-primary'
-            )}>{section.label}</span>
-          {#if section.live && indexing}
+              'text-nav flex-1 font-semibold tracking-[-0.005em]',
+              headerActive && 'text-primary'
+            )}>{group.label}</span>
+          {#if group.live && indexing}
             <span class="bg-primary mh-v2-pulse size-[7px] shrink-0 rounded-full"></span>
           {/if}
           {#if badge != null && badge > 0}
             <!-- Attention badge: one small filled circle in the accent, iOS
                  style. Amber stays reserved for the offline warning. -->
             <span
-              class="bg-primary text-primary-foreground grid h-[17px] min-w-[17px] shrink-0 place-items-center rounded-full px-1 text-[10px] leading-none font-semibold tabular-nums"
+              class="bg-primary text-primary-foreground text-nav-badge grid h-[17px] min-w-[17px] shrink-0 place-items-center rounded-full px-1 leading-none font-semibold tabular-nums"
             >{badge.toLocaleString()}</span>
           {/if}
         </a>
-        {#if section.sub.length > 0}
         <Sidebar.GroupContent class="mt-0.5 flex flex-col gap-px">
-          {#each section.sub as item (item.id)}
-            {@const active = subActive(item)}
-            {@const count = item.count?.()}
+          {#each group.items as item (item.id)}
+            {@const active = itemActive(item)}
+            {@const count = COUNTS[item.id]?.()}
             <a
               href={item.href}
               data-active={active || undefined}
@@ -416,11 +236,11 @@
               {#if item.live && indexing}
                 <span class="bg-primary mh-v2-pulse size-1.5 shrink-0 rounded-full"></span>
               {/if}
-              <span class="flex-1 truncate text-[13px]">{item.label}</span>
+              <span class="text-nav flex-1 truncate">{item.label}</span>
               {#if count != null}
                 <span
                   class={cn(
-                    'text-[10.5px] tabular-nums',
+                    'text-nav-count tabular-nums',
                     active ? 'text-sidebar-foreground/70' : 'text-muted-foreground/70'
                   )}
                 >{fmtCount(count)}</span>
@@ -428,25 +248,24 @@
             </a>
           {/each}
         </Sidebar.GroupContent>
-        {/if}
       </Sidebar.Group>
     {/each}
   </Sidebar.Content>
 
   <Sidebar.Footer class="gap-2 border-t px-3.5 pt-3 pb-3.5">
     {#if queueRemaining != null && queueRemaining > 0}
-      <div class="flex items-center gap-2 text-[11px]">
+      <div class="text-nav-xs flex items-center gap-2">
         <span class="bg-primary mh-v2-pulse size-[7px] shrink-0 rounded-full"></span>
         <span class="text-muted-foreground flex-1 whitespace-nowrap">Indexing</span>
-        <span class="text-foreground/80 text-[10.5px] tabular-nums whitespace-nowrap">
+        <span class="text-foreground/80 text-nav-count tabular-nums whitespace-nowrap">
           {queueRemaining.toLocaleString()} active
         </span>
       </div>
     {/if}
     {#if totalBytes != null}
-      <div class="flex items-center gap-2 text-[11px]">
+      <div class="text-nav-xs flex items-center gap-2">
         <span class="text-muted-foreground flex-1 whitespace-nowrap">Storage</span>
-        <span class="text-foreground/80 text-[10.5px] tabular-nums whitespace-nowrap">
+        <span class="text-foreground/80 text-nav-count tabular-nums whitespace-nowrap">
           {fmtSize(totalBytes)} / 2 TB
         </span>
       </div>
@@ -460,7 +279,7 @@
       <a
         href="/settings"
         title={folderTooltip}
-        class="text-muted-foreground hover:text-foreground focus-visible:ring-sidebar-ring flex items-center gap-2 rounded-sm text-[11px] outline-none transition-colors focus-visible:ring-2"
+        class="text-muted-foreground hover:text-foreground focus-visible:ring-sidebar-ring text-nav-xs flex items-center gap-2 rounded-sm outline-none transition-colors focus-visible:ring-2"
       >
         <span class="flex-1 whitespace-nowrap">
           Watching {watchedFolders} {watchedFolders === 1 ? 'folder' : 'folders'}
