@@ -50,7 +50,7 @@ public class SpotifyApiEnrichmentProvider(
         // Untagged files: let the search engine parse the cleaned filename free-text rather than a
         // positional artist/title guess (which on loose downloads is the download-tool/bucket folder).
         var query = resolved.IdentityFromPath && !string.IsNullOrWhiteSpace(resolved.PathQuery)
-            ? SpotifyLibraryComparisonService.Normalize(resolved.PathQuery!)
+            ? SpotifyTrackLibraryMatcher.Normalize(resolved.PathQuery!)
             : BuildSearchQuery(effectiveArtist!, effectiveTitle!, effectiveAlbum);
         if (string.IsNullOrWhiteSpace(query))
         {
@@ -176,7 +176,7 @@ public class SpotifyApiEnrichmentProvider(
         // Album, when known (from tags or the file path), sharpens the free-text search so common
         // titles resolve to the right release; it stays plain text the normalizer can fold.
         var combined = string.IsNullOrWhiteSpace(album) ? $"{artist} {title}" : $"{artist} {title} {album}";
-        return SpotifyLibraryComparisonService.Normalize(combined);
+        return SpotifyTrackLibraryMatcher.Normalize(combined);
     }
 
     // Spotify is the reference tuning the other catalog providers mirror; the shared scorer applies
