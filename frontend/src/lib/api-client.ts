@@ -1578,13 +1578,23 @@ export interface TranscribeLyricsResponse {
   transcribedAtUtc?: string | null
   model?: string | null
   hasExistingLyrics?: boolean | null
+  /** True when this run re-timed the song's official lyrics rather than inventing its own words. */
+  resynced?: boolean | null
+  /** The server's (possibly just-updated) display default — "Lrclib" or "Transcribed". */
+  preferredLyricsSource?: string | null
+  /** True when the re-sync was auto-promoted to the display/file default. */
+  promoted?: boolean | null
+  /** True when the built destination file was queued for a re-tag with the new lyrics. */
+  retagQueued?: boolean | null
   /** True when the fresh transcription made an existing pronunciation/translation stale. */
   lyricsTranslationStale?: boolean | null
 }
 
 /**
  * Experimental: transcribe a song's audio via OpenAI Whisper into a synced LRC. The result is stored
- * separately from the LRCLIB lyrics (for side-by-side comparison) and never re-tags the file on disk.
+ * separately from the LRCLIB lyrics (for side-by-side comparison). When the run re-timed the song's
+ * existing official lyrics it is promoted to the display default and the built file is re-tagged;
+ * a transcription with no reference lyrics is never promoted automatically.
  */
 export async function transcribeSongLyrics(songId: number): Promise<TranscribeLyricsResponse> {
   return requestJson<TranscribeLyricsResponse>(`/songs/${songId}/lyrics/transcribe`, { method: "POST" })
