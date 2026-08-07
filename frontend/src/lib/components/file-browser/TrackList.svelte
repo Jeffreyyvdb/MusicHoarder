@@ -21,6 +21,7 @@
     isSpotifySourced,
     mapEnrichmentStatus,
     songAddedTime,
+    songLikedTime,
     songOriginLabel,
     spotifyAddedTime,
     toPlayerSong,
@@ -157,7 +158,7 @@
         case 'match':
           return matchValue(s);
         case 'liked':
-          return s.likedAtUtc ? Date.parse(s.likedAtUtc) : 0;
+          return songLikedTime(s);
         case 'spotify':
           return spotifyAddedTime(s);
         case 'added':

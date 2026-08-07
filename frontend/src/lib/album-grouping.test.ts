@@ -3,6 +3,7 @@ import {
   buildAlbumsFromSongs,
   mergeAlbumsByName,
   songAddedTime,
+  songLikedTime,
   sortAlbums,
   type ApiSong
 } from './api-client';
@@ -114,6 +115,69 @@ describe('songAddedTime', () => {
     );
 
     expect(t).toBe(Date.parse('2022-05-05T00:00:00Z'));
+  });
+
+  it('prefers an earlier Spotify save date over the download date', () => {
+    // A years-old liked song the wishlist downloader only got round to fetching today: without this
+    // it would sit at the top of "recently added" next to things actually just acquired.
+    const t = songAddedTime(
+      song({
+        acquiredAtUtc: '2026-07-26T15:44:00Z',
+        spotifyAddedAtUtc: '2023-03-21T00:00:00Z'
+      })
+    );
+
+    expect(t).toBe(Date.parse('2023-03-21T00:00:00Z'));
+  });
+
+  it('keeps the acquisition date when the Spotify save came later', () => {
+    // Ripped in 2019, saved on Spotify in 2024 — the save date must not push it forward.
+    const t = songAddedTime(
+      song({
+        acquiredAtUtc: '2019-01-01T00:00:00Z',
+        spotifyAddedAtUtc: '2024-06-01T00:00:00Z'
+      })
+    );
+
+    expect(t).toBe(Date.parse('2019-01-01T00:00:00Z'));
+  });
+
+  it('uses the Spotify save date for rows with no acquisition stamp at all', () => {
+    const t = songAddedTime(song({ spotifyAddedAtUtc: '2023-03-21T00:00:00Z' }));
+
+    expect(t).toBe(Date.parse('2023-03-21T00:00:00Z'));
+  });
+});
+
+describe('songLikedTime', () => {
+  it('is 0 for a song that was never liked, whatever its Spotify save date', () => {
+    expect(songLikedTime(song({ spotifyAddedAtUtc: '2023-03-21T00:00:00Z' }))).toBe(0);
+  });
+
+  it('prefers the Spotify save date over the bulk auto-like sweep stamp', () => {
+    // The sweep stamps every song it matches with one shared `now`; without this the whole batch
+    // ties and "newest liked first" collapses into the tie-break order.
+    const sweptAt = '2026-07-12T21:52:00Z';
+    const a = song({ likedAtUtc: sweptAt, spotifyAddedAtUtc: '2022-09-09T00:00:00Z' });
+    const b = song({ likedAtUtc: sweptAt, spotifyAddedAtUtc: '2023-08-04T00:00:00Z' });
+
+    expect(songLikedTime(a)).toBe(Date.parse('2022-09-09T00:00:00Z'));
+    expect(songLikedTime(b)).toBe(Date.parse('2023-08-04T00:00:00Z'));
+    expect(songLikedTime(b)).toBeGreaterThan(songLikedTime(a));
+  });
+
+  it('keeps a heart clicked here when it predates the Spotify save', () => {
+    const t = songLikedTime(
+      song({ likedAtUtc: '2026-01-05T00:00:00Z', spotifyAddedAtUtc: '2026-06-01T00:00:00Z' })
+    );
+
+    expect(t).toBe(Date.parse('2026-01-05T00:00:00Z'));
+  });
+
+  it('falls back to the local like time when there is no Spotify save date', () => {
+    const t = songLikedTime(song({ likedAtUtc: '2026-01-05T00:00:00Z' }));
+
+    expect(t).toBe(Date.parse('2026-01-05T00:00:00Z'));
   });
 });
 
