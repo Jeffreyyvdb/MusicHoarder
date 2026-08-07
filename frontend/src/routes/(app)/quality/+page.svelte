@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import {
     fetchQualityOverview,
     fetchQualityProgress,
@@ -121,6 +122,11 @@
   const lib = $derived(overview?.library ?? null);
   const coveragePct = $derived(overview ? Math.round(overview.coverage * 100) : 0);
   const avgScore = $derived(lib?.averageScore ?? null);
+  const headerMeta = $derived(
+    lib
+      ? `${lib.graded.toLocaleString()} of ${overview?.gradeableTotal.toLocaleString()} graded · ${coveragePct}% coverage${avgScore != null ? ` · avg ${avgScore}` : ''}`
+      : 'An LLM grades each enrichment so you can benchmark the algorithm'
+  );
 
   const tabCounts = $derived({
     all: lib?.graded ?? 0,
@@ -176,55 +182,40 @@
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col">
-  <header class="border-border flex flex-wrap items-center gap-3 border-b px-4 py-4 sm:px-6">
-    <Gauge class="text-primary size-5 shrink-0" />
-    <div class="min-w-0 flex-1">
-      <h1 class="truncate text-base font-semibold">AI library quality</h1>
-      <p class="text-muted-foreground text-[12px]">
-        {#if lib}
-          <span class="font-mono">{lib.graded.toLocaleString()}</span> of
-          <span class="font-mono">{overview?.gradeableTotal.toLocaleString()}</span> graded
-          <span class="text-muted-foreground/50">·</span>
-          {coveragePct}% coverage
-          {#if avgScore != null}
-            <span class="text-muted-foreground/50">·</span> avg <span class="font-mono">{avgScore}</span>
-          {/if}
-        {:else}
-          An LLM grades each enrichment so you can benchmark and debug the algorithm.
-        {/if}
-      </p>
-    </div>
-    {#if overview && overview.outdatedCount > 0}
+  <PageToolbarV2 icon={Gauge} title="AI library quality" meta={headerMeta}>
+    {#snippet actions()}
+      {#if overview && overview.outdatedCount > 0}
+        <button
+          type="button"
+          disabled={busy || polling || !gradingConfigured}
+          onclick={onGradeOutdated}
+          title="These grades were made with an older prompt or model. Re-grade just them."
+          class="border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400 border inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-nav-sm font-medium transition-colors active:not-disabled:translate-y-px disabled:opacity-50"
+        >
+          {#if busy || polling}<Loader2 class="size-3.5 animate-spin" />{:else}<Sparkles class="size-3.5" />{/if}
+          <span class="hidden lg:inline">Re-grade {overview.outdatedCount.toLocaleString()} outdated</span>
+        </button>
+      {/if}
       <button
         type="button"
         disabled={busy || polling || !gradingConfigured}
-        onclick={onGradeOutdated}
-        title="These grades were made with an older prompt or model. Re-grade just them."
-        class="border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400 inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12.5px] font-medium transition-colors active:not-disabled:translate-y-px disabled:opacity-50"
+        onclick={onGradeAll}
+        title={gradingConfigured ? undefined : 'AI grading is not configured on the server'}
+        class="bg-primary text-primary-foreground hover:opacity-90 inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-nav-sm font-medium transition-colors active:not-disabled:translate-y-px disabled:opacity-50"
       >
         {#if busy || polling}<Loader2 class="size-3.5 animate-spin" />{:else}<Sparkles class="size-3.5" />{/if}
-        Re-grade {overview.outdatedCount.toLocaleString()} outdated
+        <span class="hidden sm:inline">Re-grade library</span>
       </button>
-    {/if}
-    <button
-      type="button"
-      disabled={busy || polling || !gradingConfigured}
-      onclick={onGradeAll}
-      title={gradingConfigured ? undefined : 'AI grading is not configured on the server'}
-      class="bg-primary text-primary-foreground inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-opacity hover:opacity-90 active:not-disabled:translate-y-px disabled:opacity-50"
-    >
-      {#if busy || polling}<Loader2 class="size-3.5 animate-spin" />{:else}<Sparkles class="size-3.5" />{/if}
-      Re-grade library
-    </button>
-    <button
-      type="button"
-      onclick={loadOverview}
-      aria-label="Refresh"
-      class="border-border hover:bg-accent inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] transition-colors active:translate-y-px"
-    >
-      <RefreshCw class={cn('size-3.5', isLoading && 'animate-spin')} />
-    </button>
-  </header>
+      <button
+        type="button"
+        onclick={loadOverview}
+        aria-label="Refresh"
+        class="border-border hover:bg-accent border inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-nav-sm font-medium transition-colors active:not-disabled:translate-y-px disabled:opacity-50"
+      >
+        <RefreshCw class={cn('size-3.5', isLoading && 'animate-spin')} />
+      </button>
+    {/snippet}
+  </PageToolbarV2>
 
   <!-- The whole area scrolls at every breakpoint. On desktop it's a flex column so the
        master–detail split grows to fill the viewport when there's room, but it keeps a

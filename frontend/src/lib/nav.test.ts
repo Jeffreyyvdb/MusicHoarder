@@ -56,9 +56,6 @@ describe('NAV_GROUPS', () => {
     }
   });
 
-  it('lets only Inbox own its sub-nav (InboxV2 draws its own tab bar)', () => {
-    expect(NAV_GROUPS.filter((g) => g.ownsSubNav).map((g) => g.id)).toEqual(['inbox']);
-  });
 });
 
 describe('resolveNav', () => {

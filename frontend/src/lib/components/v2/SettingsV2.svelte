@@ -1,7 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { cn, scrollStripToActive } from '$lib/utils';
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
@@ -9,6 +8,7 @@
   import { Switch } from '$lib/components/ui/switch';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import PurgeStatusBanner from '$lib/components/settings/PurgeStatusBanner.svelte';
+  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import { isPasskeySupported } from '$lib/webauthn-client';
   import {
     fetchSpotifyCredentials,
@@ -49,6 +49,7 @@
     Trash2,
     Save,
     LogOut,
+    Settings,
     Sparkles,
     FolderInput
   } from '@lucide/svelte';
@@ -77,18 +78,6 @@
     url.searchParams.set('tab', id);
     void goto(`${url.pathname}${url.search}`, { replaceState: true, keepFocus: true, noScroll: true });
   }
-
-  // The tab strip overflows on a phone, so keep the active section in view.
-  let tabScroller = $state<HTMLElement | null>(null);
-  $effect(() => {
-    const el = tabScroller;
-    void activeTab;
-    if (!el) return;
-    const frame = requestAnimationFrame(() =>
-      scrollStripToActive(el, el.querySelector<HTMLElement>('[data-active]'))
-    );
-    return () => cancelAnimationFrame(frame);
-  });
 
   // ── account ────────────────────────────────────────────────────────────────────
   const user = $derived(
@@ -463,43 +452,16 @@
   }
 </script>
 
-<!-- Page header (mirrors PipelineHomeV2's header rhythm) -->
-<header class="border-border flex shrink-0 items-end justify-between gap-4 border-b px-4 py-3 sm:px-7 sm:py-5">
-  <div class="min-w-0">
-    <h1 class="text-2xl font-semibold tracking-tight">Settings</h1>
-    <p class="text-muted-foreground mt-1 max-w-2xl text-sm">
-      Where the pipeline reads from, which providers it queries, and where the clean library lives.
-    </p>
-  </div>
-</header>
-
-<!-- Tab bar — Apple-style segmented control, matching the section sub-nav and
-     the song-panel tabs (one tab idiom app-wide). -->
-<nav
-  bind:this={tabScroller}
-  class="no-scrollbar border-border flex shrink-0 items-center overflow-x-auto scroll-px-4 border-b px-4 py-1.5 sm:px-7 sm:py-2"
-  aria-label="Settings sections"
->
-  <div class="bg-foreground/5 mr-4 flex shrink-0 items-center gap-1 rounded-full p-1 sm:mr-0">
-    {#each TABS as tab (tab.id)}
-      {@const isActive = tab.id === activeTab}
-      <button
-        type="button"
-        onclick={() => selectTab(tab.id)}
-        data-active={isActive || undefined}
-        class={cn(
-          'flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors sm:px-4 sm:text-[13px]',
-          'focus-visible:ring-ring/60 outline-none focus-visible:ring-2',
-          isActive
-            ? 'bg-background text-foreground shadow-sm'
-            : 'text-muted-foreground hover:text-foreground'
-        )}
-      >
-        {tab.label}
-      </button>
-    {/each}
-  </div>
-</nav>
+<!-- Identity, plus the section tabs inline: two stacked bars (a 95px title band
+     and a 53px tab strip) for one word and six links was the single biggest
+     header in Manage. -->
+<PageToolbarV2
+  icon={Settings}
+  title="Settings"
+  tabs={TABS}
+  {activeTab}
+  onselectTab={(id) => selectTab(id as TabId)}
+/>
 
 <div class="min-h-0 flex-1 overflow-auto pb-[var(--mh-content-pad)]">
   <div class="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-4 sm:px-7 sm:py-6">
