@@ -719,9 +719,14 @@
               isCurrentlyLoaded && 'text-primary'
             )}
           >
-            <span class="text-muted-foreground relative grid place-items-center text-right">
+            <span class="text-muted-foreground relative grid h-full place-items-center text-right">
               <!-- Button first so the index/equalizer can hide off its `peer` focus state:
-                   exactly one of the two is ever visible. -->
+                   exactly one of the two is ever visible. The index/equalizer must stay
+                   `pointer-events-none`: once hover fades it to `opacity-0` it becomes a
+                   stacking context and paints *over* the absolutely positioned button, so
+                   it would otherwise swallow the click — the press and release then resolve
+                   to different nodes and the browser retargets `click` to this wrapper,
+                   which reads as a row click and opens the detail panel instead of playing. -->
               <button
                 type="button"
                 onclick={(e) => playTrack(song, e)}
@@ -740,7 +745,7 @@
               {#if isCurrentlyLoaded}
                 <span
                   class={cn(
-                    'mh-eq text-primary group-hover:opacity-0 peer-focus-visible:opacity-0',
+                    'mh-eq text-primary pointer-events-none group-hover:opacity-0 peer-focus-visible:opacity-0',
                     isCurrentlyPlaying && 'is-playing'
                   )}
                   aria-hidden="true"
@@ -749,7 +754,7 @@
                 </span>
               {:else}
                 <span
-                  class="font-mono text-sm tabular-nums transition-opacity group-hover:opacity-0 peer-focus-visible:opacity-0"
+                  class="pointer-events-none font-mono text-sm tabular-nums transition-opacity group-hover:opacity-0 peer-focus-visible:opacity-0"
                 >
                   {numLabel}
                 </span>
