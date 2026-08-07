@@ -431,7 +431,7 @@ public static class SongsEndpoints
         });
     }
 
-    private static async Task<IResult> TranscribeLyrics(
+    internal static async Task<IResult> TranscribeLyrics(
         int id,
         MusicHoarderDbContext db,
         ILyricsTranscriptionService transcriber,
@@ -468,12 +468,28 @@ public static class SongsEndpoints
             // Stored separately from SyncedLyrics/PlainLyrics so it never clobbers the LRCLIB version.
             song.ApplyTranscriptionResult(result.SyncedLyrics, result.PlainLyrics, result.Model);
 
+            // A re-sync of the song's OWN official lyrics (forced alignment against the LRCLIB text)
+            // is the same words with better timing, so it becomes the default automatically — that is
+            // the entire point of asking for a re-sync on a track that already has lyrics. A
+            // transcription with no reference text is the AI's guess at the words and is never
+            // promoted; the user picks that one from the compare view.
+            var promoted = false;
+            if (result.AlignedToReference
+                && !string.IsNullOrWhiteSpace(song.TranscribedSyncedLyrics)
+                && song.PreferredLyricsSource != PreferredLyricsSource.Transcribed)
+            {
+                song.PreferredLyricsSource = PreferredLyricsSource.Transcribed;
+                promoted = true;
+            }
+
             // If the AI version is this song's chosen default, the file's effective lyrics just changed —
             // re-tag the built destination so it reflects the fresh transcription.
+            var retagQueued = false;
             if (song.PreferredLyricsSource == PreferredLyricsSource.Transcribed
                 && song.LibraryBuildStatus == LibraryBuildStatus.Done)
             {
                 song.RequeueForRetag();
+                retagQueued = true;
             }
             await db.SaveChangesAsync(ct);
 
@@ -486,8 +502,14 @@ public static class SongsEndpoints
                 song.TranscribedAtUtc,
                 Model = song.TranscriptionModel,
                 HasExistingLyrics = song.LyricsStatus == LyricsStatus.Fetched,
+                // True when this run re-timed the official lyrics rather than inventing its own words.
+                Resynced = result.AlignedToReference,
+                // Lets the client show the new version in the viewer without a refetch.
+                PreferredLyricsSource = song.PreferredLyricsSource.ToString(),
+                Promoted = promoted,
+                RetagQueued = retagQueued,
                 // The fresh transcription may have changed the display lyrics out from under an
-                // existing pronunciation/translation — the client auto-regenerates when true.
+                // existing pronunciation/translation — the client regenerates when true.
                 LyricsTranslationStale = song.IsLyricsTranslationStale,
             });
         }
