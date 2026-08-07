@@ -9,6 +9,7 @@
   import { Switch } from '$lib/components/ui/switch';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import PurgeStatusBanner from '$lib/components/settings/PurgeStatusBanner.svelte';
+  import SharedLinksV2 from '$lib/components/v2/SharedLinksV2.svelte';
   import { isPasskeySupported } from '$lib/webauthn-client';
   import {
     fetchSpotifyCredentials,
@@ -24,11 +25,7 @@
     registerPasskey,
     listPasskeys,
     deletePasskey,
-    sync,
-    soulseek,
     type PasskeyView,
-    type SyncStatus,
-    type SoulseekStatus,
     type PurgeMode,
     type PurgeSnapshot,
     type SettingsResponse,
@@ -157,28 +154,9 @@
     }
   }
 
-  // ── soulseek & sync status (owner-only, read-only) ────────────────────────────
-  let soulseekStatus = $state<SoulseekStatus | null>(null);
-  let syncStatus = $state<SyncStatus | null>(null);
-  let soulseekSyncLoaded = $state(false);
-
-  $effect(() => {
-    if (user?.role !== 'Owner') return;
-    let cancelled = false;
-    void (async () => {
-      const [slsk, syncResp] = await Promise.all([
-        soulseek.getStatus().catch(() => null),
-        sync.getStatus().catch(() => null)
-      ]);
-      if (cancelled) return;
-      soulseekStatus = slsk;
-      syncStatus = syncResp;
-      soulseekSyncLoaded = true;
-    })();
-    return () => {
-      cancelled = true;
-    };
-  });
+  // Soulseek and library-sync status moved to /connections, which reports every integration
+  // together (including Navidrome, which had no surface at all). Settings keeps the things you
+  // can actually change.
 
   // ── settings + spotify state ───────────────────────────────────────────────────
   let isLoading = $state(true);
@@ -717,102 +695,18 @@
         </div>
       </section>
 
-      <!-- Soulseek & sync (read-only status) -->
+      <!-- Integration status (Soulseek, library sync, Navidrome, Spotify) lives on
+           /connections — one place for every external service. -->
       {#if user?.role === 'Owner'}
-        <section class="border-border bg-card rounded-lg border">
-          <header class="border-border border-b px-5 py-3.5">
-            <h2 class="text-[13px] font-semibold">Soulseek &amp; sync</h2>
-            <p class="text-muted-foreground text-[11.5px]">
-              Read-only status of the slskd connection (quality upgrades) and the deployment-to-deployment
-              library sync. Both are configured via server environment variables.
-            </p>
-          </header>
-          <div class="divide-border divide-y">
-            <!-- Soulseek row -->
-            <div class="flex items-center gap-4 px-5 py-3.5">
-              <div class="min-w-0 flex-1">
-                <div class="text-[12.5px] font-medium">Soulseek (slskd)</div>
-                <div class="text-muted-foreground text-[11.5px]">
-                  {#if !soulseekSyncLoaded}
-                    Loading…
-                  {:else if !soulseekStatus}
-                    Status unavailable.
-                  {:else if soulseekStatus.configured}
-                    {soulseekStatus.connected ? 'Connected' : 'Not connected'}{soulseekStatus.version
-                      ? ` · slskd ${soulseekStatus.version}`
-                      : ''}
-                  {:else}
-                    Searches the Soulseek network for better-quality copies of your tracks.
-                  {/if}
-                </div>
-              </div>
-              {#if soulseekSyncLoaded && soulseekStatus}
-                {#if soulseekStatus.configured && soulseekStatus.connected}
-                  <Badge class="shrink-0 border-0 bg-[#1DB954]/20 text-[#1DB954]">Connected</Badge>
-                {:else if soulseekStatus.configured}
-                  <Badge variant="secondary" class="shrink-0">Disconnected</Badge>
-                {:else}
-                  <Badge variant="outline" class="text-muted-foreground shrink-0">Not configured</Badge>
-                {/if}
-              {:else if soulseekSyncLoaded}
-                <Badge variant="outline" class="text-muted-foreground shrink-0">Unavailable</Badge>
-              {/if}
+        <section class="border-border bg-card rounded-lg border px-5 py-3.5">
+          <div class="flex items-center gap-4">
+            <div class="min-w-0 flex-1">
+              <h2 class="text-[13px] font-semibold">Connections</h2>
+              <p class="text-muted-foreground text-[11.5px]">
+                Spotify, Navidrome, Soulseek and library sync — status and the upgrade queue.
+              </p>
             </div>
-
-            <!-- Sync row -->
-            <div class="flex flex-col gap-2 px-5 py-3.5">
-              <div class="flex items-center gap-4">
-                <div class="min-w-0 flex-1">
-                  <div class="text-[12.5px] font-medium">Library sync</div>
-                  <div class="text-muted-foreground text-[11.5px]">
-                    {#if !soulseekSyncLoaded}
-                      Loading…
-                    {:else if !syncStatus}
-                      Status unavailable.
-                    {:else if syncStatus.mode === 'Push'}
-                      Pushing built tracks to the receiving deployment.
-                    {:else if syncStatus.mode === 'Receive'}
-                      Receiving tracks pushed from another deployment.
-                    {:else}
-                      Not configured — this deployment neither pushes nor receives.
-                    {/if}
-                  </div>
-                </div>
-                {#if soulseekSyncLoaded && syncStatus}
-                  {#if syncStatus.mode === 'Off'}
-                    <Badge variant="outline" class="text-muted-foreground shrink-0">Off</Badge>
-                  {:else}
-                    <Badge variant="secondary" class="shrink-0">{syncStatus.mode}</Badge>
-                  {/if}
-                {:else if soulseekSyncLoaded}
-                  <Badge variant="outline" class="text-muted-foreground shrink-0">Unavailable</Badge>
-                {/if}
-              </div>
-              {#if soulseekSyncLoaded && syncStatus?.mode === 'Push'}
-                <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  <div class="border-border bg-secondary/30 rounded-md border px-3 py-2">
-                    <div class="font-mono text-sm font-semibold tabular-nums">{syncStatus.outbox.synced}</div>
-                    <div class="text-muted-foreground text-[10.5px]">Synced</div>
-                  </div>
-                  <div class="border-border bg-secondary/30 rounded-md border px-3 py-2">
-                    <div class="font-mono text-sm font-semibold tabular-nums">
-                      {syncStatus.outbox.pending + syncStatus.outbox.uploading}
-                    </div>
-                    <div class="text-muted-foreground text-[10.5px]">Pending</div>
-                  </div>
-                  <div class="border-border bg-secondary/30 rounded-md border px-3 py-2">
-                    <div class="font-mono text-sm font-semibold tabular-nums">{syncStatus.outbox.failed}</div>
-                    <div class="text-muted-foreground text-[10.5px]">Failed</div>
-                  </div>
-                  <div class="border-border bg-secondary/30 rounded-md border px-3 py-2">
-                    <div class="font-mono text-sm font-semibold tabular-nums">
-                      {syncStatus.outbox.skippedRemoteBetter}
-                    </div>
-                    <div class="text-muted-foreground text-[10.5px]">Remote better</div>
-                  </div>
-                </div>
-              {/if}
-            </div>
+            <Button variant="outline" size="sm" href="/connections" class="shrink-0">Open</Button>
           </div>
         </section>
       {/if}
@@ -1175,6 +1069,10 @@
             {/if}
           </div>
         </section>
+
+        {#if user?.role === 'Owner'}
+          <SharedLinksV2 />
+        {/if}
 
         <!-- Anonymous telemetry — not API-writable yet -->
         <section class="border-border bg-card rounded-lg border border-dashed">

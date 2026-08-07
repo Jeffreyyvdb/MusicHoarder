@@ -339,11 +339,13 @@ public partial class SpotifyLibraryComparisonService(
             settings.SpotifyLikedMatchPossible is int pm &&
             settings.SpotifyLikedMatchNotInLibrary is int ni)
         {
-            return new SpotifyComparisonSummaryResponse(t, il, pm, ni);
+            return new SpotifyComparisonSummaryResponse(
+                t, il, pm, ni, settings.SpotifyLikedMatchStatsUpdatedAtUtc);
         }
 
         // No background sync yet — avoid scanning Spotify on summary; return zeros until sync runs.
-        return new SpotifyComparisonSummaryResponse(0, 0, 0, 0);
+        // The null timestamp is what lets a caller tell these zeros from real ones.
+        return new SpotifyComparisonSummaryResponse(0, 0, 0, 0, null);
     }
 
     private static SpotifyComparisonItem ToComparisonItemFromTrack(SpotifyTrackItem t)

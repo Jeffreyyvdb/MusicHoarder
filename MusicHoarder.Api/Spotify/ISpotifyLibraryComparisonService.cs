@@ -63,8 +63,14 @@ public record SpotifyComparisonResponse(
     int Limit,
     IReadOnlyList<SpotifyComparisonItem> Items);
 
+/// <param name="UpdatedAtUtc">
+/// When the background sweep last wrote these counts, or null if it has never run. Without this
+/// a never-computed summary is four zeros, which reads as "you own none of your liked songs"
+/// rather than "nothing has been measured yet".
+/// </param>
 public record SpotifyComparisonSummaryResponse(
     int Total,
     int InLibrary,
     int PossibleMatch,
-    int NotInLibrary);
+    int NotInLibrary,
+    DateTime? UpdatedAtUtc);

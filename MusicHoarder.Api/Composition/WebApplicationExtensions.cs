@@ -40,6 +40,7 @@ public static class WebApplicationExtensions
         app.MapImportEndpoints();
         app.MapSyncEndpoints();
         app.MapSoulseekEndpoints();
+        app.MapNavidromeEndpoints();
         app.MapPlaylistsEndpoints();
         app.MapSettingsEndpoints();
         app.MapAuthEndpoints();

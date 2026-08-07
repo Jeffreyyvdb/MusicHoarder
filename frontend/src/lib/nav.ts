@@ -17,9 +17,11 @@ import History from '@lucide/svelte/icons/history';
 import Inbox from '@lucide/svelte/icons/inbox';
 import LayoutGrid from '@lucide/svelte/icons/layout-grid';
 import Library from '@lucide/svelte/icons/library';
+import ListChecks from '@lucide/svelte/icons/list-checks';
 import ListMusic from '@lucide/svelte/icons/list-music';
 import ListVideo from '@lucide/svelte/icons/list-video';
 import Music2 from '@lucide/svelte/icons/music-2';
+import Plug from '@lucide/svelte/icons/plug';
 import Settings from '@lucide/svelte/icons/settings';
 import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
 import Sparkles from '@lucide/svelte/icons/sparkles';
@@ -262,9 +264,23 @@ export const NAV_GROUPS: NavGroup[] = [
         href: '/pipeline',
         icon: Workflow,
         live: true,
-        keywords: 'conveyor runs jobs ingest scan enrich build',
+        keywords: 'conveyor jobs ingest scan enrich build hold pause resume',
         // Exact, so a future /pipeline/<something> can't silently inherit the conveyor tab.
         match: exact('/pipeline')
+      },
+      {
+        id: 'runs',
+        label: 'Runs',
+        href: '/runs',
+        icon: ListChecks,
+        keywords: 'history ingest ledger log throughput failures'
+      },
+      {
+        id: 'connections',
+        label: 'Connections',
+        href: '/connections',
+        icon: Plug,
+        keywords: 'spotify navidrome soulseek slskd sync status connected integrations'
       },
       {
         id: 'folders',
