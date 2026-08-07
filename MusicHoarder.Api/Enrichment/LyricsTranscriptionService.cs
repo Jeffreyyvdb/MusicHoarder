@@ -11,7 +11,14 @@ using MusicHoarder.Api.Persistence;
 namespace MusicHoarder.Api.Enrichment;
 
 /// <summary>Result of transcribing a song's audio: a synced LRC + a plain transcript + the model used.</summary>
-public record TranscriptionResult(string? SyncedLyrics, string? PlainLyrics, string Model);
+/// <param name="AlignedToReference">
+/// True when the LRC carries the song's <b>official</b> lyric text re-timed against the audio (the
+/// reference lyrics were resolved AND an aligner placed them successfully) — i.e. the same words as
+/// LRCLIB with better timestamps. False when the lines are the transcript's own guess at the words,
+/// which must never silently replace curated lyrics. Callers use this to decide whether promoting
+/// the transcription to the display/file default is safe.
+/// </param>
+public record TranscriptionResult(string? SyncedLyrics, string? PlainLyrics, string Model, bool AlignedToReference = false);
 
 public interface ILyricsTranscriptionService
 {
@@ -68,6 +75,7 @@ public sealed class LyricsTranscriptionService(
 
             var refLines = LrcBuilder.SplitReferenceLines(referenceText);
             List<(double Start, string Text)>? lines = null;
+            var alignedToReference = false;
 
             if (refLines is { Count: > 0 } && words.Count > 0)
             {
@@ -84,6 +92,10 @@ public sealed class LyricsTranscriptionService(
                     if (LrcBuilder.IsDegenerate(lines))
                         lines = null;
                 }
+
+                // Only a *successful* alignment carries the official words — the fallbacks below emit
+                // the transcript's own wording, which is not a re-sync of the curated lyrics.
+                alignedToReference = lines is { Count: > 0 };
             }
             else if (opts.UseLlmAlignment && aligner.IsAvailable && words.Count > 0)
             {
@@ -104,7 +116,7 @@ public sealed class LyricsTranscriptionService(
 
             var synced = lines is { Count: > 0 } ? LrcBuilder.Format(lines) : null;
             var plain = NullIfBlank(referenceText) ?? transcriptText;
-            return new TranscriptionResult(synced, plain, opts.Model);
+            return new TranscriptionResult(synced, plain, opts.Model, alignedToReference);
         }
         finally
         {
