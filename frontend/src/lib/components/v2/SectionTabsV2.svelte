@@ -15,17 +15,19 @@
 
   type Props = {
     tabs: Tab[];
-    /** id of the active tab. */
+    /** id of the active tab. Empty when the group matched but no tab did. */
     active: string;
+    /** Accessible name for the strip, e.g. "Listen views". */
+    label: string;
     /** Whether the pipeline is currently running (drives the live pulse). */
     running?: boolean;
     /** Optional right-aligned meta text. */
     meta?: string;
   };
 
-  const { tabs, active, running = false, meta }: Props = $props();
+  const { tabs, active, label, running = false, meta }: Props = $props();
 
-  // On a phone this bar overflows (six library tabs don't fit 360px), so the
+  // On a phone this bar overflows (eight Manage tabs don't fit 360px), so the
   // active tab can start off-screen after a route change — scroll it into view.
   let scroller = $state<HTMLElement | null>(null);
   $effect(() => {
@@ -43,7 +45,7 @@
 <nav
   bind:this={scroller}
   class="no-scrollbar border-border flex shrink-0 items-center overflow-x-auto scroll-px-4 border-b px-4 py-1.5 sm:px-7 sm:py-2"
-  aria-label="Pipeline views"
+  aria-label={label}
 >
   <!-- Apple-style segmented control (same idiom as the song-panel tabs): a soft
        capsule track with the active segment as a raised pill. The bar stays
@@ -57,7 +59,7 @@
         data-active={isActive || undefined}
         aria-current={isActive ? 'page' : undefined}
         class={cn(
-          'flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors sm:px-4 sm:text-[13px]',
+          'flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors sm:px-4 sm:text-nav',
           'focus-visible:ring-ring/60 outline-none focus-visible:ring-2',
           isActive
             ? 'bg-background text-foreground shadow-sm'
@@ -71,7 +73,7 @@
         {#if tab.count != null}
           <span
             class={cn(
-              'rounded-full px-1.5 py-px text-[10.5px] tabular-nums',
+              'text-nav-count rounded-full px-1.5 py-px tabular-nums',
               isActive ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
             )}
           >{typeof tab.count === 'number' ? tab.count.toLocaleString() : tab.count}</span>
@@ -81,6 +83,6 @@
   </div>
   <span class="flex-1"></span>
   {#if meta}
-    <span class="text-muted-foreground/80 hidden text-[11px] whitespace-nowrap tabular-nums sm:block">{meta}</span>
+    <span class="text-muted-foreground/80 text-nav-xs hidden whitespace-nowrap tabular-nums sm:block">{meta}</span>
   {/if}
 </nav>

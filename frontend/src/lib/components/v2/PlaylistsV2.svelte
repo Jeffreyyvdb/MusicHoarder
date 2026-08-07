@@ -150,7 +150,7 @@
       <div>
         <div class="flex items-center gap-2">
           <ListVideo class="size-5" />
-          <h1 class="text-2xl font-semibold tracking-tight">Playlists</h1>
+          <h1 class="text-2xl font-semibold tracking-tight">Playlist sync</h1>
           <Badge variant="secondary">{subscribedCount} synced</Badge>
         </div>
         <p class="text-muted-foreground mt-1 text-sm">

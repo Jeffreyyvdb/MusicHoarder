@@ -1,24 +1,9 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { goto } from '$app/navigation';
-  import {
-    Disc,
-    Disc3,
-    Mic2,
-    Music,
-    Music2,
-    Library,
-    Users,
-    Inbox,
-    Workflow,
-    Gauge,
-    ListMusic,
-    Settings as SettingsIcon,
-    FolderTree,
-    TrendingUp,
-    Loader2
-  } from '@lucide/svelte';
+  import { Disc3, Mic2, Music, Library, Loader2 } from '@lucide/svelte';
   import * as Command from '$lib/components/ui/command';
+  import { NAV_GROUPS } from '$lib/nav';
   import {
     buildAlbumsFromSongs,
     mergeAlbumsByName,
@@ -35,23 +20,27 @@
   // Cap each result group so typing stays snappy on large libraries.
   const MAX_PER_GROUP = 8;
 
-  type NavCommand = { label: string; href: string; icon: typeof Library; keywords: string };
+  type NavCommand = {
+    label: string;
+    href: string;
+    icon: typeof Library;
+    keywords: string;
+    group: string;
+  };
 
-  // Order + labels mirror the sidebar / section tab bars (section-nav.ts +
-  // library-subnav.ts) so the flat Jump-to list reads exactly like the navs.
-  const NAV_COMMANDS: NavCommand[] = [
-    { label: 'Pipeline', href: '/pipeline', icon: Workflow, keywords: 'conveyor runs jobs history ingest overview dashboard' },
-    { label: 'By folder', href: '/directories', icon: FolderTree, keywords: 'directories folders tree match' },
-    { label: 'AI quality', href: '/quality', icon: Gauge, keywords: 'grade bitrate' },
-    { label: 'Album matches', href: '/album-quality', icon: Disc, keywords: 'album quality matches reconcile tracklist' },
-    { label: 'Performance over time', href: '/performance', icon: TrendingUp, keywords: 'timeline regression version stats trends' },
-    { label: 'Inbox', href: '/inbox', icon: Inbox, keywords: 'review duplicates ai flagged provenance manual' },
-    { label: 'Library', href: '/library', icon: Library, keywords: 'albums home' },
-    { label: 'Artists', href: '/artists', icon: Users, keywords: 'performers' },
-    { label: 'All tracks', href: '/tracks', icon: ListMusic, keywords: 'songs' },
-    { label: 'Spotify', href: '/spotify', icon: Music2, keywords: 'playlists liked' },
-    { label: 'Settings', href: '/settings', icon: SettingsIcon, keywords: 'config preferences' }
-  ];
+  // Every nav destination, flattened from the shared groups so the Jump-to list reads exactly
+  // like the sidebar and can never miss a route — the hand-kept list this replaced had no
+  // entry for Overview, Liked songs, Wishlist, Playlist sync, Stats or History. The group
+  // name joins the haystack, so typing "manage" surfaces everything under Manage.
+  const NAV_COMMANDS: NavCommand[] = NAV_GROUPS.flatMap((group) =>
+    group.items.map((item) => ({
+      label: item.label,
+      href: item.href,
+      icon: item.icon,
+      keywords: `${group.label} ${item.keywords ?? ''}`.toLowerCase(),
+      group: group.label
+    }))
+  );
 
   // bits-ui's Dialog binds cleanly to a plain local $state; the shared store
   // (driven by the global shortcut + header badge) is mirrored into it.
@@ -184,6 +173,9 @@
           <Command.Item value={`nav-${cmd.href}`} onSelect={() => navigate(cmd.href)}>
             <cmd.icon class="text-muted-foreground" />
             <span>{cmd.label}</span>
+            <!-- The group disambiguates the two "Artists" and the two "Albums" — one of each
+                 is a library view, the other an Inbox review queue. -->
+            <span class="text-muted-foreground ml-auto text-xs">{cmd.group}</span>
           </Command.Item>
         {/each}
       </Command.Group>

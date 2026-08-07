@@ -1,9 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { probeSession } from '$lib/server/session';
+import { APP_HOME } from '$lib/app-home';
 import type { PageServerLoad } from './$types';
-
-/** Where an already-signed-in owner lands instead of the sign-in form. */
-const APP_HOME = '/pipeline';
 
 /**
  * Send owners who already have a valid session straight into the app. Without this, /login

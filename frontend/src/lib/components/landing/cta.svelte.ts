@@ -1,10 +1,8 @@
 import { goto } from '$app/navigation';
 import { page } from '$app/state';
 import { signInAsDemo } from '$lib/api-client';
+import { APP_HOME } from '$lib/app-home';
 import type { SessionRole } from '$lib/auth/session-types';
-
-/** Where every landing-page call-to-action drops you once you have a session. */
-const APP_HOME = '/pipeline';
 
 export interface PrimaryCtaOptions {
   /** Label shown to signed-out visitors, e.g. "Try the live demo". */
