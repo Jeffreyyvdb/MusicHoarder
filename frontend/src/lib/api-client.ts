@@ -206,6 +206,22 @@ export function spotifyAddedTime(s: ApiSong): number {
   return Number.isNaN(ms) ? 0 : ms
 }
 
+/**
+ * Epoch ms of when this song was liked, 0 when it isn't liked at all.
+ *
+ * `likedAtUtc` records when *this app* learned about the like, not when you made it: the Spotify
+ * auto-like sweep stamps every song it matches in one pass with a single `now`, so thousands of
+ * rows tie on one instant and "newest liked first" degenerates into the list's tie-break order. An
+ * earlier `spotifyAddedAtUtc` is the real like moment, so it wins — same rule as
+ * {@link songAddedIso}, and hearts you clicked here (no Spotify save, or a later one) are untouched.
+ */
+export function songLikedTime(s: ApiSong): number {
+  if (!s.likedAtUtc) return 0
+  const iso = oldestIso([s.spotifyAddedAtUtc, s.likedAtUtc])
+  const ms = iso ? Date.parse(iso) : NaN
+  return Number.isNaN(ms) ? 0 : ms
+}
+
 /** Short label + long tooltip for the Source column. */
 export function songOriginLabel(s: ApiSong): { label: string; title: string } | null {
   const detail = nonEmpty(s.originDetail)
@@ -438,12 +454,30 @@ function destinationFolderOf(song: ApiSong): string | null {
  * Rows predating that column fall back to the OLDEST of the two churn-prone stamps rather than
  * preferring either: a re-index bumps `indexedAtUtc` while a rebuild clears and re-sets
  * `libraryBuiltAtUtc`, so whichever survived un-bumped is the closer guess at the real date.
+ *
+ * An EARLIER {@link ApiSong.spotifyAddedAtUtc} wins over all of them. `acquiredAtUtc` is the moment
+ * the file landed, which for a wishlist download is when the downloader got round to it — so a
+ * years-old Spotify save drips in with a today stamp and lands at the top of "recently added" next
+ * to things you actually just got. The save date is the moment that song entered *your* collection;
+ * the download is just when this app caught up. Only ever pulls the date backwards, so a track you
+ * ripped years before saving it on Spotify keeps its acquisition date.
  */
 export function songAddedIso(s: ApiSong): string | null {
-  if (s.acquiredAtUtc) return s.acquiredAtUtc
+  return oldestIso([s.spotifyAddedAtUtc, s.acquiredAtUtc ?? fallbackAddedIso(s)])
+}
+
+/**
+ * Acquisition date for rows predating `acquiredAtUtc` — see {@link songAddedIso}.
+ */
+function fallbackAddedIso(s: ApiSong): string | null {
+  return oldestIso([s.libraryBuiltAtUtc, s.indexedAtUtc])
+}
+
+/** The earliest parseable stamp of the candidates, or null when none parse. */
+function oldestIso(candidates: (string | null | undefined)[]): string | null {
   let oldest: string | null = null
   let oldestMs = Number.POSITIVE_INFINITY
-  for (const candidate of [s.libraryBuiltAtUtc, s.indexedAtUtc]) {
+  for (const candidate of candidates) {
     if (!candidate) continue
     const ms = Date.parse(candidate)
     if (Number.isNaN(ms) || ms >= oldestMs) continue

@@ -16,6 +16,7 @@
     fetchAlbumCanonicalStatuses,
     isAlbumSortKey,
     mergeAlbumsByName,
+    songLikedTime,
     sortAlbums,
     type AlbumSortKey,
     type AlbumStatusInfo,
@@ -230,10 +231,9 @@
     likedSongs.reduce((n, s) => n + (s.durationSeconds ?? 0), 0)
   );
 
+  // Same key the TrackList sorts on, so pressing Play starts at the row shown on top.
   function likedQueue(): ApiSong[] {
-    return [...likedSongs].sort(
-      (a, b) => Date.parse(b.likedAtUtc ?? '') - Date.parse(a.likedAtUtc ?? '')
-    );
+    return [...likedSongs].sort((a, b) => songLikedTime(b) - songLikedTime(a));
   }
   function likedFallbackArtist(s: ApiSong): string {
     return (s.albumArtist ?? s.artist ?? '').trim() || 'Unknown Artist';
