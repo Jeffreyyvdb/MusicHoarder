@@ -34,6 +34,12 @@ public record DeezerAlbumTrackItem(
     int DurationMs,
     string? Id);
 
+/// <summary>An album search hit (<c>GET /search/album</c>) carrying enough identity to verify the match.</summary>
+public record DeezerAlbumCandidate(string Id, string? Title, string? ArtistName);
+
+/// <summary>An artist search hit (<c>GET /search/artist</c>) with its largest available portrait URL.</summary>
+public record DeezerArtistCandidate(string? Name, string? PictureUrl);
+
 /// <summary>A Deezer editorial genre (<c>GET /genre</c>). Id 0 is the catch-all "All".</summary>
 public record DeezerGenre(long Id, string Name, string? PictureUrl);
 

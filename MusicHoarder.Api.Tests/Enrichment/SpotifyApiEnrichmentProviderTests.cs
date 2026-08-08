@@ -491,6 +491,12 @@ public class SpotifyApiEnrichmentProviderTests
         public Task<string?> SearchAlbumIdAsync(string clientId, string clientSecret, string artist, string album, CancellationToken ct = default)
             => Task.FromResult<string?>(null);
 
+        public Task<IReadOnlyList<SpotifyAlbumCandidate>> SearchAlbumCandidatesAsync(string clientId, string clientSecret, string artist, string album, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<SpotifyAlbumCandidate>>([]);
+
+        public Task<IReadOnlyList<SpotifyArtistCandidate>> SearchArtistCandidatesAsync(string clientId, string clientSecret, string name, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<SpotifyArtistCandidate>>([]);
+
         public Task<SpotifyAlbumDetail?> GetAlbumAsync(string clientId, string clientSecret, string albumId, CancellationToken ct = default)
             => Task.FromResult<SpotifyAlbumDetail?>(null);
 

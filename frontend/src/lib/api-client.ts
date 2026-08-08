@@ -1641,6 +1641,14 @@ function isOwnCoverUrl(url: string): boolean {
 }
 
 /**
+ * Artist portrait endpoint: redirects to a verified Deezer/Spotify portrait (cached server-side by
+ * normalized name) or 404s — callers fall back to an album cover / initials tile on error.
+ */
+export function getArtistImageUrl(name: string): string {
+  return `${API_PREFIX}/api/artists/image?name=${encodeURIComponent(name)}`
+}
+
+/**
  * Appends a `?size=` thumbnail request to a cover URL **only** when it points at our own cover
  * endpoint; external URLs (e.g. a Spotify CDN image) are returned unchanged.
  */
