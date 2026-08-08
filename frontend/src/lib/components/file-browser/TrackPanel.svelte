@@ -828,7 +828,7 @@
 -->
 {#snippet enhanceButton()}
   <Button
-    variant="outline"
+    variant="subtle"
     size="sm"
     class={cn(
       enhanceState === 'success' && 'text-primary',
@@ -1084,11 +1084,11 @@
                   <ToggleGroup.Root
                     type="single"
                     size="sm"
+                    variant="segmented"
                     value={lyricsView}
                     onValueChange={(v) => {
                       if (v) lyricsView = v as typeof lyricsView;
                     }}
-                    class="text-xs"
                   >
                     <ToggleGroup.Item value="original" aria-label="Original lyrics">Original</ToggleGroup.Item>
                     <ToggleGroup.Item value="pronunciation" aria-label="Pronunciation guide">
@@ -1184,8 +1184,9 @@
           <div class="flex shrink-0 items-center gap-2">
             {#if canCompareLyrics}
               <Button
-                variant={comparingLyrics ? 'secondary' : 'outline'}
+                variant="subtle"
                 size="sm"
+                class={cn(comparingLyrics && 'bg-foreground/[0.14] text-foreground dark:bg-white/20')}
                 onclick={() => (showCompare = !showCompare)}
               >
                 {comparingLyrics ? 'Done' : 'Compare'}
@@ -1208,11 +1209,11 @@
             <ToggleGroup.Root
               type="single"
               size="sm"
+              variant="segmented"
               value={lyricsView}
               onValueChange={(v) => {
                 if (v) lyricsView = v as typeof lyricsView;
               }}
-              class="text-xs"
             >
               <ToggleGroup.Item value="original" aria-label="Original lyrics">Original</ToggleGroup.Item>
               <ToggleGroup.Item value="pronunciation" aria-label="Pronunciation guide">

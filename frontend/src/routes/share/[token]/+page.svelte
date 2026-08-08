@@ -239,11 +239,11 @@
       <ToggleGroup.Root
         type="single"
         size="sm"
+        variant="segmented"
         value={lyricsView}
         onValueChange={(v) => {
           if (v) lyricsView = v as typeof lyricsView;
         }}
-        class="text-xs"
       >
         <ToggleGroup.Item value="original" aria-label="Original lyrics">Original</ToggleGroup.Item>
         <ToggleGroup.Item value="pronunciation" aria-label="Pronunciation guide">
