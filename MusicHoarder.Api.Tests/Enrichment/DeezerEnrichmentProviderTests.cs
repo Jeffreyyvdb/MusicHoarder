@@ -322,6 +322,12 @@ public class DeezerEnrichmentProviderTests
         public Task<string?> SearchAlbumIdAsync(string artist, string album, CancellationToken ct = default)
             => Task.FromResult<string?>(null);
 
+        public Task<IReadOnlyList<DeezerAlbumCandidate>> SearchAlbumCandidatesAsync(string artist, string album, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<DeezerAlbumCandidate>>([]);
+
+        public Task<IReadOnlyList<DeezerArtistCandidate>> SearchArtistCandidatesAsync(string name, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<DeezerArtistCandidate>>([]);
+
         public Task<DeezerAlbumDetail?> GetAlbumAsync(string albumId, CancellationToken ct = default)
             => Task.FromResult<DeezerAlbumDetail?>(null);
 
