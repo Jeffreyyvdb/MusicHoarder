@@ -106,19 +106,21 @@ public sealed class ExternalCoverArtSweepBackgroundService(
                 && s.SourcePath != null)
             .Select(s => new SweepRow(
                 s.Id, s.OwnerUserId, s.SourcePath!, s.DestinationPath!, s.Album, s.AlbumArtist,
-                s.MusicBrainzReleaseId, s.MusicBrainzReleaseGroupId))
+                s.MusicBrainzReleaseId, s.MusicBrainzReleaseGroupId, s.SpotifyId))
             .ToListAsync(ct);
 
         if (rows.Count == 0)
             return 0;
 
         // One representative per destination album folder; prefer a track that carries a release MBID
-        // (the Cover Art Archive key), then the lowest id for determinism.
+        // (the Cover Art Archive key), then one with a Spotify id (the official-album-image key),
+        // then the lowest id for determinism.
         var folders = rows
             .GroupBy(r => fileSystem.Path.GetDirectoryName(r.DestinationPath) ?? string.Empty, StringComparer.Ordinal)
             .Where(g => !string.IsNullOrEmpty(g.Key))
             .Select(g => (Folder: g.Key, Representative: g
                 .OrderByDescending(r => !string.IsNullOrWhiteSpace(r.MusicBrainzReleaseId))
+                .ThenByDescending(r => !string.IsNullOrWhiteSpace(r.SpotifyId))
                 .ThenBy(r => r.Id)
                 .First()))
             .Where(f => fileSystem.Directory.Exists(f.Folder)
@@ -146,7 +148,7 @@ public sealed class ExternalCoverArtSweepBackgroundService(
             ct.ThrowIfCancellationRequested();
 
             var query = new ExternalCoverArtQuery(
-                rep.MusicBrainzReleaseId, rep.MusicBrainzReleaseGroupId, rep.AlbumArtist, rep.Album);
+                rep.MusicBrainzReleaseId, rep.MusicBrainzReleaseGroupId, rep.AlbumArtist, rep.Album, rep.SpotifyId);
             var result = await coverWriter.WriteIfMissingAsync(folder, rep.SourcePath, query, ct);
 
             if (result.Written)
@@ -255,5 +257,6 @@ public sealed class ExternalCoverArtSweepBackgroundService(
 
     private sealed record SweepRow(
         int Id, Guid OwnerUserId, string SourcePath, string DestinationPath,
-        string? Album, string? AlbumArtist, string? MusicBrainzReleaseId, string? MusicBrainzReleaseGroupId);
+        string? Album, string? AlbumArtist, string? MusicBrainzReleaseId, string? MusicBrainzReleaseGroupId,
+        string? SpotifyId);
 }

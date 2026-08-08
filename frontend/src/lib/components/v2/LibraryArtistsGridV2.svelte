@@ -2,7 +2,7 @@
   import { Users } from '@lucide/svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import { cn } from '$lib/utils';
-  import type { GroupSummary } from '$lib/api-client';
+  import { getArtistImageUrl, type GroupSummary } from '$lib/api-client';
 
   type Props = {
     groups: GroupSummary[];
@@ -104,7 +104,8 @@
         <Cover
           artist={group.coverArtist}
           title={group.coverTitle}
-          coverUrl={group.coverUrl}
+          coverUrl={getArtistImageUrl(group.label)}
+          fallbackUrl={group.coverUrl}
           size={160}
           corner={80}
           caption={false}
