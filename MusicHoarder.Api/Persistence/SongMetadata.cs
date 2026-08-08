@@ -39,6 +39,25 @@ public record EnrichmentMatchData(
     string? ArtistSort = null,
     string? AlbumArtistSort = null);
 
+/// <summary>
+/// Why this track is in the collection — did the owner ask for it, or did the app add it on their
+/// behalf? <see cref="Explicit"/> is deliberately <c>0</c>: it is the column default, so every row
+/// that predates album completion (and every scanned, synced or user-requested row after it) is
+/// "mine" with no backfill. Absence of information means the owner wanted it.
+/// </summary>
+public enum SongAcquisitionIntent
+{
+    /// <summary>The owner asked for this track — a scanned source file, a Spotify like, a playlist, a URL import.</summary>
+    Explicit = 0,
+
+    /// <summary>
+    /// Added only because the owner already had another track from the same album (see
+    /// <c>AlbumCompletionSweep</c>). Shown in All tracks and the album view, excluded from "My music"
+    /// until the owner likes it.
+    /// </summary>
+    AlbumFill = 1,
+}
+
 public class SongMetadata
 {
     private const int MaxErrorLength = 1024;
@@ -263,6 +282,16 @@ public class SongMetadata
     // Deliberately absent from RebuildOnMetadataChangeInterceptor.TagRelevantProperties and never
     // touched by ResetEnrichment/RequeueForRetag: a like or play must survive re-enrichment and
     // re-builds, and must never re-tag the destination file.
+
+    /// <summary>
+    /// Whether the owner asked for this track or the app added it to complete an album. Written once,
+    /// by <c>WishlistDownloadProcessor.LinkDownloadedItemsAsync</c>, when a wishlist item is linked to
+    /// its ingested song — never by enrichment. This is the authoritative fact the "My music" view
+    /// filters on; <see cref="Library.SongOriginResolver"/>'s derived origin is display-only and can
+    /// lose the link (soft-delete, upgrade merge, wishlist deletion), which is exactly why this is a
+    /// column and not another derivation.
+    /// </summary>
+    public SongAcquisitionIntent AcquisitionIntent { get; set; } = SongAcquisitionIntent.Explicit;
 
     /// <summary>When the user liked this song; null = not liked. Doubles as the "recently liked" sort key.</summary>
     public DateTime? LikedAtUtc { get; set; }

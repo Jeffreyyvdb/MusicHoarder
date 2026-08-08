@@ -35,7 +35,14 @@ public class WishlistDownloadProcessor(
             .Where(w => w.OwnerUserId == ownerId)
             .ExcludingDemoTenant()
             .Where(w => w.Status == WishlistItemStatus.Pending)
-            .OrderByDescending(w => w.SpotifyAddedAtUtc)
+            // Origin first: what the owner asked for is claimed strictly before album completion. This
+            // has to be an explicit discriminator, not a timestamp — EF emits a plain ORDER BY DESC and
+            // Postgres defaults to NULLS FIRST there, so a null SpotifyAddedAtUtc sorts to the *front*
+            // (already true of Deezer-sourced rows). Relying on the timestamp would put background fill
+            // ahead of the queue, and the EF in-memory provider orders nulls the other way, so a test
+            // written against it would happily agree.
+            .OrderBy(w => w.Origin)
+            .ThenByDescending(w => w.SpotifyAddedAtUtc)
             .ThenBy(w => w.Id)
             .Take(batchSize)
             .ToListAsync(ct);
@@ -71,6 +78,17 @@ public class WishlistDownloadProcessor(
             item.DownloadedSongId = songId;
             item.UpdatedAtUtc = now;
             progressTracker.IncrementSkipped();
+        }
+
+        // A SkippedOwned item links straight to an existing song without going through the linker, so
+        // the intent has to be recomputed here too — this is how an album-fill track the owner later
+        // likes on Spotify gets promoted to Explicit and appears in "My music". Persist the new links
+        // first: the recompute reads them back from the store, so an in-flight DownloadedSongId would
+        // be invisible and the song would stay AlbumFill.
+        if (owned.Count > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            await ApplyAcquisitionIntentAsync(db, ownerId, owned.Select(o => o.SongId).OfType<int>(), ct);
         }
 
         // Surface in-flight work: persist Downloading before the (slow) fetch so the UI's Downloading
@@ -229,7 +247,68 @@ public class WishlistDownloadProcessor(
             if (linked > 0)
                 logger.LogInformation("Linked {Count} downloaded wishlist items to library songs", linked);
         }
+
+        if (linked > 0)
+        {
+            await ApplyAcquisitionIntentAsync(
+                db, ownerId, unlinked.Select(w => w.DownloadedSongId).OfType<int>(), ct);
+        }
+
         return linked;
+    }
+
+    /// <summary>
+    /// Recomputes <see cref="SongMetadata.AcquisitionIntent"/> for the given songs from every wishlist
+    /// item pointing at them. This is the single writer of that column, and the only place a song
+    /// becomes <see cref="SongAcquisitionIntent.AlbumFill"/>.
+    /// <para>
+    /// <b>Explicit is absorbing.</b> A song is AlbumFill only when <em>every</em> link is an album-fill
+    /// item; one <see cref="WishlistItemOrigin.UserRequested"/> link makes it Explicit and it never goes
+    /// back. That single rule covers the case that matters: an album-fill track the owner later likes on
+    /// Spotify gets a second, user-requested wishlist row, and the song moves into "My music" the moment
+    /// the owner expresses intent — no special-casing anywhere.
+    /// </para>
+    /// </summary>
+    private static async Task ApplyAcquisitionIntentAsync(
+        MusicHoarderDbContext db, Guid ownerId, IEnumerable<int> songIds, CancellationToken ct)
+    {
+        var ids = songIds.Distinct().ToList();
+        if (ids.Count == 0) return;
+
+        var links = await db.WishlistItems
+            .IgnoreQueryFilters()
+            .Where(w => w.OwnerUserId == ownerId && w.DownloadedSongId != null && ids.Contains(w.DownloadedSongId!.Value))
+            .Select(w => new { SongId = w.DownloadedSongId!.Value, w.Origin })
+            .ToListAsync(ct);
+
+        if (links.Count == 0) return;
+
+        var intentBySong = links
+            .GroupBy(l => l.SongId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.All(l => l.Origin == WishlistItemOrigin.AlbumCompletion)
+                    ? SongAcquisitionIntent.AlbumFill
+                    : SongAcquisitionIntent.Explicit);
+
+        var songs = await db.Songs
+            .IgnoreQueryFilters()
+            .Where(s => s.OwnerUserId == ownerId && intentBySong.Keys.Contains(s.Id))
+            .ToListAsync(ct);
+
+        // Songs with no wishlist link at all (scanned, synced) never appear in intentBySong, so they
+        // keep the Explicit default untouched — which is what makes this recomputation safe to re-run.
+        var changed = false;
+        foreach (var song in songs)
+        {
+            if (!intentBySong.TryGetValue(song.Id, out var intent)) continue;
+            if (song.AcquisitionIntent == intent) continue;
+            song.AcquisitionIntent = intent;
+            changed = true;
+        }
+
+        if (changed)
+            await db.SaveChangesAsync(ct);
     }
 
     /// <summary>

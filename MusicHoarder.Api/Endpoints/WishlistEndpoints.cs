@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
+using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -18,6 +19,7 @@ public static class WishlistEndpoints
 
         group.MapGet("/", async (
                 string? status,
+                string? source,
                 int? offset,
                 int? limit,
                 MusicHoarderDbContext db,
@@ -38,9 +40,23 @@ public static class WishlistEndpoints
                 if (statusFilter is { } s)
                     query = query.Where(w => w.Status == s);
 
+                // Album-completion items are a background drip and can outnumber real wishlist rows by
+                // orders of magnitude. Since this endpoint pages server-side, they'd consume every page
+                // before a user-requested item appeared — so they are excluded unless asked for.
+                query = source?.Trim().ToLowerInvariant() switch
+                {
+                    "albumfill" or "albumcompletion" => query.Where(w => w.Origin == WishlistItemOrigin.AlbumCompletion),
+                    "all" => query,
+                    _ => query.Where(w => w.Origin == WishlistItemOrigin.UserRequested),
+                };
+
                 var total = await query.CountAsync(ct);
                 var items = await query
-                    .OrderByDescending(w => w.SpotifyAddedAtUtc)
+                    // Origin first, mirroring the downloader's claim order — and because album-fill rows
+                    // carry a null SpotifyAddedAtUtc, which Postgres sorts NULLS FIRST on DESC and would
+                    // otherwise float them to the top of the list.
+                    .OrderBy(w => w.Origin)
+                    .ThenByDescending(w => w.SpotifyAddedAtUtc)
                     .ThenByDescending(w => w.Id)
                     .Skip(skip)
                     .Take(take)
@@ -64,13 +80,14 @@ public static class WishlistEndpoints
                         w.DownloadedSong != null ? w.DownloadedSong.EnrichmentStatus.ToString() : null,
                         w.DownloadedSong != null ? w.DownloadedSong.LibraryBuildStatus.ToString() : null,
                         w.CreatedAtUtc,
-                        w.UpdatedAtUtc))
+                        w.UpdatedAtUtc,
+                        w.Origin.ToString()))
                     .ToListAsync(ct);
 
                 return Results.Ok(new WishlistItemsResponse(total, skip, take, items));
             })
             .WithName("GetWishlist")
-            .WithSummary("Paginated wishlist items, optionally filtered by status.");
+            .WithSummary("Paginated wishlist items, optionally filtered by status. `source` selects user-requested items (default), `albumfill`, or `all`.");
 
         group.MapGet("/sources", async (MusicHoarderDbContext db, CancellationToken ct) =>
             {
@@ -257,6 +274,31 @@ public static class WishlistEndpoints
             .WithName("DeleteWishlistItem")
             .WithSummary("Remove a wishlist item.");
 
+        group.MapPost("/complete-albums", async (
+                AlbumCompletionSweep sweep,
+                CancellationToken ct) =>
+            {
+                // Run inline rather than nudging the background loop. The sweep does no network I/O —
+                // it reads owned songs plus reconciled tracklists and writes wishlist rows — and is
+                // capped per pass, so it answers immediately. That matters more than it sounds: the
+                // background loop ticks hourly, so without this, turning the feature on looks broken
+                // for up to an hour. Returning the outcome also lets the UI explain a zero result,
+                // which is a perfectly normal one (every album complete, or all of them compilations).
+                var result = await sweep.SweepAsync(ct);
+                return Results.Ok(new
+                {
+                    albumsExamined = result.AlbumsExamined,
+                    tracksQueued = result.TracksQueued,
+                    albumsFilled = result.AlbumsFilled,
+                    albumsSkipped = result.AlbumsSkipped,
+                    albumsAlreadyComplete = result.AlbumsAlreadyComplete,
+                    idleReason = result.IdleReason,
+                });
+            })
+            .WithName("RunAlbumCompletion")
+            .WithSummary("Run one album-completion pass now and report what it queued, skipped, or why it did nothing.")
+            .RequireOwner();
+
         group.MapPost("/download", (JobManager jobManager, IOptions<MusicEnricherOptions> options) =>
             {
                 var opts = options.Value;
@@ -297,7 +339,8 @@ public sealed record WishlistItemDto(
     string? LibraryEnrichmentStatus,
     string? LibraryBuildStatus,
     DateTime CreatedAtUtc,
-    DateTime UpdatedAtUtc);
+    DateTime UpdatedAtUtc,
+    string Origin);
 
 public sealed record WishlistItemsResponse(
     int Total,

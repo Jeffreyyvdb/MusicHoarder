@@ -5,6 +5,7 @@
     Clock,
     Copy,
     Disc3,
+    Download,
     Eye,
     EyeOff,
     Fingerprint,
@@ -34,7 +35,9 @@
     formatFileSize,
     formatTotalDuration
   } from '$lib/formatters';
+  import { SvelteSet } from 'svelte/reactivity';
   import {
+    acquireCanonicalTrack,
     copyAlbumDossier,
     fetchAlbumDetail,
     gradeAlbum,
@@ -273,6 +276,26 @@
     if (e.key.toLowerCase() === 'h' && missingCount > 0) {
       e.preventDefault();
       albumViewPrefs.toggleHideMissing();
+    }
+  }
+
+  // ── acquiring a missing track ───────────────────────────────────────────────
+  // The manual counterpart to the album-completion sweep: it works with that switched off, which is
+  // how you'd try the feature the first time. The queued track is stamped AlbumFill like any other,
+  // so it shows up in All tracks and on this page but stays out of My music until you like it.
+  const acquiring = new SvelteSet<number>();
+  const acquired = new SvelteSet<number>();
+
+  async function onAcquire(canonicalTrackId: number) {
+    if (acquiring.has(canonicalTrackId) || acquired.has(canonicalTrackId)) return;
+    acquiring.add(canonicalTrackId);
+    try {
+      await acquireCanonicalTrack(canonicalTrackId);
+      acquired.add(canonicalTrackId);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not queue that track');
+    } finally {
+      acquiring.delete(canonicalTrackId);
     }
   }
 
@@ -854,14 +877,33 @@
             </span>
             <div class="min-w-0">
               <div class="text-muted-foreground/70 truncate text-sm font-medium">{row.title}</div>
-              <a
-                href={findUrl(row.title)}
-                target="_blank"
-                rel="noopener noreferrer"
-                class="text-muted-foreground/60 hover:text-primary mt-0.5 inline-flex items-center gap-1 text-[11px] transition-colors"
-              >
-                <Search class="size-3" /> Find this track
-              </a>
+              <div class="mt-0.5 flex items-center gap-3">
+                {#if row.canonicalTrackId != null}
+                  <button
+                    type="button"
+                    disabled={acquiring.has(row.canonicalTrackId)}
+                    onclick={() => onAcquire(row.canonicalTrackId!)}
+                    class="text-muted-foreground/60 hover:text-primary inline-flex items-center gap-1 text-[11px] transition-colors disabled:opacity-50"
+                    title="Queue this track for download"
+                  >
+                    {#if acquiring.has(row.canonicalTrackId)}
+                      <Loader2 class="size-3 animate-spin" /> Queueing…
+                    {:else if acquired.has(row.canonicalTrackId)}
+                      <Check class="size-3" /> Queued
+                    {:else}
+                      <Download class="size-3" /> Get this track
+                    {/if}
+                  </button>
+                {/if}
+                <a
+                  href={findUrl(row.title)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-muted-foreground/60 hover:text-primary inline-flex items-center gap-1 text-[11px] transition-colors"
+                >
+                  <Search class="size-3" /> Find this track
+                </a>
+              </div>
             </div>
             <span class="text-muted-foreground/40 hidden font-mono text-[11px] sm:inline">—</span>
             <span class="text-muted-foreground/40 hidden font-mono text-[11px] sm:inline">—</span>

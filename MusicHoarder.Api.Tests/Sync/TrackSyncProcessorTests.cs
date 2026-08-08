@@ -310,6 +310,29 @@ public class TrackSyncProcessorTests : IDisposable
         Assert.True((await db.TrackSyncStates.SingleAsync()).SyncedLiked);
     }
 
+    [Fact]
+    public async Task Process_Upload_CarriesAcquisitionIntent()
+    {
+        // Wishlist rows never cross the wire, so this column is the only way the receiver can tell an
+        // album-fill track from one the owner asked for — without it, the remote's "My music" view
+        // would quietly swallow every filled track.
+        await using var db = CreateDbContext();
+        var dest = MakeTempFile();
+        var song = BuiltSong(1, destinationPath: dest);
+        song.AcquisitionIntent = SongAcquisitionIntent.AlbumFill;
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+        var client = new FakePushClient
+        {
+            CheckResult = new SyncCheckResponse(SyncVerdict.NotPresent, null, null, null),
+            UploadResult = new SyncUploadResponse(SyncUploadOutcome.Created, 55, 10),
+        };
+
+        await CreateProcessor(db, client).ProcessSongAsync(1, default);
+
+        Assert.Equal(SongAcquisitionIntent.AlbumFill, client.LastUploadedPayload!.AcquisitionIntent);
+    }
+
     // ── Enqueuer gate ───────────────────────────────────────────────────────
 
     [Fact]

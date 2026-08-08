@@ -44,6 +44,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<ArtistImage> ArtistImages { get; set; } = null!;
     public DbSet<CanonicalAlbumTrack> CanonicalAlbumTracks { get; set; } = null!;
     public DbSet<CanonicalAlbumQualityGrade> CanonicalAlbumQualityGrades { get; set; } = null!;
+    public DbSet<AlbumCompletionState> AlbumCompletionStates { get; set; } = null!;
     public DbSet<SongMetadataChange> SongMetadataChanges { get; set; } = null!;
     public DbSet<SongQualityGrade> SongQualityGrades { get; set; } = null!;
     public DbSet<DirectoryPreference> DirectoryPreferences { get; set; } = null!;
@@ -88,6 +89,10 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => e.Fingerprint).HasMethod("hash");
             entity.HasIndex(e => new { e.DeletedAtUtc, e.IsDuplicate });
             entity.HasIndex(e => new { e.OwnerUserId, e.DeletedAtUtc });
+            // "My music" = WHERE OwnerUserId = x AND AcquisitionIntent = Explicit. A full composite,
+            // not a partial index on "<> Explicit": the hot query wants the default value, which a
+            // filtered index excluding it cannot serve.
+            entity.HasIndex(e => new { e.OwnerUserId, e.AcquisitionIntent });
             // Supports identifier-based lookups / dedupe by ISRC.
             entity.HasIndex(e => e.Isrc);
             // Drives the lyrics backfill + re-check sweeps, which scan by lyrics state and take the
@@ -211,6 +216,23 @@ public class MusicHoarderDbContext : DbContext
             entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
         });
 
+        // Owner-scoped album-completion verdict + backfill cursor. Owner-scoped for the same reason
+        // CanonicalAlbumQualityGrade is: the verdict depends on which tracks this owner holds.
+        modelBuilder.Entity<AlbumCompletionState>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.OwnerUserId, e.CanonicalAlbumId }).IsUnique();
+            // The sweep picks candidates by "never swept, or due for another look".
+            entity.HasIndex(e => new { e.OwnerUserId, e.NextSweepAfterUtc });
+
+            entity.HasOne(e => e.CanonicalAlbum)
+                .WithMany()
+                .HasForeignKey(e => e.CanonicalAlbumId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+        });
+
         modelBuilder.Entity<SongMetadataChange>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -298,13 +320,23 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => new { e.OwnerUserId, e.DeezerTrackId })
                 .IsUnique()
                 .HasFilter("\"DeezerTrackId\" IS NOT NULL");
-            // The download worker sweeps by owner + status.
-            entity.HasIndex(e => new { e.OwnerUserId, e.Status });
+            // The download worker sweeps by owner + status, then orders by origin (user-requested work
+            // is claimed strictly before album completion), so the index covers all three.
+            entity.HasIndex(e => new { e.OwnerUserId, e.Status, e.Origin });
+            // AlbumCompletionSweep loads every item it has ever created for an album — any status — to
+            // avoid re-queueing a track it already tried.
+            entity.HasIndex(e => new { e.OwnerUserId, e.CanonicalAlbumId });
 
             // Removing a source keeps already-acquired tracks (the FK just nulls out).
             entity.HasOne(e => e.WishlistSource)
                 .WithMany()
                 .HasForeignKey(e => e.WishlistSourceId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Dropping a canonical album keeps the items it produced; they just lose their provenance.
+            entity.HasOne(e => e.CanonicalAlbum)
+                .WithMany()
+                .HasForeignKey(e => e.CanonicalAlbumId)
                 .OnDelete(DeleteBehavior.SetNull);
 
             // Songs are soft-deleted in practice; SetNull is defensive against a hard delete.

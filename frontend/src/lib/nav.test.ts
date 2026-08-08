@@ -21,6 +21,7 @@ const APP_ROUTES: [path: string, group: NavGroupId][] = [
   ['/inbox', 'inbox'],
   ['/library', 'listen'],
   ['/liked', 'listen'],
+  ['/my-music', 'listen'],
   ['/overview', 'listen'],
   ['/performance', 'manage'],
   ['/pipeline', 'manage'],
@@ -56,6 +57,19 @@ describe('NAV_GROUPS', () => {
     }
   });
 
+  // "My music" (what you chose) and "All tracks" (literally everything) are easy to confuse, so
+  // their order and adjacency is deliberate: the narrower, more-often-wanted list comes first.
+  it('orders Listen results-first, with My music ahead of All tracks', () => {
+    const listen = NAV_GROUPS.find((g) => g.id === 'listen');
+    expect(listen?.items.map((i) => i.id)).toEqual([
+      'overview',
+      'albums',
+      'artists',
+      'my-music',
+      'tracks',
+      'liked'
+    ]);
+  });
 });
 
 describe('resolveNav', () => {

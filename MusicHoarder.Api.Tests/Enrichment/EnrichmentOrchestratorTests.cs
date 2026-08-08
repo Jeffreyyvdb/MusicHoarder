@@ -1556,6 +1556,7 @@ public class EnrichmentOrchestratorTests
                 opts.EnableAppleMusicProvider,
                 QualityGradingEnabled: true,
                 AutoDownloadWishlist: opts.AutoDownloadWishlist,
+                AlbumCompletionEnabled: opts.EnableAlbumCompletion,
                 UpdatedAtUtc: null);
         }
 

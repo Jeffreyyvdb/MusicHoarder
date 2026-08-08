@@ -6,5 +6,8 @@
  * paths (magic-link callback, the already-signed-in /login redirect, the landing CTA, and the
  * demo button) can't disagree about the app's front door again — they used to, three saying
  * /pipeline and one saying /library.
+ *
+ * Overview rather than the album grid: it opens on what you've been playing and what's new to you,
+ * which is a better answer to "what now?" than an A-Z wall of covers.
  */
-export const APP_HOME = '/library';
+export const APP_HOME = '/overview';

@@ -14,12 +14,15 @@
     Loader2,
     AlertCircle,
     CheckCircle2,
+    ChevronRight,
     Music,
     Info
   } from '@lucide/svelte';
   import {
+    albumCompletionSummary,
     fetchWishlist,
     fetchWishlistSources,
+    runAlbumCompletion,
     setWishlistSourceAutoSync,
     removeWishlistSource,
     retryWishlistItem,
@@ -51,6 +54,11 @@
   let sources = $state<WishlistSource[]>([]);
   let items = $state<WishlistItem[]>([]);
   let total = $state(0);
+  // Album completion's queue, kept apart from the list you curated. Collapsed by default: it's
+  // machinery you occasionally want to inspect, not something to scroll past every visit.
+  let albumFillItems = $state<WishlistItem[]>([]);
+  let albumFillTotal = $state(0);
+  let albumFillOpen = $state(false);
   let statusFilter = $state<Filter>('All');
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -66,6 +74,9 @@
   let downloadsEnabled = $state<boolean | null>(null);
   let autoDownload = $state<boolean | null>(null);
   let autoDownloadBusy = $state(false);
+  let albumCompletion = $state<boolean | null>(null);
+  let albumCompletionBusy = $state(false);
+  let completionRunning = $state(false);
 
   async function loadSources() {
     try {
@@ -81,8 +92,65 @@
       const settings = await fetchSettings();
       downloadsEnabled = settings.downloads.enabled;
       autoDownload = settings.downloads.autoDownload;
+      albumCompletion = settings.downloads.albumCompletion ?? false;
     } catch {
       // Non-fatal — the download buttons still work; we just can't show the auto-download state.
+    }
+  }
+
+  async function onToggleAlbumCompletion() {
+    if (albumCompletion === null) return;
+    const next = !albumCompletion;
+    albumCompletionBusy = true;
+    banner = null;
+    try {
+      await updateSettings({ downloads: { albumCompletion: next } });
+      albumCompletion = next;
+
+      if (!next) {
+        banner = {
+          type: 'success',
+          message:
+            'Album completion off — nothing new will be queued. Already-queued tracks still download.'
+        };
+        return;
+      }
+
+      // Run a pass immediately. The background loop ticks hourly, so without this, switching the
+      // feature on appears to do nothing at all for up to an hour.
+      await runCompletionPass('Album completion on.');
+    } catch (err) {
+      banner = {
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Failed to update album completion'
+      };
+    } finally {
+      albumCompletionBusy = false;
+    }
+  }
+
+  /** Runs one pass and reports the outcome — including, explicitly, a zero. */
+  async function runCompletionPass(prefix = '') {
+    const result = await runAlbumCompletion();
+    banner = { type: 'success', message: `${prefix} ${albumCompletionSummary(result)}`.trim() };
+    if (result.tracksQueued > 0) {
+      albumFillOpen = true;
+      await loadItems(true);
+    }
+  }
+
+  async function onRunCompletionNow() {
+    completionRunning = true;
+    banner = null;
+    try {
+      await runCompletionPass();
+    } catch (err) {
+      banner = {
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Failed to run album completion'
+      };
+    } finally {
+      completionRunning = false;
     }
   }
 
@@ -112,10 +180,18 @@
     // updates in place without flicker; only an explicit load surfaces those.
     if (!quiet) loading = true;
     error = null;
+    const status = statusFilter === 'All' ? undefined : statusFilter;
     try {
-      const result = await fetchWishlist(statusFilter === 'All' ? undefined : statusFilter, 0, 200);
-      items = result.items;
-      total = result.total;
+      // Two separate paged requests, not one list partitioned client-side: album-fill items can
+      // outnumber real wishlist rows by orders of magnitude and would consume every page.
+      const [mine, fill] = await Promise.all([
+        fetchWishlist(status, 0, 200, 'user'),
+        fetchWishlist(status, 0, 200, 'albumfill')
+      ]);
+      items = mine.items;
+      total = mine.total;
+      albumFillItems = fill.items;
+      albumFillTotal = fill.total;
     } catch (err) {
       if (!quiet) error = err instanceof Error ? err.message : 'Failed to load wishlist';
     } finally {
@@ -319,6 +395,18 @@
           />
           <span class="hidden select-none sm:inline">Auto-download</span>
         </label>
+        <label
+          class="border-border bg-card text-nav-sm flex h-8 cursor-pointer items-center gap-2 rounded-full border px-3"
+          title="When on, owning one track of an album queues the rest — a few albums per hour, and always behind anything you asked for. Those tracks stay out of My music until you like them."
+        >
+          <Switch
+            checked={albumCompletion ?? false}
+            disabled={albumCompletionBusy}
+            onCheckedChange={onToggleAlbumCompletion}
+            aria-label="Complete albums automatically"
+          />
+          <span class="hidden select-none sm:inline">Complete albums</span>
+        </label>
       {/if}
       <Button
         variant="outline"
@@ -430,6 +518,32 @@
     {/if}
 
     <!-- Items -->
+    {#if albumCompletion && showAutoDownloadControl}
+      <!-- The background loop is deliberately slow (hourly), so there has to be a way to ask now
+           and, more importantly, to get an answer — "nothing queued" is a normal result and needs
+           to be distinguishable from "broken". -->
+      <div class="border-border flex items-center gap-3 border-t px-4 py-3 md:px-6">
+        <Button
+          variant="outline"
+          size="sm"
+          class="h-8 shrink-0 gap-1.5 px-2.5"
+          onclick={onRunCompletionNow}
+          disabled={completionRunning}
+          title="Check your albums for missing tracks now, instead of waiting for the hourly pass"
+        >
+          {#if completionRunning}
+            <Loader2 class="size-4 animate-spin" />
+          {:else}
+            <RefreshCw class="size-4" />
+          {/if}
+          <span class="text-nav-sm">Check albums now</span>
+        </Button>
+        <span class="text-muted-foreground text-xs">
+          Runs automatically every hour, a few albums at a time.
+        </span>
+      </div>
+    {/if}
+
     {#if error}
       <div class="flex flex-col items-center justify-center py-12 text-center">
         <AlertCircle class="text-destructive mb-3 size-10" />
@@ -440,94 +554,130 @@
       <div class="flex items-center justify-center py-12">
         <Loader2 class="text-muted-foreground size-6 animate-spin" />
       </div>
-    {:else if items.length === 0}
+    {:else if items.length === 0 && albumFillTotal === 0}
       <div class="flex flex-col items-center justify-center py-12 text-center">
         <Heart class="text-muted-foreground mb-3 size-10" />
         <p class="text-muted-foreground">No wishlist items{statusFilter === 'All' ? ' yet' : ` (${statusFilter})`}.</p>
       </div>
     {:else}
-      <div class="divide-border divide-y px-2 md:px-4">
-        {#each items as item (item.id)}
-          <div class="hover:bg-secondary/40 flex items-center gap-3 px-2 py-2.5 transition-colors">
-            <div class="bg-secondary size-10 shrink-0 overflow-hidden rounded">
-              {#if item.albumArt}
-                <img src={item.albumArt} alt="" class="size-full object-cover" crossorigin="anonymous" />
-              {:else}
-                <div class="flex size-full items-center justify-center">
-                  <Music class="text-muted-foreground size-4" />
-                </div>
-              {/if}
-            </div>
-            <div class="min-w-0 flex-1">
-              <div class="truncate text-sm font-medium">{item.title}</div>
-              <div class="text-muted-foreground truncate text-xs">
-                {item.artist}{item.album ? ` · ${item.album}` : ''}{item.downloadProvider &&
-                (item.status === 'Downloaded' || item.downloadedSongId != null)
-                  ? ` · via ${item.downloadProvider}`
-                  : ''}
-              </div>
-              {#if item.lastError && (item.status === 'Failed' || item.status === 'NotFound')}
-                <div class="text-destructive mt-0.5 truncate text-xs" title={item.lastError}>{item.lastError}</div>
-              {/if}
-            </div>
+      {#if items.length > 0}
+        <div class="divide-border divide-y px-2 md:px-4">
+          {#each items as item (item.id)}
+            {@render itemRow(item)}
+          {/each}
+        </div>
+      {/if}
 
-            {#if item.downloadedSongId != null}
-              <Button
-                variant="outline"
-                size="sm"
-                class={`hidden h-8 shrink-0 px-2.5 text-xs font-medium sm:inline-flex ${
-                  item.libraryBuildStatus === 'Done'
-                    ? 'border-primary/40 bg-primary/15 text-primary hover:bg-primary/25'
-                    : ''
-                }`}
-                title="Open this song in your library"
-                onclick={() => songDetail.open(item.downloadedSongId!)}
-              >
-                {#if item.libraryBuildStatus === 'Done'}
-                  <CheckCircle2 class="mr-1 size-3.5 shrink-0" />
-                  In library
-                {:else}
-                  {item.libraryEnrichmentStatus ?? 'Processing'}
-                {/if}
-              </Button>
-            {/if}
-
-            <span class="text-muted-foreground hidden w-12 shrink-0 text-right text-xs sm:inline">
-              {fmtDuration(item.durationMs)}
+      <!-- Deliberately outside the "you have items" branch: turning album completion on for the
+           first time leaves you with zero requested items and a full fill queue, which is exactly
+           when hiding it would read as "it did nothing". -->
+      {#if albumFillTotal > 0}
+        <!-- Album completion's own queue. Separate and collapsed: it's a background drip that can
+             dwarf the list you curated, and it pages separately for the same reason. -->
+        <div class="border-border mt-2 border-t px-2 md:px-4">
+          <button
+            type="button"
+            onclick={() => (albumFillOpen = !albumFillOpen)}
+            aria-expanded={albumFillOpen}
+            class="text-muted-foreground hover:text-foreground flex w-full items-center gap-2 px-2 py-3 text-left text-xs transition-colors"
+          >
+            <ChevronRight class={`size-3.5 shrink-0 transition-transform ${albumFillOpen ? 'rotate-90' : ''}`} />
+            <span class="font-medium">Album fill</span>
+            <span class="tabular-nums opacity-70">{albumFillTotal.toLocaleString()}</span>
+            <span class="hidden opacity-70 sm:inline">
+              · tracks queued to complete albums you already own part of
             </span>
+          </button>
+          {#if albumFillOpen}
+            <div class="divide-border divide-y">
+              {#each albumFillItems as item (item.id)}
+                {@render itemRow(item)}
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
+    {/if}
+  </ScrollArea>
+</div>
 
-            <Badge class="{statusBadgeClass(item.status)} gap-1.5">
-              <span class="size-1.5 shrink-0 rounded-full {statusDotClass(item.status)}"></span>
-              {item.status === 'SkippedOwned' ? 'Skipped' : item.status}
-            </Badge>
-
-            {#if item.status === 'Failed' || item.status === 'NotFound'}
-              <Button
-                variant="ghost"
-                size="icon"
-                class="size-10 shrink-0"
-                aria-label="Retry"
-                title="Retry"
-                disabled={busyItems.has(item.id)}
-                onclick={() => onRetry(item)}
-              >
-                <RefreshCw class="size-4" />
-              </Button>
+{#snippet itemRow(item: WishlistItem)}
+        <div class="hover:bg-secondary/40 flex items-center gap-3 px-2 py-2.5 transition-colors">
+          <div class="bg-secondary size-10 shrink-0 overflow-hidden rounded">
+            {#if item.albumArt}
+              <img src={item.albumArt} alt="" class="size-full object-cover" crossorigin="anonymous" />
+            {:else}
+              <div class="flex size-full items-center justify-center">
+                <Music class="text-muted-foreground size-4" />
+              </div>
             {/if}
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="truncate text-sm font-medium">{item.title}</div>
+            <div class="text-muted-foreground truncate text-xs">
+              {item.artist}{item.album ? ` · ${item.album}` : ''}{item.downloadProvider &&
+              (item.status === 'Downloaded' || item.downloadedSongId != null)
+                ? ` · via ${item.downloadProvider}`
+                : ''}
+            </div>
+            {#if item.lastError && (item.status === 'Failed' || item.status === 'NotFound')}
+              <div class="text-destructive mt-0.5 truncate text-xs" title={item.lastError}>{item.lastError}</div>
+            {/if}
+          </div>
+
+          {#if item.downloadedSongId != null}
+            <Button
+              variant="outline"
+              size="sm"
+              class={`hidden h-8 shrink-0 px-2.5 text-xs font-medium sm:inline-flex ${
+                item.libraryBuildStatus === 'Done'
+                  ? 'border-primary/40 bg-primary/15 text-primary hover:bg-primary/25'
+                  : ''
+              }`}
+              title="Open this song in your library"
+              onclick={() => songDetail.open(item.downloadedSongId!)}
+            >
+              {#if item.libraryBuildStatus === 'Done'}
+                <CheckCircle2 class="mr-1 size-3.5 shrink-0" />
+                In library
+              {:else}
+                {item.libraryEnrichmentStatus ?? 'Processing'}
+              {/if}
+            </Button>
+          {/if}
+
+          <span class="text-muted-foreground hidden w-12 shrink-0 text-right text-xs sm:inline">
+            {fmtDuration(item.durationMs)}
+          </span>
+
+          <Badge class="{statusBadgeClass(item.status)} gap-1.5">
+            <span class="size-1.5 shrink-0 rounded-full {statusDotClass(item.status)}"></span>
+            {item.status === 'SkippedOwned' ? 'Skipped' : item.status}
+          </Badge>
+
+          {#if item.status === 'Failed' || item.status === 'NotFound'}
             <Button
               variant="ghost"
               size="icon"
               class="size-10 shrink-0"
-              aria-label="Remove"
-              title="Remove"
+              aria-label="Retry"
+              title="Retry"
               disabled={busyItems.has(item.id)}
-              onclick={() => onRemoveItem(item)}
+              onclick={() => onRetry(item)}
             >
-              <Trash2 class="size-4" />
+              <RefreshCw class="size-4" />
             </Button>
-          </div>
-        {/each}
-      </div>
-    {/if}
-  </ScrollArea>
-</div>
+          {/if}
+          <Button
+            variant="ghost"
+            size="icon"
+            class="size-10 shrink-0"
+            aria-label="Remove"
+            title="Remove"
+            disabled={busyItems.has(item.id)}
+            onclick={() => onRemoveItem(item)}
+          >
+            <Trash2 class="size-4" />
+          </Button>
+        </div>
+{/snippet}

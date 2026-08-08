@@ -69,6 +69,7 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
             if (update.EnableAppleMusicProvider.HasValue) row.EnableAppleMusicProvider = update.EnableAppleMusicProvider;
             if (update.QualityGradingEnabled.HasValue) row.QualityGradingEnabled = update.QualityGradingEnabled;
             if (update.AutoDownloadWishlist.HasValue) row.AutoDownloadWishlist = update.AutoDownloadWishlist;
+            if (update.AlbumCompletionEnabled.HasValue) row.AlbumCompletionEnabled = update.AlbumCompletionEnabled;
 
             row.UpdatedAtUtc = DateTime.UtcNow;
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -95,6 +96,7 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
             EnableAppleMusicProvider: row?.EnableAppleMusicProvider ?? defaults.EnableAppleMusicProvider,
             QualityGradingEnabled: row?.QualityGradingEnabled ?? qualityDefaults.Enabled,
             AutoDownloadWishlist: row?.AutoDownloadWishlist ?? defaults.AutoDownloadWishlist,
+            AlbumCompletionEnabled: row?.AlbumCompletionEnabled ?? defaults.EnableAlbumCompletion,
             UpdatedAtUtc: row?.UpdatedAtUtc);
     }
 }

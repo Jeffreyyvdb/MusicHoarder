@@ -462,6 +462,32 @@ public class SyncIngestServiceTests : IDisposable
         Assert.Equal(likedAt, (await db.Songs.SingleAsync()).LikedAtUtc);
     }
 
+    [Fact]
+    public async Task Ingest_Create_AppliesPayloadAcquisitionIntent()
+    {
+        await using var db = CreateDbContext();
+        var service = CreateService(db);
+
+        await service.IngestAsync(
+            Payload(fingerprint: "FP-new", acquisitionIntent: SongAcquisitionIntent.AlbumFill),
+            Bytes(64), default);
+
+        Assert.Equal(SongAcquisitionIntent.AlbumFill, (await db.Songs.SingleAsync()).AcquisitionIntent);
+    }
+
+    [Fact]
+    public async Task Ingest_PayloadWithoutIntent_DefaultsToExplicit()
+    {
+        // Back-compat with an older pusher that has no such field: its payload must read as the owner's
+        // music, not as album fill.
+        await using var db = CreateDbContext();
+        var service = CreateService(db);
+
+        await service.IngestAsync(Payload(fingerprint: "FP-new"), Bytes(64), default);
+
+        Assert.Equal(SongAcquisitionIntent.Explicit, (await db.Songs.SingleAsync()).AcquisitionIntent);
+    }
+
     private static SongMetadata Song(
         int id, string path, string extension = ".mp3", int? bitrate = 320, string? fingerprint = null,
         string? acoustId = null, string? mbid = null, string? artist = "Artist", string? title = "Song",
@@ -489,7 +515,8 @@ public class SyncIngestServiceTests : IDisposable
     private static SyncTrackPayload Payload(
         string? fingerprint = null, string? acoustId = null, string? mbid = null,
         string extension = ".flac", int? bitrate = 900, DateTime? likedAtUtc = null,
-        long fileSizeBytes = 128)
+        long fileSizeBytes = 128,
+        SongAcquisitionIntent acquisitionIntent = SongAcquisitionIntent.Explicit)
         => new(
             FileName: "Some Artist - Some Song" + extension,
             Extension: extension,
@@ -527,7 +554,8 @@ public class SyncIngestServiceTests : IDisposable
             SyncedLyrics: "[00:01.00] la la la",
             IsInstrumental: false,
             LyricsStatus: LyricsStatus.Fetched,
-            LikedAtUtc: likedAtUtc);
+            LikedAtUtc: likedAtUtc,
+            AcquisitionIntent: acquisitionIntent);
 
     private static MemoryStream Bytes(int count) => new(Enumerable.Repeat((byte)7, count).ToArray());
 

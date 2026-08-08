@@ -271,6 +271,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IUpgradeProvider>(sp => sp.GetRequiredService<StreamingFlacDownloadProvider>());
         services.AddScoped<WishlistDownloadProcessor>();
         services.AddHostedService<DownloadBackgroundService>();
+        // Album completion: queues the tracks missing from albums the owner already holds part of, as
+        // ordinary (lower-priority) wishlist items. Its own slow loop, so the throttle stays predictable.
+        services.AddScoped<AlbumCompletionSweep>();
+        services.AddHostedService<AlbumCompletionBackgroundService>();
         // Single-track URL import: resolves a pasted YouTube video's metadata via a yt-dlp probe.
         services.AddSingleton<Import.IYouTubeMetadataResolver, Import.YouTubeMetadataResolver>();
 

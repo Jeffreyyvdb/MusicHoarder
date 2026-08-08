@@ -23,6 +23,7 @@ public sealed record EffectiveSettings(
     bool EnableAppleMusicProvider,
     bool QualityGradingEnabled,
     bool AutoDownloadWishlist,
+    bool AlbumCompletionEnabled,
     DateTime? UpdatedAtUtc);
 
 /// <summary>
@@ -39,4 +40,5 @@ public sealed record RuntimeSettingsUpdate
     public bool? EnableAppleMusicProvider { get; init; }
     public bool? QualityGradingEnabled { get; init; }
     public bool? AutoDownloadWishlist { get; init; }
+    public bool? AlbumCompletionEnabled { get; init; }
 }

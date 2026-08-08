@@ -105,7 +105,12 @@ public sealed record SyncTrackPayload(
     LyricsStatus LyricsStatus,
     // User signals — the pusher's like rides along so a full sync carries it. Optional so an older
     // pusher (no field) deserializes as "not liked" rather than failing.
-    DateTime? LikedAtUtc = null);
+    DateTime? LikedAtUtc = null,
+    // Whether the owner asked for this track or album completion added it. Wishlist rows never cross
+    // the wire, so without this the receiver could not tell an album-fill track from a wanted one and
+    // its "My music" view would quietly swallow every filled track. Optional and defaulted for the
+    // same back-compat reason as LikedAtUtc: an older pusher's payload reads as Explicit.
+    SongAcquisitionIntent AcquisitionIntent = SongAcquisitionIntent.Explicit);
 
 /// <summary>
 /// Metadata-only like update for a track already present on the remote (no file re-upload). Identity
