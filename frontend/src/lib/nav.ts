@@ -20,6 +20,7 @@ import Library from '@lucide/svelte/icons/library';
 import ListMusic from '@lucide/svelte/icons/list-music';
 import ListVideo from '@lucide/svelte/icons/list-video';
 import Music2 from '@lucide/svelte/icons/music-2';
+import Music4 from '@lucide/svelte/icons/music-4';
 import Settings from '@lucide/svelte/icons/settings';
 import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
 import Sparkles from '@lucide/svelte/icons/sparkles';
@@ -148,7 +149,16 @@ export const NAV_GROUPS: NavGroup[] = [
         match: (url) => under('/library')(url) && url.searchParams.get('view') !== 'source'
       },
       { id: 'artists', label: 'Artists', href: '/artists', icon: Users, keywords: 'performers' },
-      { id: 'tracks', label: 'All tracks', href: '/tracks', icon: ListMusic, keywords: 'songs' },
+      {
+        // Music you chose, as opposed to what album completion pulled in alongside it. Sits before
+        // "All tracks" because it is the list you actually mean most of the time.
+        id: 'my-music',
+        label: 'My music',
+        href: '/my-music',
+        icon: Music4,
+        keywords: 'mine chosen wanted my songs owned'
+      },
+      { id: 'tracks', label: 'All tracks', href: '/tracks', icon: ListMusic, keywords: 'songs everything' },
       {
         id: 'liked',
         label: 'Liked songs',

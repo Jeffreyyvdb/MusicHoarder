@@ -374,6 +374,10 @@ public sealed class SyncIngestService(
 
         // The pusher owns the like (one-way sync): mirror it, even clearing a stale local like.
         song.LikedAtUtc = payload.LikedAtUtc;
+
+        // Wishlist rows don't travel, so the pusher's intent is the only way the receiver can tell an
+        // album-fill track from one the owner asked for. An older pusher omits it and reads as Explicit.
+        song.AcquisitionIntent = payload.AcquisitionIntent;
     }
 
     private void DeleteManagedSourceFile(string sourcePath, SyncOptions opts)

@@ -812,6 +812,80 @@ public class MusicEnricherOptions
     /// </summary>
     public string YtDlpExtraArgs { get; set; } = string.Empty;
 
+    // ── Album completion (own ≥1 track → auto-fill the rest) ────────────────
+    // A background sweep that compares each owned album against its reconciled CanonicalAlbum
+    // tracklist and queues the missing tracks as WishlistItemOrigin.AlbumCompletion items. Songs that
+    // arrive this way are stamped SongAcquisitionIntent.AlbumFill, which is what keeps the "My music"
+    // view honest. Downloads reuse the wishlist pipeline entirely, so this shares the download
+    // provider chain, the staging directory, the scanner and the whole enrichment budget — enabling it
+    // materially increases external provider load, not just disk usage.
+
+    /// <summary>
+    /// Default for album completion, overlaid at runtime by
+    /// <see cref="Persistence.RuntimeSettings.AlbumCompletionEnabled"/> so the owner can opt in (and
+    /// back out) from the Settings UI without a redeploy — the same split downloads use. Default OFF:
+    /// at a threshold of one owned track the candidate set is essentially every album in the library,
+    /// so it must be an explicit choice. The hard gate is <see cref="EnableWishlistDownloads"/>:
+    /// without a downloader, queueing tracks nothing will ever fetch is pointless.
+    /// </summary>
+    public bool EnableAlbumCompletion { get; set; } = false;
+
+    /// <summary>
+    /// Albums examined per sweep. With the default hourly interval this caps discovery at ~120
+    /// albums/day, so first enabling the feature drains a large library over days instead of dumping
+    /// the whole backlog into the downloader at once.
+    /// </summary>
+    [Range(1, 100)]
+    public int AlbumCompletionAlbumsPerSweep { get; set; } = 5;
+
+    /// <summary>Minutes between album-completion sweeps. Deliberately slow — this is a background drip, not a job.</summary>
+    [Range(1, 1440)]
+    public int AlbumCompletionSweepIntervalMinutes { get; set; } = 60;
+
+    /// <summary>
+    /// Most tracks queued for a single album in one pass. Backstop against a canonical "Complete Works"
+    /// or 3-disc deluxe edition dumping hundreds of items because the owner happened to hold one track.
+    /// </summary>
+    [Range(1, 500)]
+    public int AlbumCompletionMaxTracksPerAlbum { get; set; } = 30;
+
+    /// <summary>
+    /// The sweep short-circuits entirely while this many album-completion items are still Pending.
+    /// This is the real backpressure: it bounds the queue against the downloader's actual throughput
+    /// rather than against wall-clock, so a rate-limited provider slows discovery instead of letting an
+    /// unbounded backlog build up. 0 disables the check.
+    /// </summary>
+    [Range(0, 100000)]
+    public int AlbumCompletionMaxPendingItems { get; set; } = 200;
+
+    /// <summary>Smallest canonical tracklist worth completing — stops the sweep "completing" singles.</summary>
+    [Range(2, 100)]
+    public int AlbumCompletionMinCanonicalTracks { get; set; } = 2;
+
+    /// <summary>
+    /// Days before a filled album is examined again (a later edition may add tracks). A canonical album
+    /// that is re-fetched forces a re-sweep regardless of this. Skipped albums are never revisited on a
+    /// timer — a compilation does not stop being one.
+    /// </summary>
+    [Range(0, 3650)]
+    public int AlbumCompletionRevisitDays { get; set; } = 30;
+
+    /// <summary>
+    /// Skip canonical tracks flagged <see cref="Persistence.CanonicalAlbumTrack.IsContested"/> — not
+    /// every provider in the winning cluster backs them, so they are typically deluxe/bonus phantoms no
+    /// downloader will find. Default on: they generate pure NotFound noise.
+    /// </summary>
+    public bool AlbumCompletionSkipContestedTracks { get; set; } = true;
+
+    /// <summary>
+    /// MusicBrainz release-group types (matched case-insensitively against the <c>;</c>-joined
+    /// <see cref="Persistence.SongMetadata.ReleaseTypes"/>) that disqualify an album from completion.
+    /// Compilations are excluded because owning one track from a sampler says nothing about wanting the
+    /// other thirty-nine — and because a canonical track carries no per-track artist, so every track
+    /// would be searched under the album artist ("Various Artists - Some Song") and fetch garbage.
+    /// </summary>
+    public string[] AlbumCompletionSkipReleaseTypes { get; set; } = ["compilation"];
+
     // ── Automatic quality upgrades ──────────────────────────────────────────
     // A background sweep that re-acquires lossy library tracks as lossless via the configured
     // DownloadProviders chain (spotiflac/slskd), reusing the manual-upgrade request→merge pipeline.

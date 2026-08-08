@@ -27,6 +27,14 @@ public enum SongOriginSource
     SpotifyPlaylist,
     DeezerPlaylist,
     DirectUrl,
+
+    /// <summary>
+    /// Queued by album completion because the owner already held another track from the album — nobody
+    /// asked for it directly. Display only: the authoritative "is this mine" fact is
+    /// <see cref="SongMetadata.AcquisitionIntent"/>, because this one is derived from a link that can
+    /// legitimately disappear (soft-delete, upgrade merge, wishlist deletion).
+    /// </summary>
+    AlbumCompletion,
 }
 
 /// <summary>
@@ -49,7 +57,9 @@ public readonly record struct WishlistLink(
     WishlistSourceType? SourceType,
     string? SourceName,
     string? SourceUrl,
-    DateTime? SpotifyAddedAtUtc);
+    DateTime? SpotifyAddedAtUtc,
+    WishlistItemOrigin Origin = WishlistItemOrigin.UserRequested,
+    string? Album = null);
 
 /// <summary>
 /// Derives a track's provenance. There is no stored origin column: the file's location says how it
@@ -72,6 +82,9 @@ public static class SongOriginResolver
             WishlistSourceType.LikedSongs => (SongOriginSource.SpotifyLiked, l.SourceName ?? "Liked Songs"),
             WishlistSourceType.Playlist => (SongOriginSource.SpotifyPlaylist, l.SourceName),
             WishlistSourceType.DeezerPlaylist => (SongOriginSource.DeezerPlaylist, l.SourceName),
+            // Album completion carries no WishlistSource (there's no remote collection to sync), so it
+            // is identified by the item's own origin discriminator instead.
+            null when l.Origin == WishlistItemOrigin.AlbumCompletion => (SongOriginSource.AlbumCompletion, l.Album),
             // No wishlist source — a one-off "add from URL", where the link IS the provenance.
             _ => (SongOriginSource.DirectUrl, HostOf(l.SourceUrl)),
         };
@@ -110,10 +123,12 @@ public static class SongOriginResolver
     /// Picks the link that best describes a song when several wishlist items point at it (a track can
     /// sit in Liked Songs and a playlist at once). Liked Songs wins — its timestamp is the real
     /// "when did I like this" — then playlists, then a bare URL; ties go to the earliest save.
+    /// Album completion ranks last of all: if anything asked for this track by name, that is the more
+    /// interesting answer to "where did this come from".
     /// </summary>
     public static WishlistLink Best(IEnumerable<WishlistLink> links) =>
         links
-            .OrderBy(l => l.SourceType switch
+            .OrderBy(l => l.Origin == WishlistItemOrigin.AlbumCompletion ? 4 : l.SourceType switch
             {
                 WishlistSourceType.LikedSongs => 0,
                 WishlistSourceType.Playlist => 1,

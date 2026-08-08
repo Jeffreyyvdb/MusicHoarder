@@ -206,6 +206,7 @@ public class WishlistSyncBackgroundServiceTests
             EnableAppleMusicProvider: true,
             QualityGradingEnabled: true,
             AutoDownloadWishlist: autoDownload,
+            AlbumCompletionEnabled: false,
             UpdatedAtUtc: null);
 
         public Task<EffectiveSettings> GetAsync(CancellationToken ct = default) => Task.FromResult(_effective);

@@ -18,6 +18,23 @@ public enum WishlistItemStatus
 }
 
 /// <summary>
+/// Who put this item on the wishlist. Mirrors <c>UpgradeRequest.Trigger</c>: a discriminator on the
+/// work row telling app-generated work from user-generated work. <see cref="UserRequested"/> is
+/// <c>0</c> so every pre-existing item keeps top download priority with no backfill.
+/// </summary>
+public enum WishlistItemOrigin
+{
+    /// <summary>The owner asked for it — Spotify liked songs, a playlist, a Deezer discover list, a URL import.</summary>
+    UserRequested = 0,
+
+    /// <summary>
+    /// Queued by <c>AlbumCompletionSweep</c> to fill in an album the owner already holds part of.
+    /// Claimed by the downloader strictly after every <see cref="UserRequested"/> item.
+    /// </summary>
+    AlbumCompletion = 1,
+}
+
+/// <summary>
 /// One Spotify track the owner wants to acquire. The downloader fetches it into the source directory,
 /// where the existing scan→fingerprint→enrich→build pipeline ingests it like any other file. Spotify
 /// metadata is denormalized so the row stands alone even after the source playlist is removed.
@@ -31,10 +48,30 @@ public class WishlistItem
 
     /// <summary>
     /// The source that introduced this item. Nullable + <c>OnDelete.SetNull</c> so removing a source
-    /// keeps already-acquired tracks.
+    /// keeps already-acquired tracks. Always null for <see cref="WishlistItemOrigin.AlbumCompletion"/>
+    /// items — a <see cref="WishlistSource"/> models a remote collection with a sync loop, which album
+    /// completion has none of.
     /// </summary>
     public int? WishlistSourceId { get; set; }
     public WishlistSource? WishlistSource { get; set; }
+
+    /// <summary>Whether the owner asked for this track or album completion queued it.</summary>
+    public WishlistItemOrigin Origin { get; set; } = WishlistItemOrigin.UserRequested;
+
+    /// <summary>
+    /// The album this item was queued to complete. Set only for
+    /// <see cref="WishlistItemOrigin.AlbumCompletion"/> items, where it is both the provenance and the
+    /// dedupe key: the sweep loads every item for an album — <em>any</em> status — and skips canonical
+    /// tracks it already has a row for, so terminal <see cref="WishlistItemStatus.Failed"/> /
+    /// <see cref="WishlistItemStatus.NotFound"/> rows act as permanent tombstones.
+    /// <para>
+    /// Deliberately keyed to the album and not to a <see cref="CanonicalAlbumTrack"/>:
+    /// <c>CanonicalAlbumFetchService.UpsertReconciled</c> deletes and recreates every track row on each
+    /// re-fetch, so a per-track FK would null itself out and re-open every tombstone.
+    /// </para>
+    /// </summary>
+    public int? CanonicalAlbumId { get; set; }
+    public CanonicalAlbum? CanonicalAlbum { get; set; }
 
     /// <summary>Spotify track id. Null for Deezer-sourced items with no resolved Spotify equivalent.</summary>
     [MaxLength(64)]

@@ -73,6 +73,45 @@ public class SongOriginTests
     }
 
     [Fact]
+    public void Resolve_AlbumCompletionItem_ReportsTheAlbumItWasFillingIn()
+    {
+        var link = new WishlistLink(
+            SourceType: null, SourceName: null, SourceUrl: null, SpotifyAddedAtUtc: null,
+            Origin: WishlistItemOrigin.AlbumCompletion, Album: "Discovery");
+
+        var origin = SongOriginResolver.Resolve($"{DownloadDir}/03 Aerodynamic.opus", link, DownloadDir, null);
+
+        Assert.Equal(SongOriginKind.Downloaded, origin.Kind);
+        Assert.Equal(SongOriginSource.AlbumCompletion, origin.Source);
+        Assert.Equal("Discovery", origin.Detail);
+    }
+
+    [Fact]
+    public void Best_RanksAlbumCompletionBelowEverythingElse()
+    {
+        // If anything asked for this track by name, that is the more interesting answer to "where did
+        // this come from" than "it came along with an album".
+        var liked = new DateTime(2023, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var best = SongOriginResolver.Best([
+            new WishlistLink(null, null, null, null, WishlistItemOrigin.AlbumCompletion, "Discovery"),
+            new WishlistLink(WishlistSourceType.LikedSongs, "Liked Songs", null, liked),
+        ]);
+
+        Assert.Equal(WishlistSourceType.LikedSongs, best.SourceType);
+    }
+
+    [Fact]
+    public void Best_AlbumCompletionStillWinsWhenItIsTheOnlyLink()
+    {
+        var best = SongOriginResolver.Best([
+            new WishlistLink(null, null, null, null, WishlistItemOrigin.AlbumCompletion, "Discovery"),
+        ]);
+
+        Assert.Equal(WishlistItemOrigin.AlbumCompletion, best.Origin);
+    }
+
+    [Fact]
     public async Task ListSongs_ExposesOriginAndSpotifySaveDate()
     {
         var saved = new DateTime(2024, 9, 9, 8, 7, 6, DateTimeKind.Utc);

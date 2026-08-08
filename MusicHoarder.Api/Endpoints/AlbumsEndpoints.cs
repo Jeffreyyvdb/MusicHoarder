@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
+using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -36,7 +38,101 @@ public static class AlbumsEndpoints
             .WithSummary("Chronological provenance timeline for an album: discovery, per-provider enrichment rollups, canonical resolution, AI grades, and destination writes.")
             .WithTags("Library");
 
+        app.MapPost("/api/albums/tracks/{canonicalTrackId:int}/acquire", AcquireCanonicalTrack)
+            .WithName("AcquireCanonicalTrack")
+            .WithSummary("Queue one missing canonical album track for download (the manual counterpart to the album-completion sweep).")
+            .WithTags("Library")
+            .RequireOwner();
+
         return app;
+    }
+
+    /// <summary>
+    /// Queues a single canonical track the owner is missing. Same shape as an album-completion sweep
+    /// item — including <see cref="WishlistItemOrigin.AlbumCompletion"/>, so the resulting song is
+    /// stamped AlbumFill and stays out of "My music" until it's liked. This is the manual path: it works
+    /// with the sweep switched off, which is how you'd try the feature the first time.
+    /// </summary>
+    internal static async Task<IResult> AcquireCanonicalTrack(
+        int canonicalTrackId,
+        MusicHoarderDbContext db,
+        ICurrentUserAccessor currentUser,
+        JobManager jobManager,
+        CancellationToken ct)
+    {
+        var track = await db.CanonicalAlbumTracks
+            .Include(t => t.CanonicalAlbum)
+            .FirstOrDefaultAsync(t => t.Id == canonicalTrackId, ct);
+
+        if (track is null)
+            return Results.NotFound(new { message = $"Canonical track {canonicalTrackId} not found." });
+        if (string.IsNullOrWhiteSpace(track.Title))
+            return Results.UnprocessableEntity(new { message = "Canonical track has no title to search for." });
+
+        var album = track.CanonicalAlbum;
+        var ownerId = currentUser.UserId;
+        var now = DateTime.UtcNow;
+
+        // Idempotent: the sweep may already have queued (or tried and failed) this exact track.
+        var titleKey = TitleNormalizer.NormalizeForSearch(track.Title);
+        var existingTitles = await db.WishlistItems
+            .IgnoreQueryFilters()
+            .Where(w => w.OwnerUserId == ownerId && w.CanonicalAlbumId == album.Id)
+            .Select(w => new { w.Id, w.Title, w.Status })
+            .ToListAsync(ct);
+
+        var match = existingTitles.FirstOrDefault(
+            w => TitleNormalizer.NormalizeForSearch(w.Title) == titleKey);
+        if (match is not null)
+        {
+            // A previous attempt that came up empty is worth retrying on an explicit request — that is
+            // the difference between the sweep (which honours tombstones) and a person clicking.
+            if (match.Status is WishlistItemStatus.Failed or WishlistItemStatus.NotFound)
+            {
+                var requeue = await db.WishlistItems.IgnoreQueryFilters().FirstAsync(w => w.Id == match.Id, ct);
+                requeue.Status = WishlistItemStatus.Pending;
+                requeue.LastError = null;
+                requeue.UpdatedAtUtc = now;
+                await db.SaveChangesAsync(ct);
+                var requeued = jobManager.TryStartJob(JobType.Download, out var requeueJobId, out _);
+                return Results.Accepted(value: new
+                {
+                    wishlistItemId = requeue.Id,
+                    requeued = true,
+                    jobStarted = requeued,
+                    jobId = requeued ? requeueJobId : (Guid?)null,
+                });
+            }
+
+            return Results.Ok(new { wishlistItemId = match.Id, alreadyQueued = true, status = match.Status.ToString() });
+        }
+
+        var item = new WishlistItem
+        {
+            OwnerUserId = ownerId,
+            WishlistSourceId = null,
+            Origin = WishlistItemOrigin.AlbumCompletion,
+            CanonicalAlbumId = album.Id,
+            Title = track.Title!,
+            Artist = album.DisplayArtist ?? string.Empty,
+            Album = album.DisplayTitle,
+            DurationMs = track.DurationMs ?? 0,
+            AlbumArt = album.CoverArtUrl,
+            SpotifyAddedAtUtc = null,
+            Status = WishlistItemStatus.Pending,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now,
+        };
+        db.WishlistItems.Add(item);
+        await db.SaveChangesAsync(ct);
+
+        var jobStarted = jobManager.TryStartJob(JobType.Download, out var jobId, out _);
+        return Results.Accepted(value: new
+        {
+            wishlistItemId = item.Id,
+            jobStarted,
+            jobId = jobStarted ? jobId : (Guid?)null,
+        });
     }
 
     /// <summary>
@@ -128,6 +224,8 @@ public static class AlbumsEndpoints
         var tracks = orderedTracks
             .Select(t => new
             {
+                // Identifies the track for POST /api/albums/tracks/{id}/acquire.
+                id = t.Id,
                 discNumber = t.DiscNumber,
                 trackNumber = t.TrackNumber,
                 title = t.Title,

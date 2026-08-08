@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { ArrowUpDown, Heart, Play, Search, Shuffle, X } from '@lucide/svelte';
+  import { ArrowUpDown, Heart, Music4, Play, Search, Shuffle, X } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import AlbumPage from '$lib/components/file-browser/AlbumPage.svelte';
@@ -15,6 +15,7 @@
     buildArtistGroups,
     fetchAlbumCanonicalStatuses,
     isAlbumSortKey,
+    isMyMusic,
     mergeAlbumsByName,
     songLikedTime,
     sortAlbums,
@@ -40,7 +41,7 @@
   // Sheet — track selection just drives the shared store. The desktop/mobile
   // form-factor split lives in SongDetailHost.
 
-  type LibraryTab = 'albums' | 'artists' | 'tracks' | 'liked';
+  type LibraryTab = 'albums' | 'artists' | 'tracks' | 'my-music' | 'liked';
   type Props = {
     /** Which sub-view this route hosts. The sub-nav navigates between routes. */
     tab: LibraryTab;
@@ -224,6 +225,11 @@
   // Tracks tab: scope by browse filter + local search; the TrackList does its own
   // sorting, so we only narrow by query here.
   const tracksScoped = $derived(browseScoped);
+
+  // My music: what you actually chose, minus what album completion pulled in alongside it. Liking
+  // an album-fill track promotes it back in — see isMyMusic.
+  const myMusicSongs = $derived(browseScoped.filter(isMyMusic));
+  const albumFillCount = $derived(browseScoped.length - myMusicSongs.length);
 
   // Liked tab: hearted songs, newest like first (the TrackList's 'liked' sort).
   const likedSongs = $derived(releaseScoped.filter((s) => Boolean(s.likedAtUtc)));
@@ -451,6 +457,30 @@
           onSelect={selectTrack}
           hideHeading
           initialSortKey="liked"
+        />
+      {/if}
+    </div>
+  {:else if tab === 'my-music'}
+    <!-- My music: same virtualized TrackList as All tracks, narrowed to what you chose. Same min-h-0
+         chain so virtualization stays bounded. -->
+    <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {#if myMusicSongs.length === 0 && albumFillCount > 0 && !isLoading}
+        <div class="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+          <Music4 class="size-10 opacity-40" />
+          <p class="text-sm font-medium">Nothing here yet</p>
+          <p class="max-w-xs text-xs">
+            Every track in your library so far arrived through album completion. Like one and it moves
+            in here — or check All tracks to see everything.
+          </p>
+        </div>
+      {:else}
+        <TrackList
+          songs={myMusicSongs}
+          searchQuery={query}
+          {isLoading}
+          selectedId={tracksSelectedId}
+          onSelect={selectTrack}
+          hideHeading
         />
       {/if}
     </div>
