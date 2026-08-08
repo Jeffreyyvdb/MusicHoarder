@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Spotify;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
 
@@ -154,6 +155,124 @@ public class SongOriginTests
         Assert.Equal("SpotifyLiked", GetProperty<string>(row, "OriginSource"));
         Assert.Equal(saved, GetProperty<DateTime?>(row, "SpotifyAddedAtUtc"));
     }
+
+    [Fact]
+    public async Task ListSongs_FallsBackToTheLikedSyncMatchCacheForTheSaveDate()
+    {
+        // The auto-like sweep hearts library songs the wishlist never touched (already-owned files,
+        // or a like that matched a different file than the wishlist's download). Those songs have no
+        // wishlist link, but the liked_sync match cache still knows Spotify's real save date — without
+        // it the liked sort would fall back to LikedAtUtc, which is the sweep time, not the like.
+        var saved = new DateTime(2024, 4, 10, 11, 15, 12, DateTimeKind.Utc);
+
+        await using var db = NewContext();
+        var owned = NewSong("/music/Artist/track.flac");
+        owned.LikedAtUtc = DateTime.UtcNow;
+        db.Songs.Add(owned);
+        await db.SaveChangesAsync();
+
+        db.SpotifyTrackLibraryMatches.Add(NewMatch("sp-1", owned.Id, saved, SpotifyLibraryComparisonService.SourceLikedSync));
+        await db.SaveChangesAsync();
+
+        var result = await ListSongsCaller.Invoke(db, DownloadDir, SyncedDir);
+        var row = Songs(result).Single();
+
+        Assert.Equal(saved, GetProperty<DateTime?>(row, "SpotifyAddedAtUtc"));
+    }
+
+    [Fact]
+    public async Task ListSongs_TakesTheEarliestOfWishlistAndMatchCacheSaveDates()
+    {
+        var wishlistDate = new DateTime(2025, 6, 1, 0, 0, 0, DateTimeKind.Utc);
+        var likedDate = new DateTime(2023, 3, 3, 0, 0, 0, DateTimeKind.Utc);
+
+        await using var db = NewContext();
+        var song = NewSong($"{DownloadDir}/track.opus");
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        db.WishlistSources.Add(new WishlistSource
+        {
+            Id = 1,
+            OwnerUserId = WellKnownUsers.OwnerId,
+            SourceType = WishlistSourceType.LikedSongs,
+            Name = "Liked Songs",
+        });
+        db.WishlistItems.Add(new WishlistItem
+        {
+            OwnerUserId = WellKnownUsers.OwnerId,
+            WishlistSourceId = 1,
+            Title = "Track",
+            Artist = "Artist",
+            SpotifyAddedAtUtc = wishlistDate,
+            Status = WishlistItemStatus.Downloaded,
+            DownloadedSongId = song.Id,
+        });
+        db.SpotifyTrackLibraryMatches.Add(NewMatch("sp-2", song.Id, likedDate, SpotifyLibraryComparisonService.SourceLikedSync));
+        await db.SaveChangesAsync();
+
+        var result = await ListSongsCaller.Invoke(db, DownloadDir, SyncedDir);
+        var row = Songs(result).Single();
+
+        Assert.Equal(likedDate, GetProperty<DateTime?>(row, "SpotifyAddedAtUtc"));
+    }
+
+    [Fact]
+    public async Task ListSongs_MatchesTheSaveDateBySpotifyIdWhenTheCachePointsAtAnotherCopy()
+    {
+        // Duplicate copies of one track: sweeps re-point MatchedSongId between them, so the copy that
+        // was auto-liked earlier can lose its row. The song's enriched SpotifyId still identifies the
+        // liked track, so the save date sticks to every copy.
+        var saved = new DateTime(2023, 7, 7, 0, 0, 0, DateTimeKind.Utc);
+
+        await using var db = NewContext();
+        var likedCopy = NewSong("/music/Artist/track.flac");
+        likedCopy.SpotifyId = "sp-track";
+        likedCopy.LikedAtUtc = DateTime.UtcNow;
+        var otherCopy = NewSong("/music/Artist/track (1).flac");
+        db.Songs.AddRange(likedCopy, otherCopy);
+        await db.SaveChangesAsync();
+
+        // The cache row points at the OTHER copy — the liked one only matches via its SpotifyId.
+        db.SpotifyTrackLibraryMatches.Add(NewMatch("sp-track", otherCopy.Id, saved, SpotifyLibraryComparisonService.SourceLikedSync));
+        await db.SaveChangesAsync();
+
+        var result = await ListSongsCaller.Invoke(db, DownloadDir, SyncedDir);
+        var rows = Songs(result).ToList();
+
+        var liked = rows.Single(r => GetProperty<int>(r, "Id") == likedCopy.Id);
+        Assert.Equal(saved, GetProperty<DateTime?>(liked, "SpotifyAddedAtUtc"));
+    }
+
+    [Fact]
+    public async Task ListSongs_IgnoresNonLikedSyncMatchRowsForTheSaveDate()
+    {
+        // api_page rows are written from playlist views; their added-at is a playlist date, not a like.
+        await using var db = NewContext();
+        var song = NewSong("/music/Artist/track.flac");
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        db.SpotifyTrackLibraryMatches.Add(NewMatch(
+            "sp-3", song.Id, new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc), SpotifyLibraryComparisonService.SourceApiPage));
+        await db.SaveChangesAsync();
+
+        var result = await ListSongsCaller.Invoke(db, DownloadDir, SyncedDir);
+        var row = Songs(result).Single();
+
+        Assert.Null(GetProperty<DateTime?>(row, "SpotifyAddedAtUtc"));
+    }
+
+    private static SpotifyTrackLibraryMatch NewMatch(string spotifyId, int songId, DateTime addedAt, string source) => new()
+    {
+        OwnerUserId = WellKnownUsers.OwnerId,
+        SpotifyTrackId = spotifyId,
+        MatchStatus = 0,
+        MatchedSongId = songId,
+        SpotifyAddedAtUtc = addedAt,
+        Source = source,
+        UpdatedAtUtc = DateTime.UtcNow,
+    };
 
     private static IEnumerable<object> Songs(IResult result)
     {
