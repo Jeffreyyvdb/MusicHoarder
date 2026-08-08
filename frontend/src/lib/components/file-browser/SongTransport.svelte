@@ -4,6 +4,7 @@
   import Scrubber from './Scrubber.svelte';
   import { playerStore } from '$lib/stores/player.svelte';
   import { formatDuration } from '$lib/formatters';
+  import { blurAfterPointerClick, cn, transportGlyphClass } from '$lib/utils';
 
   /**
    * The Apple-Music-style naked-glyph transport (scrubber + prev/play/next + times)
@@ -48,8 +49,11 @@
     <Button
       variant="ghost"
       size="icon"
-      class="text-foreground hover:text-foreground size-12 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent active:scale-90 dark:hover:bg-transparent"
-      onclick={onPlayToggle}
+      class={cn(transportGlyphClass, 'size-12')}
+      onclick={(e) => {
+        blurAfterPointerClick(e);
+        onPlayToggle();
+      }}
       aria-label={isPlaying ? 'Pause' : 'Play'}
     >
       {#if isPlaying}
@@ -73,8 +77,11 @@
       <Button
         variant="ghost"
         size="icon"
-        class="text-foreground hover:text-foreground size-9 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent active:scale-90 disabled:opacity-30 dark:hover:bg-transparent"
-        onclick={() => playerStore.playPrevious()}
+        class={cn(transportGlyphClass, 'size-9 disabled:opacity-30')}
+        onclick={(e) => {
+          blurAfterPointerClick(e);
+          playerStore.playPrevious();
+        }}
         disabled={!canGoPrevious}
         aria-label="Previous track"
       >
@@ -83,8 +90,11 @@
       <Button
         variant="ghost"
         size="icon"
-        class="text-foreground hover:text-foreground size-11 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent active:scale-90 dark:hover:bg-transparent"
-        onclick={onPlayToggle}
+        class={cn(transportGlyphClass, 'size-11')}
+        onclick={(e) => {
+          blurAfterPointerClick(e);
+          onPlayToggle();
+        }}
         aria-label={isPlaying ? 'Pause' : 'Play'}
       >
         {#if isPlaying}
@@ -96,8 +106,11 @@
       <Button
         variant="ghost"
         size="icon"
-        class="text-foreground hover:text-foreground size-9 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent active:scale-90 disabled:opacity-30 dark:hover:bg-transparent"
-        onclick={() => playerStore.playNext()}
+        class={cn(transportGlyphClass, 'size-9 disabled:opacity-30')}
+        onclick={(e) => {
+          blurAfterPointerClick(e);
+          playerStore.playNext();
+        }}
         disabled={!canGoNext}
         aria-label="Next track"
       >
