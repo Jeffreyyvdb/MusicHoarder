@@ -181,6 +181,93 @@ public sealed class SpotifyCatalogSearchService(
         return null;
     }
 
+    public async Task<IReadOnlyList<SpotifyAlbumCandidate>> SearchAlbumCandidatesAsync(string clientId, string clientSecret, string artist, string album, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(album)) return [];
+        var q = Uri.EscapeDataString($"album:{album} artist:{artist}".Trim());
+        var json = await GetApiJsonAsync(clientId, clientSecret, $"{ApiSearchUrl}?q={q}&type=album&limit=5", ct);
+        if (json is null) return [];
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("albums", out var albums) ||
+                !albums.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+                return [];
+
+            var candidates = new List<SpotifyAlbumCandidate>();
+            foreach (var item in items.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                if (!item.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.String || id.GetString() is not { } albumIdValue)
+                    continue;
+                var name = item.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
+                string? artistName = null;
+                if (item.TryGetProperty("artists", out var artists) && artists.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var a in artists.EnumerateArray())
+                    {
+                        if (a.ValueKind == JsonValueKind.Object && a.TryGetProperty("name", out var an) && an.ValueKind == JsonValueKind.String)
+                        {
+                            artistName = an.GetString();
+                            break;
+                        }
+                    }
+                }
+
+                candidates.Add(new SpotifyAlbumCandidate(albumIdValue, name, artistName));
+            }
+
+            return candidates;
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    public async Task<IReadOnlyList<SpotifyArtistCandidate>> SearchArtistCandidatesAsync(string clientId, string clientSecret, string name, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return [];
+        var q = Uri.EscapeDataString($"artist:{name}".Trim());
+        var json = await GetApiJsonAsync(clientId, clientSecret, $"{ApiSearchUrl}?q={q}&type=artist&limit=5", ct);
+        if (json is null) return [];
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("artists", out var artists) ||
+                !artists.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+                return [];
+
+            var candidates = new List<SpotifyArtistCandidate>();
+            foreach (var item in items.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                var artistName = item.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
+                // Spotify orders images largest-first; the first url is the full-size portrait.
+                string? imageUrl = null;
+                if (item.TryGetProperty("images", out var images) && images.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var img in images.EnumerateArray())
+                    {
+                        if (img.ValueKind == JsonValueKind.Object && img.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String)
+                        {
+                            imageUrl = u.GetString();
+                            break;
+                        }
+                    }
+                }
+
+                candidates.Add(new SpotifyArtistCandidate(artistName, imageUrl));
+            }
+
+            return candidates;
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
     public async Task<SpotifyAlbumDetail?> GetAlbumAsync(string clientId, string clientSecret, string albumId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(albumId)) return null;

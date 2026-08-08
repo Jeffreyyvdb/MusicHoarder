@@ -104,6 +104,95 @@ public sealed class DeezerCatalogService(
         return null;
     }
 
+    public async Task<IReadOnlyList<DeezerAlbumCandidate>> SearchAlbumCandidatesAsync(string artist, string album, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(album)) return [];
+        var query = $"{artist} {album}".Trim();
+        var json = await GetAsync($"{BaseUrl}/search/album?q={Uri.EscapeDataString(query)}&limit=5", ct);
+        if (json is null) return [];
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+                return [];
+
+            var candidates = new List<DeezerAlbumCandidate>();
+            foreach (var item in data.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                var id = ReadIdAsString(item);
+                if (id is null) continue;
+                var title = ReadString(item, "title");
+                string? artistName = item.TryGetProperty("artist", out var aEl) && aEl.ValueKind == JsonValueKind.Object
+                    ? ReadString(aEl, "name")
+                    : null;
+                candidates.Add(new DeezerAlbumCandidate(id, title, artistName));
+            }
+
+            return candidates;
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    public async Task<IReadOnlyList<DeezerArtistCandidate>> SearchArtistCandidatesAsync(string name, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return [];
+
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(name)));
+        var cacheKey = $"deezer_artist_search:{hash}";
+        if (cache.TryGetValue(cacheKey, out IReadOnlyList<DeezerArtistCandidate>? cached) && cached is not null)
+            return cached;
+
+        var json = await GetAsync($"{BaseUrl}/search/artist?q={Uri.EscapeDataString(name)}&limit=5", ct);
+        var candidates = json is null ? [] : ParseArtistCandidates(json);
+        cache.Set(cacheKey, candidates, new MemoryCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(Math.Max(1, options.Value.DeezerApiSearchCacheMinutes)),
+        });
+        return candidates;
+    }
+
+    private static IReadOnlyList<DeezerArtistCandidate> ParseArtistCandidates(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+                return [];
+
+            var candidates = new List<DeezerArtistCandidate>();
+            foreach (var item in data.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                // Largest first: picture_xl is 1000x1000, picture_big 500x500.
+                var picture = ReadString(item, "picture_xl") ?? ReadString(item, "picture_big") ?? ReadString(item, "picture_medium");
+                candidates.Add(new DeezerArtistCandidate(ReadString(item, "name"), picture));
+            }
+
+            return candidates;
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static string? ReadString(JsonElement obj, string property) =>
+        obj.TryGetProperty(property, out var el) && el.ValueKind == JsonValueKind.String ? el.GetString() : null;
+
+    private static string? ReadIdAsString(JsonElement obj) =>
+        obj.TryGetProperty("id", out var id)
+            ? id.ValueKind switch
+            {
+                JsonValueKind.Number => id.GetInt64().ToString(),
+                JsonValueKind.String => id.GetString(),
+                _ => null,
+            }
+            : null;
+
     public async Task<DeezerAlbumDetail?> GetAlbumAsync(string albumId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(albumId)) return null;

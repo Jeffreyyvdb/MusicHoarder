@@ -217,6 +217,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDuplicateDetectionService, DuplicateDetectionService>();
         services.AddSingleton<IEmbeddedPictureReader, TagLibEmbeddedPictureReader>();
         services.AddScoped<ICoverArtResolver, CoverArtResolver>();
+        services.AddScoped<IArtistImageService, ArtistImageService>();
         services.AddScoped<IAlbumCoverWriter, AlbumCoverWriter>();
 
         // Disposable on-disk cache of resized WebP cover thumbnails (derived, regenerable artifacts).
@@ -443,6 +444,8 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IOptionsMonitor<LyricsTranslationOptions>>(),
             sp.GetRequiredService<ILogger<LyricsTranslationService>>()));
 
+        services.AddSingleton<ISpotifyAppCredentialsProvider, SpotifyAppCredentialsProvider>();
+
         services.AddSingleton<ISpotifyCatalogSearchService>(sp =>
         {
             var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
@@ -480,12 +483,14 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<IExternalCoverArtFetcher>(sp =>
         {
-            // Plain image-CDN downloads (Deezer/iTunes cover URLs) — no per-provider base address.
+            // Plain image-CDN downloads (Spotify/Deezer/iTunes cover URLs) — no per-provider base address.
             var imageHttpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
             imageHttpClient.DefaultRequestHeaders.TryAddWithoutValidation(
                 "User-Agent", "MusicHoarder/1.0 (https://github.com/Jeffreyyvdb/MusicHoarder)");
             return new ExternalCoverArtFetcher(
                 sp.GetRequiredService<ICoverArtArchiveClient>(),
+                sp.GetRequiredService<ISpotifyCatalogSearchService>(),
+                sp.GetRequiredService<ISpotifyAppCredentialsProvider>(),
                 sp.GetRequiredService<IDeezerCatalogService>(),
                 sp.GetRequiredService<IAppleMusicCatalogService>(),
                 imageHttpClient,

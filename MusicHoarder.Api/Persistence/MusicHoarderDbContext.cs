@@ -41,6 +41,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<SongProviderAttempt> SongProviderAttempts { get; set; } = null!;
     public DbSet<CanonicalAlbum> CanonicalAlbums { get; set; } = null!;
     public DbSet<AlbumCoverFetchAttempt> AlbumCoverFetchAttempts { get; set; } = null!;
+    public DbSet<ArtistImage> ArtistImages { get; set; } = null!;
     public DbSet<CanonicalAlbumTrack> CanonicalAlbumTracks { get; set; } = null!;
     public DbSet<CanonicalAlbumQualityGrade> CanonicalAlbumQualityGrades { get; set; } = null!;
     public DbSet<AlbumCompletionState> AlbumCompletionStates { get; set; } = null!;
@@ -189,6 +190,14 @@ public class MusicHoarderDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.AlbumFolder).IsUnique();
+        });
+
+        // Cached artist portrait lookups, keyed by normalized artist name. Catalog-style (no
+        // per-user filter): a portrait is the same for every tenant.
+        modelBuilder.Entity<ArtistImage>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.NormalizedName).IsUnique();
         });
 
         // Owner-scoped AI grade of an album's reconciliation (judged against the owner's library).

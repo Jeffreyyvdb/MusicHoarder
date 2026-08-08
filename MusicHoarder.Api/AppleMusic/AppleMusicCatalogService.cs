@@ -134,6 +134,40 @@ public sealed class AppleMusicCatalogService(
         return null;
     }
 
+    public async Task<IReadOnlyList<AppleAlbumCandidate>> SearchAlbumCandidatesAsync(string artist, string album, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(album)) return [];
+        var opts = options.Value;
+        var country = string.IsNullOrWhiteSpace(opts.AppleMusicCountry) ? "US" : opts.AppleMusicCountry.Trim();
+        var term = Uri.EscapeDataString($"{artist} {album}".Trim());
+        var url = $"{SearchUrl}?term={term}&entity=album&limit=5&country={Uri.EscapeDataString(country)}";
+        var json = await FetchJsonAsync(url, ct);
+        if (json is null) return [];
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
+                return [];
+
+            var candidates = new List<AppleAlbumCandidate>();
+            foreach (var item in results.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                if (!item.TryGetProperty("collectionId", out var cid) || cid.ValueKind != JsonValueKind.Number)
+                    continue;
+                var name = item.TryGetProperty("collectionName", out var cn) && cn.ValueKind == JsonValueKind.String ? cn.GetString() : null;
+                var artistName = item.TryGetProperty("artistName", out var an) && an.ValueKind == JsonValueKind.String ? an.GetString() : null;
+                candidates.Add(new AppleAlbumCandidate(cid.GetInt64().ToString(), name, artistName));
+            }
+
+            return candidates;
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
     public async Task<AppleAlbumDetail?> GetAlbumAsync(string collectionId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(collectionId)) return null;

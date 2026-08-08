@@ -11,6 +11,11 @@
 				outline: "border-border bg-background hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 aria-expanded:bg-muted aria-expanded:text-foreground",
 				secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
 				ghost: "hover:bg-muted hover:text-foreground dark:hover:bg-muted/50 aria-expanded:bg-muted aria-expanded:text-foreground",
+				// Apple-Music-style secondary action: a borderless translucent pill that
+				// tints the surface it sits on instead of stamping a hard-edged white card
+				// onto it. Use for in-content actions (lyrics tooling, media controls).
+				subtle:
+					"rounded-full bg-foreground/[0.06] text-foreground/80 hover:bg-foreground/[0.1] hover:text-foreground dark:bg-white/[0.1] dark:text-white/80 dark:hover:bg-white/[0.16] dark:hover:text-white aria-expanded:bg-foreground/[0.1] aria-expanded:text-foreground",
 				destructive: "bg-destructive/10 hover:bg-destructive/20 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/20 text-destructive focus-visible:border-destructive/40 dark:hover:bg-destructive/30",
 				link: "text-primary underline-offset-4 hover:underline",
 			},
@@ -25,6 +30,11 @@
 				"icon-lg": "size-9",
 			},
 		},
+		compoundVariants: [
+			// (`rounded-full` lives here, not on the variant, because the size variants set
+			// their own radius and would otherwise win the merge.)
+			{ variant: "subtle", class: "rounded-full" },
+		],
 		defaultVariants: {
 			variant: "default",
 			size: "default",
