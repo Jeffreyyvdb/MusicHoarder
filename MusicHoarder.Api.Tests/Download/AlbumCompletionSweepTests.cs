@@ -24,9 +24,12 @@ public class AlbumCompletionSweepTests
         db.Songs.Add(Song("/a.mp3", Artist, Album, title: "One", track: 1));
         await db.SaveChangesAsync();
 
-        var queued = await CreateSweep(db).SweepAsync(CancellationToken.None);
+        var result = await CreateSweep(db).SweepAsync(CancellationToken.None);
 
-        Assert.Equal(2, queued);
+        Assert.Equal(2, result.TracksQueued);
+        Assert.Equal(1, result.AlbumsExamined);
+        Assert.Equal(1, result.AlbumsFilled);
+        Assert.Null(result.IdleReason);
         var items = await db.WishlistItems.IgnoreQueryFilters().OrderBy(w => w.Title).ToListAsync();
         Assert.Equal(["Three", "Two"], items.Select(i => i.Title));
         Assert.All(items, i =>
@@ -57,7 +60,7 @@ public class AlbumCompletionSweepTests
         db.Songs.Add(Song("/b.mp3", Artist, Album, title: "Two", track: 2));
         await db.SaveChangesAsync();
 
-        Assert.Equal(0, await CreateSweep(db).SweepAsync(CancellationToken.None));
+        Assert.Equal(0, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
 
         var marker = await db.AlbumCompletionStates.IgnoreQueryFilters().SingleAsync();
         Assert.Equal(AlbumCompletionStatus.NothingMissing, marker.Status);
@@ -76,7 +79,7 @@ public class AlbumCompletionSweepTests
         db.Songs.Add(pending);
         await db.SaveChangesAsync();
 
-        Assert.Equal(0, await CreateSweep(db).SweepAsync(CancellationToken.None));
+        Assert.Equal(0, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
     }
 
     // ── Gates ──────────────────────────────────────────────────────────────────
@@ -89,7 +92,7 @@ public class AlbumCompletionSweepTests
         db.Songs.Add(Song("/a.mp3", Artist, Album, title: "One", track: 1));
         await db.SaveChangesAsync();
 
-        Assert.Equal(0, await CreateSweep(db, runtimeEnabled: false).SweepAsync(CancellationToken.None));
+        Assert.Equal(0, (await CreateSweep(db, runtimeEnabled: false).SweepAsync(CancellationToken.None)).TracksQueued);
         Assert.Empty(await db.WishlistItems.IgnoreQueryFilters().ToListAsync());
     }
 
@@ -102,7 +105,7 @@ public class AlbumCompletionSweepTests
         await db.SaveChangesAsync();
 
         var sweep = CreateSweep(db, configure: o => o.EnableWishlistDownloads = false);
-        Assert.Equal(0, await sweep.SweepAsync(CancellationToken.None));
+        Assert.Equal(0, (await sweep.SweepAsync(CancellationToken.None)).TracksQueued);
     }
 
     [Fact]
@@ -114,7 +117,7 @@ public class AlbumCompletionSweepTests
         db.Songs.Add(Song("/a.mp3", Artist, Album, title: "One", track: 1));
         await db.SaveChangesAsync();
 
-        Assert.Equal(0, await CreateSweep(db).SweepAsync(CancellationToken.None));
+        Assert.Equal(0, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
         Assert.Empty(await db.AlbumCompletionStates.IgnoreQueryFilters().ToListAsync());
     }
 
@@ -128,7 +131,7 @@ public class AlbumCompletionSweepTests
         db.Songs.Add(demoSong);
         await db.SaveChangesAsync();
 
-        Assert.Equal(0, await CreateSweep(db).SweepAsync(CancellationToken.None));
+        Assert.Equal(0, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
     }
 
     [Fact]
@@ -140,7 +143,7 @@ public class AlbumCompletionSweepTests
         await db.SaveChangesAsync();
 
         var sweep = CreateSweep(db, configure: o => o.AlbumCompletionMinCanonicalTracks = 99);
-        Assert.Equal(0, await sweep.SweepAsync(CancellationToken.None));
+        Assert.Equal(0, (await sweep.SweepAsync(CancellationToken.None)).TracksQueued);
 
         var marker = await db.AlbumCompletionStates.IgnoreQueryFilters().SingleAsync();
         Assert.Equal(AlbumCompletionStatus.Skipped, marker.Status);
@@ -159,7 +162,7 @@ public class AlbumCompletionSweepTests
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        Assert.Equal(0, await CreateSweep(db).SweepAsync(CancellationToken.None));
+        Assert.Equal(0, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
         await AssertSkipped(db, AlbumCompletionEligibility.ReasonVariousArtists);
     }
 
@@ -173,7 +176,7 @@ public class AlbumCompletionSweepTests
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        Assert.Equal(0, await CreateSweep(db).SweepAsync(CancellationToken.None));
+        Assert.Equal(0, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
         await AssertSkipped(db, AlbumCompletionEligibility.ReasonVariousArtists);
     }
 
@@ -186,7 +189,7 @@ public class AlbumCompletionSweepTests
         db.Songs.Add(Song("/a.mp3", Artist, "Mixtape", title: "One", track: 1));
         await db.SaveChangesAsync();
 
-        Assert.Equal(0, await CreateSweep(db).SweepAsync(CancellationToken.None));
+        Assert.Equal(0, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
         await AssertSkipped(db, AlbumCompletionEligibility.ReasonVariousArtists);
     }
 
@@ -201,7 +204,7 @@ public class AlbumCompletionSweepTests
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        Assert.Equal(0, await CreateSweep(db).SweepAsync(CancellationToken.None));
+        Assert.Equal(0, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
         await AssertSkipped(db, AlbumCompletionEligibility.ReasonCompilationReleaseType);
     }
 
@@ -217,7 +220,7 @@ public class AlbumCompletionSweepTests
         db.Songs.Add(Song("/a.mp3", null, "Big Sampler", title: "One", track: 1, artist: "Contributor One"));
         await db.SaveChangesAsync();
 
-        Assert.Equal(0, await CreateSweep(db).SweepAsync(CancellationToken.None));
+        Assert.Equal(0, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
         // The VA sentinel on the canonical row catches this one first, which is the same outcome by a
         // stronger signal; the mismatch guard is what covers a non-sentinel wrong artist.
         var marker = await db.AlbumCompletionStates.IgnoreQueryFilters().SingleAsync();
@@ -235,7 +238,7 @@ public class AlbumCompletionSweepTests
         db.Songs.Add(Song("/a.mp3", "Wrong Band", "Crossroads", title: "One", track: 1));
         await db.SaveChangesAsync();
 
-        Assert.Equal(0, await CreateSweep(db).SweepAsync(CancellationToken.None));
+        Assert.Equal(0, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
         await AssertSkipped(db, AlbumCompletionEligibility.ReasonArtistMismatch);
     }
 
@@ -252,7 +255,7 @@ public class AlbumCompletionSweepTests
         await db.SaveChangesAsync();
 
         var sweep = CreateSweep(db, configure: o => o.AlbumCompletionAlbumsPerSweep = 1);
-        Assert.Equal(1, await sweep.SweepAsync(CancellationToken.None));
+        Assert.Equal(1, (await sweep.SweepAsync(CancellationToken.None)).TracksQueued);
         Assert.Single(await db.AlbumCompletionStates.IgnoreQueryFilters().ToListAsync());
     }
 
@@ -265,7 +268,7 @@ public class AlbumCompletionSweepTests
         await db.SaveChangesAsync();
 
         var sweep = CreateSweep(db, configure: o => o.AlbumCompletionMaxTracksPerAlbum = 2);
-        Assert.Equal(2, await sweep.SweepAsync(CancellationToken.None));
+        Assert.Equal(2, (await sweep.SweepAsync(CancellationToken.None)).TracksQueued);
     }
 
     [Fact]
@@ -287,7 +290,7 @@ public class AlbumCompletionSweepTests
         await db.SaveChangesAsync();
 
         var sweep = CreateSweep(db, configure: o => o.AlbumCompletionMaxPendingItems = 1);
-        Assert.Equal(0, await sweep.SweepAsync(CancellationToken.None));
+        Assert.Equal(0, (await sweep.SweepAsync(CancellationToken.None)).TracksQueued);
         Assert.Empty(await db.AlbumCompletionStates.IgnoreQueryFilters().ToListAsync());
     }
 
@@ -301,8 +304,8 @@ public class AlbumCompletionSweepTests
         db.Songs.Add(Song("/a.mp3", Artist, Album, title: "One", track: 1));
         await db.SaveChangesAsync();
 
-        Assert.Equal(2, await CreateSweep(db).SweepAsync(CancellationToken.None));
-        Assert.Equal(0, await CreateSweep(db).SweepAsync(CancellationToken.None));
+        Assert.Equal(2, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
+        Assert.Equal(0, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
         Assert.Equal(2, await db.WishlistItems.IgnoreQueryFilters().CountAsync());
     }
 
@@ -332,7 +335,7 @@ public class AlbumCompletionSweepTests
         });
         await db.SaveChangesAsync();
 
-        Assert.Equal(0, await CreateSweep(db).SweepAsync(CancellationToken.None));
+        Assert.Equal(0, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
     }
 
     [Fact]
@@ -359,7 +362,7 @@ public class AlbumCompletionSweepTests
         db.Songs.Add(Song("/a.mp3", Artist, Album, title: "One", track: 1));
         await db.SaveChangesAsync();
 
-        Assert.Equal(1, await CreateSweep(db).SweepAsync(CancellationToken.None));
+        Assert.Equal(1, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
 
         // A later edition turns up on re-fetch. The revisit timer hasn't come due, but a fresh fetch
         // must override it.
@@ -367,7 +370,7 @@ public class AlbumCompletionSweepTests
         canonical.FetchedAtUtc = DateTime.UtcNow.AddMinutes(5);
         await db.SaveChangesAsync();
 
-        Assert.Equal(1, await CreateSweep(db).SweepAsync(CancellationToken.None));
+        Assert.Equal(1, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
         Assert.Equal(2, await db.WishlistItems.IgnoreQueryFilters().CountAsync());
     }
 
@@ -385,7 +388,7 @@ public class AlbumCompletionSweepTests
         db.Songs.Add(Song("/a.mp3", Artist, Album, title: "One", track: 1));
         await db.SaveChangesAsync();
 
-        Assert.Equal(1, await CreateSweep(db).SweepAsync(CancellationToken.None));
+        Assert.Equal(1, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
         var item = await db.WishlistItems.IgnoreQueryFilters().SingleAsync();
         Assert.Equal("Two", item.Title);
     }
@@ -399,7 +402,135 @@ public class AlbumCompletionSweepTests
         db.Songs.Add(Song("/a.mp3", Artist, Album, title: "One", track: 1));
         await db.SaveChangesAsync();
 
-        Assert.Equal(1, await CreateSweep(db).SweepAsync(CancellationToken.None));
+        Assert.Equal(1, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
+    }
+
+    // ── Idle reasons ───────────────────────────────────────────────────────────
+    // A zero result is normal, so it has to say which kind of zero it is — that's the difference
+    // between "working, nothing to do" and "apparently broken".
+
+    [Fact]
+    public async Task Sweep_Disabled_SaysSo()
+    {
+        await using var db = NewContext();
+        var result = await CreateSweep(db, runtimeEnabled: false).SweepAsync(CancellationToken.None);
+
+        Assert.Equal(AlbumCompletionSweepResult.IdleDisabled, result.IdleReason);
+    }
+
+    [Fact]
+    public async Task Sweep_DownloadsDisabled_SaysSo()
+    {
+        await using var db = NewContext();
+        var sweep = CreateSweep(db, configure: o => o.EnableWishlistDownloads = false);
+
+        Assert.Equal(
+            AlbumCompletionSweepResult.IdleDownloadsDisabled,
+            (await sweep.SweepAsync(CancellationToken.None)).IdleReason);
+    }
+
+    [Fact]
+    public async Task Sweep_AtCeiling_SaysSo()
+    {
+        await using var db = NewContext();
+        AddCanonicalAlbum(db, Artist, Album, "One", "Two", "Three");
+        db.Songs.Add(Song("/a.mp3", Artist, Album, title: "One", track: 1));
+        db.WishlistItems.Add(new WishlistItem
+        {
+            OwnerUserId = WellKnownUsers.OwnerId,
+            Origin = WishlistItemOrigin.AlbumCompletion,
+            Status = WishlistItemStatus.Pending,
+            Title = "Queued",
+            Artist = "Someone",
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var sweep = CreateSweep(db, configure: o => o.AlbumCompletionMaxPendingItems = 1);
+
+        Assert.Equal(
+            AlbumCompletionSweepResult.IdleAtPendingCeiling,
+            (await sweep.SweepAsync(CancellationToken.None)).IdleReason);
+    }
+
+    [Fact]
+    public async Task Sweep_MatchedSongsButNoCanonicalAlbumYet_SaysSoRatherThanNothingToDo()
+    {
+        // The case a young library actually hits, and the one that first shipped with a misleading
+        // message: songs are matched but CanonicalAlbumFetchService hasn't caught up. "Try again
+        // shortly" is the honest answer — "everything has been checked recently" is a lie, since
+        // nothing has been checked at all.
+        await using var db = NewContext();
+        db.Songs.Add(Song("/a.mp3", Artist, Album, title: "One", track: 1));
+        await db.SaveChangesAsync();
+
+        Assert.Equal(
+            AlbumCompletionSweepResult.IdleNoCanonicalAlbums,
+            (await CreateSweep(db).SweepAsync(CancellationToken.None)).IdleReason);
+    }
+
+    [Fact]
+    public async Task Sweep_SongsPresentButNoneEnriched_SaysCatalogNotReady()
+    {
+        await using var db = NewContext();
+        AddCanonicalAlbum(db, Artist, Album, "One", "Two");
+        var pending = Song("/a.mp3", Artist, Album, title: "One", track: 1);
+        pending.EnrichmentStatus = EnrichmentStatus.Pending;
+        db.Songs.Add(pending);
+        await db.SaveChangesAsync();
+
+        Assert.Equal(
+            AlbumCompletionSweepResult.IdleNoCanonicalAlbums,
+            (await CreateSweep(db).SweepAsync(CancellationToken.None)).IdleReason);
+    }
+
+    [Fact]
+    public async Task Sweep_EmptyLibrary_SaysSo()
+    {
+        await using var db = NewContext();
+
+        Assert.Equal(
+            AlbumCompletionSweepResult.IdleLibraryEmpty,
+            (await CreateSweep(db).SweepAsync(CancellationToken.None)).IdleReason);
+    }
+
+    [Fact]
+    public async Task Sweep_EverythingSweptRecently_SaysNoCandidates()
+    {
+        await using var db = NewContext();
+        AddCanonicalAlbum(db, Artist, Album, "One", "Two");
+        db.Songs.Add(Song("/a.mp3", Artist, Album, title: "One", track: 1));
+        await db.SaveChangesAsync();
+
+        await CreateSweep(db).SweepAsync(CancellationToken.None);
+        var second = await CreateSweep(db).SweepAsync(CancellationToken.None);
+
+        Assert.Equal(AlbumCompletionSweepResult.IdleNoCandidates, second.IdleReason);
+    }
+
+    [Fact]
+    public async Task Sweep_CountsSkippedAndCompleteAlbumsSeparately()
+    {
+        // Drives the "checked N, nothing to queue — 1 already complete, 1 skipped" message.
+        await using var db = NewContext();
+        AddCanonicalAlbum(db, Artist, "Complete One", "One", "Two");
+        db.Songs.Add(Song("/a1.mp3", Artist, "Complete One", title: "One", track: 1));
+        db.Songs.Add(Song("/a2.mp3", Artist, "Complete One", title: "Two", track: 2));
+
+        AddCanonicalAlbum(db, "Various Artists", "Sampler", "One", "Two", "Three");
+        var comp = Song("/b.mp3", "Various Artists", "Sampler", title: "One", track: 1);
+        comp.IsCompilation = true;
+        db.Songs.Add(comp);
+        await db.SaveChangesAsync();
+
+        var result = await CreateSweep(db).SweepAsync(CancellationToken.None);
+
+        Assert.Equal(0, result.TracksQueued);
+        Assert.Equal(2, result.AlbumsExamined);
+        Assert.Equal(1, result.AlbumsSkipped);
+        Assert.Equal(1, result.AlbumsAlreadyComplete);
+        Assert.Null(result.IdleReason);
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────

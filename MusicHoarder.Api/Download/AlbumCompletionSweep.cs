@@ -9,6 +9,45 @@ using MusicHoarder.Api.Settings;
 namespace MusicHoarder.Api.Download;
 
 /// <summary>
+/// What one pass of album completion did. Returned rather than logged-and-forgotten because the
+/// owner needs an answer the moment they turn the feature on: with a threshold of one owned track
+/// and a per-pass cap, "queued nothing" is a perfectly normal outcome, and without saying *why* it
+/// is indistinguishable from the feature being broken.
+/// </summary>
+/// <param name="IdleReason">
+/// Set when the pass stopped before examining anything — one of the <c>Idle*</c> constants. Null
+/// when the sweep genuinely ran, even if it queued nothing.
+/// </param>
+public readonly record struct AlbumCompletionSweepResult(
+    int AlbumsExamined,
+    int TracksQueued,
+    int AlbumsFilled,
+    int AlbumsSkipped,
+    int AlbumsAlreadyComplete,
+    string? IdleReason = null)
+{
+    /// <summary>The wishlist downloader is off, so queueing tracks nothing will fetch is pointless.</summary>
+    public const string IdleDownloadsDisabled = "downloads-disabled";
+
+    /// <summary>Album completion itself is switched off.</summary>
+    public const string IdleDisabled = "disabled";
+
+    /// <summary>Enough album-fill items are still pending; discovery waits for the downloader to catch up.</summary>
+    public const string IdleAtPendingCeiling = "at-pending-ceiling";
+
+    /// <summary>No album is due for a look — everything eligible has been swept recently.</summary>
+    public const string IdleNoCandidates = "no-candidates";
+
+    /// <summary>Nothing in the library has a reconciled canonical tracklist to compare against yet.</summary>
+    public const string IdleNoCanonicalAlbums = "no-canonical-albums";
+
+    /// <summary>There is no music to complete albums for.</summary>
+    public const string IdleLibraryEmpty = "library-empty";
+
+    public static AlbumCompletionSweepResult Idle(string reason) => new(0, 0, 0, 0, 0, reason);
+}
+
+/// <summary>
 /// One pass of album completion: for each album the owner already holds part of, compare what they
 /// have against the reconciled <see cref="CanonicalAlbum"/> tracklist and queue the missing tracks as
 /// <see cref="WishlistItemOrigin.AlbumCompletion"/> wishlist items. Everything downstream — the
@@ -42,8 +81,8 @@ public class AlbumCompletionSweep(
         string? ReleaseTypes,
         EnrichmentStatus EnrichmentStatus);
 
-    /// <summary>Queues missing tracks and returns how many items were created (0 = disabled or nothing to do).</summary>
-    public async Task<int> SweepAsync(CancellationToken ct)
+    /// <summary>Queues the missing tracks of eligible albums and reports what it decided.</summary>
+    public async Task<AlbumCompletionSweepResult> SweepAsync(CancellationToken ct)
     {
         var opts = options.Value;
 
@@ -51,11 +90,11 @@ public class AlbumCompletionSweep(
         // owner-facing on/off is the runtime overlay (config supplies its default), matching how
         // AutoDownloadWishlist works — so the Settings toggle takes effect without a redeploy.
         if (!opts.EnableWishlistDownloads)
-            return 0;
+            return AlbumCompletionSweepResult.Idle(AlbumCompletionSweepResult.IdleDownloadsDisabled);
 
         var effective = await runtimeSettings.GetAsync(ct);
         if (!effective.AlbumCompletionEnabled)
-            return 0;
+            return AlbumCompletionSweepResult.Idle(AlbumCompletionSweepResult.IdleDisabled);
 
         var ownerId = ownerLookup.OwnerUserId;
 
@@ -73,7 +112,7 @@ public class AlbumCompletionSweep(
                 logger.LogDebug(
                     "Album completion idle: {Pending} pending item(s) already at the {Max} ceiling",
                     pending, opts.AlbumCompletionMaxPendingItems);
-                return 0;
+                return AlbumCompletionSweepResult.Idle(AlbumCompletionSweepResult.IdleAtPendingCeiling);
             }
         }
 
@@ -92,7 +131,7 @@ public class AlbumCompletionSweep(
             .ToListAsync(ct);
 
         if (songs.Count == 0)
-            return 0;
+            return AlbumCompletionSweepResult.Idle(AlbumCompletionSweepResult.IdleLibraryEmpty);
 
         var groups = songs
             .Select(s => (Song: s, ArtistRaw: s.AlbumArtist ?? s.Artist, Album: s.Album!))
@@ -108,7 +147,7 @@ public class AlbumCompletionSweep(
             .ToList();
 
         if (groups.Count == 0)
-            return 0;
+            return AlbumCompletionSweepResult.Idle(AlbumCompletionSweepResult.IdleNoCanonicalAlbums);
 
         var artistKeys = groups.Select(g => g.Key.ArtistKey).Distinct().ToList();
         var canonicalAlbums = await db.CanonicalAlbums
@@ -125,11 +164,17 @@ public class AlbumCompletionSweep(
 
         var now = DateTime.UtcNow;
 
-        var candidates = groups
-            .Select(g => (
-                Group: g,
-                Canonical: canonicalByKey.GetValueOrDefault(g.Key)))
+        var linked = groups
+            .Select(g => (Group: g, Canonical: canonicalByKey.GetValueOrDefault(g.Key)))
             .Where(x => x.Canonical is not null)
+            .ToList();
+
+        // Worth telling apart from "nothing due": on a young library CanonicalAlbumFetchService simply
+        // hasn't caught up yet, and the honest answer is "ask again shortly", not "nothing to do".
+        if (linked.Count == 0)
+            return AlbumCompletionSweepResult.Idle(AlbumCompletionSweepResult.IdleNoCanonicalAlbums);
+
+        var candidates = linked
             .Where(x => NeedsSweep(x.Canonical!, markerByAlbumId.GetValueOrDefault(x.Canonical!.Id), now))
             // Closest to complete first, so a multi-day drain finishes albums instead of scattering.
             .OrderByDescending(x => x.Group.Count())
@@ -138,15 +183,26 @@ public class AlbumCompletionSweep(
             .ToList();
 
         if (candidates.Count == 0)
-            return 0;
+            return AlbumCompletionSweepResult.Idle(AlbumCompletionSweepResult.IdleNoCandidates);
 
         var enqueued = 0;
+        var filled = 0;
+        var skipped = 0;
+        var alreadyComplete = 0;
         foreach (var (group, canonical) in candidates)
         {
             ct.ThrowIfCancellationRequested();
-            enqueued += await ProcessAlbumAsync(
+            var (queued, status) = await ProcessAlbumAsync(
                 ownerId, group.Select(x => x.Song).ToList(), canonical!,
                 markerByAlbumId.GetValueOrDefault(canonical!.Id), opts, now, ct);
+
+            enqueued += queued;
+            switch (status)
+            {
+                case AlbumCompletionStatus.Filled: filled++; break;
+                case AlbumCompletionStatus.Skipped: skipped++; break;
+                default: alreadyComplete++; break;
+            }
         }
 
         await db.SaveChangesAsync(ct);
@@ -161,7 +217,12 @@ public class AlbumCompletionSweep(
                 enqueued, candidates.Count);
         }
 
-        return enqueued;
+        return new AlbumCompletionSweepResult(
+            AlbumsExamined: candidates.Count,
+            TracksQueued: enqueued,
+            AlbumsFilled: filled,
+            AlbumsSkipped: skipped,
+            AlbumsAlreadyComplete: alreadyComplete);
     }
 
     /// <summary>
@@ -176,7 +237,7 @@ public class AlbumCompletionSweep(
         return marker.NextSweepAfterUtc is { } next && next <= now;
     }
 
-    private async Task<int> ProcessAlbumAsync(
+    private async Task<(int Queued, AlbumCompletionStatus Status)> ProcessAlbumAsync(
         Guid ownerId,
         IReadOnlyList<SongRow> owned,
         CanonicalAlbum canonical,
@@ -193,7 +254,7 @@ public class AlbumCompletionSweep(
         if (skipReason is not null)
         {
             UpsertMarker(ownerId, canonical, marker, AlbumCompletionStatus.Skipped, owned.Count, 0, skipReason, now);
-            return 0;
+            return (0, AlbumCompletionStatus.Skipped);
         }
 
         var orderedTracks = canonical.Tracks
@@ -237,7 +298,7 @@ public class AlbumCompletionSweep(
         if (missing.Count == 0)
         {
             UpsertMarker(ownerId, canonical, marker, AlbumCompletionStatus.NothingMissing, owned.Count, 0, null, now);
-            return 0;
+            return (0, AlbumCompletionStatus.NothingMissing);
         }
 
         var take = Math.Clamp(opts.AlbumCompletionMaxTracksPerAlbum, 1, 500);
@@ -283,7 +344,7 @@ public class AlbumCompletionSweep(
         }
 
         UpsertMarker(ownerId, canonical, marker, AlbumCompletionStatus.Filled, owned.Count, missing.Count, null, now);
-        return missing.Count;
+        return (missing.Count, AlbumCompletionStatus.Filled);
     }
 
     private void UpsertMarker(

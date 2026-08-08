@@ -19,8 +19,10 @@
     Info
   } from '@lucide/svelte';
   import {
+    albumCompletionSummary,
     fetchWishlist,
     fetchWishlistSources,
+    runAlbumCompletion,
     setWishlistSourceAutoSync,
     removeWishlistSource,
     retryWishlistItem,
@@ -74,6 +76,7 @@
   let autoDownloadBusy = $state(false);
   let albumCompletion = $state<boolean | null>(null);
   let albumCompletionBusy = $state(false);
+  let completionRunning = $state(false);
 
   async function loadSources() {
     try {
@@ -103,12 +106,19 @@
     try {
       await updateSettings({ downloads: { albumCompletion: next } });
       albumCompletion = next;
-      banner = {
-        type: 'success',
-        message: next
-          ? 'Album completion on — the rest of albums you own part of will be queued, a few albums at a time.'
-          : 'Album completion off — nothing new will be queued. Already-queued tracks still download.'
-      };
+
+      if (!next) {
+        banner = {
+          type: 'success',
+          message:
+            'Album completion off — nothing new will be queued. Already-queued tracks still download.'
+        };
+        return;
+      }
+
+      // Run a pass immediately. The background loop ticks hourly, so without this, switching the
+      // feature on appears to do nothing at all for up to an hour.
+      await runCompletionPass('Album completion on.');
     } catch (err) {
       banner = {
         type: 'error',
@@ -116,6 +126,31 @@
       };
     } finally {
       albumCompletionBusy = false;
+    }
+  }
+
+  /** Runs one pass and reports the outcome — including, explicitly, a zero. */
+  async function runCompletionPass(prefix = '') {
+    const result = await runAlbumCompletion();
+    banner = { type: 'success', message: `${prefix} ${albumCompletionSummary(result)}`.trim() };
+    if (result.tracksQueued > 0) {
+      albumFillOpen = true;
+      await loadItems(true);
+    }
+  }
+
+  async function onRunCompletionNow() {
+    completionRunning = true;
+    banner = null;
+    try {
+      await runCompletionPass();
+    } catch (err) {
+      banner = {
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Failed to run album completion'
+      };
+    } finally {
+      completionRunning = false;
     }
   }
 
@@ -483,6 +518,32 @@
     {/if}
 
     <!-- Items -->
+    {#if albumCompletion && showAutoDownloadControl}
+      <!-- The background loop is deliberately slow (hourly), so there has to be a way to ask now
+           and, more importantly, to get an answer — "nothing queued" is a normal result and needs
+           to be distinguishable from "broken". -->
+      <div class="border-border flex items-center gap-3 border-t px-4 py-3 md:px-6">
+        <Button
+          variant="outline"
+          size="sm"
+          class="h-8 shrink-0 gap-1.5 px-2.5"
+          onclick={onRunCompletionNow}
+          disabled={completionRunning}
+          title="Check your albums for missing tracks now, instead of waiting for the hourly pass"
+        >
+          {#if completionRunning}
+            <Loader2 class="size-4 animate-spin" />
+          {:else}
+            <RefreshCw class="size-4" />
+          {/if}
+          <span class="text-nav-sm">Check albums now</span>
+        </Button>
+        <span class="text-muted-foreground text-xs">
+          Runs automatically every hour, a few albums at a time.
+        </span>
+      </div>
+    {/if}
+
     {#if error}
       <div class="flex flex-col items-center justify-center py-12 text-center">
         <AlertCircle class="text-destructive mb-3 size-10" />
@@ -493,18 +554,23 @@
       <div class="flex items-center justify-center py-12">
         <Loader2 class="text-muted-foreground size-6 animate-spin" />
       </div>
-    {:else if items.length === 0}
+    {:else if items.length === 0 && albumFillTotal === 0}
       <div class="flex flex-col items-center justify-center py-12 text-center">
         <Heart class="text-muted-foreground mb-3 size-10" />
         <p class="text-muted-foreground">No wishlist items{statusFilter === 'All' ? ' yet' : ` (${statusFilter})`}.</p>
       </div>
     {:else}
-      <div class="divide-border divide-y px-2 md:px-4">
-        {#each items as item (item.id)}
-          {@render itemRow(item)}
-        {/each}
-      </div>
+      {#if items.length > 0}
+        <div class="divide-border divide-y px-2 md:px-4">
+          {#each items as item (item.id)}
+            {@render itemRow(item)}
+          {/each}
+        </div>
+      {/if}
 
+      <!-- Deliberately outside the "you have items" branch: turning album completion on for the
+           first time leaves you with zero requested items and a full fill queue, which is exactly
+           when hiding it would read as "it did nothing". -->
       {#if albumFillTotal > 0}
         <!-- Album completion's own queue. Separate and collapsed: it's a background drip that can
              dwarf the list you curated, and it pages separately for the same reason. -->

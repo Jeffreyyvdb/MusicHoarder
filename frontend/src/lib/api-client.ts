@@ -2035,6 +2035,57 @@ export async function fetchWishlist(
   return requestJson<WishlistItemsResponse>(`/api/wishlist?${params.toString()}`)
 }
 
+export interface AlbumCompletionRunResult {
+  albumsExamined: number
+  tracksQueued: number
+  albumsFilled: number
+  albumsSkipped: number
+  albumsAlreadyComplete: number
+  /** Set when the pass stopped before examining anything; null when it genuinely ran. */
+  idleReason: string | null
+}
+
+/**
+ * Run one album-completion pass now. The background loop only ticks hourly, so this is what makes
+ * flipping the toggle do something you can see — and the result is what lets us explain a zero,
+ * which is a perfectly normal outcome.
+ */
+export async function runAlbumCompletion(): Promise<AlbumCompletionRunResult> {
+  return requestJson<AlbumCompletionRunResult>("/api/wishlist/complete-albums", { method: "POST" })
+}
+
+/** Plain-English summary of a completion pass, for the Wishlist banner. */
+export function albumCompletionSummary(r: AlbumCompletionRunResult): string {
+  switch (r.idleReason) {
+    case "downloads-disabled":
+      return "Album completion needs wishlist downloads enabled first."
+    case "disabled":
+      return "Album completion is off."
+    case "at-pending-ceiling":
+      return "Already enough queued — completion pauses until the downloader catches up."
+    case "library-empty":
+      return "No music in your library yet — nothing to complete."
+    case "no-canonical-albums":
+      return "No album has a reconciled tracklist yet. That's built in the background as tracks finish enriching; try again in a few minutes."
+    case "no-candidates":
+      return "Nothing new to check — every eligible album has been looked at recently."
+    default:
+      break
+  }
+
+  if (r.tracksQueued > 0) {
+    const albums = `${r.albumsFilled} album${r.albumsFilled === 1 ? "" : "s"}`
+    return `Queued ${r.tracksQueued} missing track${r.tracksQueued === 1 ? "" : "s"} across ${albums}.`
+  }
+
+  // A zero here is a real answer, not a failure — say which kind.
+  const parts: string[] = []
+  if (r.albumsAlreadyComplete > 0) parts.push(`${r.albumsAlreadyComplete} already complete`)
+  if (r.albumsSkipped > 0) parts.push(`${r.albumsSkipped} skipped (compilations or singles)`)
+  const detail = parts.length > 0 ? ` — ${parts.join(", ")}` : ""
+  return `Checked ${r.albumsExamined} album${r.albumsExamined === 1 ? "" : "s"}, nothing to queue${detail}.`
+}
+
 /** Queue one canonical album track you're missing (the album page's "Get this track"). */
 export async function acquireCanonicalTrack(
   canonicalTrackId: number,

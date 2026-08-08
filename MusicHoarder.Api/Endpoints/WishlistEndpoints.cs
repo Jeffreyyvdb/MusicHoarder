@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
+using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -272,6 +273,31 @@ public static class WishlistEndpoints
             })
             .WithName("DeleteWishlistItem")
             .WithSummary("Remove a wishlist item.");
+
+        group.MapPost("/complete-albums", async (
+                AlbumCompletionSweep sweep,
+                CancellationToken ct) =>
+            {
+                // Run inline rather than nudging the background loop. The sweep does no network I/O —
+                // it reads owned songs plus reconciled tracklists and writes wishlist rows — and is
+                // capped per pass, so it answers immediately. That matters more than it sounds: the
+                // background loop ticks hourly, so without this, turning the feature on looks broken
+                // for up to an hour. Returning the outcome also lets the UI explain a zero result,
+                // which is a perfectly normal one (every album complete, or all of them compilations).
+                var result = await sweep.SweepAsync(ct);
+                return Results.Ok(new
+                {
+                    albumsExamined = result.AlbumsExamined,
+                    tracksQueued = result.TracksQueued,
+                    albumsFilled = result.AlbumsFilled,
+                    albumsSkipped = result.AlbumsSkipped,
+                    albumsAlreadyComplete = result.AlbumsAlreadyComplete,
+                    idleReason = result.IdleReason,
+                });
+            })
+            .WithName("RunAlbumCompletion")
+            .WithSummary("Run one album-completion pass now and report what it queued, skipped, or why it did nothing.")
+            .RequireOwner();
 
         group.MapPost("/download", (JobManager jobManager, IOptions<MusicEnricherOptions> options) =>
             {
