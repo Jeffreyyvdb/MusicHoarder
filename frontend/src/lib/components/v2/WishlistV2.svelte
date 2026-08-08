@@ -2,8 +2,11 @@
   import { Button } from '$lib/components/ui/button';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { Badge } from '$lib/components/ui/badge';
+  import FilterChip from '$lib/components/v2/FilterChip.svelte';
+  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import { Switch } from '$lib/components/ui/switch';
   import {
+    Gift,
     Heart,
     Download,
     RefreshCw,
@@ -327,71 +330,81 @@
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-  <!-- Header -->
-  <div class="border-border bg-card/30 border-b px-4 py-5 md:px-6">
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <div class="flex items-center gap-2">
-          <Heart class="size-5" />
-          <h1 class="text-2xl font-semibold tracking-tight">Wishlist</h1>
-          <Badge variant="secondary">{total}</Badge>
-        </div>
-        <p class="text-muted-foreground mt-1 text-sm">
-          Tracks queued for download. Add sources from the
-          <a href="/spotify" class="underline">Spotify</a> page.
-        </p>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
-        {#if showAutoDownloadControl}
-          <label
-            class="border-border bg-card flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm"
-            title="When on, newly liked tracks download automatically in the background. When off, use “Download now”."
-          >
-            <Switch
-              checked={autoDownload ?? false}
-              disabled={autoDownloadBusy}
-              onCheckedChange={onToggleAutoDownload}
-              aria-label="Auto-download new tracks"
-            />
-            <span class="select-none">Auto-download</span>
-          </label>
-          <label
-            class="border-border bg-card flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm"
-            title="When on, owning one track of an album queues the rest — a few albums per hour, and always behind anything you asked for. Those tracks stay out of My music until you like them."
-          >
-            <Switch
-              checked={albumCompletion ?? false}
-              disabled={albumCompletionBusy}
-              onCheckedChange={onToggleAlbumCompletion}
-              aria-label="Complete albums automatically"
-            />
-            <span class="select-none">Complete albums</span>
-          </label>
-        {/if}
-        <Button
-          variant="outline"
-          onclick={onRetryAllFailed}
-          disabled={retryingFailed || downloadingNow}
-          title="Reset all Failed/NotFound items to Pending so the next download retries them"
+  <!-- The status chips used to be their own row below a 105px title band; both
+       fit here. The deleted blurb pointed at /spotify for sources — the Sources
+       section further down already links there. -->
+  <PageToolbarV2
+    icon={Gift}
+    title="Wishlist"
+    meta="{total.toLocaleString()} queued"
+    metaFrom="lg"
+  >
+    {#snippet filters()}
+      {#each FILTERS as f (f)}
+        <FilterChip pressed={statusFilter === f} onclick={() => (statusFilter = f)}>
+          {f === 'SkippedOwned' ? 'Skipped' : f}
+        </FilterChip>
+      {/each}
+    {/snippet}
+    {#snippet actions()}
+      {#if showAutoDownloadControl}
+        <label
+          class="border-border bg-card text-nav-sm flex h-8 cursor-pointer items-center gap-2 rounded-full border px-3"
+          title="When on, newly liked tracks download automatically in the background. When off, use “Download now”."
         >
-          {#if retryingFailed}
-            <Loader2 class="size-4 animate-spin" />
-          {:else}
-            <RefreshCw class="size-4" />
-          {/if}
-          Retry failed
-        </Button>
-        <Button onclick={onTriggerDownload} disabled={triggering || downloadingNow}>
-          {#if triggering || downloadingNow}
-            <Loader2 class="size-4 animate-spin" />
-          {:else}
-            <Download class="size-4" />
-          {/if}
-          {downloadingNow ? `Downloading ${progress?.downloaded ?? 0}…` : 'Download now'}
-        </Button>
-      </div>
-    </div>
-  </div>
+          <Switch
+            checked={autoDownload ?? false}
+            disabled={autoDownloadBusy}
+            onCheckedChange={onToggleAutoDownload}
+            aria-label="Auto-download new tracks"
+          />
+          <span class="hidden select-none sm:inline">Auto-download</span>
+        </label>
+        <label
+          class="border-border bg-card text-nav-sm flex h-8 cursor-pointer items-center gap-2 rounded-full border px-3"
+          title="When on, owning one track of an album queues the rest — a few albums per hour, and always behind anything you asked for. Those tracks stay out of My music until you like them."
+        >
+          <Switch
+            checked={albumCompletion ?? false}
+            disabled={albumCompletionBusy}
+            onCheckedChange={onToggleAlbumCompletion}
+            aria-label="Complete albums automatically"
+          />
+          <span class="hidden select-none sm:inline">Complete albums</span>
+        </label>
+      {/if}
+      <Button
+        variant="outline"
+        size="sm"
+        class="h-8 gap-1.5 px-2.5"
+        onclick={onRetryAllFailed}
+        disabled={retryingFailed || downloadingNow}
+        title="Reset all Failed/NotFound items to Pending so the next download retries them"
+      >
+        {#if retryingFailed}
+          <Loader2 class="size-4 animate-spin" />
+        {:else}
+          <RefreshCw class="size-4" />
+        {/if}
+        <span class="text-nav-sm hidden sm:inline">Retry failed</span>
+      </Button>
+      <Button
+        size="sm"
+        class="h-8 gap-1.5 px-2.5"
+        onclick={onTriggerDownload}
+        disabled={triggering || downloadingNow}
+      >
+        {#if triggering || downloadingNow}
+          <Loader2 class="size-4 animate-spin" />
+        {:else}
+          <Download class="size-4" />
+        {/if}
+        <span class="text-nav-sm hidden sm:inline"
+          >{downloadingNow ? `Downloading ${progress?.downloaded ?? 0}…` : 'Download now'}</span
+        >
+      </Button>
+    {/snippet}
+  </PageToolbarV2>
 
   {#if banner}
     <div
@@ -468,21 +481,6 @@
         </div>
       </div>
     {/if}
-
-    <!-- Status filter -->
-    <div class="border-border flex flex-wrap items-center gap-2 border-b px-4 py-3 md:px-6">
-      {#each FILTERS as f (f)}
-        <button
-          type="button"
-          onclick={() => (statusFilter = f)}
-          class="rounded-full px-3 py-1 text-xs transition-colors {statusFilter === f
-            ? 'bg-primary text-primary-foreground'
-            : 'bg-secondary text-muted-foreground hover:bg-secondary/70'}"
-        >
-          {f === 'SkippedOwned' ? 'Skipped' : f}
-        </button>
-      {/each}
-    </div>
 
     <!-- Items -->
     {#if error}

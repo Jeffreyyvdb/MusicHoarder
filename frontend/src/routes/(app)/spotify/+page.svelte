@@ -3,7 +3,6 @@
   import { goto } from '$app/navigation';
   import { Button } from '$lib/components/ui/button';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import { Badge } from '$lib/components/ui/badge';
   import * as Tabs from '$lib/components/ui/tabs';
   import { Input } from '$lib/components/ui/input';
   import { Switch } from '$lib/components/ui/switch';
@@ -22,6 +21,7 @@
   } from '$lib/api-client';
   import {
     Music,
+    Music2,
     Search,
     Heart,
     ListMusic,
@@ -41,12 +41,22 @@
   import TrackListSkeleton from '$lib/components/spotify/TrackListSkeleton.svelte';
   import PlaylistGridSkeleton from '$lib/components/spotify/PlaylistGridSkeleton.svelte';
   import PlaylistDetailView from '$lib/components/spotify/PlaylistDetailView.svelte';
+  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
 
   let status = $state<SpotifyStatusResponse | null>(null);
   let credentials = $state<SpotifyCredentialsResponse | null>(null);
   let isLoadingStatus = $state(true);
   let isConnecting = $state(false);
   let isDisconnecting = $state(false);
+
+  // The two Spotify views. Second-level tabs, so they live in the page toolbar
+  // rather than a strip of their own — the top bar already carries the Add group.
+  type SpotifyTab = 'liked' | 'playlists';
+  const SPOTIFY_TABS = [
+    { id: 'liked', label: 'Liked Songs' },
+    { id: 'playlists', label: 'Playlists' }
+  ];
+  let spotifyTab = $state<SpotifyTab>('liked');
   let error = $state<string | null>(null);
   let oauthBanner = $state<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -266,9 +276,10 @@
   );
 </script>
 
-<!-- The Spotify page belongs to the Library section; its tab bar (Albums/Artists/
-     Tracks/Spotify) is rendered once by the shell (SectionSubNav), pinned above
-     this content, so it never shifts when navigating between the library tabs. -->
+<!-- The Spotify page belongs to the Add group; that group's tab strip is rendered
+     once by the shell, inside the top bar (SectionTabsV2), so it never shifts when
+     navigating between the group's pages. The Liked/Playlists tabs below are
+     second-level and live in this page's own toolbar. -->
 {#if isLoadingStatus}
   <div class="flex flex-1 items-center justify-center">
     <Loader2 class="text-muted-foreground size-8 animate-spin" />
@@ -383,52 +394,36 @@
       </div>
     {/if}
 
-    <div class="border-border bg-card/30 border-b px-4 py-5 md:px-6">
-      <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div class="flex items-center gap-2">
-            <h1 class="text-2xl font-semibold tracking-tight">Spotify</h1>
-            <Badge class="border-0 bg-[#1DB954]/20 text-[#1DB954]">Connected</Badge>
-          </div>
-          {#if status.connectedAt}
-            <p class="text-muted-foreground mt-1 text-sm">
-              Connected since {new Date(status.connectedAt).toLocaleDateString()}
-            </p>
-          {/if}
-        </div>
-        <Button variant="outline" onclick={handleDisconnect} disabled={isDisconnecting}>
+    <!-- Identity, connection state, and the two views in one bar. -->
+    <PageToolbarV2
+      icon={Music2}
+      title="Spotify"
+      meta={status.connectedAt
+        ? `Connected since ${new Date(status.connectedAt).toLocaleDateString()}`
+        : 'Connected'}
+      tabs={SPOTIFY_TABS}
+      activeTab={spotifyTab}
+      onselectTab={(id) => (spotifyTab = id as SpotifyTab)}
+    >
+      {#snippet actions()}
+        <Button
+          variant="outline"
+          size="sm"
+          class="h-8 gap-1.5 px-2.5"
+          onclick={handleDisconnect}
+          disabled={isDisconnecting}
+        >
           {#if isDisconnecting}
-            <Loader2 class="mr-2 size-4 animate-spin" />
+            <Loader2 class="size-4 animate-spin" />
           {:else}
-            <LogOut class="mr-2 size-4" />
+            <LogOut class="size-4" />
           {/if}
-          Disconnect
+          <span class="text-nav-sm hidden sm:inline">Disconnect</span>
         </Button>
-      </div>
-    </div>
+      {/snippet}
+    </PageToolbarV2>
 
-    <Tabs.Root value="liked" class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <!-- Apple-style segmented control, matching the section sub-nav and the
-           song-panel tabs (one tab idiom app-wide). -->
-      <div class="border-border border-b px-4 py-2 md:px-6">
-        <Tabs.List class="bg-foreground/5 h-auto gap-1 rounded-full p-1">
-          <Tabs.Trigger
-            value="liked"
-            class="text-muted-foreground hover:text-foreground data-[state=active]:bg-background data-[state=active]:text-foreground rounded-full border-0 bg-transparent px-3 py-1.5 text-xs font-medium whitespace-nowrap shadow-none transition-colors data-[state=active]:shadow-sm sm:px-4 sm:text-[13px]"
-          >
-            <Heart class="mr-1.5 size-3.5" />
-            Liked Songs
-          </Tabs.Trigger>
-          <Tabs.Trigger
-            value="playlists"
-            class="text-muted-foreground hover:text-foreground data-[state=active]:bg-background data-[state=active]:text-foreground rounded-full border-0 bg-transparent px-3 py-1.5 text-xs font-medium whitespace-nowrap shadow-none transition-colors data-[state=active]:shadow-sm sm:px-4 sm:text-[13px]"
-          >
-            <ListMusic class="mr-1.5 size-3.5" />
-            Playlists
-          </Tabs.Trigger>
-        </Tabs.List>
-      </div>
-
+    <Tabs.Root bind:value={spotifyTab} class="flex min-h-0 flex-1 flex-col overflow-hidden">
       <Tabs.Content value="liked" class="m-0 flex min-h-0 flex-1 flex-col overflow-hidden">
         <ScrollArea class="min-h-0 flex-1">
           <!-- Spotify-style hero — Liked Songs as a virtual playlist -->

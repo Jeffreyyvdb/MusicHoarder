@@ -105,10 +105,11 @@
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-mono:
     ui-monospace, 'SFMono-Regular', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
-  /* Nav chrome type scale. These are the sizes the shell already used as arbitrary
-     `text-[Npx]` utilities — named here, at the same values, so the four nav surfaces
-     (sidebar, mobile bottom bar, section tab strip, top bar) can't drift apart. Adopted by
-     those components only; the rest of the app still uses arbitrary sizes. */
+  /* Chrome type scale. These are the sizes the shell already used as arbitrary
+     `text-[Npx]` utilities — named here, at the same values, so the surfaces that share
+     an idiom can't drift apart: the nav ones (sidebar, mobile bottom bar, section tab
+     strip, top bar) plus PageToolbarV2 / FilterChip, which every page's header is now
+     built from. Page *bodies* still use arbitrary sizes. */
   --text-nav: 13px; /* sidebar rows, section title, tab labels */
   --text-nav-sm: 12.5px; /* top-bar buttons */
   --text-nav-xs: 11px; /* sidebar footer meta */

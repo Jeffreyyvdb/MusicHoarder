@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import { onMount } from 'svelte';
   import { Disc3, History, RefreshCw } from '@lucide/svelte';
   import {
@@ -76,15 +77,9 @@
   const lib = $derived(overview?.library);
 </script>
 
-<div class="flex min-h-0 flex-1 flex-col gap-5 p-5 sm:p-6">
-  <header class="flex flex-wrap items-end justify-between gap-3">
-    <div>
-      <h1 class="text-xl font-semibold tracking-tight">Album matches</h1>
-      <p class="text-muted-foreground mt-1 text-sm">
-        Did we link each album to the right provider album? Albums the AI judged a poor match show up first.
-      </p>
-    </div>
-    <div class="flex items-center gap-3">
+<div class="flex min-h-0 flex-1 flex-col">
+  <PageToolbarV2 icon={Disc3} title="Album matches" meta={progressText || undefined}>
+    {#snippet actions()}
       {#if progressText}
         <span class="text-muted-foreground text-xs">{progressText}</span>
       {/if}
@@ -109,8 +104,10 @@
         <RefreshCw class={`size-4 ${grading ? 'animate-spin' : ''}`} />
         Grade all albums
       </button>
-    </div>
-  </header>
+    {/snippet}
+  </PageToolbarV2>
+
+  <div class="flex min-h-0 flex-1 flex-col gap-5 px-4 py-4 sm:px-7 sm:py-5">
 
   {#if error}
     <div class="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-[13px] text-red-600 dark:text-red-400">{error}</div>
@@ -171,4 +168,5 @@
       {/if}
     </div>
   {/if}
+</div>
 </div>

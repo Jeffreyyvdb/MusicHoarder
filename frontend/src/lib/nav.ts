@@ -110,8 +110,6 @@ export type NavGroup = {
   href: string;
   icon: typeof IconType;
   live?: boolean;
-  /** The page renders its own tab bar, so the shell strip stays off (Inbox). */
-  ownsSubNav?: boolean;
   /**
    * Extra routes the group owns beyond its items' own paths — e.g. /track/[id] under Listen.
    * A group already claims every path one of its items lives on, so this is only for routes
@@ -173,8 +171,6 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Inbox',
     href: '/inbox',
     icon: Inbox,
-    // InboxV2 renders its own ?tab= bar with live per-tab counts; a shell strip would double it.
-    ownsSubNav: true,
     items: [
       {
         id: 'review',

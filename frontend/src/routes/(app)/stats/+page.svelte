@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    ChartColumnBig,
     Disc3,
     Heart,
     Image as ImageIcon,
@@ -16,6 +17,7 @@
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { Button } from '$lib/components/ui/button';
   import { Skeleton } from '$lib/components/ui/skeleton';
+  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import { fetchInsights, type LibraryInsights } from '$lib/api-client';
 
   let data = $state<LibraryInsights | null>(null);
@@ -39,6 +41,12 @@
   });
 
   const empty = $derived(!!data && data.source.indexed === 0);
+
+  const headerMeta = $derived(
+    data
+      ? `${data.source.inLibrary.toLocaleString()} of ${data.source.indexed.toLocaleString()} source files in the library · ${data.source.inLibraryPct}%`
+      : undefined
+  );
 
   // Hoisted out of the template because {@const} can't live inside a plain <div>.
   const enrichTotal = $derived(
@@ -126,7 +134,7 @@
   pct: number | null
 )}
   {@const Icon = icon}
-  <div class="bg-card flex flex-col gap-2.5 rounded-xl border p-5">
+  <div class="bg-card flex flex-col gap-2.5 rounded-xl border p-4">
     <div class="flex items-center gap-2.5">
       <span class="grid size-8 place-items-center rounded-lg {iconWrap}">
         <Icon class="size-4" />
@@ -154,21 +162,17 @@
 {/snippet}
 
 <div class="flex min-h-0 flex-1 flex-col">
-  <header class="border-border flex items-center justify-between gap-4 border-b px-6 py-4">
-    <div>
-      <h1 class="text-lg font-semibold">Stats</h1>
-      <p class="text-muted-foreground text-sm">
-        Your hoard at a glance — what the pipeline pulled in, fixed up, and filed away.
-      </p>
-    </div>
-    <Button onclick={load} disabled={loading} variant="outline" size="sm">
-      <RefreshCw class="mr-2 size-4 {loading ? 'animate-spin' : ''}" />
-      Refresh
-    </Button>
-  </header>
+  <PageToolbarV2 icon={ChartColumnBig} title="Stats" meta={headerMeta}>
+    {#snippet actions()}
+      <Button onclick={load} disabled={loading} variant="outline" size="sm" class="h-8 gap-1.5 px-2.5">
+        <RefreshCw class="size-4 {loading ? 'animate-spin' : ''}" />
+        <span class="text-nav-sm hidden sm:inline">Refresh</span>
+      </Button>
+    {/snippet}
+  </PageToolbarV2>
 
   <ScrollArea class="min-h-0 flex-1">
-    <div class="space-y-8 px-6 py-6">
+    <div class="flex flex-col gap-5 px-4 py-4 sm:px-7 sm:py-5">
       {#if error}
         <div class="rounded-md border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400">
           {error}
@@ -176,7 +180,7 @@
       {:else if loading && !data}
         <section class="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-5">
           {#each Array(5) as _, i (i)}
-            <div class="bg-card flex flex-col gap-2.5 rounded-xl border p-5">
+            <div class="bg-card flex flex-col gap-2.5 rounded-xl border p-4">
               <div class="flex items-center gap-2.5">
                 <Skeleton class="size-8 rounded-lg" />
                 <Skeleton class="h-3.5 w-20" />
@@ -188,7 +192,7 @@
         </section>
         <section class="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
           {#each Array(2) as _, i (i)}
-            <div class="bg-card rounded-xl border p-5">
+            <div class="bg-card rounded-xl border p-4">
               <Skeleton class="mb-4 h-4 w-32" />
               <div class="space-y-3">
                 {#each Array(3) as _, j (j)}
@@ -255,8 +259,8 @@
 
         <!-- ── Two funnels side by side ── -->
         <section class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div class="bg-card rounded-xl border p-5">
-            <h2 class="mb-4 flex items-center gap-2 text-sm font-semibold">
+          <div class="bg-card rounded-xl border p-4">
+            <h2 class="mb-2.5 flex items-center gap-2 text-sm font-semibold">
               <Disc3 class="text-muted-foreground size-4" /> Pipeline funnel
             </h2>
             {@render funnel(data.funnel)}
@@ -266,8 +270,8 @@
             </p>
           </div>
 
-          <div class="bg-card rounded-xl border p-5">
-            <h2 class="mb-4 flex items-center gap-2 text-sm font-semibold">
+          <div class="bg-card rounded-xl border p-4">
+            <h2 class="mb-2.5 flex items-center gap-2 text-sm font-semibold">
               <Heart class="size-4 text-rose-500" /> Spotify wishlist journey
             </h2>
             {@render funnel(data.wishlist.funnel)}
@@ -288,8 +292,8 @@
         </section>
 
         <!-- ── Coverage rings ── -->
-        <section class="bg-card rounded-xl border p-5">
-          <h2 class="mb-4 flex items-center gap-2 text-sm font-semibold">
+        <section class="bg-card rounded-xl border p-4">
+          <h2 class="mb-2.5 flex items-center gap-2 text-sm font-semibold">
             <CheckCircle2 class="text-muted-foreground size-4" /> Metadata coverage
           </h2>
           <div class="grid grid-cols-3 gap-4 sm:grid-cols-6">
@@ -334,8 +338,8 @@
 
         <!-- ── Top artists / albums ── -->
         <section class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div class="bg-card rounded-xl border p-5">
-            <h2 class="mb-4 flex items-center gap-2 text-sm font-semibold">
+          <div class="bg-card rounded-xl border p-4">
+            <h2 class="mb-2.5 flex items-center gap-2 text-sm font-semibold">
               <Users class="text-muted-foreground size-4" /> Top artists
             </h2>
             {#if data.top.artists.length === 0}
@@ -350,8 +354,8 @@
             {/if}
           </div>
 
-          <div class="bg-card rounded-xl border p-5">
-            <h2 class="mb-4 flex items-center gap-2 text-sm font-semibold">
+          <div class="bg-card rounded-xl border p-4">
+            <h2 class="mb-2.5 flex items-center gap-2 text-sm font-semibold">
               <Disc3 class="text-muted-foreground size-4" /> Biggest albums
             </h2>
             {#if data.top.albums.length === 0}
@@ -369,8 +373,8 @@
 
         <!-- ── Library totals + formats ── -->
         <section class="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <div class="bg-card rounded-xl border p-5 lg:col-span-2">
-            <h2 class="mb-4 flex items-center gap-2 text-sm font-semibold">
+          <div class="bg-card rounded-xl border p-4 lg:col-span-2">
+            <h2 class="mb-2.5 flex items-center gap-2 text-sm font-semibold">
               <Music class="text-muted-foreground size-4" /> Library totals
             </h2>
             <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
@@ -406,8 +410,8 @@
             </p>
           </div>
 
-          <div class="bg-card rounded-xl border p-5">
-            <h2 class="mb-4 text-sm font-semibold">By format</h2>
+          <div class="bg-card rounded-xl border p-4">
+            <h2 class="mb-2.5 text-sm font-semibold">By format</h2>
             {#if data.totals.byFormat.length === 0}
               <p class="text-muted-foreground text-sm">No files indexed.</p>
             {:else}
@@ -422,8 +426,8 @@
         </section>
 
         <!-- ── Enrichment quality ── -->
-        <section class="bg-card rounded-xl border p-5">
-          <h2 class="mb-4 flex items-center gap-2 text-sm font-semibold">
+        <section class="bg-card rounded-xl border p-4">
+          <h2 class="mb-2.5 flex items-center gap-2 text-sm font-semibold">
             <BadgeCheck class="text-muted-foreground size-4" /> Enrichment quality
           </h2>
 

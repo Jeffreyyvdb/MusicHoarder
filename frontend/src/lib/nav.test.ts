@@ -57,10 +57,6 @@ describe('NAV_GROUPS', () => {
     }
   });
 
-  it('lets only Inbox own its sub-nav (InboxV2 draws its own tab bar)', () => {
-    expect(NAV_GROUPS.filter((g) => g.ownsSubNav).map((g) => g.id)).toEqual(['inbox']);
-  });
-
   // "My music" (what you chose) and "All tracks" (literally everything) are easy to confuse, so
   // their order and adjacency is deliberate: the narrower, more-often-wanted list comes first.
   it('orders Listen results-first, with My music ahead of All tracks', () => {

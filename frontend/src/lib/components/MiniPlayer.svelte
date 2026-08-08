@@ -20,6 +20,7 @@
   import { songDetail } from '$lib/stores/song-detail.svelte';
   import { Button } from '$lib/components/ui/button';
   import Cover from '$lib/components/file-browser/Cover.svelte';
+  import { blurAfterPointerClick, cn, transportGlyphClass } from '$lib/utils';
 
   function miniExit() {
     const reduced =
@@ -168,8 +169,11 @@
         <Button
           variant="ghost"
           size="icon"
-          class="text-foreground hover:text-foreground size-9 shrink-0 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent dark:hover:bg-transparent active:scale-90 disabled:opacity-30"
-          onclick={() => playerStore.playPrevious()}
+          class={cn(transportGlyphClass, 'size-9 shrink-0 disabled:opacity-30')}
+          onclick={(e) => {
+            blurAfterPointerClick(e);
+            playerStore.playPrevious();
+          }}
           disabled={!playerStore.hasPrevious}
           aria-label="Previous track"
         >
@@ -179,8 +183,11 @@
         <Button
           variant="ghost"
           size="icon"
-          class="text-foreground hover:text-foreground size-9 shrink-0 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent dark:hover:bg-transparent active:scale-90"
-          onclick={() => playerStore.togglePlay()}
+          class={cn(transportGlyphClass, 'size-9 shrink-0')}
+          onclick={(e) => {
+            blurAfterPointerClick(e);
+            playerStore.togglePlay();
+          }}
           aria-label={playerStore.isPlaying ? 'Pause' : 'Play'}
         >
           {#if playerStore.isPlaying}
@@ -193,8 +200,11 @@
         <Button
           variant="ghost"
           size="icon"
-          class="text-foreground hover:text-foreground size-9 shrink-0 bg-transparent transition-transform duration-100 ease-out hover:bg-transparent dark:hover:bg-transparent active:scale-90 disabled:opacity-30"
-          onclick={() => playerStore.playNext()}
+          class={cn(transportGlyphClass, 'size-9 shrink-0 disabled:opacity-30')}
+          onclick={(e) => {
+            blurAfterPointerClick(e);
+            playerStore.playNext();
+          }}
           disabled={!playerStore.hasNext}
           aria-label="Next track"
         >
