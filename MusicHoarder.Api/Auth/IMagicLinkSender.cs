@@ -10,8 +10,10 @@ public interface IMagicLinkSender
     Task SendAsync(User user, string magicLinkUrl, CancellationToken ct = default);
 
     /// <summary>
-    /// True when this sender is the no-email-fallback. Used in <c>Development</c> only to decide
-    /// whether the /api/auth/request-link response should include the raw link for click-through.
+    /// True when this sender is the no-email-fallback (links written to the logs). Drives the
+    /// startup banner announcing that mode, the <c>magicLinkInLogs</c> flag on the
+    /// /api/auth/request-link response (config-level, so enumeration-safe), and — in
+    /// <c>Development</c> only — whether that response includes the raw link for click-through.
     /// </summary>
     bool IsConsoleFallback { get; }
 }

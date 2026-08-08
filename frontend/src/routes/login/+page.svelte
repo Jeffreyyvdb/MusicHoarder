@@ -16,7 +16,7 @@
   let isSending = $state(false);
   let result = $state<
     | null
-    | { ok: true; sent: true; magicLinkUrl?: string | null }
+    | { ok: true; sent: true; magicLinkUrl?: string | null; magicLinkInLogs?: boolean }
     | { ok: false; message: string }
   >(null);
   let isStartingDemo = $state(false);
@@ -51,7 +51,7 @@
     try {
       const r = await requestMagicLink(email.trim());
       if (r.ok) {
-        result = { ok: true, sent: true, magicLinkUrl: r.magicLinkUrl };
+        result = { ok: true, sent: true, magicLinkUrl: r.magicLinkUrl, magicLinkInLogs: r.magicLinkInLogs };
       } else {
         result = { ok: false, message: 'Could not send email. Check Resend configuration.' };
       }
@@ -118,9 +118,17 @@
 
     {#if result?.ok}
       <div class="text-primary mt-4 text-[13px]">
-        Check your email — a sign-in link is on its way (expires in 15 min).
-        {#if result.magicLinkUrl}
-          <a href={result.magicLinkUrl} class="mob-login-link mt-2 block">Dev mode: click here to sign in →</a>
+        {#if result.magicLinkInLogs && !result.magicLinkUrl}
+          No email service is configured on this server — if that address matches a known account,
+          your sign-in link was just written to the server logs (expires in 15 min). Find it with:
+          <code class="mt-2 block font-mono text-[12px] break-all select-all"
+            >docker compose logs api | grep -i magic</code
+          >
+        {:else}
+          Check your email — a sign-in link is on its way (expires in 15 min).
+          {#if result.magicLinkUrl}
+            <a href={result.magicLinkUrl} class="mob-login-link mt-2 block">Dev mode: click here to sign in →</a>
+          {/if}
         {/if}
       </div>
     {:else if result && !result.ok}
@@ -190,25 +198,42 @@
       >
         <CheckCircle2 class="mt-0.5 size-4 shrink-0" />
         <div class="min-w-0 flex-1">
-          <p class="font-medium">Check your email.</p>
-          <p class="text-foreground/70 mt-1 text-xs">
-            If <span class="font-mono">{email}</span> matches a known account, a sign-in link is on
-            its way. The link expires in 15 minutes.
-          </p>
-          {#if result.magicLinkUrl}
+          {#if result.magicLinkInLogs && !result.magicLinkUrl}
+            <p class="font-medium">Your sign-in link is in the server logs.</p>
+            <p class="text-foreground/70 mt-1 text-xs">
+              This server has no email service configured, so links are never emailed. If
+              <span class="font-mono">{email}</span> matches a known account, the link was just
+              written to the API logs. Find it with:
+            </p>
             <div
-              class="border-primary/30 bg-background/80 mt-3 rounded-md border p-3 text-xs break-all"
+              class="border-primary/30 bg-background/80 mt-3 rounded-md border p-3 font-mono text-xs break-all select-all"
             >
-              <div class="text-muted-foreground mb-1 flex items-center gap-1">
-                <Sparkles class="size-3" /> Dev mode — link not emailed:
-              </div>
-              <a
-                href={result.magicLinkUrl}
-                class="text-primary inline-flex items-center gap-1 hover:underline"
-              >
-                Click here to sign in <ExternalLink class="size-3" />
-              </a>
+              docker compose logs api | grep -i magic
             </div>
+            <p class="text-foreground/70 mt-2 text-xs">
+              Open the printed URL in this browser. It expires in 15 minutes.
+            </p>
+          {:else}
+            <p class="font-medium">Check your email.</p>
+            <p class="text-foreground/70 mt-1 text-xs">
+              If <span class="font-mono">{email}</span> matches a known account, a sign-in link is on
+              its way. The link expires in 15 minutes.
+            </p>
+            {#if result.magicLinkUrl}
+              <div
+                class="border-primary/30 bg-background/80 mt-3 rounded-md border p-3 text-xs break-all"
+              >
+                <div class="text-muted-foreground mb-1 flex items-center gap-1">
+                  <Sparkles class="size-3" /> Dev mode — link not emailed:
+                </div>
+                <a
+                  href={result.magicLinkUrl}
+                  class="text-primary inline-flex items-center gap-1 hover:underline"
+                >
+                  Click here to sign in <ExternalLink class="size-3" />
+                </a>
+              </div>
+            {/if}
           {/if}
         </div>
       </div>
