@@ -222,6 +222,10 @@ internal static class ComposeFileExtensions
     /// </summary>
     private static void ConfigureForSelfHost(this ComposeFile file)
     {
+        // Fixed trial password so an empty .env boots. Alphanumeric+hyphen only: it is embedded
+        // verbatim in the postgresql:// URI env vars, so it must never need URL-encoding.
+        const string devPostgresPassword = "musichoarder-dev";
+
         var api = file.Services["api"];
         var frontend = file.Services["frontend"];
         var postgres = file.Services["postgres"];
@@ -251,8 +255,10 @@ internal static class ComposeFileExtensions
         // app's fixed container paths. Keeps the familiar MUSIC_SOURCE_PATH / MUSIC_DESTINATION_PATH env.
         api.Environment["MusicEnricher__SourceDirectory"] = "/music/source";
         api.Environment["MusicEnricher__DestinationDirectory"] = "/music/destination";
-        api.AddVolume(new Volume { Name = "music-source", Type = "bind", Source = "${MUSIC_SOURCE_PATH}", Target = "/music/source", ReadOnly = true });
-        api.AddVolume(new Volume { Name = "music-destination", Type = "bind", Source = "${MUSIC_DESTINATION_PATH}", Target = "/music/destination" });
+        // Relative defaults (resolved against the compose file's directory) so a trial boots with no
+        // .env: Compose auto-creates the dirs if missing. Real installs point these at library paths.
+        api.AddVolume(new Volume { Name = "music-source", Type = "bind", Source = "${MUSIC_SOURCE_PATH:-./music-source}", Target = "/music/source", ReadOnly = true });
+        api.AddVolume(new Volume { Name = "music-destination", Type = "bind", Source = "${MUSIC_DESTINATION_PATH:-./music-destination}", Target = "/music/destination" });
 
         // Soulseek (user-operated slskd): the api needs read-write access to slskd's completed-downloads
         // directory so it can move finished files into its own staging dir. Optional — the /dev/null
@@ -291,18 +297,36 @@ internal static class ComposeFileExtensions
         // frontend's relay-only vars.
         api.Environment.Remove("Spotify__OAuthRelayUrl");
         api.Environment.Remove("Spotify__OAuthStateSigningKey"); // relay-only; direct redirect doesn't sign state
-        api.Environment["Spotify__OAuthRedirectBaseUrl"] = "${PUBLIC_BASE_URL}";
+        api.Environment["Spotify__OAuthRedirectBaseUrl"] = "${PUBLIC_BASE_URL:-http://localhost:3000}";
         frontend.Environment.Remove("SPOTIFY_OAUTH_STATE_SIGNING_KEY");
         frontend.Environment.Remove("SPOTIFY_RETURN_ORIGIN_ALLOWLIST");
 
         // End-user ergonomics: a human edits .env here (unlike the deploy-env targets, which always
-        // set every var), so fail fast on the required secrets and default the optional ones — the
-        // guards the hand-written template carried.
-        file.Services["postgres"].Environment["POSTGRES_PASSWORD"] = "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}";
-        api.Environment["Auth__OwnerEmail"] = "${OWNER_EMAIL:?OWNER_EMAIL is required}";
-        api.Environment["Frontend__PublicBaseUrl"] = "${PUBLIC_BASE_URL:?PUBLIC_BASE_URL is required}";
+        // set every var), so default everything to a working localhost trial — an EMPTY .env boots.
+        // Real deployments override in .env. Why each default is safe:
+        //  - POSTGRES_PASSWORD: a fixed dev value is acceptable because postgres is expose-only on
+        //    the internal compose network (never published on the host).
+        //  - OWNER_EMAIL: purely a sign-in identifier when no Resend key is set — the console
+        //    magic-link sender writes the link to the logs; no email is ever sent to it.
+        //  - PUBLIC_BASE_URL: localhost matches the published frontend port (3000).
+        file.Services["postgres"].Environment["POSTGRES_PASSWORD"] = $"${{POSTGRES_PASSWORD:-{devPostgresPassword}}}";
+        api.Environment["Auth__OwnerEmail"] = "${OWNER_EMAIL:-owner@musichoarder.local}";
+        api.Environment["Frontend__PublicBaseUrl"] = "${PUBLIC_BASE_URL:-http://localhost:3000}";
         api.Environment["Auth__DemoUserEmail"] = "${DEMO_USER_EMAIL:-demo@musichoarder.local}";
         api.Environment["Resend__FromAddress"] = "${RESEND_FROM_ADDRESS:-noreply@musichoarder.local}";
+
+        // Aspire generates the api connection-string env with bare ${POSTGRES_PASSWORD}; give every
+        // occurrence the same default so an unset var doesn't hand postgres the default while the
+        // API connects with "". Exact-token replace: the :-/:? forms don't contain the bare closed
+        // token, so this can't double-apply.
+        foreach (var svc in file.Services.Values)
+        {
+            foreach (var key in svc.Environment.Keys.ToList())
+            {
+                svc.Environment[key] = svc.Environment[key]
+                    .Replace("${POSTGRES_PASSWORD}", $"${{POSTGRES_PASSWORD:-{devPostgresPassword}}}");
+            }
+        }
 
         // Optional streaming-FLAC acquisition sidecar (spotiflac). Profile-gated so it is inert unless
         // the operator opts in with COMPOSE_PROFILES=spotiflac — safe to ship in the shared self-host
