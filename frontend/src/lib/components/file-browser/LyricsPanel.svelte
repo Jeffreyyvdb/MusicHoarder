@@ -224,7 +224,7 @@
 
 {#snippet recheckButton(label: string)}
   <Button
-    variant="outline"
+    variant="subtle"
     size="sm"
     class="gap-1.5"
     disabled={recheckState === 'checking' || songId === null}
