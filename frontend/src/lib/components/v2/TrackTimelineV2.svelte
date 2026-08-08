@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import {
     ArrowLeft,
     ChevronRight,
@@ -8,6 +9,7 @@
     AlertTriangle,
     Sparkles,
     FolderOpen,
+    History,
     Search
   } from '@lucide/svelte';
   import { goto } from '$app/navigation';
@@ -260,72 +262,58 @@
   });
 </script>
 
-<!-- Header -->
-<header
-  class="border-border flex shrink-0 flex-col gap-3 border-b px-4 py-4 sm:flex-row sm:items-end sm:justify-between sm:gap-4 sm:px-7 sm:py-5"
->
-  <div class="min-w-0">
-    <div class="text-muted-foreground font-mono text-[10px] tracking-[0.12em] uppercase">
-      Track · enrichment timeline
-    </div>
-    <h1 class="mt-1 text-2xl font-semibold tracking-tight">Provenance</h1>
-    <p class="text-muted-foreground mt-1 max-w-2xl text-xs">
-      Everything we know about this track — where the original came from, every provider that
-      touched it, and where it lives now.
-    </p>
-  </div>
-  <div class="flex flex-wrap items-center gap-2 sm:shrink-0">
-    <button
-      type="button"
-      onclick={goBack}
-      class="border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] font-medium transition-colors"
-    >
-      <ArrowLeft class="size-3.5" /> Back
+<!-- The eyebrow, the 2xl "Provenance" and its two-line description all said the
+     same thing the active row and the track name below already say. -->
+<PageToolbarV2 icon={History} title="Provenance" meta={song ? `${song.artist ?? ''} — ${song.title ?? song.fileName}` : undefined}>
+  {#snippet actions()}
+    <button type="button" onclick={goBack} class="border-border bg-card hover:bg-muted text-foreground text-nav-sm inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 font-medium transition-colors">
+      <ArrowLeft class="size-3.5" />
+      <span class="hidden sm:inline">Back</span>
     </button>
     <button
       type="button"
       onclick={handleReenrich}
       disabled={reenriching || !song}
-      class="border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+      class="border-border bg-card hover:bg-muted text-foreground text-nav-sm inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
     >
       {#if reenriching}
         <Loader2 class="size-3.5 animate-spin" />
       {:else}
         <RefreshCw class="size-3.5" />
       {/if}
-      Re-enrich
+      <span class="hidden sm:inline">Re-enrich</span>
     </button>
     {#if isOwner && soulseekConfigured}
       <button
         type="button"
         onclick={handleFindBetterQuality}
         disabled={requestingUpgrade || !song || detail?.upgrade?.active === true}
-        class="border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+        class="border-border bg-card hover:bg-muted text-foreground text-nav-sm inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
       >
         {#if requestingUpgrade || detail?.upgrade?.active}
           <Loader2 class="size-3.5 animate-spin" />
         {:else}
           <Search class="size-3.5" />
         {/if}
-        {upgradeActiveLabel ?? 'Find better quality'}
+        <span class="hidden lg:inline">{upgradeActiveLabel ?? 'Find better quality'}</span>
       </button>
     {/if}
-    <a
-      href={libraryHref}
-      class="border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] font-medium transition-colors"
-    >
-      <ExternalLink class="size-3.5" /> Open in library
+    <a href={libraryHref} class="border-border bg-card hover:bg-muted text-foreground text-nav-sm inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 font-medium transition-colors">
+      <ExternalLink class="size-3.5" />
+      <span class="hidden lg:inline">Open in library</span>
     </a>
-    {#if isOwner && soulseekConfigured && (upgradeRequestError || upgradeTerminalNote)}
-      <span class="text-muted-foreground w-full text-[11px] sm:text-right">
-        {upgradeRequestError ?? upgradeTerminalNote}
-      </span>
-    {/if}
+  {/snippet}
+</PageToolbarV2>
+
+<!-- Upgrade outcome, only when there is one to report. -->
+{#if isOwner && soulseekConfigured && (upgradeRequestError || upgradeTerminalNote)}
+  <div class="border-border text-muted-foreground text-nav-xs shrink-0 border-b px-4 py-1.5 sm:px-7">
+    {upgradeRequestError ?? upgradeTerminalNote}
   </div>
-</header>
+{/if}
 
 <ScrollArea class="min-h-0 flex-1">
-  <div class="mx-auto flex max-w-4xl flex-col gap-5 px-4 py-5 sm:gap-6 sm:px-7 sm:py-6">
+  <div class="mx-auto flex max-w-4xl flex-col gap-5 px-4 py-4 sm:px-7 sm:py-5">
     {#if !loaded}
       <!-- Hero skeleton -->
       <div class="border-border bg-card flex items-center gap-5 rounded-lg border p-5">

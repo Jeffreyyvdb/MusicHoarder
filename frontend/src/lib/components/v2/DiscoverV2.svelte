@@ -1,6 +1,6 @@
 <script lang="ts">
+  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import { Button } from '$lib/components/ui/button';
-  import { Input } from '$lib/components/ui/input';
   import { Badge } from '$lib/components/ui/badge';
   import { Switch } from '$lib/components/ui/switch';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
@@ -508,132 +508,134 @@
   </div>
 {:else}
   <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-    <!-- Header -->
-    <div class="border-border bg-card/30 border-b px-4 py-5 md:px-6">
-      <div class="flex items-center gap-2">
-        <Compass class="size-5" />
-        <h1 class="text-2xl font-semibold tracking-tight">Discover</h1>
-      </div>
-      <p class="text-muted-foreground mt-1 text-sm">
-        Browse editorial and chart playlists, then subscribe to auto-download new tracks into your
-        library. Or paste a Spotify / Deezer playlist link to add one directly.
-      </p>
+    <!-- Discover's blurb explained the paste-link box; the box's own placeholder
+         does that in situ, so the bar carries the control instead of the prose.
+         Genre chips stay a row of their own — there are too many to share. -->
+    <PageToolbarV2 icon={Compass} title="Discover" metaFrom="lg">
+      {#snippet filters()}
+        <div class="relative w-[10rem] shrink-0 sm:w-[clamp(160px,22vw,260px)]">
+          <Search class="text-muted-foreground absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
+          <input
+            type="search"
+            placeholder="Search playlists…"
+            bind:value={searchQuery}
+            class="border-border bg-card focus-visible:ring-ring text-nav-sm h-8 w-full rounded-full border pr-2.5 pl-8 outline-none focus-visible:ring-2"
+          />
+        </div>
+      {/snippet}
+      {#snippet actions()}
+        <div class="relative hidden w-[13rem] shrink-0 sm:block lg:w-[18rem]">
+          <Link2 class="text-muted-foreground absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
+          <input
+            type="url"
+            placeholder="Paste a playlist link…"
+            bind:value={linkUrl}
+            onkeydown={(e) => {
+              if (e.key === 'Enter') onResolve();
+            }}
+            class="border-border bg-card focus-visible:ring-ring text-nav-sm h-8 w-full rounded-full border pr-2.5 pl-8 outline-none focus-visible:ring-2"
+          />
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          class="h-8 gap-1.5 px-2.5"
+          onclick={onResolve}
+          disabled={resolving || !linkUrl.trim()}
+        >
+          {#if resolving}
+            <Loader2 class="size-4 animate-spin" />
+          {:else}
+            <Link2 class="size-4" />
+          {/if}
+          <span class="text-nav-sm hidden sm:inline">Add link</span>
+        </Button>
+      {/snippet}
+    </PageToolbarV2>
 
-      <!-- Add by link -->
-      <div class="mt-4 flex flex-col gap-2">
-        <div class="flex flex-col gap-2 sm:flex-row">
-          <div class="relative max-w-xl flex-1">
-            <Link2 class="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-            <Input
-              placeholder="Paste a Spotify or Deezer playlist link…"
-              bind:value={linkUrl}
-              onkeydown={(e) => {
-                if (e.key === 'Enter') onResolve();
-              }}
-              class="bg-secondary border-0 pl-9"
-            />
+    <!-- Transient link-resolution feedback, only present while it has something
+         to say — never reserved space. -->
+    {#if resolveError || resolveResult}
+      <div class="border-border flex shrink-0 flex-col gap-2 border-b px-4 py-2 sm:px-7">
+    {#if resolveError}
+      <div
+        class="border-destructive/30 bg-destructive/10 text-destructive flex items-start gap-2 rounded-md border px-3 py-2 text-sm"
+      >
+        <AlertCircle class="mt-0.5 size-4 shrink-0" />
+        <div class="flex-1">
+          {#if resolveError.kind === 'editorial'}
+            <p class="font-medium">This is a Spotify editorial playlist.</p>
+            <p class="mt-0.5">{resolveError.message}</p>
+            <p class="mt-1 text-xs opacity-90">
+              Tip: search for it below — the same editorial playlists are available via Deezer,
+              which does allow subscribing.
+            </p>
+          {:else}
+            {resolveError.message}
+          {/if}
+        </div>
+        <button
+          type="button"
+          onclick={() => (resolveError = null)}
+          class="shrink-0 text-xs underline opacity-80 hover:opacity-100"
+        >
+          Dismiss
+        </button>
+      </div>
+    {/if}
+
+    {#if resolveResult}
+      {@const r = resolveResult}
+      <div class="border-border bg-card flex items-center gap-3 rounded-lg border p-3">
+        <div class="bg-secondary size-12 shrink-0 overflow-hidden rounded">
+          {#if r.coverUrl}
+            <img src={r.coverUrl} alt="" class="size-full object-cover" crossorigin="anonymous" />
+          {:else}
+            <div class="flex size-full items-center justify-center">
+              <ListMusic class="text-muted-foreground size-5" />
+            </div>
+          {/if}
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2">
+            <span class="truncate text-sm font-medium">{r.title}</span>
+            <Badge variant="outline" class="shrink-0 text-[10px]">
+              {r.provider === 'deezer' ? 'Deezer' : 'Spotify'}
+            </Badge>
           </div>
-          <Button variant="outline" onclick={onResolve} disabled={resolving || !linkUrl.trim()}>
-            {#if resolving}
+          <div class="text-muted-foreground text-xs">
+            {r.trackCount.toLocaleString()} track{r.trackCount === 1 ? '' : 's'}{downloadsEnabled
+              ? ' · new tracks auto-download'
+              : ''}
+          </div>
+        </div>
+        {#if r.subscribed}
+          <Badge class="border-primary/40 bg-primary/15 text-primary shrink-0 gap-1">
+            <CheckCircle2 class="size-3" />
+            Subscribed
+          </Badge>
+        {:else}
+          <Button size="sm" class="shrink-0" disabled={subscribingLink} onclick={onSubscribeLink}>
+            {#if subscribingLink}
               <Loader2 class="size-4 animate-spin" />
             {:else}
-              <Link2 class="size-4" />
+              <Plus class="size-4" />
             {/if}
-            Add link
+            Subscribe
           </Button>
-        </div>
-
-        {#if resolveError}
-          <div
-            class="border-destructive/30 bg-destructive/10 text-destructive flex items-start gap-2 rounded-md border px-3 py-2 text-sm"
-          >
-            <AlertCircle class="mt-0.5 size-4 shrink-0" />
-            <div class="flex-1">
-              {#if resolveError.kind === 'editorial'}
-                <p class="font-medium">This is a Spotify editorial playlist.</p>
-                <p class="mt-0.5">{resolveError.message}</p>
-                <p class="mt-1 text-xs opacity-90">
-                  Tip: search for it below — the same editorial playlists are available via Deezer,
-                  which does allow subscribing.
-                </p>
-              {:else}
-                {resolveError.message}
-              {/if}
-            </div>
-            <button
-              type="button"
-              onclick={() => (resolveError = null)}
-              class="shrink-0 text-xs underline opacity-80 hover:opacity-100"
-            >
-              Dismiss
-            </button>
-          </div>
         {/if}
-
-        {#if resolveResult}
-          {@const r = resolveResult}
-          <div class="border-border bg-card flex items-center gap-3 rounded-lg border p-3">
-            <div class="bg-secondary size-12 shrink-0 overflow-hidden rounded">
-              {#if r.coverUrl}
-                <img src={r.coverUrl} alt="" class="size-full object-cover" crossorigin="anonymous" />
-              {:else}
-                <div class="flex size-full items-center justify-center">
-                  <ListMusic class="text-muted-foreground size-5" />
-                </div>
-              {/if}
-            </div>
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-2">
-                <span class="truncate text-sm font-medium">{r.title}</span>
-                <Badge variant="outline" class="shrink-0 text-[10px]">
-                  {r.provider === 'deezer' ? 'Deezer' : 'Spotify'}
-                </Badge>
-              </div>
-              <div class="text-muted-foreground text-xs">
-                {r.trackCount.toLocaleString()} track{r.trackCount === 1 ? '' : 's'}{downloadsEnabled
-                  ? ' · new tracks auto-download'
-                  : ''}
-              </div>
-            </div>
-            {#if r.subscribed}
-              <Badge class="border-primary/40 bg-primary/15 text-primary shrink-0 gap-1">
-                <CheckCircle2 class="size-3" />
-                Subscribed
-              </Badge>
-            {:else}
-              <Button size="sm" class="shrink-0" disabled={subscribingLink} onclick={onSubscribeLink}>
-                {#if subscribingLink}
-                  <Loader2 class="size-4 animate-spin" />
-                {:else}
-                  <Plus class="size-4" />
-                {/if}
-                Subscribe
-              </Button>
-            {/if}
-            <button
-              type="button"
-              aria-label="Dismiss"
-              onclick={clearLink}
-              class="text-muted-foreground hover:text-foreground shrink-0"
-            >
-              <X class="size-4" />
-            </button>
-          </div>
-        {/if}
+        <button
+          type="button"
+          aria-label="Dismiss"
+          onclick={clearLink}
+          class="text-muted-foreground hover:text-foreground shrink-0"
+        >
+          <X class="size-4" />
+        </button>
       </div>
+    {/if}
     </div>
-
-    <!-- Search -->
-    <div class="border-border flex items-center gap-3 border-b px-4 py-3 md:px-6">
-      <div class="relative max-w-md flex-1">
-        <Search class="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-        <Input
-          placeholder="Search playlists…"
-          bind:value={searchQuery}
-          class="bg-secondary border-0 pl-9"
-        />
-      </div>
-    </div>
+    {/if}
 
     <!-- Genre chips -->
     <div class="border-border border-b px-4 py-3 md:px-6">

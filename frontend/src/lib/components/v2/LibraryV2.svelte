@@ -2,13 +2,28 @@
   import { untrack } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { ArrowUpDown, Heart, Play, Search, Shuffle, X } from '@lucide/svelte';
+  import {
+    ArrowUpDown,
+    Disc3,
+    FileText,
+    Heart,
+    ListMusic,
+    Music2,
+    Play,
+    Search,
+    Shuffle,
+    Users,
+    X
+  } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import AlbumPage from '$lib/components/file-browser/AlbumPage.svelte';
   import TrackList from '$lib/components/file-browser/TrackList.svelte';
+  import FilterChip from '$lib/components/v2/FilterChip.svelte';
+  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import LibraryAlbumsGridV2 from '$lib/components/v2/LibraryAlbumsGridV2.svelte';
   import LibraryArtistsGridV2 from '$lib/components/v2/LibraryArtistsGridV2.svelte';
+  import { createTrackListView, SORT_LABELS } from '$lib/track-list-view.svelte';
   import {
     ALBUM_SORT_OPTIONS,
     buildAlbumsFromSongs,
@@ -27,13 +42,13 @@
   import { isBuiltSong } from '$lib/album-sections';
   import { isAnyUnreleasedSong, isUnreleasedSong } from '$lib/release-status';
   import { parseBrowseFilter, applyBrowseFilter, browseFilterLabel } from '$lib/browse-filter';
-  import { formatTotalDuration } from '$lib/formatters';
+  import { formatFileSize, formatTotalDuration } from '$lib/formatters';
   import { toPlayerSong } from '$lib/api-client';
   import { breadcrumbStore } from '$lib/stores/breadcrumbs.svelte';
   import { playerStore } from '$lib/stores/player.svelte';
   import { songsStore } from '$lib/stores/songs.svelte';
   import { songDetail } from '$lib/stores/song-detail.svelte';
-  import { cn, shuffle } from '$lib/utils';
+  import { shuffle } from '$lib/utils';
 
   // The song-detail panel is now the global SongDetailHost (mounted in the app
   // shell), so Library no longer hosts its own resizable side-pane / bottom
@@ -227,10 +242,6 @@
 
   // Liked tab: hearted songs, newest like first (the TrackList's 'liked' sort).
   const likedSongs = $derived(releaseScoped.filter((s) => Boolean(s.likedAtUtc)));
-  const likedDurationSec = $derived(
-    likedSongs.reduce((n, s) => n + (s.durationSeconds ?? 0), 0)
-  );
-
   // Same key the TrackList sorts on, so pressing Play starts at the row shown on top.
   function likedQueue(): ApiSong[] {
     return [...likedSongs].sort((a, b) => songLikedTime(b) - songLikedTime(a));
@@ -246,9 +257,32 @@
     const queue = shuffle(likedQueue()).map((s) => toPlayerSong(s, likedFallbackArtist(s)));
     if (queue.length > 0) void playerStore.playSong(queue[0], queue, 0);
   }
+  /** Shuffles exactly what the list is showing, filters and sort included. */
+  function shuffleList() {
+    const queue = shuffle(listView.sorted).map((s) => toPlayerSong(s, likedFallbackArtist(s)));
+    if (queue.length > 0) void playerStore.playSong(queue[0], queue, 0);
+  }
 
   const totalTracks = $derived(releaseScoped.length);
   const artistCount = $derived(artistGroups.length);
+
+  // ── track-list state ───────────────────────────────────────────────────────
+  // The filters live here rather than inside TrackList so the page toolbar can
+  // render the chips and the "X of Y" summary next to the search box — one bar
+  // instead of the two stacked filter rows this replaced. Both views are built
+  // unconditionally (a runes factory can't be created inside an {#if}); the
+  // $deriveds are lazy, so the unused one costs nothing.
+  const tracksView = createTrackListView({
+    songs: () => tracksScoped,
+    searchQuery: () => query
+  });
+  const likedView = createTrackListView({
+    songs: () => likedSongs,
+    searchQuery: () => query,
+    initialSortKey: 'liked'
+  });
+  const listView = $derived(tab === 'liked' ? likedView : tracksView);
+  const isListTab = $derived(tab === 'tracks' || tab === 'liked');
 
   // ── album drilldown (reuses AlbumPage + TrackPanel) ─────────────────────────
   const openAlbum = $derived.by(() => {
@@ -329,6 +363,38 @@
   function clearArtistFilter() {
     void goto('/library', { noScroll: true });
   }
+
+  // ── page toolbar ───────────────────────────────────────────────────────────
+  // The Liked hero used to be a 129px Spotify-style banner. Everything it said —
+  // the name, the count, the runtime, Play/Shuffle — fits the toolbar, which the
+  // page pays for anyway.
+  const TOOLBAR_ICON = { albums: Disc3, artists: Users, tracks: ListMusic, liked: Heart };
+  const TOOLBAR_TITLE = {
+    albums: 'Albums',
+    artists: 'Artists',
+    tracks: 'All tracks',
+    liked: 'Liked Songs'
+  };
+
+  // Library-wide pipeline health on the grid tabs; what you're looking at right
+  // now on the list tabs (and only "X of Y" once a filter actually narrows it,
+  // so an unfiltered list doesn't read "3,525 of 3,525").
+  const toolbarMeta = $derived.by(() => {
+    if (!isListTab) {
+      const enriched = enrichedPct != null ? ` · ${enrichedPct.toFixed(1)}% enriched` : '';
+      return `${totalTracks.toLocaleString()} tracks · ${artistCount.toLocaleString()} artists${enriched}`;
+    }
+    const { sorted, songs, stats, sortKey, sortDir } = listView;
+    const noun = tab === 'liked' ? 'song' : 'track';
+    const head =
+      sorted.length === songs.length
+        ? `${sorted.length.toLocaleString()} ${noun}${sorted.length === 1 ? '' : 's'}`
+        : `${sorted.length.toLocaleString()} of ${songs.length.toLocaleString()}`;
+    // Nothing to total or sort when the list is empty — "0 songs · — · — · by
+    // liked ↓" is noise next to the empty state that already explains itself.
+    if (sorted.length === 0) return head;
+    return `${head} · ${formatFileSize(stats.totalBytes)} · ${formatTotalDuration(stats.totalSec)} · by ${SORT_LABELS[sortKey]} ${sortDir === 'asc' ? '↑' : '↓'}`;
+  });
 </script>
 
 {#if openAlbum && tab === 'albums'}
@@ -337,61 +403,113 @@
        on mobile — so AlbumPage just renders full-width here. -->
   <AlbumPage album={openAlbum} {isLoading} />
 {:else}
-  <!-- Slim toolbar: section identity comes from the tab row above; just a quiet
-       stat line + a compact search pill so covers start near the top (Apple).
-       The stat line only appears once the row is genuinely wide (lg) — below
-       that it rendered as "9,025 trac…" while starving the search box. The row
-       wraps rather than squeezing: on a phone the search keeps a usable width
-       and drops to its own line when the filters leave it no room. -->
-  <header class="border-border flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 sm:gap-3 sm:px-7 sm:py-2.5">
-    <div class="text-muted-foreground hidden min-w-0 flex-1 truncate text-xs lg:block">
-      {totalTracks.toLocaleString()} tracks · {artistCount.toLocaleString()} artists{enrichedPct !=
-      null
-        ? ` · ${enrichedPct.toFixed(1)}% enriched`
-        : ''}
-    </div>
-    {#if canFilterUnreleased}
-      <!-- Leaks/snippets/stems, per the API's release classification. -->
-      <button
-        type="button"
-        onclick={() => (unreleasedOnly = !unreleasedOnly)}
-        aria-pressed={unreleasedOnly}
-        title={unreleasedTitle}
-        class={cn(
-          'focus-visible:ring-ring h-8 shrink-0 rounded-full border px-3 text-[12.5px] whitespace-nowrap transition-colors outline-none focus-visible:ring-2',
-          unreleasedOnly
-            ? 'border-primary bg-primary/10 text-primary font-medium'
-            : 'border-border bg-card text-muted-foreground hover:text-foreground'
-        )}
+  <!-- One bar for the whole page: identity, the live summary, every filter, and
+       the play actions. Search sits first so it's the visible control at rest on
+       a phone (the chips scroll past it), and moves to the trailing edge on a
+       wide screen where the convention expects it. -->
+  <PageToolbarV2
+    icon={TOOLBAR_ICON[tab]}
+    title={TOOLBAR_TITLE[tab]}
+    meta={toolbarMeta}
+    metaFrom="lg"
+  >
+    {#snippet filters()}
+      <div
+        class="relative w-[10rem] shrink-0 sm:order-last sm:ml-auto sm:w-[clamp(160px,26vw,280px)]"
       >
-        Unreleased
-        <span class="tabular-nums opacity-60">{unreleasedCount.toLocaleString()}</span>
-      </button>
-    {/if}
-    {#if tab === 'albums'}
-      <label class="flex shrink-0 items-center gap-1.5">
-        <ArrowUpDown class="text-muted-foreground hidden size-3.5 sm:block" aria-hidden="true" />
-        <span class="sr-only">Sort albums by</span>
-        <select
-          bind:value={albumSort}
-          class="border-border bg-card focus-visible:ring-ring h-8 max-w-[7.5rem] cursor-pointer rounded-full border pr-2 pl-2.5 text-[12.5px] outline-none focus-visible:ring-2 sm:max-w-none"
+        <Search class="text-muted-foreground absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
+        <input
+          type="search"
+          placeholder="Search artists, albums, tracks…"
+          bind:value={query}
+          class="border-border bg-card focus-visible:ring-ring text-nav-sm h-8 w-full rounded-full border pr-2.5 pl-8 outline-none focus-visible:ring-2"
+        />
+      </div>
+      {#if canFilterUnreleased}
+        <!-- Leaks/snippets/stems, per the API's release classification. -->
+        <FilterChip
+          pressed={unreleasedOnly}
+          onclick={() => (unreleasedOnly = !unreleasedOnly)}
+          title={unreleasedTitle}
+          count={unreleasedCount}
         >
-          {#each ALBUM_SORT_OPTIONS as option (option.key)}
-            <option value={option.key}>{option.label}</option>
-          {/each}
-        </select>
-      </label>
-    {/if}
-    <div class="relative min-w-[10rem] flex-1 lg:w-[clamp(160px,32vw,280px)] lg:flex-none">
-      <Search class="text-muted-foreground absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
-      <input
-        type="search"
-        placeholder="Search artists, albums, tracks…"
-        bind:value={query}
-        class="border-border bg-card focus-visible:ring-ring h-8 w-full rounded-full border pr-2.5 pl-8 text-[12.5px] outline-none focus-visible:ring-2"
-      />
-    </div>
-  </header>
+          Unreleased
+        </FilterChip>
+      {/if}
+      {#if isListTab}
+        <FilterChip
+          pressed={listView.lyricsOnly}
+          onclick={() => (listView.lyricsOnly = !listView.lyricsOnly)}
+          icon={FileText}
+        >
+          With lyrics
+        </FilterChip>
+        {#if listView.spotifyCount > 0}
+          <FilterChip
+            pressed={listView.spotifyOnly}
+            onclick={() => listView.toggleSpotifyOnly()}
+            icon={Music2}
+            count={listView.spotifyCount}
+            title="Only tracks your Spotify liked songs / playlists asked for, newest save first"
+          >
+            From Spotify
+          </FilterChip>
+        {/if}
+      {/if}
+      {#if tab === 'albums'}
+        <label class="flex shrink-0 items-center gap-1.5">
+          <ArrowUpDown class="text-muted-foreground hidden size-3.5 sm:block" aria-hidden="true" />
+          <span class="sr-only">Sort albums by</span>
+          <select
+            bind:value={albumSort}
+            class="border-border bg-card focus-visible:ring-ring text-nav-sm h-8 max-w-[7.5rem] cursor-pointer rounded-full border pr-2 pl-2.5 outline-none focus-visible:ring-2 sm:max-w-none"
+          >
+            {#each ALBUM_SORT_OPTIONS as option (option.key)}
+              <option value={option.key}>{option.label}</option>
+            {/each}
+          </select>
+        </label>
+      {/if}
+    {/snippet}
+
+    {#snippet actions()}
+      {#if isListTab && listView.hasFilters}
+        <Button
+          variant="ghost"
+          size="sm"
+          class="text-nav-sm h-8 px-2.5"
+          onclick={() => listView.clearFilters()}
+        >
+          Clear
+        </Button>
+      {/if}
+      {#if tab === 'liked' && likedSongs.length > 0}
+        <Button onclick={playLiked} size="sm" class="h-8 gap-1.5 rounded-full px-2.5 active:scale-95">
+          <Play class="size-4" fill="currentColor" />
+          <span class="text-nav-sm hidden sm:inline">Play</span>
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onclick={shuffleLiked}
+          class="h-8 gap-1.5 rounded-full px-2.5 active:scale-95"
+        >
+          <Shuffle class="size-4" />
+          <span class="text-nav-sm hidden sm:inline">Shuffle</span>
+        </Button>
+      {:else if tab === 'tracks' && listView.sorted.length > 0}
+        <Button
+          variant="outline"
+          size="sm"
+          onclick={shuffleList}
+          class="h-8 gap-1.5 rounded-full px-2.5 active:scale-95"
+        >
+          <Shuffle class="size-4" />
+          <span class="text-nav-sm hidden sm:inline">Shuffle</span>
+        </Button>
+      {/if}
+    {/snippet}
+  </PageToolbarV2>
 
   {#if loadError && songs.length === 0 && !isLoading}
     <div class="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-16 text-center">
@@ -399,40 +517,10 @@
       <Button onclick={() => void songsStore.loadSongs()}>Retry</Button>
     </div>
   {:else if tab === 'liked'}
-    <!-- Liked songs: Spotify-style hero + the shared TrackList sorted by
-         recently-liked. The min-h-0 chain keeps virtualization bounded. -->
+    <!-- Liked songs: the shared TrackList sorted by recently-liked. Identity,
+         counts and Play/Shuffle live in the toolbar above. The min-h-0 chain
+         keeps virtualization bounded. -->
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div
-        class="border-border flex shrink-0 items-center gap-4 border-b bg-gradient-to-br from-primary/15 via-primary/5 to-transparent px-4 py-5 sm:gap-5 sm:px-7 sm:py-6"
-      >
-        <div
-          class="grid size-16 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-primary to-primary/60 text-primary-foreground shadow-lg sm:size-20"
-        >
-          <Heart class="size-7 sm:size-9" fill="currentColor" />
-        </div>
-        <div class="min-w-0 flex-1">
-          <p class="text-muted-foreground text-[11px] font-medium tracking-wider uppercase">Playlist</p>
-          <h1 class="truncate text-2xl font-bold tracking-tight sm:text-3xl">Liked Songs</h1>
-          <p class="text-muted-foreground mt-1 text-xs sm:text-sm">
-            {likedSongs.length.toLocaleString()} song{likedSongs.length === 1 ? '' : 's'}
-            {#if likedSongs.length > 0}
-              · <span class="font-mono">{formatTotalDuration(likedDurationSec)}</span>
-            {/if}
-          </p>
-        </div>
-        {#if likedSongs.length > 0}
-          <div class="flex shrink-0 items-center gap-2">
-            <Button onclick={playLiked} class="rounded-full active:scale-95">
-              <Play class="size-4" fill="currentColor" />
-              <span class="hidden sm:inline">Play</span>
-            </Button>
-            <Button variant="outline" onclick={shuffleLiked} class="rounded-full active:scale-95">
-              <Shuffle class="size-4" />
-              <span class="hidden sm:inline">Shuffle</span>
-            </Button>
-          </div>
-        {/if}
-      </div>
       {#if likedSongs.length === 0 && !isLoading}
         <div class="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
           <Heart class="size-10 opacity-40" />
@@ -444,13 +532,10 @@
         </div>
       {:else}
         <TrackList
-          songs={likedSongs}
-          searchQuery={query}
+          view={likedView}
           {isLoading}
           selectedId={tracksSelectedId}
           onSelect={selectTrack}
-          hideHeading
-          initialSortKey="liked"
         />
       {/if}
     </div>
@@ -461,12 +546,10 @@
          scroll viewport bounded so virtualization works. -->
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
       <TrackList
-        songs={tracksScoped}
-        searchQuery={query}
+        view={tracksView}
         {isLoading}
         selectedId={tracksSelectedId}
         onSelect={selectTrack}
-        hideHeading
       />
     </div>
   {:else}

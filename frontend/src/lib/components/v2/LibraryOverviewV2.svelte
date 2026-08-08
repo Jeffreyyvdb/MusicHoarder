@@ -1,7 +1,18 @@
 <script lang="ts">
-  import { ChevronRight, Clock, Compass, Disc3, Heart, Play, Sparkles, Users } from '@lucide/svelte';
+  import {
+    ChevronRight,
+    Clock,
+    Compass,
+    Disc3,
+    Heart,
+    LayoutGrid,
+    Play,
+    Sparkles,
+    Users
+  } from '@lucide/svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
+  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import {
     buildAlbumsFromSongs,
     buildArtistGroups,
@@ -171,17 +182,17 @@
   </div>
 {/snippet}
 
-<ScrollArea class="min-h-0 flex-1">
-  <div class="mx-auto flex max-w-[1400px] flex-col gap-8 px-4 py-6 pb-[var(--mh-content-pad)] sm:px-7">
-    <!-- Greeting band -->
-    <div>
-      <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">{greeting}</h1>
-      <p class="text-muted-foreground mt-1 text-sm">
-        {builtSongs.length.toLocaleString()} tracks · {allAlbums.length.toLocaleString()} albums ·
-        {artistGroups.length.toLocaleString()} artists
-      </p>
-    </div>
+<!-- The greeting keeps its own line — it's the one bit of copy here that's for
+     the reader rather than about the data — but at toolbar scale, not as a 3xl
+     banner over an otherwise dense page of shelves. -->
+<PageToolbarV2
+  icon={LayoutGrid}
+  title={greeting}
+  meta="{builtSongs.length.toLocaleString()} tracks · {allAlbums.length.toLocaleString()} albums · {artistGroups.length.toLocaleString()} artists"
+/>
 
+<ScrollArea class="min-h-0 flex-1">
+  <div class="mx-auto flex max-w-[1400px] flex-col gap-5 px-4 py-4 pb-[var(--mh-content-pad)] sm:px-7 sm:py-5">
     {#if isLoading && songs.length === 0}
       <div class="text-muted-foreground flex items-center justify-center py-24 text-sm">
         Loading your library…

@@ -5,9 +5,10 @@
   import { cn } from '$lib/utils';
 
   // Mobile-only floating bottom bar: one tap per group. Items stay reachable via
-  // the section tab strip (SectionSubNav) and Inbox's own tabs, so this carries
-  // the four groups only — the same NAV_GROUPS the sidebar renders, so the two
-  // can't disagree about which group a route belongs to.
+  // the section tab strip in the top bar (SectionTabsV2) and the off-canvas
+  // sidebar, so this carries the four groups only — the same NAV_GROUPS the
+  // sidebar renders, so the two can't disagree about which group a route
+  // belongs to.
   const active = $derived(resolveNav(page.url)?.group.id ?? null);
   const running = $derived(pipelineOverlay.isAnyRunning);
 </script>
