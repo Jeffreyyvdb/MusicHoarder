@@ -355,11 +355,34 @@ public class MusicEnricherOptions
     /// <summary>Try the Cover Art Archive (keyed by MusicBrainz release / release-group MBID) first.</summary>
     public bool EnableCoverArtArchiveCovers { get; set; } = true;
 
+    /// <summary>
+    /// Fetch the official Spotify album image (keyed by the matched Spotify track/album id when the
+    /// enrichment match carries one, else a verified album search) after the Cover Art Archive.
+    /// Needs Spotify app credentials; silently skipped without them.
+    /// </summary>
+    public bool EnableSpotifyCovers { get; set; } = true;
+
     /// <summary>Fall back to Deezer album search (<c>cover_xl</c>) when the Cover Art Archive has nothing.</summary>
     public bool EnableDeezerCovers { get; set; } = true;
 
     /// <summary>Fall back to iTunes album search (artwork upgraded to 3000x3000) as the last resort.</summary>
     public bool EnableAppleMusicCovers { get; set; } = true;
+
+    // --- Artist images ---
+
+    /// <summary>
+    /// Resolve artist portrait images from Deezer (then Spotify) for the frontend artists views,
+    /// cached in the database by normalized artist name.
+    /// </summary>
+    public bool EnableArtistImages { get; set; } = true;
+
+    /// <summary>Days before an artist with no image on any provider is retried (catalogs grow). 0 = never.</summary>
+    [Range(0, 365)]
+    public int ArtistImageNotFoundRetryDays { get; set; } = 14;
+
+    /// <summary>Days before a cached artist image URL is refreshed (CDN links can rot). 0 = never.</summary>
+    [Range(0, 3650)]
+    public int ArtistImageRefreshDays { get; set; } = 90;
 
     /// <summary>Max Cover Art Archive requests per second (MusicBrainz policy is 1 req/s per app).</summary>
     [Range(1, 5)]

@@ -1,5 +1,22 @@
 import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { extendTailwindMerge } from 'tailwind-merge';
+
+/**
+ * The chrome type scale (`--text-nav*` in app.css) has to be declared here too.
+ * tailwind-merge only knows Tailwind's stock scale, so it read `text-nav-sm` as a
+ * *color* utility and dropped it whenever the same `cn()` call also carried a real
+ * color — which is every FilterChip (`text-nav-sm … text-muted-foreground`). The
+ * chips lost their size class entirely and rendered at the 16px root size.
+ * Registering the names under `font-size` puts them in the right conflict group:
+ * a size and a color now coexist, and two sizes still collapse to the last one.
+ */
+const twMerge = extendTailwindMerge({
+  extend: {
+    classGroups: {
+      'font-size': [{ text: ['nav', 'nav-sm', 'nav-xs', 'nav-count', 'nav-badge'] }]
+    }
+  }
+});
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));

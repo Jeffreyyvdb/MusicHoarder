@@ -14,6 +14,9 @@ public record AppleMusicCatalogTrack(
     int DurationMs,
     string? Isrc);
 
+/// <summary>An album search hit (<c>entity=album</c>) carrying enough identity to verify the match.</summary>
+public record AppleAlbumCandidate(string CollectionId, string? CollectionName, string? ArtistName);
+
 /// <summary>An iTunes album (collection) with its full tracklist (from <c>GET /lookup?id=..&amp;entity=song</c>).</summary>
 public record AppleAlbumDetail(
     string Id,

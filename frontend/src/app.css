@@ -111,7 +111,7 @@
      strip, top bar) plus PageToolbarV2 / FilterChip, which every page's header is now
      built from. Page *bodies* still use arbitrary sizes. */
   --text-nav: 13px; /* sidebar rows, section title, tab labels */
-  --text-nav-sm: 12.5px; /* top-bar buttons */
+  --text-nav-sm: 12.5px; /* top-bar buttons, filter chips */
   --text-nav-xs: 11px; /* sidebar footer meta */
   --text-nav-count: 10.5px; /* counts, mobile labels */
   --text-nav-badge: 10px; /* attention badge, kbd hint */
