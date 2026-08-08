@@ -276,9 +276,10 @@
   );
 </script>
 
-<!-- The Spotify page belongs to the Library section; its tab bar (Albums/Artists/
-     Tracks/Spotify) is rendered once by the shell (SectionSubNav), pinned above
-     this content, so it never shifts when navigating between the library tabs. -->
+<!-- The Spotify page belongs to the Add group; that group's tab strip is rendered
+     once by the shell, inside the top bar (SectionTabsV2), so it never shifts when
+     navigating between the group's pages. The Liked/Playlists tabs below are
+     second-level and live in this page's own toolbar. -->
 {#if isLoadingStatus}
   <div class="flex flex-1 items-center justify-center">
     <Loader2 class="text-muted-foreground size-8 animate-spin" />

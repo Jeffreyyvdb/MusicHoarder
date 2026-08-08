@@ -22,20 +22,29 @@
       : 'Ctrl K'
   );
 
-  // The section tab strip lives here rather than in a row of its own: the group
-  // name was a third rendering of what the sidebar and the mobile bottom bar
-  // already say, and the active pill names the page better than a static label.
+  // The section tab strip lives here rather than in a row of its own, and only
+  // when the sidebar isn't showing the same links.
+  //
   // Tabs are the matched group's items, so the strip is always a complete map of
-  // its group and can't drift from the sidebar. Routes outside the shell render
-  // no strip; /track/[id] matches Listen with no item, so the pills show with
-  // none active — "you're in Listen, off-tab", one tap back.
-  const nav = $derived(resolveNav(page.url));
+  // its group and can't drift from the sidebar — which is exactly why rendering
+  // both at once is pure duplication. The sidebar is `collapsible="offcanvas"`,
+  // so "collapsed" means gone rather than an icon rail, and the mobile bottom
+  // bar carries only the four group headers; in both of those cases the strip is
+  // the only one-tap route to an item, so it comes back.
+  //
+  // Routes outside the shell render no strip; /track/[id] matches Listen with no
+  // item, so the pills show with none active — "you're in Listen, off-tab", one
+  // tap back.
+  const sidebar = Sidebar.useSidebar();
+  const sidebarShowsItems = $derived(!sidebar.isMobile && sidebar.state === 'expanded');
+  const nav = $derived(sidebarShowsItems ? null : resolveNav(page.url));
 </script>
 
 <!--
   Apple-Music-style: no breadcrumb — the sidebar trigger (collapse on desktop /
-  off-canvas on mobile), the section tabs as wayfinding, then search / add /
-  theme. Banners render beneath it from AppShellV2.
+  off-canvas on mobile), the section tabs as wayfinding when the sidebar isn't
+  already showing them, then search / add / theme. Banners render beneath it
+  from AppShellV2.
 
   The strip takes the slack (min-w-0 flex-1 and it scrolls internally) while the
   action cluster is shrink-0 — the only arrangement where the eight Manage tabs
