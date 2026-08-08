@@ -7,6 +7,11 @@
 			variant: {
 				default: "bg-transparent",
 				outline: "border-input hover:bg-muted border bg-transparent",
+				// Apple-Music-style segmented control: pill segments riding inside the
+				// translucent track drawn by ToggleGroup.Root (see toggle-group.svelte).
+				// The selected segment lifts off the track rather than boxing itself in.
+				segmented:
+					"rounded-full bg-transparent font-medium text-muted-foreground hover:bg-transparent hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-[0_1px_2px_rgba(0,0,0,0.1)] aria-pressed:bg-background aria-pressed:text-foreground dark:data-[state=on]:bg-white/[0.14] dark:aria-pressed:bg-white/[0.14] dark:data-[state=on]:shadow-none",
 			},
 			size: {
 				default: "h-8 min-w-8 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
@@ -14,6 +19,15 @@
 				lg: "h-9 min-w-9 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
 			},
 		},
+		compoundVariants: [
+			// Segments read as pills, so they need a little more side air than a bare toggle.
+			// (`rounded-full` lives here, not on the variant, because the size variants set
+			// their own radius and would otherwise win the merge.)
+			{ variant: "segmented", class: "rounded-full" },
+			{ variant: "segmented", size: "sm", class: "px-3" },
+			{ variant: "segmented", size: "default", class: "px-3.5" },
+			{ variant: "segmented", size: "lg", class: "px-4" },
+		],
 		defaultVariants: {
 			variant: "default",
 			size: "default",
