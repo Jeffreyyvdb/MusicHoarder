@@ -18,8 +18,10 @@ the write path is confined to SPOTIFLAC_STAGING_DIR and the filename is restrict
 so a malformed/hostile request can't traverse out of the staging volume, and error responses never
 carry raw exception text.
 """
+import asyncio
 import os
 import re
+import time
 import logging
 from typing import Optional
 
@@ -44,6 +46,17 @@ STAGING_ROOT = os.path.realpath(os.environ.get("SPOTIFLAC_STAGING_DIR", "/data/d
 # Filenames are caller-supplied but must be a bare, safe stem (the API sends a GUID hex). This blocks
 # path separators, "..", NUL, etc. before the value is ever used to build a filesystem path.
 _STEM_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+# The provider probe is real network I/O against the upstream backends, but /health is polled every 30s
+# by the Docker HEALTHCHECK. Cache it so liveness never depends on how fast a third party answers, and
+# bound each probe well under the healthcheck's own 10s timeout. A failed/empty probe is cached only
+# briefly, so a transient upstream blip doesn't pin "no providers" for the full TTL.
+_PROBE_TIMEOUT_S = 5.0
+_PROBE_TTL_S = 300.0
+_PROBE_TTL_EMPTY_S = 30.0
+
+_probe_lock = asyncio.Lock()
+_probe_cache: Optional[tuple[float, list[str]]] = None
 
 app = FastAPI(title="spotiflac-sidecar")
 
@@ -80,16 +93,61 @@ def _safe_output_path(output_dir: str, filename_stem: str) -> Optional[str]:
 
 @app.get("/health")
 async def health():
-    """Probe the lossless providers and report which are reachable."""
-    try:
-        from SpotiFLAC.core.health_check import run_health_check, get_working_providers
+    """Report which lossless providers are reachable (from a short-lived cache; see _working_providers)."""
+    return {"status": "ok", "providers": await _working_providers()}
 
-        results = await run_in_threadpool(run_health_check, DEFAULT_SERVICES)
-        providers = get_working_providers(results)
-        return {"status": "ok", "providers": list(providers or [])}
-    except Exception:  # noqa: BLE001 — health must never throw; report empty instead.
-        logger.warning("health check failed", exc_info=True)
-        return {"status": "ok", "providers": []}
+
+async def _working_providers() -> list[str]:
+    """
+    The reachable subset of DEFAULT_SERVICES, cached for _PROBE_TTL_S.
+
+    Never raises: an unreachable backend reports as an empty provider list, not a 5xx, because the
+    Docker HEALTHCHECK treats any non-200 as a dead container.
+    """
+    global _probe_cache
+
+    fresh = _cached_providers()
+    if fresh is not None:
+        return fresh
+
+    async with _probe_lock:
+        # A concurrent caller may have refreshed the cache while we waited for the lock.
+        fresh = _cached_providers()
+        if fresh is not None:
+            return fresh
+
+        try:
+            from SpotiFLAC.core.health_check import run_health_check, get_working_providers
+
+            # run_health_check is `async def`, so it must be awaited on the event loop. Handing it to
+            # run_in_threadpool only builds the coroutine and returns it un-awaited — the probe never
+            # runs and get_working_providers then chokes on the coroutine object.
+            #
+            # include_all_endpoints=False probes one endpoint per provider rather than all of them
+            # (qobuz alone lists 47), which is all get_working_providers needs: it asks whether a
+            # provider has at least one working endpoint, not which ones.
+            results = await asyncio.wait_for(
+                run_health_check(DEFAULT_SERVICES, include_all_endpoints=False),
+                timeout=_PROBE_TIMEOUT_S,
+            )
+            providers = list(get_working_providers(results))
+        except Exception:  # noqa: BLE001 — health must never throw; report empty instead.
+            logger.warning("health check failed", exc_info=True)
+            providers = []
+
+        _probe_cache = (time.monotonic(), providers)
+        return providers
+
+
+def _cached_providers() -> Optional[list[str]]:
+    """The cached provider list if it's still fresh, else None. Empty results expire sooner."""
+    cached = _probe_cache
+    if cached is None:
+        return None
+
+    probed_at, providers = cached
+    ttl = _PROBE_TTL_S if providers else _PROBE_TTL_EMPTY_S
+    return providers if time.monotonic() - probed_at < ttl else None
 
 
 @app.post("/acquire")
