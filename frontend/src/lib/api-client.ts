@@ -174,6 +174,12 @@ export interface ApiSong {
    * (the local heart) — it's what the Spotify filter orders by.
    */
   spotifyAddedAtUtc?: string | null
+  /**
+   * Whether you asked for this track or album completion added it because you already owned another
+   * track from the same album. A stored column, unlike the derived `origin*` fields above — which is
+   * why {@link isMyMusic} filters on this and not on `originSource`.
+   */
+  acquisitionIntent?: SongAcquisitionIntent | null
 }
 
 /**
@@ -194,6 +200,22 @@ export type SongOriginSource =
   | "SpotifyPlaylist"
   | "DeezerPlaylist"
   | "DirectUrl"
+  | "AlbumCompletion"
+
+export type SongAcquisitionIntent = "Explicit" | "AlbumFill"
+
+/**
+ * True when this is music you chose: scanned out of your source library, downloaded because Spotify
+ * or a playlist asked for it, or added from a URL — and not a track album completion pulled in on
+ * its own. Liking an album-fill track promotes it, which is the whole point: discover it, heart it,
+ * it's yours.
+ *
+ * Defaults to "mine" when the field is absent, so an API too old to send it (or any row that never
+ * went through the wishlist) reads correctly rather than vanishing from the view.
+ */
+export function isMyMusic(s: ApiSong): boolean {
+  return s.acquisitionIntent !== "AlbumFill" || Boolean(s.likedAtUtc)
+}
 
 /** True when a wishlist link ties this track to Spotify — drives the "From Spotify" filter. */
 export function isSpotifySourced(s: ApiSong): boolean {
@@ -238,6 +260,11 @@ export function songOriginLabel(s: ApiSong): { label: string; title: string } | 
       return { label: "Deezer", title: `From the Deezer playlist ${detail ?? "(unnamed)"}` }
     case "DirectUrl":
       return { label: "Link", title: `Added from a URL${detail ? ` (${detail})` : ""}` }
+    case "AlbumCompletion":
+      return {
+        label: "Album fill",
+        title: `Added to complete ${detail ?? "an album you already owned part of"} — like it to move it into My music`,
+      }
     default:
       break
   }
@@ -969,6 +996,8 @@ export async function fetchSongs(includeDeleted = false): Promise<ApiSong[]> {
 
 /** One reconciled canonical track. `ownedSongId` is null when the user is missing it. */
 export interface CanonicalTrack {
+  /** Canonical track id — the handle for {@link acquireCanonicalTrack}. */
+  id?: number | null
   discNumber: number
   trackNumber: number
   title: string | null
@@ -1641,6 +1670,14 @@ function isOwnCoverUrl(url: string): boolean {
 }
 
 /**
+ * Artist portrait endpoint: redirects to a verified Deezer/Spotify portrait (cached server-side by
+ * normalized name) or 404s — callers fall back to an album cover / initials tile on error.
+ */
+export function getArtistImageUrl(name: string): string {
+  return `${API_PREFIX}/api/artists/image?name=${encodeURIComponent(name)}`
+}
+
+/**
  * Appends a `?size=` thumbnail request to a cover URL **only** when it points at our own cover
  * endpoint; external URLs (e.g. a Spotify CDN image) are returned unchanged.
  */
@@ -1951,7 +1988,14 @@ export interface WishlistItem {
   libraryBuildStatus?: string | null
   createdAtUtc: string
   updatedAtUtc: string
+  /** Who queued it: you, or album completion filling in a record you already owned part of. */
+  origin?: WishlistItemOrigin | null
 }
+
+/** Which slice of the wishlist to page through. Defaults to what you asked for. */
+export type WishlistSourceFilter = "user" | "albumfill" | "all"
+
+export type WishlistItemOrigin = "UserRequested" | "AlbumCompletion"
 
 export interface WishlistItemsResponse {
   total: number
@@ -1982,10 +2026,79 @@ export interface AddWishlistSourceResult {
   queued: boolean
 }
 
-export async function fetchWishlist(status?: WishlistItemStatus, offset = 0, limit = 50): Promise<WishlistItemsResponse> {
+/**
+ * One page of the wishlist. `source` defaults to `user` server-side: album-completion items are a
+ * background drip that can outnumber real wishlist rows by orders of magnitude, and since this is
+ * paged they would otherwise fill every page before a track you asked for appeared.
+ */
+export async function fetchWishlist(
+  status?: WishlistItemStatus,
+  offset = 0,
+  limit = 50,
+  source?: WishlistSourceFilter,
+): Promise<WishlistItemsResponse> {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) })
   if (status) params.set("status", status)
+  if (source) params.set("source", source)
   return requestJson<WishlistItemsResponse>(`/api/wishlist?${params.toString()}`)
+}
+
+export interface AlbumCompletionRunResult {
+  albumsExamined: number
+  tracksQueued: number
+  albumsFilled: number
+  albumsSkipped: number
+  albumsAlreadyComplete: number
+  /** Set when the pass stopped before examining anything; null when it genuinely ran. */
+  idleReason: string | null
+}
+
+/**
+ * Run one album-completion pass now. The background loop only ticks hourly, so this is what makes
+ * flipping the toggle do something you can see — and the result is what lets us explain a zero,
+ * which is a perfectly normal outcome.
+ */
+export async function runAlbumCompletion(): Promise<AlbumCompletionRunResult> {
+  return requestJson<AlbumCompletionRunResult>("/api/wishlist/complete-albums", { method: "POST" })
+}
+
+/** Plain-English summary of a completion pass, for the Wishlist banner. */
+export function albumCompletionSummary(r: AlbumCompletionRunResult): string {
+  switch (r.idleReason) {
+    case "downloads-disabled":
+      return "Album completion needs wishlist downloads enabled first."
+    case "disabled":
+      return "Album completion is off."
+    case "at-pending-ceiling":
+      return "Already enough queued — completion pauses until the downloader catches up."
+    case "library-empty":
+      return "No music in your library yet — nothing to complete."
+    case "no-canonical-albums":
+      return "No album has a reconciled tracklist yet. That's built in the background as tracks finish enriching; try again in a few minutes."
+    case "no-candidates":
+      return "Nothing new to check — every eligible album has been looked at recently."
+    default:
+      break
+  }
+
+  if (r.tracksQueued > 0) {
+    const albums = `${r.albumsFilled} album${r.albumsFilled === 1 ? "" : "s"}`
+    return `Queued ${r.tracksQueued} missing track${r.tracksQueued === 1 ? "" : "s"} across ${albums}.`
+  }
+
+  // A zero here is a real answer, not a failure — say which kind.
+  const parts: string[] = []
+  if (r.albumsAlreadyComplete > 0) parts.push(`${r.albumsAlreadyComplete} already complete`)
+  if (r.albumsSkipped > 0) parts.push(`${r.albumsSkipped} skipped (compilations or singles)`)
+  const detail = parts.length > 0 ? ` — ${parts.join(", ")}` : ""
+  return `Checked ${r.albumsExamined} album${r.albumsExamined === 1 ? "" : "s"}, nothing to queue${detail}.`
+}
+
+/** Queue one canonical album track you're missing (the album page's "Get this track"). */
+export async function acquireCanonicalTrack(
+  canonicalTrackId: number,
+): Promise<{ wishlistItemId: number; alreadyQueued?: boolean; requeued?: boolean; status?: string }> {
+  return requestJson(`/api/albums/tracks/${canonicalTrackId}/acquire`, { method: "POST" })
 }
 
 export async function fetchWishlistSources(): Promise<{ sources: WishlistSource[] }> {
@@ -2503,6 +2616,11 @@ export interface SettingsDownloadsView {
   enabled: boolean
   /** Runtime toggle: auto-sweep Pending wishlist items in the background. Flippable from the UI. */
   autoDownload: boolean
+  /**
+   * Runtime toggle: queue the missing tracks of albums you already own part of. Rides the same
+   * downloader, so it only means anything when {@link enabled} is true.
+   */
+  albumCompletion: boolean
 }
 
 export interface SettingsResponse {
@@ -2519,7 +2637,7 @@ export interface SettingsResponse {
 export interface SettingsUpdateRequest {
   providers?: Partial<SettingsProvidersView>
   qualityGrading?: { enabled?: boolean }
-  downloads?: { autoDownload?: boolean }
+  downloads?: { autoDownload?: boolean; albumCompletion?: boolean }
 }
 
 export async function fetchSettings(): Promise<SettingsResponse> {

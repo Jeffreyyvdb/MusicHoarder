@@ -300,6 +300,161 @@ public class WishlistDownloadProcessorTests : IDisposable
         Assert.Null(reloaded.DownloadedSongId); // dangling link cleared
     }
 
+    // ── Album completion: queue priority + acquisition intent ──────────────────
+
+    [Fact]
+    public async Task ProcessBatch_ClaimsUserRequestedBeforeAlbumFill()
+    {
+        await using var db = CreateDbContext();
+
+        // The album-fill item deliberately carries the *newer* SpotifyAddedAtUtc and the user item a
+        // null one — the worst case for the old timestamp-only ordering. Assert on Origin, never on the
+        // timestamp: EF emits a plain ORDER BY DESC, Postgres puts NULLS FIRST there, and the in-memory
+        // provider used here sorts nulls last, so a timestamp assertion would agree with the test and
+        // disagree with production.
+        var userItem = MakePending("track-user");
+        userItem.SpotifyAddedAtUtc = null;
+        var fillItem = MakePending("track-fill");
+        fillItem.Origin = WishlistItemOrigin.AlbumCompletion;
+        fillItem.SpotifyAddedAtUtc = DateTime.UtcNow;
+        db.WishlistItems.AddRange(fillItem, userItem);
+        await db.SaveChangesAsync();
+
+        var seen = new List<string>();
+        var provider = new FakeDownloadProvider(req =>
+        {
+            seen.Add(req.Title);
+            return DownloadResult.Missing();
+        });
+        var processor = CreateProcessor(provider, batchSize: 1);
+
+        await processor.ProcessBatchAsync(db, Owner, default);
+
+        var claimed = await db.WishlistItems.IgnoreQueryFilters()
+            .Where(w => w.Status != WishlistItemStatus.Pending)
+            .SingleAsync();
+        Assert.Equal(WishlistItemOrigin.UserRequested, claimed.Origin);
+
+        var stillPending = await db.WishlistItems.IgnoreQueryFilters()
+            .Where(w => w.Status == WishlistItemStatus.Pending)
+            .SingleAsync();
+        Assert.Equal(WishlistItemOrigin.AlbumCompletion, stillPending.Origin);
+    }
+
+    [Fact]
+    public async Task LinkDownloadedItems_AlbumFillItem_StampsSongAsAlbumFill()
+    {
+        await using var db = CreateDbContext();
+        var song = AddSong(db, "/downloads/fill.opus");
+        db.WishlistItems.Add(MakeLinkable(song.SourcePath, WishlistItemOrigin.AlbumCompletion));
+        await db.SaveChangesAsync();
+
+        var linked = await CreateProcessor(new FakeDownloadProvider(_ => DownloadResult.Missing()))
+            .LinkDownloadedItemsAsync(db, Owner, default);
+
+        Assert.Equal(1, linked);
+        var stamped = await db.Songs.IgnoreQueryFilters().SingleAsync(s => s.Id == song.Id);
+        Assert.Equal(SongAcquisitionIntent.AlbumFill, stamped.AcquisitionIntent);
+    }
+
+    [Fact]
+    public async Task LinkDownloadedItems_UserRequestedItem_LeavesSongExplicit()
+    {
+        await using var db = CreateDbContext();
+        var song = AddSong(db, "/downloads/wanted.opus");
+        db.WishlistItems.Add(MakeLinkable(song.SourcePath, WishlistItemOrigin.UserRequested));
+        await db.SaveChangesAsync();
+
+        await CreateProcessor(new FakeDownloadProvider(_ => DownloadResult.Missing()))
+            .LinkDownloadedItemsAsync(db, Owner, default);
+
+        var stamped = await db.Songs.IgnoreQueryFilters().SingleAsync(s => s.Id == song.Id);
+        Assert.Equal(SongAcquisitionIntent.Explicit, stamped.AcquisitionIntent);
+    }
+
+    [Fact]
+    public async Task LinkDownloadedItems_OneUserRequestedLinkAmongFill_PromotesSongToExplicit()
+    {
+        // Explicit is absorbing: the owner liking an album-fill track on Spotify creates a second,
+        // user-requested row pointing at the same song, and that alone moves it into "My music".
+        await using var db = CreateDbContext();
+        var song = AddSong(db, "/downloads/promoted.opus");
+        db.WishlistItems.Add(MakeLinkable(song.SourcePath, WishlistItemOrigin.AlbumCompletion));
+        db.WishlistItems.Add(MakeLinkable(song.SourcePath, WishlistItemOrigin.UserRequested, "track-liked"));
+        await db.SaveChangesAsync();
+
+        await CreateProcessor(new FakeDownloadProvider(_ => DownloadResult.Missing()))
+            .LinkDownloadedItemsAsync(db, Owner, default);
+
+        var stamped = await db.Songs.IgnoreQueryFilters().SingleAsync(s => s.Id == song.Id);
+        Assert.Equal(SongAcquisitionIntent.Explicit, stamped.AcquisitionIntent);
+    }
+
+    [Fact]
+    public async Task ProcessBatch_SkippedOwnedUserItem_PromotesAlbumFillSongToExplicit()
+    {
+        // The SkippedOwned path links straight to an existing song without going through the linker.
+        await using var db = CreateDbContext();
+        var song = AddSong(db, "/downloads/already-here.opus");
+        song.AcquisitionIntent = SongAcquisitionIntent.AlbumFill;
+
+        // The album-fill row that originally brought the file in, already linked.
+        var fill = MakeLinkable(song.SourcePath, WishlistItemOrigin.AlbumCompletion);
+        fill.DownloadedSongId = song.Id;
+        db.WishlistItems.Add(fill);
+
+        // The owner then likes it on Spotify: a new user-requested row that resolves to SkippedOwned.
+        db.WishlistItems.Add(MakePending("track-liked"));
+        db.SpotifyTrackLibraryMatches.Add(new SpotifyTrackLibraryMatch
+        {
+            OwnerUserId = Owner,
+            SpotifyTrackId = "track-liked",
+            MatchStatus = (int)ComparisonMatchStatus.InLibrary,
+            MatchedSongId = song.Id,
+            UpdatedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        await CreateProcessor(new FakeDownloadProvider(_ => DownloadResult.Missing()))
+            .ProcessBatchAsync(db, Owner, default);
+
+        var stamped = await db.Songs.IgnoreQueryFilters().SingleAsync(s => s.Id == song.Id);
+        Assert.Equal(SongAcquisitionIntent.Explicit, stamped.AcquisitionIntent);
+    }
+
+    private static SongMetadata AddSong(MusicHoarderDbContext db, string sourcePath)
+    {
+        var song = new SongMetadata
+        {
+            OwnerUserId = Owner,
+            SourcePath = sourcePath,
+            FileName = Path.GetFileName(sourcePath),
+            Extension = Path.GetExtension(sourcePath),
+            FileSizeBytes = 1024,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+        };
+        db.Songs.Add(song);
+        db.SaveChanges();
+        return song;
+    }
+
+    private static WishlistItem MakeLinkable(
+        string downloadedFilePath, WishlistItemOrigin origin, string? spotifyTrackId = null) => new()
+        {
+            OwnerUserId = Owner,
+            SpotifyTrackId = spotifyTrackId,
+            Origin = origin,
+            Title = "Title",
+            Artist = "Artist",
+            Album = "Album",
+            DurationMs = 200_000,
+            Status = WishlistItemStatus.Downloaded,
+            DownloadedFilePath = downloadedFilePath,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+        };
+
     private static WishlistItem MakePending(string trackId) => new()
     {
         OwnerUserId = Owner,
@@ -313,7 +468,7 @@ public class WishlistDownloadProcessorTests : IDisposable
         UpdatedAtUtc = DateTime.UtcNow,
     };
 
-    private static WishlistDownloadProcessor CreateProcessor(IDownloadProvider provider)
+    private static WishlistDownloadProcessor CreateProcessor(IDownloadProvider provider, int batchSize = 20)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
@@ -322,6 +477,7 @@ public class WishlistDownloadProcessorTests : IDisposable
             DownloadDirectory = "/downloads",
             DownloadProvider = "fake",
             DownloadConcurrency = 2,
+            WishlistDownloadBatchSize = batchSize,
         });
         return new WishlistDownloadProcessor(
             [provider],

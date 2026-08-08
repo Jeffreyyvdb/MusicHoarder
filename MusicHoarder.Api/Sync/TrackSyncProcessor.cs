@@ -223,6 +223,7 @@ public class TrackSyncProcessor(
             SyncedLyrics: song.EffectiveSyncedLyrics,
             IsInstrumental: song.IsInstrumental,
             LyricsStatus: song.LyricsStatus,
-            LikedAtUtc: song.LikedAtUtc);
+            LikedAtUtc: song.LikedAtUtc,
+            AcquisitionIntent: song.AcquisitionIntent);
     }
 }

@@ -38,6 +38,11 @@
 			orientation?: "horizontal" | "vertical";
 		} = $props();
 
+	// The `spacing=0` rules below square off the inner corners so items sit flush.
+	// A segmented control is the opposite idiom — pill segments inset in a track — so
+	// it opts into a hairline gap, which also switches those flush-corner rules off.
+	const effectiveSpacing = $derived(variant === "segmented" && spacing === 0 ? 1 : spacing);
+
 	setToggleGroupCtx({
 		get variant() {
 			return variant;
@@ -46,7 +51,7 @@
 			return size;
 		},
 		get spacing() {
-			return spacing;
+			return effectiveSpacing;
 		},
 		get orientation() {
 			return orientation;
@@ -65,10 +70,11 @@ get along, so we shut typescript up by casting `value` to `never`.
 	data-slot="toggle-group"
 	data-variant={variant}
 	data-size={size}
-	data-spacing={spacing}
-	style={`--gap: ${spacing}`}
+	data-spacing={effectiveSpacing}
+	style={`--gap: ${effectiveSpacing}`}
 	class={cn(
 		"rounded-lg data-[size=sm]:rounded-[min(var(--radius-md),10px)] group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] data-vertical:flex-col data-vertical:items-stretch",
+		"data-[variant=segmented]:bg-foreground/[0.06] data-[variant=segmented]:rounded-full data-[variant=segmented]:p-[3px] data-[variant=segmented]:data-[size=sm]:rounded-full dark:data-[variant=segmented]:bg-white/[0.08]",
 		className
 	)}
 	{...restProps}

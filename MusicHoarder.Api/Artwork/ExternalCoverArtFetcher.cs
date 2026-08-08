@@ -1,20 +1,30 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.AppleMusic;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.CoverArtArchive;
 using MusicHoarder.Api.Deezer;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Options;
+using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Spotify;
 
 namespace MusicHoarder.Api.Artwork;
 
-/// <summary>The identifiers an album folder offers for external cover lookup.</summary>
+/// <summary>
+/// The identifiers an album folder offers for external cover lookup. <see cref="SpotifyTrackId"/> is
+/// a representative track's matched Spotify id — the album image it belongs to is official art, so
+/// it outranks any text search.
+/// </summary>
 public sealed record ExternalCoverArtQuery(
     string? MusicBrainzReleaseId,
     string? MusicBrainzReleaseGroupId,
     string? AlbumArtist,
-    string? Album);
+    string? Album,
+    string? SpotifyTrackId = null,
+    string? SpotifyAlbumId = null);
 
-/// <summary>A validated cover image. <see cref="Source"/> ∈ coverartarchive | deezer | itunes.</summary>
+/// <summary>A validated cover image. <see cref="Source"/> ∈ coverartarchive | spotify | deezer | itunes.</summary>
 public sealed record FetchedCoverArt(byte[] Bytes, string ContentType, string Source);
 
 /// <summary>
@@ -26,15 +36,17 @@ public sealed record ExternalCoverArtFetchResult(FetchedCoverArt? Cover, bool Ha
 public interface IExternalCoverArtFetcher
 {
     /// <summary>
-    /// Tries the provider chain (Cover Art Archive by MBID → Deezer → iTunes) and returns the first
-    /// usable front cover. Never throws (except on cancellation); provider errors fall through to
-    /// the next provider and surface as <see cref="ExternalCoverArtFetchResult.HadTransientFailure"/>.
+    /// Tries the provider chain (Cover Art Archive by MBID → Spotify → Deezer → iTunes) and returns
+    /// the first usable front cover. Never throws (except on cancellation); provider errors fall
+    /// through to the next provider and surface as <see cref="ExternalCoverArtFetchResult.HadTransientFailure"/>.
     /// </summary>
     Task<ExternalCoverArtFetchResult> FetchAsync(ExternalCoverArtQuery query, CancellationToken ct = default);
 }
 
 public sealed class ExternalCoverArtFetcher(
     ICoverArtArchiveClient coverArtArchive,
+    ISpotifyCatalogSearchService spotifyCatalog,
+    ISpotifyAppCredentialsProvider spotifyCredentials,
     IDeezerCatalogService deezer,
     IAppleMusicCatalogService appleMusic,
     HttpClient imageHttpClient,
@@ -49,6 +61,17 @@ public sealed class ExternalCoverArtFetcher(
         if (opts.EnableCoverArtArchiveCovers)
         {
             var (cover, failed) = await TryProviderAsync("coverartarchive", () => FetchFromCoverArtArchiveAsync(query, ct));
+            hadTransientFailure |= failed;
+            if (cover is not null)
+                return new ExternalCoverArtFetchResult(cover, hadTransientFailure);
+        }
+
+        if (opts.EnableSpotifyCovers
+            && (!string.IsNullOrWhiteSpace(query.SpotifyAlbumId)
+                || !string.IsNullOrWhiteSpace(query.SpotifyTrackId)
+                || !string.IsNullOrWhiteSpace(query.Album)))
+        {
+            var (cover, failed) = await TryProviderAsync("spotify", () => FetchFromSpotifyAsync(query, ct));
             hadTransientFailure |= failed;
             if (cover is not null)
                 return new ExternalCoverArtFetchResult(cover, hadTransientFailure);
@@ -107,9 +130,42 @@ public sealed class ExternalCoverArtFetcher(
         return image is null ? null : Validate(image.Bytes, image.ContentType, "coverartarchive");
     }
 
+    private async Task<FetchedCoverArt?> FetchFromSpotifyAsync(ExternalCoverArtQuery query, CancellationToken ct)
+    {
+        var (clientId, clientSecret) = await spotifyCredentials.ResolveAsync(ct);
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+            return null;
+
+        // ID-first: the enrichment match's track/album id points at the official album image, no
+        // search ambiguity involved. Text search is the last resort and must pass verification.
+        var albumId = query.SpotifyAlbumId;
+        if (string.IsNullOrWhiteSpace(albumId) && !string.IsNullOrWhiteSpace(query.SpotifyTrackId))
+            albumId = await spotifyCatalog.GetTrackAlbumIdAsync(clientId, clientSecret, query.SpotifyTrackId, ct);
+
+        if (string.IsNullOrWhiteSpace(albumId) && !string.IsNullOrWhiteSpace(query.Album))
+        {
+            var candidates = await spotifyCatalog.SearchAlbumCandidatesAsync(clientId, clientSecret, query.AlbumArtist ?? "", query.Album, ct);
+            albumId = candidates
+                .FirstOrDefault(c => ArtworkMatchVerifier.IsAlbumMatch(query.AlbumArtist, query.Album, c.Artist, c.Name))
+                ?.Id;
+        }
+
+        if (string.IsNullOrWhiteSpace(albumId))
+            return null;
+
+        var album = await spotifyCatalog.GetAlbumAsync(clientId, clientSecret, albumId, ct);
+        if (string.IsNullOrWhiteSpace(album?.ImageUrl))
+            return null;
+
+        return await DownloadImageAsync(album.ImageUrl, "spotify", ct);
+    }
+
     private async Task<FetchedCoverArt?> FetchFromDeezerAsync(ExternalCoverArtQuery query, CancellationToken ct)
     {
-        var albumId = await deezer.SearchAlbumIdAsync(query.AlbumArtist ?? "", query.Album!, ct);
+        var candidates = await deezer.SearchAlbumCandidatesAsync(query.AlbumArtist ?? "", query.Album!, ct);
+        var albumId = candidates
+            .FirstOrDefault(c => ArtworkMatchVerifier.IsAlbumMatch(query.AlbumArtist, query.Album, c.ArtistName, c.Title))
+            ?.Id;
         if (albumId is null)
             return null;
 
@@ -122,7 +178,10 @@ public sealed class ExternalCoverArtFetcher(
 
     private async Task<FetchedCoverArt?> FetchFromItunesAsync(ExternalCoverArtQuery query, CancellationToken ct)
     {
-        var collectionId = await appleMusic.SearchAlbumIdAsync(query.AlbumArtist ?? "", query.Album!, ct);
+        var candidates = await appleMusic.SearchAlbumCandidatesAsync(query.AlbumArtist ?? "", query.Album!, ct);
+        var collectionId = candidates
+            .FirstOrDefault(c => ArtworkMatchVerifier.IsAlbumMatch(query.AlbumArtist, query.Album, c.ArtistName, c.CollectionName))
+            ?.CollectionId;
         if (collectionId is null)
             return null;
 

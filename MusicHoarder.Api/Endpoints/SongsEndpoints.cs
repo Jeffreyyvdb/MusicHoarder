@@ -175,7 +175,7 @@ public static class SongsEndpoints
         var wishlistLinks = (await db.WishlistItems
                 .AsNoTracking()
                 .Where(w => w.DownloadedSongId != null)
-                .Select(w => new { SongId = w.DownloadedSongId!.Value, w.WishlistSourceId, w.SpotifyAddedAtUtc, w.SourceUrl })
+                .Select(w => new { SongId = w.DownloadedSongId!.Value, w.WishlistSourceId, w.SpotifyAddedAtUtc, w.SourceUrl, w.Origin, w.Album })
                 .ToListAsync())
             .GroupBy(w => w.SongId)
             .ToDictionary(
@@ -185,7 +185,7 @@ public static class SongsEndpoints
                     var source = w.WishlistSourceId is { } id && wishlistSources.TryGetValue(id, out var s)
                         ? ((WishlistSourceType?)s.SourceType, s.Name)
                         : (null, null);
-                    return new WishlistLink(source.Item1, source.Item2, w.SourceUrl, w.SpotifyAddedAtUtc);
+                    return new WishlistLink(source.Item1, source.Item2, w.SourceUrl, w.SpotifyAddedAtUtc, w.Origin, w.Album);
                 })));
 
         // Second save-date source: the liked-songs match cache. A wishlist link only exists for songs
@@ -301,6 +301,7 @@ public static class SongsEndpoints
                 s.LikedAtUtc,
                 s.PlayCount,
                 s.LastPlayedAtUtc,
+                s.AcquisitionIntent,
             })
             .ToListAsync();
 
@@ -365,6 +366,9 @@ public static class SongsEndpoints
                 s.SpotifyId != null && likedSaveDatesBySpotifyId.TryGetValue(s.SpotifyId, out var idSaveDate)
                     ? idSaveDate
                     : null),
+            // Whether the owner asked for this track or album completion added it. Unlike the derived
+            // Origin* fields above this is a stored column, so it's the one "My music" filters on.
+            AcquisitionIntent = s.AcquisitionIntent.ToString(),
         };
         }).ToList();
 

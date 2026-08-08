@@ -10,6 +10,7 @@
     mergeAlbumsByName,
     fetchOverview,
     fetchStats,
+    isMyMusic,
     mapEnrichmentStatus,
     type ApiOverview,
     type ApiStats
@@ -83,6 +84,9 @@
   const likedCount = $derived.by(() =>
     songs.length === 0 ? null : builtSongs.filter((s) => s.likedAtUtc).length
   );
+  const myMusicCount = $derived.by(() =>
+    songs.length === 0 ? null : builtSongs.filter(isMyMusic).length
+  );
   const artistCount = $derived.by(() => {
     if (songs.length === 0) return null;
     const set = new Set<string>();
@@ -108,6 +112,7 @@
     albums: () => albumCount,
     artists: () => artistCount,
     tracks: () => totalTracks,
+    'my-music': () => myMusicCount,
     liked: () => likedCount,
     review: () => reviewCount
   };

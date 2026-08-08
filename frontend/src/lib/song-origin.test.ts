@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { isSpotifySourced, songOriginLabel, spotifyAddedTime, type ApiSong } from './api-client';
+import {
+  isMyMusic,
+  isSpotifySourced,
+  songOriginLabel,
+  spotifyAddedTime,
+  type ApiSong
+} from './api-client';
 
 function song(over: Partial<ApiSong>): ApiSong {
   return { id: 1, fileName: 'track.flac', ...over } as ApiSong;
@@ -53,5 +59,36 @@ describe('songOriginLabel', () => {
 
   it('returns null for a row the API never annotated', () => {
     expect(songOriginLabel(song({}))).toBeNull();
+  });
+
+  it('names the album an album-fill track was completing', () => {
+    const label = songOriginLabel(
+      song({ originSource: 'AlbumCompletion', originDetail: 'Discovery', originKind: 'Downloaded' })
+    );
+    expect(label?.label).toBe('Album fill');
+    expect(label?.title).toContain('Discovery');
+  });
+});
+
+describe('isMyMusic', () => {
+  it('claims everything that is not album fill', () => {
+    expect(isMyMusic(song({ acquisitionIntent: 'Explicit' }))).toBe(true);
+    expect(isMyMusic(song({ acquisitionIntent: 'Explicit', originKind: 'Scanned' }))).toBe(true);
+  });
+
+  it('excludes album fill you have not liked', () => {
+    expect(isMyMusic(song({ acquisitionIntent: 'AlbumFill' }))).toBe(false);
+  });
+
+  // The escape hatch, and the whole payoff of the feature: discover it, heart it, it's yours.
+  it('promotes album fill the moment you like it', () => {
+    expect(isMyMusic(song({ acquisitionIntent: 'AlbumFill', likedAtUtc: '2026-01-01T00:00:00Z' }))).toBe(true);
+  });
+
+  // An API too old to send the field, or any row that never went through the wishlist, must read as
+  // yours rather than quietly disappearing from the view.
+  it('defaults to yours when the field is absent', () => {
+    expect(isMyMusic(song({}))).toBe(true);
+    expect(isMyMusic(song({ acquisitionIntent: null }))).toBe(true);
   });
 });

@@ -16,6 +16,13 @@ public interface IDeezerCatalogService
     /// <summary>Finds an album id by artist + album name (<c>GET /search/album</c>).</summary>
     Task<string?> SearchAlbumIdAsync(string artist, string album, CancellationToken ct = default);
 
+    /// <summary>Album search hits with title + artist (<c>GET /search/album</c>) so callers can verify
+    /// the match instead of trusting result order.</summary>
+    Task<IReadOnlyList<DeezerAlbumCandidate>> SearchAlbumCandidatesAsync(string artist, string album, CancellationToken ct = default);
+
+    /// <summary>Artist search hits with portrait URLs (<c>GET /search/artist</c>).</summary>
+    Task<IReadOnlyList<DeezerArtistCandidate>> SearchArtistCandidatesAsync(string name, CancellationToken ct = default);
+
     /// <summary>Fetches an album with its full tracklist (<c>GET /album/{id}</c>); null if not found.</summary>
     Task<DeezerAlbumDetail?> GetAlbumAsync(string albumId, CancellationToken ct = default);
 

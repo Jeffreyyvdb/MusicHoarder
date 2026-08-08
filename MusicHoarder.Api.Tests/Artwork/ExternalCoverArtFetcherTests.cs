@@ -6,6 +6,7 @@ using MusicHoarder.Api.CoverArtArchive;
 using MusicHoarder.Api.Deezer;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Options;
+using MusicHoarder.Api.Spotify;
 
 namespace MusicHoarder.Api.Tests.Artwork;
 
@@ -158,6 +159,95 @@ public class ExternalCoverArtFetcherTests
     }
 
     [Fact]
+    public async Task SpotifyUsesMatchedTrackIdBeforeAnySearch()
+    {
+        var spotify = new StubSpotifyCatalog { TrackAlbumId = "sa1", ImageUrl = "https://i.scdn.example/ab.jpg" };
+        var deezer = new StubDeezer { AlbumId = "d1", CoverUrl = "https://cdn.deezer.example/c.jpg" };
+        var http = new UrlKeyedImageHandler { ["https://i.scdn.example/ab.jpg"] = (HttpStatusCode.OK, Png, "image/jpeg") };
+        var fetcher = CreateFetcher(new StubCaa(), deezer, new StubApple(), http, spotify: spotify, spotifyCredentials: true);
+
+        var result = await fetcher.FetchAsync(new ExternalCoverArtQuery(null, null, "Artist", "Album", SpotifyTrackId: "t1"));
+
+        Assert.Equal("spotify", result.Cover?.Source);
+        Assert.Equal(1, spotify.TrackAlbumIdCalls);
+        Assert.Equal(0, spotify.SearchCalls);
+        Assert.Equal(0, deezer.SearchCalls);
+    }
+
+    [Fact]
+    public async Task SpotifyIsSkippedWithoutCredentials()
+    {
+        var spotify = new StubSpotifyCatalog { TrackAlbumId = "sa1", ImageUrl = "https://i.scdn.example/ab.jpg" };
+        var deezer = new StubDeezer { AlbumId = "d1", CoverUrl = "https://cdn.deezer.example/c.jpg" };
+        var http = new UrlKeyedImageHandler { ["https://cdn.deezer.example/c.jpg"] = (HttpStatusCode.OK, Png, "image/jpeg") };
+        var fetcher = CreateFetcher(new StubCaa(), deezer, new StubApple(), http, spotify: spotify, spotifyCredentials: false);
+
+        var result = await fetcher.FetchAsync(new ExternalCoverArtQuery(null, null, "Artist", "Album", SpotifyTrackId: "t1"));
+
+        Assert.Equal("deezer", result.Cover?.Source);
+        Assert.Equal(0, spotify.TrackAlbumIdCalls);
+        Assert.False(result.HadTransientFailure);
+    }
+
+    [Fact]
+    public async Task SpotifySearchFallbackRequiresVerifiedMatch()
+    {
+        // No ids — Spotify's text search returns a compilation; it must be rejected, not trusted.
+        var spotify = new StubSpotifyCatalog
+        {
+            AlbumId = "sa1",
+            CandidateName = "Best 50 Dance Hits",
+            CandidateArtist = "Various Artists",
+            ImageUrl = "https://i.scdn.example/wrong.jpg",
+        };
+        var deezer = new StubDeezer { AlbumId = "d1", CoverUrl = "https://cdn.deezer.example/c.jpg" };
+        var http = new UrlKeyedImageHandler { ["https://cdn.deezer.example/c.jpg"] = (HttpStatusCode.OK, Png, "image/jpeg") };
+        var fetcher = CreateFetcher(new StubCaa(), deezer, new StubApple(), http, spotify: spotify, spotifyCredentials: true);
+
+        var result = await fetcher.FetchAsync(new ExternalCoverArtQuery(null, null, "Artist", "Album"));
+
+        Assert.Equal(1, spotify.SearchCalls);
+        Assert.Equal("deezer", result.Cover?.Source);
+    }
+
+    [Fact]
+    public async Task UnverifiedDeezerHitFallsThroughToItunes()
+    {
+        var deezer = new StubDeezer
+        {
+            AlbumId = "d1",
+            CoverUrl = "https://cdn.deezer.example/wrong.jpg",
+            CandidateTitle = "Best 50 Dance Hits",
+            CandidateArtist = "Various Artists",
+        };
+        var apple = new StubApple { AlbumId = "a1", ArtworkUrl = "https://is1.example/100x100bb.jpg" };
+        var http = new UrlKeyedImageHandler { ["https://is1.example/3000x3000bb.jpg"] = (HttpStatusCode.OK, Png, "image/jpeg") };
+        var fetcher = CreateFetcher(new StubCaa(), deezer, apple, http);
+
+        var result = await fetcher.FetchAsync(new ExternalCoverArtQuery(null, null, "Artist", "Album"));
+
+        Assert.Equal("itunes", result.Cover?.Source);
+        Assert.DoesNotContain("https://cdn.deezer.example/wrong.jpg", http.RequestedUrls);
+    }
+
+    [Fact]
+    public async Task EditionQualifiedTitleStillVerifies()
+    {
+        var deezer = new StubDeezer
+        {
+            AlbumId = "d1",
+            CoverUrl = "https://cdn.deezer.example/c.jpg",
+            CandidateTitle = "Album Deluxe Edition",
+        };
+        var http = new UrlKeyedImageHandler { ["https://cdn.deezer.example/c.jpg"] = (HttpStatusCode.OK, Png, "image/jpeg") };
+        var fetcher = CreateFetcher(new StubCaa(), deezer, new StubApple(), http);
+
+        var result = await fetcher.FetchAsync(new ExternalCoverArtQuery(null, null, "Artist", "Album"));
+
+        Assert.Equal("deezer", result.Cover?.Source);
+    }
+
+    [Fact]
     public async Task SniffedMimeOverridesBogusContentType()
     {
         var deezer = new StubDeezer { AlbumId = "d1", CoverUrl = "https://cdn.deezer.example/c" };
@@ -184,7 +274,9 @@ public class ExternalCoverArtFetcherTests
         StubDeezer deezer,
         StubApple apple,
         UrlKeyedImageHandler? http = null,
-        Action<MusicEnricherOptions>? configure = null)
+        Action<MusicEnricherOptions>? configure = null,
+        StubSpotifyCatalog? spotify = null,
+        bool spotifyCredentials = false)
     {
         var options = new MusicEnricherOptions
         {
@@ -195,10 +287,61 @@ public class ExternalCoverArtFetcherTests
         configure?.Invoke(options);
 
         return new ExternalCoverArtFetcher(
-            caa, deezer, apple,
+            caa,
+            spotify ?? new StubSpotifyCatalog(),
+            new StubCredentials(spotifyCredentials),
+            deezer, apple,
             new HttpClient(http ?? new UrlKeyedImageHandler()),
             Microsoft.Extensions.Options.Options.Create(options),
             NullLogger<ExternalCoverArtFetcher>.Instance);
+    }
+
+    private sealed class StubCredentials(bool hasCredentials) : ISpotifyAppCredentialsProvider
+    {
+        public Task<(string? ClientId, string? ClientSecret)> ResolveAsync(CancellationToken ct = default)
+            => Task.FromResult(hasCredentials ? ((string?)"id", (string?)"secret") : (null, null));
+    }
+
+    private sealed class StubSpotifyCatalog : ISpotifyCatalogSearchService
+    {
+        public string? TrackAlbumId { get; set; }
+        public string? AlbumId { get; set; }
+        public string? CandidateName { get; set; } = "Album";
+        public string? CandidateArtist { get; set; } = "Artist";
+        public string? ImageUrl { get; set; }
+        public int TrackAlbumIdCalls { get; private set; }
+        public int SearchCalls { get; private set; }
+
+        public Task<string?> GetTrackAlbumIdAsync(string clientId, string clientSecret, string trackId, CancellationToken ct = default)
+        {
+            TrackAlbumIdCalls++;
+            return Task.FromResult(TrackAlbumId);
+        }
+
+        public Task<IReadOnlyList<SpotifyAlbumCandidate>> SearchAlbumCandidatesAsync(string clientId, string clientSecret, string artist, string album, CancellationToken ct = default)
+        {
+            SearchCalls++;
+            return Task.FromResult<IReadOnlyList<SpotifyAlbumCandidate>>(
+                AlbumId is null ? [] : [new SpotifyAlbumCandidate(AlbumId, CandidateName, CandidateArtist)]);
+        }
+
+        public Task<SpotifyAlbumDetail?> GetAlbumAsync(string clientId, string clientSecret, string albumId, CancellationToken ct = default)
+            => Task.FromResult<SpotifyAlbumDetail?>(new SpotifyAlbumDetail(albumId, CandidateName, CandidateArtist, 2026, ImageUrl, []));
+
+        public Task<IReadOnlyList<SpotifyCatalogTrack>> SearchTracksAsync(string clientId, string clientSecret, string query, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<SpotifyCatalogTrack>>([]);
+
+        public Task<SpotifyCatalogTrack?> GetTrackAsync(string clientId, string clientSecret, string trackId, CancellationToken ct = default)
+            => Task.FromResult<SpotifyCatalogTrack?>(null);
+
+        public Task<string?> SearchAlbumIdAsync(string clientId, string clientSecret, string artist, string album, CancellationToken ct = default)
+            => Task.FromResult<string?>(null);
+
+        public Task<IReadOnlyList<SpotifyArtistCandidate>> SearchArtistCandidatesAsync(string clientId, string clientSecret, string name, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<SpotifyArtistCandidate>>([]);
+
+        public Task<string?> SearchTrackIdByIsrcAsync(string clientId, string clientSecret, string isrc, CancellationToken ct = default)
+            => Task.FromResult<string?>(null);
     }
 
     private sealed class StubCaa : ICoverArtArchiveClient
@@ -226,13 +369,22 @@ public class ExternalCoverArtFetcherTests
     {
         public string? AlbumId { get; set; }
         public string? CoverUrl { get; set; }
+        public string? CandidateTitle { get; set; } = "Album";
+        public string? CandidateArtist { get; set; } = "Artist";
         public int SearchCalls { get; private set; }
 
         public Task<string?> SearchAlbumIdAsync(string artist, string album, CancellationToken ct = default)
+            => Task.FromResult(AlbumId);
+
+        public Task<IReadOnlyList<DeezerAlbumCandidate>> SearchAlbumCandidatesAsync(string artist, string album, CancellationToken ct = default)
         {
             SearchCalls++;
-            return Task.FromResult(AlbumId);
+            return Task.FromResult<IReadOnlyList<DeezerAlbumCandidate>>(
+                AlbumId is null ? [] : [new DeezerAlbumCandidate(AlbumId, CandidateTitle, CandidateArtist)]);
         }
+
+        public Task<IReadOnlyList<DeezerArtistCandidate>> SearchArtistCandidatesAsync(string name, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<DeezerArtistCandidate>>([]);
 
         public Task<DeezerAlbumDetail?> GetAlbumAsync(string albumId, CancellationToken ct = default)
             => Task.FromResult(AlbumId is null ? null : new DeezerAlbumDetail(AlbumId, "Album", "Artist", 2026, CoverUrl, []));
@@ -266,12 +418,18 @@ public class ExternalCoverArtFetcherTests
     {
         public string? AlbumId { get; set; }
         public string? ArtworkUrl { get; set; }
+        public string? CandidateName { get; set; } = "Album";
+        public string? CandidateArtist { get; set; } = "Artist";
         public int SearchCalls { get; private set; }
 
         public Task<string?> SearchAlbumIdAsync(string artist, string album, CancellationToken ct = default)
+            => Task.FromResult(AlbumId);
+
+        public Task<IReadOnlyList<AppleAlbumCandidate>> SearchAlbumCandidatesAsync(string artist, string album, CancellationToken ct = default)
         {
             SearchCalls++;
-            return Task.FromResult(AlbumId);
+            return Task.FromResult<IReadOnlyList<AppleAlbumCandidate>>(
+                AlbumId is null ? [] : [new AppleAlbumCandidate(AlbumId, CandidateName, CandidateArtist)]);
         }
 
         public Task<AppleAlbumDetail?> GetAlbumAsync(string collectionId, CancellationToken ct = default)

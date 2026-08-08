@@ -169,6 +169,9 @@ public class AppleMusicEnrichmentProviderTests
         public Task<string?> SearchAlbumIdAsync(string artist, string album, CancellationToken ct = default)
             => Task.FromResult<string?>(null);
 
+        public Task<IReadOnlyList<AppleAlbumCandidate>> SearchAlbumCandidatesAsync(string artist, string album, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<AppleAlbumCandidate>>([]);
+
         public Task<AppleAlbumDetail?> GetAlbumAsync(string collectionId, CancellationToken ct = default)
             => Task.FromResult<AppleAlbumDetail?>(null);
     }

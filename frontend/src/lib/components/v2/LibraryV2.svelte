@@ -9,6 +9,7 @@
     Heart,
     ListMusic,
     Music2,
+    Music4,
     Play,
     Search,
     Shuffle,
@@ -30,6 +31,7 @@
     buildArtistGroups,
     fetchAlbumCanonicalStatuses,
     isAlbumSortKey,
+    isMyMusic,
     mergeAlbumsByName,
     songLikedTime,
     sortAlbums,
@@ -55,7 +57,7 @@
   // Sheet — track selection just drives the shared store. The desktop/mobile
   // form-factor split lives in SongDetailHost.
 
-  type LibraryTab = 'albums' | 'artists' | 'tracks' | 'liked';
+  type LibraryTab = 'albums' | 'artists' | 'tracks' | 'my-music' | 'liked';
   type Props = {
     /** Which sub-view this route hosts. The sub-nav navigates between routes. */
     tab: LibraryTab;
@@ -240,6 +242,11 @@
   // sorting, so we only narrow by query here.
   const tracksScoped = $derived(browseScoped);
 
+  // My music: what you actually chose, minus what album completion pulled in alongside it. Liking
+  // an album-fill track promotes it back in — see isMyMusic.
+  const myMusicSongs = $derived(browseScoped.filter(isMyMusic));
+  const albumFillCount = $derived(browseScoped.length - myMusicSongs.length);
+
   // Liked tab: hearted songs, newest like first (the TrackList's 'liked' sort).
   const likedSongs = $derived(releaseScoped.filter((s) => Boolean(s.likedAtUtc)));
   // Same key the TrackList sorts on, so pressing Play starts at the row shown on top.
@@ -281,8 +288,14 @@
     searchQuery: () => query,
     initialSortKey: 'liked'
   });
-  const listView = $derived(tab === 'liked' ? likedView : tracksView);
-  const isListTab = $derived(tab === 'tracks' || tab === 'liked');
+  const myMusicView = createTrackListView({
+    songs: () => myMusicSongs,
+    searchQuery: () => query
+  });
+  const listView = $derived(
+    tab === 'liked' ? likedView : tab === 'my-music' ? myMusicView : tracksView
+  );
+  const isListTab = $derived(tab === 'tracks' || tab === 'my-music' || tab === 'liked');
 
   // ── album drilldown (reuses AlbumPage + TrackPanel) ─────────────────────────
   const openAlbum = $derived.by(() => {
@@ -368,10 +381,17 @@
   // The Liked hero used to be a 129px Spotify-style banner. Everything it said —
   // the name, the count, the runtime, Play/Shuffle — fits the toolbar, which the
   // page pays for anyway.
-  const TOOLBAR_ICON = { albums: Disc3, artists: Users, tracks: ListMusic, liked: Heart };
+  const TOOLBAR_ICON = {
+    albums: Disc3,
+    artists: Users,
+    'my-music': Music4,
+    tracks: ListMusic,
+    liked: Heart
+  };
   const TOOLBAR_TITLE = {
     albums: 'Albums',
     artists: 'Artists',
+    'my-music': 'My music',
     tracks: 'All tracks',
     liked: 'Liked Songs'
   };
@@ -533,6 +553,28 @@
       {:else}
         <TrackList
           view={likedView}
+          {isLoading}
+          selectedId={tracksSelectedId}
+          onSelect={selectTrack}
+        />
+      {/if}
+    </div>
+  {:else if tab === 'my-music'}
+    <!-- My music: same virtualized TrackList as All tracks, narrowed to what you chose. Same min-h-0
+         chain so virtualization stays bounded. -->
+    <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {#if myMusicSongs.length === 0 && albumFillCount > 0 && !isLoading}
+        <div class="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+          <Music4 class="size-10 opacity-40" />
+          <p class="text-sm font-medium">Nothing here yet</p>
+          <p class="max-w-xs text-xs">
+            Every track in your library so far arrived through album completion. Like one and it moves
+            in here — or check All tracks to see everything.
+          </p>
+        </div>
+      {:else}
+        <TrackList
+          view={myMusicView}
           {isLoading}
           selectedId={tracksSelectedId}
           onSelect={selectTrack}

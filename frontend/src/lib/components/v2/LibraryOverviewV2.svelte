@@ -8,7 +8,8 @@
     LayoutGrid,
     Play,
     Sparkles,
-    Users
+    Users,
+    Wand2
   } from '@lucide/svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
@@ -89,6 +90,19 @@
   const discoverAlbums = $derived(
     seededOrder(
       allAlbums.filter((a) => a.songs.every((s) => !s.playCount)),
+      (a) => a.key
+    ).slice(0, SHELF_SIZE)
+  );
+
+  // New to you: albums that album completion filled in and you haven't played yet. This is the
+  // payoff of the feature — you liked one track, here's the rest of the record, waiting.
+  const newToYouAlbums = $derived(
+    seededOrder(
+      allAlbums.filter(
+        (a) =>
+          a.songs.some((s) => s.acquisitionIntent === 'AlbumFill' && !s.likedAtUtc) &&
+          a.songs.every((s) => !s.playCount)
+      ),
       (a) => a.key
     ).slice(0, SHELF_SIZE)
   );
@@ -260,6 +274,14 @@
         <section>
           {@render sectionHeader('Last played', '/library', Clock)}
           {@render albumShelf(lastPlayedAlbums)}
+        </section>
+      {/if}
+
+      <!-- New to you: what album completion brought in and you haven't heard yet -->
+      {#if newToYouAlbums.length > 0}
+        <section>
+          {@render sectionHeader('New to you', '/library', Wand2)}
+          {@render albumShelf(newToYouAlbums)}
         </section>
       {/if}
 
