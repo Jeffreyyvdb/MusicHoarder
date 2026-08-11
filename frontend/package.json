@@ -21,7 +21,7 @@
     "release:dry": "semantic-release --dry-run --no-ci"
   },
   "dependencies": {
-    "@lucide/svelte": "^1.28.0",
+    "@lucide/svelte": "^1.29.0",
     "@opentelemetry/auto-instrumentations-node": "^0.79.0",
     "@opentelemetry/exporter-trace-otlp-grpc": "^0.221.0",
     "@opentelemetry/sdk-node": "^0.221.0",
@@ -31,7 +31,7 @@
     "mode-watcher": "^1.1.0",
     "svelte-sonner": "^1.1.1",
     "tailwind-merge": "^3.3.1",
-    "tailwind-variants": "^3.3.0"
+    "tailwind-variants": "^3.3.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
