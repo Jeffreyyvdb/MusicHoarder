@@ -2528,6 +2528,8 @@ export interface RequestLinkResult {
   ok: boolean
   /** Present only in dev / Console-fallback mode so devs can click without email. */
   magicLinkUrl?: string | null
+  /** True when the server has no email service — the link was written to the server logs instead. */
+  magicLinkInLogs?: boolean
 }
 
 export async function fetchCurrentUser(): Promise<AuthMe | null> {
@@ -2545,8 +2547,11 @@ export async function requestMagicLink(email: string): Promise<RequestLinkResult
     cache: "no-store",
   })
   if (response.status === 503) return { ok: false }
-  const body = (await response.json().catch(() => ({}))) as { magicLinkUrl?: string | null }
-  return { ok: true, magicLinkUrl: body.magicLinkUrl ?? null }
+  const body = (await response.json().catch(() => ({}))) as {
+    magicLinkUrl?: string | null
+    magicLinkInLogs?: boolean
+  }
+  return { ok: true, magicLinkUrl: body.magicLinkUrl ?? null, magicLinkInLogs: body.magicLinkInLogs ?? false }
 }
 
 export async function signOut(allSessions = false): Promise<void> {
