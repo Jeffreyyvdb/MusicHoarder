@@ -246,19 +246,30 @@ public class EnrichmentBackgroundService(
             using var scope = scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
-            var pendingIds = await db.Songs
+            var pending = await db.Songs
                 .IgnoreQueryFilters()
                 .AsNoTracking()
                 .Where(s => !s.IsSynthetic)
                 .WhereReadyForEnrichment()
                 .OrderBy(s => s.Id)
-                .Select(s => s.Id)
+                .Select(s => new { s.Id, s.SourcePath })
                 .ToListAsync(ct);
 
-            if (pendingIds.Count > 0)
+            if (pending.Count > 0)
             {
-                pipelineChannel.EnqueueRange(pendingIds);
-                logger.LogInformation("Backfilled {Count} pending songs into enrichment channel", pendingIds.Count);
+                // Explicitly-acquired tracks (download staging root) take the fast lane so a restart
+                // never buries a fresh import behind a library-sized backfill (the fingerprint stage
+                // applies the same priority for its live enqueues).
+                var downloadPrefix = Scanner.FingerprintBackgroundService.DownloadRootPrefix(options.Value);
+                var priorityIds = downloadPrefix is null
+                    ? []
+                    : pending.Where(s => s.SourcePath.StartsWith(downloadPrefix, StringComparison.Ordinal))
+                        .Select(s => s.Id).ToList();
+                pipelineChannel.EnqueueRangePriority(priorityIds);
+                pipelineChannel.EnqueueRange(pending.Select(s => s.Id).Except(priorityIds));
+                logger.LogInformation(
+                    "Backfilled {Count} pending songs into enrichment channel ({Priority} priority)",
+                    pending.Count, priorityIds.Count);
             }
 
             var retryIds = await db.SongProviderAttempts
@@ -450,7 +461,7 @@ public class EnrichmentBackgroundService(
     {
         logger.LogDebug("Enrichment worker {WorkerId} started", workerId);
 
-        await foreach (var songId in pipelineChannel.Reader.ReadAllAsync(ct))
+        await foreach (var songId in pipelineChannel.ReadAllPrioritizedAsync(ct))
         {
             // The finally decrements the in-flight count exactly once per dequeued item (even on the
             // cancel/pause break paths) so the channel can end the enrich cycle when work drains.

@@ -309,7 +309,7 @@ public class DemoSeederRealMediaTests : IDisposable
 
     private sealed class NullFpcalcService : IFpcalcService
     {
-        public Task<FpcalcOutcome> GetFingerprintAsync(string filePath, CancellationToken ct = default) =>
+        public Task<FpcalcOutcome> GetFingerprintAsync(string filePath, int? maxLengthSeconds = null, CancellationToken ct = default) =>
             Task.FromResult(FpcalcOutcome.Failure("test"));
     }
 

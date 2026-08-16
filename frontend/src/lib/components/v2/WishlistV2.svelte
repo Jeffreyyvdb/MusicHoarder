@@ -650,9 +650,18 @@
             {fmtDuration(item.durationMs)}
           </span>
 
-          <Badge class="{statusBadgeClass(item.status)} gap-1.5">
+          <Badge
+            class="{statusBadgeClass(item.status)} gap-1.5"
+            title={item.status === 'Downloaded' && item.downloadedSongId == null
+              ? 'Downloaded — being added to your library'
+              : undefined}
+          >
             <span class="size-1.5 shrink-0 rounded-full {statusDotClass(item.status)}"></span>
-            {item.status === 'SkippedOwned' ? 'Skipped' : item.status}
+            {item.status === 'SkippedOwned'
+              ? 'Skipped'
+              : item.status === 'Downloaded' && item.downloadedSongId == null
+                ? 'Adding…'
+                : item.status}
           </Badge>
 
           {#if item.status === 'Failed' || item.status === 'NotFound'}

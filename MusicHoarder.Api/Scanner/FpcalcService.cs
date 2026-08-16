@@ -21,7 +21,13 @@ public readonly record struct FpcalcOutcome(FpcalcResult? Result, string? Failur
 
 public interface IFpcalcService
 {
-    Task<FpcalcOutcome> GetFingerprintAsync(string filePath, CancellationToken ct = default);
+    /// <summary>
+    /// Fingerprints a media file. <paramref name="maxLengthSeconds"/> overrides fpcalc's default
+    /// ~120 s analysis window (<c>-length</c>) — the music-video aligner asks for a longer window so
+    /// a clip's cinematic intro still overlaps the song's stored fingerprint. fpcalc decodes via
+    /// libav, so video containers (mp4) fingerprint their audio track directly.
+    /// </summary>
+    Task<FpcalcOutcome> GetFingerprintAsync(string filePath, int? maxLengthSeconds = null, CancellationToken ct = default);
 }
 
 public class FpcalcService(
@@ -30,7 +36,7 @@ public class FpcalcService(
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public async Task<FpcalcOutcome> GetFingerprintAsync(string filePath, CancellationToken ct = default)
+    public async Task<FpcalcOutcome> GetFingerprintAsync(string filePath, int? maxLengthSeconds = null, CancellationToken ct = default)
     {
         try
         {
@@ -42,6 +48,11 @@ public class FpcalcService(
                 CreateNoWindow = true
             };
             psi.ArgumentList.Add("-json");
+            if (maxLengthSeconds is > 0)
+            {
+                psi.ArgumentList.Add("-length");
+                psi.ArgumentList.Add(maxLengthSeconds.Value.ToString());
+            }
             psi.ArgumentList.Add(filePath);
 
             using var process = new Process { StartInfo = psi };
