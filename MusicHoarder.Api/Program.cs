@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.Middleware;
 using MusicHoarder.Api.Composition;
 using MusicHoarder.Api.OpenApi;
@@ -75,6 +76,16 @@ await app.ApplyPendingMigrationsAsync();
     if (me.EnableWishlistDownloads && string.IsNullOrWhiteSpace(me.DownloadDirectory))
         app.Logger.LogWarning(
             "MusicEnricher:EnableWishlistDownloads is on but DownloadDirectory is empty — the download worker will idle until it's set.");
+
+    // Discoverability (issue #393): with no Resend key the console sender is active, and self-hosters
+    // grep the logs for their sign-in link at boot — before any link exists. Announce the mode so that
+    // grep finds an explanation instead of silence ("Magic-link" matches `grep -i magic`).
+    var magicLinkSender = app.Services.GetRequiredService<IMagicLinkSender>();
+    if (magicLinkSender.IsConsoleFallback)
+        app.Logger.LogInformation(
+            "Magic-link sign-in: no email service configured (Resend API key is blank) — sign-in links " +
+            "will be WRITTEN TO THIS LOG when requested on the login page. Find them with: " +
+            "docker compose logs api | grep -i magic");
 }
 
 if (app.Environment.IsDevelopment())

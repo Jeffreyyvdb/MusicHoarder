@@ -8,20 +8,39 @@ so you don't need a repo checkout or any build toolchain.
 > HTTP; put it behind your own reverse proxy (Traefik, Caddy, Nginx Proxy Manager, your NAS's
 > built-in proxy, …) and point `PUBLIC_BASE_URL` at the external URL.
 
-## Quick start (prebuilt images)
+## Zero-config trial (prebuilt images)
 
-You only need two files: `docker-compose.yml` and an `.env`.
+Trying MusicHoarder on your own machine needs **one file and no configuration** — every setting
+has a working localhost default:
 
 ```bash
 mkdir musichoarder && cd musichoarder
-
-# Grab the compose file and the env template
 curl -fsSLO https://raw.githubusercontent.com/Jeffreyyvdb/MusicHoarder/main/docker-compose.yml
-curl -fsSL  https://raw.githubusercontent.com/Jeffreyyvdb/MusicHoarder/main/.env.example -o .env
+docker compose up -d
+```
 
-# Edit .env and fill in the required values (see the table below)
-nano .env
+Then sign in (no email is sent — there's no email service configured):
 
+1. Open `http://localhost:3000` and enter the default owner address `owner@musichoarder.local`.
+2. Grab the sign-in link from the API logs and open it in your browser:
+
+   ```bash
+   docker compose logs api | grep -i magic
+   ```
+
+Two empty directories, `./music-source` and `./music-destination`, are created next to the
+compose file (run `mkdir music-source music-destination` yourself first if you want to control
+their ownership). Drop music files into `./music-source` and they're picked up by the automatic
+scan (or click **Scan** in the UI).
+
+## Real deployment
+
+For anything beyond a same-machine trial, add an `.env` next to the compose file and set the
+five **Core** values (see the table below):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Jeffreyyvdb/MusicHoarder/main/.env.example -o .env
+nano .env   # set POSTGRES_PASSWORD, MUSIC_SOURCE_PATH, MUSIC_DESTINATION_PATH, OWNER_EMAIL, PUBLIC_BASE_URL
 docker compose up -d
 ```
 
@@ -41,13 +60,16 @@ Point your reverse proxy at the frontend (`:3000`).
 All values are set in `.env`. The compose file maps them onto the app's environment variables
 for you. See [`.env.example`](../.env.example) for the annotated source of truth.
 
-| Variable | Required | Purpose |
-|----------|:--------:|---------|
-| `POSTGRES_PASSWORD` | ✅ | Password for the bundled Postgres. Use a long random string. |
-| `MUSIC_SOURCE_PATH` | ✅ | Host path to your existing library. Mounted **read-only**; never modified. |
-| `MUSIC_DESTINATION_PATH` | ✅ | Host path where the cleaned, organized copy is written. |
-| `OWNER_EMAIL` | ✅ | Admin account; sign in with this address. |
-| `PUBLIC_BASE_URL` | ✅ | The external URL you reach the app at (used for magic links + Spotify redirects). |
+Nothing is strictly required for a localhost trial — every value defaults. The first five
+(**Core**) must be set for any real deployment.
+
+| Variable | Trial default | Purpose |
+|----------|:-------------:|---------|
+| `POSTGRES_PASSWORD` | `musichoarder-dev` | Password for the bundled Postgres. Trial default is OK only because Postgres isn't published on the host; use a long random string for real installs. |
+| `MUSIC_SOURCE_PATH` | `./music-source` | Host path to your existing library. Mounted **read-only**; never modified. |
+| `MUSIC_DESTINATION_PATH` | `./music-destination` | Host path where the cleaned, organized copy is written. |
+| `OWNER_EMAIL` | `owner@musichoarder.local` | Admin account; sign in with this address. Just an identifier unless Resend is configured. |
+| `PUBLIC_BASE_URL` | `http://localhost:3000` | The external URL you reach the app at (used for magic links + Spotify redirects). Set for LAN/proxy access. |
 | `MUSICHOARDER_VERSION` | — | Pin a release tag instead of `latest`. |
 | `ACOUSTID_API_KEY` | — | Audio-fingerprint identification. Strongly recommended (see below). |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | — | Spotify metadata enrichment + OAuth. |
@@ -64,9 +86,11 @@ for you. See [`.env.example`](../.env.example) for the annotated source of truth
 
 MusicHoarder uses passwordless **magic-link** sign-in.
 
-1. Open the frontend and enter your `OWNER_EMAIL`.
+1. Open the frontend and enter your `OWNER_EMAIL` (default: `owner@musichoarder.local`).
 2. If you configured Resend, the link arrives by email. **If you didn't** (`RESEND_API_KEY`
-   blank), the link is written to the API logs instead:
+   blank), the link is written to the API logs instead — the API announces this mode in its
+   logs at startup, and the login page reminds you after you submit. The link only appears
+   *after* you request one on the login page:
 
    ```bash
    docker compose logs api | grep -i magic
@@ -211,6 +235,11 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
   identification, the pipeline can't confidently match most tracks.
 - **Logged out after every restart** — the `musichoarder-dpkeys` volume isn't persisting. Make
   sure it's a named volume (it is in the shipped compose) and not being recreated.
+- **Postgres auth failures after setting `POSTGRES_PASSWORD`** — Postgres only reads the
+  password at first boot; it's baked into the `postgres-data` volume. If you trialed with the
+  default and then set a real password, either run
+  `docker compose exec postgres psql -U postgres -c "ALTER USER postgres PASSWORD '<new>';"`
+  before changing `.env`, or wipe the volume (`docker compose down -v` — destroys the catalog).
 - **Permission errors on the music mounts** — the container must be able to *read* the source and
   *write* the destination. On a NAS, check the dataset/share ownership and ACLs for the user the
   container runs as. The source mount is read-only by design (`:ro`).
