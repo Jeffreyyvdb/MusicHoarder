@@ -15,6 +15,8 @@ namespace MusicHoarder.Api.Download;
 public class WishlistDownloadProcessor(
     IEnumerable<IDownloadProvider> downloadProviders,
     DownloadProgressTracker progressTracker,
+    IMusicVideoDownloader musicVideoDownloader,
+    MusicVideoChannel musicVideoChannel,
     IOptions<MusicEnricherOptions> options,
     ILogger<WishlistDownloadProcessor> logger)
 {
@@ -108,7 +110,7 @@ public class WishlistDownloadProcessor(
         // Downloads hit the network/disk only — no DB access — so the parallel section is EF-safe.
         // Parallel.ForEachAsync already bounds in-flight bodies to MaxDegreeOfParallelism, so no extra
         // semaphore is needed.
-        var results = new Dictionary<int, (DownloadResult Result, string ProviderName)>();
+        var results = new Dictionary<int, (DownloadResult Result, string ProviderName, MusicVideoDownloadResult? Video)>();
         var resultsLock = new object();
         if (toDownload.Count > 0)
         {
@@ -136,7 +138,21 @@ public class WishlistDownloadProcessor(
                     // the download intact and just falls back to whatever tags the file carries.
                     if (result.Success && result.FilePath is not null)
                         DownloadTagWriter.Stamp(result.FilePath, item.Artist, item.Title, item.Album, item.Isrc, logger);
-                    lock (resultsLock) results[item.Id] = (result, providerName);
+                    // Companion music video: a second yt-dlp fetch, pinned to the exact video the audio
+                    // came from when the audio provider knows it (SourceId), else the item's pasted
+                    // YouTube URL, else a search. The pin is provenance (not explicit), so an
+                    // audio-only source upload gets swapped for a real music video by search. Network/
+                    // disk only, so it stays in the DB-free section. A video failure never fails the
+                    // item — the audio is the product. The item's own import-dialog choice overrides
+                    // the server default in both directions.
+                    MusicVideoDownloadResult? video = null;
+                    if ((item.DownloadMusicVideo ?? opts.DownloadMusicVideos) && result.Success)
+                        video = await musicVideoDownloader.DownloadAsync(
+                            new MusicVideoFetchRequest(
+                                result.SourceId ?? item.SourceUrl, PinIsExplicit: false,
+                                item.Artist, item.Title, item.DurationMs),
+                            token);
+                    lock (resultsLock) results[item.Id] = (result, providerName, video);
                 });
         }
 
@@ -155,7 +171,7 @@ public class WishlistDownloadProcessor(
                 continue;
             }
 
-            var (result, providerName) = entry;
+            var (result, providerName, video) = entry;
             item.DownloadProvider = providerName;
             item.AttemptCount += 1;
             item.UpdatedAtUtc = finishedAt;
@@ -165,6 +181,14 @@ public class WishlistDownloadProcessor(
                 item.Status = WishlistItemStatus.Downloaded;
                 item.DownloadedFilePath = NormalizePath(result.FilePath);
                 item.LastError = null;
+                if (video is { Success: true, FilePath: not null })
+                {
+                    item.DownloadedVideoFilePath = NormalizePath(video.FilePath);
+                    item.DownloadedVideoYouTubeId = video.YouTubeVideoId;
+                    // Offset 0 by construction only when the audio was extracted from this very video.
+                    item.DownloadedVideoIsSameSource =
+                        result.SourceId is not null && video.YouTubeVideoId == result.SourceId;
+                }
                 downloadedCount++;
                 progressTracker.IncrementDownloaded();
             }
@@ -254,7 +278,68 @@ public class WishlistDownloadProcessor(
                 db, ownerId, unlinked.Select(w => w.DownloadedSongId).OfType<int>(), ct);
         }
 
+        await PromoteDownloadedVideosAsync(db, unlinked, ct);
+
         return linked;
+    }
+
+    /// <summary>
+    /// Promotes a video carried on a now-linked wishlist item into the song's
+    /// <see cref="SongMusicVideo"/> row. Same-source videos (audio extracted from that exact video)
+    /// are Ready with offset 0 by construction; anything else starts <c>Unaligned</c> and an Align
+    /// work item estimates the real offset in the background. Idempotent: a song that already has a
+    /// video row is left alone.
+    /// </summary>
+    private async Task PromoteDownloadedVideosAsync(
+        MusicHoarderDbContext db, List<WishlistItem> items, CancellationToken ct)
+    {
+        var candidates = items
+            .Where(w => w.DownloadedSongId != null && w.DownloadedVideoFilePath != null)
+            .GroupBy(w => w.DownloadedSongId!.Value)
+            .Select(g => g.First())
+            .ToList();
+        if (candidates.Count == 0) return;
+
+        var songIds = candidates.Select(w => w.DownloadedSongId!.Value).ToList();
+        var existing = await db.SongMusicVideos
+            .IgnoreQueryFilters()
+            .Where(v => songIds.Contains(v.SongId))
+            .Select(v => v.SongId)
+            .ToListAsync(ct);
+        var existingSet = existing.ToHashSet();
+
+        var toAlign = new List<int>();
+        var now = DateTime.UtcNow;
+        foreach (var item in candidates)
+        {
+            var songId = item.DownloadedSongId!.Value;
+            if (existingSet.Contains(songId)) continue;
+            if (!File.Exists(item.DownloadedVideoFilePath!)) continue;
+
+            db.SongMusicVideos.Add(new SongMusicVideo
+            {
+                SongId = songId,
+                FilePath = item.DownloadedVideoFilePath,
+                YouTubeVideoId = item.DownloadedVideoYouTubeId,
+                Status = MusicVideoStatus.Ready,
+                SyncOffsetMs = 0,
+                SyncSource = item.DownloadedVideoIsSameSource
+                    ? MusicVideoSyncSource.SameSource
+                    : MusicVideoSyncSource.Unaligned,
+                FetchedAtUtc = now,
+            });
+            // Every promoted video visits the worker: it fetches the YouTube thumbnail (the artless-
+            // song cover fallback) and estimates the sync offset — the latter skipped for SameSource
+            // rows, whose offset is exact by construction.
+            toAlign.Add(songId);
+        }
+
+        if (db.ChangeTracker.HasChanges())
+        {
+            await db.SaveChangesAsync(ct);
+            foreach (var songId in toAlign)
+                musicVideoChannel.Enqueue(new MusicVideoWorkItem(songId, MusicVideoWorkKind.Align));
+        }
     }
 
     /// <summary>

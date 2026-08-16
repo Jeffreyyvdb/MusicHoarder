@@ -165,8 +165,15 @@ public class FingerprintBackgroundService(
             if (_permanentlyFailed.Count > 0)
                 query = query.Where(s => !_permanentlyFailed.Contains(s.Id));
 
-            batch = await query
-                .OrderBy(s => s.Id)
+            // Explicitly-acquired tracks (the download staging root) jump the queue: a fresh import
+            // must not fingerprint behind a whole-library backlog. Ordering by Id alone put new
+            // downloads LAST — they have the highest ids by definition.
+            var downloadPrefix = DownloadRootPrefix(opts);
+            var ordered = downloadPrefix is null
+                ? query.OrderBy(s => s.Id)
+                : query.OrderByDescending(s => s.SourcePath.StartsWith(downloadPrefix)).ThenBy(s => s.Id);
+
+            batch = await ordered
                 .Take(opts.FingerprintBatchSize)
                 .Select(s => new { s.Id, s.SourcePath })
                 .ToListAsync(ct)
@@ -189,7 +196,7 @@ public class FingerprintBackgroundService(
             },
             async (item, token) =>
             {
-                var outcome = await fpcalcService.GetFingerprintAsync(item.SourcePath, token);
+                var outcome = await fpcalcService.GetFingerprintAsync(item.SourcePath, ct: token);
                 lock (resultsLock)
                 {
                     results.Add((item.Id, outcome));
@@ -225,14 +232,24 @@ public class FingerprintBackgroundService(
 
         await db2.SaveChangesAsync(ct);
 
+        // Download-staged songs take the enrichment fast lane too — same reasoning as the batch
+        // ordering above: an explicit acquisition should not enrich behind a backfill sweep.
+        var pathById = batch.ToDictionary(b => b.Id, b => b.SourcePath);
+        var enqueuePrefix = DownloadRootPrefix(opts);
         var fingerprintedIds = results
             .Where(r => r.Outcome.Result is not null)
             .Select(r => r.Id)
             .ToList();
         if (fingerprintedIds.Count > 0)
         {
-            enrichmentChannel.EnqueueRange(fingerprintedIds);
-            logger.LogDebug("Enqueued {Count} fingerprinted songs for enrichment", fingerprintedIds.Count);
+            var priorityIds = enqueuePrefix is null
+                ? []
+                : fingerprintedIds.Where(id => pathById[id].StartsWith(enqueuePrefix, StringComparison.Ordinal)).ToList();
+            enrichmentChannel.EnqueueRangePriority(priorityIds);
+            enrichmentChannel.EnqueueRange(fingerprintedIds.Except(priorityIds));
+            logger.LogDebug(
+                "Enqueued {Count} fingerprinted songs for enrichment ({Priority} priority)",
+                fingerprintedIds.Count, priorityIds.Count);
         }
 
         var state = progressTracker.GetCurrent();
@@ -247,6 +264,18 @@ public class FingerprintBackgroundService(
     }
 
     /// <summary>Idle delay that returns false if the app is shutting down.</summary>
+    /// <summary>
+    /// The download staging root as a <see cref="SongMetadata.SourcePath"/> prefix (forward
+    /// slashes, trailing separator so "…/downloads-other" never matches), or null when unset.
+    /// </summary>
+    internal static string? DownloadRootPrefix(MusicEnricherOptions opts)
+    {
+        if (string.IsNullOrWhiteSpace(opts.DownloadDirectory))
+            return null;
+        var normalized = opts.DownloadDirectory.Replace('\\', '/').TrimEnd('/');
+        return normalized.Length == 0 ? null : normalized + "/";
+    }
+
     private static async Task<bool> DelayIdleAsync(int seconds, CancellationToken stoppingToken)
     {
         try

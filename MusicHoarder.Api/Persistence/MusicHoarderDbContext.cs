@@ -39,6 +39,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<ArtistAlias> ArtistAliases { get; set; } = null!;
     public DbSet<DedupDismissal> DedupDismissals { get; set; } = null!;
     public DbSet<SongProviderAttempt> SongProviderAttempts { get; set; } = null!;
+    public DbSet<SongMusicVideo> SongMusicVideos { get; set; } = null!;
     public DbSet<CanonicalAlbum> CanonicalAlbums { get; set; } = null!;
     public DbSet<AlbumCoverFetchAttempt> AlbumCoverFetchAttempts { get; set; } = null!;
     public DbSet<ArtistImage> ArtistImages { get; set; } = null!;
@@ -160,6 +161,20 @@ public class MusicHoarderDbContext : DbContext
             // Mirror Song's tenancy filter so this required dependent is filtered out exactly when
             // its principal would be (otherwise EF warns about the required relationship). Background
             // services that read this DbSet directly bypass via .IgnoreQueryFilters().
+            entity.HasQueryFilter(e => !hasUser || e.Song.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<SongMusicVideo>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.SongId).IsUnique();
+
+            entity.HasOne(e => e.Song)
+                .WithOne(s => s.MusicVideo)
+                .HasForeignKey<SongMusicVideo>(e => e.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Mirror Song's tenancy filter (see SongProviderAttempt above).
             entity.HasQueryFilter(e => !hasUser || e.Song.OwnerUserId == userId);
         });
 

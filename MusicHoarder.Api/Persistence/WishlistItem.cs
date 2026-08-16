@@ -122,6 +122,31 @@ public class WishlistItem
     public string? DownloadedFilePath { get; set; }
 
     /// <summary>
+    /// Per-item override of <c>MusicEnricher:DownloadMusicVideos</c>: the "Also download the music
+    /// video" choice made in the import dialog. Null (playlist-synced items, older rows) follows the
+    /// server flag.
+    /// </summary>
+    public bool? DownloadMusicVideo { get; set; }
+
+    /// <summary>
+    /// Absolute path of the companion music video (mp4), when the item's effective music-video
+    /// setting (<see cref="DownloadMusicVideo"/> ?? <c>MusicEnricher:DownloadMusicVideos</c>) was on
+    /// for this download. Carried here until the scanner ingests the audio file and
+    /// <c>LinkDownloadedItemsAsync</c> promotes it to a <see cref="SongMusicVideo"/> row.
+    /// </summary>
+    [MaxLength(2048)]
+    public string? DownloadedVideoFilePath { get; set; }
+
+    [MaxLength(32)]
+    public string? DownloadedVideoYouTubeId { get; set; }
+
+    /// <summary>
+    /// True when the audio was extracted by yt-dlp from the <em>same</em> YouTube video the clip was
+    /// downloaded from — sync offset is then 0 by construction (<see cref="MusicVideoSyncSource.SameSource"/>).
+    /// </summary>
+    public bool DownloadedVideoIsSameSource { get; set; }
+
+    /// <summary>
     /// The ingested library song this item resolved to (linked after the scanner picks up the file, or
     /// the already-owned song for a <see cref="WishlistItemStatus.SkippedOwned"/> item).
     /// </summary>

@@ -20,9 +20,16 @@ public record IndexResult(
 
 public interface IIndexService
 {
+    /// <summary>
+    /// Indexes one scan root. <paramref name="reportProgress"/> false runs silently — used by the
+    /// post-download fast ingest, which may run concurrently with a full scan job and must not
+    /// clobber that scan's progress display (<see cref="ScanProgressTracker.Start"/> overwrites the
+    /// current state unconditionally).
+    /// </summary>
     Task<IndexResult> IndexAsync(
         Guid scanId,
         string directoryPath,
+        bool reportProgress = true,
         CancellationToken cancellationToken = default);
 }
 
@@ -44,6 +51,7 @@ public class IndexService(
     public async Task<IndexResult> IndexAsync(
         Guid scanId,
         string directoryPath,
+        bool reportProgress = true,
         CancellationToken cancellationToken = default)
     {
         var startTime = DateTime.UtcNow;
@@ -161,12 +169,15 @@ public class IndexService(
         // ── Phase 3: Soft-delete files no longer on disk ──────────────────────
         var deletedCount = await MarkDeletedAsync(existingSongs.Keys, allDiscoveredPaths, cancellationToken);
 
-        progressTracker.Start(scanId, totalDiscovered);
-        progressTracker.AddSkipped(skippedCount);
+        if (reportProgress)
+        {
+            progressTracker.Start(scanId, totalDiscovered);
+            progressTracker.AddSkipped(skippedCount);
+        }
 
         if (filesToProcess.Count == 0)
         {
-            progressTracker.Complete(scanId);
+            if (reportProgress) progressTracker.Complete(scanId);
             return new IndexResult(totalDiscovered, newCount, changedCount, deletedCount, skippedCount, 0,
                 DateTime.UtcNow - startTime);
         }
@@ -230,24 +241,30 @@ public class IndexService(
 
                                 await processedChannel.Writer.WriteAsync(metadata, ct);
 
-                                if (newFilePaths.Contains(filePath))
-                                    progressTracker.IncrementNew();
-                                else
-                                    progressTracker.IncrementChanged();
+                                if (reportProgress)
+                                {
+                                    if (newFilePaths.Contains(filePath))
+                                        progressTracker.IncrementNew();
+                                    else
+                                        progressTracker.IncrementChanged();
+                                }
                             }
                             else
                             {
                                 Interlocked.Increment(ref failedCount);
-                                progressTracker.IncrementFailed();
+                                if (reportProgress) progressTracker.IncrementFailed();
                                 logger.LogWarning("Skipping {File}: scanner returned null", Path.GetFileName(filePath));
                             }
 
-                            var processed = progressTracker.GetCurrent()?.Processed ?? 0;
-                            if (processed % 100 == 0)
+                            if (reportProgress)
                             {
-                                logger.LogInformation(
-                                    "Progress {ScanId}: {Processed}/{Total} processed",
-                                    scanId, processed, filesToProcess.Count);
+                                var processed = progressTracker.GetCurrent()?.Processed ?? 0;
+                                if (processed % 100 == 0)
+                                {
+                                    logger.LogInformation(
+                                        "Progress {ScanId}: {Processed}/{Total} processed",
+                                        scanId, processed, filesToProcess.Count);
+                                }
                             }
                         }
                         finally
@@ -266,7 +283,7 @@ public class IndexService(
 
         await Task.WhenAll(processingTask, dbWriteTask);
 
-        progressTracker.Complete(scanId);
+        if (reportProgress) progressTracker.Complete(scanId);
 
         var duration = DateTime.UtcNow - startTime;
         logger.LogInformation(

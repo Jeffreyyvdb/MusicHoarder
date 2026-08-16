@@ -25,12 +25,14 @@
   import SourceRow from '$lib/components/file-browser/SourceRow.svelte';
   import SongTransport from '$lib/components/file-browser/SongTransport.svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
+  import VideoWatchTab from '$lib/components/file-browser/VideoWatchTab.svelte';
   import {
     artistLabelForSong,
     coverThumbUrl,
     coverUrlForSong,
     enrichSong,
     fetchEnrichmentDetail,
+    getSongVideoInfo,
     toPlayerSong,
     mapEnrichmentStatus,
     resetSongEnrichment,
@@ -47,7 +49,8 @@
     type EnrichmentDetail,
     type ProviderAttempt,
     type SongQualityGradeView,
-    type QualityVerdict
+    type QualityVerdict,
+    type SongVideoInfo
   } from '$lib/api-client';
   import { fingerprintBars, fingerprintHash, providerAttemptRows } from '$lib/review-helpers';
   import { formatDuration, formatFileSize } from '$lib/formatters';
@@ -74,15 +77,41 @@
   };
   const { album, song, trackIndex, onClose, onResetEnrichment, timelineHref }: Props = $props();
 
-  type TabId = 'metadata' | 'lyrics' | 'fingerprint' | 'enrichment';
-  const TAB_DEFS: { value: TabId; label: string }[] = [
+  type TabId = 'metadata' | 'lyrics' | 'video' | 'fingerprint' | 'enrichment';
+
+  // A music video attached to this song adds a Video tab (watch mode — the synced clip in a
+  // full frame, vs the ambient backdrop behind the panel).
+  let videoInfo = $state<SongVideoInfo | null>(null);
+  $effect(() => {
+    const id = song.id;
+    videoInfo = null;
+    let cancelled = false;
+    void getSongVideoInfo(id).then((info) => {
+      if (!cancelled) videoInfo = info;
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
+  const hasWatchableVideo = $derived(videoInfo?.status === 'Ready');
+
+  const TAB_DEFS = $derived<{ value: TabId; label: string }[]>([
     { value: 'metadata', label: 'Metadata' },
     { value: 'lyrics', label: 'Lyrics' },
+    ...(hasWatchableVideo ? [{ value: 'video' as const, label: 'Video' }] : []),
     { value: 'fingerprint', label: 'Fingerprint' },
     { value: 'enrichment', label: 'Enrichment' }
-  ];
+  ]);
 
   let activeTab = $state<TabId>('metadata');
+
+  // If the Video tab is open and the song changes to one without a video (or the video is
+  // removed), fall back rather than showing an empty tab.
+  $effect(() => {
+    if (activeTab === 'video' && videoInfo !== null && !hasWatchableVideo) {
+      activeTab = 'metadata';
+    }
+  });
 
   // The tab strip scrolls horizontally when it doesn't fit (phones), so keep the
   // active tab in view — otherwise switching to Enrichment, or opening the panel
@@ -1326,6 +1355,16 @@
       {/if}
       </div>
     </Tabs.Content>
+
+    {#if hasWatchableVideo}
+      <Tabs.Content value="video" class="flex min-h-0 flex-1 flex-col">
+        <VideoWatchTab
+          songId={song.id}
+          offsetMs={videoInfo?.syncOffsetMs ?? 0}
+          onPlayRequest={handlePlayToggle}
+        />
+      </Tabs.Content>
+    {/if}
 
     <Tabs.Content value="fingerprint" class="flex min-h-0 flex-1 flex-col">
       <ScrollArea class="min-h-0 flex-1">
