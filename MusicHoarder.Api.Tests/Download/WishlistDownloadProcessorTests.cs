@@ -122,6 +122,65 @@ public class WishlistDownloadProcessorTests : IDisposable
     }
 
     [Fact]
+    public async Task ProcessBatch_AlbumlessItem_StampsTheTrackTitleAsTheAlbum()
+    {
+        // A pasted YouTube video has no album; a blank ALBUM tag is what routes the build into a
+        // shared "Unknown Album" folder, so it is filed as a single named after the track.
+        await using var db = CreateDbContext();
+        var item = MakePending("track-1");
+        item.Title = "Untitled Jam";
+        item.Album = null;
+        db.WishlistItems.Add(item);
+        await db.SaveChangesAsync();
+
+        var produced = CopyFixtureToTemp("silence.opus");
+        var processor = CreateProcessor(new FakeDownloadProvider(_ => DownloadResult.Ok(produced)));
+
+        await processor.ProcessBatchAsync(db, Owner, default);
+
+        using var file = TagLib.File.Create(produced);
+        Assert.Equal("Untitled Jam", file.Tag.Album);
+    }
+
+    [Fact]
+    public async Task ProcessBatch_SuccessfulDownload_EmbedsTheItemsCoverArt()
+    {
+        await using var db = CreateDbContext();
+        var item = MakePending("track-1");
+        item.AlbumArt = "https://i.scdn.example/cover.jpg";
+        db.WishlistItems.Add(item);
+        await db.SaveChangesAsync();
+
+        var embedder = new FakeDownloadArtworkEmbedder();
+        var processor = CreateProcessor(
+            new FakeDownloadProvider(_ => DownloadResult.Ok("/src/wishlist/song.opus")),
+            artworkEmbedder: embedder);
+
+        await processor.ProcessBatchAsync(db, Owner, default);
+
+        var (filePath, imageUrl) = Assert.Single(embedder.Calls);
+        Assert.Equal("/src/wishlist/song.opus", filePath);
+        Assert.Equal("https://i.scdn.example/cover.jpg", imageUrl);
+    }
+
+    [Fact]
+    public async Task ProcessBatch_FailedDownload_DoesNotEmbedArtwork()
+    {
+        await using var db = CreateDbContext();
+        db.WishlistItems.Add(MakePending("track-1"));
+        await db.SaveChangesAsync();
+
+        var embedder = new FakeDownloadArtworkEmbedder();
+        var processor = CreateProcessor(
+            new FakeDownloadProvider(_ => DownloadResult.Missing("no results")),
+            artworkEmbedder: embedder);
+
+        await processor.ProcessBatchAsync(db, Owner, default);
+
+        Assert.Empty(embedder.Calls);
+    }
+
+    [Fact]
     public async Task ProcessBatch_NotFound_SetsNotFoundStatus()
     {
         await using var db = CreateDbContext();
@@ -696,7 +755,8 @@ public class WishlistDownloadProcessorTests : IDisposable
         int batchSize = 20,
         bool downloadMusicVideos = false,
         FakeMusicVideoDownloader? videoDownloader = null,
-        MusicVideoChannel? videoChannel = null)
+        MusicVideoChannel? videoChannel = null,
+        FakeDownloadArtworkEmbedder? artworkEmbedder = null)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
@@ -713,6 +773,7 @@ public class WishlistDownloadProcessorTests : IDisposable
             new DownloadProgressTracker(),
             videoDownloader ?? new FakeMusicVideoDownloader(),
             videoChannel ?? new MusicVideoChannel(),
+            artworkEmbedder ?? new FakeDownloadArtworkEmbedder(),
             options,
             NullLogger<WishlistDownloadProcessor>.Instance);
     }

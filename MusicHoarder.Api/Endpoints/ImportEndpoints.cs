@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
+using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Import;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
@@ -90,7 +91,9 @@ public static class ImportEndpoints
                     Source: "youtube",
                     Title: result.Title,
                     Artist: result.Artist,
-                    Album: null,
+                    // YouTube Music entries carry a real album; a plain video has none, so the preview
+                    // offers the single name the import would file it under (editable by the owner).
+                    Album: DownloadTagWriter.ResolveAlbum(result.Album, result.Title),
                     DurationMs: result.DurationMs,
                     CoverUrl: result.ThumbnailUrl,
                     SpotifyTrackId: null,
@@ -118,6 +121,10 @@ public static class ImportEndpoints
                 var artist = body.Artist?.Trim() ?? "";
                 if (title.Length == 0)
                     return Results.BadRequest(new { error = "title_required", message = "A title is required." });
+
+                // Never queue an albumless item — the downloader stamps this onto the file, and a blank
+                // album is what lands the track in an "Unknown Album" destination folder with no cover.
+                var album = DownloadTagWriter.ResolveAlbum(body.Album, title);
 
                 // Re-validate a supplied SourceUrl through the parser rather than trusting the client —
                 // yt-dlp downloads exactly what it's handed, so only accept a recognized YouTube URL and
@@ -150,7 +157,7 @@ public static class ImportEndpoints
                     existing.LastError = null;
                     existing.Title = title;
                     existing.Artist = artist;
-                    existing.Album = string.IsNullOrWhiteSpace(body.Album) ? existing.Album : body.Album!.Trim();
+                    existing.Album = album;
                     existing.Isrc = string.IsNullOrWhiteSpace(body.Isrc) ? existing.Isrc : body.Isrc!.Trim();
                     if (body.DurationMs is > 0) existing.DurationMs = body.DurationMs.Value;
                     if (!string.IsNullOrWhiteSpace(body.CoverUrl)) existing.AlbumArt = body.CoverUrl!.Trim();
@@ -168,7 +175,7 @@ public static class ImportEndpoints
                         SourceUrl = sourceUrl,
                         Title = title,
                         Artist = artist,
-                        Album = string.IsNullOrWhiteSpace(body.Album) ? null : body.Album!.Trim(),
+                        Album = album,
                         Isrc = string.IsNullOrWhiteSpace(body.Isrc) ? null : body.Isrc!.Trim(),
                         DurationMs = body.DurationMs is > 0 ? body.DurationMs.Value : 0,
                         AlbumArt = string.IsNullOrWhiteSpace(body.CoverUrl) ? null : body.CoverUrl!.Trim(),

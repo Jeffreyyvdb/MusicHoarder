@@ -269,6 +269,18 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<StreamingFlacDownloadProvider>();
         services.AddSingleton<IDownloadProvider>(sp => sp.GetRequiredService<StreamingFlacDownloadProvider>());
         services.AddSingleton<IUpgradeProvider>(sp => sp.GetRequiredService<StreamingFlacDownloadProvider>());
+        // Cover art for freshly-downloaded files (the wishlist item's Spotify album image / YouTube
+        // thumbnail) — plain image-CDN downloads, so no base address or per-provider throttle.
+        services.AddSingleton<IDownloadArtworkEmbedder>(sp =>
+        {
+            var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            httpClient.DefaultRequestHeaders.TryAddWithoutValidation(
+                "User-Agent", "MusicHoarder/1.0 (https://github.com/Jeffreyyvdb/MusicHoarder)");
+            return new DownloadArtworkEmbedder(
+                httpClient,
+                sp.GetRequiredService<IOptions<MusicEnricherOptions>>(),
+                sp.GetRequiredService<ILogger<DownloadArtworkEmbedder>>());
+        });
         services.AddScoped<WishlistDownloadProcessor>();
         services.AddHostedService<DownloadBackgroundService>();
         // Music videos ("clips"): companion YouTube fetch + audio↔video sync alignment worker.

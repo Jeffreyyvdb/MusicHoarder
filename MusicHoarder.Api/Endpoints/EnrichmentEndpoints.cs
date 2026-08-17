@@ -196,6 +196,7 @@ public static class EnrichmentEndpoints
                         await RestampWishlistDownloadsAsync(
                             db,
                             ownerId,
+                            scope.ServiceProvider.GetRequiredService<IDownloadArtworkEmbedder>(),
                             ids => channel.EnqueueRange(ids, label: "Re-stamp wishlist downloads"),
                             logger,
                             lifetime.ApplicationStopping);
@@ -485,17 +486,23 @@ public static class EnrichmentEndpoints
     /// each batch for re-enrichment as it completes (so progress shows on the status stream).
     /// Filters by <paramref name="ownerId"/> with <c>IgnoreQueryFilters</c> so it works the same in a
     /// request scope or a detached background scope (which has no current-user context). Idempotent.
-    /// Returns (requeued count, file-tags-rewritten count).
+    /// Also backfills the item's cover art into artless files, so it heals downloads that predate the
+    /// downloader embedding artwork. Returns (requeued count, file-tags-rewritten count).
     /// </summary>
     internal static async Task<(int Requeued, int FileStamped)> RestampWishlistDownloadsAsync(
-        MusicHoarderDbContext db, Guid ownerId, Action<IReadOnlyList<int>> enqueue, ILogger logger, CancellationToken ct)
+        MusicHoarderDbContext db,
+        Guid ownerId,
+        IDownloadArtworkEmbedder artworkEmbedder,
+        Action<IReadOnlyList<int>> enqueue,
+        ILogger logger,
+        CancellationToken ct)
     {
         // Map each linked song to its WishlistItem identity (a song satisfies at most one item via the
         // unique (owner, track) index; if several point at the same song, any is fine).
         var identities = await db.WishlistItems
             .IgnoreQueryFilters()
             .Where(w => w.OwnerUserId == ownerId && w.DownloadedSongId != null)
-            .Select(w => new { SongId = w.DownloadedSongId!.Value, w.Artist, w.Title, w.Album, w.Isrc })
+            .Select(w => new { SongId = w.DownloadedSongId!.Value, w.Artist, w.Title, w.Album, w.Isrc, w.AlbumArt })
             .ToListAsync(ct);
         var identityLookup = identities
             .GroupBy(x => x.SongId)
@@ -526,14 +533,24 @@ public static class EnrichmentEndpoints
                 if (string.IsNullOrWhiteSpace(id.Artist) && string.IsNullOrWhiteSpace(id.Title))
                     continue; // nothing authoritative to stamp
 
+                // An album-less item (a pasted YouTube video predating the single-naming rule) is
+                // filed as a single named after the track — this is also what heals a download that
+                // already landed in a shared "Unknown Album" folder. File and DB get the same value.
+                var album = DownloadTagWriter.ResolveAlbum(id.Album, id.Title);
+
                 // Rewrite the file tags (durable). Tolerant — a missing file (e.g. a prior build
                 // "file not found") still gets its DB identity fixed below.
-                if (DownloadTagWriter.Stamp(song.SourcePath, id.Artist, id.Title, id.Album, id.Isrc, logger))
+                if (DownloadTagWriter.Stamp(song.SourcePath, id.Artist, id.Title, album, id.Isrc, logger))
                     fileStamped++;
+
+                // Backfill cover art for files downloaded before the downloader embedded any (no-op
+                // when the file already has art, the item has no image, or the file is gone).
+                if (await artworkEmbedder.EmbedAsync(song.SourcePath, id.AlbumArt, ct))
+                    song.HasCoverArt = true;
 
                 song.Artist = NullIfEmpty(id.Artist);
                 song.Title = NullIfEmpty(id.Title);
-                song.Album = NullIfEmpty(id.Album);
+                song.Album = album;
                 song.AlbumArtist = ArtistCreditNormalizer.GetPrimaryArtist(id.Artist);
                 song.Isrc = NullIfEmpty(id.Isrc);
 

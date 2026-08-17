@@ -4,6 +4,7 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Tests.Download;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
 
@@ -61,7 +62,8 @@ public class RestampWishlistDownloadsTests : IDisposable
 
         var enqueued = new List<int>();
         var (requeued, fileStamped) = await EnrichmentEndpoints.RestampWishlistDownloadsAsync(
-            db, Owner, ids => enqueued.AddRange(ids), NullLogger.Instance, default);
+            db, Owner, new FakeDownloadArtworkEmbedder(), ids => enqueued.AddRange(ids),
+            NullLogger.Instance, default);
 
         Assert.Equal(1, requeued);
         Assert.Equal(1, fileStamped);
@@ -108,13 +110,81 @@ public class RestampWishlistDownloadsTests : IDisposable
 
         var enqueued = new List<int>();
         var (requeued, fileStamped) = await EnrichmentEndpoints.RestampWishlistDownloadsAsync(
-            db, Owner, ids => enqueued.AddRange(ids), NullLogger.Instance, default);
+            db, Owner, new FakeDownloadArtworkEmbedder(), ids => enqueued.AddRange(ids),
+            NullLogger.Instance, default);
 
         Assert.Equal(1, requeued);
         Assert.Equal(0, fileStamped); // file write skipped, DB still fixed
         var reloaded = await db.Songs.SingleAsync(s => s.Id == song.Id);
         Assert.Equal("Amy Macdonald", reloaded.Artist);
         Assert.Equal("This Is the Life", reloaded.Title);
+    }
+
+    [Fact]
+    public async Task Restamp_AlbumlessItem_IsFiledAsASingleNamedAfterTheTrack()
+    {
+        // A pasted YouTube video has no album. Left blank it builds into a shared "Unknown Album"
+        // folder, so the heal names it after the track — in the file and the DB row alike.
+        await using var db = CreateDbContext();
+        var file = CopyFixtureToTemp("silence.mp3");
+        var song = NewSong(file);
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        db.WishlistItems.Add(new WishlistItem
+        {
+            OwnerUserId = Owner,
+            SourceUrl = "https://www.youtube.com/watch?v=abc",
+            Artist = "Bedroom Producer",
+            Title = "Untitled Jam",
+            Album = null,
+            DurationMs = 200_000,
+            Status = WishlistItemStatus.Downloaded,
+            DownloadedSongId = song.Id,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        await EnrichmentEndpoints.RestampWishlistDownloadsAsync(
+            db, Owner, new FakeDownloadArtworkEmbedder(), _ => { }, NullLogger.Instance, default);
+
+        var reloaded = await db.Songs.SingleAsync(s => s.Id == song.Id);
+        Assert.Equal("Untitled Jam", reloaded.Album);
+        using var written = TagLib.File.Create(file);
+        Assert.Equal("Untitled Jam", written.Tag.Album);
+    }
+
+    [Fact]
+    public async Task Restamp_EmbedsTheItemsCoverArt_IntoArtlessFiles()
+    {
+        await using var db = CreateDbContext();
+        var song = NewSong("/data/downloads/song.opus");
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        db.WishlistItems.Add(new WishlistItem
+        {
+            OwnerUserId = Owner,
+            SpotifyTrackId = "track-1",
+            Artist = "Artist",
+            Title = "Title",
+            AlbumArt = "https://i.scdn.example/cover.jpg",
+            DurationMs = 200_000,
+            Status = WishlistItemStatus.Downloaded,
+            DownloadedSongId = song.Id,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var embedder = new FakeDownloadArtworkEmbedder();
+        await EnrichmentEndpoints.RestampWishlistDownloadsAsync(
+            db, Owner, embedder, _ => { }, NullLogger.Instance, default);
+
+        var (filePath, imageUrl) = Assert.Single(embedder.Calls);
+        Assert.Equal("/data/downloads/song.opus", filePath);
+        Assert.Equal("https://i.scdn.example/cover.jpg", imageUrl);
     }
 
     [Fact]
@@ -142,7 +212,8 @@ public class RestampWishlistDownloadsTests : IDisposable
 
         var enqueued = new List<int>();
         var (requeued, _) = await EnrichmentEndpoints.RestampWishlistDownloadsAsync(
-            db, Owner, ids => enqueued.AddRange(ids), NullLogger.Instance, default);
+            db, Owner, new FakeDownloadArtworkEmbedder(), ids => enqueued.AddRange(ids),
+            NullLogger.Instance, default);
 
         Assert.Equal(0, requeued);
         Assert.Empty(enqueued);

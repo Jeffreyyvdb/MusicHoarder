@@ -17,6 +17,17 @@ namespace MusicHoarder.Api.Download;
 public static class DownloadTagWriter
 {
     /// <summary>
+    /// The album a downloaded track is filed under: its own if the source knows one, otherwise the
+    /// track title. A blank album is what lands a download in a shared "Unknown Album" destination
+    /// folder — pooling unrelated one-offs into one fake album, and leaving the cover-art providers
+    /// (which search by album) nothing to look up. A track with no release is a single named after
+    /// itself, the same convention Spotify and MusicBrainz use. Enrichment still replaces it if the
+    /// track is later matched to a real release. Null only when neither is known.
+    /// </summary>
+    public static string? ResolveAlbum(string? album, string? title) =>
+        NullIfEmpty(album?.Trim()) ?? NullIfEmpty(title?.Trim());
+
+    /// <summary>
     /// Overwrites the file's ARTIST/TITLE/ALBUM/ALBUMARTIST/ISRC with the supplied identity and saves.
     /// Tolerant by design — a tag-write failure (unsupported container, missing/locked file) is logged
     /// and swallowed so it never fails the download or the backfill. Returns true when the file was

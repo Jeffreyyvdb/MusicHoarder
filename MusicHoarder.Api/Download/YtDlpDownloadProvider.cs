@@ -12,8 +12,9 @@ namespace MusicHoarder.Api.Download;
 /// It deliberately does NOT embed yt-dlp's metadata/thumbnail: the YouTube uploader channel lands in
 /// ARTIST and the full video title in TITLE, which poisons enrichment matching. The caller
 /// (<see cref="WishlistDownloadProcessor"/>) stamps the authoritative Spotify identity via
-/// <see cref="DownloadTagWriter"/> instead, and album art is supplied later by the destination
-/// cover-fetch pipeline.
+/// <see cref="DownloadTagWriter"/> instead, and embeds the item's own cover art via
+/// <see cref="IDownloadArtworkEmbedder"/> (the destination cover-fetch pipeline can still replace it
+/// once enrichment knows the release).
 /// </para>
 /// Degrades gracefully (returns a failure result) when the yt-dlp binary is missing, mirroring the
 /// fpcalc-absent handling.
