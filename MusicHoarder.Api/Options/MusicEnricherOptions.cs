@@ -835,6 +835,43 @@ public class MusicEnricherOptions
     /// </summary>
     public string YtDlpExtraArgs { get; set; } = string.Empty;
 
+    // ── Music videos (companion YouTube clip, played muted behind the player) ──
+
+    /// <summary>
+    /// When true, wishlist/import downloads also fetch the track's music video from YouTube (a
+    /// second yt-dlp invocation, so it works even when the audio came from slskd/spotiflac).
+    /// Default OFF: clips are ~50–150 MB each and double YouTube traffic. The manual per-song
+    /// "Fetch video" endpoint works regardless of this flag.
+    /// </summary>
+    public bool DownloadMusicVideos { get; set; } = false;
+
+    /// <summary>Maximum video height requested from YouTube (yt-dlp format filter). 720 is the disk-space relief valve.</summary>
+    [Range(144, 4320)]
+    public int MusicVideoMaxHeight { get; set; } = 1080;
+
+    /// <summary>
+    /// Directory music videos are written to. Empty resolves to
+    /// <c>&lt;DownloadDirectory&gt;/videos</c> — inside the staging root (one writable mount) but out
+    /// of the scanner's way (video extensions aren't indexed regardless).
+    /// </summary>
+    public string MusicVideoDirectory { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Widest audio-vs-video offset (seconds, either direction) the aligner searches when the song's
+    /// audio did not come from the video itself. Bounds the cross-correlation window and the extra
+    /// video-fingerprint length.
+    /// </summary>
+    [Range(5, 300)]
+    public int MusicVideoAlignMaxOffsetSeconds { get; set; } = 90;
+
+    /// <summary>
+    /// Maximum chromaprint bit-error-rate for an automatic alignment to be trusted. Above this the
+    /// video stays <c>Unaligned</c> (offset 0, manual nudge in the UI). Identical recordings score
+    /// ~0.05–0.15; unrelated audio ~0.5.
+    /// </summary>
+    [Range(0.05, 0.5)]
+    public double MusicVideoAlignMaxBitErrorRate { get; set; } = 0.35;
+
     // ── Album completion (own ≥1 track → auto-fill the rest) ────────────────
     // A background sweep that compares each owned album against its reconciled CanonicalAlbum
     // tracklist and queues the missing tracks as WishlistItemOrigin.AlbumCompletion items. Songs that

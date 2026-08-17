@@ -3,6 +3,7 @@
   import { Dialog as DialogPrimitive } from 'bits-ui';
   import { Loader2 } from '@lucide/svelte';
   import TrackPanel from '$lib/components/file-browser/TrackPanel.svelte';
+  import VideoBackdrop from '$lib/components/v2/VideoBackdrop.svelte';
   import { coverUrlForSong, coverThumbUrl } from '$lib/api-client';
   import { songDetail } from '$lib/stores/song-detail.svelte';
   import { songsStore } from '$lib/stores/songs.svelte';
@@ -71,23 +72,32 @@
     <DialogPrimitive.Content
       class="data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 fixed inset-0 z-[60] flex flex-col overflow-hidden outline-none duration-150"
     >
-      <!-- Ambient album-art backdrop + theme-aware scrim -->
-      {#if ambientUrl}
-        <img
-          src={ambientUrl}
-          alt=""
-          aria-hidden="true"
-          class="absolute inset-0 size-full scale-110 object-cover opacity-50 blur-3xl"
-        />
+      <!-- Backdrop: the song's muted music video (synced to the audio clock) when attached and
+           enabled, else the ambient blurred cover + theme-aware scrim. -->
+      {#if r}
+        <VideoBackdrop songId={r.song.id} {ambientUrl} />
+      {:else}
+        {#if ambientUrl}
+          <img
+            src={ambientUrl}
+            alt=""
+            aria-hidden="true"
+            class="absolute inset-0 size-full scale-110 object-cover opacity-50 blur-3xl"
+          />
+        {/if}
+        <div class="bg-background/80 absolute inset-0 backdrop-blur-2xl"></div>
       {/if}
-      <div class="bg-background/80 absolute inset-0 backdrop-blur-2xl"></div>
 
       <DialogPrimitive.Title class="sr-only">Track details</DialogPrimitive.Title>
       <DialogPrimitive.Description class="sr-only">
         View track metadata, lyrics, fingerprint, and enrichment sources
       </DialogPrimitive.Description>
 
-      <div class="relative z-10 flex h-full min-h-0 flex-col">
+      <!-- text-shadow inherits: a soft background-colored halo behind every piece of text keeps it
+           readable over a busy video backdrop, and is invisible against the plain ambient scrim. -->
+      <div
+        class="relative z-10 flex h-full min-h-0 flex-col [text-shadow:0_0_4px_var(--background),0_1px_14px_var(--background)]"
+      >
         {#if r}
           <TrackPanel
             album={r.album}

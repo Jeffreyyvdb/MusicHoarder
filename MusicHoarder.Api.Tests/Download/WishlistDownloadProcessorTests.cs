@@ -422,6 +422,229 @@ public class WishlistDownloadProcessorTests : IDisposable
         Assert.Equal(SongAcquisitionIntent.Explicit, stamped.AcquisitionIntent);
     }
 
+    [Fact]
+    public async Task ProcessBatch_MusicVideosEnabled_SameVideoId_RecordsSameSourceVideo()
+    {
+        await using var db = CreateDbContext();
+        db.WishlistItems.Add(MakePending("track-1"));
+        await db.SaveChangesAsync();
+
+        var provider = new FakeDownloadProvider(_ => DownloadResult.Ok("/downloads/audio.opus", sourceId: "vid-1"));
+        var videos = new FakeMusicVideoDownloader
+        {
+            OnDownload = req => MusicVideoDownloadResult.Ok("/downloads/videos/clip.mp4", req.PinnedIdOrUrl ?? "vid-1", 212),
+        };
+        var processor = CreateProcessor(provider, downloadMusicVideos: true, videoDownloader: videos);
+
+        await processor.ProcessBatchAsync(db, Owner, default);
+
+        // Pinned to the exact video the audio came from (offset 0 by construction downstream).
+        var call = Assert.Single(videos.Calls);
+        Assert.Equal("vid-1", call.PinnedIdOrUrl);
+        var item = await db.WishlistItems.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal("/downloads/videos/clip.mp4", item.DownloadedVideoFilePath);
+        Assert.Equal("vid-1", item.DownloadedVideoYouTubeId);
+        Assert.True(item.DownloadedVideoIsSameSource);
+    }
+
+    [Fact]
+    public async Task ProcessBatch_MusicVideosEnabled_NoAudioSourceId_NotSameSource()
+    {
+        // Audio from a provider without a video id (slskd/spotiflac) → the clip comes from a search
+        // and can never be same-source, even when the fetch succeeds.
+        await using var db = CreateDbContext();
+        db.WishlistItems.Add(MakePending("track-1"));
+        await db.SaveChangesAsync();
+
+        var provider = new FakeDownloadProvider(_ => DownloadResult.Ok("/downloads/audio.flac"));
+        var videos = new FakeMusicVideoDownloader
+        {
+            OnDownload = _ => MusicVideoDownloadResult.Ok("/downloads/videos/clip.mp4", "vid-9", null),
+        };
+        var processor = CreateProcessor(provider, downloadMusicVideos: true, videoDownloader: videos);
+
+        await processor.ProcessBatchAsync(db, Owner, default);
+
+        var call = Assert.Single(videos.Calls);
+        Assert.Null(call.PinnedIdOrUrl);
+        var item = await db.WishlistItems.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal("vid-9", item.DownloadedVideoYouTubeId);
+        Assert.False(item.DownloadedVideoIsSameSource);
+    }
+
+    [Fact]
+    public async Task ProcessBatch_VideoFailure_NeverFailsTheItem()
+    {
+        await using var db = CreateDbContext();
+        db.WishlistItems.Add(MakePending("track-1"));
+        await db.SaveChangesAsync();
+
+        var provider = new FakeDownloadProvider(_ => DownloadResult.Ok("/downloads/audio.opus", sourceId: "vid-1"));
+        var videos = new FakeMusicVideoDownloader
+        {
+            OnDownload = _ => MusicVideoDownloadResult.Failed("yt-dlp exploded"),
+        };
+        var processor = CreateProcessor(provider, downloadMusicVideos: true, videoDownloader: videos);
+
+        await processor.ProcessBatchAsync(db, Owner, default);
+
+        var item = await db.WishlistItems.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(WishlistItemStatus.Downloaded, item.Status);
+        Assert.Null(item.LastError);
+        Assert.Null(item.DownloadedVideoFilePath);
+    }
+
+    [Fact]
+    public async Task ProcessBatch_MusicVideosDisabled_NeverCallsVideoDownloader()
+    {
+        await using var db = CreateDbContext();
+        db.WishlistItems.Add(MakePending("track-1"));
+        await db.SaveChangesAsync();
+
+        var videos = new FakeMusicVideoDownloader();
+        var processor = CreateProcessor(
+            new FakeDownloadProvider(_ => DownloadResult.Ok("/downloads/audio.opus", sourceId: "vid-1")),
+            videoDownloader: videos);
+
+        await processor.ProcessBatchAsync(db, Owner, default);
+
+        Assert.Empty(videos.Calls);
+    }
+
+    [Fact]
+    public async Task ProcessBatch_PerItemOptIn_OverridesDisabledServerFlag()
+    {
+        // The import dialog's "Also download the music video" choice wins over the global default.
+        await using var db = CreateDbContext();
+        var item = MakePending("track-1");
+        item.DownloadMusicVideo = true;
+        db.WishlistItems.Add(item);
+        await db.SaveChangesAsync();
+
+        var videos = new FakeMusicVideoDownloader
+        {
+            OnDownload = _ => MusicVideoDownloadResult.Ok("/downloads/videos/clip.mp4", "vid-1", null),
+        };
+        var processor = CreateProcessor(
+            new FakeDownloadProvider(_ => DownloadResult.Ok("/downloads/audio.opus", sourceId: "vid-1")),
+            videoDownloader: videos); // downloadMusicVideos stays false
+
+        await processor.ProcessBatchAsync(db, Owner, default);
+
+        Assert.Single(videos.Calls);
+        var reloaded = await db.WishlistItems.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal("/downloads/videos/clip.mp4", reloaded.DownloadedVideoFilePath);
+    }
+
+    [Fact]
+    public async Task ProcessBatch_PerItemOptOut_OverridesEnabledServerFlag()
+    {
+        await using var db = CreateDbContext();
+        var item = MakePending("track-1");
+        item.DownloadMusicVideo = false;
+        db.WishlistItems.Add(item);
+        await db.SaveChangesAsync();
+
+        var videos = new FakeMusicVideoDownloader();
+        var processor = CreateProcessor(
+            new FakeDownloadProvider(_ => DownloadResult.Ok("/downloads/audio.opus", sourceId: "vid-1")),
+            downloadMusicVideos: true,
+            videoDownloader: videos);
+
+        await processor.ProcessBatchAsync(db, Owner, default);
+
+        Assert.Empty(videos.Calls);
+    }
+
+    [Fact]
+    public async Task LinkDownloadedItems_SameSourceVideo_PromotesToReadyRow_KeepingExactOffset()
+    {
+        await using var db = CreateDbContext();
+        var videoPath = MakeTempVideoFile();
+        var song = AddSong(db, "/downloads/song.opus");
+        var item = MakeLinkable(song.SourcePath, WishlistItemOrigin.UserRequested);
+        item.DownloadedVideoFilePath = videoPath;
+        item.DownloadedVideoYouTubeId = "vid-1";
+        item.DownloadedVideoIsSameSource = true;
+        db.WishlistItems.Add(item);
+        await db.SaveChangesAsync();
+
+        var channel = new MusicVideoChannel();
+        await CreateProcessor(new FakeDownloadProvider(_ => DownloadResult.Missing()), videoChannel: channel)
+            .LinkDownloadedItemsAsync(db, Owner, default);
+
+        var row = await db.SongMusicVideos.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(song.Id, row.SongId);
+        Assert.Equal(MusicVideoStatus.Ready, row.Status);
+        Assert.Equal(MusicVideoSyncSource.SameSource, row.SyncSource);
+        Assert.Equal(0, row.SyncOffsetMs);
+        // The worker still visits the row (thumbnail ensure); its guard skips realignment for
+        // SameSource so the exact offset survives.
+        Assert.True(channel.Reader.TryRead(out var work));
+        Assert.Equal(new MusicVideoWorkItem(song.Id, MusicVideoWorkKind.Align), work);
+    }
+
+    [Fact]
+    public async Task LinkDownloadedItems_ForeignVideo_PromotesUnalignedAndEnqueuesAlignment()
+    {
+        await using var db = CreateDbContext();
+        var videoPath = MakeTempVideoFile();
+        var song = AddSong(db, "/downloads/song.flac");
+        var item = MakeLinkable(song.SourcePath, WishlistItemOrigin.UserRequested);
+        item.DownloadedVideoFilePath = videoPath;
+        item.DownloadedVideoYouTubeId = "vid-2";
+        item.DownloadedVideoIsSameSource = false;
+        db.WishlistItems.Add(item);
+        await db.SaveChangesAsync();
+
+        var channel = new MusicVideoChannel();
+        await CreateProcessor(new FakeDownloadProvider(_ => DownloadResult.Missing()), videoChannel: channel)
+            .LinkDownloadedItemsAsync(db, Owner, default);
+
+        var row = await db.SongMusicVideos.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(MusicVideoSyncSource.Unaligned, row.SyncSource);
+        Assert.True(channel.Reader.TryRead(out var work));
+        Assert.Equal(new MusicVideoWorkItem(song.Id, MusicVideoWorkKind.Align), work);
+    }
+
+    [Fact]
+    public async Task LinkDownloadedItems_ExistingVideoRow_IsLeftAlone()
+    {
+        await using var db = CreateDbContext();
+        var videoPath = MakeTempVideoFile();
+        var song = AddSong(db, "/downloads/song.opus");
+        db.SongMusicVideos.Add(new SongMusicVideo
+        {
+            SongId = song.Id,
+            FilePath = "/existing/clip.mp4",
+            Status = MusicVideoStatus.Ready,
+            SyncSource = MusicVideoSyncSource.Manual,
+            SyncOffsetMs = 1500,
+            FetchedAtUtc = DateTime.UtcNow,
+        });
+        var item = MakeLinkable(song.SourcePath, WishlistItemOrigin.UserRequested);
+        item.DownloadedVideoFilePath = videoPath;
+        item.DownloadedVideoIsSameSource = true;
+        db.WishlistItems.Add(item);
+        await db.SaveChangesAsync();
+
+        await CreateProcessor(new FakeDownloadProvider(_ => DownloadResult.Missing()))
+            .LinkDownloadedItemsAsync(db, Owner, default);
+
+        var row = await db.SongMusicVideos.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal("/existing/clip.mp4", row.FilePath);
+        Assert.Equal(MusicVideoSyncSource.Manual, row.SyncSource);
+        Assert.Equal(1500, row.SyncOffsetMs);
+    }
+
+    private string MakeTempVideoFile()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"mh-wishdl-{Guid.NewGuid():N}.mp4");
+        File.WriteAllBytes(path, [0x00]);
+        tempFiles.Add(path);
+        return path;
+    }
+
     private static SongMetadata AddSong(MusicHoarderDbContext db, string sourcePath)
     {
         var song = new SongMetadata
@@ -468,7 +691,12 @@ public class WishlistDownloadProcessorTests : IDisposable
         UpdatedAtUtc = DateTime.UtcNow,
     };
 
-    private static WishlistDownloadProcessor CreateProcessor(IDownloadProvider provider, int batchSize = 20)
+    private static WishlistDownloadProcessor CreateProcessor(
+        IDownloadProvider provider,
+        int batchSize = 20,
+        bool downloadMusicVideos = false,
+        FakeMusicVideoDownloader? videoDownloader = null,
+        MusicVideoChannel? videoChannel = null)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
@@ -478,10 +706,13 @@ public class WishlistDownloadProcessorTests : IDisposable
             DownloadProvider = "fake",
             DownloadConcurrency = 2,
             WishlistDownloadBatchSize = batchSize,
+            DownloadMusicVideos = downloadMusicVideos,
         });
         return new WishlistDownloadProcessor(
             [provider],
             new DownloadProgressTracker(),
+            videoDownloader ?? new FakeMusicVideoDownloader(),
+            videoChannel ?? new MusicVideoChannel(),
             options,
             NullLogger<WishlistDownloadProcessor>.Instance);
     }

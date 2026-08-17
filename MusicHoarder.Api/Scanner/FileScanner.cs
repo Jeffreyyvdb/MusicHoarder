@@ -74,7 +74,7 @@ public class FileScanner(
             FpcalcResult? fpcalcResult = null;
             if (!tagsOnly)
             {
-                fpcalcResult = (await fpcalcService.GetFingerprintAsync(filePath, ct)).Result;
+                fpcalcResult = (await fpcalcService.GetFingerprintAsync(filePath, ct: ct)).Result;
             }
 
             var indexedAt = DateTime.UtcNow;

@@ -14,6 +14,7 @@ public static class AuthEndpoints
                 RequestLinkBody body,
                 HttpContext ctx,
                 IAuthService authService,
+                IMagicLinkSender magicLinkSender,
                 IOptions<FrontendOptions> frontendOptions,
                 CancellationToken ct) =>
             {
@@ -34,8 +35,16 @@ public static class AuthEndpoints
                         ct);
 
                     // 200 OK whether or not the email exists, to avoid user enumeration. In dev,
-                    // include the link directly for click-through.
-                    return Results.Ok(new { ok = true, magicLinkUrl = result?.DevMagicLinkUrl });
+                    // include the link directly for click-through. magicLinkInLogs is config-level
+                    // (identical for known and unknown emails), so returning it stays
+                    // enumeration-safe; the raw link itself remains Development-only — never ship
+                    // it in Production responses.
+                    return Results.Ok(new
+                    {
+                        ok = true,
+                        magicLinkUrl = result?.DevMagicLinkUrl,
+                        magicLinkInLogs = magicLinkSender.IsConsoleFallback,
+                    });
                 }
                 catch (Exception)
                 {

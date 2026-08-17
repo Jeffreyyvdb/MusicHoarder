@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { AlertTriangle, Check, Clapperboard, Loader2, Music } from '@lucide/svelte';
+  import { AlertTriangle, Check, Clapperboard, Film, Loader2, Music } from '@lucide/svelte';
   import * as Dialog from '$lib/components/ui/dialog';
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
+  import { Switch } from '$lib/components/ui/switch';
   import { importTrack, resolveImportUrl, type ImportResolveResult } from '$lib/api-client';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
@@ -16,6 +17,7 @@
   let error = $state<string | null>(null);
   let submitting = $state(false);
   let done = $state<string | null>(null);
+  let downloadVideo = $state(false);
 
   // Clear transient state whenever the dialog closes so it reopens fresh. Depends only on `open`.
   $effect(() => {
@@ -43,6 +45,9 @@
       resolved = r;
       title = r.title;
       artist = r.artist;
+      // A pasted YouTube link IS the video — default the clip download on there; Spotify
+      // imports would fetch a video by search, so leave that an explicit opt-in.
+      downloadVideo = r.source === 'youtube';
     } catch (err) {
       error = err instanceof Error ? err.message : 'Could not resolve that link.';
     } finally {
@@ -69,7 +74,8 @@
         coverUrl: r.coverUrl,
         spotifyTrackId: r.spotifyTrackId,
         isrc: r.isrc,
-        sourceUrl: r.sourceUrl
+        sourceUrl: r.sourceUrl,
+        downloadMusicVideo: downloadVideo
       });
       done = res.jobStarted
         ? 'Downloading now — it’ll appear in your library once processed.'
@@ -187,6 +193,26 @@
             {/if}
           </div>
         </div>
+
+        <label
+          class="border-border bg-card flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5"
+        >
+          <span class="flex items-center gap-2 text-[13px]">
+            <Film class="text-muted-foreground size-4" />
+            <span class="flex flex-col">
+              <span>Also download the music video</span>
+              <span class="text-muted-foreground text-[11px]">
+                Plays muted behind the full-screen player, synced to the song.
+              </span>
+            </span>
+          </span>
+          <Switch
+            checked={downloadVideo}
+            onCheckedChange={(v: boolean) => (downloadVideo = v)}
+            disabled={submitting}
+            aria-label="Also download the music video"
+          />
+        </label>
       {/if}
     </div>
 

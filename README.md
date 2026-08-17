@@ -250,19 +250,21 @@ grading, and the experimental AI lyrics transcription each have their own config
 
 Run MusicHoarder on your own box or NAS with Docker. The shipped `docker-compose.yml` **pulls
 prebuilt images** from GHCR (`ghcr.io/jeffreyyvdb/musichoarder/{api,frontend}`) — no repo checkout
-or build toolchain required. You only need two files: the compose file and an `.env`.
+or build toolchain required. A localhost trial needs just the compose file:
 
 ```bash
 mkdir musichoarder && cd musichoarder
 curl -fsSLO https://raw.githubusercontent.com/Jeffreyyvdb/MusicHoarder/main/docker-compose.yml
-curl -fsSL  https://raw.githubusercontent.com/Jeffreyyvdb/MusicHoarder/main/.env.example -o .env
-nano .env          # fill in the 5 required values
 docker compose up -d
 ```
 
-Required values in `.env`: `POSTGRES_PASSWORD`, `MUSIC_SOURCE_PATH`, `MUSIC_DESTINATION_PATH`,
-`OWNER_EMAIL`, and `PUBLIC_BASE_URL`. The web UI is then at `http://<host-ip>:3000` (API at
-`:5050`); migrations apply automatically.
+The web UI is then at `http://localhost:3000` (API at `:5050`); migrations apply automatically.
+Sign in as `owner@musichoarder.local` — the login link is printed to the API logs
+(`docker compose logs api | grep -i magic`), no email service needed.
+
+An `.env` is optional for the trial — every value has a working localhost default. For a real
+deployment, grab [`.env.example`](.env.example) and set `POSTGRES_PASSWORD`, `MUSIC_SOURCE_PATH`,
+`MUSIC_DESTINATION_PATH`, `OWNER_EMAIL`, and `PUBLIC_BASE_URL`.
 
 The app serves plain HTTP — put it behind your own reverse proxy for TLS and point
 `PUBLIC_BASE_URL` at the external URL.

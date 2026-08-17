@@ -117,6 +117,16 @@ public class YtDlpDownloadProviderTests
         Assert.Equal(expected, YtDlpDownloadProvider.LooksLikeNoResults(stderr));
     }
 
+    [Theory]
+    [InlineData("dQw4w9WgXcQ\n", "dQw4w9WgXcQ")]
+    [InlineData("\n  dQw4w9WgXcQ  \n", "dQw4w9WgXcQ")]
+    [InlineData("", null)]
+    [InlineData("\n\n", null)]
+    public void ParseFirstLine_ReadsPrintedVideoId(string stdout, string? expected)
+    {
+        Assert.Equal(expected, YtDlpDownloadProvider.ParseFirstLine(stdout));
+    }
+
     private static string NewTempDir()
     {
         var dir = Path.Combine(Path.GetTempPath(), "mh-ytdlp-tests", Guid.NewGuid().ToString("N"));

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Audio;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Logging;
 using MusicHoarder.Api.Options;
@@ -23,6 +24,7 @@ public class UpgradeMergeService(
     MusicHoarderDbContext db,
     JobManager jobManager,
     IOwnerLookupService ownerLookup,
+    MusicVideoChannel musicVideoChannel,
     IOptionsMonitor<SlskdOptions> slskdOptions,
     IOptions<MusicEnricherOptions> enricherOptions,
     ILogger<UpgradeMergeService> logger)
@@ -157,8 +159,22 @@ public class UpgradeMergeService(
         if (target.IsDuplicate)
             target.ClearDuplicate();
         target.ResetLibraryBuild();
+        // The song's audio is now a different recording, so any music-video sync offset — including a
+        // Manual one, which was nudged against the OLD audio — is stale. Reset and re-align against
+        // the fingerprint ApplySourceUpgrade just installed.
+        var musicVideo = await db.SongMusicVideos
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(v => v.SongId == target.Id, ct);
+        if (musicVideo is not null)
+        {
+            musicVideo.SyncOffsetMs = 0;
+            musicVideo.SyncSource = MusicVideoSyncSource.Unaligned;
+            musicVideo.SyncConfidence = null;
+        }
         request.MarkTerminal(UpgradeRequestStatus.Completed);
         await db.SaveChangesAsync(ct);
+        if (musicVideo is not null)
+            musicVideoChannel.Enqueue(new MusicVideoWorkItem(target.Id, MusicVideoWorkKind.Align));
 
         DeleteOldSourceFile(oldSourcePath);
 
