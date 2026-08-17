@@ -1654,6 +1654,67 @@ export function getSongStreamUrl(songId: number): string {
   return `${API_PREFIX}/songs/${songId}/stream`
 }
 
+// ── Music videos (muted clip behind the full-screen player, slaved to the audio clock) ─────
+
+export interface SongVideoInfo {
+  status: "Fetching" | "Ready" | "Failed"
+  /** videoTime = audioTime + syncOffsetMs / 1000 (positive = the video has an intro). */
+  syncOffsetMs: number
+  syncSource: "SameSource" | "AutoAligned" | "Manual" | "Unaligned"
+  syncConfidence?: number | null
+  durationSeconds?: number | null
+  youTubeVideoId?: string | null
+  fetchedAtUtc: string
+  lastError?: string | null
+}
+
+/** Sync + status info for the song's music video; null when none is attached. */
+export async function getSongVideoInfo(songId: number): Promise<SongVideoInfo | null> {
+  try {
+    return await requestJson<SongVideoInfo>(`/songs/${songId}/video`)
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null
+    throw err
+  }
+}
+
+export function getSongVideoStreamUrl(songId: number): string {
+  return `${API_PREFIX}/songs/${songId}/video/stream`
+}
+
+/**
+ * Queue a background YouTube fetch of the song's music video (~30–60s; poll
+ * {@link getSongVideoInfo} until status leaves "Fetching"). Pass a YouTube URL to pin the exact
+ * video; omitted, the backend searches by artist/title.
+ */
+export async function fetchSongVideo(songId: number, url?: string): Promise<SongVideoInfo> {
+  return requestJson<SongVideoInfo>(`/songs/${songId}/video/fetch`, {
+    method: "POST",
+    body: JSON.stringify({ url: url ?? null }),
+  })
+}
+
+/** Manually nudge the audio↔video sync offset (marks it Manual). */
+export async function setSongVideoOffset(songId: number, offsetMs: number): Promise<SongVideoInfo> {
+  return requestJson<SongVideoInfo>(`/songs/${songId}/video/offset`, {
+    method: "PATCH",
+    body: JSON.stringify({ offsetMs }),
+  })
+}
+
+/** Discard a manual/auto offset and re-run automatic alignment in the background. */
+export async function resetSongVideoOffset(songId: number): Promise<SongVideoInfo> {
+  return requestJson<SongVideoInfo>(`/songs/${songId}/video/offset`, {
+    method: "PATCH",
+    body: JSON.stringify({ resetToAuto: true }),
+  })
+}
+
+/** Remove the song's music video (deletes the downloaded file). */
+export async function deleteSongVideo(songId: number): Promise<void> {
+  await fetch(`${API_PREFIX}/songs/${songId}/video`, { method: "DELETE", cache: "no-store" })
+}
+
 /**
  * Proxy URL for a track's album artwork. The endpoint 404s when the track has no art. Pass `size`
  * (CSS px) to get a small cached WebP thumbnail instead of the full-resolution original — the backend
@@ -2180,6 +2241,8 @@ export interface ImportTrackPayload {
   spotifyTrackId?: string | null
   isrc?: string | null
   sourceUrl?: string | null
+  /** "Also download the music video" — omit/null to follow the server default. */
+  downloadMusicVideo?: boolean | null
 }
 
 export interface ImportTrackResult {

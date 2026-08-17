@@ -281,6 +281,68 @@ public class SongMediaEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task GetSongCover_NoRealArt_FallsBackToMusicVideoThumbnail()
+    {
+        var sourcePath = TempFile("song.mp3");
+        var videoPath = TempFile("clip.mp4");
+        var thumbnailPath = TempFile("clip.jpg"); // sibling <stem>.jpg convention
+
+        await using var db = NewContext();
+        var song = NewSong(sourcePath, "song.mp3");
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+        db.SongMusicVideos.Add(new SongMusicVideo
+        {
+            SongId = song.Id,
+            FilePath = videoPath,
+            Status = MusicVideoStatus.Ready,
+            FetchedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var resolver = new FakeCoverArtResolver(null); // no folder/embedded art anywhere
+        var thumbs = new FakeThumbnailService(null);
+        var http = new DefaultHttpContext();
+
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, resolver, thumbs, http, null);
+
+        var file = Assert.IsType<PhysicalFileHttpResult>(result);
+        Assert.Equal(thumbnailPath, file.FileName);
+        Assert.Equal("image/jpeg", file.ContentType);
+    }
+
+    [Fact]
+    public async Task GetSongCover_RealArtWins_OverMusicVideoThumbnail()
+    {
+        var sourcePath = TempFile("song.mp3");
+        var coverPath = TempFile("cover.jpg");
+        var videoPath = TempFile("clip.mp4");
+        TempFile("clip.jpg");
+
+        await using var db = NewContext();
+        var song = NewSong(sourcePath, "song.mp3");
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+        db.SongMusicVideos.Add(new SongMusicVideo
+        {
+            SongId = song.Id,
+            FilePath = videoPath,
+            Status = MusicVideoStatus.Ready,
+            FetchedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var resolver = new FakeCoverArtResolver(new ResolvedCover { FilePath = coverPath, ContentType = "image/jpeg" });
+        var thumbs = new FakeThumbnailService(null);
+        var http = new DefaultHttpContext();
+
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, resolver, thumbs, http, null);
+
+        var file = Assert.IsType<PhysicalFileHttpResult>(result);
+        Assert.Equal(coverPath, file.FileName);
+    }
+
+    [Fact]
     public async Task GetSongCover_FileCover_NoSize_ReturnsPhysicalFile_WithShortCache()
     {
         var sourcePath = TempFile("song.mp3");

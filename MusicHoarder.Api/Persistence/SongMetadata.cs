@@ -339,6 +339,9 @@ public class SongMetadata
 
     public ICollection<SongProviderAttempt> ProviderAttempts { get; set; } = new List<SongProviderAttempt>();
 
+    /// <summary>The optional YouTube music video attached to this song (one per song).</summary>
+    public SongMusicVideo? MusicVideo { get; set; }
+
     // --- Lyrics ---
 
     public string? PlainLyrics { get; set; }

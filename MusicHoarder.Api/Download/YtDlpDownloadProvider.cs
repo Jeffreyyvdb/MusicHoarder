@@ -52,6 +52,13 @@ public class YtDlpDownloadProvider(
             };
             psi.ArgumentList.Add("--no-playlist");
             psi.ArgumentList.Add("--no-progress");
+            // Print the resolved video id (works for ytsearch1: targets too) so the caller knows which
+            // exact video the audio came from — the companion music-video download reuses it to fetch
+            // the same video, making the sync offset 0 by construction. --print alone implies
+            // --simulate; --no-simulate keeps the download running.
+            psi.ArgumentList.Add("--no-simulate");
+            psi.ArgumentList.Add("--print");
+            psi.ArgumentList.Add("%(id)s");
             // Prefer a native opus/webm stream so extraction can copy rather than re-encode.
             psi.ArgumentList.Add("-f");
             psi.ArgumentList.Add("bestaudio[ext=webm]/bestaudio");
@@ -110,7 +117,7 @@ public class YtDlpDownloadProvider(
             var produced = LocateProducedFile(req.DestinationDirectory, stem);
 
             if (produced is not null)
-                return DownloadResult.Ok(produced);
+                return DownloadResult.Ok(produced, ParseFirstLine(outputTask.Result));
 
             // No file came out. Distinguish "nothing matched" from a real failure.
             if (process.ExitCode == 0 || LooksLikeNoResults(stderr))
@@ -205,6 +212,11 @@ public class YtDlpDownloadProvider(
         if (current.Length > 0)
             yield return current.ToString();
     }
+
+    /// <summary>First non-empty stdout line — the `--print "%(id)s"` output — or null.</summary>
+    internal static string? ParseFirstLine(string stdout) =>
+        stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault(l => l.Length > 0);
 
     internal static bool LooksLikeNoResults(string stderr) =>
         stderr.Contains("no results", StringComparison.OrdinalIgnoreCase)

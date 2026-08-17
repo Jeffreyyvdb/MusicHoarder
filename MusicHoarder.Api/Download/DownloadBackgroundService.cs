@@ -124,15 +124,17 @@ public class DownloadBackgroundService(
                 var wasCancelled = ct.IsCancellationRequested && !stoppingToken.IsCancellationRequested;
                 jobManager.SignalComplete(jobId, wasCancelled);
 
-                // New files landed in the source tree — wake the scanner so the pipeline ingests them.
-                // Flag the scan to cascade all the way to the library even when AutoStartPipeline is off:
-                // a download/import is an explicit acquisition, so it shouldn't stall in manual mode.
-                if (!wasCancelled && producedFiles
-                    && jobManager.TryStartJob(JobType.Scan, out var scanJobId, out _))
-                {
-                    jobManager.MarkForcePipelineCascade(scanJobId);
-                    logger.LogInformation("Auto-triggered scan {ScanJobId} after download run {RunId}", scanJobId, jobId);
-                }
+                // New files landed in the staging dir — ingest them NOW instead of queueing a full
+                // scan job. A full scan sweeps the entire (possibly huge, network-mounted) source
+                // library before it reaches the downloads root, and can't even start while another
+                // scan is running — either way a just-imported track would sit "Downloaded" for
+                // minutes. The downloads root is tiny, so a direct, progress-silent index takes
+                // seconds, may safely run alongside an in-flight scan (per-root reconciliation),
+                // and hands the rows straight to fingerprinting, which cascades per-row into
+                // enrichment. This is an explicit acquisition, so it must not stall in manual
+                // (AutoStartPipeline off) mode — the fingerprint trigger below is an explicit job.
+                if (!wasCancelled && producedFiles)
+                    await FastIngestDownloadsAsync(opts.DownloadDirectory, jobId, stoppingToken);
 
                 logger.LogInformation("Download run {RunId} {Outcome}", jobId, wasCancelled ? "cancelled" : "complete");
             }
@@ -148,6 +150,45 @@ public class DownloadBackgroundService(
                 jobManager.SignalFailed(jobId);
                 logger.LogError(ex, "Download run {RunId} failed", jobId);
                 await Task.Delay(TimeSpan.FromSeconds(opts.DownloadIdleDelaySeconds), stoppingToken);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Fast post-download ingest: index only the downloads root (seconds), link the fresh rows to
+    /// their wishlist items right away (so the UI shows the track the moment it exists), then kick
+    /// fingerprinting. Falls back to the old full-scan trigger if the direct index fails.
+    /// </summary>
+    private async Task FastIngestDownloadsAsync(string downloadDirectory, Guid downloadRunId, CancellationToken ct)
+    {
+        try
+        {
+            using (var scope = scopeFactory.CreateScope())
+            {
+                var indexService = scope.ServiceProvider.GetRequiredService<Scanner.IIndexService>();
+                var result = await indexService.IndexAsync(Guid.NewGuid(), downloadDirectory, reportProgress: false, ct);
+                logger.LogInformation(
+                    "Fast-ingested downloads after run {RunId}: {New} new, {Changed} changed in {Duration:F1}s",
+                    downloadRunId, result.NewFiles, result.ChangedFiles, result.Duration.TotalSeconds);
+            }
+
+            await RunInScopeAsync((db, processor, ownerId) =>
+                processor.LinkDownloadedItemsAsync(db, ownerId, ct), ct);
+
+            if (jobManager.TryStartJob(JobType.Fingerprint, out var fpJobId, out _))
+                logger.LogInformation("Auto-triggered fingerprint {FpJobId} after download run {RunId}", fpJobId, downloadRunId);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Fast ingest after download run {RunId} failed — falling back to a scan job", downloadRunId);
+            if (jobManager.TryStartJob(JobType.Scan, out var scanJobId, out _))
+            {
+                jobManager.MarkForcePipelineCascade(scanJobId);
+                logger.LogInformation("Auto-triggered scan {ScanJobId} after download run {RunId}", scanJobId, downloadRunId);
             }
         }
     }

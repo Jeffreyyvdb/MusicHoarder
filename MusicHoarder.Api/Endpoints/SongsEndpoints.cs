@@ -859,7 +859,21 @@ public static class SongsEndpoints
         if (song is null || song.IsSynthetic)
             return Results.NotFound();
 
-        return await ServeCoverAsync(song, coverArtResolver, thumbnails, http, size);
+        // A song with an attached music video keeps its YouTube thumbnail next to the mp4
+        // (<stem>.jpg) — the fallback cover for artless downloads until real art arrives.
+        string? videoThumbnail = null;
+        var videoFilePath = await db.SongMusicVideos.AsNoTracking()
+            .Where(v => v.SongId == id)
+            .Select(v => v.FilePath)
+            .FirstOrDefaultAsync();
+        if (videoFilePath is not null)
+        {
+            var candidate = Path.ChangeExtension(videoFilePath, ".jpg");
+            if (File.Exists(candidate))
+                videoThumbnail = candidate;
+        }
+
+        return await ServeCoverAsync(song, coverArtResolver, thumbnails, http, size, videoThumbnail);
     }
 
     /// <summary>
@@ -871,7 +885,8 @@ public static class SongsEndpoints
         ICoverArtResolver coverArtResolver,
         ICoverThumbnailService thumbnails,
         HttpContext http,
-        int? size)
+        int? size,
+        string? musicVideoThumbnailPath = null)
     {
         var filePath = ResolveAudioFilePath(song);
 
@@ -889,6 +904,10 @@ public static class SongsEndpoints
         {
             cover = coverArtResolver.Resolve(song.DestinationPath);
         }
+
+        // Last resort: the music video's YouTube thumbnail (real art always wins when present).
+        if (cover is null && musicVideoThumbnailPath is not null)
+            cover = new ResolvedCover { FilePath = musicVideoThumbnailPath, ContentType = "image/jpeg" };
 
         if (cover is null)
             return Results.NotFound();

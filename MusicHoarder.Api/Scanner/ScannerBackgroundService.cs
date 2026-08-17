@@ -25,12 +25,14 @@ public class ScannerBackgroundService(
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, jobToken);
             var ct = linkedCts.Token;
 
-            // Scan roots: the (read-only) source library when reachable, plus the writable wishlist
-            // download staging dir when configured & present. Each root reconciles deletions only
-            // within its own path prefix, so an offline source root never wipes downloaded tracks.
+            // Scan roots: the writable wishlist download staging dir when configured & present,
+            // then the (read-only) source library when reachable. Each root reconciles deletions
+            // only within its own path prefix, so an offline source root never wipes downloaded
+            // tracks. The small app-managed roots go FIRST: they hold explicitly-acquired tracks
+            // (downloads normally fast-ingest directly, so this is the crash-recovery path), and
+            // sweeping them takes seconds — putting the potentially huge, network-mounted source
+            // library last means a recovered download isn't stuck behind a minutes-long sweep.
             var roots = new List<string>();
-            if (directoryAvailability.Current.SourceAvailable)
-                roots.Add(options.Value.SourceDirectory);
             var downloadDir = options.Value.DownloadDirectory;
             if (!string.IsNullOrWhiteSpace(downloadDir) && Directory.Exists(downloadDir))
                 roots.Add(downloadDir);
@@ -42,6 +44,8 @@ public class ScannerBackgroundService(
             if (syncOptions.Value.Mode == SyncMode.Receive
                 && !string.IsNullOrWhiteSpace(syncedDir) && Directory.Exists(syncedDir))
                 roots.Add(syncedDir);
+            if (directoryAvailability.Current.SourceAvailable)
+                roots.Add(options.Value.SourceDirectory);
 
             if (roots.Count == 0)
             {
@@ -61,7 +65,7 @@ public class ScannerBackgroundService(
                 var newOrChanged = 0;
                 foreach (var root in roots)
                 {
-                    var result = await indexService.IndexAsync(jobId, root, ct);
+                    var result = await indexService.IndexAsync(jobId, root, cancellationToken: ct);
                     newOrChanged += result.NewFiles + result.ChangedFiles;
 
                     logger.LogInformation(

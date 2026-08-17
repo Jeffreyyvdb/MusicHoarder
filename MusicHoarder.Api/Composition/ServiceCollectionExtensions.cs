@@ -271,6 +271,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IUpgradeProvider>(sp => sp.GetRequiredService<StreamingFlacDownloadProvider>());
         services.AddScoped<WishlistDownloadProcessor>();
         services.AddHostedService<DownloadBackgroundService>();
+        // Music videos ("clips"): companion YouTube fetch + audio↔video sync alignment worker.
+        // Independent of the download provider chain so slskd/spotiflac audio still gets a clip.
+        services.AddSingleton<IMusicVideoDownloader, MusicVideoDownloader>();
+        services.AddSingleton<MusicVideoChannel>();
+        services.AddScoped<MusicVideoAlignmentService>();
+        services.AddHostedService<MusicVideoBackgroundService>();
         // Album completion: queues the tracks missing from albums the owner already holds part of, as
         // ordinary (lower-priority) wishlist items. Its own slow loop, so the throttle stays predictable.
         services.AddScoped<AlbumCompletionSweep>();
