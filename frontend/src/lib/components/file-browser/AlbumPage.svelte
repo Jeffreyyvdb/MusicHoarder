@@ -5,6 +5,7 @@
     Clock,
     Copy,
     Disc3,
+    Download,
     Eye,
     EyeOff,
     Fingerprint,
@@ -34,7 +35,9 @@
     formatFileSize,
     formatTotalDuration
   } from '$lib/formatters';
+  import { SvelteSet } from 'svelte/reactivity';
   import {
+    acquireCanonicalTrack,
     copyAlbumDossier,
     fetchAlbumDetail,
     gradeAlbum,
@@ -276,6 +279,26 @@
     }
   }
 
+  // ── acquiring a missing track ───────────────────────────────────────────────
+  // The manual counterpart to the album-completion sweep: it works with that switched off, which is
+  // how you'd try the feature the first time. The queued track is stamped AlbumFill like any other,
+  // so it shows up in All tracks and on this page but stays out of My music until you like it.
+  const acquiring = new SvelteSet<number>();
+  const acquired = new SvelteSet<number>();
+
+  async function onAcquire(canonicalTrackId: number) {
+    if (acquiring.has(canonicalTrackId) || acquired.has(canonicalTrackId)) return;
+    acquiring.add(canonicalTrackId);
+    try {
+      await acquireCanonicalTrack(canonicalTrackId);
+      acquired.add(canonicalTrackId);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not queue that track');
+    } finally {
+      acquiring.delete(canonicalTrackId);
+    }
+  }
+
   /** Web-search URL so the user can go find a track they're missing. */
   function findUrl(title: string): string {
     const q = `${album?.artist ?? ''} ${title}`.trim();
@@ -372,7 +395,7 @@
   <ScrollArea bind:viewportRef={scrollViewport} class="min-h-0 flex-1">
     <!-- Hero -->
     <div
-      class="mh-album-hero relative px-6 pt-12 pb-7 text-white sm:px-9"
+      class="mh-album-hero relative px-6 pt-9 pb-5 text-white sm:px-9"
       style="background: {heroBackground};"
     >
       <a
@@ -383,23 +406,23 @@
         All albums
       </a>
 
-      <div class="relative z-10 flex flex-col items-start gap-6 sm:flex-row sm:gap-8">
-        <div class="w-[clamp(124px,26vw,232px)] shrink-0">
+      <div class="relative z-10 flex flex-col items-start gap-4 sm:flex-row sm:items-end sm:gap-6">
+        <div class="w-[clamp(104px,16vw,168px)] shrink-0">
           <Cover
             artist={album.artist}
             title={album.title}
             coverUrl={album.coverUrl}
-            size={232}
+            size={168}
             corner={6}
             class="aspect-square !h-auto !w-full !shadow-[0_24px_48px_rgba(0,0,0,0.35)]"
           />
         </div>
         <div class="min-w-0 flex-1 pb-2">
           <div class="text-[11px] font-semibold tracking-wider opacity-85 uppercase">Album</div>
-          <h1 class="mt-3 text-[clamp(40px,6vw,88px)] leading-[0.95] font-extrabold tracking-[-0.03em] [text-wrap:balance]">
+          <h1 class="mt-1.5 text-[clamp(24px,3.4vw,44px)] leading-[1] font-extrabold tracking-[-0.03em] [text-wrap:balance]">
             {album.title}
           </h1>
-          <div class="mt-5 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[13px] opacity-90">
+          <div class="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[13px] opacity-90">
             <span class="inline-flex items-center gap-2 font-semibold">
               <span
                 class="ring-2 ring-white/50 inline-block size-4 rounded-full"
@@ -509,7 +532,7 @@
          narrow viewports, so the row scrolls horizontally (hidden scrollbar) like the
          section sub-nav — every control stays reachable instead of being cut off. -->
     <div
-      class="no-scrollbar border-border flex items-center gap-3 overflow-x-auto border-b bg-gradient-to-b from-black/5 to-transparent px-6 py-5 sm:px-9 dark:from-white/5"
+      class="no-scrollbar border-border flex items-center gap-3 overflow-x-auto border-b bg-gradient-to-b from-black/5 to-transparent px-6 py-3 sm:px-9 dark:from-white/5"
     >
       <button
         type="button"
@@ -719,9 +742,14 @@
               isCurrentlyLoaded && 'text-primary'
             )}
           >
-            <span class="text-muted-foreground relative grid place-items-center text-right">
+            <span class="text-muted-foreground relative grid h-full place-items-center text-right">
               <!-- Button first so the index/equalizer can hide off its `peer` focus state:
-                   exactly one of the two is ever visible. -->
+                   exactly one of the two is ever visible. The index/equalizer must stay
+                   `pointer-events-none`: once hover fades it to `opacity-0` it becomes a
+                   stacking context and paints *over* the absolutely positioned button, so
+                   it would otherwise swallow the click — the press and release then resolve
+                   to different nodes and the browser retargets `click` to this wrapper,
+                   which reads as a row click and opens the detail panel instead of playing. -->
               <button
                 type="button"
                 onclick={(e) => playTrack(song, e)}
@@ -740,7 +768,7 @@
               {#if isCurrentlyLoaded}
                 <span
                   class={cn(
-                    'mh-eq text-primary group-hover:opacity-0 peer-focus-visible:opacity-0',
+                    'mh-eq text-primary pointer-events-none group-hover:opacity-0 peer-focus-visible:opacity-0',
                     isCurrentlyPlaying && 'is-playing'
                   )}
                   aria-hidden="true"
@@ -749,7 +777,7 @@
                 </span>
               {:else}
                 <span
-                  class="font-mono text-sm tabular-nums transition-opacity group-hover:opacity-0 peer-focus-visible:opacity-0"
+                  class="pointer-events-none font-mono text-sm tabular-nums transition-opacity group-hover:opacity-0 peer-focus-visible:opacity-0"
                 >
                   {numLabel}
                 </span>
@@ -849,14 +877,33 @@
             </span>
             <div class="min-w-0">
               <div class="text-muted-foreground/70 truncate text-sm font-medium">{row.title}</div>
-              <a
-                href={findUrl(row.title)}
-                target="_blank"
-                rel="noopener noreferrer"
-                class="text-muted-foreground/60 hover:text-primary mt-0.5 inline-flex items-center gap-1 text-[11px] transition-colors"
-              >
-                <Search class="size-3" /> Find this track
-              </a>
+              <div class="mt-0.5 flex items-center gap-3">
+                {#if row.canonicalTrackId != null}
+                  <button
+                    type="button"
+                    disabled={acquiring.has(row.canonicalTrackId)}
+                    onclick={() => onAcquire(row.canonicalTrackId!)}
+                    class="text-muted-foreground/60 hover:text-primary inline-flex items-center gap-1 text-[11px] transition-colors disabled:opacity-50"
+                    title="Queue this track for download"
+                  >
+                    {#if acquiring.has(row.canonicalTrackId)}
+                      <Loader2 class="size-3 animate-spin" /> Queueing…
+                    {:else if acquired.has(row.canonicalTrackId)}
+                      <Check class="size-3" /> Queued
+                    {:else}
+                      <Download class="size-3" /> Get this track
+                    {/if}
+                  </button>
+                {/if}
+                <a
+                  href={findUrl(row.title)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-muted-foreground/60 hover:text-primary inline-flex items-center gap-1 text-[11px] transition-colors"
+                >
+                  <Search class="size-3" /> Find this track
+                </a>
+              </div>
             </div>
             <span class="text-muted-foreground/40 hidden font-mono text-[11px] sm:inline">—</span>
             <span class="text-muted-foreground/40 hidden font-mono text-[11px] sm:inline">—</span>

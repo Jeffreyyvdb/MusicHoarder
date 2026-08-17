@@ -1,119 +1,42 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
-  import {
-    ArrowDown,
-    ArrowUp,
-    Clock,
-    FileText,
-    Heart,
-    ListMusic,
-    Music2,
-    Pause,
-    Play,
-    Shuffle
-  } from '@lucide/svelte';
+  import { ArrowDown, ArrowUp, Clock, Heart, ListMusic, Pause, Play } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
   import Cover from '$lib/components/file-browser/Cover.svelte';
-  import { formatDuration, formatFileSize, formatTotalDuration, formatFamily } from '$lib/formatters';
+  import { formatDuration, formatFamily, formatFileSize } from '$lib/formatters';
   import {
     albumKeyForSong,
     coverUrlForSong,
     isSpotifySourced,
     mapEnrichmentStatus,
-    songAddedTime,
     songOriginLabel,
-    spotifyAddedTime,
     toPlayerSong,
     type ApiSong
   } from '$lib/api-client';
+  import {
+    artistOf,
+    hasLyrics,
+    matchValue,
+    titleOf,
+    type SortKey,
+    type TrackListView
+  } from '$lib/track-list-view.svelte';
   import { playerStore } from '$lib/stores/player.svelte';
   import { songsStore } from '$lib/stores/songs.svelte';
-  import { cn, shuffle } from '$lib/utils';
+  import { cn } from '$lib/utils';
 
   type Props = {
-    songs: ApiSong[];
-    searchQuery: string;
+    /**
+     * Filter/sort state, owned by the page so its toolbar can render the chips
+     * and the "X of Y" summary while this component renders the rows and the
+     * sortable column headers. See $lib/track-list-view.svelte.ts.
+     */
+    view: TrackListView;
     isLoading: boolean;
     selectedId?: number | null;
     onSelect: (song: ApiSong) => void;
-    /**
-     * Suppress the big "All Tracks" title + stats band (used by the v2 Library
-     * shell, where the page header + active tab already provide that context).
-     * The Shuffle / Clear-filters actions move into the filter-chips row instead.
-     */
-    hideHeading?: boolean;
-    /** Initial sort ('liked' = recently liked first, used by the Liked songs page). */
-    initialSortKey?: SortKey;
   };
-  const {
-    songs,
-    searchQuery,
-    isLoading,
-    selectedId = null,
-    onSelect,
-    hideHeading = false,
-    initialSortKey = 'added'
-  }: Props = $props();
+  const { view, isLoading, selectedId = null, onSelect }: Props = $props();
 
-  type SortKey =
-    | 'added'
-    | 'liked'
-    | 'spotify'
-    | 'title'
-    | 'artist'
-    | 'album'
-    | 'year'
-    | 'size'
-    | 'match'
-    | 'dur';
-  const STRING_KEYS: SortKey[] = ['title', 'artist', 'album'];
-  const SORT_LABELS: Record<SortKey, string> = {
-    added: 'added',
-    liked: 'liked',
-    spotify: 'Spotify save date',
-    title: 'title',
-    artist: 'artist',
-    album: 'album',
-    year: 'year',
-    size: 'size',
-    match: 'match',
-    dur: 'duration'
-  };
-
-  // Deliberately the initial value only — the user's header clicks own the sort after mount.
-  let sortKey = $state<SortKey>(untrack(() => initialSortKey));
-  let sortDir = $state<'asc' | 'desc'>('desc');
-  let lyricsOnly = $state(false);
-  let spotifyOnly = $state(false);
-
-  /**
-   * The Spotify filter carries its own order: newest save first, matching how the tracks appear in
-   * Spotify itself. Turning it off restores the list's normal ordering rather than leaving the user
-   * on a sort key nothing else can reach.
-   */
-  function toggleSpotifyOnly() {
-    spotifyOnly = !spotifyOnly;
-    sortKey = spotifyOnly ? 'spotify' : initialSortKey;
-    sortDir = 'desc';
-  }
-
-  const UNKNOWN_ARTIST = 'Unknown Artist';
-
-  // Album-artist-preferred, matching buildArtistGroups / the `?artist=` browse filter.
-  function artistOf(s: ApiSong): string {
-    return (s.albumArtist ?? s.artist ?? '').trim() || UNKNOWN_ARTIST;
-  }
-  function titleOf(s: ApiSong): string {
-    return (s.title ?? s.fileName).trim() || s.fileName;
-  }
-  function hasLyrics(s: ApiSong): boolean {
-    return Boolean(s.hasSyncedLyrics || s.hasPlainLyrics || s.lrclibId);
-  }
-  /** Stored match confidence, or null when the pipeline never recorded one — never invented. */
-  function matchValue(s: ApiSong): number | null {
-    if (typeof s.matchConfidence !== 'number') return null;
-    return Math.max(0, Math.min(1, s.matchConfidence));
-  }
   function artistHref(s: ApiSong): string {
     return `/library?artist=${encodeURIComponent(artistOf(s))}`;
   }
@@ -121,83 +44,7 @@
     return `/library?album=${encodeURIComponent(albumKeyForSong(s))}`;
   }
 
-  const filtered = $derived.by(() => {
-    let r = songs;
-    const q = searchQuery.trim().toLowerCase();
-    if (q) {
-      r = r.filter(
-        (s) =>
-          titleOf(s).toLowerCase().includes(q) ||
-          artistOf(s).toLowerCase().includes(q) ||
-          (s.album ?? '').toLowerCase().includes(q)
-      );
-    }
-    if (lyricsOnly) r = r.filter(hasLyrics);
-    if (spotifyOnly) r = r.filter(isSpotifySourced);
-    return r;
-  });
-
-  const sorted = $derived.by(() => {
-    const r = [...filtered];
-    // null = "not known for this track" (only Match today); those always sort last.
-    const pick = (s: ApiSong): string | number | null => {
-      switch (sortKey) {
-        case 'title':
-          return titleOf(s).toLowerCase();
-        case 'artist':
-          return artistOf(s).toLowerCase();
-        case 'album':
-          return (s.album ?? '').toLowerCase();
-        case 'year':
-          return s.year ?? 0;
-        case 'size':
-          return s.fileSizeBytes ?? 0;
-        case 'dur':
-          return s.durationSeconds ?? 0;
-        case 'match':
-          return matchValue(s);
-        case 'liked':
-          return s.likedAtUtc ? Date.parse(s.likedAtUtc) : 0;
-        case 'spotify':
-          return spotifyAddedTime(s);
-        case 'added':
-        default:
-          return songAddedTime(s);
-      }
-    };
-    r.sort((a, b) => {
-      const av = pick(a);
-      const bv = pick(b);
-      if (av == null || bv == null) return av == null ? (bv == null ? 0 : 1) : -1;
-      if (typeof av === 'string' && typeof bv === 'string') {
-        const c = av.localeCompare(bv);
-        return sortDir === 'asc' ? c : -c;
-      }
-      return sortDir === 'asc'
-        ? (av as number) - (bv as number)
-        : (bv as number) - (av as number);
-    });
-    return r;
-  });
-
-  function toggleSort(k: SortKey) {
-    if (sortKey === k) {
-      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-    } else {
-      sortKey = k;
-      sortDir = STRING_KEYS.includes(k) ? 'asc' : 'desc';
-    }
-  }
-
-  const stats = $derived.by(() => ({
-    count: filtered.length,
-    totalSec: filtered.reduce((n, s) => n + (s.durationSeconds ?? 0), 0),
-    totalBytes: filtered.reduce((n, s) => n + (s.fileSizeBytes ?? 0), 0)
-  }));
-
-  const albumCount = $derived(new Set(songs.map((s) => albumKeyForSong(s))).size);
-  const hasFilters = $derived(lyricsOnly || spotifyOnly);
-  const spotifyCount = $derived(songs.filter(isSpotifySourced).length);
+  const sorted = $derived(view.sorted);
 
   function playFrom(target: ApiSong) {
     const list = sorted;
@@ -214,12 +61,6 @@
         description: err instanceof Error ? err.message : undefined
       });
     }
-  }
-
-  function shuffleTracks() {
-    if (sorted.length === 0) return;
-    const queue = shuffle(sorted).map((s) => toPlayerSong(s, artistOf(s)));
-    void playerStore.playSong(queue[0], queue, 0);
   }
 
   // ── Virtualization ────────────────────────────────────────────────────────
@@ -265,14 +106,17 @@
   });
 
   // Jump back to the top whenever the visible set changes shape, so the user
-  // isn't left scrolled past the end of a now-shorter list.
+  // isn't left scrolled past the end of a now-shorter list. Deliberately watches
+  // the individual filter/sort keys and NOT `view.sorted` — that array
+  // re-derives on every live songsStore refresh, which would yank the user back
+  // to row 0 mid-browse.
   $effect(() => {
     // referenced for reactivity
-    void searchQuery;
-    void lyricsOnly;
-    void spotifyOnly;
-    void sortKey;
-    void sortDir;
+    void view.searchQuery;
+    void view.lyricsOnly;
+    void view.spotifyOnly;
+    void view.sortKey;
+    void view.sortDir;
     if (scrollEl) scrollEl.scrollTop = 0;
     scrollTop = 0;
   });
@@ -281,42 +125,17 @@
 {#snippet sortHead(k: SortKey, label: string)}
   <button
     type="button"
-    onclick={() => toggleSort(k)}
+    onclick={() => view.toggleSort(k)}
     class={cn(
       'flex items-center gap-1 text-[11px] font-medium transition-colors',
-      sortKey === k ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+      view.sortKey === k ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
     )}
   >
     <span class="truncate">{label}</span>
-    {#if sortKey === k}
-      {#if sortDir === 'asc'}<ArrowUp class="size-3 shrink-0" />{:else}<ArrowDown class="size-3 shrink-0" />{/if}
+    {#if view.sortKey === k}
+      {#if view.sortDir === 'asc'}<ArrowUp class="size-3 shrink-0" />{:else}<ArrowDown class="size-3 shrink-0" />{/if}
     {/if}
   </button>
-{/snippet}
-
-{#snippet headerActions()}
-  {#if hasFilters}
-    <button
-      type="button"
-      onclick={() => {
-        lyricsOnly = false;
-        if (spotifyOnly) toggleSpotifyOnly();
-      }}
-      class="text-muted-foreground hover:border-primary hover:text-primary rounded-md border px-2 py-1 text-[11px] transition-colors"
-    >
-      Clear filters
-    </button>
-  {/if}
-  {#if sorted.length > 0}
-    <button
-      type="button"
-      onclick={shuffleTracks}
-      class="border-border text-foreground hover:bg-muted inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors"
-    >
-      <Shuffle class="size-3.5" />
-      Shuffle
-    </button>
-  {/if}
 {/snippet}
 
 <!--
@@ -327,90 +146,6 @@
   templates below must stay identical per tier.
 -->
 <div class="@container flex min-h-0 flex-1 flex-col overflow-hidden">
-  {#if !hideHeading}
-    <!-- Header band -->
-    <div class="border-border bg-card/30 flex items-start justify-between gap-4 border-b px-4 py-5 md:px-6">
-      <div class="min-w-0">
-        <h1 class="text-3xl font-bold tracking-tight sm:text-4xl">All Tracks</h1>
-        <p class="text-muted-foreground mt-1.5 text-sm">
-          {stats.count.toLocaleString()} track{stats.count === 1 ? '' : 's'}
-          {#if searchQuery.trim()}
-            · matching <span class="font-mono">"{searchQuery.trim()}"</span>
-          {:else}
-            · across {albumCount.toLocaleString()} album{albumCount === 1 ? '' : 's'}
-          {/if}
-          · <span class="font-mono">{formatTotalDuration(stats.totalSec)}</span>
-          · <span class="font-mono">{formatFileSize(stats.totalBytes)}</span>
-        </p>
-      </div>
-      <div class="mt-1 flex shrink-0 items-center gap-2">
-        {@render headerActions()}
-      </div>
-    </div>
-  {/if}
-
-  <!-- Filter chips. One row on every width: the chips scroll sideways on a phone
-       rather than wrapping the toolbar onto three lines (which cost a third of
-       the screen before the first track), and the long summary collapses to a
-       bare "shown of total" count that still answers "did my search match?". -->
-  <div class="border-border flex items-center gap-2 border-b px-4 py-2 md:px-6 md:py-3">
-    <div
-      class="no-scrollbar flex min-w-0 flex-1 items-center gap-2 overflow-x-auto md:flex-wrap md:overflow-visible"
-    >
-      <button
-        type="button"
-        onclick={() => (lyricsOnly = !lyricsOnly)}
-        class={cn(
-          'flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] whitespace-nowrap transition-colors',
-          lyricsOnly
-            ? 'border-foreground/15 bg-muted text-foreground'
-            : 'border-border text-muted-foreground hover:text-foreground'
-        )}
-      >
-        <FileText class="size-3" />
-        With lyrics
-      </button>
-
-      {#if spotifyCount > 0}
-        <button
-          type="button"
-          onclick={toggleSpotifyOnly}
-          aria-pressed={spotifyOnly}
-          title="Only tracks your Spotify liked songs / playlists asked for, newest save first"
-          class={cn(
-            'flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] whitespace-nowrap transition-colors',
-            spotifyOnly
-              ? 'border-foreground/15 bg-muted text-foreground'
-              : 'border-border text-muted-foreground hover:text-foreground'
-          )}
-        >
-          <Music2 class="size-3" />
-          From Spotify
-          <span class="text-muted-foreground font-mono text-[10px]">{spotifyCount.toLocaleString()}</span>
-        </button>
-      {/if}
-
-      <span class="text-muted-foreground ml-auto hidden text-[11px] whitespace-nowrap md:inline">
-        Showing {sorted.length.toLocaleString()} of {songs.length.toLocaleString()} ·
-        {formatFileSize(stats.totalBytes)} · {formatTotalDuration(stats.totalSec)} · sorted by {SORT_LABELS[
-          sortKey
-        ]}
-        {sortDir === 'asc' ? '↑' : '↓'}
-      </span>
-    </div>
-
-    <span class="text-muted-foreground shrink-0 text-[11px] tabular-nums md:hidden">
-      {sorted.length.toLocaleString()} / {songs.length.toLocaleString()}
-    </span>
-
-    {#if hideHeading}
-      <!-- No header band, so the title-bar actions live here instead. -->
-      <div class="flex shrink-0 items-center gap-2">
-        {@render headerActions()}
-      </div>
-    {/if}
-  </div>
-
   <!-- Column headers (sticky, outside the scroll area so columns stay aligned) -->
   <div
     class={cn(
@@ -434,21 +169,21 @@
     <span></span>
     <button
       type="button"
-      onclick={() => toggleSort('dur')}
+      onclick={() => view.toggleSort('dur')}
       class={cn(
         'flex items-center justify-end gap-1 transition-colors',
-        sortKey === 'dur' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+        view.sortKey === 'dur' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
       )}
       aria-label="Sort by duration"
     >
-      {#if sortKey === 'dur'}
-        {#if sortDir === 'asc'}<ArrowUp class="size-3" />{:else}<ArrowDown class="size-3" />{/if}
+      {#if view.sortKey === 'dur'}
+        {#if view.sortDir === 'asc'}<ArrowUp class="size-3" />{:else}<ArrowDown class="size-3" />{/if}
       {/if}
       <Clock class="size-3" />
     </button>
   </div>
 
-  {#if isLoading && songs.length === 0}
+  {#if isLoading && view.songs.length === 0}
     <div class="text-muted-foreground flex flex-1 items-center justify-center p-8 text-sm">
       Loading tracks…
     </div>
@@ -494,9 +229,14 @@
             style="top: {i * ROW_H}px; height: {ROW_H}px;"
           >
             <!-- # / play -->
-            <span class="text-muted-foreground relative grid place-items-center text-right">
+            <span class="text-muted-foreground relative grid h-full place-items-center text-right">
               <!-- Button first so the index/equalizer can hide off its `peer` focus state:
-                   exactly one of the two is ever visible. -->
+                   exactly one of the two is ever visible. The index/equalizer must stay
+                   `pointer-events-none`: once hover fades it to `opacity-0` it becomes a
+                   stacking context and paints *over* the absolutely positioned button, so
+                   it would otherwise swallow the click — the press and release then resolve
+                   to different nodes and the browser retargets `click` to this wrapper,
+                   which reads as a row click and opens the detail panel instead of playing. -->
               <button
                 type="button"
                 onclick={(e) => {
@@ -515,7 +255,7 @@
               {#if isLoaded}
                 <span
                   class={cn(
-                    'mh-eq text-primary group-hover:opacity-0 peer-focus-visible:opacity-0',
+                    'mh-eq text-primary pointer-events-none group-hover:opacity-0 peer-focus-visible:opacity-0',
                     isCurrentlyPlaying && 'is-playing'
                   )}
                   aria-hidden="true"
@@ -524,7 +264,7 @@
                 </span>
               {:else}
                 <span
-                  class="font-mono text-[11px] tabular-nums transition-opacity group-hover:opacity-0 peer-focus-visible:opacity-0"
+                  class="pointer-events-none font-mono text-[11px] tabular-nums transition-opacity group-hover:opacity-0 peer-focus-visible:opacity-0"
                 >
                   {String(i + 1).padStart(3, '0')}
                 </span>

@@ -8,36 +8,22 @@
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { commandPalette } from '$lib/stores/command-palette.svelte';
   import { songDetail } from '$lib/stores/song-detail.svelte';
+  import { resolveNav } from '$lib/nav';
 
   type Props = { children: Snippet };
   const { children }: Props = $props();
 
   // The (app) group is ssr=false and the pages render their content through shared
   // components, so set the browser-tab title here in one place rather than in every
-  // +page.svelte. Labels mirror the sidebar nav so the tab matches the active item.
-  const PAGE_TITLES: Record<string, string> = {
-    '/stats': 'Stats',
-    '/pipeline': 'Pipeline',
-    '/directories': 'By folder',
-    '/quality': 'AI quality',
-    '/album-quality': 'Album quality',
-    '/performance': 'Performance',
-    '/inbox': 'Inbox',
-    '/overview': 'Overview',
-    '/library': 'Library',
-    '/artists': 'Artists',
-    '/tracks': 'Tracks',
-    '/liked': 'Liked songs',
-    '/discover': 'Discover',
-    '/spotify': 'Spotify',
-    '/wishlist': 'Wishlist',
-    '/history': 'History',
-    '/settings': 'Settings'
-  };
-
+  // +page.svelte. Taken from the shared nav, so the tab always reads the same label
+  // the sidebar highlights — a hand-kept map here used to miss routes silently
+  // (/playlists had no entry and its tab just read "MusicHoarder").
   const pageTitle = $derived.by(() => {
-    const path = page.url.pathname;
-    const label = path.startsWith('/track/') ? 'Track' : PAGE_TITLES[path];
+    // A track page belongs to the Listen group but is not one of its items; name the
+    // thing you're looking at rather than the group.
+    if (page.url.pathname.startsWith('/track/')) return 'Track · MusicHoarder';
+    const match = resolveNav(page.url);
+    const label = match?.item?.label ?? match?.group.label;
     return label ? `${label} · MusicHoarder` : 'MusicHoarder';
   });
 

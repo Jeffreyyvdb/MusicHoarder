@@ -17,6 +17,11 @@ public class EnrichmentPipelineChannel(JobManager jobManager, EnrichmentProgress
     private readonly Channel<int> _channel = Channel.CreateUnbounded<int>(
         new UnboundedChannelOptions { SingleReader = false, SingleWriter = false });
 
+    // Fast lane for explicitly-acquired tracks (wishlist/import downloads): drained before the
+    // normal queue so a fresh import isn't stuck behind a thousands-deep backfill sweep.
+    private readonly Channel<int> _priorityChannel = Channel.CreateUnbounded<int>(
+        new UnboundedChannelOptions { SingleReader = false, SingleWriter = false });
+
     private readonly object _lock = new();
     private int _inFlight;
     private Guid _runId;
@@ -52,6 +57,50 @@ public class EnrichmentPipelineChannel(JobManager jobManager, EnrichmentProgress
         BeginItems(ids.Count, label);
         foreach (var id in ids)
             _channel.Writer.TryWrite(id);
+    }
+
+    /// <summary>Fast lane: these songs are dequeued before anything in the normal queue.</summary>
+    public void EnqueueRangePriority(IEnumerable<int> songIds, string? label = null)
+    {
+        var ids = songIds as ICollection<int> ?? songIds.ToList();
+        if (ids.Count == 0)
+            return;
+
+        BeginItems(ids.Count, label);
+        foreach (var id in ids)
+            _priorityChannel.Writer.TryWrite(id);
+    }
+
+    /// <summary>
+    /// The worker's consume stream: priority items strictly before normal ones. Safe for multiple
+    /// concurrent consumers (each TryRead claims an item atomically); never completes — the
+    /// channels stay open for the app's lifetime, so termination is via <paramref name="ct"/>.
+    /// </summary>
+    public async IAsyncEnumerable<int> ReadAllPrioritizedAsync(
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+    {
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (_priorityChannel.Reader.TryRead(out var priorityId))
+            {
+                yield return priorityId;
+                continue;
+            }
+            if (_channel.Reader.TryRead(out var songId))
+            {
+                yield return songId;
+                continue;
+            }
+
+            // Nothing queued: wait until either lane has data, then loop back to the TryReads
+            // (another consumer may win the race — that's fine).
+            var waitPriority = _priorityChannel.Reader.WaitToReadAsync(ct).AsTask();
+            var waitNormal = _channel.Reader.WaitToReadAsync(ct).AsTask();
+            var completed = await Task.WhenAny(waitPriority, waitNormal);
+            await completed; // propagate cancellation
+        }
     }
 
     private void BeginItems(int count, string? label)
@@ -104,6 +153,7 @@ public class EnrichmentPipelineChannel(JobManager jobManager, EnrichmentProgress
         lock (_lock)
         {
             while (_channel.Reader.TryRead(out _)) { }
+            while (_priorityChannel.Reader.TryRead(out _)) { }
             _inFlight = 0;
             completed = CompleteLocked(cancelled);
         }

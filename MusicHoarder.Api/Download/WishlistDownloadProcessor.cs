@@ -15,6 +15,8 @@ namespace MusicHoarder.Api.Download;
 public class WishlistDownloadProcessor(
     IEnumerable<IDownloadProvider> downloadProviders,
     DownloadProgressTracker progressTracker,
+    IMusicVideoDownloader musicVideoDownloader,
+    MusicVideoChannel musicVideoChannel,
     IOptions<MusicEnricherOptions> options,
     ILogger<WishlistDownloadProcessor> logger)
 {
@@ -35,7 +37,14 @@ public class WishlistDownloadProcessor(
             .Where(w => w.OwnerUserId == ownerId)
             .ExcludingDemoTenant()
             .Where(w => w.Status == WishlistItemStatus.Pending)
-            .OrderByDescending(w => w.SpotifyAddedAtUtc)
+            // Origin first: what the owner asked for is claimed strictly before album completion. This
+            // has to be an explicit discriminator, not a timestamp — EF emits a plain ORDER BY DESC and
+            // Postgres defaults to NULLS FIRST there, so a null SpotifyAddedAtUtc sorts to the *front*
+            // (already true of Deezer-sourced rows). Relying on the timestamp would put background fill
+            // ahead of the queue, and the EF in-memory provider orders nulls the other way, so a test
+            // written against it would happily agree.
+            .OrderBy(w => w.Origin)
+            .ThenByDescending(w => w.SpotifyAddedAtUtc)
             .ThenBy(w => w.Id)
             .Take(batchSize)
             .ToListAsync(ct);
@@ -73,6 +82,17 @@ public class WishlistDownloadProcessor(
             progressTracker.IncrementSkipped();
         }
 
+        // A SkippedOwned item links straight to an existing song without going through the linker, so
+        // the intent has to be recomputed here too — this is how an album-fill track the owner later
+        // likes on Spotify gets promoted to Explicit and appears in "My music". Persist the new links
+        // first: the recompute reads them back from the store, so an in-flight DownloadedSongId would
+        // be invisible and the song would stay AlbumFill.
+        if (owned.Count > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            await ApplyAcquisitionIntentAsync(db, ownerId, owned.Select(o => o.SongId).OfType<int>(), ct);
+        }
+
         // Surface in-flight work: persist Downloading before the (slow) fetch so the UI's Downloading
         // tab/badge reflects what's actually running, instead of items jumping straight to a terminal
         // state. Unresolved items (run cancelled mid-batch) are reverted to Pending below, and a crash
@@ -90,7 +110,7 @@ public class WishlistDownloadProcessor(
         // Downloads hit the network/disk only — no DB access — so the parallel section is EF-safe.
         // Parallel.ForEachAsync already bounds in-flight bodies to MaxDegreeOfParallelism, so no extra
         // semaphore is needed.
-        var results = new Dictionary<int, (DownloadResult Result, string ProviderName)>();
+        var results = new Dictionary<int, (DownloadResult Result, string ProviderName, MusicVideoDownloadResult? Video)>();
         var resultsLock = new object();
         if (toDownload.Count > 0)
         {
@@ -118,7 +138,21 @@ public class WishlistDownloadProcessor(
                     // the download intact and just falls back to whatever tags the file carries.
                     if (result.Success && result.FilePath is not null)
                         DownloadTagWriter.Stamp(result.FilePath, item.Artist, item.Title, item.Album, item.Isrc, logger);
-                    lock (resultsLock) results[item.Id] = (result, providerName);
+                    // Companion music video: a second yt-dlp fetch, pinned to the exact video the audio
+                    // came from when the audio provider knows it (SourceId), else the item's pasted
+                    // YouTube URL, else a search. The pin is provenance (not explicit), so an
+                    // audio-only source upload gets swapped for a real music video by search. Network/
+                    // disk only, so it stays in the DB-free section. A video failure never fails the
+                    // item — the audio is the product. The item's own import-dialog choice overrides
+                    // the server default in both directions.
+                    MusicVideoDownloadResult? video = null;
+                    if ((item.DownloadMusicVideo ?? opts.DownloadMusicVideos) && result.Success)
+                        video = await musicVideoDownloader.DownloadAsync(
+                            new MusicVideoFetchRequest(
+                                result.SourceId ?? item.SourceUrl, PinIsExplicit: false,
+                                item.Artist, item.Title, item.DurationMs),
+                            token);
+                    lock (resultsLock) results[item.Id] = (result, providerName, video);
                 });
         }
 
@@ -137,7 +171,7 @@ public class WishlistDownloadProcessor(
                 continue;
             }
 
-            var (result, providerName) = entry;
+            var (result, providerName, video) = entry;
             item.DownloadProvider = providerName;
             item.AttemptCount += 1;
             item.UpdatedAtUtc = finishedAt;
@@ -147,6 +181,14 @@ public class WishlistDownloadProcessor(
                 item.Status = WishlistItemStatus.Downloaded;
                 item.DownloadedFilePath = NormalizePath(result.FilePath);
                 item.LastError = null;
+                if (video is { Success: true, FilePath: not null })
+                {
+                    item.DownloadedVideoFilePath = NormalizePath(video.FilePath);
+                    item.DownloadedVideoYouTubeId = video.YouTubeVideoId;
+                    // Offset 0 by construction only when the audio was extracted from this very video.
+                    item.DownloadedVideoIsSameSource =
+                        result.SourceId is not null && video.YouTubeVideoId == result.SourceId;
+                }
                 downloadedCount++;
                 progressTracker.IncrementDownloaded();
             }
@@ -229,7 +271,129 @@ public class WishlistDownloadProcessor(
             if (linked > 0)
                 logger.LogInformation("Linked {Count} downloaded wishlist items to library songs", linked);
         }
+
+        if (linked > 0)
+        {
+            await ApplyAcquisitionIntentAsync(
+                db, ownerId, unlinked.Select(w => w.DownloadedSongId).OfType<int>(), ct);
+        }
+
+        await PromoteDownloadedVideosAsync(db, unlinked, ct);
+
         return linked;
+    }
+
+    /// <summary>
+    /// Promotes a video carried on a now-linked wishlist item into the song's
+    /// <see cref="SongMusicVideo"/> row. Same-source videos (audio extracted from that exact video)
+    /// are Ready with offset 0 by construction; anything else starts <c>Unaligned</c> and an Align
+    /// work item estimates the real offset in the background. Idempotent: a song that already has a
+    /// video row is left alone.
+    /// </summary>
+    private async Task PromoteDownloadedVideosAsync(
+        MusicHoarderDbContext db, List<WishlistItem> items, CancellationToken ct)
+    {
+        var candidates = items
+            .Where(w => w.DownloadedSongId != null && w.DownloadedVideoFilePath != null)
+            .GroupBy(w => w.DownloadedSongId!.Value)
+            .Select(g => g.First())
+            .ToList();
+        if (candidates.Count == 0) return;
+
+        var songIds = candidates.Select(w => w.DownloadedSongId!.Value).ToList();
+        var existing = await db.SongMusicVideos
+            .IgnoreQueryFilters()
+            .Where(v => songIds.Contains(v.SongId))
+            .Select(v => v.SongId)
+            .ToListAsync(ct);
+        var existingSet = existing.ToHashSet();
+
+        var toAlign = new List<int>();
+        var now = DateTime.UtcNow;
+        foreach (var item in candidates)
+        {
+            var songId = item.DownloadedSongId!.Value;
+            if (existingSet.Contains(songId)) continue;
+            if (!File.Exists(item.DownloadedVideoFilePath!)) continue;
+
+            db.SongMusicVideos.Add(new SongMusicVideo
+            {
+                SongId = songId,
+                FilePath = item.DownloadedVideoFilePath,
+                YouTubeVideoId = item.DownloadedVideoYouTubeId,
+                Status = MusicVideoStatus.Ready,
+                SyncOffsetMs = 0,
+                SyncSource = item.DownloadedVideoIsSameSource
+                    ? MusicVideoSyncSource.SameSource
+                    : MusicVideoSyncSource.Unaligned,
+                FetchedAtUtc = now,
+            });
+            // Every promoted video visits the worker: it fetches the YouTube thumbnail (the artless-
+            // song cover fallback) and estimates the sync offset — the latter skipped for SameSource
+            // rows, whose offset is exact by construction.
+            toAlign.Add(songId);
+        }
+
+        if (db.ChangeTracker.HasChanges())
+        {
+            await db.SaveChangesAsync(ct);
+            foreach (var songId in toAlign)
+                musicVideoChannel.Enqueue(new MusicVideoWorkItem(songId, MusicVideoWorkKind.Align));
+        }
+    }
+
+    /// <summary>
+    /// Recomputes <see cref="SongMetadata.AcquisitionIntent"/> for the given songs from every wishlist
+    /// item pointing at them. This is the single writer of that column, and the only place a song
+    /// becomes <see cref="SongAcquisitionIntent.AlbumFill"/>.
+    /// <para>
+    /// <b>Explicit is absorbing.</b> A song is AlbumFill only when <em>every</em> link is an album-fill
+    /// item; one <see cref="WishlistItemOrigin.UserRequested"/> link makes it Explicit and it never goes
+    /// back. That single rule covers the case that matters: an album-fill track the owner later likes on
+    /// Spotify gets a second, user-requested wishlist row, and the song moves into "My music" the moment
+    /// the owner expresses intent — no special-casing anywhere.
+    /// </para>
+    /// </summary>
+    private static async Task ApplyAcquisitionIntentAsync(
+        MusicHoarderDbContext db, Guid ownerId, IEnumerable<int> songIds, CancellationToken ct)
+    {
+        var ids = songIds.Distinct().ToList();
+        if (ids.Count == 0) return;
+
+        var links = await db.WishlistItems
+            .IgnoreQueryFilters()
+            .Where(w => w.OwnerUserId == ownerId && w.DownloadedSongId != null && ids.Contains(w.DownloadedSongId!.Value))
+            .Select(w => new { SongId = w.DownloadedSongId!.Value, w.Origin })
+            .ToListAsync(ct);
+
+        if (links.Count == 0) return;
+
+        var intentBySong = links
+            .GroupBy(l => l.SongId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.All(l => l.Origin == WishlistItemOrigin.AlbumCompletion)
+                    ? SongAcquisitionIntent.AlbumFill
+                    : SongAcquisitionIntent.Explicit);
+
+        var songs = await db.Songs
+            .IgnoreQueryFilters()
+            .Where(s => s.OwnerUserId == ownerId && intentBySong.Keys.Contains(s.Id))
+            .ToListAsync(ct);
+
+        // Songs with no wishlist link at all (scanned, synced) never appear in intentBySong, so they
+        // keep the Explicit default untouched — which is what makes this recomputation safe to re-run.
+        var changed = false;
+        foreach (var song in songs)
+        {
+            if (!intentBySong.TryGetValue(song.Id, out var intent)) continue;
+            if (song.AcquisitionIntent == intent) continue;
+            song.AcquisitionIntent = intent;
+            changed = true;
+        }
+
+        if (changed)
+            await db.SaveChangesAsync(ct);
     }
 
     /// <summary>

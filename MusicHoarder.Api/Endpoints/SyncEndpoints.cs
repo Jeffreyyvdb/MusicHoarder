@@ -3,8 +3,10 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth.EndpointFilters;
+using MusicHoarder.Api.Logging;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Scanner;
 using MusicHoarder.Api.Sync;
 
 namespace MusicHoarder.Api.Endpoints;
@@ -33,6 +35,9 @@ public static class SyncEndpoints
         group.MapGet("/status", Status).RequireOwner();
         group.MapPost("/requeue", Requeue)
             .WithSummary("Re-arm every settled outbox row (Synced/SkippedRemoteBetter/Failed) so the push sweep re-verifies each track against the remote. Tracks the remote already holds just re-check; missing or byte-different remote copies re-upload.")
+            .RequireOwner();
+        group.MapPost("/prune-duplicates", PruneDuplicates)
+            .WithSummary("Receive-side cleanup: soft-delete redundant managed synced-source copies that share a fingerprint with a copy being kept, and remove their files. Dry-run unless apply=true; never touches a row that owns a destination file or a source outside the managed synced dir.")
             .RequireOwner();
     }
 
@@ -154,6 +159,96 @@ public static class SyncEndpoints
 
         return Results.Accepted("/api/sync/status", new { requeued = rows.Count });
     }
+
+    /// <summary>
+    /// Receive-side cleanup for the copies a runaway ingest already wrote. Groups live owner rows by
+    /// exact fingerprint, elects a keeper with the shared duplicate-detection ranking, and retires
+    /// every other copy that lives under the managed synced dir and owns no destination file.
+    /// <para>
+    /// Two guards keep this non-destructive in the repo's sense: rows are soft-deleted, never removed,
+    /// and files are only unlinked under <see cref="SyncOptions.SyncedSourceDirectory"/> — a scanned
+    /// original elsewhere on disk is never touched. Runs as a dry run unless <paramref name="apply"/>.
+    /// </para>
+    /// <para>
+    /// Loads every fingerprinted live row into memory: grouping keys are the fingerprints themselves,
+    /// so there is no cheaper shape. Acceptable for a hand-run maintenance call, not for a sweep.
+    /// </para>
+    /// </summary>
+    internal static async Task<IResult> PruneDuplicates(
+        IOptionsMonitor<SyncOptions> options,
+        MusicHoarderDbContext db,
+        ILogger<SyncPruneLog> logger,
+        bool apply = false,
+        CancellationToken ct = default)
+    {
+        var managedDir = options.CurrentValue.SyncedSourceDirectory;
+        if (string.IsNullOrWhiteSpace(managedDir))
+            return Results.Conflict(new { message = "No managed synced-source directory is configured." });
+        var managedRoot = Normalize(managedDir).TrimEnd('/') + "/";
+
+        // The per-user query filter scopes this to the calling owner, which also keeps the demo
+        // tenant out (repo rule for all-tenant queries).
+        var live = await db.Songs
+            .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic && s.Fingerprint != null && s.Fingerprint != "")
+            .ToListAsync(ct);
+
+        var prunable = live
+            .GroupBy(s => s.Fingerprint!)
+            .Where(g => g.Count() > 1)
+            .SelectMany(g => IDuplicateDetectionService.RankKeeperFirst(g)
+                .Skip(1) // the keeper always survives
+                .Where(loser => Normalize(loser.SourcePath).StartsWith(managedRoot, StringComparison.Ordinal))
+                .Where(loser => loser.DestinationPath is null))
+            .OrderBy(s => s.Id)
+            .ToList();
+
+        var bytes = prunable.Sum(s => s.FileSizeBytes);
+        var worst = prunable
+            .GroupBy(s => $"{s.Artist} — {s.Title}")
+            .Select(g => new { track = g.Key, copies = g.Count() })
+            .OrderByDescending(g => g.copies)
+            .Take(10)
+            .ToList();
+
+        if (!apply)
+            return Results.Ok(new { dryRun = true, rows = prunable.Count, bytes, worst });
+
+        var filesDeleted = 0;
+        foreach (var row in prunable)
+        {
+            if (TryDeleteFile(row.SourcePath, logger))
+                filesDeleted++;
+            row.SoftDelete();
+        }
+        await db.SaveChangesAsync(ct);
+
+        logger.LogInformation(
+            "Sync prune retired {Rows} redundant managed copies ({Files} files, {Bytes} bytes)",
+            prunable.Count, filesDeleted, bytes);
+
+        return Results.Ok(new { dryRun = false, rows = prunable.Count, filesDeleted, bytes, worst });
+    }
+
+    private static bool TryDeleteFile(string path, ILogger logger)
+    {
+        try
+        {
+            if (!File.Exists(path))
+                return false;
+            File.Delete(path);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning(ex, "Sync prune could not delete {Path}", LogSanitizer.ForLog(path));
+            return false;
+        }
+    }
+
+    private static string Normalize(string path) => path.Replace('\\', '/');
+
+    /// <summary>Log category marker for <see cref="PruneDuplicates"/> (static endpoint class).</summary>
+    internal sealed class SyncPruneLog;
 
     private static async Task<IResult> Status(
         IOptionsMonitor<SyncOptions> options, MusicHoarderDbContext db, CancellationToken ct)

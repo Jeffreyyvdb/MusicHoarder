@@ -1,5 +1,15 @@
 <script lang="ts">
-  import { RefreshCw, ChevronRight, Sparkles, Tag, Copy, Loader2, History } from '@lucide/svelte';
+  import {
+    RefreshCw,
+    ChevronRight,
+    Sparkles,
+    Tag,
+    Copy,
+    Loader2,
+    History,
+    Workflow
+  } from '@lucide/svelte';
+  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import type { Component } from 'svelte';
   import { goto } from '$app/navigation';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
@@ -402,34 +412,24 @@
   ]);
 </script>
 
-<!-- Header -->
-<header
-  class="border-border flex shrink-0 flex-col gap-3 border-b px-4 py-4 sm:flex-row sm:items-end sm:justify-between sm:gap-4 sm:px-7 sm:py-5"
+<!-- The live pulse and the running/idle state carry what the two-line
+     description used to; the conveyor below is the real explanation. -->
+<PageToolbarV2
+  icon={Workflow}
+  title="Pipeline"
+  meta={anyRunning ? 'Running — files are flowing through scan, match, grade, and build' : 'Idle — watching your source folder'}
 >
-  <div class="min-w-0">
-    <h1 class="flex items-center gap-2.5 text-2xl font-semibold tracking-tight sm:text-[28px]">
-      Pipeline
-      {#if anyRunning}
-        <span class="bg-primary mh-v2-pulse mt-0.5 size-2 rounded-full" aria-hidden="true"></span>
-        <span class="sr-only">running</span>
-      {/if}
-    </h1>
-    <p class="text-muted-foreground mt-1 max-w-xl text-[13px]">
-      {#if anyRunning}
-        Running — files are flowing through scan, match, grade, and build.
-      {:else}
-        Watches your source folder, matches every file, and builds a clean library. Anything that
-        needs a human lands in <a href="/inbox" class="text-primary hover:underline">Inbox</a>.
-      {/if}
-    </p>
-  </div>
-  <div class="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
+  {#snippet actions()}
+    {#if anyRunning}
+      <span class="bg-primary mh-v2-pulse size-2 shrink-0 rounded-full" aria-hidden="true"></span>
+      <span class="sr-only">running</span>
+    {/if}
     {#if !isDemo}
       <button
         type="button"
         onclick={handleRescan}
         disabled={rescanning || anyRunning}
-        class="border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12.5px] font-medium transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
+        class="border-border bg-card hover:bg-muted text-foreground text-nav-sm inline-flex h-8 items-center gap-1.5 rounded-full border px-3 font-medium transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {#if rescanning}
           <Loader2 class="size-3.5 animate-spin" />
@@ -439,11 +439,11 @@
         Rescan
       </button>
     {/if}
-  </div>
-</header>
+  {/snippet}
+</PageToolbarV2>
 
 <ScrollArea class="min-h-0 flex-1">
-  <div class="flex flex-col gap-10 px-4 py-7 sm:px-7">
+  <div class="flex flex-col gap-5 px-4 py-4 sm:px-7 sm:py-5">
     {#if loadError}
       <div class="flex items-center gap-2 text-[12.5px]">
         <span class="bg-destructive size-1.5 shrink-0 rounded-full" aria-hidden="true"></span>
@@ -467,7 +467,7 @@
           {#if sourceTotal == null && !loaded}
             <Skeleton class="h-9 w-16" />
           {:else}
-            <div class={cn('text-[28px] leading-9 font-semibold tracking-tight tabular-nums', sourceTotal == null && 'text-muted-foreground')}>
+            <div class={cn('text-xl leading-tight font-semibold tracking-tight tabular-nums', sourceTotal == null && 'text-muted-foreground')}>
               {fmtNum(sourceTotal)}
             </div>
           {/if}
@@ -480,7 +480,7 @@
           {#if inLibrary == null}
             <Skeleton class="h-9 w-16" />
           {:else}
-            <div class="text-[28px] leading-9 font-semibold tracking-tight tabular-nums">{fmtNum(inLibrary)}</div>
+            <div class="text-xl leading-tight font-semibold tracking-tight tabular-nums">{fmtNum(inLibrary)}</div>
           {/if}
           <div class="text-muted-foreground mt-1 truncate text-[12.5px]">
             In library{enrichedPct != null ? ` · ${enrichedPct.toFixed(0)}% enriched` : ''}
@@ -491,7 +491,7 @@
           {#if !loaded}
             <Skeleton class="h-9 w-12" />
           {:else}
-            <div class="text-[28px] leading-9 font-semibold tracking-tight tabular-nums">{inFlight.toLocaleString()}</div>
+            <div class="text-xl leading-tight font-semibold tracking-tight tabular-nums">{inFlight.toLocaleString()}</div>
           {/if}
           <div class="text-muted-foreground mt-1 text-[12.5px]">In flight</div>
         </div>
@@ -506,7 +506,7 @@
           {:else}
             <div
               class={cn(
-                'text-[28px] leading-9 font-semibold tracking-tight tabular-nums',
+                'text-xl leading-tight font-semibold tracking-tight tabular-nums',
                 awaitingYou > 0 && 'text-amber-600 dark:text-amber-500'
               )}
             >
@@ -522,7 +522,7 @@
           {#if avgQuality == null && !loaded}
             <Skeleton class="h-9 w-14" />
           {:else}
-            <div class={cn('text-[28px] leading-9 font-semibold tracking-tight tabular-nums', avgQuality == null && 'text-muted-foreground')}>
+            <div class={cn('text-xl leading-tight font-semibold tracking-tight tabular-nums', avgQuality == null && 'text-muted-foreground')}>
               {avgQuality == null ? '—' : avgQuality.toFixed(1)}
             </div>
           {/if}
@@ -535,7 +535,7 @@
           {#if errorCount == null}
             <Skeleton class="h-9 w-10" />
           {:else}
-            <div class={cn('text-[28px] leading-9 font-semibold tracking-tight tabular-nums', errorCount > 0 && 'text-destructive')}>
+            <div class={cn('text-xl leading-tight font-semibold tracking-tight tabular-nums', errorCount > 0 && 'text-destructive')}>
               {fmtNum(errorCount)}
             </div>
           {/if}
@@ -735,7 +735,7 @@
     </section>
 
     <!-- Recent activity + Just landed -->
-    <div class="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-12">
+    <div class="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-6">
       <!-- Recent activity — plain sentence-case rows, one dot per event type. -->
       <section aria-label="Recent activity" class="min-w-0">
         <div class="mb-1.5 flex items-baseline gap-2">

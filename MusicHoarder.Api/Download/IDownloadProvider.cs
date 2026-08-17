@@ -30,10 +30,16 @@ public record DownloadRequest(
 /// <summary>
 /// Outcome of a download attempt. <paramref name="NotFound"/> distinguishes "no result for this
 /// track" (don't retry forever) from a transient <paramref name="Error"/>.
+/// <para>
+/// <paramref name="SourceId"/> is the provider-specific id of the media the audio actually came from
+/// (yt-dlp: the YouTube video id, including for <c>ytsearch1:</c> results). The companion
+/// music-video download uses it to fetch the clip from the <em>same</em> video, making the
+/// audio/video sync offset 0 by construction. Null for providers without such an id.
+/// </para>
 /// </summary>
-public record DownloadResult(bool Success, string? FilePath, string? Error, bool NotFound)
+public record DownloadResult(bool Success, string? FilePath, string? Error, bool NotFound, string? SourceId = null)
 {
-    public static DownloadResult Ok(string filePath) => new(true, filePath, null, false);
+    public static DownloadResult Ok(string filePath, string? sourceId = null) => new(true, filePath, null, false, sourceId);
     public static DownloadResult Failed(string error) => new(false, null, error, false);
     public static DownloadResult Missing(string? error = null) => new(false, null, error, true);
 }

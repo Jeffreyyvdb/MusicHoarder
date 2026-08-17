@@ -4,6 +4,7 @@
   import { Button } from '$lib/components/ui/button';
   import { Skeleton } from '$lib/components/ui/skeleton';
   import Sparkline from '$lib/components/performance/Sparkline.svelte';
+  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import {
     fetchSnapshots,
     fetchSnapshot,
@@ -130,32 +131,29 @@
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col">
-  <!-- Stacks on a phone: side-by-side, the copy was squeezed into half the width
-       and ran to eight lines beside a single button. -->
-  <header
-    class="border-border flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6 sm:py-4"
+  <PageToolbarV2
+    icon={TrendingUp}
+    title="Pipeline performance"
+    meta={loading
+      ? undefined
+      : `${snapshots.length.toLocaleString()} version${snapshots.length === 1 ? '' : 's'} captured`}
   >
-    <div class="min-w-0">
-      <h1 class="text-lg font-semibold">Pipeline performance</h1>
-      <p class="text-muted-foreground text-sm">
-        Quality of every enrichment version over time. One point per pipeline version, updated as your
-        library is processed; compare two to see which songs regressed.
-      </p>
-    </div>
-    <Button
-      onclick={capture}
-      disabled={capturing}
-      variant="outline"
-      size="sm"
-      class="w-full shrink-0 sm:w-auto"
-    >
-      <Camera class="mr-2 size-4" />
-      {capturing ? 'Capturing…' : 'Capture now'}
-    </Button>
-  </header>
+    {#snippet actions()}
+      <Button
+        onclick={capture}
+        disabled={capturing}
+        variant="outline"
+        size="sm"
+        class="h-8 shrink-0 gap-1.5 px-2.5"
+      >
+        <Camera class="size-4" />
+        <span class="text-nav-sm hidden sm:inline">{capturing ? 'Capturing…' : 'Capture now'}</span>
+      </Button>
+    {/snippet}
+  </PageToolbarV2>
 
   <ScrollArea class="min-h-0 flex-1">
-    <div class="space-y-8 px-6 py-6">
+    <div class="flex flex-col gap-5 px-4 py-4 sm:px-7 sm:py-5">
       {#if error}
         <div class="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}

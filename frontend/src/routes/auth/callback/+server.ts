@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { getApiBaseUrl } from '$lib/server/api-target';
+import { APP_HOME } from '$lib/app-home';
 import type { RequestHandler } from './$types';
 
 /**
@@ -31,7 +32,7 @@ export const GET: RequestHandler = async ({ url, fetch }) => {
   }
 
   // Forward the API's Set-Cookie header(s) so the cookie lands on the user's browser.
-  const headers = new Headers({ Location: '/library' });
+  const headers = new Headers({ Location: APP_HOME });
   for (const value of response.headers.getSetCookie?.() ?? []) {
     headers.append('set-cookie', value);
   }

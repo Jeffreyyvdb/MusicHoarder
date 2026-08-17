@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { CalendarClock, ChevronRight, Disc3, Image, Tags, Users } from '@lucide/svelte';
+  import { CalendarClock, ChevronRight, Disc3, History, Image, Tags, Users } from '@lucide/svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { Button } from '$lib/components/ui/button';
   import { Skeleton } from '$lib/components/ui/skeleton';
+  import FilterChip from '$lib/components/v2/FilterChip.svelte';
+  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import { fetchHistory, type HistoryRawChange, type HistorySummary } from '$lib/api-client';
 
   type RangeKey = '1' | '7' | '30' | 'custom';
@@ -32,6 +34,10 @@
     else from.setDate(from.getDate() - Number(range));
     return { from: from.toISOString(), to: to.toISOString() };
   });
+
+  const headerMeta = $derived(
+    loading ? undefined : `${totalEvents.toLocaleString()} change${totalEvents === 1 ? '' : 's'} written`
+  );
 
   async function load() {
     const w = dateWindow;
@@ -128,45 +134,29 @@
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col">
-  <header class="flex flex-wrap items-center justify-between gap-4 border-b border-border px-6 py-4">
-    <div>
-      <h1 class="text-lg font-semibold">Library history</h1>
-      <p class="text-sm text-muted-foreground">
-        Every change MusicHoarder wrote to your destination library — what Navidrome sees differently.
-      </p>
-    </div>
-    <div class="flex flex-wrap items-center gap-2">
-      <div class="flex flex-wrap items-center gap-1.5">
-        {#each RANGES as r (r.key)}
-          <button
-            type="button"
-            onclick={() => (range = r.key)}
-            class="rounded-full px-3 py-1 text-xs transition-colors {range === r.key
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-secondary text-muted-foreground hover:bg-secondary/70'}"
-          >
-            {r.label}
-          </button>
-        {/each}
-      </div>
+  <PageToolbarV2 icon={History} title="Library history" meta={headerMeta}>
+    {#snippet filters()}
+      {#each RANGES as r (r.key)}
+        <FilterChip pressed={range === r.key} onclick={() => (range = r.key)}>{r.label}</FilterChip>
+      {/each}
       {#if range === 'custom'}
         <input
           type="date"
           bind:value={customFrom}
-          class="rounded-md border border-border bg-background px-2 py-1 text-xs"
+          class="border-border bg-card text-nav-sm h-8 shrink-0 rounded-full border px-3"
         />
-        <span class="text-muted-foreground text-xs">→</span>
+        <span class="text-muted-foreground text-nav-xs shrink-0">→</span>
         <input
           type="date"
           bind:value={customTo}
-          class="rounded-md border border-border bg-background px-2 py-1 text-xs"
+          class="border-border bg-card text-nav-sm h-8 shrink-0 rounded-full border px-3"
         />
       {/if}
-    </div>
-  </header>
+    {/snippet}
+  </PageToolbarV2>
 
   <ScrollArea class="min-h-0 flex-1">
-    <div class="px-6 py-6">
+    <div class="px-4 py-4 sm:px-7 sm:py-5">
       {#if error}
         <div class="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}

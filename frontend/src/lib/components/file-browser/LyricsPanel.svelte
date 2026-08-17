@@ -224,7 +224,7 @@
 
 {#snippet recheckButton(label: string)}
   <Button
-    variant="outline"
+    variant="subtle"
     size="sm"
     class="gap-1.5"
     disabled={recheckState === 'checking' || songId === null}
@@ -304,11 +304,11 @@
         <ToggleGroup.Root
           type="single"
           size="sm"
+          variant="segmented"
           value={showSynced ? 'synced' : 'plain'}
           onValueChange={(v) => {
             if (v) showSynced = v === 'synced';
           }}
-          class="text-xs"
         >
           <ToggleGroup.Item value="synced" aria-label="Synced" class="gap-1">
             <Timer class="size-3" />

@@ -27,6 +27,12 @@ public sealed class FakeDeezerCatalogService : IDeezerCatalogService
     public Task<DeezerCatalogTrack?> LookupByIdAsync(string id, CancellationToken ct = default) =>
         Task.FromResult(TracksById.GetValueOrDefault(id));
 
+    public Task<IReadOnlyList<DeezerAlbumCandidate>> SearchAlbumCandidatesAsync(string artist, string album, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<DeezerAlbumCandidate>>([]);
+
+    public Task<IReadOnlyList<DeezerArtistCandidate>> SearchArtistCandidatesAsync(string name, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<DeezerArtistCandidate>>([]);
+
     public Task<string?> SearchAlbumIdAsync(string artist, string album, CancellationToken ct = default) =>
         Task.FromResult<string?>(null);
 

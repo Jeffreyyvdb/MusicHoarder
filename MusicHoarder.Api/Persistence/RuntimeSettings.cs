@@ -30,5 +30,13 @@ public class RuntimeSettings
     /// </summary>
     public bool? AutoDownloadWishlist { get; set; }
 
+    /// <summary>
+    /// Overlays <see cref="Options.MusicEnricherOptions.EnableAlbumCompletion"/> — when true the sweep
+    /// queues the missing tracks of albums the owner already holds part of. In the DB rather than only
+    /// in config so the owner can opt in (and back out) without a redeploy; the config flag still gates
+    /// it, so an instance that never wants the feature can leave it off entirely.
+    /// </summary>
+    public bool? AlbumCompletionEnabled { get; set; }
+
     public DateTime? UpdatedAtUtc { get; set; }
 }

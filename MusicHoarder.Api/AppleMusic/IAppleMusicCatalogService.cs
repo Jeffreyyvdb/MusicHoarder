@@ -8,6 +8,10 @@ public interface IAppleMusicCatalogService
     /// <summary>Finds an album (collection) id by artist + album name (<c>entity=album</c>).</summary>
     Task<string?> SearchAlbumIdAsync(string artist, string album, CancellationToken ct = default);
 
+    /// <summary>Album search hits with collection + artist names (<c>entity=album</c>) so callers can
+    /// verify the match instead of trusting result order.</summary>
+    Task<IReadOnlyList<AppleAlbumCandidate>> SearchAlbumCandidatesAsync(string artist, string album, CancellationToken ct = default);
+
     /// <summary>Fetches an album with its full tracklist (<c>GET /lookup?id=..&amp;entity=song</c>); null if not found.</summary>
     Task<AppleAlbumDetail?> GetAlbumAsync(string collectionId, CancellationToken ct = default);
 }

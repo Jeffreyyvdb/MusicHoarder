@@ -6,7 +6,6 @@
   import BottomNavV2 from '$lib/components/v2/BottomNavV2.svelte';
   import MiniPlayer from '$lib/components/MiniPlayer.svelte';
   import SongDetailHost from '$lib/components/v2/SongDetailHost.svelte';
-  import SectionSubNav from '$lib/components/v2/SectionSubNav.svelte';
   import LibraryOfflineBanner from '$lib/components/LibraryOfflineBanner.svelte';
   import QualityGradingErrorBanner from '$lib/components/QualityGradingErrorBanner.svelte';
   import VersionUpdateBanner from '$lib/components/VersionUpdateBanner.svelte';
@@ -54,7 +53,6 @@
         playerPad && !drawerOpen ? 'md:[--mh-content-pad:88px]' : 'md:[--mh-content-pad:0px]'
       )}
     >
-      <SectionSubNav />
       {@render children()}
     </div>
   </Sidebar.Inset>

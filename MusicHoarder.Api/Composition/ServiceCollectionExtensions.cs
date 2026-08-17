@@ -217,6 +217,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDuplicateDetectionService, DuplicateDetectionService>();
         services.AddSingleton<IEmbeddedPictureReader, TagLibEmbeddedPictureReader>();
         services.AddScoped<ICoverArtResolver, CoverArtResolver>();
+        services.AddScoped<IArtistImageService, ArtistImageService>();
         services.AddScoped<IAlbumCoverWriter, AlbumCoverWriter>();
 
         // Disposable on-disk cache of resized WebP cover thumbnails (derived, regenerable artifacts).
@@ -270,6 +271,16 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IUpgradeProvider>(sp => sp.GetRequiredService<StreamingFlacDownloadProvider>());
         services.AddScoped<WishlistDownloadProcessor>();
         services.AddHostedService<DownloadBackgroundService>();
+        // Music videos ("clips"): companion YouTube fetch + audio↔video sync alignment worker.
+        // Independent of the download provider chain so slskd/spotiflac audio still gets a clip.
+        services.AddSingleton<IMusicVideoDownloader, MusicVideoDownloader>();
+        services.AddSingleton<MusicVideoChannel>();
+        services.AddScoped<MusicVideoAlignmentService>();
+        services.AddHostedService<MusicVideoBackgroundService>();
+        // Album completion: queues the tracks missing from albums the owner already holds part of, as
+        // ordinary (lower-priority) wishlist items. Its own slow loop, so the throttle stays predictable.
+        services.AddScoped<AlbumCompletionSweep>();
+        services.AddHostedService<AlbumCompletionBackgroundService>();
         // Single-track URL import: resolves a pasted YouTube video's metadata via a yt-dlp probe.
         services.AddSingleton<Import.IYouTubeMetadataResolver, Import.YouTubeMetadataResolver>();
 
@@ -439,6 +450,8 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IOptionsMonitor<LyricsTranslationOptions>>(),
             sp.GetRequiredService<ILogger<LyricsTranslationService>>()));
 
+        services.AddSingleton<ISpotifyAppCredentialsProvider, SpotifyAppCredentialsProvider>();
+
         services.AddSingleton<ISpotifyCatalogSearchService>(sp =>
         {
             var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
@@ -476,12 +489,14 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<IExternalCoverArtFetcher>(sp =>
         {
-            // Plain image-CDN downloads (Deezer/iTunes cover URLs) — no per-provider base address.
+            // Plain image-CDN downloads (Spotify/Deezer/iTunes cover URLs) — no per-provider base address.
             var imageHttpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
             imageHttpClient.DefaultRequestHeaders.TryAddWithoutValidation(
                 "User-Agent", "MusicHoarder/1.0 (https://github.com/Jeffreyyvdb/MusicHoarder)");
             return new ExternalCoverArtFetcher(
                 sp.GetRequiredService<ICoverArtArchiveClient>(),
+                sp.GetRequiredService<ISpotifyCatalogSearchService>(),
+                sp.GetRequiredService<ISpotifyAppCredentialsProvider>(),
                 sp.GetRequiredService<IDeezerCatalogService>(),
                 sp.GetRequiredService<IAppleMusicCatalogService>(),
                 imageHttpClient,

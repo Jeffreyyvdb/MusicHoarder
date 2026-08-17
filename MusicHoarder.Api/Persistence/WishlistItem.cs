@@ -18,6 +18,23 @@ public enum WishlistItemStatus
 }
 
 /// <summary>
+/// Who put this item on the wishlist. Mirrors <c>UpgradeRequest.Trigger</c>: a discriminator on the
+/// work row telling app-generated work from user-generated work. <see cref="UserRequested"/> is
+/// <c>0</c> so every pre-existing item keeps top download priority with no backfill.
+/// </summary>
+public enum WishlistItemOrigin
+{
+    /// <summary>The owner asked for it — Spotify liked songs, a playlist, a Deezer discover list, a URL import.</summary>
+    UserRequested = 0,
+
+    /// <summary>
+    /// Queued by <c>AlbumCompletionSweep</c> to fill in an album the owner already holds part of.
+    /// Claimed by the downloader strictly after every <see cref="UserRequested"/> item.
+    /// </summary>
+    AlbumCompletion = 1,
+}
+
+/// <summary>
 /// One Spotify track the owner wants to acquire. The downloader fetches it into the source directory,
 /// where the existing scan→fingerprint→enrich→build pipeline ingests it like any other file. Spotify
 /// metadata is denormalized so the row stands alone even after the source playlist is removed.
@@ -31,10 +48,30 @@ public class WishlistItem
 
     /// <summary>
     /// The source that introduced this item. Nullable + <c>OnDelete.SetNull</c> so removing a source
-    /// keeps already-acquired tracks.
+    /// keeps already-acquired tracks. Always null for <see cref="WishlistItemOrigin.AlbumCompletion"/>
+    /// items — a <see cref="WishlistSource"/> models a remote collection with a sync loop, which album
+    /// completion has none of.
     /// </summary>
     public int? WishlistSourceId { get; set; }
     public WishlistSource? WishlistSource { get; set; }
+
+    /// <summary>Whether the owner asked for this track or album completion queued it.</summary>
+    public WishlistItemOrigin Origin { get; set; } = WishlistItemOrigin.UserRequested;
+
+    /// <summary>
+    /// The album this item was queued to complete. Set only for
+    /// <see cref="WishlistItemOrigin.AlbumCompletion"/> items, where it is both the provenance and the
+    /// dedupe key: the sweep loads every item for an album — <em>any</em> status — and skips canonical
+    /// tracks it already has a row for, so terminal <see cref="WishlistItemStatus.Failed"/> /
+    /// <see cref="WishlistItemStatus.NotFound"/> rows act as permanent tombstones.
+    /// <para>
+    /// Deliberately keyed to the album and not to a <see cref="CanonicalAlbumTrack"/>:
+    /// <c>CanonicalAlbumFetchService.UpsertReconciled</c> deletes and recreates every track row on each
+    /// re-fetch, so a per-track FK would null itself out and re-open every tombstone.
+    /// </para>
+    /// </summary>
+    public int? CanonicalAlbumId { get; set; }
+    public CanonicalAlbum? CanonicalAlbum { get; set; }
 
     /// <summary>Spotify track id. Null for Deezer-sourced items with no resolved Spotify equivalent.</summary>
     [MaxLength(64)]
@@ -83,6 +120,31 @@ public class WishlistItem
     /// <summary>Absolute path of the downloaded file under the source directory, once fetched.</summary>
     [MaxLength(2048)]
     public string? DownloadedFilePath { get; set; }
+
+    /// <summary>
+    /// Per-item override of <c>MusicEnricher:DownloadMusicVideos</c>: the "Also download the music
+    /// video" choice made in the import dialog. Null (playlist-synced items, older rows) follows the
+    /// server flag.
+    /// </summary>
+    public bool? DownloadMusicVideo { get; set; }
+
+    /// <summary>
+    /// Absolute path of the companion music video (mp4), when the item's effective music-video
+    /// setting (<see cref="DownloadMusicVideo"/> ?? <c>MusicEnricher:DownloadMusicVideos</c>) was on
+    /// for this download. Carried here until the scanner ingests the audio file and
+    /// <c>LinkDownloadedItemsAsync</c> promotes it to a <see cref="SongMusicVideo"/> row.
+    /// </summary>
+    [MaxLength(2048)]
+    public string? DownloadedVideoFilePath { get; set; }
+
+    [MaxLength(32)]
+    public string? DownloadedVideoYouTubeId { get; set; }
+
+    /// <summary>
+    /// True when the audio was extracted by yt-dlp from the <em>same</em> YouTube video the clip was
+    /// downloaded from — sync offset is then 0 by construction (<see cref="MusicVideoSyncSource.SameSource"/>).
+    /// </summary>
+    public bool DownloadedVideoIsSameSource { get; set; }
 
     /// <summary>
     /// The ingested library song this item resolved to (linked after the scanner picks up the file, or

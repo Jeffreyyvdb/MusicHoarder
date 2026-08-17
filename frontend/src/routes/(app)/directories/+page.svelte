@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import {
     fetchDirectoryMatchTree,
     setDirectoryExpectedLow,
@@ -9,7 +10,15 @@
   import DirectoryTreeRow from '$lib/components/directories/DirectoryTreeRow.svelte';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import { cn } from '$lib/utils';
-  import { Loader2, AlertTriangle, Search, ChevronRight, ArrowUpDown, Check } from '@lucide/svelte';
+  import {
+    Loader2,
+    AlertTriangle,
+    FolderTree,
+    Search,
+    ChevronRight,
+    ArrowUpDown,
+    Check
+  } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
   import { SvelteSet } from 'svelte/reactivity';
 
@@ -242,42 +251,28 @@
 <!-- On mobile the whole thing scrolls (header + hero scroll away, filters stay
      pinned); on desktop it's a flex column with only the folder list scrolling. -->
 <div class="flex min-h-0 flex-1 flex-col overflow-y-auto pb-[var(--mh-content-pad)] sm:overflow-hidden sm:pb-0">
-  <!-- Header -->
-  <header class="flex shrink-0 flex-col gap-1 px-4 pt-5 pb-1 sm:px-6">
-    <div class="flex flex-wrap items-baseline gap-2">
-      <h1 class="text-xl font-semibold tracking-tight">Match by folder</h1>
-      <span class="text-muted-foreground ml-auto inline-flex items-center gap-1.5 text-[11px]">
+  <!-- The headline percentage was a 70px hero of its own above a 95px title
+       band; as the toolbar's meta it says exactly as much. The segmented
+       storage bar stays below — that one is a chart, not a heading. -->
+  <PageToolbarV2
+    icon={FolderTree}
+    title="Match by folder"
+    meta={isLoading || !tree
+      ? undefined
+      : `${matchedPct}% enriched · ${enriched.toLocaleString()} of ${total.toLocaleString()} files`}
+  >
+    {#snippet actions()}
+      <span class="text-muted-foreground text-nav-xs inline-flex shrink-0 items-center gap-1.5">
         <span class="bg-primary mh-v2-pulse size-1.5 rounded-full"></span>
         Live
       </span>
-    </div>
-    <p class="text-muted-foreground hidden max-w-[760px] text-[13px] leading-relaxed sm:block">
-      Everything in
-      {#if tree}
-        <span class="text-foreground/80 font-medium" title={tree.name}>{lastSegment(tree.name)}</span>,
-      {:else}
-        your source directory,
-      {/if}
-      grouped by folder. Drill in for per-file state and destination, or tag a folder as
-      <span class="text-foreground/80 font-medium">expected low</span> to keep leaks and unreleased recordings out
-      of your work queue.
-    </p>
-  </header>
+    {/snippet}
+  </PageToolbarV2>
 
   {#if !isLoading && tree}
-    <!-- Unboxed hero: neutral headline number + slim segmented storage bar -->
-    <div class="shrink-0 px-4 pt-4 pb-5 sm:px-6">
-      <div class="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-        <span class="text-[30px] leading-none font-semibold tracking-tight tabular-nums sm:text-[36px]"
-          >{matchedPct}<span class="text-muted-foreground ml-0.5 text-lg font-medium">%</span></span
-        >
-        <span class="text-muted-foreground text-[13px]">
-          enriched · <span class="text-foreground/80 font-medium tabular-nums">{enriched.toLocaleString()}</span> of
-          <span class="text-foreground/80 font-medium tabular-nums">{total.toLocaleString()}</span> files
-        </span>
-      </div>
-
-      <div class="bg-muted mt-3.5 flex h-1.5 w-full gap-px overflow-hidden rounded-full" title={barTitle}>
+    <!-- Slim segmented storage bar; the headline number lives in the toolbar. -->
+    <div class="shrink-0 px-4 pt-3 pb-3 sm:px-7">
+      <div class="bg-muted flex h-1.5 w-full gap-px overflow-hidden rounded-full" title={barTitle}>
         {#each heroSegs as s (s.key)}
           {#if s.n > 0}
             <span class={cn('h-full', s.cls)} style="width: {(s.n / Math.max(total, 1)) * 100}%"></span>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import { Button } from '$lib/components/ui/button';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { Badge } from '$lib/components/ui/badge';
@@ -144,34 +145,29 @@
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-  <!-- Header -->
-  <div class="border-border bg-card/30 border-b px-4 py-5 md:px-6">
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <div class="flex items-center gap-2">
-          <ListVideo class="size-5" />
-          <h1 class="text-2xl font-semibold tracking-tight">Playlists</h1>
-          <Badge variant="secondary">{subscribedCount} synced</Badge>
-        </div>
-        <p class="text-muted-foreground mt-1 text-sm">
-          Pick which Spotify collections to mirror as <code>.m3u8</code> files in your library for
-          Navidrome / Plex / Jellyfin. Nothing is synced until you add it — each synced file lists the
-          matched local tracks in Spotify order. Connect Spotify on the
-          <a href="/spotify" class="underline">Spotify</a> page.
-        </p>
-      </div>
-      <div class="flex items-center gap-2">
-        <Button onclick={onRegenerate} disabled={regenerating || subscribedCount === 0}>
-          {#if regenerating}
-            <Loader2 class="size-4 animate-spin" />
-          {:else}
-            <RefreshCw class="size-4" />
-          {/if}
-          Regenerate
-        </Button>
-      </div>
-    </div>
-  </div>
+  <!-- The four-line blurb was the longest in the app; the page's own empty and
+       not-connected states say the same thing where it's actually needed. -->
+  <PageToolbarV2
+    icon={ListVideo}
+    title="Playlist sync"
+    meta="{subscribedCount.toLocaleString()} mirrored as .m3u8"
+  >
+    {#snippet actions()}
+      <Button
+        size="sm"
+        class="h-8 gap-1.5 px-2.5"
+        onclick={onRegenerate}
+        disabled={regenerating || subscribedCount === 0}
+      >
+        {#if regenerating}
+          <Loader2 class="size-4 animate-spin" />
+        {:else}
+          <RefreshCw class="size-4" />
+        {/if}
+        <span class="text-nav-sm hidden sm:inline">Regenerate</span>
+      </Button>
+    {/snippet}
+  </PageToolbarV2>
 
   {#if banner}
     <div

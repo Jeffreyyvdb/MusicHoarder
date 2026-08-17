@@ -207,6 +207,60 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.ToTable("WebAuthnCredentials");
                 });
 
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.AlbumCompletionState", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CanonicalAlbumId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CanonicalTrackCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("EnqueuedTrackCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("LastSweptAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("NextSweepAfterUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("OwnedTrackCount")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SkipReason")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CanonicalAlbumId");
+
+                    b.HasIndex("OwnerUserId", "CanonicalAlbumId")
+                        .IsUnique();
+
+                    b.HasIndex("OwnerUserId", "NextSweepAfterUtc");
+
+                    b.ToTable("AlbumCompletionStates");
+                });
+
             modelBuilder.Entity("MusicHoarder.Api.Persistence.AlbumCoverFetchAttempt", b =>
                 {
                     b.Property<int>("Id")
@@ -267,6 +321,39 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("ArtistAliases");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.ArtistImage", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("FetchedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Source")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique();
+
+                    b.ToTable("ArtistImages");
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.CanonicalAlbum", b =>
@@ -809,6 +896,9 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<bool?>("AlbumCompletionEnabled")
+                        .HasColumnType("boolean");
+
                     b.Property<bool?>("AutoDownloadWishlist")
                         .HasColumnType("boolean");
 
@@ -901,6 +991,9 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.Property<DateTime?>("AcquiredAtUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("AcquisitionIntent")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Album")
                         .HasColumnType("text");
@@ -1266,6 +1359,8 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.HasIndex("DeletedAtUtc", "LastModifiedUtc");
 
+                    b.HasIndex("OwnerUserId", "AcquisitionIntent");
+
                     b.HasIndex("OwnerUserId", "DeletedAtUtc");
 
                     b.HasIndex("OwnerUserId", "SourcePath")
@@ -1326,6 +1421,55 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.HasIndex("SongId", "CreatedAtUtc");
 
                     b.ToTable("SongMetadataChanges");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.SongMusicVideo", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("DurationSeconds")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("FetchedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FilePath")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<int>("SongId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<double?>("SyncConfidence")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("SyncOffsetMs")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SyncSource")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("YouTubeVideoId")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SongId")
+                        .IsUnique();
+
+                    b.ToTable("SongMusicVideos");
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.SongProviderAttempt", b =>
@@ -1723,12 +1867,18 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<int>("AttemptCount")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("CanonicalAlbumId")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("DeezerTrackId")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<bool?>("DownloadMusicVideo")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("DownloadProvider")
                         .HasMaxLength(64)
@@ -1741,6 +1891,17 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<int?>("DownloadedSongId")
                         .HasColumnType("integer");
 
+                    b.Property<string>("DownloadedVideoFilePath")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<bool>("DownloadedVideoIsSameSource")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("DownloadedVideoYouTubeId")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<int>("DurationMs")
                         .HasColumnType("integer");
 
@@ -1751,6 +1912,9 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<string>("LastError")
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
+
+                    b.Property<int>("Origin")
+                        .HasColumnType("integer");
 
                     b.Property<Guid>("OwnerUserId")
                         .HasColumnType("uuid");
@@ -1782,9 +1946,13 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CanonicalAlbumId");
+
                     b.HasIndex("DownloadedSongId");
 
                     b.HasIndex("WishlistSourceId");
+
+                    b.HasIndex("OwnerUserId", "CanonicalAlbumId");
 
                     b.HasIndex("OwnerUserId", "DeezerTrackId")
                         .IsUnique()
@@ -1794,7 +1962,7 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("\"SpotifyTrackId\" IS NOT NULL");
 
-                    b.HasIndex("OwnerUserId", "Status");
+                    b.HasIndex("OwnerUserId", "Status", "Origin");
 
                     b.ToTable("WishlistItems");
                 });
@@ -1888,6 +2056,17 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.AlbumCompletionState", b =>
+                {
+                    b.HasOne("MusicHoarder.Api.Persistence.CanonicalAlbum", "CanonicalAlbum")
+                        .WithMany()
+                        .HasForeignKey("CanonicalAlbumId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CanonicalAlbum");
+                });
+
             modelBuilder.Entity("MusicHoarder.Api.Persistence.CanonicalAlbumQualityGrade", b =>
                 {
                     b.HasOne("MusicHoarder.Api.Persistence.CanonicalAlbum", "CanonicalAlbum")
@@ -1967,6 +2146,17 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Navigation("Song");
                 });
 
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.SongMusicVideo", b =>
+                {
+                    b.HasOne("MusicHoarder.Api.Persistence.SongMetadata", "Song")
+                        .WithOne("MusicVideo")
+                        .HasForeignKey("MusicHoarder.Api.Persistence.SongMusicVideo", "SongId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Song");
+                });
+
             modelBuilder.Entity("MusicHoarder.Api.Persistence.SongProviderAttempt", b =>
                 {
                     b.HasOne("MusicHoarder.Api.Persistence.SongMetadata", "Song")
@@ -2024,6 +2214,11 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.WishlistItem", b =>
                 {
+                    b.HasOne("MusicHoarder.Api.Persistence.CanonicalAlbum", "CanonicalAlbum")
+                        .WithMany()
+                        .HasForeignKey("CanonicalAlbumId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("MusicHoarder.Api.Persistence.SongMetadata", "DownloadedSong")
                         .WithMany()
                         .HasForeignKey("DownloadedSongId")
@@ -2033,6 +2228,8 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("WishlistSourceId")
                         .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("CanonicalAlbum");
 
                     b.Navigation("DownloadedSong");
 
@@ -2051,6 +2248,8 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.SongMetadata", b =>
                 {
+                    b.Navigation("MusicVideo");
+
                     b.Navigation("ProviderAttempts");
                 });
 #pragma warning restore 612, 618

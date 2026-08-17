@@ -154,6 +154,7 @@ public static class ImportEndpoints
                     existing.Isrc = string.IsNullOrWhiteSpace(body.Isrc) ? existing.Isrc : body.Isrc!.Trim();
                     if (body.DurationMs is > 0) existing.DurationMs = body.DurationMs.Value;
                     if (!string.IsNullOrWhiteSpace(body.CoverUrl)) existing.AlbumArt = body.CoverUrl!.Trim();
+                    if (body.DownloadMusicVideo is not null) existing.DownloadMusicVideo = body.DownloadMusicVideo;
                     existing.UpdatedAtUtc = now;
                     item = existing;
                 }
@@ -171,6 +172,7 @@ public static class ImportEndpoints
                         Isrc = string.IsNullOrWhiteSpace(body.Isrc) ? null : body.Isrc!.Trim(),
                         DurationMs = body.DurationMs is > 0 ? body.DurationMs.Value : 0,
                         AlbumArt = string.IsNullOrWhiteSpace(body.CoverUrl) ? null : body.CoverUrl!.Trim(),
+                        DownloadMusicVideo = body.DownloadMusicVideo,
                         // Manually imported "right now" — sort it to the top of the wishlist (which orders
                         // by SpotifyAddedAtUtc desc) and prioritize it in the download batch.
                         SpotifyAddedAtUtc = now,
@@ -221,4 +223,6 @@ public sealed record ImportTrackRequest(
     string? CoverUrl,
     string? SpotifyTrackId,
     string? Isrc,
-    string? SourceUrl);
+    string? SourceUrl,
+    // "Also download the music video" — null follows MusicEnricher:DownloadMusicVideos.
+    bool? DownloadMusicVideo = null);

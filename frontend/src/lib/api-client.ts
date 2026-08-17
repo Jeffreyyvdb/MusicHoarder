@@ -174,6 +174,12 @@ export interface ApiSong {
    * (the local heart) — it's what the Spotify filter orders by.
    */
   spotifyAddedAtUtc?: string | null
+  /**
+   * Whether you asked for this track or album completion added it because you already owned another
+   * track from the same album. A stored column, unlike the derived `origin*` fields above — which is
+   * why {@link isMyMusic} filters on this and not on `originSource`.
+   */
+  acquisitionIntent?: SongAcquisitionIntent | null
 }
 
 /**
@@ -194,6 +200,22 @@ export type SongOriginSource =
   | "SpotifyPlaylist"
   | "DeezerPlaylist"
   | "DirectUrl"
+  | "AlbumCompletion"
+
+export type SongAcquisitionIntent = "Explicit" | "AlbumFill"
+
+/**
+ * True when this is music you chose: scanned out of your source library, downloaded because Spotify
+ * or a playlist asked for it, or added from a URL — and not a track album completion pulled in on
+ * its own. Liking an album-fill track promotes it, which is the whole point: discover it, heart it,
+ * it's yours.
+ *
+ * Defaults to "mine" when the field is absent, so an API too old to send it (or any row that never
+ * went through the wishlist) reads correctly rather than vanishing from the view.
+ */
+export function isMyMusic(s: ApiSong): boolean {
+  return s.acquisitionIntent !== "AlbumFill" || Boolean(s.likedAtUtc)
+}
 
 /** True when a wishlist link ties this track to Spotify — drives the "From Spotify" filter. */
 export function isSpotifySourced(s: ApiSong): boolean {
@@ -203,6 +225,22 @@ export function isSpotifySourced(s: ApiSong): boolean {
 /** Epoch ms of the Spotify save date, 0 when unknown (sorts such rows last). */
 export function spotifyAddedTime(s: ApiSong): number {
   const ms = s.spotifyAddedAtUtc ? Date.parse(s.spotifyAddedAtUtc) : NaN
+  return Number.isNaN(ms) ? 0 : ms
+}
+
+/**
+ * Epoch ms of when this song was liked, 0 when it isn't liked at all.
+ *
+ * `likedAtUtc` records when *this app* learned about the like, not when you made it: the Spotify
+ * auto-like sweep stamps every song it matches in one pass with a single `now`, so thousands of
+ * rows tie on one instant and "newest liked first" degenerates into the list's tie-break order. An
+ * earlier `spotifyAddedAtUtc` is the real like moment, so it wins — same rule as
+ * {@link songAddedIso}, and hearts you clicked here (no Spotify save, or a later one) are untouched.
+ */
+export function songLikedTime(s: ApiSong): number {
+  if (!s.likedAtUtc) return 0
+  const iso = oldestIso([s.spotifyAddedAtUtc, s.likedAtUtc])
+  const ms = iso ? Date.parse(iso) : NaN
   return Number.isNaN(ms) ? 0 : ms
 }
 
@@ -222,6 +260,11 @@ export function songOriginLabel(s: ApiSong): { label: string; title: string } | 
       return { label: "Deezer", title: `From the Deezer playlist ${detail ?? "(unnamed)"}` }
     case "DirectUrl":
       return { label: "Link", title: `Added from a URL${detail ? ` (${detail})` : ""}` }
+    case "AlbumCompletion":
+      return {
+        label: "Album fill",
+        title: `Added to complete ${detail ?? "an album you already owned part of"} — like it to move it into My music`,
+      }
     default:
       break
   }
@@ -438,12 +481,30 @@ function destinationFolderOf(song: ApiSong): string | null {
  * Rows predating that column fall back to the OLDEST of the two churn-prone stamps rather than
  * preferring either: a re-index bumps `indexedAtUtc` while a rebuild clears and re-sets
  * `libraryBuiltAtUtc`, so whichever survived un-bumped is the closer guess at the real date.
+ *
+ * An EARLIER {@link ApiSong.spotifyAddedAtUtc} wins over all of them. `acquiredAtUtc` is the moment
+ * the file landed, which for a wishlist download is when the downloader got round to it — so a
+ * years-old Spotify save drips in with a today stamp and lands at the top of "recently added" next
+ * to things you actually just got. The save date is the moment that song entered *your* collection;
+ * the download is just when this app caught up. Only ever pulls the date backwards, so a track you
+ * ripped years before saving it on Spotify keeps its acquisition date.
  */
 export function songAddedIso(s: ApiSong): string | null {
-  if (s.acquiredAtUtc) return s.acquiredAtUtc
+  return oldestIso([s.spotifyAddedAtUtc, s.acquiredAtUtc ?? fallbackAddedIso(s)])
+}
+
+/**
+ * Acquisition date for rows predating `acquiredAtUtc` — see {@link songAddedIso}.
+ */
+function fallbackAddedIso(s: ApiSong): string | null {
+  return oldestIso([s.libraryBuiltAtUtc, s.indexedAtUtc])
+}
+
+/** The earliest parseable stamp of the candidates, or null when none parse. */
+function oldestIso(candidates: (string | null | undefined)[]): string | null {
   let oldest: string | null = null
   let oldestMs = Number.POSITIVE_INFINITY
-  for (const candidate of [s.libraryBuiltAtUtc, s.indexedAtUtc]) {
+  for (const candidate of candidates) {
     if (!candidate) continue
     const ms = Date.parse(candidate)
     if (Number.isNaN(ms) || ms >= oldestMs) continue
@@ -935,6 +996,8 @@ export async function fetchSongs(includeDeleted = false): Promise<ApiSong[]> {
 
 /** One reconciled canonical track. `ownedSongId` is null when the user is missing it. */
 export interface CanonicalTrack {
+  /** Canonical track id — the handle for {@link acquireCanonicalTrack}. */
+  id?: number | null
   discNumber: number
   trackNumber: number
   title: string | null
@@ -1544,13 +1607,23 @@ export interface TranscribeLyricsResponse {
   transcribedAtUtc?: string | null
   model?: string | null
   hasExistingLyrics?: boolean | null
+  /** True when this run re-timed the song's official lyrics rather than inventing its own words. */
+  resynced?: boolean | null
+  /** The server's (possibly just-updated) display default — "Lrclib" or "Transcribed". */
+  preferredLyricsSource?: string | null
+  /** True when the re-sync was auto-promoted to the display/file default. */
+  promoted?: boolean | null
+  /** True when the built destination file was queued for a re-tag with the new lyrics. */
+  retagQueued?: boolean | null
   /** True when the fresh transcription made an existing pronunciation/translation stale. */
   lyricsTranslationStale?: boolean | null
 }
 
 /**
  * Experimental: transcribe a song's audio via OpenAI Whisper into a synced LRC. The result is stored
- * separately from the LRCLIB lyrics (for side-by-side comparison) and never re-tags the file on disk.
+ * separately from the LRCLIB lyrics (for side-by-side comparison). When the run re-timed the song's
+ * existing official lyrics it is promoted to the display default and the built file is re-tagged;
+ * a transcription with no reference lyrics is never promoted automatically.
  */
 export async function transcribeSongLyrics(songId: number): Promise<TranscribeLyricsResponse> {
   return requestJson<TranscribeLyricsResponse>(`/songs/${songId}/lyrics/transcribe`, { method: "POST" })
@@ -1581,6 +1654,67 @@ export function getSongStreamUrl(songId: number): string {
   return `${API_PREFIX}/songs/${songId}/stream`
 }
 
+// ── Music videos (muted clip behind the full-screen player, slaved to the audio clock) ─────
+
+export interface SongVideoInfo {
+  status: "Fetching" | "Ready" | "Failed"
+  /** videoTime = audioTime + syncOffsetMs / 1000 (positive = the video has an intro). */
+  syncOffsetMs: number
+  syncSource: "SameSource" | "AutoAligned" | "Manual" | "Unaligned"
+  syncConfidence?: number | null
+  durationSeconds?: number | null
+  youTubeVideoId?: string | null
+  fetchedAtUtc: string
+  lastError?: string | null
+}
+
+/** Sync + status info for the song's music video; null when none is attached. */
+export async function getSongVideoInfo(songId: number): Promise<SongVideoInfo | null> {
+  try {
+    return await requestJson<SongVideoInfo>(`/songs/${songId}/video`)
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null
+    throw err
+  }
+}
+
+export function getSongVideoStreamUrl(songId: number): string {
+  return `${API_PREFIX}/songs/${songId}/video/stream`
+}
+
+/**
+ * Queue a background YouTube fetch of the song's music video (~30–60s; poll
+ * {@link getSongVideoInfo} until status leaves "Fetching"). Pass a YouTube URL to pin the exact
+ * video; omitted, the backend searches by artist/title.
+ */
+export async function fetchSongVideo(songId: number, url?: string): Promise<SongVideoInfo> {
+  return requestJson<SongVideoInfo>(`/songs/${songId}/video/fetch`, {
+    method: "POST",
+    body: JSON.stringify({ url: url ?? null }),
+  })
+}
+
+/** Manually nudge the audio↔video sync offset (marks it Manual). */
+export async function setSongVideoOffset(songId: number, offsetMs: number): Promise<SongVideoInfo> {
+  return requestJson<SongVideoInfo>(`/songs/${songId}/video/offset`, {
+    method: "PATCH",
+    body: JSON.stringify({ offsetMs }),
+  })
+}
+
+/** Discard a manual/auto offset and re-run automatic alignment in the background. */
+export async function resetSongVideoOffset(songId: number): Promise<SongVideoInfo> {
+  return requestJson<SongVideoInfo>(`/songs/${songId}/video/offset`, {
+    method: "PATCH",
+    body: JSON.stringify({ resetToAuto: true }),
+  })
+}
+
+/** Remove the song's music video (deletes the downloaded file). */
+export async function deleteSongVideo(songId: number): Promise<void> {
+  await fetch(`${API_PREFIX}/songs/${songId}/video`, { method: "DELETE", cache: "no-store" })
+}
+
 /**
  * Proxy URL for a track's album artwork. The endpoint 404s when the track has no art. Pass `size`
  * (CSS px) to get a small cached WebP thumbnail instead of the full-resolution original — the backend
@@ -1594,6 +1728,14 @@ export function getSongCoverUrl(songId: number, size?: number): string {
 /** Marks our cover-endpoint URLs so {@link coverThumbUrl} only appends a size to those. */
 function isOwnCoverUrl(url: string): boolean {
   return url.startsWith(`${API_PREFIX}/songs/`) && url.includes("/cover")
+}
+
+/**
+ * Artist portrait endpoint: redirects to a verified Deezer/Spotify portrait (cached server-side by
+ * normalized name) or 404s — callers fall back to an album cover / initials tile on error.
+ */
+export function getArtistImageUrl(name: string): string {
+  return `${API_PREFIX}/api/artists/image?name=${encodeURIComponent(name)}`
 }
 
 /**
@@ -1907,7 +2049,14 @@ export interface WishlistItem {
   libraryBuildStatus?: string | null
   createdAtUtc: string
   updatedAtUtc: string
+  /** Who queued it: you, or album completion filling in a record you already owned part of. */
+  origin?: WishlistItemOrigin | null
 }
+
+/** Which slice of the wishlist to page through. Defaults to what you asked for. */
+export type WishlistSourceFilter = "user" | "albumfill" | "all"
+
+export type WishlistItemOrigin = "UserRequested" | "AlbumCompletion"
 
 export interface WishlistItemsResponse {
   total: number
@@ -1938,10 +2087,79 @@ export interface AddWishlistSourceResult {
   queued: boolean
 }
 
-export async function fetchWishlist(status?: WishlistItemStatus, offset = 0, limit = 50): Promise<WishlistItemsResponse> {
+/**
+ * One page of the wishlist. `source` defaults to `user` server-side: album-completion items are a
+ * background drip that can outnumber real wishlist rows by orders of magnitude, and since this is
+ * paged they would otherwise fill every page before a track you asked for appeared.
+ */
+export async function fetchWishlist(
+  status?: WishlistItemStatus,
+  offset = 0,
+  limit = 50,
+  source?: WishlistSourceFilter,
+): Promise<WishlistItemsResponse> {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) })
   if (status) params.set("status", status)
+  if (source) params.set("source", source)
   return requestJson<WishlistItemsResponse>(`/api/wishlist?${params.toString()}`)
+}
+
+export interface AlbumCompletionRunResult {
+  albumsExamined: number
+  tracksQueued: number
+  albumsFilled: number
+  albumsSkipped: number
+  albumsAlreadyComplete: number
+  /** Set when the pass stopped before examining anything; null when it genuinely ran. */
+  idleReason: string | null
+}
+
+/**
+ * Run one album-completion pass now. The background loop only ticks hourly, so this is what makes
+ * flipping the toggle do something you can see — and the result is what lets us explain a zero,
+ * which is a perfectly normal outcome.
+ */
+export async function runAlbumCompletion(): Promise<AlbumCompletionRunResult> {
+  return requestJson<AlbumCompletionRunResult>("/api/wishlist/complete-albums", { method: "POST" })
+}
+
+/** Plain-English summary of a completion pass, for the Wishlist banner. */
+export function albumCompletionSummary(r: AlbumCompletionRunResult): string {
+  switch (r.idleReason) {
+    case "downloads-disabled":
+      return "Album completion needs wishlist downloads enabled first."
+    case "disabled":
+      return "Album completion is off."
+    case "at-pending-ceiling":
+      return "Already enough queued — completion pauses until the downloader catches up."
+    case "library-empty":
+      return "No music in your library yet — nothing to complete."
+    case "no-canonical-albums":
+      return "No album has a reconciled tracklist yet. That's built in the background as tracks finish enriching; try again in a few minutes."
+    case "no-candidates":
+      return "Nothing new to check — every eligible album has been looked at recently."
+    default:
+      break
+  }
+
+  if (r.tracksQueued > 0) {
+    const albums = `${r.albumsFilled} album${r.albumsFilled === 1 ? "" : "s"}`
+    return `Queued ${r.tracksQueued} missing track${r.tracksQueued === 1 ? "" : "s"} across ${albums}.`
+  }
+
+  // A zero here is a real answer, not a failure — say which kind.
+  const parts: string[] = []
+  if (r.albumsAlreadyComplete > 0) parts.push(`${r.albumsAlreadyComplete} already complete`)
+  if (r.albumsSkipped > 0) parts.push(`${r.albumsSkipped} skipped (compilations or singles)`)
+  const detail = parts.length > 0 ? ` — ${parts.join(", ")}` : ""
+  return `Checked ${r.albumsExamined} album${r.albumsExamined === 1 ? "" : "s"}, nothing to queue${detail}.`
+}
+
+/** Queue one canonical album track you're missing (the album page's "Get this track"). */
+export async function acquireCanonicalTrack(
+  canonicalTrackId: number,
+): Promise<{ wishlistItemId: number; alreadyQueued?: boolean; requeued?: boolean; status?: string }> {
+  return requestJson(`/api/albums/tracks/${canonicalTrackId}/acquire`, { method: "POST" })
 }
 
 export async function fetchWishlistSources(): Promise<{ sources: WishlistSource[] }> {
@@ -2023,6 +2241,8 @@ export interface ImportTrackPayload {
   spotifyTrackId?: string | null
   isrc?: string | null
   sourceUrl?: string | null
+  /** "Also download the music video" — omit/null to follow the server default. */
+  downloadMusicVideo?: boolean | null
 }
 
 export interface ImportTrackResult {
@@ -2308,6 +2528,8 @@ export interface RequestLinkResult {
   ok: boolean
   /** Present only in dev / Console-fallback mode so devs can click without email. */
   magicLinkUrl?: string | null
+  /** True when the server has no email service — the link was written to the server logs instead. */
+  magicLinkInLogs?: boolean
 }
 
 export async function fetchCurrentUser(): Promise<AuthMe | null> {
@@ -2325,8 +2547,11 @@ export async function requestMagicLink(email: string): Promise<RequestLinkResult
     cache: "no-store",
   })
   if (response.status === 503) return { ok: false }
-  const body = (await response.json().catch(() => ({}))) as { magicLinkUrl?: string | null }
-  return { ok: true, magicLinkUrl: body.magicLinkUrl ?? null }
+  const body = (await response.json().catch(() => ({}))) as {
+    magicLinkUrl?: string | null
+    magicLinkInLogs?: boolean
+  }
+  return { ok: true, magicLinkUrl: body.magicLinkUrl ?? null, magicLinkInLogs: body.magicLinkInLogs ?? false }
 }
 
 export async function signOut(allSessions = false): Promise<void> {
@@ -2454,6 +2679,11 @@ export interface SettingsDownloadsView {
   enabled: boolean
   /** Runtime toggle: auto-sweep Pending wishlist items in the background. Flippable from the UI. */
   autoDownload: boolean
+  /**
+   * Runtime toggle: queue the missing tracks of albums you already own part of. Rides the same
+   * downloader, so it only means anything when {@link enabled} is true.
+   */
+  albumCompletion: boolean
 }
 
 export interface SettingsResponse {
@@ -2470,7 +2700,7 @@ export interface SettingsResponse {
 export interface SettingsUpdateRequest {
   providers?: Partial<SettingsProvidersView>
   qualityGrading?: { enabled?: boolean }
-  downloads?: { autoDownload?: boolean }
+  downloads?: { autoDownload?: boolean; albumCompletion?: boolean }
 }
 
 export async function fetchSettings(): Promise<SettingsResponse> {

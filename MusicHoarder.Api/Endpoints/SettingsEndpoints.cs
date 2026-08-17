@@ -63,11 +63,13 @@ public static class SettingsEndpoints
                             && qualityConfigured
                             && !string.IsNullOrWhiteSpace(lyricsTranslationOptions.Value.Model)),
                     // Wishlist downloads: Enabled is the deploy-time feature switch (yt-dlp + a writable
-                    // download dir); AutoDownload is the runtime toggle the owner flips from the UI. The
-                    // UI shows the toggle only when the feature is enabled.
+                    // download dir); AutoDownload and AlbumCompletion are runtime toggles the owner flips
+                    // from the UI. The UI shows both only when the feature is enabled — album completion
+                    // rides the same downloader, so it is meaningless without it.
                     Downloads: new DownloadsView(
                         Enabled: opts.EnableWishlistDownloads,
-                        AutoDownload: effective.AutoDownloadWishlist),
+                        AutoDownload: effective.AutoDownloadWishlist,
+                        AlbumCompletion: effective.AlbumCompletionEnabled),
                     UpdatedAtUtc: effective.UpdatedAtUtc));
             })
             .WithName("GetSettings")
@@ -91,6 +93,7 @@ public static class SettingsEndpoints
                     EnableAppleMusicProvider = request.Providers?.AppleMusic,
                     QualityGradingEnabled = request.QualityGrading?.Enabled,
                     AutoDownloadWishlist = request.Downloads?.AutoDownload,
+                    AlbumCompletionEnabled = request.Downloads?.AlbumCompletion,
                 };
 
                 var effective = await runtimeSettings.UpdateAsync(update, ct);
@@ -104,7 +107,11 @@ public static class SettingsEndpoints
                         effective.EnableDeezerProvider,
                         effective.EnableAppleMusicProvider),
                     qualityGrading = new { enabled = effective.QualityGradingEnabled },
-                    downloads = new { autoDownload = effective.AutoDownloadWishlist },
+                    downloads = new
+                    {
+                        autoDownload = effective.AutoDownloadWishlist,
+                        albumCompletion = effective.AlbumCompletionEnabled,
+                    },
                     updatedAtUtc = effective.UpdatedAtUtc,
                 });
             })
@@ -140,9 +147,9 @@ public sealed record SpotifyView(string OAuthRedirectBaseUrl, IReadOnlyList<stri
 public sealed record QualityGradingView(bool Enabled, bool Configured);
 public sealed record LyricsTranscriptionView(bool Enabled);
 public sealed record LyricsTranslationView(bool Enabled);
-public sealed record DownloadsView(bool Enabled, bool AutoDownload);
+public sealed record DownloadsView(bool Enabled, bool AutoDownload, bool AlbumCompletion);
 
 public sealed record SettingsUpdateRequest(ProvidersUpdate? Providers, QualityGradingUpdate? QualityGrading, DownloadsUpdate? Downloads);
 public sealed record QualityGradingUpdate(bool? Enabled);
-public sealed record DownloadsUpdate(bool? AutoDownload);
+public sealed record DownloadsUpdate(bool? AutoDownload, bool? AlbumCompletion);
 public sealed record ProvidersUpdate(bool? AcoustId, bool? MusicBrainzWeb, bool? SpotifyApi, bool? Tracker, bool? Deezer, bool? AppleMusic);

@@ -9,6 +9,7 @@ using MusicHoarder.Api.Navidrome;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Scanner;
+using MusicHoarder.Api.Spotify;
 using MusicHoarder.Api.Sync;
 
 namespace MusicHoarder.Api.Endpoints;
@@ -174,7 +175,7 @@ public static class SongsEndpoints
         var wishlistLinks = (await db.WishlistItems
                 .AsNoTracking()
                 .Where(w => w.DownloadedSongId != null)
-                .Select(w => new { SongId = w.DownloadedSongId!.Value, w.WishlistSourceId, w.SpotifyAddedAtUtc, w.SourceUrl })
+                .Select(w => new { SongId = w.DownloadedSongId!.Value, w.WishlistSourceId, w.SpotifyAddedAtUtc, w.SourceUrl, w.Origin, w.Album })
                 .ToListAsync())
             .GroupBy(w => w.SongId)
             .ToDictionary(
@@ -184,8 +185,31 @@ public static class SongsEndpoints
                     var source = w.WishlistSourceId is { } id && wishlistSources.TryGetValue(id, out var s)
                         ? ((WishlistSourceType?)s.SourceType, s.Name)
                         : (null, null);
-                    return new WishlistLink(source.Item1, source.Item2, w.SourceUrl, w.SpotifyAddedAtUtc);
+                    return new WishlistLink(source.Item1, source.Item2, w.SourceUrl, w.SpotifyAddedAtUtc, w.Origin, w.Album);
                 })));
+
+        // Second save-date source: the liked-songs match cache. A wishlist link only exists for songs
+        // the download pipeline touched — a track that was already in the library (or whose like
+        // matched a different file than the wishlist's download) has none, so its Spotify save date
+        // would read null and the frontend's liked sort would fall back to LikedAtUtc, which the
+        // auto-like sweep stamps with the *sweep* time. The liked_sync rows carry Spotify's own
+        // added-at for every liked song. Keyed two ways: by the song the sweep matched (covers
+        // unenriched files), and by Spotify track id against the song's enriched SpotifyId — the
+        // match cache re-points between duplicate copies of a track as sweeps re-run, so the id
+        // join keeps every copy's save date stable instead of only the currently-matched one.
+        var likedRows = await db.SpotifyTrackLibraryMatches
+            .AsNoTracking()
+            .Where(m => m.Source == SpotifyLibraryComparisonService.SourceLikedSync
+                && m.SpotifyAddedAtUtc != null)
+            .Select(m => new { m.SpotifyTrackId, m.MatchedSongId, AddedAt = m.SpotifyAddedAtUtc!.Value })
+            .ToListAsync();
+        var likedSaveDates = likedRows
+            .Where(m => m.MatchedSongId != null)
+            .GroupBy(m => m.MatchedSongId!.Value)
+            .ToDictionary(g => g.Key, g => g.Min(m => m.AddedAt));
+        var likedSaveDatesBySpotifyId = likedRows
+            .GroupBy(m => m.SpotifyTrackId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Min(m => m.AddedAt), StringComparer.OrdinalIgnoreCase);
 
         var downloadDirectory = enricherOptions.Value.DownloadDirectory;
         var syncedSourceDirectory = syncOptions.Value.SyncedSourceDirectory;
@@ -277,6 +301,7 @@ public static class SongsEndpoints
                 s.LikedAtUtc,
                 s.PlayCount,
                 s.LastPlayedAtUtc,
+                s.AcquisitionIntent,
             })
             .ToListAsync();
 
@@ -328,11 +353,22 @@ public static class SongsEndpoints
             s.PlayCount,
             s.LastPlayedAtUtc,
             // Provenance — how the file got here, which collection asked for it, and Spotify's own
-            // save date (distinct from LikedAtUtc, which is the local heart).
+            // save date (distinct from LikedAtUtc, which is the local heart). The save date takes
+            // the earliest of the wishlist link and the liked-songs match cache: both are Spotify
+            // timestamps, and the earliest is the real "when did I save this" moment.
             OriginKind = origin.Kind.ToString(),
             OriginSource = origin.Source.ToString(),
             OriginDetail = origin.Detail,
-            SpotifyAddedAtUtc = origin.SpotifyAddedAtUtc,
+            SpotifyAddedAtUtc = Earliest(
+                Earliest(
+                    origin.SpotifyAddedAtUtc,
+                    likedSaveDates.TryGetValue(s.Id, out var likedSaveDate) ? likedSaveDate : null),
+                s.SpotifyId != null && likedSaveDatesBySpotifyId.TryGetValue(s.SpotifyId, out var idSaveDate)
+                    ? idSaveDate
+                    : null),
+            // Whether the owner asked for this track or album completion added it. Unlike the derived
+            // Origin* fields above this is a stored column, so it's the one "My music" filters on.
+            AcquisitionIntent = s.AcquisitionIntent.ToString(),
         };
         }).ToList();
 
@@ -343,6 +379,9 @@ public static class SongsEndpoints
             Songs = projected
         });
     }
+
+    private static DateTime? Earliest(DateTime? a, DateTime? b) =>
+        a is null ? b : b is null ? a : a < b ? a : b;
 
     private static async Task<IResult> GetTrackLyrics(int id, MusicHoarderDbContext db)
     {
@@ -431,7 +470,7 @@ public static class SongsEndpoints
         });
     }
 
-    private static async Task<IResult> TranscribeLyrics(
+    internal static async Task<IResult> TranscribeLyrics(
         int id,
         MusicHoarderDbContext db,
         ILyricsTranscriptionService transcriber,
@@ -468,12 +507,28 @@ public static class SongsEndpoints
             // Stored separately from SyncedLyrics/PlainLyrics so it never clobbers the LRCLIB version.
             song.ApplyTranscriptionResult(result.SyncedLyrics, result.PlainLyrics, result.Model);
 
+            // A re-sync of the song's OWN official lyrics (forced alignment against the LRCLIB text)
+            // is the same words with better timing, so it becomes the default automatically — that is
+            // the entire point of asking for a re-sync on a track that already has lyrics. A
+            // transcription with no reference text is the AI's guess at the words and is never
+            // promoted; the user picks that one from the compare view.
+            var promoted = false;
+            if (result.AlignedToReference
+                && !string.IsNullOrWhiteSpace(song.TranscribedSyncedLyrics)
+                && song.PreferredLyricsSource != PreferredLyricsSource.Transcribed)
+            {
+                song.PreferredLyricsSource = PreferredLyricsSource.Transcribed;
+                promoted = true;
+            }
+
             // If the AI version is this song's chosen default, the file's effective lyrics just changed —
             // re-tag the built destination so it reflects the fresh transcription.
+            var retagQueued = false;
             if (song.PreferredLyricsSource == PreferredLyricsSource.Transcribed
                 && song.LibraryBuildStatus == LibraryBuildStatus.Done)
             {
                 song.RequeueForRetag();
+                retagQueued = true;
             }
             await db.SaveChangesAsync(ct);
 
@@ -486,8 +541,14 @@ public static class SongsEndpoints
                 song.TranscribedAtUtc,
                 Model = song.TranscriptionModel,
                 HasExistingLyrics = song.LyricsStatus == LyricsStatus.Fetched,
+                // True when this run re-timed the official lyrics rather than inventing its own words.
+                Resynced = result.AlignedToReference,
+                // Lets the client show the new version in the viewer without a refetch.
+                PreferredLyricsSource = song.PreferredLyricsSource.ToString(),
+                Promoted = promoted,
+                RetagQueued = retagQueued,
                 // The fresh transcription may have changed the display lyrics out from under an
-                // existing pronunciation/translation — the client auto-regenerates when true.
+                // existing pronunciation/translation — the client regenerates when true.
                 LyricsTranslationStale = song.IsLyricsTranslationStale,
             });
         }
@@ -798,7 +859,21 @@ public static class SongsEndpoints
         if (song is null || song.IsSynthetic)
             return Results.NotFound();
 
-        return await ServeCoverAsync(song, coverArtResolver, thumbnails, http, size);
+        // A song with an attached music video keeps its YouTube thumbnail next to the mp4
+        // (<stem>.jpg) — the fallback cover for artless downloads until real art arrives.
+        string? videoThumbnail = null;
+        var videoFilePath = await db.SongMusicVideos.AsNoTracking()
+            .Where(v => v.SongId == id)
+            .Select(v => v.FilePath)
+            .FirstOrDefaultAsync();
+        if (videoFilePath is not null)
+        {
+            var candidate = Path.ChangeExtension(videoFilePath, ".jpg");
+            if (File.Exists(candidate))
+                videoThumbnail = candidate;
+        }
+
+        return await ServeCoverAsync(song, coverArtResolver, thumbnails, http, size, videoThumbnail);
     }
 
     /// <summary>
@@ -810,7 +885,8 @@ public static class SongsEndpoints
         ICoverArtResolver coverArtResolver,
         ICoverThumbnailService thumbnails,
         HttpContext http,
-        int? size)
+        int? size,
+        string? musicVideoThumbnailPath = null)
     {
         var filePath = ResolveAudioFilePath(song);
 
@@ -828,6 +904,10 @@ public static class SongsEndpoints
         {
             cover = coverArtResolver.Resolve(song.DestinationPath);
         }
+
+        // Last resort: the music video's YouTube thumbnail (real art always wins when present).
+        if (cover is null && musicVideoThumbnailPath is not null)
+            cover = new ResolvedCover { FilePath = musicVideoThumbnailPath, ContentType = "image/jpeg" };
 
         if (cover is null)
             return Results.NotFound();

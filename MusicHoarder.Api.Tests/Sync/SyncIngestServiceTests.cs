@@ -72,23 +72,64 @@ public class SyncIngestServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Ladder_IgnoresDeletedSyntheticDuplicateAndDemoRows()
+    public async Task Ladder_IgnoresDeletedSyntheticAndDemoRows()
     {
         await using var db = CreateDbContext();
         var deleted = Song(1, "/lib/a.mp3", fingerprint: "FP1");
         deleted.SoftDelete();
         var synthetic = Song(2, "/lib/b.mp3", fingerprint: "FP1");
         synthetic.IsSynthetic = true;
-        var duplicate = Song(3, "/lib/c.mp3", fingerprint: "FP1");
-        duplicate.MarkAsDuplicate(99);
         var demo = Song(4, "/lib/d.mp3", fingerprint: "FP1");
         demo.OwnerUserId = WellKnownUsers.DemoId;
-        db.Songs.AddRange(deleted, synthetic, duplicate, demo);
+        db.Songs.AddRange(deleted, synthetic, demo);
         await db.SaveChangesAsync();
         var service = CreateService(db);
 
         var (hit, _) = await service.FindExistingAsync("FP1", null, null, null, null, null, default);
         Assert.Null(hit);
+    }
+
+    [Fact]
+    public async Task Ladder_MatchesDuplicateFlaggedRows_ButPrefersCanonical()
+    {
+        // Duplicate rows must stay visible to the ladder: the builder flags each freshly-received
+        // copy against the already-built occupant it collides with, so filtering duplicates out made
+        // every push miss — and every miss wrote yet another copy.
+        await using var db = CreateDbContext();
+        var duplicate = Song(1, "/lib/dup.mp3", fingerprint: "FP1");
+        duplicate.MarkAsDuplicate(99);
+        var canonical = Song(2, "/lib/keeper.mp3", fingerprint: "FP1");
+        db.Songs.AddRange(duplicate, canonical);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var (hit, by) = await service.FindExistingAsync("FP1", null, null, null, null, null, default);
+        Assert.Equal(2, hit!.Id); // canonical wins despite the higher id
+        Assert.Equal("fingerprint", by);
+
+        // With only the duplicate left, it still answers — present is present.
+        db.Songs.Remove(canonical);
+        await db.SaveChangesAsync();
+
+        var (dupHit, _) = await service.FindExistingAsync("FP1", null, null, null, null, null, default);
+        Assert.Equal(1, dupHit!.Id);
+    }
+
+    [Fact]
+    public async Task Ladder_Fuzzy_PrefersCanonicalOverDuplicate()
+    {
+        await using var db = CreateDbContext();
+        var duplicate = Song(1, "/lib/dup.mp3", artist: "Artist", title: "Song", durationMs: 200_000);
+        duplicate.MarkAsDuplicate(99);
+        var canonical = Song(2, "/lib/keeper.mp3", artist: "Artist", title: "Song", durationMs: 200_000);
+        db.Songs.AddRange(duplicate, canonical);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var (hit, by) = await service.FindExistingAsync(null, null, null, "Artist", "Song", 201_000, default);
+
+        Assert.Equal(2, hit!.Id);
+        Assert.Equal("fuzzy", by);
     }
 
     // ── Check verdicts ──────────────────────────────────────────────────────
@@ -142,6 +183,30 @@ public class SyncIngestServiceTests : IDisposable
         var noSize = await service.CheckAsync(
             new SyncCheckRequest("FP1", null, null, null, null, null, ".flac", 900), default);
         Assert.Equal(SyncVerdict.PresentSameOrBetter, noSize.Verdict);
+    }
+
+    [Fact]
+    public async Task Check_DuplicateRow_ReportsPresentSameOrBetter_EvenForBetterCandidate()
+    {
+        // A duplicate row is never built or served, so there is nothing to upgrade or byte-repair.
+        // Answering "present" is what settles the pusher's outbox instead of it re-offering forever.
+        await using var db = CreateDbContext();
+        var duplicate = Song(1, $"{syncedDir.Replace('\\', '/')}/Artist/track [aaaa].opus",
+            extension: ".opus", bitrate: 128, fingerprint: "FP1");
+        duplicate.MarkAsDuplicate(99);
+        db.Songs.Add(duplicate); // FileSizeBytes = 1000
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var betterQuality = await service.CheckAsync(
+            new SyncCheckRequest("FP1", null, null, null, null, null, ".flac", 900), default);
+        Assert.Equal(SyncVerdict.PresentSameOrBetter, betterQuality.Verdict);
+        Assert.Equal(1, betterQuality.SongId);
+
+        // A managed row with diverged bytes would normally ask for a byte repair.
+        var differentBytes = await service.CheckAsync(
+            new SyncCheckRequest("FP1", null, null, null, null, null, ".opus", 128, FileSizeBytes: 2222), default);
+        Assert.Equal(SyncVerdict.PresentSameOrBetter, differentBytes.Verdict);
     }
 
     [Fact]
@@ -203,6 +268,28 @@ public class SyncIngestServiceTests : IDisposable
         Assert.Equal(SyncUploadOutcome.SkippedIdentical, response.Outcome);
         Assert.Equal(1, response.SongId);
         Assert.Empty(Directory.EnumerateFiles(syncedDir, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task Ingest_DuplicateRow_SkipsWithoutWritingAnotherCopy()
+    {
+        // The runaway-loop regression test: an upload whose only local match is duplicate-flagged
+        // must NOT create a new row + file — the builder would flag that copy as a duplicate too,
+        // making the next push miss again. One track reached 1,347 copies this way.
+        await using var db = CreateDbContext();
+        var duplicate = Song(1, "/lib/a.opus", extension: ".opus", bitrate: 128, fingerprint: "FP1");
+        duplicate.MarkAsDuplicate(99);
+        db.Songs.Add(duplicate);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var response = await service.IngestAsync(
+            Payload(fingerprint: "FP1", extension: ".flac", bitrate: 900), Bytes(64), default);
+
+        Assert.Equal(SyncUploadOutcome.SkippedSameOrBetter, response.Outcome);
+        Assert.Equal(1, response.SongId);
+        Assert.Empty(Directory.EnumerateFiles(syncedDir, "*", SearchOption.AllDirectories));
+        Assert.Equal(1, await db.Songs.IgnoreQueryFilters().CountAsync());
     }
 
     [Fact]
@@ -375,6 +462,32 @@ public class SyncIngestServiceTests : IDisposable
         Assert.Equal(likedAt, (await db.Songs.SingleAsync()).LikedAtUtc);
     }
 
+    [Fact]
+    public async Task Ingest_Create_AppliesPayloadAcquisitionIntent()
+    {
+        await using var db = CreateDbContext();
+        var service = CreateService(db);
+
+        await service.IngestAsync(
+            Payload(fingerprint: "FP-new", acquisitionIntent: SongAcquisitionIntent.AlbumFill),
+            Bytes(64), default);
+
+        Assert.Equal(SongAcquisitionIntent.AlbumFill, (await db.Songs.SingleAsync()).AcquisitionIntent);
+    }
+
+    [Fact]
+    public async Task Ingest_PayloadWithoutIntent_DefaultsToExplicit()
+    {
+        // Back-compat with an older pusher that has no such field: its payload must read as the owner's
+        // music, not as album fill.
+        await using var db = CreateDbContext();
+        var service = CreateService(db);
+
+        await service.IngestAsync(Payload(fingerprint: "FP-new"), Bytes(64), default);
+
+        Assert.Equal(SongAcquisitionIntent.Explicit, (await db.Songs.SingleAsync()).AcquisitionIntent);
+    }
+
     private static SongMetadata Song(
         int id, string path, string extension = ".mp3", int? bitrate = 320, string? fingerprint = null,
         string? acoustId = null, string? mbid = null, string? artist = "Artist", string? title = "Song",
@@ -402,7 +515,8 @@ public class SyncIngestServiceTests : IDisposable
     private static SyncTrackPayload Payload(
         string? fingerprint = null, string? acoustId = null, string? mbid = null,
         string extension = ".flac", int? bitrate = 900, DateTime? likedAtUtc = null,
-        long fileSizeBytes = 128)
+        long fileSizeBytes = 128,
+        SongAcquisitionIntent acquisitionIntent = SongAcquisitionIntent.Explicit)
         => new(
             FileName: "Some Artist - Some Song" + extension,
             Extension: extension,
@@ -440,7 +554,8 @@ public class SyncIngestServiceTests : IDisposable
             SyncedLyrics: "[00:01.00] la la la",
             IsInstrumental: false,
             LyricsStatus: LyricsStatus.Fetched,
-            LikedAtUtc: likedAtUtc);
+            LikedAtUtc: likedAtUtc,
+            AcquisitionIntent: acquisitionIntent);
 
     private static MemoryStream Bytes(int count) => new(Enumerable.Repeat((byte)7, count).ToArray());
 

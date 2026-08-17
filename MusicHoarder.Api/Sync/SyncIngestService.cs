@@ -43,6 +43,13 @@ public sealed class SyncIngestService(
             return new SyncCheckResponse(SyncVerdict.NotPresent, null, null, null);
 
         var remoteScore = AudioQuality.Score(existing);
+
+        // A duplicate-flagged row is never built or served (see SongMetadata.IsReadyForBuild), so
+        // there is nothing here worth upgrading or byte-repairing — but the track IS present, and
+        // saying so is what settles the pusher's outbox instead of re-offering the file forever.
+        if (existing.IsDuplicate)
+            return new SyncCheckResponse(SyncVerdict.PresentSameOrBetter, existing.Id, remoteScore, matchedBy);
+
         var candidateScore = AudioQuality.Score(request.Extension, request.Bitrate);
         var verdict = candidateScore > remoteScore
             ? SyncVerdict.PresentLowerQuality
@@ -64,6 +71,19 @@ public sealed class SyncIngestService(
         if (existing is not null)
         {
             var existingScore = AudioQuality.Score(existing);
+
+            // Mirror of the CheckAsync rule: a duplicate-flagged row is never built or served, so an
+            // upgrade or byte-repair would change nothing — and writing a file anyway is precisely
+            // what let one track accumulate 1,347 managed copies. Report it present and write nothing.
+            if (existing.IsDuplicate)
+            {
+                logger.LogInformation(
+                    "Sync upload skipped (duplicate row) for '{Artist} - {Title}' — existing song {SongId} is flagged a duplicate of {DuplicateOfId}",
+                    LogSanitizer.ForLog(payload.Artist), LogSanitizer.ForLog(payload.Title),
+                    existing.Id, existing.DuplicateOfId);
+                return new SyncUploadResponse(SyncUploadOutcome.SkippedSameOrBetter, existing.Id, existingScore);
+            }
+
             // A same-or-better local copy normally wins — EXCEPT when the local copy is a managed
             // synced file whose bytes no longer match the pusher's artifact for the same fingerprint
             // (stale/corrupted): then the pusher is authoritative and the upload replaces in place.
@@ -168,9 +188,17 @@ public sealed class SyncIngestService(
     }
 
     /// <summary>
-    /// The matching ladder over live, canonical rows (owner tenant, non-synthetic, non-deleted,
-    /// non-duplicate). Sequential FirstOrDefaults — precision order matters more than round-trips
-    /// at this call rate.
+    /// The matching ladder over live rows (owner tenant, non-synthetic, non-deleted). Sequential
+    /// FirstOrDefaults — precision order matters more than round-trips at this call rate.
+    /// <para>
+    /// Duplicate-flagged rows are deliberately INCLUDED (canonical rows still win via the ordering).
+    /// They used to be filtered out, which turned every duplicate into a permanent blind spot: once
+    /// a track's only local copies were flagged — e.g. by the builder's destination-path collision
+    /// rule, which flags each freshly-received copy against the already-built occupant — the ladder
+    /// missed on every push, each miss wrote another file and row, and the builder promptly flagged
+    /// that one too. One track ran to 1,347 copies that way. A duplicate row is still proof the
+    /// track is here, which is exactly what the pusher needs to hear.
+    /// </para>
     /// </summary>
     internal async Task<(SongMetadata? Song, string? MatchedBy)> FindExistingAsync(
         string? fingerprint, string? acoustIdTrackId, string? musicBrainzId,
@@ -179,26 +207,26 @@ public sealed class SyncIngestService(
         var live = db.Songs
             .IgnoreQueryFilters()
             .Where(s => s.OwnerUserId == ownerLookup.OwnerUserId
-                && !s.IsSynthetic && s.DeletedAtUtc == null && !s.IsDuplicate);
+                && !s.IsSynthetic && s.DeletedAtUtc == null);
 
         if (!string.IsNullOrWhiteSpace(fingerprint))
         {
-            var hit = await live.Where(s => s.Fingerprint == fingerprint)
-                .OrderBy(s => s.Id).FirstOrDefaultAsync(ct);
+            var hit = await CanonicalFirst(live.Where(s => s.Fingerprint == fingerprint))
+                .FirstOrDefaultAsync(ct);
             if (hit is not null) return (hit, "fingerprint");
         }
 
         if (!string.IsNullOrWhiteSpace(acoustIdTrackId))
         {
-            var hit = await live.Where(s => s.AcoustIdTrackId == acoustIdTrackId)
-                .OrderBy(s => s.Id).FirstOrDefaultAsync(ct);
+            var hit = await CanonicalFirst(live.Where(s => s.AcoustIdTrackId == acoustIdTrackId))
+                .FirstOrDefaultAsync(ct);
             if (hit is not null) return (hit, "acoustid");
         }
 
         if (!string.IsNullOrWhiteSpace(musicBrainzId))
         {
-            var hit = await live.Where(s => s.MusicBrainzId == musicBrainzId)
-                .OrderBy(s => s.Id).FirstOrDefaultAsync(ct);
+            var hit = await CanonicalFirst(live.Where(s => s.MusicBrainzId == musicBrainzId))
+                .FirstOrDefaultAsync(ct);
             if (hit is not null) return (hit, "mbid");
         }
 
@@ -218,13 +246,18 @@ public sealed class SyncIngestService(
             var hit = candidates
                 .Where(s => TitleNormalizer.NormalizeForSearch(s.Artist) == wantArtist
                     && TitleNormalizer.NormalizeForSearch(s.Title) == wantTitle)
-                .OrderBy(s => s.Id)
+                .OrderBy(s => s.IsDuplicate)
+                .ThenBy(s => s.Id)
                 .FirstOrDefault();
             if (hit is not null) return (hit, "fuzzy");
         }
 
         return (null, null);
     }
+
+    /// <summary>Canonical rows before duplicate-flagged ones, oldest id first within each.</summary>
+    private static IQueryable<SongMetadata> CanonicalFirst(IQueryable<SongMetadata> query) =>
+        query.OrderBy(s => s.IsDuplicate).ThenBy(s => s.Id);
 
     /// <summary>
     /// Streams the upload into <c>.incoming/</c> (skipped by the scanner) then atomically moves it
@@ -341,6 +374,10 @@ public sealed class SyncIngestService(
 
         // The pusher owns the like (one-way sync): mirror it, even clearing a stale local like.
         song.LikedAtUtc = payload.LikedAtUtc;
+
+        // Wishlist rows don't travel, so the pusher's intent is the only way the receiver can tell an
+        // album-fill track from one the owner asked for. An older pusher omits it and reads as Explicit.
+        song.AcquisitionIntent = payload.AcquisitionIntent;
     }
 
     private void DeleteManagedSourceFile(string sourcePath, SyncOptions opts)

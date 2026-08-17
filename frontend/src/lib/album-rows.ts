@@ -15,6 +15,8 @@ export type DisplayRow =
       title: string;
       durationSeconds: number | null;
       contested: boolean;
+      /** Canonical track id, so the row can offer to go and fetch it. Null on an older API. */
+      canonicalTrackId: number | null;
     };
 
 /**
@@ -72,7 +74,8 @@ export function buildDisplayRows(songs: ApiSong[] | undefined, tracklist: AlbumT
       n: t.trackNumber,
       title: (t.title ?? '').trim() || 'Unknown track',
       durationSeconds: t.durationMs != null ? t.durationMs / 1000 : null,
-      contested: t.isContested
+      contested: t.isContested,
+      canonicalTrackId: t.id ?? null
     };
   });
 
