@@ -1,6 +1,4 @@
-using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
-using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.RateLimiting;
 
@@ -86,6 +84,7 @@ public interface IMusicBrainzWebService
 /// Thin client over the MusicBrainz web service (musicbrainz.org/ws/2). JSON, rate-limited
 /// to honor the 1 request/second policy via a shared token bucket. A descriptive User-Agent
 /// is required by MusicBrainz; it is set on the injected <see cref="HttpClient"/>.
+/// Response payloads are turned into domain records by <see cref="MusicBrainzResponseMapper"/>.
 /// </summary>
 public sealed class MusicBrainzWebService(
     HttpClient httpClient,
@@ -96,21 +95,21 @@ public sealed class MusicBrainzWebService(
 
     public async Task<MusicBrainzRecording?> LookupByRecordingIdAsync(string mbid, CancellationToken ct = default)
     {
-        var dto = await GetAsync<RecordingDto>(
+        var dto = await GetAsync<MusicBrainzRecordingDto>(
             $"recording/{Uri.EscapeDataString(mbid)}?inc=artist-credits+releases+release-groups+media+isrcs+genres+labels&fmt=json", ct);
-        return dto is null ? null : MapRecording(dto);
+        return dto is null ? null : MusicBrainzResponseMapper.MapRecording(dto);
     }
 
     public async Task<MusicBrainzRecording?> LookupByIsrcAsync(string isrc, CancellationToken ct = default)
     {
         var normalized = isrc.Trim().ToUpperInvariant().Replace("-", "", StringComparison.Ordinal);
-        var dto = await GetAsync<IsrcDto>(
+        var dto = await GetAsync<MusicBrainzIsrcDto>(
             $"isrc/{Uri.EscapeDataString(normalized)}?inc=artist-credits+releases+release-groups+media+genres+labels&fmt=json", ct);
         if (dto?.Recordings is null or { Count: 0 })
             return null;
 
         var count = dto.Recordings.Count;
-        return MapRecording(dto.Recordings[0]) with { CandidateCount = count, Isrc = normalized };
+        return MusicBrainzResponseMapper.MapRecording(dto.Recordings[0]) with { CandidateCount = count, Isrc = normalized };
     }
 
     public async Task<IReadOnlyList<MusicBrainzRecording>> SearchAsync(
@@ -119,12 +118,12 @@ public sealed class MusicBrainzWebService(
         var query = $"artist:\"{EscapeLucene(artist)}\" AND recording:\"{EscapeLucene(title)}\"";
         if (!string.IsNullOrWhiteSpace(album))
             query += $" AND release:\"{EscapeLucene(album)}\"";
-        var dto = await GetAsync<SearchDto>(
+        var dto = await GetAsync<MusicBrainzRecordingSearchDto>(
             $"recording?query={Uri.EscapeDataString(query)}&fmt=json&limit={limit}", ct);
         if (dto?.Recordings is null or { Count: 0 })
             return [];
 
-        return dto.Recordings.Select(MapRecording).ToList();
+        return dto.Recordings.Select(MusicBrainzResponseMapper.MapRecording).ToList();
     }
 
     public async Task<IReadOnlyList<MusicBrainzRecording>> SearchFreeTextAsync(
@@ -133,34 +132,28 @@ public sealed class MusicBrainzWebService(
         if (string.IsNullOrWhiteSpace(query))
             return [];
 
-        var dto = await GetAsync<SearchDto>(
+        var dto = await GetAsync<MusicBrainzRecordingSearchDto>(
             $"recording?query={Uri.EscapeDataString(EscapeLucene(query))}&fmt=json&limit={limit}", ct);
         if (dto?.Recordings is null or { Count: 0 })
             return [];
 
-        return dto.Recordings.Select(MapRecording).ToList();
+        return dto.Recordings.Select(MusicBrainzResponseMapper.MapRecording).ToList();
     }
 
     public async Task<MusicBrainzRelease?> LookupReleaseAsync(string releaseId, CancellationToken ct = default)
     {
-        var dto = await GetAsync<ReleaseDetailDto>(
+        var dto = await GetAsync<MusicBrainzReleaseDetailDto>(
             $"release/{Uri.EscapeDataString(releaseId)}?inc=artist-credits+recordings+media&fmt=json", ct);
-        return dto is null ? null : MapRelease(dto);
+        return dto is null ? null : MusicBrainzResponseMapper.MapRelease(dto);
     }
 
     public async Task<IReadOnlyList<MusicBrainzReleaseSearchResult>> SearchReleasesAsync(
         string artist, string album, int limit, CancellationToken ct = default)
     {
         var query = $"artist:\"{EscapeLucene(artist)}\" AND release:\"{EscapeLucene(album)}\"";
-        var dto = await GetAsync<ReleaseSearchDto>(
+        var dto = await GetAsync<MusicBrainzReleaseSearchDto>(
             $"release?query={Uri.EscapeDataString(query)}&fmt=json&limit={limit}", ct);
-        if (dto?.Releases is null or { Count: 0 })
-            return [];
-
-        return dto.Releases
-            .Where(r => !string.IsNullOrWhiteSpace(r.Id))
-            .Select(r => new MusicBrainzReleaseSearchResult(r.Id!, r.Title, ReleaseDateParser.ParseYear(r.Date), r.TrackCount, r.Score ?? 0))
-            .ToList();
+        return MusicBrainzResponseMapper.MapReleaseSearchResults(dto?.Releases);
     }
 
     private async Task<T?> GetAsync<T>(string relativeUrl, CancellationToken ct) where T : class
@@ -202,383 +195,6 @@ public sealed class MusicBrainzWebService(
         }
     }
 
-    private static MusicBrainzRecording MapRecording(RecordingDto r)
-    {
-        var artist = BuildArtistCredit(r.ArtistCredit);
-        var release = r.Releases is { Count: > 0 } ? r.Releases[0] : null;
-        var releaseGroup = release?.ReleaseGroup;
-
-        var primaryType = string.IsNullOrWhiteSpace(releaseGroup?.PrimaryType)
-            ? null
-            : releaseGroup!.PrimaryType!.ToLowerInvariant();
-        var secondaryTypes = releaseGroup?.SecondaryTypes?
-            .Where(t => !string.IsNullOrWhiteSpace(t))
-            .Select(t => t!.ToLowerInvariant())
-            .ToList() ?? [];
-        var releaseTypes = primaryType is null
-            ? MultiValue.Join(secondaryTypes)
-            : MultiValue.Join(new[] { primaryType }.Concat(secondaryTypes));
-
-        var totalDiscs = release?.Media is { Count: > 0 } media ? media.Count : (int?)null;
-        var totalTracks = release?.Media is { Count: > 0 } m
-            ? m.Sum(x => x.TrackCount ?? 0) is var sum && sum > 0 ? sum : (int?)null
-            : null;
-
-        // Genre: the recording's curated genres (highest-count first, Title Cased, capped at 5), falling
-        // back to freeform tags when no genre is set — SpotiFLAC's MusicBrainz-tag approach.
-        var genre = BuildGenre(r.Genres) ?? BuildGenre(r.Tags);
-
-        // Label + catalog number off the release's first label-info entry that names a label.
-        var labelInfo = release?.LabelInfo?.FirstOrDefault(li => !string.IsNullOrWhiteSpace(li.Label?.Name));
-        var catalogNumber = release?.LabelInfo?
-            .Select(li => li.CatalogNumber)
-            .FirstOrDefault(c => !string.IsNullOrWhiteSpace(c));
-
-        return new MusicBrainzRecording(
-            Id: r.Id,
-            Title: r.Title ?? string.Empty,
-            Artist: artist,
-            AlbumArtist: ArtistCreditNormalizer.GetPrimaryArtist(artist),
-            ReleaseId: release?.Id,
-            ReleaseTitle: release?.Title,
-            Year: ReleaseDateParser.ParseYear(release?.Date),
-            Isrc: r.Isrcs is { Count: > 0 } ? r.Isrcs[0] : null,
-            LengthMs: r.Length,
-            Score: r.Score ?? 100,
-            CandidateCount: 1,
-            Artists: BuildDiscreteArtists(r.ArtistCredit),
-            ArtistMusicBrainzIds: BuildArtistIds(r.ArtistCredit),
-            AlbumArtistMusicBrainzId: r.ArtistCredit is { Count: > 0 } ? r.ArtistCredit[0].Artist?.Id : null,
-            ReleaseGroupId: releaseGroup?.Id,
-            ReleaseTypePrimary: primaryType,
-            ReleaseTypes: releaseTypes,
-            IsCompilation: secondaryTypes.Contains("compilation"),
-            TotalDiscs: totalDiscs,
-            TotalTracks: totalTracks,
-            Genre: genre,
-            ReleaseDate: ReleaseDateParser.Normalize(release?.Date),
-            OriginalReleaseDate: ReleaseDateParser.Normalize(releaseGroup?.FirstReleaseDate),
-            Label: labelInfo?.Label?.Name,
-            CatalogNumber: string.IsNullOrWhiteSpace(catalogNumber) ? null : catalogNumber,
-            Barcode: string.IsNullOrWhiteSpace(release?.Barcode) ? null : release!.Barcode,
-            ArtistSort: BuildArtistSortCredit(r.ArtistCredit),
-            AlbumArtistSort: r.ArtistCredit is { Count: > 0 } ? NullIfBlank(r.ArtistCredit[0].Artist?.SortName) : null);
-    }
-
-    /// <summary>
-    /// Genres/tags → a ';'-joined multi-value string: highest count first, Title Cased, capped at 5,
-    /// de-duplicated. Returns null when there are none.
-    /// </summary>
-    private static string? BuildGenre(List<GenreDto>? genres)
-    {
-        if (genres is null or { Count: 0 })
-            return null;
-
-        var names = genres
-            .Where(g => !string.IsNullOrWhiteSpace(g.Name))
-            .OrderByDescending(g => g.Count ?? 0)
-            .Select(g => TitleCase(g.Name!.Trim()))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(5)
-            .ToList();
-
-        return names.Count == 0 ? null : MultiValue.Join(names);
-    }
-
-    private static string TitleCase(string value)
-        => System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(value.ToLowerInvariant());
-
-    // The sort-name credit (ARTISTSORT): each credited artist's sort-name concatenated with the same
-    // join phrases as the display credit, so "The Beatles feat. Billy Preston" sorts as
-    // "Beatles, The feat. Preston, Billy". Falls back to the display name when a sort-name is absent.
-    private static string? BuildArtistSortCredit(List<ArtistCreditDto>? credits)
-    {
-        if (credits is null or { Count: 0 })
-            return null;
-
-        var sort = string.Concat(credits.Select(c =>
-            (c.Artist?.SortName ?? c.Name ?? c.Artist?.Name ?? string.Empty) + (c.JoinPhrase ?? string.Empty))).Trim();
-        return NullIfBlank(sort);
-    }
-
-    private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-
-    private static MusicBrainzRelease MapRelease(ReleaseDetailDto r)
-    {
-        var artist = BuildArtistCredit(r.ArtistCredit);
-        var media = r.Media ?? [];
-
-        var tracks = new List<MusicBrainzReleaseTrack>();
-        foreach (var medium in media)
-        {
-            var disc = medium.Position ?? 1;
-            if (medium.Tracks is null) continue;
-            foreach (var t in medium.Tracks)
-            {
-                tracks.Add(new MusicBrainzReleaseTrack(
-                    DiscNumber: disc,
-                    // `number` is the printed track designation (can be non-numeric on vinyl, e.g. "A1");
-                    // `position` is the reliable 1-based ordinal. Prefer position.
-                    TrackNumber: t.Position ?? 0,
-                    Title: t.Title ?? t.Recording?.Title,
-                    LengthMs: t.Length ?? t.Recording?.Length,
-                    RecordingId: t.Recording?.Id));
-            }
-        }
-
-        var totalDiscs = media.Count > 0 ? media.Count : (int?)null;
-        var totalTracks = media.Count > 0
-            ? media.Sum(m => m.TrackCount ?? (m.Tracks?.Count ?? 0)) is var sum && sum > 0 ? sum : (int?)null
-            : null;
-
-        return new MusicBrainzRelease(
-            Id: r.Id,
-            Title: r.Title,
-            AlbumArtist: string.IsNullOrWhiteSpace(artist) ? null : ArtistCreditNormalizer.GetPrimaryArtist(artist),
-            Year: ReleaseDateParser.ParseYear(r.Date),
-            TotalDiscs: totalDiscs,
-            TotalTracks: totalTracks,
-            Tracks: tracks);
-    }
-
-    private static string BuildArtistCredit(List<ArtistCreditDto>? credits)
-    {
-        if (credits is null or { Count: 0 })
-            return string.Empty;
-
-        return string.Concat(credits.Select(c => (c.Name ?? c.Artist?.Name ?? string.Empty) + (c.JoinPhrase ?? string.Empty))).Trim();
-    }
-
-    // Discrete artist names (one per credited artist, no join phrases) for the multi-value ARTISTS tag.
-    private static string? BuildDiscreteArtists(List<ArtistCreditDto>? credits)
-        => credits is null or { Count: 0 }
-            ? null
-            : MultiValue.Join(credits.Select(c => c.Artist?.Name ?? c.Name));
-
-    // Per-artist MBIDs, positionally aligned with BuildDiscreteArtists (one entry per credited artist).
-    private static string? BuildArtistIds(List<ArtistCreditDto>? credits)
-        => credits is null or { Count: 0 }
-            ? null
-            : MultiValue.Join(credits.Select(c => c.Artist?.Id));
-
     private static string EscapeLucene(string value)
         => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
-
-    // --- JSON DTOs ---
-
-    private sealed class IsrcDto
-    {
-        [JsonPropertyName("recordings")]
-        public List<RecordingDto>? Recordings { get; set; }
-    }
-
-    private sealed class SearchDto
-    {
-        [JsonPropertyName("recordings")]
-        public List<RecordingDto>? Recordings { get; set; }
-    }
-
-    private sealed class RecordingDto
-    {
-        [JsonPropertyName("id")]
-        public string Id { get; set; } = string.Empty;
-
-        [JsonPropertyName("title")]
-        public string? Title { get; set; }
-
-        [JsonPropertyName("length")]
-        public int? Length { get; set; }
-
-        [JsonPropertyName("score")]
-        public int? Score { get; set; }
-
-        [JsonPropertyName("artist-credit")]
-        public List<ArtistCreditDto>? ArtistCredit { get; set; }
-
-        [JsonPropertyName("releases")]
-        public List<ReleaseDto>? Releases { get; set; }
-
-        [JsonPropertyName("isrcs")]
-        public List<string>? Isrcs { get; set; }
-
-        [JsonPropertyName("genres")]
-        public List<GenreDto>? Genres { get; set; }
-
-        [JsonPropertyName("tags")]
-        public List<GenreDto>? Tags { get; set; }
-    }
-
-    private sealed class ArtistCreditDto
-    {
-        [JsonPropertyName("name")]
-        public string? Name { get; set; }
-
-        [JsonPropertyName("joinphrase")]
-        public string? JoinPhrase { get; set; }
-
-        [JsonPropertyName("artist")]
-        public ArtistDto? Artist { get; set; }
-    }
-
-    private sealed class ArtistDto
-    {
-        [JsonPropertyName("id")]
-        public string? Id { get; set; }
-
-        [JsonPropertyName("name")]
-        public string? Name { get; set; }
-
-        [JsonPropertyName("sort-name")]
-        public string? SortName { get; set; }
-    }
-
-    // Shared by MusicBrainz `genres` and `tags` — both are {name, count} lists.
-    private sealed class GenreDto
-    {
-        [JsonPropertyName("name")]
-        public string? Name { get; set; }
-
-        [JsonPropertyName("count")]
-        public int? Count { get; set; }
-    }
-
-    private sealed class LabelInfoDto
-    {
-        [JsonPropertyName("catalog-number")]
-        public string? CatalogNumber { get; set; }
-
-        [JsonPropertyName("label")]
-        public LabelDto? Label { get; set; }
-    }
-
-    private sealed class LabelDto
-    {
-        [JsonPropertyName("name")]
-        public string? Name { get; set; }
-    }
-
-    private sealed class ReleaseDto
-    {
-        [JsonPropertyName("id")]
-        public string? Id { get; set; }
-
-        [JsonPropertyName("title")]
-        public string? Title { get; set; }
-
-        [JsonPropertyName("date")]
-        public string? Date { get; set; }
-
-        [JsonPropertyName("barcode")]
-        public string? Barcode { get; set; }
-
-        [JsonPropertyName("label-info")]
-        public List<LabelInfoDto>? LabelInfo { get; set; }
-
-        [JsonPropertyName("release-group")]
-        public ReleaseGroupDto? ReleaseGroup { get; set; }
-
-        [JsonPropertyName("media")]
-        public List<MediaDto>? Media { get; set; }
-    }
-
-    private sealed class ReleaseGroupDto
-    {
-        [JsonPropertyName("id")]
-        public string? Id { get; set; }
-
-        [JsonPropertyName("primary-type")]
-        public string? PrimaryType { get; set; }
-
-        [JsonPropertyName("secondary-types")]
-        public List<string?>? SecondaryTypes { get; set; }
-
-        [JsonPropertyName("first-release-date")]
-        public string? FirstReleaseDate { get; set; }
-    }
-
-    private sealed class MediaDto
-    {
-        [JsonPropertyName("position")]
-        public int? Position { get; set; }
-
-        [JsonPropertyName("track-count")]
-        public int? TrackCount { get; set; }
-
-        [JsonPropertyName("tracks")]
-        public List<TrackDto>? Tracks { get; set; }
-    }
-
-    // --- Release-detail (full tracklist) DTOs ---
-
-    private sealed class ReleaseDetailDto
-    {
-        [JsonPropertyName("id")]
-        public string Id { get; set; } = string.Empty;
-
-        [JsonPropertyName("title")]
-        public string? Title { get; set; }
-
-        [JsonPropertyName("date")]
-        public string? Date { get; set; }
-
-        [JsonPropertyName("artist-credit")]
-        public List<ArtistCreditDto>? ArtistCredit { get; set; }
-
-        [JsonPropertyName("media")]
-        public List<MediaDto>? Media { get; set; }
-    }
-
-    private sealed class ReleaseSearchDto
-    {
-        [JsonPropertyName("releases")]
-        public List<ReleaseSearchItemDto>? Releases { get; set; }
-    }
-
-    private sealed class ReleaseSearchItemDto
-    {
-        [JsonPropertyName("id")]
-        public string? Id { get; set; }
-
-        [JsonPropertyName("title")]
-        public string? Title { get; set; }
-
-        [JsonPropertyName("date")]
-        public string? Date { get; set; }
-
-        [JsonPropertyName("track-count")]
-        public int? TrackCount { get; set; }
-
-        [JsonPropertyName("score")]
-        public int? Score { get; set; }
-    }
-
-    private sealed class TrackDto
-    {
-        [JsonPropertyName("position")]
-        public int? Position { get; set; }
-
-        [JsonPropertyName("number")]
-        public string? Number { get; set; }
-
-        [JsonPropertyName("title")]
-        public string? Title { get; set; }
-
-        [JsonPropertyName("length")]
-        public int? Length { get; set; }
-
-        [JsonPropertyName("recording")]
-        public RecordingRefDto? Recording { get; set; }
-    }
-
-    private sealed class RecordingRefDto
-    {
-        [JsonPropertyName("id")]
-        public string? Id { get; set; }
-
-        [JsonPropertyName("title")]
-        public string? Title { get; set; }
-
-        [JsonPropertyName("length")]
-        public int? Length { get; set; }
-    }
 }
