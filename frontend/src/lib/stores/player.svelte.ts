@@ -21,6 +21,13 @@ let currentTime = $state(0);
 let duration = $state(0);
 let volumeState = $state(1);
 /**
+ * Playback speed (1 = normal). Pitch is preserved (`preservesPitch`), so
+ * slowing a song down keeps it singable — this exists for practising along
+ * with tracks, not chipmunk mode. Session-scoped and sticky across tracks;
+ * a reload returns to 1× so nobody is left wondering why everything drags.
+ */
+let playbackRateState = $state(1);
+/**
  * Ordered playback context the current song was started from (an album's
  * tracks, a review list, etc.). `queueIndex` points at `currentSong` within it.
  * When a song ends we advance to `queue[queueIndex + 1]`; there is no wrap, so
@@ -112,7 +119,7 @@ function updatePositionState() {
   ms.setPositionState({
     duration,
     position: Math.min(Math.max(0, currentTime), duration),
-    playbackRate: 1
+    playbackRate: playbackRateState
   });
 }
 
@@ -158,6 +165,11 @@ function ensureAudioEl(): HTMLAudioElement | null {
   const el = new Audio();
   el.preload = 'metadata';
   el.volume = volumeState;
+  // `defaultPlaybackRate` is what a new `src` resets `playbackRate` to, so
+  // keeping both in sync makes the chosen speed survive track changes.
+  el.defaultPlaybackRate = playbackRateState;
+  el.playbackRate = playbackRateState;
+  el.preservesPitch = true;
 
   el.addEventListener('loadedmetadata', () => {
     duration = el.duration;
@@ -332,6 +344,16 @@ function setVolume(vol: number) {
   if (clamped > 0) lastNonZeroVolume = clamped;
 }
 
+function setPlaybackRate(rate: number) {
+  const clamped = Math.max(0.25, Math.min(2, rate));
+  playbackRateState = clamped;
+  if (audioEl) {
+    audioEl.defaultPlaybackRate = clamped;
+    audioEl.playbackRate = clamped;
+  }
+  updatePositionState();
+}
+
 /** Mute, or restore the pre-mute level (falling back to 0.8 if muted from 0). */
 function toggleMute() {
   if (volumeState > 0) setVolume(0);
@@ -411,6 +433,9 @@ export const playerStore = {
   get volume() {
     return volumeState;
   },
+  get playbackRate() {
+    return playbackRateState;
+  },
   get hasNext() {
     return queueIndex >= 0 && queueIndex < queue.length - 1;
   },
@@ -431,6 +456,7 @@ export const playerStore = {
   togglePlay,
   seek,
   setVolume,
+  setPlaybackRate,
   toggleMute,
   dismissMiniPlayer,
   stop,

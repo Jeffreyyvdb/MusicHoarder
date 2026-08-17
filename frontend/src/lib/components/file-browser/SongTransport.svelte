@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { FastForward, Pause, Play, Rewind } from '@lucide/svelte';
+  import { Check, FastForward, Pause, Play, Rewind } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button';
+  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import Scrubber from './Scrubber.svelte';
   import { playerStore } from '$lib/stores/player.svelte';
   import { formatDuration } from '$lib/formatters';
@@ -32,6 +33,13 @@
   const canGoPrevious = $derived(isActive && playerStore.hasPrevious);
   const canGoNext = $derived(isActive && playerStore.hasNext);
 
+  // Playback-speed presets (pitch-preserved — for singing/playing along, the
+  // slow end is deliberately finer-grained than the fast end). The control is
+  // a quiet tabular label at the row's edge rather than a MiniPlayer button:
+  // most listeners never need it, so it only lives on the track-panel/share
+  // transports and stays muted until a non-1× speed is active.
+  const speedOptions = [0.5, 0.65, 0.75, 0.85, 1, 1.1, 1.25, 1.5];
+
   function formatTime(seconds: number): string {
     if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
     const m = Math.floor(seconds / 60);
@@ -40,11 +48,53 @@
   }
 </script>
 
+{#snippet speedMenu()}
+  <DropdownMenu.Root>
+    <DropdownMenu.Trigger>
+      {#snippet child({ props })}
+        <button
+          {...props}
+          type="button"
+          class={cn(
+            'focus-visible:ring-ring/50 w-8 shrink-0 rounded text-right text-[10px] font-medium tabular-nums outline-none focus-visible:ring-2',
+            playerStore.playbackRate === 1
+              ? 'text-muted-foreground/50 hover:text-foreground'
+              : 'text-primary'
+          )}
+          aria-label="Playback speed"
+          title="Playback speed"
+        >
+          {playerStore.playbackRate}×
+        </button>
+      {/snippet}
+    </DropdownMenu.Trigger>
+    <!-- z-[70]: this menu opens from inside the song-detail dialog (z-[60]);
+         the default popover z-50 would render it invisibly behind the panel. -->
+    <DropdownMenu.Content align="end" class="z-[70] min-w-28">
+      {#each speedOptions as rate (rate)}
+        <DropdownMenu.Item
+          onSelect={() => playerStore.setPlaybackRate(rate)}
+          class="justify-between text-xs tabular-nums"
+        >
+          {rate === 1 ? 'Normal' : `${rate}×`}
+          {#if playerStore.playbackRate === rate}
+            <Check class="text-muted-foreground size-3.5" />
+          {/if}
+        </DropdownMenu.Item>
+      {/each}
+    </DropdownMenu.Content>
+  </DropdownMenu.Root>
+{/snippet}
+
 <Scrubber {isActive} {fallbackDuration} />
 {#if minimal}
   <div class="mt-1 flex items-center justify-between">
-    <span class="text-muted-foreground w-10 text-xs tabular-nums">
-      {isActive ? formatTime(playerStore.currentTime) : '0:00'}
+    <!-- w-8 ghost mirrors the speed control so the play glyph stays centered. -->
+    <span class="flex items-center gap-1">
+      <span class="w-8 shrink-0" aria-hidden="true"></span>
+      <span class="text-muted-foreground w-10 text-xs tabular-nums">
+        {isActive ? formatTime(playerStore.currentTime) : '0:00'}
+      </span>
     </span>
     <Button
       variant="ghost"
@@ -62,12 +112,17 @@
         <Play class="size-8 translate-x-px" fill="currentColor" />
       {/if}
     </Button>
-    <span class="text-muted-foreground w-10 text-right text-xs tabular-nums">
-      {formatDuration(fallbackDuration)}
+    <span class="flex items-center gap-1">
+      <span class="text-muted-foreground w-10 text-right text-xs tabular-nums">
+        {formatDuration(fallbackDuration)}
+      </span>
+      {@render speedMenu()}
     </span>
   </div>
 {:else}
   <div class="mt-1.5 flex items-center gap-3">
+    <!-- w-8 ghost mirrors the speed control so the transport stays centered. -->
+    <span class="w-8 shrink-0" aria-hidden="true"></span>
     <span class="text-muted-foreground w-10 shrink-0 text-right text-xs tabular-nums">
       {isActive ? formatTime(playerStore.currentTime) : '0:00'}
     </span>
@@ -120,5 +175,6 @@
     <span class="text-muted-foreground w-10 shrink-0 text-xs tabular-nums">
       {formatDuration(fallbackDuration)}
     </span>
+    {@render speedMenu()}
   </div>
 {/if}
