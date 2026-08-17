@@ -14,6 +14,7 @@
   let resolved = $state<ImportResolveResult | null>(null);
   let title = $state('');
   let artist = $state('');
+  let album = $state('');
   let error = $state<string | null>(null);
   let submitting = $state(false);
   let done = $state<string | null>(null);
@@ -26,6 +27,7 @@
       resolved = null;
       title = '';
       artist = '';
+      album = '';
       error = null;
       done = null;
       resolving = false;
@@ -45,6 +47,9 @@
       resolved = r;
       title = r.title;
       artist = r.artist;
+      // Pre-filled with the release the source knows, or (for a plain YouTube video) the single name
+      // the track would be filed under — so the album folder is never a surprise "Unknown Album".
+      album = r.album ?? r.title;
       // A pasted YouTube link IS the video — default the clip download on there; Spotify
       // imports would fetch a video by search, so leave that an explicit opt-in.
       downloadVideo = r.source === 'youtube';
@@ -69,7 +74,7 @@
         source: r.source,
         title: title.trim(),
         artist: artist.trim(),
-        album: r.album,
+        album: album.trim() || undefined,
         durationMs: r.durationMs,
         coverUrl: r.coverUrl,
         spotifyTrackId: r.spotifyTrackId,
@@ -85,6 +90,7 @@
       url = '';
       title = '';
       artist = '';
+      album = '';
     } catch (err) {
       error = err instanceof Error ? err.message : 'Could not queue the download.';
     } finally {
@@ -188,9 +194,19 @@
               <Label for="import-artist" class="text-[11px]">Artist</Label>
               <Input id="import-artist" bind:value={artist} disabled={submitting} />
             </div>
-            {#if resolved.album}
-              <p class="text-muted-foreground truncate text-[12px]">Album: {resolved.album}</p>
-            {/if}
+            <div class="flex flex-col gap-1.5">
+              <Label for="import-album" class="text-[11px]">Album</Label>
+              <Input
+                id="import-album"
+                bind:value={album}
+                placeholder={title || 'Album'}
+                disabled={submitting}
+              />
+              <span class="text-muted-foreground text-[11px]">
+                Names the album folder and its cover. Left blank, the track is filed as a single
+                named after itself.
+              </span>
+            </div>
           </div>
         </div>
 
@@ -218,7 +234,8 @@
 
     <Dialog.Footer>
       {#if resolved}
-        <Button variant="ghost" onclick={() => (resolved = null)} disabled={submitting}>Back</Button>
+        <Button variant="ghost" onclick={() => (resolved = null)} disabled={submitting}>Back</Button
+        >
         <Button onclick={onConfirm} disabled={submitting || !title.trim()}>
           {#if submitting}
             <Loader2 class="size-4 animate-spin" /> Adding…

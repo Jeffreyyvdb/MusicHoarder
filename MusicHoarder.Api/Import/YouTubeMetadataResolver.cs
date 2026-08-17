@@ -9,7 +9,7 @@ using MusicHoarder.Api.Options;
 namespace MusicHoarder.Api.Import;
 
 /// <summary>Metadata read off a YouTube video by a yt-dlp probe (no download).</summary>
-public record YouTubeProbeResult(string Title, string Artist, int DurationMs, string? ThumbnailUrl);
+public record YouTubeProbeResult(string Title, string Artist, string? Album, int DurationMs, string? ThumbnailUrl);
 
 /// <summary>
 /// Outcome of a probe: either a successful <see cref="Result"/>, or a failure carrying a human
@@ -38,8 +38,9 @@ public interface IYouTubeMetadataResolver
 /// <summary>
 /// Reads a YouTube video's metadata via <c>yt-dlp --dump-single-json --skip-download</c>. Shares the
 /// download provider's yt-dlp path/cookies/extra-args so a probe succeeds wherever a download would.
-/// YouTube-Music entries expose discrete <c>artist</c>/<c>track</c> fields (preferred); otherwise the
-/// artist/title is guessed from the video title ("Artist - Title"), which the owner corrects in the UI.
+/// YouTube-Music entries expose discrete <c>artist</c>/<c>track</c>/<c>album</c> fields (preferred);
+/// otherwise the artist/title is guessed from the video title ("Artist - Title"), which the owner
+/// corrects in the UI.
 /// </summary>
 public sealed class YouTubeMetadataResolver(
     IOptions<MusicEnricherOptions> options,
@@ -177,9 +178,12 @@ public sealed class YouTubeMetadataResolver(
             if (root.TryGetProperty("duration", out var dur) && dur.ValueKind == JsonValueKind.Number)
                 durationMs = (int)Math.Round(dur.GetDouble() * 1000);
 
-            var thumbnail = GetString(root, "thumbnail");
+            // YouTube Music / "- Topic" uploads carry the real release name here. Everything else has
+            // no album at all — the import endpoint files those as a single named after the track.
+            var album = GetString(root, "album")?.Trim();
 
-            return new YouTubeProbeResult(title, artist, durationMs, thumbnail);
+            return new YouTubeProbeResult(
+                title, artist, string.IsNullOrWhiteSpace(album) ? null : album, durationMs, PickThumbnail(root));
         }
         catch (JsonException)
         {
@@ -212,6 +216,37 @@ public sealed class YouTubeMetadataResolver(
         if (uploaderArtist.EndsWith(topic, StringComparison.OrdinalIgnoreCase))
             uploaderArtist = uploaderArtist[..^topic.Length].Trim();
         return (uploaderArtist, t);
+    }
+
+    /// <summary>
+    /// Picks the image the import preview shows and the downloader embeds as cover art. yt-dlp orders
+    /// <c>thumbnails</c> worst → best, so the last entry is the largest — but prefer the last JPEG:
+    /// YouTube's best variants are WebP, and WebP embedded artwork is read by far fewer players/servers
+    /// than JPEG. Falls back to the flat <c>thumbnail</c> field.
+    /// </summary>
+    internal static string? PickThumbnail(JsonElement root)
+    {
+        string? lastAny = null;
+        string? lastJpeg = null;
+
+        if (root.TryGetProperty("thumbnails", out var thumbs) && thumbs.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var thumb in thumbs.EnumerateArray())
+            {
+                if (thumb.ValueKind != JsonValueKind.Object) continue;
+                var url = GetString(thumb, "url");
+                if (string.IsNullOrWhiteSpace(url)) continue;
+
+                lastAny = url;
+                // Ignore any query string — ytimg appends "?sqp=…" to the image path.
+                var path = url.Split('?')[0];
+                if (path.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)
+                    || path.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase))
+                    lastJpeg = url;
+            }
+        }
+
+        return lastJpeg ?? GetString(root, "thumbnail") ?? lastAny;
     }
 
     private static string? GetString(JsonElement root, string name) =>
