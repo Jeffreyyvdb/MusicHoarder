@@ -146,6 +146,8 @@ public class WishlistDownloadProcessorChainTests
         return new WishlistDownloadProcessor(
             providers,
             new DownloadProgressTracker(),
+            new FakeMusicVideoDownloader(),
+            new MusicVideoChannel(),
             options,
             NullLogger<WishlistDownloadProcessor>.Instance);
     }

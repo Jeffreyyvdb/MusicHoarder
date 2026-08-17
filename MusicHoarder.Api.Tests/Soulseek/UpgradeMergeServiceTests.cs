@@ -16,6 +16,7 @@ public class UpgradeMergeServiceTests : IDisposable
 {
     private static readonly Guid Owner = WellKnownUsers.OwnerId;
     private readonly string stagingDir;
+    private readonly MusicVideoChannel musicVideoChannel = new();
 
     public UpgradeMergeServiceTests()
     {
@@ -69,6 +70,53 @@ public class UpgradeMergeServiceTests : IDisposable
 
         var request = await db.UpgradeRequests.SingleAsync();
         Assert.Equal(UpgradeRequestStatus.Completed, request.Status);
+    }
+
+    [Fact]
+    public async Task Merge_ResetsMusicVideoSync_AndEnqueuesRealignment()
+    {
+        // The upgrade swaps in a different recording, so any existing audio↔video offset — even a
+        // Manual one, nudged against the OLD audio — is stale and must be re-estimated.
+        await using var db = CreateDbContext();
+        var target = TargetSong(10, WriteStagingFile("old.opus"), extension: ".opus", bitrate: 128, fingerprint: "FP-old");
+        var newFile = WriteStagingFile("better.flac", bytes: 2048);
+        var provisional = ProvisionalSong(11, newFile, extension: ".flac", bitrate: 900, fingerprint: "FP-new");
+        db.Songs.AddRange(target, provisional);
+        db.SongMusicVideos.Add(new SongMusicVideo
+        {
+            SongId = 10,
+            FilePath = "/videos/clip.mp4",
+            Status = MusicVideoStatus.Ready,
+            SyncSource = MusicVideoSyncSource.Manual,
+            SyncOffsetMs = 2400,
+            FetchedAtUtc = DateTime.UtcNow,
+        });
+        db.UpgradeRequests.Add(AwaitingIngest(1, songId: 10, downloadedPath: newFile));
+        await db.SaveChangesAsync();
+
+        var merged = await CreateService(db).SweepAsync(default);
+
+        Assert.Equal(1, merged);
+        var video = await db.SongMusicVideos.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(MusicVideoSyncSource.Unaligned, video.SyncSource);
+        Assert.Equal(0, video.SyncOffsetMs);
+        Assert.Null(video.SyncConfidence);
+        Assert.True(musicVideoChannel.Reader.TryRead(out var work));
+        Assert.Equal(new MusicVideoWorkItem(10, MusicVideoWorkKind.Align), work);
+    }
+
+    [Fact]
+    public async Task Merge_WithoutMusicVideo_EnqueuesNothing()
+    {
+        await using var db = CreateDbContext();
+        var target = TargetSong(10, WriteStagingFile("old.opus"), extension: ".opus", bitrate: 128, fingerprint: "FP-old");
+        var newFile = WriteStagingFile("better.flac", bytes: 2048);
+        db.Songs.AddRange(target, ProvisionalSong(11, newFile, extension: ".flac", bitrate: 900, fingerprint: "FP-new"));
+        db.UpgradeRequests.Add(AwaitingIngest(1, songId: 10, downloadedPath: newFile));
+        await db.SaveChangesAsync();
+
+        Assert.Equal(1, await CreateService(db).SweepAsync(default));
+        Assert.False(musicVideoChannel.Reader.TryRead(out _));
     }
 
     [Fact]
@@ -360,7 +408,7 @@ public class UpgradeMergeServiceTests : IDisposable
             DownloadDirectory = stagingDir, // staging files count as managed → old source deletable
         });
         return new UpgradeMergeService(
-            db, new JobManager(), new OwnerLookupService(), slskd, enricher,
+            db, new JobManager(), new OwnerLookupService(), musicVideoChannel, slskd, enricher,
             NullLogger<UpgradeMergeService>.Instance);
     }
 
