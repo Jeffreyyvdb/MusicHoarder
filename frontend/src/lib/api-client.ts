@@ -1668,13 +1668,21 @@ export interface SongVideoInfo {
   lastError?: string | null
 }
 
-/** Sync + status info for the song's music video; null when none is attached. */
+/**
+ * Sync + status info for the song's music video; null when none is attached. Non-404 failures
+ * (network blips, 5xx while the API warms up) are retried briefly: the panel's Video tab and the
+ * full-screen backdrop both gate on this response, so one dropped fetch at app start would
+ * otherwise hide the video until the song changes.
+ */
 export async function getSongVideoInfo(songId: number): Promise<SongVideoInfo | null> {
-  try {
-    return await requestJson<SongVideoInfo>(`/songs/${songId}/video`)
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 404) return null
-    throw err
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await requestJson<SongVideoInfo>(`/songs/${songId}/video`)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      if (attempt >= 2) throw err
+      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)))
+    }
   }
 }
 

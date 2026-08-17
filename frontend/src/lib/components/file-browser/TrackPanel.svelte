@@ -86,9 +86,14 @@
     const id = song.id;
     videoInfo = null;
     let cancelled = false;
-    void getSongVideoInfo(id).then((info) => {
-      if (!cancelled) videoInfo = info;
-    });
+    // A load that still fails after the client's retries degrades to "no video" (tab hidden) —
+    // an unhandled rejection here would otherwise hide the tab with no recovery path.
+    getSongVideoInfo(id).then(
+      (info) => {
+        if (!cancelled) videoInfo = info;
+      },
+      () => {}
+    );
     return () => {
       cancelled = true;
     };

@@ -17,6 +17,7 @@ public class WishlistDownloadProcessor(
     DownloadProgressTracker progressTracker,
     IMusicVideoDownloader musicVideoDownloader,
     MusicVideoChannel musicVideoChannel,
+    IDownloadArtworkEmbedder artworkEmbedder,
     IOptions<MusicEnricherOptions> options,
     ILogger<WishlistDownloadProcessor> logger)
 {
@@ -137,7 +138,19 @@ public class WishlistDownloadProcessor(
                     // so it stays inside the DB-free parallel section. Tolerant: a stamp failure leaves
                     // the download intact and just falls back to whatever tags the file carries.
                     if (result.Success && result.FilePath is not null)
-                        DownloadTagWriter.Stamp(result.FilePath, item.Artist, item.Title, item.Album, item.Isrc, logger);
+                    {
+                        // ResolveAlbum: an item that reached the downloader without an album (a pasted
+                        // YouTube video) is filed as a single named after the track — a blank ALBUM tag
+                        // is what routes a build into a shared "Unknown Album" folder.
+                        DownloadTagWriter.Stamp(
+                            result.FilePath, item.Artist, item.Title,
+                            DownloadTagWriter.ResolveAlbum(item.Album, item.Title), item.Isrc, logger);
+                        // Give the file the artwork of the identity it was requested for (Spotify album
+                        // image / YouTube thumbnail). yt-dlp embeds nothing, and the build's cover pass
+                        // searches the external providers by album — which finds nothing for a one-off
+                        // single. Network + disk only, and never fails the download.
+                        await artworkEmbedder.EmbedAsync(result.FilePath, item.AlbumArt, token);
+                    }
                     // Companion music video: a second yt-dlp fetch, pinned to the exact video the audio
                     // came from when the audio provider knows it (SourceId), else the item's pasted
                     // YouTube URL, else a search. The pin is provenance (not explicit), so an
