@@ -15,6 +15,7 @@
   } from '$lib/api-client';
   import { playerStore } from '$lib/stores/player.svelte';
   import { videoBackdropPrefs } from '$lib/stores/video-backdrop-prefs.svelte';
+  import { cn } from '$lib/utils';
 
   // The full-screen player's backdrop: the song's muted music video when one is attached (and the
   // pref is on and this song is the one playing), else the blurred ambient artwork. The audio
@@ -34,6 +35,7 @@
   let info = $state<SongVideoInfo | null>(null);
   let offsetMs = $state(0); // local mirror of info.syncOffsetMs; updated optimistically on nudge
   let videoEl = $state<HTMLVideoElement | null>(null);
+  let videoReady = $state(false); // first frame decoded — until then the <video> paints nothing
   let videoEnded = $state(false);
   let videoFailed = $state(false);
   let controlsOpen = $state(false);
@@ -74,18 +76,24 @@
       !videoFailed
   );
 
-  // Load (and reload on song change) the video info; reset per-song playback state.
+  // Load (and reload on song change) the video info; reset per-song playback state. A load that
+  // still fails after the client's retries degrades to "no video" (ambient art) — an unhandled
+  // rejection here would otherwise leave the backdrop stuck without one.
   $effect(() => {
     const id = songId;
+    videoReady = false;
     videoEnded = false;
     videoFailed = false;
     info = null;
     let cancelled = false;
-    void getSongVideoInfo(id).then((result) => {
-      if (cancelled) return;
-      info = result;
-      offsetMs = result?.syncOffsetMs ?? 0;
-    });
+    getSongVideoInfo(id).then(
+      (result) => {
+        if (cancelled) return;
+        info = result;
+        offsetMs = result?.syncOffsetMs ?? 0;
+      },
+      () => {}
+    );
     return () => {
       cancelled = true;
     };
@@ -96,12 +104,15 @@
     if (info?.status !== 'Fetching') return;
     const id = songId;
     const timer = setInterval(() => {
-      void getSongVideoInfo(id).then((result) => {
-        if (result && result.status !== 'Fetching') {
-          info = result;
-          offsetMs = result.syncOffsetMs;
-        }
-      });
+      getSongVideoInfo(id).then(
+        (result) => {
+          if (result && result.status !== 'Fetching') {
+            info = result;
+            offsetMs = result.syncOffsetMs;
+          }
+        },
+        () => {}
+      );
     }, 3000);
     return () => clearInterval(timer);
   });
@@ -221,36 +232,49 @@
   });
 </script>
 
-<!-- Backdrop layers (absolute, behind the panel's z-10 content) -->
-{#if showVideo}
-  <!-- Decorative, always-muted backdrop; the player's audio element is the actual sound. -->
-  <video
-    bind:this={videoEl}
-    src={getSongVideoStreamUrl(songId)}
-    muted
-    playsinline
-    preload="auto"
+<!-- Backdrop layers (absolute, behind the panel's z-10 content). The ambient art + scrim is
+     ALWAYS mounted as the base layer: a <video> paints nothing until a frame is decoded (initial
+     load, a resync seek into an unbuffered range, a mid-stream stall), and the video's gradient
+     scrim is translucent — without the base underneath, those windows see straight through the
+     transparent dialog to the page behind it (the song list). -->
+{#if ambientUrl}
+  <img
+    src={ambientUrl}
+    alt=""
     aria-hidden="true"
-    tabindex="-1"
-    class="absolute inset-0 size-full object-cover"
-    onended={() => (videoEnded = true)}
-    onerror={() => (videoFailed = true)}
-  ></video>
-  <!-- Gradient scrim (no backdrop blur — it would mush the video) for text legibility: heavier
-       at the top and bottom where the chrome/transport text lives, lighter mid-frame. -->
+    class="absolute inset-0 size-full scale-110 object-cover opacity-50 blur-3xl"
+  />
+{/if}
+<div class="bg-background/80 absolute inset-0 backdrop-blur-2xl"></div>
+{#if showVideo}
+  <!-- Decorative, always-muted backdrop; the player's audio element is the actual sound.
+       Cross-fades in over the ambient art once the first frame is decoded. -->
   <div
-    class="from-background/75 via-background/45 to-background/85 absolute inset-0 bg-gradient-to-b"
-  ></div>
-{:else}
-  {#if ambientUrl}
-    <img
-      src={ambientUrl}
-      alt=""
+    class={cn(
+      'absolute inset-0 transition-opacity duration-500',
+      videoReady ? 'opacity-100' : 'opacity-0'
+    )}
+  >
+    <video
+      bind:this={videoEl}
+      src={getSongVideoStreamUrl(songId)}
+      muted
+      playsinline
+      preload="auto"
       aria-hidden="true"
-      class="absolute inset-0 size-full scale-110 object-cover opacity-50 blur-3xl"
-    />
-  {/if}
-  <div class="bg-background/80 absolute inset-0 backdrop-blur-2xl"></div>
+      tabindex="-1"
+      class="absolute inset-0 size-full object-cover"
+      onloadstart={() => (videoReady = false)}
+      onloadeddata={() => (videoReady = true)}
+      onended={() => (videoEnded = true)}
+      onerror={() => (videoFailed = true)}
+    ></video>
+    <!-- Gradient scrim (no backdrop blur — it would mush the video) for text legibility: heavier
+         at the top and bottom where the chrome/transport text lives, lighter mid-frame. -->
+    <div
+      class="from-background/75 via-background/45 to-background/85 absolute inset-0 bg-gradient-to-b"
+    ></div>
+  </div>
 {/if}
 
 <!-- Floating control cluster (above the panel content) -->
