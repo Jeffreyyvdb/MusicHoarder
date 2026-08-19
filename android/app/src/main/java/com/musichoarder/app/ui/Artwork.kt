@@ -81,12 +81,12 @@ fun albumTint(artist: String, title: String): Brush {
 private fun lerp(min: Double, max: Double, t: Double) = min + (max - min) * t
 
 /** 32-bit string hash, matching the JS `cyrb53`. Kotlin `Int` math already wraps like `Math.imul`. */
-private fun cyrb53(input: String, seed: Int = 0): Long {
+internal fun cyrb53(input: String, seed: Int = 0): Long {
     var h1 = -0x21524111 xor seed // 0xdeadbeef
     var h2 = 0x41c6ce57 xor seed
     for (ch in input) {
         val c = ch.code
-        h1 = (h1 xor c) * -0x61c88647 // 2654435761
+        h1 = (h1 xor c) * -0x61c8864f // 2654435761
         h2 = (h2 xor c) * 0x5f356495 // 1597334677
     }
     h1 = ((h1 xor (h1 ushr 16)) * -0x7a143595) xor ((h2 xor (h2 ushr 13)) * -0x3d4d51cb)

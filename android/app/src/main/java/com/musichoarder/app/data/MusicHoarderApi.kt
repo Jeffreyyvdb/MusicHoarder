@@ -32,7 +32,13 @@ class AuthInterceptor(private val sessions: SessionStore) : Interceptor {
         val request = chain.request()
         val session = sessions.session.value ?: return chain.proceed(request)
         val base = session.baseUrl.toHttpUrlOrNull() ?: return chain.proceed(request)
-        if (request.url.host != base.host || request.url.port != base.port) return chain.proceed(request)
+        // Scheme included deliberately: a redirect to http:// on the same host and effective port
+        // would otherwise get the token re-attached to a cleartext hop, which is the one thing this
+        // per-hop check exists to stop.
+        val sameOrigin = request.url.scheme == base.scheme &&
+            request.url.host == base.host &&
+            request.url.port == base.port
+        if (!sameOrigin) return chain.proceed(request)
         return chain.proceed(
             request.newBuilder().header("Authorization", "Bearer ${session.token}").build()
         )
@@ -62,7 +68,20 @@ class MusicHoarderApi(
      */
     fun coverUrl(songId: Int, size: Int): String = url("/songs/$songId/cover?size=$size")
 
-    suspend fun fetchMe(): AuthMe = get("/api/auth/me") { json.decodeFromString<AuthMe>(it) }
+    /**
+     * Identity check. [candidate] lets the pairing flow probe a session that has not been persisted
+     * yet — the token has to be proven before it replaces a working one, so it cannot come from the
+     * store, and the interceptor cannot supply it either.
+     */
+    suspend fun fetchMe(candidate: ServerSession? = null): AuthMe = withContext(Dispatchers.IO) {
+        val base = candidate?.baseUrl ?: baseUrl()
+        val request = Request.Builder()
+            .url("$base$API_PREFIX/api/auth/me")
+            .apply { candidate?.let { header("Authorization", "Bearer ${it.token}") } }
+            .get()
+            .build()
+        execute(request) { json.decodeFromString<AuthMe>(it) }
+    }
 
     suspend fun fetchSongs(): List<ApiSong> =
         get("/songs") { json.decodeFromString<SongsResponse>(it).songs }

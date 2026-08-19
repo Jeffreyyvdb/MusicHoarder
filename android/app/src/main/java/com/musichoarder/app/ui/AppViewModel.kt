@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.musichoarder.app.MusicHoarderApp
 import com.musichoarder.app.data.PairingUri
+import com.musichoarder.app.data.UnauthorizedException
 import com.musichoarder.app.data.ServerSession
 import com.musichoarder.app.data.Track
 import com.musichoarder.app.player.PlayerController
@@ -152,15 +153,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun pair(newSession: ServerSession) {
         _pairError.value = null
         viewModelScope.launch {
-            graph.sessions.save(newSession)
-            // Confirm the token works before leaving the pairing screen — a stale QR code should
-            // fail here, not as an empty library two screens later.
-            val ok = runCatching { graph.api.fetchMe() }.isSuccess
-            if (!ok) {
-                graph.sessions.clear()
-                _pairError.value = "The server did not accept that pairing code. Try a fresh one."
+            // Probe the candidate *before* persisting it. Saving first and rolling back on failure
+            // meant a stale code — or simply scanning while offline, which is indistinguishable from
+            // a rejected token here — wiped a pairing that was working perfectly well.
+            val probe = runCatching { graph.api.fetchMe(newSession) }
+            if (probe.isFailure) {
+                _pairError.value = if (probe.exceptionOrNull() is UnauthorizedException) {
+                    "The server did not accept that pairing code. Try a fresh one."
+                } else {
+                    "Could not reach ${newSession.baseUrl}. The current pairing is untouched."
+                }
                 return@launch
             }
+            graph.sessions.save(newSession)
             // Re-pairing points the app at a different server, so everything held from the last
             // one has to go: the library cache is not refetched while it still holds rows
             // (`refresh` no-ops unless forced), and a queued MediaItem keeps the absolute stream

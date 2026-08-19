@@ -12,6 +12,7 @@ import androidx.media3.session.SessionToken
 import com.musichoarder.app.data.MusicHoarderApi
 import com.musichoarder.app.data.Track
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -57,6 +58,9 @@ class PlayerController(
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
 
     private var controller: MediaController? = null
+    /** Guards the async bind: `controller != null` alone let two overlapping calls build two. */
+    private var connectJob: Job? = null
+    private var tickerJob: Job? = null
     /** Guards against reporting the same play twice when the player re-reads a transition. */
     private var lastReportedTrackId: Int? = null
     /**
@@ -75,8 +79,8 @@ class PlayerController(
     }
 
     fun connect() {
-        if (controller != null) return
-        scope.launch {
+        if (controller != null || connectJob?.isActive == true) return
+        connectJob = scope.launch {
             val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
             val connected = runCatching { MediaController.Builder(context, token).buildAsync().await() }
                 .getOrNull() ?: return@launch
@@ -93,6 +97,12 @@ class PlayerController(
     }
 
     fun release() {
+        connectJob?.cancel()
+        connectJob = null
+        // Without this the loop kept spinning for the ViewModel's lifetime, and every re-pair
+        // started another one on top.
+        tickerJob?.cancel()
+        tickerJob = null
         controller?.removeListener(listener)
         controller?.release()
         controller = null
@@ -213,7 +223,8 @@ class PlayerController(
      * nothing, since StateFlow compares by equality before emitting.
      */
     private fun startPositionTicker() {
-        scope.launch {
+        tickerJob?.cancel()
+        tickerJob = scope.launch {
             while (true) {
                 delay(200)
                 val player = controller ?: continue

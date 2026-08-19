@@ -99,9 +99,14 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     }
 
     // The clip chases the audio clock, and only while the player is actually on screen — decoding
-    // video behind a closed sheet would burn battery for nothing.
+    // video behind a closed sheet would burn battery for nothing. `sync` is also the only thing that
+    // ever starts the video, so closing the sheet has to park it explicitly; otherwise it just keeps
+    // streaming with nothing left running to stop it.
     LaunchedEffect(showNowPlaying, playerState.positionMs, playerState.isPlaying) {
         if (showNowPlaying) viewModel.video.sync(playerState.positionMs, playerState.isPlaying)
+    }
+    LaunchedEffect(showNowPlaying) {
+        if (!showNowPlaying) viewModel.video.pause()
     }
 
     BackHandler(enabled = showNowPlaying || openAlbum != null) {

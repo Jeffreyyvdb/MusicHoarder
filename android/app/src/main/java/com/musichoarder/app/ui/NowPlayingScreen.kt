@@ -93,7 +93,9 @@ fun NowPlayingScreen(
     var pane by remember { mutableStateOf(PlayerPane.Artwork) }
 
     // A song without a video must not strand the screen in a watch view it can no longer show.
-    if (pane == PlayerPane.Video && !videoState.hasVideo) pane = PlayerPane.Artwork
+    if (pane == PlayerPane.Video && !(videoState.hasVideo && videoState.isVisible)) {
+        pane = PlayerPane.Artwork
+    }
 
     // While a finger is on the slider the player's own position must not fight the drag.
     var scrubPosition by remember { mutableFloatStateOf(0f) }
@@ -108,7 +110,10 @@ fun NowPlayingScreen(
     Box(modifier = modifier.fillMaxSize().background(colors.background)) {
         // The surface stays mounted whenever a clip exists, so the decoder is not torn down every
         // time the pane changes and the first frame is already there when it is promoted.
-        if (videoState.hasVideo) {
+        // `isVisible` — not just `hasVideo`: once the song outlives the clip, or both stream retries
+        // fail, the controller drops it and the surface has to come down with it. Keying on
+        // `hasVideo` alone left a frozen last frame sitting behind the scrim.
+        if (videoState.hasVideo && videoState.isVisible) {
             VideoSurface(
                 onAttach = onAttachVideoSurface,
                 onDetach = onDetachVideoSurface,
@@ -335,7 +340,7 @@ fun NowPlayingScreen(
                 ) {
                     pane = if (pane == PlayerPane.Lyrics) PlayerPane.Artwork else PlayerPane.Lyrics
                 }
-                if (videoState.hasVideo) {
+                if (videoState.hasVideo && videoState.isVisible) {
                     PaneToggle(
                         icon = Icons.Rounded.Videocam,
                         label = "Video",

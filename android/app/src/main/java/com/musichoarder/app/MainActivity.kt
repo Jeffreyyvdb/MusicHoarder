@@ -25,7 +25,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        pairingLink.value = intent?.dataString
+        // Only on a genuine launch. A recreation (rotation, process restore) re-delivers the same
+        // intent, and re-processing it re-opened the confirmation dialog — or, if the user had
+        // unpaired in between, silently re-paired the phone from a stale link with no prompt.
+        if (savedInstanceState == null) consumePairingLink(intent)
 
         setContent {
             MusicHoarderTheme {
@@ -49,6 +52,16 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        pairingLink.value = intent.dataString
+        consumePairingLink(intent)
+    }
+
+    /**
+     * Takes the link out of the intent as it is read, so the same scan cannot be replayed by a later
+     * recreation that re-delivers it.
+     */
+    private fun consumePairingLink(intent: Intent?) {
+        val link = intent?.dataString ?: return
+        intent.data = null
+        pairingLink.value = link
     }
 }

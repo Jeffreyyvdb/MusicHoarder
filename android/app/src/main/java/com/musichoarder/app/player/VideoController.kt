@@ -89,8 +89,22 @@ class VideoController(
         if (songId == null) return
 
         loadJob = scope.launch {
-            val info = runCatching { api.fetchVideoInfo(songId) }.getOrNull()
-            if (_state.value.songId != songId) return@launch
+            // Availability may only settle on a real answer. `fetchVideoInfo` returns null for a
+            // genuine 404 (no video attached) and throws for anything else, so a proxy blip or an
+            // API restart is retried instead of being remembered as "this song has no video" for
+            // the rest of the track — the regression the web client already fixed.
+            var info: VideoInfo? = null
+            for (attempt in 0..INFO_RETRY_DELAYS_MS.size) {
+                val probe = runCatching { api.fetchVideoInfo(songId) }
+                if (_state.value.songId != songId) return@launch
+                if (probe.isSuccess) {
+                    info = probe.getOrNull()
+                    break
+                }
+                if (attempt == INFO_RETRY_DELAYS_MS.size) return@launch
+                delay(INFO_RETRY_DELAYS_MS[attempt])
+                if (_state.value.songId != songId) return@launch
+            }
             _state.value = _state.value.copy(info = info)
             if (info?.isPlayable != true) return@launch
             player.setMediaItem(MediaItem.fromUri(api.videoStreamUrl(songId)))
@@ -107,9 +121,15 @@ class VideoController(
      */
     fun sync(audioPositionMs: Long, isPlaying: Boolean) {
         val info = _state.value.info ?: return
-        if (!info.isPlayable || ended) return
+        if (!info.isPlayable) return
 
         val mapped = audioPositionMs + info.syncOffsetMs
+
+        // Re-check on every tick rather than only when the full player's slider seeks: a seek from
+        // the lock screen, the notification or a headset button never reaches `onSeek`, and the clip
+        // would otherwise stay retired for the rest of the track. This mirrors the web's effect.
+        if (ended && isBackBeforeClipEnd(mapped)) ended = false
+        if (ended) return
 
         if (mapped < 0) {
             // The song sits before the clip's start: hold the first frame until the audio catches up.
@@ -138,13 +158,32 @@ class VideoController(
         if (!_state.value.isVisible) _state.value = _state.value.copy(isVisible = true)
     }
 
-    /** A seek back before the clip's end brings the video back. */
+    /**
+     * Stops chasing and parks the clip. `sync` is the only thing that ever starts the video, so
+     * without this the player kept streaming and decoding after the sheet was collapsed — nothing
+     * was left running to pause it.
+     */
+    fun pause() {
+        if (player.isPlaying) player.pause()
+        if (_state.value.isVisible) _state.value = _state.value.copy(isVisible = false)
+    }
+
+    /** A seek back before the clip's end brings the video back, without waiting for the next tick. */
     fun onSeek(audioPositionMs: Long) {
         val info = _state.value.info ?: return
-        val duration = info.durationSeconds?.times(1000L) ?: return
-        if (ended && audioPositionMs + info.syncOffsetMs < duration - 1000) {
-            ended = false
-        }
+        if (ended && isBackBeforeClipEnd(audioPositionMs + info.syncOffsetMs)) ended = false
+    }
+
+    /**
+     * Whether the mapped position is far enough before the clip's end to show it again. Prefers the
+     * player's own duration and falls back to the API's, so a null `durationSeconds` no longer means
+     * the video can never come back.
+     */
+    private fun isBackBeforeClipEnd(mappedMs: Long): Boolean {
+        val duration = player.duration.takeIf { it > 0 }
+            ?: _state.value.info?.durationSeconds?.times(1000L)
+            ?: return false
+        return mappedMs < duration - 1000
     }
 
     /**
@@ -176,5 +215,6 @@ class VideoController(
         const val DRIFT_TOLERANCE_MS = 300L
         const val END_GUARD_MS = 50L
         val RETRY_DELAYS_MS = longArrayOf(1000, 3000)
+        val INFO_RETRY_DELAYS_MS = longArrayOf(1000, 3000)
     }
 }
