@@ -64,6 +64,47 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
         return Path.Combine(_destinationRoot, topFolder, albumFolder, fileName);
     }
 
+    /// <summary>
+    /// Resolves the path the pre-reconciliation builder would have written for this song. This scheme
+    /// is FROZEN: its only purpose is to locate files that historic builds put on disk so they can be
+    /// relocated, so it must keep reproducing exactly what those builds wrote. Do not sync it with
+    /// <see cref="ResolvePath(SongMetadata, AlbumIdentity?)"/> — the divergences are deliberate: it
+    /// routes by the raw track artist (no album-artist election, no primary-artist split, no
+    /// Various-Artists handling), uses a shared "Unknown Title" fallback (not the file-name stem),
+    /// and never prefixes the disc number.
+    /// </summary>
+    public string ResolveLegacyPath(SongMetadata song)
+    {
+        ArgumentNullException.ThrowIfNull(song);
+
+        var artist = NormalizeSegment(song.Artist, "Unknown Artist");
+        var title = NormalizeSegment(song.Title, "Unknown Title");
+        var extension = NormalizeExtension(song.Extension);
+
+        if (song.IsUnreleased)
+        {
+            return Path.Combine(
+                _destinationRoot,
+                artist,
+                "Unreleased",
+                $"{title}{extension}");
+        }
+
+        var album = NormalizeSegment(song.Album, "Unknown Album");
+        var albumFolder = song.Year is > 0
+            ? $"{song.Year.Value} - {album}"
+            : album;
+        var trackPrefix = song.TrackNumber is > 0
+            ? $"{song.TrackNumber.Value:00} - "
+            : string.Empty;
+
+        return Path.Combine(
+            _destinationRoot,
+            artist,
+            albumFolder,
+            $"{trackPrefix}{title}{extension}");
+    }
+
     // Multi-disc albums prefix the disc number so disc 2's "01" doesn't collide with disc 1's "01"
     // within a single album folder; single-disc albums keep the plain "NN - " prefix.
     private static string BuildTrackPrefix(SongMetadata song)

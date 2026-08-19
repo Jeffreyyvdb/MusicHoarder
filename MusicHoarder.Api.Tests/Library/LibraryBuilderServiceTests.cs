@@ -213,6 +213,39 @@ public class LibraryBuilderServiceTests
     }
 
     [Fact]
+    public async Task ProcessNextBatchAsync_RelocatesLegacyUnknownTitleFile_ToStemNamedPath()
+    {
+        // Pins the deliberate divergence between the two destination schemes: the legacy layout
+        // used a shared "Unknown Title" fallback for untitled tracks, while the current layout
+        // falls back to the source file name's stem (#379). A file written under the old name
+        // must be found via the legacy path and relocated to the stem-named path.
+        var sourcePath = "/source/leak_track_x.mp3";
+        var legacyPath = "/dest/Artist/2026 - Album/01 - Unknown Title.mp3";
+        var newPath = "/dest/Artist/2026 - Album/01 - leak_track_x.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde"),
+            [legacyPath] = new("abcde")
+        });
+
+        await using var db = CreateDbContext();
+        var song = CreateMatchedSong(sourcePath, 5, libraryBuildStatus: LibraryBuildStatus.Done);
+        song.Title = null;
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter());
+
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        var stored = await db.Songs.SingleAsync();
+
+        Assert.Equal(1, result.Done);
+        Assert.True(fileSystem.File.Exists(newPath));
+        Assert.False(fileSystem.File.Exists(legacyPath));
+        Assert.Equal(newPath, stored.DestinationPath);
+    }
+
+    [Fact]
     public async Task ProcessNextBatchAsync_MarksFailed_WhenTempCleanupDeleteThrows()
     {
         var sourcePath = "/source/track.mp3";
