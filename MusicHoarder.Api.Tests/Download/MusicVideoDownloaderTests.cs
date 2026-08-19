@@ -173,6 +173,39 @@ public class MusicVideoDownloaderTests
         Assert.DoesNotContain("babychiefdoit", tokens);
     }
 
+    [Theory]
+    [InlineData("Gbnga 2026", "https://www.youtube.com/results?search_query=Gbnga%202026")]
+    [InlineData("Artist Song (Live at Wembley)", "https://www.youtube.com/results?search_query=Artist%20Song%20%28Live%20at%20Wembley%29")]
+    [InlineData("A&B Song", "https://www.youtube.com/results?search_query=A%26B%20Song")]
+    public void BuildSearchUrl_UsesTheUnfilteredResultsPage(string terms, string expected)
+    {
+        // Regression: yt-dlp's `ytsearch:` prefix sends YouTube's "Type → Video" filter, whose
+        // ranking dropped GBNGA "2026" out of the top 20 while the results page had it at rank 1.
+        var url = MusicVideoDownloader.BuildSearchUrl(terms);
+
+        Assert.Equal(expected, url);
+        Assert.DoesNotContain("ytsearch", url);
+        Assert.DoesNotContain("official", url); // no "official video" suffix baked into the query
+    }
+
+    [Fact]
+    public void ParseFlatSearch_SkipsChannelsMixesAndPlaylists()
+    {
+        // The unfiltered results page interleaves non-video rows between the videos.
+        const string json = """
+        {"entries":[
+          {"_type":"url","ie_key":"YoutubeTab","id":"UCP5JdQMz8A2cebNmrnJeatA","title":"GBNGA"},
+          {"_type":"url","ie_key":"Youtube","id":"HC03NpSvxQM","title":"2026","channel":"GBNGA","duration":122.0},
+          {"_type":"url","ie_key":"YoutubeTab","id":"RDHC03NpSvxQM","title":"Mix - 2026"},
+          {"_type":"playlist","id":"PLDLhza1SM6QRai","title":"GBNGA"}
+        ]}
+        """;
+
+        var parsed = MusicVideoDownloader.ParseFlatSearch(json);
+
+        Assert.Equal(["HC03NpSvxQM"], parsed.Select(c => c.Id).ToArray());
+    }
+
     [Fact]
     public void ParseFlatSearch_ReadsEntries_ToleratingMissingFields()
     {
