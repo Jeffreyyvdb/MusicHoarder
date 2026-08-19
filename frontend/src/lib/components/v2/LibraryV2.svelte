@@ -176,14 +176,17 @@
   const scopedAlbums = $derived(mergeAlbumsByName(buildAlbumsFromSongs(browseScoped)));
 
   // Provider-link status per album (linked / localOnly / pending) for the grid corner badges.
-  // One batch lookup, refreshed when the album set changes.
+  // One batch lookup, refreshed when the album set changes. `allAlbums` is rebuilt into fresh
+  // objects on every songs-store refresh, so the effect keys on a string of the identities it
+  // actually sends — otherwise it re-posted the whole library every time the store refetched.
   let albumStatuses = $state<Map<string, AlbumStatusInfo>>(new Map());
+  const albumIdentityKey = $derived(allAlbums.map((a) => `${a.artist}\u0000${a.title}`).join('\u0001'));
   $effect(() => {
-    const pairs = allAlbums.map((a) => ({ artist: a.artist, album: a.title }));
-    if (pairs.length === 0) {
+    if (albumIdentityKey === '') {
       albumStatuses = new Map();
       return;
     }
+    const pairs = untrack(() => allAlbums.map((a) => ({ artist: a.artist, album: a.title })));
     let cancelled = false;
     void fetchAlbumCanonicalStatuses(pairs)
       .then((map) => {

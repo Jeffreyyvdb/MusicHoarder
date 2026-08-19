@@ -23,6 +23,7 @@
     Tag,
     TriangleAlert
   } from '@lucide/svelte';
+  import { untrack } from 'svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import * as Tooltip from '$lib/components/ui/tooltip';
@@ -88,28 +89,49 @@
   const hideMissing = $derived(albumViewPrefs.hideMissing);
   // The ScrollArea viewport, so we can clamp scrollTop after the list shrinks (see below).
   let scrollViewport = $state<HTMLElement | null>(null);
-  // One request on navigation fetches the tracklist + grade together, so link status and grade land
-  // in the same tick (no two-step pop-in). Resets all three pieces up front so the next album starts
-  // clean, and the cleanup guard drops a stale in-flight response.
-  $effect(() => {
-    const artist = album?.artist ?? null;
-    const title = album?.title ?? null;
-    const year = album?.year ?? null;
+  // What identifies the album we need the detail for. Kept apart from the fetching effect on
+  // purpose: `album` is a *fresh object* after every songs-store refresh (the library rebuilds its
+  // summaries from the song rows, and that store refetches on every pipeline progress tick), so an
+  // effect reading `album` directly re-ran every few seconds on a page that never changed — which
+  // blanked the hero back to its skeletons ("Checking providers…", no completeness, no grade) and
+  // re-requested the same detail. That was the flicker.
+  const detailParams = $derived.by(() => {
+    if (!album) return null;
+    const { artist, title } = album;
+    if (!artist || !title) return null;
     // Built albums group by destination folder (AlbumSummary.key is that folder). Pass it so the
     // backend matches canonical tracks against exactly the songs this page lists — matching against
     // the wider tag-based set can annotate a track with an unbuilt duplicate the page doesn't show,
     // which renders as a false MISSING row while the built copy drops to the bonus tail.
     // A merged card spans several folders, so no single folder describes what's listed: fall back
     // to the tag-based set, which is the wider one and covers all of them.
-    const singleFolder = (album?.folderKeys.length ?? 0) <= 1;
-    const folder = singleFolder && album?.songs.some((s) => s.destinationPath) ? album.key : null;
+    const singleFolder = album.folderKeys.length <= 1;
+    const folder = singleFolder && album.songs.some((s) => s.destinationPath) ? album.key : null;
+    return { artist, title, year: album.year ?? null, folder };
+  });
+  // A string `$derived` only notifies its readers when the value actually changes (`===`), so this
+  // is the effect's whole dependency: it re-runs on real navigation and stays put through every
+  // background refresh of the same album.
+  const detailKey = $derived(
+    detailParams
+      ? [detailParams.artist, detailParams.title, detailParams.year ?? '', detailParams.folder ?? ''].join('\u0000')
+      : null
+  );
+
+  // One request on navigation fetches the tracklist + grade together, so link status and grade land
+  // in the same tick (no two-step pop-in). Resets all three pieces up front so the next album starts
+  // clean, and the cleanup guard drops a stale in-flight response.
+  $effect(() => {
+    const key = detailKey;
     tracklist = null;
     linkStatus = 'pending';
     albumGrade = null;
-    if (!artist || !title) {
+    if (!key) {
       loadingDetail = false;
       return;
     }
+    // Read untracked: `detailKey` above is the dependency, and these are the same values it encodes.
+    const { artist, title, year, folder } = untrack(() => detailParams)!;
     let cancelled = false;
     loadingDetail = true;
     void fetchAlbumDetail(artist, title, year, folder)
