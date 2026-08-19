@@ -75,6 +75,15 @@ public static class MusicVideoEndpoints
         var video = await db.SongMusicVideos.AsNoTracking()
             .FirstOrDefaultAsync(v => v.SongId == id && v.Song.DeletedAtUtc == null, ct);
 
+        return StreamVideoFile(video);
+    }
+
+    /// <summary>
+    /// Range-enabled mp4 stream for an already-authorized video row (shared with the anonymous
+    /// share surface); 404 unless the video is Ready with an existing file.
+    /// </summary>
+    internal static IResult StreamVideoFile(SongMusicVideo? video)
+    {
         if (video is not { Status: MusicVideoStatus.Ready, FilePath: not null } || !File.Exists(video.FilePath))
             return Results.NotFound(new { message = "No music video file for this song." });
 

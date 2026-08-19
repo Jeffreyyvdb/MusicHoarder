@@ -44,6 +44,8 @@ public static class SharesEndpoints
             .WithName("GetSharedSongCover");
         pub.MapGet("/{token}/songs/{id:int}/lyrics", GetSharedSongLyrics)
             .WithName("GetSharedSongLyrics");
+        pub.MapGet("/{token}/songs/{id:int}/video/stream", StreamSharedSongVideo)
+            .WithName("StreamSharedSongVideo");
 
         return app;
     }
@@ -144,6 +146,14 @@ public static class SharesEndpoints
 
         var shared = songs.First(s => s.Id == share.SongId);
 
+        // Ready music videos ride along so the share page can play them as the backdrop. The sync
+        // offset is the owner's curated alignment (audio is the master clock: videoTime =
+        // audioTime + offsetMs/1000) — anonymous viewers get it read-only.
+        var songIds = songs.Select(s => s.Id).ToList();
+        var videos = await db.SongMusicVideos.IgnoreQueryFilters().AsNoTracking()
+            .Where(v => songIds.Contains(v.SongId) && v.Status == MusicVideoStatus.Ready && v.FilePath != null)
+            .ToDictionaryAsync(v => v.SongId, ct);
+
         return Results.Ok(new
         {
             Scope = share.Scope.ToString(),
@@ -154,18 +164,25 @@ public static class SharesEndpoints
                 Artist = shared.AlbumArtist ?? shared.Artist,
                 shared.Year,
             },
-            Tracks = songs.Select(s => new
+            Tracks = songs.Select(s =>
             {
-                s.Id,
-                Title = s.Title ?? s.FileName,
-                s.Artist,
-                s.TrackNumber,
-                s.DiscNumber,
-                DurationMs = s.DurationMs ?? s.DurationSeconds * 1000,
-                s.HasCoverArt,
-                HasSyncedLyrics = !string.IsNullOrWhiteSpace(s.DisplaySyncedLyrics),
-                HasPlainLyrics = !string.IsNullOrWhiteSpace(s.DisplayPlainLyrics),
-                IsInstrumental = s.IsInstrumental == true,
+                videos.TryGetValue(s.Id, out var video);
+                return new
+                {
+                    s.Id,
+                    Title = s.Title ?? s.FileName,
+                    s.Artist,
+                    s.TrackNumber,
+                    s.DiscNumber,
+                    DurationMs = s.DurationMs ?? s.DurationSeconds * 1000,
+                    s.HasCoverArt,
+                    HasSyncedLyrics = !string.IsNullOrWhiteSpace(s.DisplaySyncedLyrics),
+                    HasPlainLyrics = !string.IsNullOrWhiteSpace(s.DisplayPlainLyrics),
+                    IsInstrumental = s.IsInstrumental == true,
+                    HasVideo = video is not null,
+                    VideoOffsetMs = video?.SyncOffsetMs,
+                    VideoDurationSeconds = video?.DurationSeconds,
+                };
             }),
         });
     }
@@ -221,6 +238,17 @@ public static class SharesEndpoints
             TranslatedPlain = translationFresh ? song.TranslatedPlainLyrics : null,
             DetectedLanguage = translationFresh ? song.DetectedLyricsLanguage : null,
         });
+    }
+
+    internal static async Task<IResult> StreamSharedSongVideo(string token, int id, MusicHoarderDbContext db, CancellationToken ct)
+    {
+        var song = await ResolveSongInScopeAsync(db, token, id, ct);
+        if (song is null)
+            return ShareNotFound();
+
+        var video = await db.SongMusicVideos.IgnoreQueryFilters().AsNoTracking()
+            .FirstOrDefaultAsync(v => v.SongId == song.Id, ct);
+        return MusicVideoEndpoints.StreamVideoFile(video);
     }
 
     /// <summary>Uniform 404 for unknown, revoked, and out-of-scope requests — no oracle for probing.</summary>
