@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MusicHoarder is self-hosted, and plenty of instances live on a LAN behind plain http:// with no
+  certificate to speak of. Cleartext is therefore permitted so the app can reach them at all — pair
+  over https wherever a reverse proxy makes it possible, because the bearer token rides every
+  request.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

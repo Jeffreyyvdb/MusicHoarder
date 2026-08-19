@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto Backup rules for API 30 and below. The pairing store holds a long-lived bearer token with
+  full access to the library, so it must never leave the device in a cloud backup: restoring that
+  backup onto another phone would silently pair it. Everything else here is disposable cache.
+-->
+<full-backup-content>
+    <exclude
+        domain="file"
+        path="datastore/" />
+</full-backup-content>

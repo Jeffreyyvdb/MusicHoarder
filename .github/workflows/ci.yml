@@ -1,5 +1,6 @@
 # Restore, build, and test the .NET solution and the SvelteKit frontend.
-# No deploy or container publishing — that's docker-publish.yml.
+# No deploy or container publishing — that's docker-publish.yml; the Android client has its
+# own path-filtered workflow in android.yml.
 name: CI
 
 on:

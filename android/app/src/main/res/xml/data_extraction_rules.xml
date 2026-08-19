@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  API 31+ backup/transfer rules. The pairing store holds a long-lived bearer token with full access
+  to the library, so it is excluded from cloud backup: restoring onto another phone would silently
+  pair it with someone's whole library. Device transfer is excluded too — the token is cheap to
+  re-issue by scanning a fresh code, and a device-to-device copy is not worth the blast radius of a
+  credential leaving the phone it was minted for.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude
+            domain="file"
+            path="datastore/" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude
+            domain="file"
+            path="datastore/" />
+    </device-transfer>
+</data-extraction-rules>
