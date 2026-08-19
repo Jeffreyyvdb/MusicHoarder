@@ -252,6 +252,95 @@ public class SharesEndpointsTests
     }
 
     [Fact]
+    public async Task GetSharePayload_IncludesVideoInfo_OnlyForReadyVideos()
+    {
+        var options = NewOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.Songs.Add(Song(1, TestUsers.OwnerId, "Discovery", "Daft Punk", title: "One More Time", trackNumber: 1));
+            seed.Songs.Add(Song(2, TestUsers.OwnerId, "Discovery", "Daft Punk", title: "Aerodynamic", trackNumber: 2));
+            seed.SongMusicVideos.Add(new SongMusicVideo
+            {
+                SongId = 1,
+                Status = MusicVideoStatus.Ready,
+                FilePath = "/videos/1.mp4",
+                SyncOffsetMs = 1500,
+                DurationSeconds = 240,
+            });
+            // Still fetching — must not surface on the share.
+            seed.SongMusicVideos.Add(new SongMusicVideo { SongId = 2, Status = MusicVideoStatus.Fetching });
+            seed.SongShares.Add(Share(1, songId: 1, ShareScope.Album, "tok"));
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = AnonymousContext(options);
+        var payload = Value(await SharesEndpoints.GetSharePayload("tok", db, CancellationToken.None));
+
+        var tracks = Tracks(payload);
+        Assert.Equal(2, tracks.Count);
+        Assert.True(GetProperty<bool>(tracks[0], "HasVideo"));
+        Assert.Equal(1500, GetProperty<int?>(tracks[0], "VideoOffsetMs"));
+        Assert.Equal(240, GetProperty<int?>(tracks[0], "VideoDurationSeconds"));
+        Assert.False(GetProperty<bool>(tracks[1], "HasVideo"));
+        Assert.Null(GetProperty<int?>(tracks[1], "VideoOffsetMs"));
+    }
+
+    [Fact]
+    public async Task StreamSharedSongVideo_InScope_StreamsFile()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"mh-share-video-test-{Guid.NewGuid():N}.mp4");
+        await File.WriteAllBytesAsync(tempFile, [1, 2, 3]);
+        try
+        {
+            var options = NewOptions();
+            await using (var seed = new MusicHoarderDbContext(options))
+            {
+                seed.Songs.Add(Song(1, TestUsers.OwnerId, "Discovery", "Daft Punk"));
+                seed.Songs.Add(Song(2, TestUsers.OwnerId, "Homework", "Daft Punk"));
+                seed.SongMusicVideos.Add(new SongMusicVideo
+                {
+                    SongId = 1,
+                    Status = MusicVideoStatus.Ready,
+                    FilePath = tempFile,
+                });
+                seed.SongShares.Add(Share(1, songId: 1, ShareScope.Song, "tok"));
+                await seed.SaveChangesAsync();
+            }
+
+            await using var db = AnonymousContext(options);
+
+            var result = await SharesEndpoints.StreamSharedSongVideo("tok", 1, db, CancellationToken.None);
+            var stream = Assert.IsType<FileStreamHttpResult>(result);
+            Assert.Equal("video/mp4", stream.ContentType);
+            Assert.True(stream.EnableRangeProcessing);
+
+            // Same owner, but not covered by this share — uniform 404.
+            var outOfScope = await SharesEndpoints.StreamSharedSongVideo("tok", 2, db, CancellationToken.None);
+            Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)outOfScope).StatusCode);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task StreamSharedSongVideo_NoReadyVideo_NotFound()
+    {
+        var options = NewOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.Songs.Add(Song(1, TestUsers.OwnerId, "Discovery", "Daft Punk"));
+            seed.SongShares.Add(Share(1, songId: 1, ShareScope.Song, "tok"));
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = AnonymousContext(options);
+        var result = await SharesEndpoints.StreamSharedSongVideo("tok", 1, db, CancellationToken.None);
+        Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)result).StatusCode);
+    }
+
+    [Fact]
     public async Task RevokeShare_DisablesTheLink()
     {
         var options = NewOptions();

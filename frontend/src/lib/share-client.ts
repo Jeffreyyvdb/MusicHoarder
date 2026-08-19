@@ -16,6 +16,11 @@ export interface ShareTrack {
   hasSyncedLyrics: boolean
   hasPlainLyrics: boolean
   isInstrumental: boolean
+  /** A Ready music video rides along on the share; played muted behind the page. */
+  hasVideo: boolean
+  /** Owner-curated sync: videoTime = audioTime + videoOffsetMs / 1000. */
+  videoOffsetMs?: number | null
+  videoDurationSeconds?: number | null
 }
 
 export interface SharePayload {
@@ -60,6 +65,10 @@ export async function fetchShareLyrics(token: string, songId: number): Promise<S
 
 export function shareStreamUrl(token: string, songId: number): string {
   return shareApiUrl(token, songId, "stream")
+}
+
+export function shareVideoStreamUrl(token: string, songId: number): string {
+  return shareApiUrl(token, songId, "video/stream")
 }
 
 export function shareCoverUrl(token: string, songId: number, size?: number): string {

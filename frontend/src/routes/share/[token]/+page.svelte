@@ -13,9 +13,11 @@
     fetchShareLyrics,
     shareCoverUrl,
     shareStreamUrl,
+    shareVideoStreamUrl,
     type ShareLyrics,
     type ShareTrack
   } from '$lib/share-client';
+  import ShareVideoBackdrop from './ShareVideoBackdrop.svelte';
   import type { PageProps } from './$types';
 
   const { data }: PageProps = $props();
@@ -273,6 +275,18 @@
        full-viewport backdrop-filter forces a re-raster on every scrolled frame — it stalls
        the compositor outright. The ambient img's own blur is static and cheap. -->
   <div class="bg-background/80 fixed inset-0"></div>
+  <!-- Muted music video, slaved to the audio player; cross-fades in over the ambient art while
+       the track with a video is the one playing, and back out when the clip ends or fails. -->
+  {#if activeTrack?.hasVideo}
+    {#key activeTrack.id}
+      <ShareVideoBackdrop
+        songId={activeTrack.id}
+        streamUrl={shareVideoStreamUrl(data.token, activeTrack.id)}
+        offsetMs={activeTrack.videoOffsetMs ?? 0}
+        durationSeconds={activeTrack.videoDurationSeconds ?? null}
+      />
+    {/key}
+  {/if}
 
   {#if !payload || !activeTrack}
     <main class="relative z-10 flex min-h-dvh flex-col items-center justify-center gap-3 px-6">
