@@ -32,7 +32,7 @@
     coverUrlForSong,
     enrichSong,
     fetchEnrichmentDetail,
-    getSongVideoInfo,
+    getSongVideoInfoUntilSettled,
     toPlayerSong,
     mapEnrichmentStatus,
     resetSongEnrichment,
@@ -85,20 +85,20 @@
   $effect(() => {
     const id = song.id;
     videoInfo = null;
-    let cancelled = false;
-    // A load that still fails after the client's retries degrades to "no video" (tab hidden) —
-    // an unhandled rejection here would otherwise hide the tab with no recovery path.
-    getSongVideoInfo(id).then(
+    // The load only settles on a definitive answer (info, or a 404 meaning none attached) and
+    // retries transient failures until unmount — a dropped fetch after a page refresh would
+    // otherwise hide the tab as if no video existed.
+    const abort = new AbortController();
+    getSongVideoInfoUntilSettled(id, { signal: abort.signal }).then(
       (info) => {
-        if (!cancelled) videoInfo = info;
+        if (!abort.signal.aborted) videoInfo = info;
       },
-      () => {}
+      () => {} // rejects only on abort
     );
-    return () => {
-      cancelled = true;
-    };
+    return () => abort.abort();
   });
-  const hasWatchableVideo = $derived(videoInfo?.status === 'Ready');
+  // fileMissing = the mp4 vanished from disk; the stream would 404, so no watch tab.
+  const hasWatchableVideo = $derived(videoInfo?.status === 'Ready' && !videoInfo.fileMissing);
 
   const TAB_DEFS = $derived<{ value: TabId; label: string }[]>([
     { value: 'metadata', label: 'Metadata' },

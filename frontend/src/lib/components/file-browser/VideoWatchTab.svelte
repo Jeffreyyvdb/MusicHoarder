@@ -46,6 +46,23 @@
   let videoEl = $state<HTMLVideoElement | null>(null);
   let videoFailed = $state(false);
   let clipOver = $state(false);
+  let videoLoadRetries = 0; // non-reactive: only read inside the onerror handler
+
+  // A dropped stream request (proxy blip, API restarting) used to write off the tab with "could
+  // not be played" — give the <video> a couple of reloads before giving up.
+  const VIDEO_LOAD_RETRY_DELAYS_MS = [1000, 3000];
+  function onVideoError() {
+    const attempt = videoLoadRetries;
+    if (attempt >= VIDEO_LOAD_RETRY_DELAYS_MS.length) {
+      videoFailed = true;
+      return;
+    }
+    videoLoadRetries = attempt + 1;
+    const id = songId;
+    setTimeout(() => {
+      if (songId === id) videoEl?.load();
+    }, VIDEO_LOAD_RETRY_DELAYS_MS[attempt]);
+  }
 
   // `expanded` drives the CSS overlay, which is both the presentation for the native
   // fullscreen element and the standalone fallback where element fullscreen is missing
@@ -62,6 +79,14 @@
   const effectiveDuration = $derived(
     isCurrentSong && playerStore.duration > 0 ? playerStore.duration : fallbackDuration
   );
+
+  // New song, fresh slate for the failure/retry state.
+  $effect(() => {
+    void songId;
+    videoLoadRetries = 0;
+    videoFailed = false;
+    clipOver = false;
+  });
 
   $effect(() => {
     const el = videoEl;
@@ -268,7 +293,8 @@
         playsinline
         preload="auto"
         class={cn('w-full object-contain', expanded ? 'max-h-full' : 'max-h-[70vh]')}
-        onerror={() => (videoFailed = true)}
+        onloadeddata={() => (videoLoadRetries = 0)}
+        onerror={onVideoError}
       ></video>
 
       <!-- Click layer under the chrome: tap the picture to play/pause, double-tap for fullscreen. -->
