@@ -1,5 +1,6 @@
 package com.musichoarder.app.data
 
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -91,5 +92,26 @@ class ParseLrcTest {
         val lyrics = untimed.toLyrics()
         assertEquals(false, lyrics.isSynced)
         assertEquals("no timestamps here", lyrics.plainText)
+    }
+
+    @Test
+    fun `only songs built into the destination library count as library rows`() {
+        fun song(destination: String?, status: Int?) = ApiSong(
+            id = 1,
+            destinationPath = destination,
+            libraryBuildStatus = status?.let { JsonPrimitive(it) },
+        )
+
+        // Done (3) with a destination path — the only combination the web lists.
+        assertEquals(true, song("/dest/a.flac", 3).isBuilt)
+        // Pending/Copied/Tagged, or no destination at all: pipeline state, not library.
+        assertEquals(false, song("/dest/a.flac", 0).isBuilt)
+        assertEquals(false, song("/dest/a.flac", 2).isBuilt)
+        assertEquals(false, song(null, 3).isBuilt)
+        assertEquals(false, song("", 3).isBuilt)
+        assertEquals(false, song("/dest/a.flac", null).isBuilt)
+        // The web's type allows the enum name, so accept it even though /songs sends a number.
+        assertEquals(true, ApiSong(id = 1, destinationPath = "/d", libraryBuildStatus = JsonPrimitive("Done")).isBuilt)
+        assertEquals(false, ApiSong(id = 1, destinationPath = "/d", libraryBuildStatus = JsonPrimitive("Tagged")).isBuilt)
     }
 }

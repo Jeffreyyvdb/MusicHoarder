@@ -32,6 +32,10 @@ class LibraryRepository(private val api: MusicHoarderApi) {
             _state.value = _state.value.copy(isLoading = true, error = null, isPairingRevoked = false)
             try {
                 val tracks = api.fetchSongs()
+                    // Only the clean output, exactly as every "Listen" surface on the web does.
+                    // A scan indexes everything it finds; until the builder has copied and tagged a
+                    // song into the destination it is pipeline state, not library.
+                    .filter { it.isBuilt }
                     .map { it.toTrack() }
                     .sortedWith(
                         compareBy(

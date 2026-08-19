@@ -115,7 +115,10 @@ fun LibraryScreen(
         when {
             state.isLoading && state.isEmpty -> CenteredPane { CircularProgressIndicator(color = colors.primary) }
             state.error != null && state.isEmpty -> ErrorPane(state.error, onRefresh)
-            state.isEmpty -> MessagePane("Nothing in this library yet.")
+            state.isEmpty -> MessagePane(
+                "No built tracks yet.\nThe pipeline lists songs here once it has copied them into " +
+                    "the destination library."
+            )
             selectedTab == 0 && tracks.isEmpty() -> MessagePane("No songs match \"$query\".")
             selectedTab == 1 && albums.isEmpty() -> MessagePane("No albums match \"$query\".")
 
@@ -288,6 +291,8 @@ private fun MessagePane(message: String) {
             message,
             style = MaterialTheme.typography.bodyMedium,
             color = MhTheme.colors.mutedForeground,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 32.dp),
         )
     }
 }
