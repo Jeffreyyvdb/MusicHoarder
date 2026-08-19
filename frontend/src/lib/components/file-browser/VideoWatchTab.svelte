@@ -20,8 +20,33 @@
   let videoEl = $state<HTMLVideoElement | null>(null);
   let videoFailed = $state(false);
   let clipOver = $state(false);
+  let videoLoadRetries = 0; // non-reactive: only read inside the onerror handler
+
+  // A dropped stream request (proxy blip, API restarting) used to write off the tab with "could
+  // not be played" — give the <video> a couple of reloads before giving up.
+  const VIDEO_LOAD_RETRY_DELAYS_MS = [1000, 3000];
+  function onVideoError() {
+    const attempt = videoLoadRetries;
+    if (attempt >= VIDEO_LOAD_RETRY_DELAYS_MS.length) {
+      videoFailed = true;
+      return;
+    }
+    videoLoadRetries = attempt + 1;
+    const id = songId;
+    setTimeout(() => {
+      if (songId === id) videoEl?.load();
+    }, VIDEO_LOAD_RETRY_DELAYS_MS[attempt]);
+  }
 
   const isCurrentSong = $derived(playerStore.currentSong?.id === songId);
+
+  // New song, fresh slate for the failure/retry state.
+  $effect(() => {
+    void songId;
+    videoLoadRetries = 0;
+    videoFailed = false;
+    clipOver = false;
+  });
 
   $effect(() => {
     const el = videoEl;
@@ -89,7 +114,8 @@
         playsinline
         preload="auto"
         class="max-h-[70vh] w-full object-contain"
-        onerror={() => (videoFailed = true)}
+        onloadeddata={() => (videoLoadRetries = 0)}
+        onerror={onVideoError}
       ></video>
 
       {#if !isCurrentSong || !playerStore.isPlaying}
