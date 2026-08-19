@@ -153,7 +153,7 @@ public class QualityGradingServiceTests
     private static QualityGradingService CreateService(MusicHoarderDbContext db, FakeChatClient client)
     {
         var opts = new TestOptionsMonitor(new QualityGradingOptions { Model = "test/model" });
-        var factory = new QualityDossierFactory(new FixedResolver());
+        var factory = new QualityDossierFactory(new FixedResolver(), opts);
         return new QualityGradingService(
             new SimpleScopeFactory(db), client, factory, opts,
             NullLogger<QualityGradingService>.Instance);

@@ -1,5 +1,7 @@
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Quality;
@@ -16,6 +18,16 @@ public class QualityDossierFactoryTests
     private sealed class ThrowingResolver : IDestinationPathResolver
     {
         public string ResolvePath(SongMetadata song) => throw new InvalidOperationException("missing metadata");
+    }
+
+    private static IOptionsMonitor<QualityGradingOptions> Opts(QualityGradingOptions? value = null) =>
+        new TestOptionsMonitor(value ?? new QualityGradingOptions());
+
+    private sealed class TestOptionsMonitor(QualityGradingOptions value) : IOptionsMonitor<QualityGradingOptions>
+    {
+        public QualityGradingOptions CurrentValue { get; } = value;
+        public QualityGradingOptions Get(string? name) => CurrentValue;
+        public IDisposable? OnChange(Action<QualityGradingOptions, string?> listener) => null;
     }
 
     private static SongMetadata BaseSong() => new()
@@ -41,7 +53,7 @@ public class QualityDossierFactoryTests
         song.Artist = "Juice WRLD";
         song.EnrichmentStatus = EnrichmentStatus.NeedsReview;
 
-        var factory = new QualityDossierFactory(new StubResolver("/dest/x.mp3"));
+        var factory = new QualityDossierFactory(new StubResolver("/dest/x.mp3"), Opts());
         var dossier = factory.Build(song, []);
 
         Assert.Equal("Benjamin", dossier.EmbeddedTags.Title);
@@ -55,7 +67,7 @@ public class QualityDossierFactoryTests
         var song = BaseSong();
         song.DestinationPath = "/committed/path.mp3";
 
-        var factory = new QualityDossierFactory(new StubResolver("/resolved/other.mp3"));
+        var factory = new QualityDossierFactory(new StubResolver("/resolved/other.mp3"), Opts());
         var dossier = factory.Build(song, []);
 
         Assert.Equal("/committed/path.mp3", dossier.DestinationPathPreview);
@@ -66,7 +78,7 @@ public class QualityDossierFactoryTests
     {
         var song = BaseSong();
 
-        var factory = new QualityDossierFactory(new ThrowingResolver());
+        var factory = new QualityDossierFactory(new ThrowingResolver(), Opts());
         var dossier = factory.Build(song, []);
 
         Assert.Null(dossier.DestinationPathPreview);
@@ -100,7 +112,7 @@ public class QualityDossierFactoryTests
             MatchedDataJson = null,
         });
 
-        var factory = new QualityDossierFactory(new StubResolver("/dest/x.mp3"));
+        var factory = new QualityDossierFactory(new StubResolver("/dest/x.mp3"), Opts());
         var dossier = factory.Build(song, []);
 
         Assert.Equal(2, dossier.ProviderAttempts.Count);
@@ -127,7 +139,7 @@ public class QualityDossierFactoryTests
                     Source = "SpotifyAPI", Confidence = 0.5, CreatedAtUtc = now }, // proposed (not applied)
         };
 
-        var factory = new QualityDossierFactory(new StubResolver("/dest/x.mp3"));
+        var factory = new QualityDossierFactory(new StubResolver("/dest/x.mp3"), Opts());
         var dossier = factory.Build(song, changes);
 
         Assert.Equal(2, dossier.ChangeLog.Count);
@@ -137,5 +149,84 @@ public class QualityDossierFactoryTests
         var proposed = dossier.ChangeLog.First(c => c.Field == "Album");
         Assert.False(proposed.Applied);
         Assert.True(proposed.Proposed);
+    }
+
+    [Fact]
+    public void Build_CapsChangeLog_KeepingNewest_AndReportsTruncation()
+    {
+        var song = BaseSong();
+        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var changes = Enumerable.Range(0, 250)
+            .Select(i => new SongMetadataChange
+            {
+                SongId = song.Id,
+                FieldName = "AlbumArtist",
+                OldValue = $"old-{i}",
+                NewValue = $"new-{i}",
+                Source = "AlbumSplitHealer",
+                Confidence = 0.9,
+                CreatedAtUtc = start.AddMinutes(i),
+                AppliedAtUtc = start.AddMinutes(i),
+            })
+            .ToList();
+
+        var factory = new QualityDossierFactory(
+            new StubResolver("/dest/x.mp3"),
+            Opts(new QualityGradingOptions { MaxChangeLogEntries = 10 }));
+        var dossier = factory.Build(song, changes);
+
+        Assert.Equal(10, dossier.ChangeLog.Count);
+        Assert.Equal("new-240", dossier.ChangeLog[0].NewValue);   // oldest kept
+        Assert.Equal("new-249", dossier.ChangeLog[^1].NewValue);  // newest overall
+        Assert.NotNull(dossier.Truncation);
+        Assert.Equal(250, dossier.Truncation!.ChangeLogTotal);
+        Assert.Equal(10, dossier.Truncation.ChangeLogIncluded);
+    }
+
+    [Fact]
+    public void Build_ShedsChangeLog_UntilDossierFitsCharBudget()
+    {
+        var song = BaseSong();
+        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var changes = Enumerable.Range(0, 500)
+            .Select(i => new SongMetadataChange
+            {
+                SongId = song.Id,
+                FieldName = "AlbumArtist",
+                OldValue = new string('a', 400),
+                NewValue = new string('b', 400),
+                Source = "AlbumSplitHealer",
+                Confidence = 0.9,
+                CreatedAtUtc = start.AddMinutes(i),
+            })
+            .ToList();
+
+        var opts = new QualityGradingOptions { MaxChangeLogEntries = 500, MaxDossierChars = 6000, MaxChangeValueChars = 64 };
+        var factory = new QualityDossierFactory(new StubResolver("/dest/x.mp3"), Opts(opts));
+        var dossier = factory.Build(song, changes);
+
+        Assert.True(QualityGradingPrompt.SerializeDossier(dossier).Length <= opts.MaxDossierChars);
+        Assert.True(dossier.ChangeLog.Count < 500);
+        Assert.NotNull(dossier.Truncation);
+        Assert.Equal(500, dossier.Truncation!.ChangeLogTotal);
+        // Values are elided too, so a single pathological row cannot dominate the payload.
+        Assert.All(dossier.ChangeLog, c => Assert.True(c.NewValue!.Length <= opts.MaxChangeValueChars + 1));
+    }
+
+    [Fact]
+    public void Build_LeavesTruncationNull_WhenChangeLogFits()
+    {
+        var song = BaseSong();
+        var changes = new List<SongMetadataChange>
+        {
+            new() { SongId = song.Id, FieldName = "Title", OldValue = "a", NewValue = "b",
+                    Source = "consensus", Confidence = 0.6, CreatedAtUtc = DateTime.UtcNow },
+        };
+
+        var factory = new QualityDossierFactory(new StubResolver("/dest/x.mp3"), Opts());
+        var dossier = factory.Build(song, changes);
+
+        Assert.Null(dossier.Truncation);
+        Assert.Single(dossier.ChangeLog);
     }
 }
