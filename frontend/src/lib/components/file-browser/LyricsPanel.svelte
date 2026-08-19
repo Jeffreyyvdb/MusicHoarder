@@ -4,9 +4,11 @@
   import { Button } from '$lib/components/ui/button';
   import { Badge } from '$lib/components/ui/badge';
   import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
+  import { fade } from 'svelte/transition';
   import {
     AlertCircle,
     AlignLeft,
+    AudioLines,
     CheckCircle2,
     ExternalLink,
     FileText,
@@ -90,6 +92,7 @@
     loadState = 'idle';
     recheckState = 'idle';
     statusOverride = null;
+    followActive = true;
   });
 
   // --- Manual LRCLIB re-check ---
@@ -204,8 +207,16 @@
     }));
   });
 
-  $effect(() => {
-    void parsedLines; // re-center when the track / lyric set changes
+  // --- Follow mode ---
+  //
+  // Auto-scroll keeps the active line centred, but it must not fight the user: browsing
+  // ahead through the lyrics disengages following, and the floating "Sync" pill re-engages
+  // it (the Spotify / Apple Music contract). Disengaging keys off manual input events
+  // (wheel / touch / scroll keys), not the scroll event, because a scroll listener cannot
+  // tell our own smooth scroll from the user's.
+  let followActive = $state(true);
+
+  function scrollActiveLineIntoView(behavior: ScrollBehavior) {
     const idx = activeLineIndex;
     const container = containerEl;
     if (idx < 0 || !container) return;
@@ -216,8 +227,35 @@
     const containerRect = container.getBoundingClientRect();
     const offset = elRect.top - containerRect.top + container.scrollTop;
     const targetScroll = offset - container.clientHeight / 2 + el.clientHeight / 2;
-    container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
+    container.scrollTo({ top: Math.max(0, targetScroll), behavior });
+  }
+
+  $effect(() => {
+    void parsedLines; // re-center when the track / lyric set changes
+    void activeLineIndex;
+    if (!followActive) return;
+    scrollActiveLineIntoView('smooth');
   });
+
+  function disengageFollow() {
+    if (followActive) followActive = false;
+  }
+
+  // Re-engaging is enough: the effect above reacts to `followActive` and re-centres.
+  function resumeFollow() {
+    followActive = true;
+  }
+
+  // Seeking from a lyric line is a "play from here" gesture, so it re-engages following.
+  function seekToLine(timeMs: number) {
+    onSeek?.(timeMs);
+    followActive = true;
+  }
+
+  const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
+
+  // Only offered while there is a synced position to jump back to.
+  const showSyncPill = $derived(hasParsedLines && isTracking && !followActive);
 
   const showSyncedToggle = $derived(Boolean(loadedSynced) && Boolean(loadedPlain));
 </script>
@@ -344,109 +382,144 @@
       </div>
     {/if}
 
-    <div
-      bind:this={containerEl}
-      class={cn(
-        'no-scrollbar min-h-0 flex-1 overflow-y-auto pb-[calc(1rem_+_var(--mh-content-pad))] scroll-smooth',
-        theater ? 'px-1 sm:px-6' : 'bg-secondary/50 rounded-lg p-4'
-      )}
-    >
-      {#if hasParsedLines && parsedLines}
-        <div class={cn('font-sans leading-relaxed', !theater && 'text-sm')}>
-          {#each parsedLines as line, i (i)}
-            {@const isActive = isTracking && i === activeLineIndex}
-            {@const isPast = isTracking && activeLineIndex >= 0 && i < activeLineIndex}
-            {@const isFuture = isTracking && activeLineIndex >= 0 && i > activeLineIndex}
-            <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-            <div
-              data-lyric-line={i}
-              class={cn(
-                '-mx-1 flex gap-2 rounded-sm px-1 transition-all duration-300',
-                theater
-                  ? 'py-1.5 text-2xl leading-snug font-bold tracking-[-0.01em] sm:text-[28px] sm:py-2'
-                  : 'py-0.5',
-                // panel highlight
-                !theater && isActive && 'bg-primary/10 text-primary font-semibold',
-                !theater && isPast && 'text-muted-foreground',
-                !theater && isFuture && 'text-muted-foreground/50',
-                !theater && !isTracking && 'text-foreground',
-                // theater highlight: active bright, others dimmed
-                theater && isActive && 'text-foreground',
-                theater && (isPast || isFuture) && 'text-foreground/30',
-                theater && !isTracking && 'text-foreground/80',
-                onSeek && (theater ? 'cursor-pointer hover:text-foreground/60' : 'hover:bg-primary/5 cursor-pointer')
-              )}
-              role={onSeek ? 'button' : undefined}
-              tabindex={onSeek ? 0 : undefined}
-              onclick={onSeek ? () => onSeek(line.timeMs) : undefined}
-              onkeydown={onSeek
-                ? (e: KeyboardEvent) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      onSeek(line.timeMs);
+    <div class="relative flex min-h-0 flex-1 flex-col">
+      <!-- These listeners only observe scroll intent to disengage follow mode; the
+           region itself stays non-interactive. -->
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <div
+        bind:this={containerEl}
+        role="region"
+        aria-label="Lyrics"
+        class={cn(
+          'no-scrollbar min-h-0 flex-1 overflow-y-auto pb-[calc(1rem_+_var(--mh-content-pad))] scroll-smooth',
+          theater ? 'px-1 sm:px-6' : 'bg-secondary/50 rounded-lg p-4'
+        )}
+        onwheel={disengageFollow}
+        ontouchmove={disengageFollow}
+        onkeydown={(e: KeyboardEvent) => {
+          // defaultPrevented = a lyric line already consumed the key to seek.
+          if (!e.defaultPrevented && SCROLL_KEYS.has(e.key)) disengageFollow();
+        }}
+      >
+        {#if hasParsedLines && parsedLines}
+          <div class={cn('font-sans leading-relaxed', !theater && 'text-sm')}>
+            {#each parsedLines as line, i (i)}
+              {@const isActive = isTracking && i === activeLineIndex}
+              {@const isPast = isTracking && activeLineIndex >= 0 && i < activeLineIndex}
+              {@const isFuture = isTracking && activeLineIndex >= 0 && i > activeLineIndex}
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+              <div
+                data-lyric-line={i}
+                class={cn(
+                  '-mx-1 flex gap-2 rounded-sm px-1 transition-all duration-300',
+                  theater
+                    ? 'py-1.5 text-2xl leading-snug font-bold tracking-[-0.01em] sm:text-[28px] sm:py-2'
+                    : 'py-0.5',
+                  // panel highlight
+                  !theater && isActive && 'bg-primary/10 text-primary font-semibold',
+                  !theater && isPast && 'text-muted-foreground',
+                  !theater && isFuture && 'text-muted-foreground/50',
+                  !theater && !isTracking && 'text-foreground',
+                  // theater highlight: active bright, others dimmed
+                  theater && isActive && 'text-foreground',
+                  theater && (isPast || isFuture) && 'text-foreground/30',
+                  theater && !isTracking && 'text-foreground/80',
+                  onSeek && (theater ? 'cursor-pointer hover:text-foreground/60' : 'hover:bg-primary/5 cursor-pointer')
+                )}
+                role={onSeek ? 'button' : undefined}
+                tabindex={onSeek ? 0 : undefined}
+                onclick={onSeek ? () => seekToLine(line.timeMs) : undefined}
+                onkeydown={onSeek
+                  ? (e: KeyboardEvent) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        seekToLine(line.timeMs);
+                      }
                     }
-                  }
-                : undefined}
-            >
-              {#if !theater}
+                  : undefined}
+              >
+                {#if !theater}
+                  <span
+                    class={cn(
+                      'w-12 shrink-0 pt-0.5 font-mono text-xs',
+                      isActive ? 'text-primary/70' : 'text-muted-foreground/60'
+                    )}
+                  >
+                    {formatLrcTime(line.timeMs)}
+                  </span>
+                {/if}
+                <span class="flex min-w-0 flex-1 flex-col">
+                  <span class={cn(!line.text && 'select-none opacity-0')}>
+                    {line.text || '·'}
+                  </span>
+                  {#if secondaryByIndex?.[i] && secondaryByIndex[i] !== line.text}
+                    <span
+                      class={cn(
+                        theater
+                          ? 'text-lg leading-snug font-semibold tracking-normal sm:text-xl'
+                          : 'text-xs',
+                        isActive ? 'opacity-80' : 'opacity-55'
+                      )}
+                    >
+                      {secondaryByIndex[i]}
+                    </span>
+                  {/if}
+                </span>
+              </div>
+            {/each}
+          </div>
+        {:else if pairedFallbackLines}
+          <div class={cn('font-sans leading-relaxed', !theater && 'text-sm')}>
+            {#each pairedFallbackLines as pair, i (i)}
+              <div class={cn('flex flex-col', theater ? 'py-1.5' : 'py-0.5')}>
                 <span
                   class={cn(
-                    'w-12 shrink-0 pt-0.5 font-mono text-xs',
-                    isActive ? 'text-primary/70' : 'text-muted-foreground/60'
-                  )}
-                >
-                  {formatLrcTime(line.timeMs)}
-                </span>
-              {/if}
-              <span class="flex min-w-0 flex-1 flex-col">
-                <span class={cn(!line.text && 'select-none opacity-0')}>
-                  {line.text || '·'}
-                </span>
-                {#if secondaryByIndex?.[i] && secondaryByIndex[i] !== line.text}
+                    theater && 'text-2xl leading-snug font-bold text-foreground/80 sm:text-[28px]',
+                    !pair.text && 'select-none'
+                  )}>{pair.text || ' '}</span>
+                {#if pair.secondary && pair.secondary !== pair.text}
                   <span
                     class={cn(
                       theater
-                        ? 'text-lg leading-snug font-semibold tracking-normal sm:text-xl'
-                        : 'text-xs',
-                      isActive ? 'opacity-80' : 'opacity-55'
+                        ? 'text-lg leading-snug font-semibold text-foreground/60 sm:text-xl'
+                        : 'text-muted-foreground text-xs'
                     )}
                   >
-                    {secondaryByIndex[i]}
+                    {pair.secondary}
                   </span>
                 {/if}
-              </span>
-            </div>
-          {/each}
+              </div>
+            {/each}
+          </div>
+        {:else}
+          <pre
+            class={cn(
+              'font-sans leading-relaxed whitespace-pre-wrap',
+              theater ? 'text-2xl font-bold text-foreground/80 sm:text-[28px]' : 'text-sm'
+            )}>{fallbackText}</pre>
+        {/if}
+      </div>
+
+      {#if showSyncPill}
+        <!-- Only as wide as the pill, so it never swallows clicks on the lyrics behind it. -->
+        <div
+          class="absolute bottom-3 left-1/2 -translate-x-1/2"
+          transition:fade={{ duration: 120 }}
+        >
+          <button
+            type="button"
+            onclick={resumeFollow}
+            class={cn(
+              'bg-foreground text-background inline-flex items-center gap-1.5 rounded-full',
+              'font-semibold shadow-lg transition-transform duration-150',
+              'hover:scale-[1.03] active:scale-[0.97]',
+              theater ? 'px-4 py-2 text-sm' : 'px-3 py-1.5 text-xs'
+            )}
+          >
+            <AudioLines class={theater ? 'size-4' : 'size-3.5'} />
+            Sync
+          </button>
         </div>
-      {:else if pairedFallbackLines}
-        <div class={cn('font-sans leading-relaxed', !theater && 'text-sm')}>
-          {#each pairedFallbackLines as pair, i (i)}
-            <div class={cn('flex flex-col', theater ? 'py-1.5' : 'py-0.5')}>
-              <span
-                class={cn(
-                  theater && 'text-2xl leading-snug font-bold text-foreground/80 sm:text-[28px]',
-                  !pair.text && 'select-none'
-                )}>{pair.text || ' '}</span>
-              {#if pair.secondary && pair.secondary !== pair.text}
-                <span
-                  class={cn(
-                    theater
-                      ? 'text-lg leading-snug font-semibold text-foreground/60 sm:text-xl'
-                      : 'text-muted-foreground text-xs'
-                  )}
-                >
-                  {pair.secondary}
-                </span>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      {:else}
-        <pre
-          class={cn(
-            'font-sans leading-relaxed whitespace-pre-wrap',
-            theater ? 'text-2xl font-bold text-foreground/80 sm:text-[28px]' : 'text-sm'
-          )}>{fallbackText}</pre>
       {/if}
     </div>
 
