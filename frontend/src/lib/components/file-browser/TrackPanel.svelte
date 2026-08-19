@@ -1366,6 +1366,9 @@
         <VideoWatchTab
           songId={song.id}
           offsetMs={videoInfo?.syncOffsetMs ?? 0}
+          title={trackTitle}
+          artist={trackArtist}
+          fallbackDuration={song.durationSeconds ?? 0}
           onPlayRequest={handlePlayToggle}
         />
       </Tabs.Content>
