@@ -370,6 +370,108 @@ public class DestinationPathResolverTests
             path);
     }
 
+    [Fact]
+    public void ResolveLegacyPath_UsesRawTrackArtist_NotAlbumArtist()
+    {
+        // The legacy scheme routed by the unsplit track artist; the current scheme elects the
+        // album artist. Both are pinned so the divergence stays visible.
+        var resolver = CreateResolver();
+        var song = CreateSong(
+            artist: "Artist A; Artist B",
+            albumArtist: "Artist A",
+            album: "Album",
+            title: "Track",
+            year: 2026,
+            trackNumber: 1);
+
+        Assert.Equal(
+            Path.Combine(DestinationRoot, "Artist A; Artist B", "2026 - Album", "01 - Track.mp3"),
+            resolver.ResolveLegacyPath(song));
+        Assert.Equal(
+            Path.Combine(DestinationRoot, "Artist A", "2026 - Album", "01 - Track.mp3"),
+            resolver.ResolvePath(song));
+    }
+
+    [Fact]
+    public void ResolveLegacyPath_UsesUnknownTitleFallback_NotFileNameStem()
+    {
+        // Historic builds wrote untitled tracks as "Unknown Title"; the current scheme falls back
+        // to the file name's stem. The legacy resolver must keep producing the historic name.
+        var resolver = CreateResolver();
+        var song = CreateSong(
+            artist: "Artist",
+            albumArtist: "Artist",
+            album: "Album",
+            title: null,
+            year: 2026,
+            trackNumber: 1);
+
+        Assert.Equal(
+            Path.Combine(DestinationRoot, "Artist", "2026 - Album", "01 - Unknown Title.mp3"),
+            resolver.ResolveLegacyPath(song));
+        Assert.Equal(
+            Path.Combine(DestinationRoot, "Artist", "2026 - Album", "01 - song.mp3"),
+            resolver.ResolvePath(song));
+    }
+
+    [Fact]
+    public void ResolveLegacyPath_WithUnreleasedTrack_UsesUnreleasedFolder()
+    {
+        var resolver = CreateResolver();
+        var song = CreateSong(
+            artist: "Juice WRLD",
+            albumArtist: null,
+            album: null,
+            title: "Righteous (CDQ)",
+            year: null,
+            trackNumber: null,
+            isUnreleased: true);
+
+        Assert.Equal(
+            Path.Combine(DestinationRoot, "Juice WRLD", "Unreleased", "Righteous (CDQ).mp3"),
+            resolver.ResolveLegacyPath(song));
+    }
+
+    [Fact]
+    public void ResolveLegacyPath_IgnoresCompilationRouting_AndDiscPrefix()
+    {
+        // The legacy scheme predates Various-Artists routing and multi-disc prefixes: a
+        // compilation track still files under its raw artist, and disc 2's track 1 is a
+        // plain "01 - " like any other.
+        var resolver = CreateResolver();
+        var song = CreateSong(
+            artist: "Artist",
+            albumArtist: "Various Artists",
+            album: "Compilation",
+            title: "Track",
+            year: 2020,
+            trackNumber: 1,
+            isCompilation: true,
+            discNumber: 2,
+            totalDiscs: 2);
+
+        Assert.Equal(
+            Path.Combine(DestinationRoot, "Artist", "2020 - Compilation", "01 - Track.mp3"),
+            resolver.ResolveLegacyPath(song));
+    }
+
+    [Fact]
+    public void ResolveLegacyPath_SanitizesAndTruncatesSegments()
+    {
+        var resolver = CreateResolver();
+        var song = CreateSong(
+            artist: "AC/DC",
+            albumArtist: null,
+            album: new string('a', 80),
+            title: "Back In Black?",
+            year: null,
+            trackNumber: 6);
+
+        Assert.Equal(
+            Path.Combine(DestinationRoot, "ACDC", new string('a', 60), "06 - Back In Black.mp3"),
+            resolver.ResolveLegacyPath(song));
+    }
+
     private static DestinationPathResolver CreateResolver(string compilationFolderName = "Various Artists")
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions

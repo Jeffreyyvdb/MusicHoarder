@@ -70,6 +70,44 @@ public class MusicVideoEndpointsTests
     }
 
     [Fact]
+    public async Task GetVideoInfo_ReadyRowWithMissingFile_FlagsFileMissing()
+    {
+        await using var db = NewContext();
+        db.Songs.Add(Song(1));
+        db.SongMusicVideos.Add(ReadyVideo(1)); // FilePath points nowhere on disk
+        await db.SaveChangesAsync();
+
+        var result = await MusicVideoEndpoints.GetVideoInfo(1, db, default);
+        var ok = Assert.IsType<Ok<MusicVideoEndpoints.VideoInfoDto>>(result);
+        Assert.Equal("Ready", ok.Value!.Status);
+        Assert.True(ok.Value.FileMissing);
+    }
+
+    [Fact]
+    public async Task GetVideoInfo_ReadyRowWithExistingFile_DoesNotFlagFileMissing()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"mh-video-{Guid.NewGuid():N}.mp4");
+        await File.WriteAllBytesAsync(tempFile, [0x00]);
+        try
+        {
+            await using var db = NewContext();
+            db.Songs.Add(Song(1));
+            var video = ReadyVideo(1);
+            video.FilePath = tempFile;
+            db.SongMusicVideos.Add(video);
+            await db.SaveChangesAsync();
+
+            var result = await MusicVideoEndpoints.GetVideoInfo(1, db, default);
+            var ok = Assert.IsType<Ok<MusicVideoEndpoints.VideoInfoDto>>(result);
+            Assert.False(ok.Value!.FileMissing);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
     public async Task GetVideoInfo_SoftDeletedSong_Returns404()
     {
         await using var db = NewContext();

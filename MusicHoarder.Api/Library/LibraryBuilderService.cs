@@ -904,7 +904,7 @@ public class LibraryBuilderService(
         // track): fall back to the song's own tags — exactly today's behavior.
         var identity = albumIdentity ?? AlbumIdentity.FromSong(song);
 
-        var legacyPath = ResolveLegacyDestinationPath(song);
+        var legacyPath = destinationPathResolver.ResolveLegacyPath(song);
         var currentManagedPath = ResolveCurrentManagedPath(song, destinationPath, legacyPath);
 
         if (currentManagedPath is not null && !PathsEqual(currentManagedPath, destinationPath))
@@ -1239,60 +1239,6 @@ public class LibraryBuilderService(
         return fileSystem.File.Exists(legacyPath) ? legacyPath : null;
     }
 
-    private string ResolveLegacyDestinationPath(SongMetadata song)
-    {
-        var artist = NormalizeSegment(song.Artist, "Unknown Artist");
-        var title = NormalizeSegment(song.Title, "Unknown Title");
-        var extension = NormalizeExtension(song.Extension);
-
-        if (song.IsUnreleased)
-        {
-            return Path.Combine(
-                options.Value.DestinationDirectory,
-                artist,
-                "Unreleased",
-                $"{title}{extension}");
-        }
-
-        var album = NormalizeSegment(song.Album, "Unknown Album");
-        var albumFolder = song.Year is > 0
-            ? $"{song.Year.Value} - {album}"
-            : album;
-        var trackPrefix = song.TrackNumber is > 0
-            ? $"{song.TrackNumber.Value:00} - "
-            : string.Empty;
-
-        return Path.Combine(
-            options.Value.DestinationDirectory,
-            artist,
-            albumFolder,
-            $"{trackPrefix}{title}{extension}");
-    }
-
     private static bool PathsEqual(string a, string b)
         => string.Equals(a, b, StringComparison.Ordinal);
-
-    private static string NormalizeSegment(string? value, string fallback)
-    {
-        var sanitized = DestinationPathResolver.Sanitize(value ?? string.Empty);
-        if (string.IsNullOrWhiteSpace(sanitized))
-        {
-            sanitized = fallback;
-        }
-
-        return sanitized.Length <= 60 ? sanitized : sanitized[..60];
-    }
-
-    private static string NormalizeExtension(string? extension)
-    {
-        var sanitized = DestinationPathResolver.Sanitize(extension ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(sanitized))
-        {
-            return string.Empty;
-        }
-
-        return sanitized.StartsWith(".", StringComparison.Ordinal)
-            ? sanitized
-            : $".{sanitized}";
-    }
 }
