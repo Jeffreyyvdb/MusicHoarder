@@ -8,6 +8,7 @@
   import { Switch } from '$lib/components/ui/switch';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import PurgeStatusBanner from '$lib/components/settings/PurgeStatusBanner.svelte';
+  import PairDeviceCard from '$lib/components/settings/PairDeviceCard.svelte';
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import { isPasskeySupported } from '$lib/webauthn-client';
   import {
@@ -1137,6 +1138,8 @@
             {/if}
           </div>
         </section>
+
+        <PairDeviceCard />
 
         <!-- Anonymous telemetry — not API-writable yet -->
         <section class="border-border bg-card rounded-lg border border-dashed">

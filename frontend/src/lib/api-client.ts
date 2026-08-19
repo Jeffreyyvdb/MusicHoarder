@@ -2598,6 +2598,22 @@ export async function signOut(allSessions = false): Promise<void> {
   })
 }
 
+/** A bearer token minted for a native client (Android app), plus when it stops working. */
+export interface DeviceTokenResult {
+  accessToken: string
+  tokenType: string
+  expiresAtUtc: string
+}
+
+/**
+ * Mints a bearer token for a native client from the current browser session. The token rides its
+ * own server-side session row, so signing the browser out does not unpair the phone — "Sign out
+ * everywhere" does.
+ */
+export async function createDeviceToken(): Promise<DeviceTokenResult> {
+  return requestJson<DeviceTokenResult>("/api/auth/device-token", { method: "POST" })
+}
+
 export async function signInAsDemo(): Promise<void> {
   const response = await fetch(`${API_PREFIX}/api/auth/demo-login`, {
     method: "POST",
