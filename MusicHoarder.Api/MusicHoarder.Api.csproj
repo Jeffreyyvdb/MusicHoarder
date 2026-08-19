@@ -33,19 +33,19 @@
         <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="13.4.6" />
         <PackageReference Include="Fido2.AspNet" Version="4.0.1" />
         <PackageReference Include="FuzzySharp" Version="2.0.2" />
-        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
         <!-- Pinned directly (design-time only) to override a bad transitive resolution to
              EFCore.Design 8.0.0, which is ABI-incompatible with EFCore 10.x and breaks `dotnet ef`. -->
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10">
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.10">
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.11">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="Microsoft.OpenApi" Version="2.11.0" />
-        <PackageReference Include="Scalar.AspNetCore" Version="2.16.18" />
+        <PackageReference Include="Microsoft.OpenApi" Version="2.12.0" />
+        <PackageReference Include="Scalar.AspNetCore" Version="2.16.20" />
         <PackageReference Include="SkiaSharp" Version="4.151.1" />
         <!-- Headless image decode/resize/encode only (no text rendering), so the NoDependencies
              native asset avoids needing libfontconfig in the Linux container. The base SkiaSharp
