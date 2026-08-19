@@ -78,6 +78,29 @@ Notable choices:
 - **`GET /songs` is a whole-library dump**, fetched once per app start (the web app does the same).
   A paged or delta endpoint is the obvious next step for very large libraries.
 
+## Design
+
+The app deliberately looks like the web app rather than like stock Material.
+
+- **Palette** — `ui/theme/Color.kt` holds the tokens from `frontend/src/app.css`, converted from
+  OKLCH to sRGB and keeping the CSS names (`mutedForeground`, `card`, `border`…). To change one,
+  find it in `app.css`, convert, and replace it here. Material's own `ColorScheme` slots are filled
+  from those tokens in `Theme.kt` so stock components inherit the same colours.
+- **No Material You.** Dynamic colour is off on purpose: MusicHoarder has one identity — a neutral
+  near-black ground with a single green accent — and picking up the wallpaper palette would make the
+  phone look like a different product.
+- **Type** — `Type.kt` mirrors the web's scale. `--font-sans` resolves to Roboto on Android, so the
+  platform default already *is* the web font; no face is bundled.
+- **Placeholders** — `albumTint()` in `Artwork.kt` is a direct port of `frontend/src/lib/album-tint.ts`,
+  down to `cyrb53`'s 32-bit multiplies, so an album without a cover gets the same gradient on both
+  clients.
+- **Chrome** — `Chrome.kt` carries the shared pieces: section pills, bordered icon buttons, and the
+  rounded-full search field. The mini player is the web's floating `rounded-2xl` card, inset from
+  both edges with the progress hairline across its top.
+
+One thing the web grid has that this does not: the small completeness dot on album covers, which
+encodes canonical-tracklist state the app never fetches.
+
 ## Not here yet
 
 Offline downloads, playlists, liked songs, lyrics, search against the server (search is client-side

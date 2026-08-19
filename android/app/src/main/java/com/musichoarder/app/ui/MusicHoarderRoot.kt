@@ -8,11 +8,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -24,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.musichoarder.app.data.Album
+import com.musichoarder.app.ui.theme.MhTheme
 
 /**
  * The whole app in one place: pair, browse, play. Navigation is two booleans deep, which is exactly
@@ -68,8 +72,8 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
         if (showNowPlaying) showNowPlaying = false else openAlbumKey = null
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize().navigationBarsPadding()) {
+    Box(modifier = modifier.fillMaxSize().background(MhTheme.colors.background)) {
+        Column(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.weight(1f)) {
                 if (openAlbum != null) {
                     AlbumScreen(
@@ -101,6 +105,8 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                 }
             }
 
+            // The bar floats clear of the bottom edge the way the web's does, so it reads as
+            // chrome sitting over the list rather than a docked toolbar.
             if (playerState.isActive) {
                 MiniPlayer(
                     state = playerState,
@@ -108,8 +114,10 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                     onExpand = { showNowPlaying = true },
                     onPlayPause = viewModel.player::togglePlayPause,
                     onNext = viewModel.player::next,
+                    modifier = Modifier.padding(bottom = 10.dp),
                 )
             }
+            Spacer(Modifier.navigationBarsPadding())
         }
 
         AnimatedVisibility(

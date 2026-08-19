@@ -1,5 +1,7 @@
 package com.musichoarder.app.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -24,13 +27,11 @@ import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,18 +41,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import com.musichoarder.app.player.PlayerUiState
+import com.musichoarder.app.ui.theme.MhFloatingShape
+import com.musichoarder.app.ui.theme.MhTheme
 
 /**
- * The bar that follows you around the app. Tapping it opens the full player; the thin progress line
- * along the bottom is the only progress indicator you need while browsing.
+ * The floating bar that follows you around the app — the web's MiniPlayer: inset from both edges,
+ * `rounded-2xl`, hairline border, with a thin progress line across the top and the transport on the
+ * left of the metadata.
  */
 @Composable
 fun MiniPlayer(
@@ -62,65 +66,94 @@ fun MiniPlayer(
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = 3.dp,
+    val colors = MhTheme.colors
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+            .clip(MhFloatingShape)
+            .background(colors.card)
+            .border(1.dp, colors.border, MhFloatingShape),
     ) {
-        Column {
-            Row(
+        // `h-0.5` progress hairline. The track is a translucent tint of the foreground, as on the
+        // web — the `muted` token is too close to the card colour to read as a track at all.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .background(colors.foreground.copy(alpha = 0.15f))
+        ) {
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onExpand)
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Artwork(
-                    url = coverUrl,
-                    seed = state.album.ifBlank { state.title },
-                    modifier = Modifier.size(44.dp),
-                    shape = RoundedCornerShape(6.dp),
-                    letterSize = 16.sp,
-                )
-                Spacer(Modifier.size(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        state.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    .fillMaxWidth(state.progressFraction())
+                    .height(2.dp)
+                    .background(colors.primary)
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .clickable(onClick = onExpand)
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onPlayPause, modifier = Modifier.size(36.dp)) {
+                if (state.isBuffering && !state.isPlaying) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = colors.foreground,
                     )
-                    Text(
-                        state.artist,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                } else {
+                    Icon(
+                        if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = if (state.isPlaying) "Pause" else "Play",
+                        tint = colors.foreground,
+                        modifier = Modifier.size(22.dp),
                     )
-                }
-                IconButton(onClick = onPlayPause) {
-                    if (state.isBuffering && !state.isPlaying) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                    } else {
-                        Icon(
-                            if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            contentDescription = if (state.isPlaying) "Pause" else "Play",
-                        )
-                    }
-                }
-                IconButton(onClick = onNext, enabled = state.hasNext) {
-                    Icon(Icons.Rounded.SkipNext, contentDescription = "Next track")
                 }
             }
+            IconButton(
+                onClick = onNext,
+                enabled = state.hasNext,
+                modifier = Modifier.size(36.dp),
+            ) {
+                Icon(
+                    Icons.Rounded.SkipNext,
+                    contentDescription = "Next track",
+                    tint = if (state.hasNext) colors.foreground else colors.mutedForeground,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
 
-            LinearProgressIndicator(
-                progress = { state.progressFraction() },
-                modifier = Modifier.fillMaxWidth().height(2.dp),
-                trackColor = Color.Transparent,
-                gapSize = 0.dp,
-                drawStopIndicator = {},
+            Spacer(Modifier.size(8.dp))
+            Artwork(
+                url = coverUrl,
+                artist = state.artist,
+                title = state.album.ifBlank { state.title },
+                modifier = Modifier.size(36.dp),
+                shape = RoundedCornerShape(4.dp),
             )
+            Spacer(Modifier.size(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    state.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.foreground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    state.artist,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.mutedForeground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
@@ -139,6 +172,8 @@ fun NowPlayingScreen(
     onCycleRepeat: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = MhTheme.colors
+
     // While a finger is on the slider the player's own position must not fight the drag.
     var scrubPosition by remember { mutableFloatStateOf(0f) }
     var isScrubbing by remember { mutableStateOf(false) }
@@ -149,19 +184,23 @@ fun NowPlayingScreen(
     val hasDuration = state.durationMs > 0
     val duration = state.durationMs.toFloat().coerceAtLeast(1f)
 
-    Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+    Box(modifier = modifier.fillMaxSize().background(colors.background)) {
         Column(
             modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onCollapse) {
-                    Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Collapse player")
+                    Icon(
+                        Icons.Rounded.KeyboardArrowDown,
+                        contentDescription = "Collapse player",
+                        tint = colors.mutedForeground,
+                    )
                 }
                 Text(
                     text = state.album,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = colors.mutedForeground,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
@@ -174,10 +213,10 @@ fun NowPlayingScreen(
 
             Artwork(
                 url = coverUrl,
-                seed = state.album.ifBlank { state.title },
+                artist = state.artist,
+                title = state.album.ifBlank { state.title },
                 modifier = Modifier.widthIn(max = 420.dp).fillMaxWidth().aspectRatio(1f),
-                shape = RoundedCornerShape(16.dp),
-                letterSize = 96.sp,
+                shape = RoundedCornerShape(12.dp),
             )
 
             Spacer(Modifier.height(32.dp))
@@ -185,7 +224,7 @@ fun NowPlayingScreen(
             Text(
                 state.title,
                 style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
+                color = colors.foreground,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
@@ -194,12 +233,12 @@ fun NowPlayingScreen(
             Text(
                 state.artist,
                 style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.mutedForeground,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(20.dp))
 
             Slider(
                 value = if (hasDuration) position.coerceIn(0f, duration) else 0f,
@@ -213,6 +252,14 @@ fun NowPlayingScreen(
                     onSeek(scrubPosition.toLong())
                     isScrubbing = false
                 },
+                colors = SliderDefaults.colors(
+                    thumbColor = colors.foreground,
+                    activeTrackColor = colors.foreground,
+                    inactiveTrackColor = colors.muted,
+                    disabledThumbColor = colors.mutedForeground,
+                    disabledActiveTrackColor = colors.muted,
+                    disabledInactiveTrackColor = colors.muted,
+                ),
                 modifier = Modifier.fillMaxWidth(),
             )
             Row(
@@ -221,13 +268,15 @@ fun NowPlayingScreen(
             ) {
                 Text(
                     formatDuration(position.toLong()),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = colors.mutedForeground,
                 )
                 Text(
                     if (hasDuration) formatDuration(state.durationMs) else "--:--",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = colors.mutedForeground,
                 )
             }
 
@@ -242,25 +291,38 @@ fun NowPlayingScreen(
                     Icon(
                         Icons.Rounded.Shuffle,
                         contentDescription = "Shuffle",
-                        tint = if (state.shuffleEnabled) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (state.shuffleEnabled) colors.primary else colors.mutedForeground,
                     )
                 }
                 IconButton(onClick = onPrevious, enabled = state.hasPrevious) {
                     Icon(
                         Icons.Rounded.SkipPrevious,
                         contentDescription = "Previous track",
-                        modifier = Modifier.size(36.dp),
+                        tint = if (state.hasPrevious) colors.foreground else colors.mutedForeground,
+                        modifier = Modifier.size(34.dp),
                     )
                 }
-                FilledIconButton(onClick = onPlayPause, modifier = Modifier.size(68.dp)) {
+                // The one filled control on the screen, in the brand green.
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(CircleShape)
+                        .background(colors.primary)
+                        .clickable(onClick = onPlayPause),
+                    contentAlignment = Alignment.Center,
+                ) {
                     if (state.isBuffering && !state.isPlaying) {
-                        CircularProgressIndicator(modifier = Modifier.size(26.dp), strokeWidth = 3.dp)
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 3.dp,
+                            color = colors.primaryForeground,
+                        )
                     } else {
                         Icon(
                             if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                             contentDescription = if (state.isPlaying) "Pause" else "Play",
-                            modifier = Modifier.size(34.dp),
+                            tint = colors.primaryForeground,
+                            modifier = Modifier.size(32.dp),
                         )
                     }
                 }
@@ -268,7 +330,8 @@ fun NowPlayingScreen(
                     Icon(
                         Icons.Rounded.SkipNext,
                         contentDescription = "Next track",
-                        modifier = Modifier.size(36.dp),
+                        tint = if (state.hasNext) colors.foreground else colors.mutedForeground,
+                        modifier = Modifier.size(34.dp),
                     )
                 }
                 IconButton(onClick = onCycleRepeat) {
@@ -276,9 +339,8 @@ fun NowPlayingScreen(
                         if (state.repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne
                         else Icons.Rounded.Repeat,
                         contentDescription = "Repeat",
-                        tint = if (state.repeatMode == Player.REPEAT_MODE_OFF)
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        else MaterialTheme.colorScheme.primary,
+                        tint = if (state.repeatMode == Player.REPEAT_MODE_OFF) colors.mutedForeground
+                        else colors.primary,
                     )
                 }
             }
@@ -286,14 +348,13 @@ fun NowPlayingScreen(
             Spacer(Modifier.weight(1f))
 
             state.error?.let {
-                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        textAlign = TextAlign.Center,
-                    )
-                }
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.destructive,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
