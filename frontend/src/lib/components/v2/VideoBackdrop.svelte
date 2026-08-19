@@ -6,6 +6,7 @@
   import { Switch } from '$lib/components/ui/switch';
   import {
     getSongVideoInfo,
+    getSongVideoInfoUntilSettled,
     getSongVideoStreamUrl,
     fetchSongVideo,
     setSongVideoOffset,
@@ -33,11 +34,13 @@
   );
 
   let info = $state<SongVideoInfo | null>(null);
+  let infoUnavailable = $state(false); // info load keeps failing; retrying in the background
   let offsetMs = $state(0); // local mirror of info.syncOffsetMs; updated optimistically on nudge
   let videoEl = $state<HTMLVideoElement | null>(null);
   let videoReady = $state(false); // first frame decoded — until then the <video> paints nothing
   let videoEnded = $state(false);
   let videoFailed = $state(false);
+  let videoLoadRetries = 0; // non-reactive: only read inside the onerror handler
   let controlsOpen = $state(false);
   let controlsEl = $state<HTMLElement | null>(null);
   let urlInput = $state('');
@@ -68,35 +71,40 @@
   });
 
   const isCurrentSong = $derived(playerStore.currentSong?.id === songId);
+  // Ready and its file is actually on disk — fileMissing means the stream endpoint would 404.
+  const playable = $derived(info?.status === 'Ready' && !info.fileMissing);
   const showVideo = $derived(
-    info?.status === 'Ready' &&
-      videoBackdropPrefs.enabled &&
-      isCurrentSong &&
-      !videoEnded &&
-      !videoFailed
+    playable && videoBackdropPrefs.enabled && isCurrentSong && !videoEnded && !videoFailed
   );
 
-  // Load (and reload on song change) the video info; reset per-song playback state. A load that
-  // still fails after the client's retries degrades to "no video" (ambient art) — an unhandled
-  // rejection here would otherwise leave the backdrop stuck without one.
+  // Load (and reload on song change) the video info; reset per-song playback state. The load only
+  // settles on a definitive answer (info, or a 404 meaning none attached) and retries everything
+  // else until unmount — a transient failure after a page refresh must read as "unavailable",
+  // never as "no video, fetch it again".
   $effect(() => {
     const id = songId;
     videoReady = false;
     videoEnded = false;
     videoFailed = false;
+    videoLoadRetries = 0;
     info = null;
-    let cancelled = false;
-    getSongVideoInfo(id).then(
+    infoUnavailable = false;
+    const abort = new AbortController();
+    getSongVideoInfoUntilSettled(id, {
+      signal: abort.signal,
+      onRetry: () => {
+        if (!abort.signal.aborted) infoUnavailable = true;
+      }
+    }).then(
       (result) => {
-        if (cancelled) return;
+        if (abort.signal.aborted) return;
+        infoUnavailable = false;
         info = result;
         offsetMs = result?.syncOffsetMs ?? 0;
       },
-      () => {}
+      () => {} // rejects only on abort
     );
-    return () => {
-      cancelled = true;
-    };
+    return () => abort.abort();
   });
 
   // While a fetch is running server-side, poll until it settles (fetches take ~30–60s).
@@ -109,6 +117,11 @@
           if (result && result.status !== 'Fetching') {
             info = result;
             offsetMs = result.syncOffsetMs;
+            // A refetch just settled — the new file deserves a clean slate even when the old
+            // one had failed or ended.
+            videoFailed = false;
+            videoEnded = false;
+            videoLoadRetries = 0;
           }
         },
         () => {}
@@ -168,6 +181,22 @@
       videoEnded = false;
     }
   });
+
+  // A dropped stream request (proxy blip, API restarting) used to flip the backdrop to artwork
+  // for the rest of the song — give the <video> a couple of reloads before giving up.
+  const VIDEO_LOAD_RETRY_DELAYS_MS = [1000, 3000];
+  function onVideoError() {
+    const attempt = videoLoadRetries;
+    if (attempt >= VIDEO_LOAD_RETRY_DELAYS_MS.length) {
+      videoFailed = true;
+      return;
+    }
+    videoLoadRetries = attempt + 1;
+    const id = songId;
+    setTimeout(() => {
+      if (songId === id) videoEl?.load();
+    }, VIDEO_LOAD_RETRY_DELAYS_MS[attempt]);
+  }
 
   async function onFetch() {
     busy = true;
@@ -265,9 +294,12 @@
       tabindex="-1"
       class="absolute inset-0 size-full object-cover"
       onloadstart={() => (videoReady = false)}
-      onloadeddata={() => (videoReady = true)}
+      onloadeddata={() => {
+        videoReady = true;
+        videoLoadRetries = 0; // healthy again — a later mid-play blip gets fresh retries
+      }}
       onended={() => (videoEnded = true)}
-      onerror={() => (videoFailed = true)}
+      onerror={onVideoError}
     ></video>
     <!-- Gradient scrim (no backdrop blur — it would mush the video) for text legibility: heavier
          at the top and bottom where the chrome/transport text lives, lighter mid-frame. -->
@@ -290,10 +322,18 @@
             <span class="text-muted-foreground inline-flex items-center gap-1 text-xs">
               <Loader2 class="size-3 animate-spin" /> fetching…
             </span>
+          {:else if info?.status === 'Ready' && info.fileMissing}
+            <span class="text-destructive text-xs">file missing</span>
           {:else if info?.status === 'Ready'}
             <span class="text-muted-foreground text-xs">{syncLabel}</span>
           {:else if info?.status === 'Failed'}
             <span class="text-destructive text-xs">failed</span>
+          {:else if infoUnavailable}
+            <!-- The status request keeps failing — unknown is NOT "none"; a fetch here would
+                 needlessly re-download a video that may well still exist. -->
+            <span class="text-muted-foreground inline-flex items-center gap-1 text-xs">
+              <Loader2 class="size-3 animate-spin" /> status unavailable — retrying
+            </span>
           {:else}
             <span class="text-muted-foreground text-xs">none</span>
           {/if}
@@ -315,7 +355,13 @@
         </p>
       {/if}
 
-      {#if info?.status === 'Ready'}
+      {#if info?.status === 'Ready' && info.fileMissing}
+        <p class="text-destructive/90 mb-2 text-xs">
+          The video file is gone from disk — refetch to restore it.
+        </p>
+      {/if}
+
+      {#if playable}
         <label class="mb-2 flex items-center justify-between gap-2 text-sm">
           <span>Show as backdrop</span>
           <Switch
@@ -326,7 +372,7 @@
       {/if}
 
       {#if isOwner}
-        {#if info?.status === 'Ready'}
+        {#if playable}
           <div class="mb-2">
             <div class="text-muted-foreground mb-1 text-xs">
               Sync nudge · {formatOffset(offsetMs)}
@@ -364,7 +410,15 @@
               placeholder="YouTube URL (optional)"
               class="h-8 flex-1 text-xs"
             />
-            <Button size="sm" class="h-8 text-xs" disabled={busy} onclick={onFetch}>
+            <Button
+              size="sm"
+              class="h-8 text-xs"
+              disabled={busy || (infoUnavailable && !info)}
+              title={infoUnavailable && !info
+                ? 'Video status is unavailable right now — retrying'
+                : undefined}
+              onclick={onFetch}
+            >
               {info ? 'Refetch' : 'Fetch'}
             </Button>
           </div>

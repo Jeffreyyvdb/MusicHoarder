@@ -1666,6 +1666,8 @@ export interface SongVideoInfo {
   youTubeVideoId?: string | null
   fetchedAtUtc: string
   lastError?: string | null
+  /** Ready row whose mp4 vanished from disk — the stream would 404; offer a refetch instead. */
+  fileMissing?: boolean
 }
 
 /**
@@ -1682,6 +1684,33 @@ export async function getSongVideoInfo(songId: number): Promise<SongVideoInfo | 
       if (err instanceof ApiError && err.status === 404) return null
       if (attempt >= 2) throw err
       await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)))
+    }
+  }
+}
+
+/**
+ * Like {@link getSongVideoInfo}, but only a definitive answer settles it: a 2xx (info) or a 404
+ * (no video attached). Every other failure — a network blip, a proxy 504 during a cold app start,
+ * an API restart — is retried with capped backoff until `signal` aborts. The mount-time loads
+ * behind the video backdrop and the panel's Video tab use this so one dropped fetch after a page
+ * refresh can't masquerade as "no video, fetch it again"; `onRetry` lets them surface an
+ * "unavailable, retrying" state meanwhile. Rejects only after an abort.
+ */
+export async function getSongVideoInfoUntilSettled(
+  songId: number,
+  opts: { signal: AbortSignal; onRetry?: () => void }
+): Promise<SongVideoInfo | null> {
+  const RETRY_DELAYS_MS = [1000, 2000, 5000, 10000, 15000]
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await requestJson<SongVideoInfo>(`/songs/${songId}/video`)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      if (opts.signal.aborted) throw err
+      opts.onRetry?.()
+      const delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)]
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      if (opts.signal.aborted) throw err
     }
   }
 }
