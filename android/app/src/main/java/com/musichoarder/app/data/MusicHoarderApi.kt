@@ -67,6 +67,24 @@ class MusicHoarderApi(
     suspend fun fetchSongs(): List<ApiSong> =
         get("/songs") { json.decodeFromString<SongsResponse>(it).songs }
 
+    /**
+     * Lyrics are fetched per song rather than shipped with the library dump — the AI transcription
+     * text in particular is large, and most songs never have their lyrics opened.
+     */
+    suspend fun fetchLyrics(songId: Int): Lyrics =
+        get("/api/tracks/$songId/lyrics") { json.decodeFromString<LyricsResponse>(it).toLyrics() }
+
+    /** Null when the song has no music video attached (the endpoint 404s, which is the common case). */
+    suspend fun fetchVideoInfo(songId: Int): VideoInfo? =
+        try {
+            get("/songs/$songId/video") { json.decodeFromString<VideoInfo>(it) }
+        } catch (e: ApiException) {
+            if (e.status == 404) null else throw e
+        }
+
+    /** Range-enabled mp4 of the music video, played muted behind the player. */
+    fun videoStreamUrl(songId: Int): String = url("/songs/$songId/video/stream")
+
     /** Bumps play count / last-played, same as the web player does on track start. */
     suspend fun reportPlayed(songId: Int) {
         runCatching { post("/songs/$songId/played") }

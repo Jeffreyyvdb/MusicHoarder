@@ -63,9 +63,10 @@ makes it possible, since the bearer token rides every request.
 
 ```
 data/     ServerSession (pairing + DataStore), MusicHoarderApi (OkHttp + kotlinx.serialization),
-          LibraryRepository (the library, held in memory), Track/Album models
-player/   PlaybackService (Media3 MediaSessionService), PlayerController (MediaController + UI state)
-ui/       PairScreen, LibraryScreen, AlbumScreen, NowPlaying (mini + full player), AppViewModel
+          LibraryRepository (the library, held in memory), Track/Album models, Lyrics (+ LRC parser)
+player/   PlaybackService (Media3 MediaSessionService), PlayerController (MediaController + UI state),
+          VideoController (the muted clip that chases the audio clock)
+ui/       PairScreen, LibraryScreen, AlbumScreen, NowPlayingScreen, MiniPlayer, LyricsView, AppViewModel
 AppGraph  One OkHttpClient shared by the API, ExoPlayer, and Coil — so all three carry the token
 ```
 
@@ -77,6 +78,32 @@ Notable choices:
   same contract as the web player.
 - **`GET /songs` is a whole-library dump**, fetched once per app start (the web app does the same).
   A paged or delta endpoint is the obvious next step for very large libraries.
+
+## Lyrics and music videos
+
+The player screen carries the same two extras the web player does, behind pill toggles under the
+transport.
+
+**Lyrics** come from `GET /api/tracks/{id}/lyrics`, fetched per song rather than shipped with the
+library dump — the AI transcription text in particular is large and most songs never have their
+lyrics opened. `parseLrc()` is a port of `frontend/src/lib/lyrics/parse-lrc.ts` with the same
+tolerances (CRLF, `.`/`:` fractions, 1–3 digit minutes, repeated timestamps on one line), and
+`ParseLrcTest` mirrors the web's test case for case, since a tolerance on one side only shows up as
+a blank panel on exactly one client. The viewer centres the active line and follows the audio;
+touching the list disengages following and a floating **Sync** pill re-engages it, tapping a line
+seeks. Untimed lyrics fall back to a plain scroll, and instrumentals say so.
+
+**The music video** is a backdrop first: `GET /songs/{id}/video` reports sync info, the clip streams
+from `/songs/{id}/video/stream` into a second, muted ExoPlayer, and it plays behind the player under
+a heavy scrim. The audio is always the master clock — `VideoController` only chases it
+(`videoTime = audioTime + syncOffsetMs`) and hard-seeks past 300 ms of drift, the same tolerance the
+web backdrop uses, so a clip with an intro stays lined up with the song rather than the file. The
+**Video** toggle promotes it to a watch view where the scrim lifts. Syncing runs only while the
+player is on screen, so nothing decodes video behind a closed sheet.
+
+Not wired up: fetching or deleting a video, nudging the sync offset by hand, triggering a
+transcription, and the pronunciation/translation overlay — all of them owner-only mutations the
+web UI already covers.
 
 ## Design
 
@@ -103,5 +130,5 @@ encodes canonical-tracklist state the app never fetches.
 
 ## Not here yet
 
-Offline downloads, playlists, liked songs, lyrics, search against the server (search is client-side
-over the loaded library), and Android Auto browsing.
+Offline downloads, playlists, liked songs, search against the server (search is client-side over the
+loaded library), and Android Auto browsing.

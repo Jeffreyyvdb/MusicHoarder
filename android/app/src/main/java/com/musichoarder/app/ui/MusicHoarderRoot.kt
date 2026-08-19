@@ -39,6 +39,8 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     val library by viewModel.library.collectAsStateWithLifecycle()
     val playerState by viewModel.player.state.collectAsStateWithLifecycle()
     val pairError by viewModel.pairError.collectAsStateWithLifecycle()
+    val lyricsState by viewModel.lyrics.collectAsStateWithLifecycle()
+    val videoState by viewModel.video.state.collectAsStateWithLifecycle()
 
     var openAlbumKey by remember { mutableStateOf<String?>(null) }
     var showNowPlaying by remember { mutableStateOf(false) }
@@ -66,6 +68,17 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
 
     val openAlbum: Album? = remember(openAlbumKey, library.albums) {
         library.albums.firstOrNull { it.key == openAlbumKey }
+    }
+
+    // Lyrics and the video clip are per-song extras the library dump does not carry.
+    LaunchedEffect(playerState.trackId) {
+        viewModel.onNowPlayingTrackChanged(playerState.trackId)
+    }
+
+    // The clip chases the audio clock, and only while the player is actually on screen — decoding
+    // video behind a closed sheet would burn battery for nothing.
+    LaunchedEffect(showNowPlaying, playerState.positionMs, playerState.isPlaying) {
+        if (showNowPlaying) viewModel.video.sync(playerState.positionMs, playerState.isPlaying)
     }
 
     BackHandler(enabled = showNowPlaying || openAlbum != null) {
@@ -128,13 +141,20 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
             NowPlayingScreen(
                 state = playerState,
                 coverUrl = viewModel.coverUrl(playerState.trackId, playerState.hasCover, 640),
+                lyricsState = lyricsState,
+                videoState = videoState,
                 onCollapse = { showNowPlaying = false },
                 onPlayPause = viewModel.player::togglePlayPause,
                 onNext = viewModel.player::next,
                 onPrevious = viewModel.player::previous,
-                onSeek = viewModel.player::seekTo,
+                onSeek = { positionMs ->
+                    viewModel.player.seekTo(positionMs)
+                    viewModel.video.onSeek(positionMs)
+                },
                 onToggleShuffle = viewModel.player::toggleShuffle,
                 onCycleRepeat = viewModel.player::cycleRepeatMode,
+                onAttachVideoSurface = viewModel.video::attachSurface,
+                onDetachVideoSurface = viewModel.video::clearSurface,
                 modifier = Modifier.statusBarsPadding().navigationBarsPadding(),
             )
         }

@@ -8,9 +8,11 @@ import com.musichoarder.app.data.PairingUri
 import com.musichoarder.app.data.ServerSession
 import com.musichoarder.app.data.Track
 import com.musichoarder.app.player.PlayerController
+import com.musichoarder.app.player.VideoController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -28,6 +30,40 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         scope = viewModelScope,
         onTrackStarted = { songId -> viewModelScope.launch { graph.api.reportPlayed(songId) } },
     )
+
+    /** The muted clip behind the player; it chases [player]'s clock and never drives it. */
+    val video = VideoController(
+        context = application,
+        api = graph.api,
+        httpClient = graph.httpClient,
+        scope = viewModelScope,
+    )
+
+    private val _lyrics = MutableStateFlow<LyricsUiState>(LyricsUiState.Loading)
+    val lyrics: StateFlow<LyricsUiState> = _lyrics.asStateFlow()
+
+    private var lyricsSongId: Int? = null
+    private var lyricsJob: Job? = null
+
+    /**
+     * Loads the lyrics and looks up the video for [songId]. Both are per-song extras the library
+     * dump does not carry, so they are fetched when the player actually shows a track.
+     */
+    fun onNowPlayingTrackChanged(songId: Int?) {
+        video.load(songId)
+        if (songId == lyricsSongId) return
+        lyricsSongId = songId
+        lyricsJob?.cancel()
+        _lyrics.value = LyricsUiState.Loading
+        if (songId == null) return
+        lyricsJob = viewModelScope.launch {
+            _lyrics.value = try {
+                LyricsUiState.Ready(graph.api.fetchLyrics(songId))
+            } catch (e: Exception) {
+                LyricsUiState.Failed(e.message ?: "Could not load lyrics.")
+            }
+        }
+    }
 
     init {
         if (session.value != null) start()
@@ -98,6 +134,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun unpair() {
         viewModelScope.launch {
+            video.load(null)
             player.stop()
             player.release()
             graph.library.clear()
@@ -113,6 +150,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         player.release()
+        video.release()
         super.onCleared()
     }
 }
