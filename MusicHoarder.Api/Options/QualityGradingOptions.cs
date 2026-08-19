@@ -102,6 +102,28 @@ public class QualityGradingOptions
     [Range(30, 86400)]
     public int FailureBackoffSeconds { get; set; } = 1800;
 
+    /// <summary>
+    /// Maximum number of change-log entries put in a song's grading dossier (the newest are kept).
+    /// A song that has been re-enriched and healed many times accumulates thousands of
+    /// <c>SongMetadataChange</c> rows; sending them all pushes the prompt past the model's context
+    /// window and every grading call fails with HTTP 400. The omitted count is reported to the
+    /// grader so it knows the log is partial.
+    /// </summary>
+    [Range(0, 5000)]
+    public int MaxChangeLogEntries { get; set; } = 100;
+
+    /// <summary>
+    /// Hard ceiling on the serialized dossier (characters, roughly 4 per token). When the dossier
+    /// still exceeds it after <see cref="MaxChangeLogEntries"/> is applied, the change log is shed
+    /// further until it fits, so a pathological row can never blow the context window.
+    /// </summary>
+    [Range(2000, 2_000_000)]
+    public int MaxDossierChars { get; set; } = 120_000;
+
+    /// <summary>Maximum characters kept from a single change-log old/new value before it is elided.</summary>
+    [Range(32, 8192)]
+    public int MaxChangeValueChars { get; set; } = 256;
+
     /// <summary>True when a key is present and grading is enabled.</summary>
     public bool IsConfigured => Enabled && !string.IsNullOrWhiteSpace(ApiKey) && !string.IsNullOrWhiteSpace(BaseUrl);
 }

@@ -97,6 +97,7 @@ public class OpenAiCompatibleChatClient(
             cts.CancelAfter(TimeSpan.FromSeconds(opts.TimeoutSeconds));
 
             HttpStatusCode failureStatus;
+            string? failureDetail = null;
             try
             {
                 using var resp = await httpClient.SendAsync(httpReq, cts.Token);
@@ -106,6 +107,7 @@ public class OpenAiCompatibleChatClient(
                 var body = await resp.Content.ReadAsStringAsync(cts.Token);
                 // Never log the Authorization header; the URL/body here carry no secret.
                 logger.LogWarning("Chat completion failed: {Status} {Body}", (int)resp.StatusCode, Truncate(body, 512));
+                failureDetail = ExtractErrorMessage(body);
 
                 if (attempt < maxAttempts - 1 && IsRetryableStatus(resp.StatusCode))
                 {
@@ -146,7 +148,11 @@ public class OpenAiCompatibleChatClient(
                 continue;
             }
 
-            throw new HttpRequestException($"Chat completion returned {(int)failureStatus}.", null, failureStatus);
+            // Carry the provider's own explanation (e.g. "maximum context length is 131072 tokens")
+            // into the message: it is stored on the grading run and shown in the UI's error banner,
+            // where a bare status code says nothing about what to fix.
+            var detail = string.IsNullOrWhiteSpace(failureDetail) ? "" : $" {failureDetail}";
+            throw new HttpRequestException($"Chat completion returned {(int)failureStatus}.{detail}", null, failureStatus);
         }
     }
 
@@ -182,6 +188,34 @@ public class OpenAiCompatibleChatClient(
     private static TimeSpan Cap(TimeSpan t) => t > MaxBackoff ? MaxBackoff : t;
 
     private static string Truncate(string s, int max) => s.Length <= max ? s : s[..max];
+
+    /// <summary>
+    /// Pulls the human-readable reason out of an OpenAI-compatible error body
+    /// (<c>{"error":{"message":"…"}}</c>), falling back to the raw body. Trimmed short — it ends up
+    /// in an exception message that is persisted and rendered in the UI.
+    /// </summary>
+    private static string? ExtractErrorMessage(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("error", out var err)
+                && err.ValueKind == JsonValueKind.Object
+                && err.TryGetProperty("message", out var msg)
+                && msg.GetString() is { Length: > 0 } text)
+            {
+                return Truncate(text, 400);
+            }
+        }
+        catch (JsonException)
+        {
+            // Not JSON (an HTML error page from a proxy, say) — fall through to the raw body.
+        }
+
+        return Truncate(body.Trim(), 400);
+    }
 
     private record ChatRequestBody(
         string Model,

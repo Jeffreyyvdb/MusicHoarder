@@ -15,7 +15,18 @@ public record SongGradingDossier(
     string? DestinationPathPreview,
     IReadOnlyList<DossierProviderAttempt> ProviderAttempts,
     IReadOnlyList<DossierChange> ChangeLog,
-    DossierDuplicate? Duplicate);
+    DossierDuplicate? Duplicate,
+    DossierTruncation? Truncation = null);
+
+/// <summary>
+/// Present only when the dossier had to be shortened to fit the grading model's context window.
+/// Tells the grader (and a human reading an export) that <see cref="SongGradingDossier.ChangeLog"/>
+/// holds the <see cref="ChangeLogIncluded"/> most recent entries out of <see cref="ChangeLogTotal"/>.
+/// </summary>
+public record DossierTruncation(
+    int ChangeLogTotal,
+    int ChangeLogIncluded,
+    string Note);
 
 public record DossierFile(
     string SourcePath,
