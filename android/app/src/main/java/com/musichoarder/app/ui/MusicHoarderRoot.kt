@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,6 +44,7 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     val pairError by viewModel.pairError.collectAsStateWithLifecycle()
     val lyricsState by viewModel.lyrics.collectAsStateWithLifecycle()
     val videoState by viewModel.video.state.collectAsStateWithLifecycle()
+    val pendingPairingHost by viewModel.pendingPairingHost.collectAsStateWithLifecycle()
 
     var openAlbumKey by remember { mutableStateOf<String?>(null) }
     var showNowPlaying by remember { mutableStateOf(false) }
@@ -53,6 +57,25 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
         if (session != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+
+    pendingPairingHost?.let { host ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissPendingPairingLink,
+            title = { Text("Pair with a different server?") },
+            text = {
+                Text(
+                    "This code points at $host. Pairing will replace the library this phone is " +
+                        "showing now and stop playback."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = viewModel::confirmPendingPairingLink) { Text("Pair") }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissPendingPairingLink) { Text("Cancel") }
+            },
+        )
     }
 
     if (session == null) {

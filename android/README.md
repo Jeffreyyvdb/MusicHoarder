@@ -37,6 +37,13 @@ origin, not the API's: the SvelteKit app proxies `/api/mh/*` to the API and forw
 Authorization header, so the phone needs exactly one reachable host — the same one the browser uses.
 Nothing extra has to be exposed for mobile.
 
+The code also works from *outside* the app — the phone camera, Lens, any QR reader — because
+`musichoarder://pair` is registered as a deep link. That matters for re-pairing: the in-app scanner
+only lives on the pairing screen, which only appears when the app is unpaired, so without the deep
+link a scanned code had nowhere to go and an already-paired app carried on showing its previous
+server. When a link would move a paired app to a different server the app asks first, since a link
+can be handed over by any web page or message.
+
 If the phone has no camera, or Play services cannot supply the scanner module, **Enter details
 manually** takes the same server address and token — the pairing card has a "Can't scan?" section
 that shows both in copyable form.

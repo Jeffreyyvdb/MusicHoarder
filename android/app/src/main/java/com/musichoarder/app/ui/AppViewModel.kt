@@ -11,7 +11,10 @@ import com.musichoarder.app.player.PlayerController
 import com.musichoarder.app.player.VideoController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -23,6 +26,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _pairError = MutableStateFlow<String?>(null)
     val pairError: StateFlow<String?> = _pairError.asStateFlow()
+
+    /** A deep-linked pairing code waiting on confirmation, because a session already exists. */
+    private val _pendingPairingLink = MutableStateFlow<String?>(null)
+    val pendingPairingHost: StateFlow<String?> = _pendingPairingLink
+        .map { raw -> raw?.let { PairingUri.parse(it)?.baseUrl } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     val player = PlayerController(
         context = application,
@@ -89,6 +98,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { graph.library.refresh(force = true) }
     }
 
+    /**
+     * A `musichoarder://pair` link opened from outside the app.
+     *
+     * On first run this just pairs. When the app is already paired it asks first: a link can be
+     * handed over by anything — a web page, a message — and silently re-pointing someone's library
+     * at another server on a single tap is not a thing a link should be able to do.
+     */
+    fun onPairingLink(raw: String) {
+        if (_pendingPairingLink.value == raw) return
+        val parsed = PairingUri.parse(raw)
+        if (parsed == null) {
+            _pairError.value = "That code is not a MusicHoarder pairing code."
+            return
+        }
+        if (session.value == null) pair(parsed) else _pendingPairingLink.value = raw
+    }
+
+    /** Confirms a pairing link that would re-point an already-paired app. */
+    fun confirmPendingPairingLink() {
+        val raw = _pendingPairingLink.value ?: return
+        _pendingPairingLink.value = null
+        PairingUri.parse(raw)?.let(::pair)
+    }
+
+    fun dismissPendingPairingLink() {
+        _pendingPairingLink.value = null
+    }
+
     /** Accepts a scanned QR payload, or a URL + token typed by hand. */
     fun pairFromCode(raw: String) {
         val parsed = PairingUri.parse(raw)
@@ -124,6 +161,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _pairError.value = "The server did not accept that pairing code. Try a fresh one."
                 return@launch
             }
+            // Re-pairing points the app at a different server, so everything held from the last
+            // one has to go: the library cache is not refetched while it still holds rows
+            // (`refresh` no-ops unless forced), and a queued MediaItem keeps the absolute stream
+            // URL it was built with, so playback would carry on against the old host.
+            player.stop()
+            video.load(null)
+            graph.library.clear()
             start()
         }
     }

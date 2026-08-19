@@ -25,12 +25,30 @@
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.MusicHoarder"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!--
+              Pairing codes scanned with anything other than the app's own scanner — the phone
+              camera, Lens, a QR app. Without this the scheme resolves to nothing at all, the code
+              silently goes nowhere, and an already-paired app carries on showing the previous
+              server. `singleTop` plus onNewIntent means it also works while the app is open.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="pair"
+                    android:scheme="musichoarder" />
             </intent-filter>
         </activity>
 
