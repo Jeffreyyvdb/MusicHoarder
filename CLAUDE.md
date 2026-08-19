@@ -44,7 +44,7 @@ cd frontend && bun run check        # svelte-check + TypeScript
 cd frontend && bun run lint         # ESLint (flat config)
 ```
 
-CI (`.github/workflows/ci.yml`) builds and tests `MusicHoarder.Api.Tests`, the frontend, and the Android client (`android` job: unit tests + both APK variants). A separate `release.yml` runs unified semantic-release (API + frontend) on every push to `main` — see **Releases** below. Docker must be running locally before `AppHost` starts, because Aspire provisions PostgreSQL as a container.
+CI (`.github/workflows/ci.yml`) builds and tests `MusicHoarder.Api.Tests` and the frontend; the Android client has its own path-filtered `android.yml` (unit tests + both APK variants, only when `android/**` changes). Only `dotnet` and `frontend` are required status checks on `main` — which is what makes the Android path filter safe. A separate `release.yml` runs unified semantic-release (API + frontend) on every push to `main` — see **Releases** below. Docker must be running locally before `AppHost` starts, because Aspire provisions PostgreSQL as a container.
 
 ## Solution layout
 

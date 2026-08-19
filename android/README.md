@@ -107,11 +107,16 @@ web UI already covers.
 
 ## CI and releases
 
-`.github/workflows/ci.yml` has an `android` job that runs the unit tests and builds both variants
-(`:app:testDebugUnitTest :app:assembleDebug :app:assembleRelease`) on every PR and push to main.
-`assembleRelease` is in there deliberately: without a keystore it only yields an unsigned APK, but
-it is the one thing that exercises the release variant's config, and that breaking would otherwise
-surface in the release workflow *after* a version had been cut.
+`.github/workflows/android.yml` runs the unit tests and builds both variants
+(`:app:testDebugUnitTest :app:assembleDebug :app:assembleRelease`), path-filtered to `android/**`
+so a backend-only PR does not pay for a Gradle build. `assembleRelease` is in there deliberately:
+without a keystore it only yields an unsigned APK, but it is the one thing that exercises the
+release variant's config, and that breaking would otherwise surface in the release workflow *after*
+a version had been cut.
+
+The filter is only safe because this is not a required status check on `main` (just `dotnet` and
+`frontend` are) — a skipped run would otherwise leave a PR waiting on a check that never reports.
+If you make it required, drop the path filter or add a skipped-but-successful fallback job first.
 
 `.github/workflows/release.yml` builds the APK and attaches it to the GitHub Release, after
 semantic-release has run. The app is not deployed by a release, so an Android breakage never holds
