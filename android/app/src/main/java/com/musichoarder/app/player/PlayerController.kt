@@ -204,15 +204,19 @@ class PlayerController(
     }
 
     /**
-     * The player only emits events on state changes, so the progress bar needs its own tick. 500 ms
-     * is smooth enough for a seek bar and cheap enough to run while the screen is on.
+     * The player only emits events on state changes, so the progress bar needs its own tick. 200 ms
+     * roughly matches the web player's 10 Hz writes — at the 500 ms this used to run at, the thumb
+     * moved twice a second and a scrub looked like it was snapping rather than tracking.
+     *
+     * It samples while paused too: a seek made with playback stopped has to show up somewhere, and
+     * duration often only becomes known after the first buffer. Re-writing an unchanged value costs
+     * nothing, since StateFlow compares by equality before emitting.
      */
     private fun startPositionTicker() {
         scope.launch {
             while (true) {
-                delay(500)
+                delay(200)
                 val player = controller ?: continue
-                if (!player.isPlaying) continue
                 _state.value = _state.value.copy(
                     positionMs = player.currentPosition.coerceAtLeast(0),
                     durationMs = player.duration.takeIf { it > 0 } ?: 0,

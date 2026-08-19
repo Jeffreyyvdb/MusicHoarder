@@ -108,7 +108,10 @@ fun MiniPlayer(
                 )
             }
 
-            Spacer(Modifier.size(8.dp))
+            // Material expands an IconButton's touch target to 48dp regardless of its 36dp visual
+            // size, so it reaches 6dp past each edge. At the 8dp gap this had, Next's target
+            // overlapped the cover and a tap meant to open the player skipped the track instead.
+            Spacer(Modifier.size(16.dp))
             Artwork(
                 url = coverUrl,
                 artist = state.artist,
