@@ -124,6 +124,27 @@ public class OpenAiCompatibleChatClientTests
     }
 
     [Fact]
+    public async Task Surfaces_provider_error_message_on_non_retryable_status()
+    {
+        const string body = """
+            {"error":{"message":"This endpoint's maximum context length is 131072 tokens. However, you requested about 173089 tokens.","code":400}}
+            """;
+        using var handler = new QueueHttpHandler(Response(HttpStatusCode.BadRequest, body));
+        var client = CreateClient(new QualityGradingOptions
+        {
+            Enabled = true, ApiKey = "sk-test", BaseUrl = "https://openrouter.ai/api/v1",
+            Model = "deepseek/deepseek-v4",
+        }, handler);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() =>
+            client.CompleteAsync(new ChatCompletionRequest([new ChatMessage("user", "grade")], 0.0, 700)));
+
+        Assert.Equal(1, handler.CallCount); // 400 is not retryable
+        Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
+        Assert.Contains("maximum context length", ex.Message);
+    }
+
+    [Fact]
     public async Task Sends_reasoning_cap_when_configured()
     {
         using var handler = new QueueHttpHandler(Response(HttpStatusCode.OK, OkBody));

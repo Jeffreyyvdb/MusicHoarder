@@ -88,9 +88,16 @@ public static class QualityGradingPrompt
         missing_year, missing_album, embedded_tags_overwritten, looks_correct.
         """;
 
+    /// <summary>
+    /// Serializes the dossier exactly as it is sent to the model. Shared with
+    /// <see cref="QualityDossierFactory"/> so its size guard measures the real payload.
+    /// </summary>
+    public static string SerializeDossier(SongGradingDossier dossier) =>
+        JsonSerializer.Serialize(dossier, DossierJson);
+
     public static IReadOnlyList<ChatMessage> BuildMessages(SongGradingDossier dossier)
     {
-        var json = JsonSerializer.Serialize(dossier, DossierJson);
+        var json = SerializeDossier(dossier);
         return
         [
             new ChatMessage("system", System),
