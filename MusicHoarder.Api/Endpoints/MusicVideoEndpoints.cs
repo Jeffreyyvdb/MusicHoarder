@@ -49,7 +49,8 @@ public static class MusicVideoEndpoints
         int? DurationSeconds,
         string? YouTubeVideoId,
         DateTime FetchedAtUtc,
-        string? LastError);
+        string? LastError,
+        bool FileMissing);
 
     private static VideoInfoDto ToDto(SongMusicVideo v) => new(
         v.Status.ToString(),
@@ -59,7 +60,12 @@ public static class MusicVideoEndpoints
         v.DurationSeconds,
         v.YouTubeVideoId,
         v.FetchedAtUtc,
-        v.LastError);
+        v.LastError,
+        // A Ready row whose mp4 vanished (volume moved, manual cleanup) would otherwise report
+        // healthy while the stream endpoint 404s — the UI needs to offer a refetch, not a black
+        // backdrop.
+        FileMissing: v.Status == MusicVideoStatus.Ready
+            && (v.FilePath is null || !File.Exists(v.FilePath)));
 
     internal static async Task<IResult> GetVideoInfo(int id, MusicHoarderDbContext db, CancellationToken ct)
     {

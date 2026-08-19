@@ -63,6 +63,8 @@ public class MusicVideoDownloader(
     ILogger<MusicVideoDownloader> logger) : IMusicVideoDownloader
 {
     private const int SearchCandidateCount = 6;
+    /// <summary>Rows to ask yt-dlp for: the results page interleaves channels/mixes/playlists between the videos.</summary>
+    private const int SearchFetchCount = SearchCandidateCount * 2;
 
     public string ResolveVideoDirectory()
     {
@@ -242,15 +244,30 @@ public class MusicVideoDownloader(
         var terms = BuildSearchTerms(artist, title);
         var psi = NewYtDlp(cookiesPath, includeThrottle: false);
         psi.ArgumentList.Add("--flat-playlist");
+        psi.ArgumentList.Add("--playlist-end");
+        psi.ArgumentList.Add(SearchFetchCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
         psi.ArgumentList.Add("-J");
-        psi.ArgumentList.Add($"ytsearch{SearchCandidateCount}:{terms} official video");
+        psi.ArgumentList.Add(BuildSearchUrl(terms));
 
         var (_, stdout, stderr) = await RunAsync(psi, ct);
-        var candidates = ParseFlatSearch(stdout);
+        var candidates = ParseFlatSearch(stdout).Take(SearchCandidateCount).ToList();
         if (candidates.Count == 0)
             logger.LogInformation("Music video search returned no candidates: {Error}", LogSanitizer.ForLog(Truncate(stderr)));
         return candidates;
     }
+
+    /// <summary>
+    /// The plain results-page URL for a query — deliberately NOT yt-dlp's <c>ytsearch:</c> prefix.
+    /// <c>ytsearch</c> sends YouTube's "Type → Video" filter (yt-dlp's
+    /// <c>_SEARCH_PARAMS = EgIQAfABAQ==</c>), and that filtered ranking is not the ranking of the
+    /// results page a human sees: for a small artist it can push the right upload out of the top 20
+    /// entirely (regression: GBNGA "2026", found at rank 1 unfiltered, absent when filtered). The
+    /// unfiltered page also lists channels/mixes/playlists — <see cref="ParseFlatSearch"/> drops those.
+    /// The query carries no "official video" suffix: those words hurt ranking for songs whose title
+    /// is a common word or a year, and <see cref="ScoreCandidate"/> already rewards a real video.
+    /// </summary>
+    internal static string BuildSearchUrl(string terms) =>
+        "https://www.youtube.com/results?search_query=" + Uri.EscapeDataString(terms);
 
     private ProcessStartInfo NewYtDlp(string? cookiesPath, bool includeThrottle)
     {
@@ -447,7 +464,11 @@ public class MusicVideoDownloader(
             .Select(x => x.Candidate)
             .FirstOrDefault();
 
-    /// <summary>Parses `--flat-playlist -J` output into candidates. Tolerates missing fields.</summary>
+    /// <summary>
+    /// Parses `--flat-playlist -J` output into candidates. Tolerates missing fields, and skips the
+    /// non-video rows the unfiltered results page returns — channels, mixes, and playlists, which
+    /// yt-dlp marks with <c>ie_key: "YoutubeTab"</c> (their ids are not watchable video ids).
+    /// </summary>
     internal static List<SearchCandidate> ParseFlatSearch(string json)
     {
         var result = new List<SearchCandidate>();
@@ -461,6 +482,7 @@ public class MusicVideoDownloader(
             foreach (var entry in entries.EnumerateArray())
             {
                 if (entry.ValueKind != JsonValueKind.Object) continue;
+                if (!IsVideoEntry(entry)) continue;
                 var id = entry.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
                 if (string.IsNullOrWhiteSpace(id)) continue;
                 var title = entry.TryGetProperty("title", out var titleEl) ? titleEl.GetString() ?? "" : "";
@@ -480,6 +502,19 @@ public class MusicVideoDownloader(
             // Unparseable search output → no candidates; the caller reports Missing.
         }
         return result;
+    }
+
+    /// <summary>
+    /// A search row is a video unless yt-dlp tags it otherwise. Rows with no marker are kept — the
+    /// flat search omits the field for plain videos in some yt-dlp versions.
+    /// </summary>
+    private static bool IsVideoEntry(JsonElement entry)
+    {
+        if (entry.TryGetProperty("ie_key", out var ieKey) && ieKey.ValueKind == JsonValueKind.String
+            && !string.Equals(ieKey.GetString(), "Youtube", StringComparison.Ordinal))
+            return false;
+        return !(entry.TryGetProperty("_type", out var type) && type.ValueKind == JsonValueKind.String
+            && string.Equals(type.GetString(), "playlist", StringComparison.Ordinal));
     }
 
     /// <summary>Parses the two `--print` lines: video id, then duration in seconds (may be "NA" or fractional).</summary>

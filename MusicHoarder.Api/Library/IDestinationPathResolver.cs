@@ -15,4 +15,13 @@ public interface IDestinationPathResolver
     /// the production resolver overrides this to honour the elected identity.
     /// </summary>
     string ResolvePath(SongMetadata song, AlbumIdentity? albumIdentity) => ResolvePath(song);
+
+    /// <summary>
+    /// Resolves the path the pre-reconciliation builder would have written for this song, used to
+    /// locate (and relocate) files that historic builds put on disk. The scheme is frozen — see the
+    /// production override for the deliberate divergences from the current layout. Defaults to the
+    /// current path (a single scheme) so test doubles need only the single-arg
+    /// <see cref="ResolvePath(SongMetadata)"/>.
+    /// </summary>
+    string ResolveLegacyPath(SongMetadata song) => ResolvePath(song);
 }
