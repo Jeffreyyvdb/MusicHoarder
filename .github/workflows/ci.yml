@@ -1,4 +1,4 @@
-# Restore, build, and test the .NET solution and the SvelteKit frontend.
+# Restore, build, and test the .NET solution, the SvelteKit frontend, and the Android client.
 # No deploy or container publishing — that's docker-publish.yml.
 name: CI
 
@@ -47,6 +47,41 @@ jobs:
 
       - name: Test
         run: dotnet test MusicHoarder.Api.Tests/MusicHoarder.Api.Tests.csproj --no-build -c Release --verbosity normal
+
+  android:
+    # Builds and unit-tests the native client. `assembleRelease` runs too: with no keystore on a PR
+    # it only yields an unsigned APK, but it is the one thing that exercises the release variant's
+    # config — and that config breaking would otherwise surface in the release workflow, after a
+    # version has already been cut.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          # Matches android/gradle/gradle-daemon-jvm.properties; without it Gradle would go and
+          # provision its own toolchain on every run.
+          java-version: '25'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      # Caches ~/.gradle and validates the committed wrapper jar. The build root comes from the
+      # job's working-directory, not an input — `build-root-directory` no longer exists.
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          validate-wrappers: true
+
+      - name: Test and build
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
 
   frontend:
     runs-on: ubuntu-latest

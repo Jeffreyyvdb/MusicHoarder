@@ -4,6 +4,18 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// The release workflow passes the semantic-release version in; the defaults keep local and CI
+// builds working without it. There is no version to inherit from the .NET side — the whole repo is
+// versioned by one `vX.Y.Z` tag, and the workflow derives the integer code from it.
+val mhVersionName = (findProperty("mhVersionName") as String?)?.takeIf { it.isNotBlank() } ?: "1.0"
+val mhVersionCode = (findProperty("mhVersionCode") as String?)?.toIntOrNull() ?: 1
+
+// Release signing is configured only when a keystore is supplied — by the release workflow from
+// repo secrets, or by a developer exporting the same variables. Without one, `assembleRelease`
+// produces an unsigned APK that nobody can install, so CI publishes the debug build instead
+// rather than an artifact that looks releasable and is not. See android/README.md.
+val keystorePath: String? = System.getenv("MH_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
+
 android {
     namespace = "com.musichoarder.app"
     compileSdk {
@@ -14,10 +26,21 @@ android {
         applicationId = "com.musichoarder.app"
         minSdk = 24
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = mhVersionCode
+        versionName = mhVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        if (keystorePath != null) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("MH_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("MH_KEY_ALIAS")
+                keyPassword = System.getenv("MH_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -25,6 +48,7 @@ android {
             optimization {
                 enable = false
             }
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
     compileOptions {

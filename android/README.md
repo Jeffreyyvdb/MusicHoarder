@@ -105,6 +105,53 @@ Not wired up: fetching or deleting a video, nudging the sync offset by hand, tri
 transcription, and the pronunciation/translation overlay — all of them owner-only mutations the
 web UI already covers.
 
+## CI and releases
+
+`.github/workflows/ci.yml` has an `android` job that runs the unit tests and builds both variants
+(`:app:testDebugUnitTest :app:assembleDebug :app:assembleRelease`) on every PR and push to main.
+`assembleRelease` is in there deliberately: without a keystore it only yields an unsigned APK, but
+it is the one thing that exercises the release variant's config, and that breaking would otherwise
+surface in the release workflow *after* a version had been cut.
+
+`.github/workflows/release.yml` builds the APK and attaches it to the GitHub Release, after
+semantic-release has run. The app is not deployed by a release, so an Android breakage never holds
+back the API/frontend deploy — the trade is that the Release exists for a minute or two before the
+APK lands on it. The version comes from the release: the workflow passes `-PmhVersionName` and a
+`-PmhVersionCode` derived from the semver (`1.2.3` → `1002003`, monotonic for up to 999 minors and
+patches).
+
+### Signing the released APK
+
+Until a keystore is configured the release attaches a **debug-signed** APK named
+`musichoarder-<version>-debug.apk`. It installs and runs, but it is debug-signed, so it cannot be
+upgraded in place by a later release-signed build.
+
+To publish a properly signed `musichoarder-<version>.apk`, generate a keystore and add four repo
+secrets. Keep the keystore file and its passwords safe and backed up — losing them means future
+releases cannot upgrade an installed app, only replace it.
+
+```bash
+keytool -genkeypair -v -keystore musichoarder-release.jks -alias musichoarder \
+  -keyalg RSA -keysize 4096 -validity 10000
+```
+
+```bash
+gh secret set ANDROID_KEYSTORE_BASE64 < <(base64 -w0 musichoarder-release.jks)
+```
+
+Then set `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` (`musichoarder` above), and
+`ANDROID_KEY_PASSWORD` the same way. The build reads them as `MH_KEYSTORE_PATH`,
+`MH_KEYSTORE_PASSWORD`, `MH_KEY_ALIAS` and `MH_KEY_PASSWORD`, so the identical four variables
+produce a signed build locally:
+
+```bash
+MH_KEYSTORE_PATH=/path/to/musichoarder-release.jks MH_KEYSTORE_PASSWORD=… \
+  MH_KEY_ALIAS=musichoarder MH_KEY_PASSWORD=… ./gradlew :app:assembleRelease
+```
+
+With no keystore in the environment `assembleRelease` writes `app-release-unsigned.apk` instead —
+that is the signal that signing was not configured.
+
 ## Design
 
 The app deliberately looks like the web app rather than like stock Material.

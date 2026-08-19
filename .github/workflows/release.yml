@@ -4,9 +4,10 @@ name: Release
 # Conventional Commits across BOTH the .NET API and the SvelteKit frontend; a single
 # `vX.Y.Z` git tag + GitHub Release is cut covering both. When a release happens this
 # workflow dispatches aspire-deploy.yml with the new version, which builds and semver-tags
-# the api + frontend images and redeploys Dokploy. `workflow_dispatch` triggered by the
-# default GITHUB_TOKEN is permitted to start the downstream run (the one exception to the
-# "GITHUB_TOKEN-created events don't trigger workflows" rule), so no PAT is needed.
+# the api + frontend images and redeploys Dokploy, and it attaches the Android APK to the
+# Release. `workflow_dispatch` triggered by the default GITHUB_TOKEN is permitted to start the
+# downstream run (the one exception to the "GITHUB_TOKEN-created events don't trigger workflows"
+# rule), so no PAT is needed.
 
 on:
   push:
@@ -73,3 +74,75 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.semrel.outputs.new_release_version }}
         run: gh workflow run aspire-deploy.yml --ref main -f version="$VERSION"
+
+      # ── Android APK ────────────────────────────────────────────────────────────────────────
+      # Built *after* semantic-release on purpose: the app is not deployed by a release, so an
+      # Android breakage must never hold back the API/frontend deploy. CI already builds both
+      # variants on every PR, so this failing is the unusual case. The release exists for a minute
+      # or two without the APK attached.
+
+      - name: Setup JDK
+        if: steps.semrel.outputs.new_release_version != ''
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Setup Android SDK
+        if: steps.semrel.outputs.new_release_version != ''
+        uses: android-actions/setup-android@v4
+
+      - name: Setup Gradle
+        if: steps.semrel.outputs.new_release_version != ''
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          validate-wrappers: true
+
+      - name: Build Android APK
+        id: apk
+        if: steps.semrel.outputs.new_release_version != ''
+        working-directory: android
+        env:
+          VERSION: ${{ steps.semrel.outputs.new_release_version }}
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          MH_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          MH_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          MH_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          # versionCode must increase monotonically forever, so derive it from the semver rather
+          # than a run number: 1.2.3 -> 1002003. Leaves room for 999 minors and patches.
+          IFS=. read -r MAJOR MINOR PATCH <<< "$VERSION"
+          VERSION_CODE=$(( MAJOR * 1000000 + MINOR * 1000 + PATCH ))
+          echo "Building $VERSION (versionCode $VERSION_CODE)"
+
+          if [ -n "${KEYSTORE_BASE64:-}" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            export MH_KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
+            ./gradlew :app:assembleRelease -PmhVersionName="$VERSION" -PmhVersionCode="$VERSION_CODE"
+            SOURCE=app/build/outputs/apk/release/app-release.apk
+            APK="$RUNNER_TEMP/musichoarder-$VERSION.apk"
+          else
+            # Without a keystore `assembleRelease` yields an APK nobody can install, so publish the
+            # debug build instead and say so in the filename. See android/README.md for the four
+            # secrets that switch this over.
+            echo "::warning title=Unsigned release::No ANDROID_KEYSTORE_BASE64 secret — attaching a debug-signed APK."
+            ./gradlew :app:assembleDebug -PmhVersionName="$VERSION" -PmhVersionCode="$VERSION_CODE"
+            SOURCE=app/build/outputs/apk/debug/app-debug.apk
+            APK="$RUNNER_TEMP/musichoarder-$VERSION-debug.apk"
+          fi
+
+          # Fail loudly rather than uploading nothing: a renamed output would otherwise leave the
+          # release quietly APK-less.
+          test -f "$SOURCE" || { echo "::error::Expected APK at $SOURCE"; exit 1; }
+          cp "$SOURCE" "$APK"
+          echo "apk=$APK" >> "$GITHUB_OUTPUT"
+
+      - name: Attach APK to the release
+        if: steps.semrel.outputs.new_release_version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.semrel.outputs.new_release_version }}
+          APK: ${{ steps.apk.outputs.apk }}
+        run: gh release upload "v$VERSION" "$APK" --clobber
