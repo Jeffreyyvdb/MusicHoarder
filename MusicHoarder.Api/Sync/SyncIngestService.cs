@@ -53,7 +53,7 @@ public sealed class SyncIngestService(
         var candidateScore = AudioQuality.Score(request.Extension, request.Bitrate);
         var verdict = candidateScore > remoteScore
             ? SyncVerdict.PresentLowerQuality
-            : NeedsByteRepair(existing, request.Fingerprint, request.FileSizeBytes)
+            : await NeedsByteRepairAsync(existing, request.Fingerprint, request.FileSizeBytes, ct)
                 ? SyncVerdict.PresentDifferentBytes
                 : SyncVerdict.PresentSameOrBetter;
         return new SyncCheckResponse(verdict, existing.Id, remoteScore, matchedBy);
@@ -88,7 +88,7 @@ public sealed class SyncIngestService(
             // synced file whose bytes no longer match the pusher's artifact for the same fingerprint
             // (stale/corrupted): then the pusher is authoritative and the upload replaces in place.
             if (candidateScore <= existingScore
-                && !NeedsByteRepair(existing, payload.Fingerprint, payload.FileSizeBytes))
+                && !await NeedsByteRepairAsync(existing, payload.Fingerprint, payload.FileSizeBytes, ct))
             {
                 var identical = !string.IsNullOrEmpty(payload.Fingerprint)
                     && string.Equals(existing.Fingerprint, payload.Fingerprint, StringComparison.Ordinal);
@@ -163,15 +163,16 @@ public sealed class SyncIngestService(
     }
 
     /// <summary>
-    /// True when the local row holds the SAME track (equal fingerprint) but its managed synced file
-    /// has different bytes than what the pusher would send — the historical shared-destination-path
-    /// bug shipped one file's bytes under many songs' metadata, and this is how those rows heal:
-    /// the pusher re-checks (see the push-side requeue), the size mismatch surfaces, and the upload
-    /// replaces the file in place. Restricted to rows whose source lives under
-    /// <see cref="SyncOptions.SyncedSourceDirectory"/> — locally-scanned originals are never
-    /// repaired away by sync (a different encode of the same fingerprint legitimately differs in size).
+    /// True when the local row holds the SAME track (equal fingerprint) but NO local copy holds the
+    /// bytes the pusher would send — the historical shared-destination-path bug shipped one file's
+    /// bytes under many songs' metadata, and this is how those rows heal: the pusher re-checks (see
+    /// the push-side requeue), the mismatch surfaces, and the upload replaces the file in place.
+    /// Restricted to rows whose source lives under <see cref="SyncOptions.SyncedSourceDirectory"/> —
+    /// locally-scanned originals are never repaired away by sync (a different encode of the same
+    /// fingerprint legitimately differs in size).
     /// </summary>
-    private bool NeedsByteRepair(SongMetadata existing, string? fingerprint, long? fileSizeBytes)
+    private async Task<bool> NeedsByteRepairAsync(
+        SongMetadata existing, string? fingerprint, long? fileSizeBytes, CancellationToken ct)
     {
         if (fileSizeBytes is not > 0 || string.IsNullOrEmpty(fingerprint))
             return false;
@@ -184,7 +185,28 @@ public sealed class SyncIngestService(
         if (string.IsNullOrWhiteSpace(managedDir))
             return false;
         var managedRoot = NormalizePath(managedDir).TrimEnd('/') + "/";
-        return NormalizePath(existing.SourcePath).StartsWith(managedRoot, StringComparison.Ordinal);
+        if (!NormalizePath(existing.SourcePath).StartsWith(managedRoot, StringComparison.Ordinal))
+            return false;
+
+        // Size alone cannot tell a corrupted copy from a re-tagged one. Re-tagging the SAME audio
+        // (an album-artist heal, an embedded cover or lyrics) moves the container size while the
+        // fingerprint — the audio identity both sides already agreed on — stays identical. Treating
+        // that as corruption is what turned a pusher whose album artist oscillates between two
+        // spellings into a permanent rewrite loop: each flip changed the file by a few dozen bytes,
+        // read as a fresh mismatch, and replaced the row's source in place forever (one track reached
+        // 1,357 managed copies and was still being rewritten ~20x/day afterwards).
+        //
+        // So ask the question the size was only ever a proxy for: do we already hold these exact
+        // bytes for this fingerprint? Any live row will do — the pusher's artifact is present
+        // byte-for-byte somewhere locally, so there is nothing to heal. A genuinely stale copy has
+        // no such row (every local copy carries the wrong bytes), and still repairs.
+        return !await db.Songs
+            .IgnoreQueryFilters()
+            .AnyAsync(s => s.OwnerUserId == ownerLookup.OwnerUserId
+                && !s.IsSynthetic
+                && s.DeletedAtUtc == null
+                && s.Fingerprint == fingerprint
+                && s.FileSizeBytes == fileSizeBytes.Value, ct);
     }
 
     /// <summary>

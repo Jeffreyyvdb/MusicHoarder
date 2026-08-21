@@ -76,7 +76,11 @@
   let expandedLikedMatchIds = $state(new Set<string>());
 
   // ── Wishlist actions ──────────────────────────────────────────────────────
-  let wishlistAutoSync = $state(true);
+  // Off by default: collecting a source used to mean every future like was fetched too, which is how
+  // a library fills with thousands of tracks nobody went looking for. Adding a source now takes a
+  // one-time snapshot unless you ask for more. Existing sources keep whatever they were set to — flip
+  // them on the Wishlist page.
+  let wishlistAutoSync = $state(false);
   let addingLiked = $state(false);
   let addingPlaylistId = $state<string | null>(null);
   let wishlistBanner = $state<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -89,7 +93,9 @@
       wishlistBanner = {
         type: 'success',
         message: `Adding your Liked Songs to the wishlist — tracks will appear shortly${
-          wishlistAutoSync ? ' (auto-sync on)' : ''
+          wishlistAutoSync
+            ? ' (auto-sync on: songs you like from now on get fetched too)'
+            : ' (a one-time snapshot — turn on auto-sync to keep following your likes)'
         }.`
       };
     } catch (err) {
@@ -494,8 +500,8 @@
               Add to wishlist
             </Button>
             <label class="text-muted-foreground flex cursor-pointer items-center gap-1.5 text-xs">
-              <Switch size="sm" bind:checked={wishlistAutoSync} aria-label="Auto-sync new likes" />
-              Auto-sync new likes
+              <Switch size="sm" bind:checked={wishlistAutoSync} aria-label="Keep following new likes" />
+              Keep following new likes
             </label>
 
             <div class="text-muted-foreground ml-auto flex items-center gap-3 text-xs">

@@ -11,6 +11,9 @@ const at = (path: string) => resolveNav(url(path));
  * disk but has fallen out of the nav, which is exactly what happened to /album-quality,
  * /wishlist, /playlists, /stats and /history under the old six-copy arrangement. A derived list
  * would pass vacuously. When a route directory is added, add it here too.
+ *
+ * `(app)/liked` is deliberately absent: it is a redirect-only stub to `/tracks?f=mh-liked`, so it
+ * has no nav home and never renders inside the shell.
  */
 const APP_ROUTES: [path: string, group: NavGroupId][] = [
   ['/album-quality', 'manage'],
@@ -20,8 +23,6 @@ const APP_ROUTES: [path: string, group: NavGroupId][] = [
   ['/history', 'manage'],
   ['/inbox', 'inbox'],
   ['/library', 'listen'],
-  ['/liked', 'listen'],
-  ['/my-music', 'listen'],
   ['/overview', 'listen'],
   ['/performance', 'manage'],
   ['/pipeline', 'manage'],
@@ -57,18 +58,12 @@ describe('NAV_GROUPS', () => {
     }
   });
 
-  // "My music" (what you chose) and "All tracks" (literally everything) are easy to confuse, so
-  // their order and adjacency is deliberate: the narrower, more-often-wanted list comes first.
-  it('orders Listen results-first, with My music ahead of All tracks', () => {
+  // Listen used to carry three flat track lists — /my-music, /tracks and /liked — that differed only
+  // by a predicate. They are one route sliced by chips now, so a fourth item appearing here should
+  // be a deliberate act, not a filter that grew a URL.
+  it('is Overview / Albums / Artists / Tracks, in that order', () => {
     const listen = NAV_GROUPS.find((g) => g.id === 'listen');
-    expect(listen?.items.map((i) => i.id)).toEqual([
-      'overview',
-      'albums',
-      'artists',
-      'my-music',
-      'tracks',
-      'liked'
-    ]);
+    expect(listen?.items.map((i) => i.id)).toEqual(['overview', 'albums', 'artists', 'tracks']);
   });
 });
 
@@ -104,6 +99,8 @@ describe('resolveNav', () => {
   // '/track/[id]' detail route were one prefix away from claiming each other.
   it('keeps /track/[id] and /tracks apart', () => {
     expect(at('/tracks')?.item?.id).toBe('tracks');
+    // The chip filters live in the query string, so a filtered list is still the Tracks tab.
+    expect(at('/tracks?f=mh-liked')?.item?.id).toBe('tracks');
 
     // A track page belongs to Listen, but no tab represents it — so the sidebar group and the
     // mobile bar stay lit while the strip shows no active pill.
