@@ -170,14 +170,22 @@ export interface ApiSong {
   /** Names the specific collection ("Liked Songs", a playlist name, a URL host) when there is one. */
   originDetail?: string | null
   /**
-   * When the track was saved on Spotify. This is Spotify's own timestamp, NOT {@link likedAtUtc}
-   * (the local heart) — it's what the Spotify filter orders by.
+   * When the track was saved on Spotify — Spotify's own timestamp, NOT {@link likedAtUtc} (the local
+   * heart). Covers any Spotify collection: a playlist you collect contributes the date the track
+   * entered *that playlist*, so this answers "Spotify knows about this, and when", not "I saved it".
+   * For the latter use {@link spotifyLikedAtUtc}.
    */
   spotifyAddedAtUtc?: string | null
   /**
+   * When you saved this track to your Spotify Liked Songs. Narrower than {@link spotifyAddedAtUtc}:
+   * a playlist add never sets it, so this is the one the "Spotify Liked" filter can trust.
+   */
+  spotifyLikedAtUtc?: string | null
+  /** True when a music video for this track is on disk and playable. */
+  hasMusicVideo?: boolean | null
+  /**
    * Whether you asked for this track or album completion added it because you already owned another
-   * track from the same album. A stored column, unlike the derived `origin*` fields above — which is
-   * why {@link isMyMusic} filters on this and not on `originSource`.
+   * track from the same album. A stored column, unlike the derived `origin*` fields above.
    */
   acquisitionIntent?: SongAcquisitionIntent | null
 }
@@ -204,27 +212,52 @@ export type SongOriginSource =
 
 export type SongAcquisitionIntent = "Explicit" | "AlbumFill"
 
-/**
- * True when this is music you chose: scanned out of your source library, downloaded because Spotify
- * or a playlist asked for it, or added from a URL — and not a track album completion pulled in on
- * its own. Liking an album-fill track promotes it, which is the whole point: discover it, heart it,
- * it's yours.
- *
- * Defaults to "mine" when the field is absent, so an API too old to send it (or any row that never
- * went through the wishlist) reads correctly rather than vanishing from the view.
- */
-export function isMyMusic(s: ApiSong): boolean {
-  return s.acquisitionIntent !== "AlbumFill" || Boolean(s.likedAtUtc)
-}
-
-/** True when a wishlist link ties this track to Spotify — drives the "From Spotify" filter. */
+/** True when a wishlist link ties this track to Spotify — drives the per-row Source marker. */
 export function isSpotifySourced(s: ApiSong): boolean {
   return s.originSource === "SpotifyLiked" || s.originSource === "SpotifyPlaylist"
 }
 
-/** Epoch ms of the Spotify save date, 0 when unknown (sorts such rows last). */
+/**
+ * True when this track is in your Spotify Liked Songs.
+ *
+ * Reads {@link ApiSong.spotifyLikedAtUtc} rather than `originSource`, because the two answer
+ * different questions: `originSource` names the wishlist collection that *fetched* the file, so it
+ * misses every track you already owned when you liked it, and a track in both a playlist and your
+ * likes reports the playlist. The date comes from the liked-songs match sweep, which sees all of them.
+ */
+export function isSpotifyLiked(s: ApiSong): boolean {
+  return Boolean(s.spotifyLikedAtUtc)
+}
+
+/**
+ * True when a scan found this file already sitting in your source library, as opposed to
+ * MusicHoarder fetching it. Derived server-side from the file's root, so it follows the file: a
+ * quality upgrade that rewrites the path into the download root moves a track out of this set.
+ */
+export function isLocalFile(s: ApiSong): boolean {
+  return s.originKind === "Scanned"
+}
+
+/** True when you imported this track yourself from a URL (the Add-from-URL dialog). */
+export function isAddedByLink(s: ApiSong): boolean {
+  return s.originSource === "DirectUrl"
+}
+
+/** True when a music video for this track is downloaded and playable. */
+export function hasMusicVideo(s: ApiSong): boolean {
+  return Boolean(s.hasMusicVideo)
+}
+
+/**
+ * Epoch ms of the Spotify save date, 0 when unknown (sorts such rows last).
+ *
+ * Prefers the Liked Songs date: for a track that is both liked and in a collected playlist, the
+ * moment you saved it is the more meaningful one, and `spotifyAddedAtUtc` may hold the playlist's
+ * add date instead.
+ */
 export function spotifyAddedTime(s: ApiSong): number {
-  const ms = s.spotifyAddedAtUtc ? Date.parse(s.spotifyAddedAtUtc) : NaN
+  const iso = s.spotifyLikedAtUtc ?? s.spotifyAddedAtUtc
+  const ms = iso ? Date.parse(iso) : NaN
   return Number.isNaN(ms) ? 0 : ms
 }
 
@@ -239,7 +272,9 @@ export function spotifyAddedTime(s: ApiSong): number {
  */
 export function songLikedTime(s: ApiSong): number {
   if (!s.likedAtUtc) return 0
-  const iso = oldestIso([s.spotifyAddedAtUtc, s.likedAtUtc])
+  // The Liked Songs date first: a collected playlist's add date is not a like moment, so it must not
+  // be allowed to pull a song's "when did I like this" earlier than it really was.
+  const iso = oldestIso([s.spotifyLikedAtUtc ?? s.spotifyAddedAtUtc, s.likedAtUtc])
   const ms = iso ? Date.parse(iso) : NaN
   return Number.isNaN(ms) ? 0 : ms
 }
@@ -263,7 +298,7 @@ export function songOriginLabel(s: ApiSong): { label: string; title: string } | 
     case "AlbumCompletion":
       return {
         label: "Album fill",
-        title: `Added to complete ${detail ?? "an album you already owned part of"} — like it to move it into My music`,
+        title: `Added to complete ${detail ?? "an album you already owned part of"} — nobody asked for it directly`,
       }
     default:
       break
