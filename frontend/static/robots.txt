@@ -1,3 +1,8 @@
 # allow crawling everything by default
 User-agent: *
 Disallow:
+
+Sitemap: https://musichoarder.app/sitemap.xml
+
+# Agent guidance (when to use MusicHoarder, and how to call it):
+# https://musichoarder.app/llms.txt

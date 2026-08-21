@@ -8,10 +8,12 @@
   class="border-border text-muted-foreground mx-auto mt-12 flex max-w-[1280px] flex-col items-start justify-between gap-3 border-t px-6 py-6 font-mono text-[11px] md:flex-row md:items-center md:px-14"
 >
   <div>
-    © 2026 MusicHoarder · self-hosted{version ? ` release v${version}` : ''} · no music files were
-    harmed
+    © 2026 MusicHoarder · self-hosted{version ? ` release v${version}` : ''} · no music files were harmed
   </div>
-  <div class="flex gap-4">
+  <div class="flex flex-wrap gap-4">
+    <a href="/about" class="hover:text-foreground transition-colors">about</a>
+    <a href="/contact" class="hover:text-foreground transition-colors">contact</a>
+    <a href="/privacy" class="hover:text-foreground transition-colors">privacy</a>
     <a
       href="https://github.com/Jeffreyyvdb/MusicHoarder#readme"
       target="_blank"
