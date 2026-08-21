@@ -186,6 +186,85 @@ public class SyncIngestServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Check_ReTaggedFile_WhoseBytesAnotherCopyAlreadyHolds_IsNotAByteRepair()
+    {
+        // Regression: a pusher whose album artist oscillates between two spellings re-tags the same
+        // audio back and forth, moving the container size by a few dozen bytes each flip. The
+        // fingerprint never changes, so the audio is provably identical and nothing is corrupted.
+        // Reading each flip as a byte mismatch made the receiver replace the row's source in place
+        // forever — one track reached 1,357 managed copies and was still rewritten ~20x/day after
+        // the copies stopped. If ANY live row already holds the offered bytes, answer "present".
+        await using var db = CreateDbContext();
+        var managedA = Song(1, $"{syncedDir.Replace('\\', '/')}/Marvin Gaye/track [aaaa].opus",
+            extension: ".opus", bitrate: 128, fingerprint: "FP1", fileSizeBytes: 2_417_900);
+        var managedB = Song(2, $"{syncedDir.Replace('\\', '/')}/Marvin Gaye & Tammi Terrell/track [bbbb].opus",
+            extension: ".opus", bitrate: 128, fingerprint: "FP1", fileSizeBytes: 2_417_932);
+        db.Songs.AddRange(managedA, managedB);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        // Either spelling's artifact is already here byte-for-byte, so neither flip asks for a repair.
+        var flipA = await service.CheckAsync(
+            new SyncCheckRequest("FP1", null, null, null, null, null, ".opus", 128, FileSizeBytes: 2_417_900), default);
+        Assert.Equal(SyncVerdict.PresentSameOrBetter, flipA.Verdict);
+
+        var flipB = await service.CheckAsync(
+            new SyncCheckRequest("FP1", null, null, null, null, null, ".opus", 128, FileSizeBytes: 2_417_932), default);
+        Assert.Equal(SyncVerdict.PresentSameOrBetter, flipB.Verdict);
+    }
+
+    [Fact]
+    public async Task Ingest_ReTaggedFile_WhoseBytesAnotherCopyAlreadyHolds_SkipsInsteadOfReplacing()
+    {
+        // The upload-side twin: the oscillating pusher must not rewrite the row's source either, so
+        // the source file, its path and the build state all survive the flip untouched.
+        await using var db = CreateDbContext();
+        var pathA = Path.Combine(syncedDir, "Marvin Gaye", "track [aaaa].opus");
+        Directory.CreateDirectory(Path.GetDirectoryName(pathA)!);
+        await File.WriteAllBytesAsync(pathA, new byte[16]);
+
+        var managedA = Song(1, pathA.Replace('\\', '/'),
+            extension: ".opus", bitrate: 128, fingerprint: "FP1", fileSizeBytes: 2_417_900);
+        var managedB = Song(2, $"{syncedDir.Replace('\\', '/')}/Marvin Gaye & Tammi Terrell/track [bbbb].opus",
+            extension: ".opus", bitrate: 128, fingerprint: "FP1", fileSizeBytes: 2_417_932);
+        db.Songs.AddRange(managedA, managedB);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var response = await service.IngestAsync(
+            Payload(fingerprint: "FP1", extension: ".opus", bitrate: 128, fileSizeBytes: 2_417_932),
+            Bytes(64), default);
+
+        // Identical, not merely same-or-better: the fingerprint proves the audio is the very same.
+        Assert.Equal(SyncUploadOutcome.SkippedIdentical, response.Outcome);
+        var untouched = await db.Songs.IgnoreQueryFilters().SingleAsync(s => s.Id == 1);
+        Assert.Equal(pathA.Replace('\\', '/'), untouched.SourcePath);
+        Assert.Equal(2_417_900, untouched.FileSizeBytes);
+        Assert.True(File.Exists(pathA));
+    }
+
+    [Fact]
+    public async Task Check_StaleBytes_NoLocalCopyHoldsThem_StillAsksForRepair()
+    {
+        // The heal this rule exists for must survive: when the shared-destination-path bug shipped one
+        // file's bytes under many songs' metadata, EVERY local copy carried the wrong bytes, so none
+        // matches what the pusher offers — and the repair still fires.
+        await using var db = CreateDbContext();
+        var wrongBytesA = Song(1, $"{syncedDir.Replace('\\', '/')}/Artist/track [aaaa].flac",
+            extension: ".flac", bitrate: 900, fingerprint: "FP1", fileSizeBytes: 1000);
+        var wrongBytesB = Song(2, $"{syncedDir.Replace('\\', '/')}/Artist/track [bbbb].flac",
+            extension: ".flac", bitrate: 900, fingerprint: "FP1", fileSizeBytes: 1000);
+        db.Songs.AddRange(wrongBytesA, wrongBytesB);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var repair = await service.CheckAsync(
+            new SyncCheckRequest("FP1", null, null, null, null, null, ".flac", 900, FileSizeBytes: 2222), default);
+
+        Assert.Equal(SyncVerdict.PresentDifferentBytes, repair.Verdict);
+    }
+
+    [Fact]
     public async Task Check_DuplicateRow_ReportsPresentSameOrBetter_EvenForBetterCandidate()
     {
         // A duplicate row is never built or served, so there is nothing to upgrade or byte-repair.
@@ -491,13 +570,13 @@ public class SyncIngestServiceTests : IDisposable
     private static SongMetadata Song(
         int id, string path, string extension = ".mp3", int? bitrate = 320, string? fingerprint = null,
         string? acoustId = null, string? mbid = null, string? artist = "Artist", string? title = "Song",
-        int? durationMs = null)
+        int? durationMs = null, long fileSizeBytes = 1000)
         => new()
         {
             Id = id,
             OwnerUserId = Owner,
             SourcePath = path,
-            FileSizeBytes = 1000,
+            FileSizeBytes = fileSizeBytes,
             FileName = Path.GetFileName(path),
             Extension = extension,
             LastModifiedUtc = DateTime.UtcNow,
