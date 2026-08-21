@@ -477,15 +477,16 @@
        on mobile — so AlbumPage just renders full-width here. -->
   <AlbumPage album={openAlbum} {isLoading} />
 {:else}
-  <!-- One bar for the whole page: identity, the live summary, every filter, and
-       the play actions. Search sits first so it's the visible control at rest on
-       a phone (the chips scroll past it), and moves to the trailing edge on a
-       wide screen where the convention expects it. -->
+  <!-- Two bands for the whole page: the bar carries identity, the live summary,
+       search and the play actions; the chips get a row of their own below it at
+       every width. Search moves to the trailing edge on a wide screen where the
+       convention expects it. -->
   <PageToolbarV2
     icon={TOOLBAR_ICON[tab]}
     title={TOOLBAR_TITLE[tab]}
     meta={toolbarMeta}
     metaFrom="lg"
+    filterRow={isListTab ? chipRow : undefined}
   >
     {#snippet filters()}
       <div
@@ -511,11 +512,6 @@
         >
           Unreleased
         </FilterChip>
-      {/if}
-      {#if isListTab}
-        <!-- Inline on a wide screen; the same snippet renders in the toolbar's mobile band below,
-             where there is room for it. `contents` keeps the chips as direct flex children. -->
-        <div class="hidden sm:contents">{@render chipRow()}</div>
       {/if}
       {#if tab === 'albums'}
         <label class="flex shrink-0 items-center gap-1.5">
@@ -561,10 +557,6 @@
           <span class="text-nav-sm hidden sm:inline">Shuffle</span>
         </Button>
       {/if}
-    {/snippet}
-
-    {#snippet mobileFilters()}
-      {#if isListTab}{@render chipRow()}{/if}
     {/snippet}
   </PageToolbarV2>
 
