@@ -108,3 +108,34 @@ export const faqPageSchema = {
     }
   ]
 };
+
+/**
+ * Schema.org markup for the trust-anchor pages (About / Contact / Privacy). These are the pages a
+ * person — or an agent vetting the project before recommending it — checks first, so they say
+ * plainly who publishes the site and which page is which.
+ */
+export function buildProsePageSchema(page: {
+  path: string;
+  title: string;
+  description: string;
+  updated: string;
+}) {
+  const type =
+    page.path === '/about' ? 'AboutPage' : page.path === '/contact' ? 'ContactPage' : 'WebPage';
+
+  return {
+    '@context': 'https://schema.org',
+    '@type': type,
+    name: page.title,
+    description: page.description,
+    url: `${SITE_URL}${page.path}`,
+    dateModified: page.updated,
+    inLanguage: 'en',
+    isPartOf: {
+      '@type': 'WebSite',
+      name: 'MusicHoarder',
+      url: SITE_URL
+    },
+    publisher: organizationSchema
+  };
+}
