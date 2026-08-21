@@ -825,6 +825,14 @@ public class MusicEnricherOptions
     /// challenge; authenticated cookies from a logged-in account get past it. Empty → no cookies
     /// (works from residential IPs like local dev). The file is sensitive — mount it as a secret/volume,
     /// never commit it. See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp
+    /// <para>
+    /// Tradeoff: once yt-dlp sees valid account cookies it drops every player client that can't carry
+    /// them (android_vr, tv_simply, ios…) and is left with the web clients, which YouTube gates behind
+    /// a GVS PO token — so a fetch can fail with "Requested format is not available" precisely
+    /// <em>because</em> cookies were supplied. <see cref="Download.YtDlpDownloadProvider"/> retries such
+    /// a fetch once anonymously; if that still fails, override the client set via
+    /// <see cref="YtDlpExtraArgs"/> or supply a PO token there.
+    /// </para>
     /// </summary>
     public string YtDlpCookiesPath { get; set; } = string.Empty;
 
