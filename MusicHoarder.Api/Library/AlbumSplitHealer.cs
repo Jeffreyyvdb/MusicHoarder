@@ -173,8 +173,11 @@ public sealed class AlbumSplitHealer(
     }
 
     // Anti-oscillation guard. AlbumGroupKey.For derives its artist key from AlbumArtist — the very
-    // field this healer rewrites — so an album-artist correction moves a song into a different logical
-    // group whose canonical overlay can elect the *other* spelling and flip it back on the next pass.
+    // field this healer rewrites — so an album-artist correction can move a song into a different
+    // logical group whose canonical overlay elects the *other* spelling and flips it back on the next
+    // pass. The key's lead-artist fold closes that for a collaborator-suffix rewrite ("Marvin Gaye" ⇄
+    // "Marvin Gaye & Tammi Terrell"), which is now a single group; a rewrite that changes the LEAD
+    // name ("Lauryn Hill" ⇄ "Ms. Lauryn Hill") still crosses groups, so this guard stays.
     // Left unchecked this loops forever (observed on prod: one track's album-artist rewritten ~4,700
     // times, alternating between two spellings, forcing a re-tag each flip). Once a group has been
     // heal-assigned two or more distinct album-artist strings, that axis is contended: pin it to a
@@ -261,7 +264,7 @@ public sealed class AlbumSplitHealer(
         return canonical is null ? identity : identity with { AlbumArtist = canonical };
     }
 
-    // Mirrors the builder's reconciliation predicate (LibraryBuilderService.BuildAlbumIdentityMapAsync):
+    // Mirrors the builder's reconciliation predicate (LibraryBuilderService.BuildLogicalAlbumIdentityMapAsync):
     // every buildable, non-unreleased song, across users (background work bypasses the per-user filter
     // — AlbumGroupKey carries OwnerUserId so groups never cross users).
     //
@@ -307,6 +310,13 @@ public sealed class AlbumSplitHealer(
     // artist differently), which routes one album into two folders. Driving that one field from the
     // canonical pipeline makes every spelling-variant group converge on the same name without any
     // risky cross-artist merge. Normalized-equality guard avoids cosmetic case-only churn.
+    //
+    // Lookup is by the members' own album-artist spellings, NOT by groupKey.ArtistKey: the group key
+    // is folded to the credit's lead artist (so a collaborator suffix can't move a song between
+    // groups), while CanonicalAlbum rows are keyed by the full NormalizeForSearch of the artist the
+    // fetch ran for. Trying each distinct member spelling in ordinal order finds the row under either
+    // spelling and always picks the SAME one when an album has a row per spelling — the cross-pointing
+    // pair that used to swap the two halves of an album on every pass.
     private AlbumIdentity OverlayCanonicalArtist(
         AlbumIdentity identity,
         AlbumGroupKey groupKey,
@@ -320,7 +330,21 @@ public sealed class AlbumSplitHealer(
         if (albumKey.Length == 0)
             return identity;
 
-        if (!canonicalArtists.TryGetValue((groupKey.ArtistKey, albumKey), out var displayArtist))
+        var artistKeys = members
+            .Select(m => TitleNormalizer.NormalizeForSearch(m.AlbumArtist))
+            .Append(groupKey.ArtistKey)
+            .Where(k => k.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal);
+
+        string? displayArtist = null;
+        foreach (var artistKey in artistKeys)
+        {
+            if (canonicalArtists.TryGetValue((artistKey, albumKey), out displayArtist))
+                break;
+        }
+
+        if (displayArtist is null)
             return identity;
 
         if (TitleNormalizer.NormalizeForSearch(displayArtist)
