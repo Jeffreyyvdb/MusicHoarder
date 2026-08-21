@@ -82,21 +82,33 @@ public class SpotifyOptions
 
     /// <summary>
     /// How often to refresh Spotify liked-song ↔ local library match cache in the background (0 = disabled).
+    /// <para>
+    /// Keep this on even with <see cref="AutoLikeMatchedSongs"/> off. The sweep is then comparison-only,
+    /// but the <c>SpotifyTrackLibraryMatch</c> rows it writes are the sole source of
+    /// <c>SpotifyLikedAtUtc</c> on <c>GET /songs</c> — which is what the library's "Spotify Liked"
+    /// filter tests and orders by. Switching this to 0 silently empties that filter.
+    /// </para>
     /// </summary>
     public int LibraryMatchSyncIntervalMinutes { get; set; } = 120;
 
     /// <summary>
-    /// When true (default), a Spotify liked song that matches a library track <em>exactly</em> — same
+    /// When true, a Spotify liked song that matches a library track <em>exactly</em> — same
     /// Spotify track id, or identical normalized artist+title (the <c>InLibrary</c> match status) — is
     /// automatically liked in MusicHoarder during the periodic liked-song match sweep. That like then
     /// propagates through the normal like plumbing: it stars the track on a configured Navidrome server
     /// and enqueues it to a Sync push target, exactly as a manual like would. Additive only: it never
     /// removes a like (unliking on Spotify does <em>not</em> unlike here), an already-liked song is left
     /// untouched (no re-sync), and fuzzy "possible" matches are deliberately excluded so an uncertain
-    /// match can't like the wrong track. Set false to keep the sweep comparison-only. Has no effect when
+    /// match can't like the wrong track. Has no effect when
     /// <see cref="LibraryMatchSyncIntervalMinutes"/> is 0 (the sweep never runs).
+    /// <para>
+    /// Defaults to <c>false</c>: on a large library this hearted thousands of tracks, and the local
+    /// heart stopped meaning "I chose this" — which is the one thing it is for. The Spotify side is not
+    /// lost by leaving it off; the sweep still records every like in the match cache, and the library's
+    /// "Spotify Liked" filter reads that, so the two collections stay separately answerable.
+    /// </para>
     /// </summary>
-    public bool AutoLikeMatchedSongs { get; set; } = true;
+    public bool AutoLikeMatchedSongs { get; set; } = false;
 
     /// <summary>
     /// How often the wishlist sync runs a <em>full</em> sweep — every auto-synced source (Liked Songs

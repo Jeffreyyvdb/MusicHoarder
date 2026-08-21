@@ -1,6 +1,6 @@
 // Per-icon deep imports rather than the `@lucide/svelte` barrel the components use. The barrel
 // re-exports ~1600 .svelte files, and nav.test.ts imports this module — pulling all of them
-// through the Svelte compiler took the unit suite from 0.7s to 19s. These 24 paths cost
+// through the Svelte compiler took the unit suite from 0.7s to 19s. These paths cost
 // nothing. The type import is erased, so it can stay on the barrel.
 import type { Icon as IconType } from '@lucide/svelte';
 import ChartColumnBig from '@lucide/svelte/icons/chart-column-big';
@@ -12,7 +12,6 @@ import Download from '@lucide/svelte/icons/download';
 import FolderTree from '@lucide/svelte/icons/folder-tree';
 import Gauge from '@lucide/svelte/icons/gauge';
 import Gift from '@lucide/svelte/icons/gift';
-import Heart from '@lucide/svelte/icons/heart';
 import History from '@lucide/svelte/icons/history';
 import Inbox from '@lucide/svelte/icons/inbox';
 import LayoutGrid from '@lucide/svelte/icons/layout-grid';
@@ -20,7 +19,6 @@ import Library from '@lucide/svelte/icons/library';
 import ListMusic from '@lucide/svelte/icons/list-music';
 import ListVideo from '@lucide/svelte/icons/list-video';
 import Music2 from '@lucide/svelte/icons/music-2';
-import Music4 from '@lucide/svelte/icons/music-4';
 import Settings from '@lucide/svelte/icons/settings';
 import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
 import Sparkles from '@lucide/svelte/icons/sparkles';
@@ -148,21 +146,15 @@ export const NAV_GROUPS: NavGroup[] = [
       },
       { id: 'artists', label: 'Artists', href: '/artists', icon: Users, keywords: 'performers' },
       {
-        // Music you chose, as opposed to what album completion pulled in alongside it. Sits before
-        // "All tracks" because it is the list you actually mean most of the time.
-        id: 'my-music',
-        label: 'My music',
-        href: '/my-music',
-        icon: Music4,
-        keywords: 'mine chosen wanted my songs owned'
-      },
-      { id: 'tracks', label: 'All tracks', href: '/tracks', icon: ListMusic, keywords: 'songs everything' },
-      {
-        id: 'liked',
-        label: 'Liked songs',
-        href: '/liked',
-        icon: Heart,
-        keywords: 'favourites favorites hearts loved'
+        // One list, sliced by chips. It replaced three near-identical routes — /my-music (which
+        // showed the same rows as this one on any library without album fill), /liked, and this —
+        // because a chip row does the same job in a quarter of the sidebar and, unlike routes,
+        // chips combine. The keywords carry the retired names so the palette still finds them.
+        id: 'tracks',
+        label: 'Tracks',
+        href: '/tracks',
+        icon: ListMusic,
+        keywords: 'songs everything liked favourites favorites hearts loved my music mine local files spotify video lyrics unreleased'
       }
     ]
   },

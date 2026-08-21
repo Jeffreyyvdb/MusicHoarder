@@ -397,7 +397,7 @@
         </label>
         <label
           class="border-border bg-card text-nav-sm flex h-8 cursor-pointer items-center gap-2 rounded-full border px-3"
-          title="When on, owning one track of an album queues the rest — a few albums per hour, and always behind anything you asked for. Those tracks stay out of My music until you like them."
+          title="When on, owning one track of an album queues the rest — a few albums per hour, and always behind anything you asked for. Nobody asked for those tracks directly, so they carry an album-fill origin."
         >
           <Switch
             checked={albumCompletion ?? false}

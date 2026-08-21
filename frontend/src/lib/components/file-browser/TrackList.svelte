@@ -113,8 +113,7 @@
   $effect(() => {
     // referenced for reactivity
     void view.searchQuery;
-    void view.lyricsOnly;
-    void view.spotifyOnly;
+    void view.chips.join(',');
     void view.sortKey;
     void view.sortDir;
     if (scrollEl) scrollEl.scrollTop = 0;

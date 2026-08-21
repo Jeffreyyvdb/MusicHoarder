@@ -10,7 +10,7 @@
     mergeAlbumsByName,
     fetchOverview,
     fetchStats,
-    isMyMusic,
+    isLocalFile,
     mapEnrichmentStatus,
     type ApiOverview,
     type ApiStats
@@ -54,12 +54,22 @@
   });
 
   // ── derived counts ────────────────────────────────────────────────────────
-  // The Listen group reflects the clean output only, so every Listen count below
-  // is over built (LibraryBuildStatus.Done + destinationPath) songs — matching
-  // what LibraryV2 actually lists. Storage/review figures stay over all
-  // songs/stats (those are pipeline, not library, numbers).
+  // Albums and Artists reflect the clean output only, so their counts are over built
+  // (LibraryBuildStatus.Done + destinationPath) songs — matching what those grids list.
+  // Storage/review figures stay over all songs/stats (those are pipeline, not library, numbers).
   const builtSongs = $derived(songs.filter(isBuiltSong));
-  const totalTracks = $derived(songs.length === 0 ? null : builtSongs.length);
+  // Tracks is wider than the grids by exactly the rows LibraryV2's trackListBase adds: scanned
+  // source files still in review. Kept in step by hand — a badge that disagreed with the page's own
+  // "N tracks" is worse than no badge.
+  const trackCount = $derived.by(() =>
+    songs.length === 0
+      ? null
+      : songs.filter(
+          (s) =>
+            isBuiltSong(s) ||
+            (isLocalFile(s) && mapEnrichmentStatus(s.enrichmentStatus) === 'needsreview')
+        ).length
+  );
   const totalBytes = $derived(stats?.storage?.totalBytes ?? null);
   const storagePct = $derived(
     totalBytes != null ? Math.min(100, Math.round((totalBytes / (2 * 1024 ** 4)) * 100)) : null
@@ -81,12 +91,7 @@
   const albumCount = $derived.by(() =>
     songs.length === 0 ? null : mergeAlbumsByName(buildAlbumsFromSongs(builtSongs)).length
   );
-  const likedCount = $derived.by(() =>
-    songs.length === 0 ? null : builtSongs.filter((s) => s.likedAtUtc).length
-  );
-  const myMusicCount = $derived.by(() =>
-    songs.length === 0 ? null : builtSongs.filter(isMyMusic).length
-  );
+
   const artistCount = $derived.by(() => {
     if (songs.length === 0) return null;
     const set = new Set<string>();
@@ -111,9 +116,7 @@
   const COUNTS: Record<string, () => number | string | null> = {
     albums: () => albumCount,
     artists: () => artistCount,
-    tracks: () => totalTracks,
-    'my-music': () => myMusicCount,
-    liked: () => likedCount,
+    tracks: () => trackCount,
     review: () => reviewCount
   };
   // The one group that carries an attention badge on its header.

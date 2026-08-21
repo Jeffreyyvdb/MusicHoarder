@@ -220,7 +220,7 @@
       <!-- Favourite tracks -->
       {#if favoriteTracks.length > 0}
         <section>
-          {@render sectionHeader('Favourite tracks', '/liked', Heart)}
+          {@render sectionHeader('Favourite tracks', '/tracks?f=mh-liked', Heart)}
           <div class="grid grid-cols-1 gap-2 pt-3 sm:grid-cols-2 xl:grid-cols-5">
             {#each favoriteTracks as song (song.id)}
               {@const isLoaded = playerStore.currentSong?.id === song.id}
