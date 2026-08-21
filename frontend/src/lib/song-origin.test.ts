@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  isMyMusic,
+  hasMusicVideo,
+  isAddedByLink,
+  isLocalFile,
+  isSpotifyLiked,
   isSpotifySourced,
   songOriginLabel,
   spotifyAddedTime,
@@ -34,6 +37,16 @@ describe('spotifyAddedTime', () => {
   it('is 0 when unknown, so those rows sort last under a descending sort', () => {
     expect(spotifyAddedTime(song({}))).toBe(0);
     expect(spotifyAddedTime(song({ spotifyAddedAtUtc: 'not-a-date' }))).toBe(0);
+  });
+
+  // For a track that is both saved and in a collected playlist, the save is the meaningful moment —
+  // otherwise the Spotify Liked list orders by when a playlist happened to pick the track up.
+  it('prefers the Liked Songs date over a playlist add', () => {
+    const s = song({
+      spotifyAddedAtUtc: '2020-01-01T00:00:00Z',
+      spotifyLikedAtUtc: '2025-06-06T00:00:00Z'
+    });
+    expect(spotifyAddedTime(s)).toBe(Date.parse('2025-06-06T00:00:00Z'));
   });
 });
 
@@ -70,25 +83,58 @@ describe('songOriginLabel', () => {
   });
 });
 
-describe('isMyMusic', () => {
-  it('claims everything that is not album fill', () => {
-    expect(isMyMusic(song({ acquisitionIntent: 'Explicit' }))).toBe(true);
-    expect(isMyMusic(song({ acquisitionIntent: 'Explicit', originKind: 'Scanned' }))).toBe(true);
+describe('isSpotifyLiked', () => {
+  it('reads the Liked Songs date, not the wishlist origin', () => {
+    // The point of the separate field: a track already in the library when you liked it has no
+    // download behind it, so its originSource says nothing — but the match sweep still dated it.
+    expect(
+      isSpotifyLiked(song({ originKind: 'Scanned', spotifyLikedAtUtc: '2025-02-02T00:00:00Z' }))
+    ).toBe(true);
   });
 
-  it('excludes album fill you have not liked', () => {
-    expect(isMyMusic(song({ acquisitionIntent: 'AlbumFill' }))).toBe(false);
+  // The regression this field exists to prevent. A collected playlist stamps spotifyAddedAtUtc with
+  // the date the track entered *that playlist*, which is not a save — filtering on it would drag in
+  // every playlist track you never liked.
+  it('does not claim a playlist track you never saved', () => {
+    expect(
+      isSpotifyLiked(
+        song({ originSource: 'SpotifyPlaylist', spotifyAddedAtUtc: '2025-02-02T00:00:00Z' })
+      )
+    ).toBe(false);
   });
 
-  // The escape hatch, and the whole payoff of the feature: discover it, heart it, it's yours.
-  it('promotes album fill the moment you like it', () => {
-    expect(isMyMusic(song({ acquisitionIntent: 'AlbumFill', likedAtUtc: '2026-01-01T00:00:00Z' }))).toBe(true);
+  it('is false for a row with no Spotify dates at all', () => {
+    expect(isSpotifyLiked(song({}))).toBe(false);
+  });
+});
+
+describe('isLocalFile', () => {
+  it('claims only what a scan found already on the source share', () => {
+    expect(isLocalFile(song({ originKind: 'Scanned' }))).toBe(true);
+    expect(isLocalFile(song({ originKind: 'Downloaded' }))).toBe(false);
+    expect(isLocalFile(song({ originKind: 'Synced' }))).toBe(false);
   });
 
-  // An API too old to send the field, or any row that never went through the wishlist, must read as
-  // yours rather than quietly disappearing from the view.
-  it('defaults to yours when the field is absent', () => {
-    expect(isMyMusic(song({}))).toBe(true);
-    expect(isMyMusic(song({ acquisitionIntent: null }))).toBe(true);
+  // Origin is derived server-side from the file's root, so an API too old to send it must not make
+  // every row read as local.
+  it('is false when the API sent no origin', () => {
+    expect(isLocalFile(song({}))).toBe(false);
+  });
+});
+
+describe('isAddedByLink', () => {
+  it('claims URL imports and nothing else', () => {
+    expect(isAddedByLink(song({ originSource: 'DirectUrl' }))).toBe(true);
+    expect(isAddedByLink(song({ originSource: 'SpotifyLiked' }))).toBe(false);
+    expect(isAddedByLink(song({ originSource: 'AlbumCompletion' }))).toBe(false);
+    expect(isAddedByLink(song({}))).toBe(false);
+  });
+});
+
+describe('hasMusicVideo', () => {
+  it('is a plain boolean read that treats a missing field as no video', () => {
+    expect(hasMusicVideo(song({ hasMusicVideo: true }))).toBe(true);
+    expect(hasMusicVideo(song({ hasMusicVideo: false }))).toBe(false);
+    expect(hasMusicVideo(song({}))).toBe(false);
   });
 });

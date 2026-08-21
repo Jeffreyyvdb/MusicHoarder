@@ -6,14 +6,17 @@
     ArrowUpDown,
     Disc3,
     FileText,
+    HardDrive,
     Heart,
+    Link2,
     ListMusic,
     Music2,
-    Music4,
     Play,
     Search,
     Shuffle,
+    Sparkles,
     Users,
+    Video,
     X
   } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button';
@@ -24,16 +27,23 @@
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import LibraryAlbumsGridV2 from '$lib/components/v2/LibraryAlbumsGridV2.svelte';
   import LibraryArtistsGridV2 from '$lib/components/v2/LibraryArtistsGridV2.svelte';
-  import { createTrackListView, SORT_LABELS } from '$lib/track-list-view.svelte';
+  import {
+    CHIP_KEYS,
+    createTrackListView,
+    parseChips,
+    serializeChips,
+    SORT_LABELS,
+    type ChipKey
+  } from '$lib/track-list-view.svelte';
   import {
     ALBUM_SORT_OPTIONS,
     buildAlbumsFromSongs,
     buildArtistGroups,
     fetchAlbumCanonicalStatuses,
     isAlbumSortKey,
-    isMyMusic,
+    isLocalFile,
+    mapEnrichmentStatus,
     mergeAlbumsByName,
-    songLikedTime,
     sortAlbums,
     type AlbumSortKey,
     type AlbumStatusInfo,
@@ -57,7 +67,7 @@
   // Sheet — track selection just drives the shared store. The desktop/mobile
   // form-factor split lives in SongDetailHost.
 
-  type LibraryTab = 'albums' | 'artists' | 'tracks' | 'my-music' | 'liked';
+  type LibraryTab = 'albums' | 'artists' | 'tracks';
   type Props = {
     /** Which sub-view this route hosts. The sub-nav navigates between routes. */
     tab: LibraryTab;
@@ -97,6 +107,21 @@
   const trackParam = $derived(page.url.searchParams.get('track'));
   const songParam = $derived(page.url.searchParams.get('song'));
   const browse = $derived(parseBrowseFilter(page.url.searchParams));
+
+  // Filter chips live in `?f=`, not in component state, so a filtered list is linkable (the Overview's
+  // Favourite-tracks card and the /liked redirect both point at one) and the back button steps through
+  // them. Strictly one direction: derive from the URL here, write to it only from the click handler
+  // below. Reading and writing the same state inside an $effect is the read-modify-write loop that
+  // froze the song-detail panel, and it is just as easy to reintroduce with a URL as with a store.
+  const chips = $derived(parseChips(page.url.searchParams.get('f')));
+
+  function setChips(next: ChipKey[]) {
+    const url = new URL(page.url);
+    const value = serializeChips(next);
+    if (value) url.searchParams.set('f', value);
+    else url.searchParams.delete('f');
+    void goto(url.pathname + url.search, { replaceState: true, noScroll: true, keepFocus: true });
+  }
 
   // Local search box (matches the prototype's header search, not a URL param so
   // the v1 routes stay untouched). Persisted per-tab in sessionStorage so the
@@ -141,9 +166,25 @@
   // ── derivations (only clean/built songs make up the library) ────────────────
   const builtSongs = $derived(songs.filter(isBuiltSong));
 
-  // "Unreleased only": leaks/snippets/stems, as classified by the API. Persisted like the other
-  // view toggles, and shared by every tab so switching between albums/artists/tracks keeps the
-  // same scope. Only offered when the library actually holds unreleased material.
+  const needsReview = (s: ApiSong) => mapEnrichmentStatus(s.enrichmentStatus) === 'needsreview';
+
+  /**
+   * What the Tracks list covers: everything built, plus your own source files still waiting on
+   * review.
+   *
+   * Wider than the album/artist grids on purpose. Those show what the builder produced, but the
+   * "Local files" chip has to be able to answer "what is on my share", and a scanned file sitting
+   * at NeedsReview is already yours — it has a playable file (the stream endpoint falls back to the
+   * source path), and the Inbox is where you *act* on it, not where you find it. Widening the base
+   * once, rather than letting a chip add rows, is what keeps every chip a pure narrowing.
+   */
+  const trackListBase = $derived(
+    songs.filter((s) => isBuiltSong(s) || (isLocalFile(s) && needsReview(s)))
+  );
+
+  // "Unreleased only": leaks/snippets/stems, as classified by the API. Grid-only now — the Tracks
+  // list reaches the same songs through its `unreleased` chip, which composes with the others. Kept
+  // as a standalone toggle here because the grids have no chip row to fold it into.
   let unreleasedOnly = $state(untrack(() => sessionGet('mh-lib-unreleased-only')) === '1');
   $effect(() => {
     sessionSet('mh-lib-unreleased-only', unreleasedOnly ? '1' : '0');
@@ -241,35 +282,21 @@
     return artistGroups.filter((g) => g.label.toLowerCase().includes(q));
   });
 
-  // Tracks tab: scope by browse filter + local search; the TrackList does its own
-  // sorting, so we only narrow by query here.
-  const tracksScoped = $derived(browseScoped);
+  // Tracks tab: scope by browse filter only. Search and the chips are applied inside the view, so
+  // that one place owns both the visible list and every per-chip count.
+  const tracksScoped = $derived(applyBrowseFilter(trackListBase, browse));
 
-  // My music: what you actually chose, minus what album completion pulled in alongside it. Liking
-  // an album-fill track promotes it back in — see isMyMusic.
-  const myMusicSongs = $derived(browseScoped.filter(isMyMusic));
-  const albumFillCount = $derived(browseScoped.length - myMusicSongs.length);
-
-  // Liked tab: hearted songs, newest like first (the TrackList's 'liked' sort).
-  const likedSongs = $derived(releaseScoped.filter((s) => Boolean(s.likedAtUtc)));
-  // Same key the TrackList sorts on, so pressing Play starts at the row shown on top.
-  function likedQueue(): ApiSong[] {
-    return [...likedSongs].sort((a, b) => songLikedTime(b) - songLikedTime(a));
-  }
-  function likedFallbackArtist(s: ApiSong): string {
+  function fallbackArtist(s: ApiSong): string {
     return (s.albumArtist ?? s.artist ?? '').trim() || 'Unknown Artist';
   }
-  function playLiked() {
-    const queue = likedQueue().map((s) => toPlayerSong(s, likedFallbackArtist(s)));
-    if (queue.length > 0) void playerStore.playSong(queue[0], queue, 0);
-  }
-  function shuffleLiked() {
-    const queue = shuffle(likedQueue()).map((s) => toPlayerSong(s, likedFallbackArtist(s)));
+  /** Plays exactly what the list is showing, in the order it is showing it. */
+  function playList() {
+    const queue = listView.sorted.map((s) => toPlayerSong(s, fallbackArtist(s)));
     if (queue.length > 0) void playerStore.playSong(queue[0], queue, 0);
   }
   /** Shuffles exactly what the list is showing, filters and sort included. */
   function shuffleList() {
-    const queue = shuffle(listView.sorted).map((s) => toPlayerSong(s, likedFallbackArtist(s)));
+    const queue = shuffle(listView.sorted).map((s) => toPlayerSong(s, fallbackArtist(s)));
     if (queue.length > 0) void playerStore.playSong(queue[0], queue, 0);
   }
 
@@ -282,23 +309,13 @@
   // instead of the two stacked filter rows this replaced. Both views are built
   // unconditionally (a runes factory can't be created inside an {#if}); the
   // $deriveds are lazy, so the unused one costs nothing.
-  const tracksView = createTrackListView({
+  const listView = createTrackListView({
     songs: () => tracksScoped,
-    searchQuery: () => query
-  });
-  const likedView = createTrackListView({
-    songs: () => likedSongs,
     searchQuery: () => query,
-    initialSortKey: 'liked'
+    chips: () => chips,
+    onChipsChange: setChips
   });
-  const myMusicView = createTrackListView({
-    songs: () => myMusicSongs,
-    searchQuery: () => query
-  });
-  const listView = $derived(
-    tab === 'liked' ? likedView : tab === 'my-music' ? myMusicView : tracksView
-  );
-  const isListTab = $derived(tab === 'tracks' || tab === 'my-music' || tab === 'liked');
+  const isListTab = $derived(tab === 'tracks');
 
   // ── album drilldown (reuses AlbumPage + TrackPanel) ─────────────────────────
   const openAlbum = $derived.by(() => {
@@ -384,20 +401,39 @@
   // The Liked hero used to be a 129px Spotify-style banner. Everything it said —
   // the name, the count, the runtime, Play/Shuffle — fits the toolbar, which the
   // page pays for anyway.
-  const TOOLBAR_ICON = {
-    albums: Disc3,
-    artists: Users,
-    'my-music': Music4,
-    tracks: ListMusic,
-    liked: Heart
-  };
-  const TOOLBAR_TITLE = {
-    albums: 'Albums',
-    artists: 'Artists',
-    'my-music': 'My music',
-    tracks: 'All tracks',
-    liked: 'Liked Songs'
-  };
+  const TOOLBAR_ICON = { albums: Disc3, artists: Users, tracks: ListMusic };
+  const TOOLBAR_TITLE = { albums: 'Albums', artists: 'Artists', tracks: 'Tracks' };
+
+  // The chip row. One record so the label, glyph and tooltip for a chip live next to each other and
+  // the row renders from a loop — adding a chip is one entry here plus one in CHIP_PREDICATES.
+  // Derived, not a constant: the Unreleased tooltip breaks its two confidence tiers down by count,
+  // so it moves with the library.
+  const CHIP_META: Record<ChipKey, { label: string; icon: typeof Heart; title: string }> = $derived({
+    'spotify-liked': {
+      label: 'Spotify Liked',
+      icon: Music2,
+      title: 'Tracks you own that are saved in your Spotify Liked Songs, newest save first'
+    },
+    'mh-liked': {
+      label: 'MusicHoarder Liked',
+      icon: Heart,
+      title: 'Tracks you hearted here — the local like, independent of Spotify'
+    },
+    local: {
+      label: 'Local files',
+      icon: HardDrive,
+      title:
+        'Files a scan found already sitting in your source library, rather than something MusicHoarder downloaded. Includes ones still waiting on review.'
+    },
+    added: {
+      label: 'Manually added',
+      icon: Link2,
+      title: 'Tracks you imported yourself from a URL'
+    },
+    video: { label: 'Has video', icon: Video, title: 'Tracks with a music video downloaded' },
+    lyrics: { label: 'With lyrics', icon: FileText, title: 'Tracks with synced or plain lyrics' },
+    unreleased: { label: 'Unreleased', icon: Sparkles, title: unreleasedTitle }
+  });
 
   // Library-wide pipeline health on the grid tabs; what you're looking at right
   // now on the list tabs (and only "X of Y" once a filter actually narrows it,
@@ -408,7 +444,7 @@
       return `${totalTracks.toLocaleString()} tracks · ${artistCount.toLocaleString()} artists${enriched}`;
     }
     const { sorted, songs, stats, sortKey, sortDir } = listView;
-    const noun = tab === 'liked' ? 'song' : 'track';
+    const noun = 'track';
     const head =
       sorted.length === songs.length
         ? `${sorted.length.toLocaleString()} ${noun}${sorted.length === 1 ? '' : 's'}`
@@ -419,6 +455,21 @@
     return `${head} · ${formatFileSize(stats.totalBytes)} · ${formatTotalDuration(stats.totalSec)} · by ${SORT_LABELS[sortKey]} ${sortDir === 'asc' ? '↑' : '↓'}`;
   });
 </script>
+
+{#snippet chipRow()}
+  {#each CHIP_KEYS as key (key)}
+    {@const meta = CHIP_META[key]}
+    <FilterChip
+      pressed={listView.isChipActive(key)}
+      onclick={() => listView.toggleChip(key)}
+      icon={meta.icon}
+      count={listView.countFor(key)}
+      title={meta.title}
+    >
+      {meta.label}
+    </FilterChip>
+  {/each}
+{/snippet}
 
 {#if openAlbum && tab === 'albums'}
   <!-- Album drilldown. Track selection drives the global SongDetailHost (mounted
@@ -448,8 +499,10 @@
           class="border-border bg-card focus-visible:ring-ring text-nav-sm h-8 w-full rounded-full border pr-2.5 pl-8 outline-none focus-visible:ring-2"
         />
       </div>
-      {#if canFilterUnreleased}
-        <!-- Leaks/snippets/stems, per the API's release classification. -->
+      {#if !isListTab && canFilterUnreleased}
+        <!-- Leaks/snippets/stems, per the API's release classification. The grids have no chip row,
+             so this stays a standalone toggle here; on Tracks the same filter is the `unreleased`
+             chip, which composes with the rest. -->
         <FilterChip
           pressed={unreleasedOnly}
           onclick={() => (unreleasedOnly = !unreleasedOnly)}
@@ -460,24 +513,9 @@
         </FilterChip>
       {/if}
       {#if isListTab}
-        <FilterChip
-          pressed={listView.lyricsOnly}
-          onclick={() => (listView.lyricsOnly = !listView.lyricsOnly)}
-          icon={FileText}
-        >
-          With lyrics
-        </FilterChip>
-        {#if listView.spotifyCount > 0}
-          <FilterChip
-            pressed={listView.spotifyOnly}
-            onclick={() => listView.toggleSpotifyOnly()}
-            icon={Music2}
-            count={listView.spotifyCount}
-            title="Only tracks your Spotify liked songs / playlists asked for, newest save first"
-          >
-            From Spotify
-          </FilterChip>
-        {/if}
+        <!-- Inline on a wide screen; the same snippet renders in the toolbar's mobile band below,
+             where there is room for it. `contents` keeps the chips as direct flex children. -->
+        <div class="hidden sm:contents">{@render chipRow()}</div>
       {/if}
       {#if tab === 'albums'}
         <label class="flex shrink-0 items-center gap-1.5">
@@ -506,21 +544,13 @@
           Clear
         </Button>
       {/if}
-      {#if tab === 'liked' && likedSongs.length > 0}
-        <Button onclick={playLiked} size="sm" class="h-8 gap-1.5 rounded-full px-2.5 active:scale-95">
+      {#if isListTab && listView.sorted.length > 0}
+        <!-- Play and Shuffle act on the filtered list, so they follow the chips: with none pressed
+             this is the whole library, with Spotify Liked pressed it is that collection. -->
+        <Button onclick={playList} size="sm" class="h-8 gap-1.5 rounded-full px-2.5 active:scale-95">
           <Play class="size-4" fill="currentColor" />
           <span class="text-nav-sm hidden sm:inline">Play</span>
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onclick={shuffleLiked}
-          class="h-8 gap-1.5 rounded-full px-2.5 active:scale-95"
-        >
-          <Shuffle class="size-4" />
-          <span class="text-nav-sm hidden sm:inline">Shuffle</span>
-        </Button>
-      {:else if tab === 'tracks' && listView.sorted.length > 0}
         <Button
           variant="outline"
           size="sm"
@@ -532,6 +562,10 @@
         </Button>
       {/if}
     {/snippet}
+
+    {#snippet mobileFilters()}
+      {#if isListTab}{@render chipRow()}{/if}
+    {/snippet}
   </PageToolbarV2>
 
   {#if loadError && songs.length === 0 && !isLoading}
@@ -539,63 +573,32 @@
       <p class="text-destructive text-sm">{loadError}</p>
       <Button onclick={() => void songsStore.loadSongs()}>Retry</Button>
     </div>
-  {:else if tab === 'liked'}
-    <!-- Liked songs: the shared TrackList sorted by recently-liked. Identity,
-         counts and Play/Shuffle live in the toolbar above. The min-h-0 chain
-         keeps virtualization bounded. -->
+  {:else if isListTab}
+    <!-- Tracks: the virtualized TrackList, sliced by the chip row above. Selecting a row drives the
+         global SongDetailHost (app-shell-mounted), which pushes this view on desktop and is a bottom
+         Sheet on mobile. The min-h-0 flex chain keeps TrackList's scroll viewport bounded so
+         virtualization works. -->
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      {#if likedSongs.length === 0 && !isLoading}
+      {#if listView.sorted.length === 0 && listView.hasFilters && !isLoading}
         <div class="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-          <Heart class="size-10 opacity-40" />
-          <p class="text-sm font-medium">No liked songs yet</p>
+          <ListMusic class="size-10 opacity-40" />
+          <p class="text-sm font-medium">No tracks match these filters</p>
           <p class="max-w-xs text-xs">
-            Tap the heart on any track — in the list or the song panel — and it'll show up here,
-            newest first.
+            Every active chip has to match. Each chip's number is what you'd be left with if you
+            pressed it, so a zero shows you which one is the dead end.
           </p>
+          <Button variant="outline" size="sm" onclick={() => listView.clearFilters()}>
+            Clear filters
+          </Button>
         </div>
       {:else}
         <TrackList
-          view={likedView}
+          view={listView}
           {isLoading}
           selectedId={tracksSelectedId}
           onSelect={selectTrack}
         />
       {/if}
-    </div>
-  {:else if tab === 'my-music'}
-    <!-- My music: same virtualized TrackList as All tracks, narrowed to what you chose. Same min-h-0
-         chain so virtualization stays bounded. -->
-    <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      {#if myMusicSongs.length === 0 && albumFillCount > 0 && !isLoading}
-        <div class="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-          <Music4 class="size-10 opacity-40" />
-          <p class="text-sm font-medium">Nothing here yet</p>
-          <p class="max-w-xs text-xs">
-            Every track in your library so far arrived through album completion. Like one and it moves
-            in here — or check All tracks to see everything.
-          </p>
-        </div>
-      {:else}
-        <TrackList
-          view={myMusicView}
-          {isLoading}
-          selectedId={tracksSelectedId}
-          onSelect={selectTrack}
-        />
-      {/if}
-    </div>
-  {:else if tab === 'tracks'}
-    <!-- All tracks: the virtualized TrackList. Selecting a row drives the global
-         SongDetailHost (app-shell-mounted), which pushes this view on desktop and
-         is a bottom Sheet on mobile. The min-h-0 flex chain keeps TrackList's
-         scroll viewport bounded so virtualization works. -->
-    <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <TrackList
-        view={tracksView}
-        {isLoading}
-        selectedId={tracksSelectedId}
-        onSelect={selectTrack}
-      />
     </div>
   {:else}
     <ScrollArea bind:viewportRef={gridViewport} class="min-h-0 flex-1">

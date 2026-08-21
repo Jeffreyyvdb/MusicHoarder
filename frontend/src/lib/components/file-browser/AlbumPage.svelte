@@ -304,7 +304,7 @@
   // ── acquiring a missing track ───────────────────────────────────────────────
   // The manual counterpart to the album-completion sweep: it works with that switched off, which is
   // how you'd try the feature the first time. The queued track is stamped AlbumFill like any other,
-  // so it shows up in All tracks and on this page but stays out of My music until you like it.
+  // so it shows up in Tracks and on this page, marked as album fill rather than something you asked for.
   const acquiring = new SvelteSet<number>();
   const acquired = new SvelteSet<number>();
 

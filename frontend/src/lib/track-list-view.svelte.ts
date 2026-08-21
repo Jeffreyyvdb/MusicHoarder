@@ -1,11 +1,15 @@
 import {
   albumKeyForSong,
-  isSpotifySourced,
+  hasMusicVideo,
+  isAddedByLink,
+  isLocalFile,
+  isSpotifyLiked,
   songAddedTime,
   songLikedTime,
   spotifyAddedTime,
   type ApiSong
 } from '$lib/api-client';
+import { isAnyUnreleasedSong } from '$lib/release-status';
 
 export type SortKey =
   | 'added'
@@ -52,6 +56,82 @@ export function matchValue(s: ApiSong): number | null {
   return Math.max(0, Math.min(1, s.matchConfidence));
 }
 
+/**
+ * The filter chips a track list offers.
+ *
+ * They replaced a set of one-off booleans (`lyricsOnly`, `spotifyOnly`) and the routes /my-music,
+ * /liked and the separate "Unreleased" toggle. One keyed vocabulary is what lets the row render
+ * itself from a loop, serialise to `?f=`, and report a per-chip count without each chip growing its
+ * own field on this module.
+ *
+ * Two axes are deliberately kept apart even though they read alike: `local` is *where the file came
+ * from* (a scan of your source share), while `unreleased` is *what the recording is* (a tracker-
+ * confirmed leak, snippet, demo or stem). A local file is very often a released one.
+ */
+export type ChipKey =
+  | 'spotify-liked'
+  | 'mh-liked'
+  | 'local'
+  | 'added'
+  | 'video'
+  | 'lyrics'
+  | 'unreleased';
+
+/** Display order, which is also the order the chip row renders in. */
+export const CHIP_KEYS: readonly ChipKey[] = [
+  'spotify-liked',
+  'mh-liked',
+  'local',
+  'added',
+  'video',
+  'lyrics',
+  'unreleased'
+];
+
+export const CHIP_PREDICATES: Record<ChipKey, (s: ApiSong) => boolean> = {
+  'spotify-liked': isSpotifyLiked,
+  'mh-liked': (s) => Boolean(s.likedAtUtc),
+  local: isLocalFile,
+  added: isAddedByLink,
+  video: hasMusicVideo,
+  lyrics: hasLyrics,
+  unreleased: isAnyUnreleasedSong
+};
+
+const CHIP_KEY_SET = new Set<string>(CHIP_KEYS);
+
+/** Narrows an unknown string to a chip key — used when reading `?f=` off the URL. */
+export function isChipKey(value: string): value is ChipKey {
+  return CHIP_KEY_SET.has(value);
+}
+
+/**
+ * Parse the `?f=` param. Unknown keys are dropped rather than rejected, so an old link (or a chip
+ * removed in a later version) degrades to a narrower filter instead of an error page.
+ */
+export function parseChips(raw: string | null): ChipKey[] {
+  if (!raw) return [];
+  const seen = new Set<ChipKey>();
+  for (const part of raw.split(',')) {
+    const key = part.trim();
+    if (isChipKey(key)) seen.add(key);
+  }
+  // Canonical order, so two URLs selecting the same chips serialise identically.
+  return CHIP_KEYS.filter((k) => seen.has(k));
+}
+
+/** Serialise for `?f=`; empty means the param should be removed entirely. */
+export function serializeChips(keys: readonly ChipKey[]): string {
+  return CHIP_KEYS.filter((k) => keys.includes(k)).join(',');
+}
+
+/** Every active chip must match. See `countFor` for why a dead-end combination is still reachable. */
+function applyChips(songs: ApiSong[], keys: readonly ChipKey[]): ApiSong[] {
+  let r = songs;
+  for (const key of keys) r = r.filter(CHIP_PREDICATES[key]);
+  return r;
+}
+
 export type TrackListView = ReturnType<typeof createTrackListView>;
 
 /**
@@ -72,33 +152,37 @@ export type TrackListView = ReturnType<typeof createTrackListView>;
 export function createTrackListView(opts: {
   songs: () => ApiSong[];
   searchQuery: () => string;
+  /**
+   * Active chips. Read-only here on purpose: the URL owns them, so this view derives from `?f=`
+   * rather than holding a second copy that could drift from the address bar.
+   */
+  chips?: () => readonly ChipKey[];
+  /** Called with the next chip set when one is pressed. The caller writes it to the URL. */
+  onChipsChange?: (next: ChipKey[]) => void;
   initialSortKey?: SortKey;
 }) {
   const initialSortKey = opts.initialSortKey ?? 'added';
 
   let sortKey = $state<SortKey>(initialSortKey);
   let sortDir = $state<'asc' | 'desc'>('desc');
-  let lyricsOnly = $state(false);
-  let spotifyOnly = $state(false);
 
   const songs = $derived(opts.songs());
   const searchQuery = $derived(opts.searchQuery());
+  const chips = $derived(opts.chips?.() ?? []);
 
-  const filtered = $derived.by(() => {
-    let r = songs;
+  /** Search applied, chips not yet — the base every per-chip count is measured against. */
+  const searched = $derived.by(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (q) {
-      r = r.filter(
-        (s) =>
-          titleOf(s).toLowerCase().includes(q) ||
-          artistOf(s).toLowerCase().includes(q) ||
-          (s.album ?? '').toLowerCase().includes(q)
-      );
-    }
-    if (lyricsOnly) r = r.filter(hasLyrics);
-    if (spotifyOnly) r = r.filter(isSpotifySourced);
-    return r;
+    if (!q) return songs;
+    return songs.filter(
+      (s) =>
+        titleOf(s).toLowerCase().includes(q) ||
+        artistOf(s).toLowerCase().includes(q) ||
+        (s.album ?? '').toLowerCase().includes(q)
+    );
   });
+
+  const filtered = $derived(applyChips(searched, chips));
 
   const sorted = $derived.by(() => {
     const r = [...filtered];
@@ -160,14 +244,8 @@ export function createTrackListView(opts: {
     get sortDir() {
       return sortDir;
     },
-    get lyricsOnly() {
-      return lyricsOnly;
-    },
-    set lyricsOnly(v: boolean) {
-      lyricsOnly = v;
-    },
-    get spotifyOnly() {
-      return spotifyOnly;
+    get chips() {
+      return chips;
     },
     get filtered() {
       return filtered;
@@ -182,21 +260,38 @@ export function createTrackListView(opts: {
       return new Set(songs.map((s) => albumKeyForSong(s))).size;
     },
     get hasFilters() {
-      return lyricsOnly || spotifyOnly;
-    },
-    get spotifyCount() {
-      return songs.filter(isSpotifySourced).length;
+      return chips.length > 0;
     },
 
     /**
-     * The Spotify filter carries its own order: newest save first, matching how the tracks appear in
-     * Spotify itself. Turning it off restores the list's normal ordering rather than leaving the user
+     * How many rows this chip would leave, measured against the list already narrowed by the search
+     * box and every *other* active chip.
+     *
+     * That framing is what makes plain AND safe to expose: an inactive chip's count is exactly what
+     * you get by pressing it, and a combination with no overlap (Local files + Manually added — one
+     * is scanned, the other downloaded) reads 0 before you press it rather than after. An active
+     * chip's count is the current result count, since excluding itself and re-applying is a no-op.
+     */
+    countFor(key: ChipKey): number {
+      const others = chips.filter((k) => k !== key);
+      return applyChips(searched, others).filter(CHIP_PREDICATES[key]).length;
+    },
+
+    isChipActive(key: ChipKey): boolean {
+      return chips.includes(key);
+    },
+
+    /**
+     * The Spotify Liked chip carries its own order: newest save first, matching how the tracks appear
+     * in Spotify itself. Releasing it restores the list's normal ordering rather than leaving the user
      * on a sort key nothing else can reach.
      */
-    toggleSpotifyOnly() {
-      spotifyOnly = !spotifyOnly;
-      sortKey = spotifyOnly ? 'spotify' : initialSortKey;
-      sortDir = 'desc';
+    toggleChip(key: ChipKey) {
+      const next = chips.includes(key)
+        ? chips.filter((k) => k !== key)
+        : CHIP_KEYS.filter((k) => k === key || chips.includes(k));
+      syncSpotifySort(next);
+      opts.onChipsChange?.(next);
     },
 
     toggleSort(k: SortKey) {
@@ -208,10 +303,18 @@ export function createTrackListView(opts: {
       }
     },
 
-    /** Goes through toggleSpotifyOnly so the sort restoration above still fires. */
+    /** Drops every chip, restoring the default sort if Spotify Liked was one of them. */
     clearFilters() {
-      lyricsOnly = false;
-      if (spotifyOnly) this.toggleSpotifyOnly();
+      syncSpotifySort([]);
+      opts.onChipsChange?.([]);
     }
   };
+
+  /** Only fires on a transition, so an unrelated chip press never disturbs a chosen sort. */
+  function syncSpotifySort(next: readonly ChipKey[]) {
+    const wanted = next.includes('spotify-liked');
+    if (wanted === chips.includes('spotify-liked')) return;
+    sortKey = wanted ? 'spotify' : initialSortKey;
+    sortDir = 'desc';
+  }
 }
