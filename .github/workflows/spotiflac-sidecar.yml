@@ -1,8 +1,12 @@
 # Builds and pushes the optional streaming-FLAC acquisition sidecar image to GHCR
 # (ghcr.io/jeffreyyvdb/musichoarder/spotiflac). Self-hosters pull it via the profile-gated
 # `spotiflac` service in docker-compose.yml (COMPOSE_PROFILES=spotiflac) — no checkout/build needed.
+# The hosted (Dokploy/swarm) stack carries the same service unprofiled, since `docker stack deploy`
+# rejects compose profiles; there it is gated by env instead (SPOTIFLAC_SIDECAR_URL + the provider
+# chain), so an unwired sidecar just sits idle.
 #
-# The sidecar versions independently of the app's semver line (it's not part of the Aspire deploy):
+# The sidecar versions independently of the app's semver line (the release workflow never rebuilds or
+# retags it; both stacks reference it by ${SPOTIFLAC_VERSION:-latest}):
 #   - push to main touching sidecars/spotiflac/** → refresh :latest
 #   - a published GitHub Release → also tag the release version (so SPOTIFLAC_VERSION can pin it)
 name: spotiflac sidecar image

@@ -4,8 +4,9 @@ A thin FastAPI wrapper around the [`SpotiFLAC`](https://pypi.org/project/SpotiFL
 MusicHoarder's `spotiflac` download provider calls to fetch true-lossless FLAC. MusicHoarder owns all
 metadata, so this wrapper runs with enrichment + lyrics **off** and just writes one untagged FLAC.
 
-> **Opt-in and legally grey.** This sidecar is **not** part of the default MusicHoarder stack and is
-> not baked into the published MusicHoarder images. It relays through third-party servers to acquire
+> **Opt-in and legally grey.** This sidecar is a **separate** container, never baked into the published
+> MusicHoarder images, and off unless the operator wires it up (the self-host compose keeps it behind a
+> profile; the hosted stack ships it idle until its env is set). It relays through third-party servers to acquire
 > lossless audio, which is against those streaming services' terms of service — run it only where
 > that's acceptable to you. MusicHoarder talks to it over HTTP as an opaque endpoint; nothing about
 > it is compiled into `MusicHoarder.Api`. Off unless you explicitly enable it (see below).
@@ -47,6 +48,25 @@ DOWNLOAD_PROVIDER_3=yt-dlp
 ```
 
 Then `docker compose up -d`. Leave `COMPOSE_PROFILES` unset and the sidecar never starts.
+
+## Enable it (hosted stack — Dokploy / Docker Stack)
+
+The generated prod compose (`MusicHoarder.AppHost/aspire-output/docker-compose.yaml`) carries the same
+service **without** the profile: `docker stack deploy` rejects compose profiles (`Additional property
+profiles is not allowed`), and its `replicas` cannot be an env var, so the task always runs. The
+*feature* is gated purely by deploy env — with `SPOTIFLAC_SIDECAR_URL` empty the provider reports
+"not found" and the container idles. To turn it on, set these in Dokploy and redeploy:
+
+```dotenv
+SPOTIFLAC_SIDECAR_URL=http://spotiflac:8000
+DOWNLOAD_PROVIDER_1=spotiflac       # drives wishlist downloads AND quality upgrades
+DOWNLOAD_PROVIDER_2=slskd
+DOWNLOAD_PROVIDER_3=yt-dlp
+ENABLE_WISHLIST_DOWNLOADS=true      # only needed if that instance downloads at all
+```
+
+The stack deploy runs with `--resolve-image always`, so the mutable `:latest` tag re-pulls on every
+release; pin `SPOTIFLAC_VERSION` to a release tag to freeze it instead.
 
 **Build from source** instead of pulling the image: layer the build override, which adds `build:` to
 this folder — `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`
