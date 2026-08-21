@@ -14,12 +14,13 @@
   //   • It never wraps. The `filters` region scrolls sideways instead, so a
   //     narrow screen can't turn one bar into three lines.
   //
-  // `mobileFilters` is the one sanctioned exception, and it does not break either
+  // `filterRow` is the one sanctioned exception, and it does not break either
   // rule: the header keeps its h-11 and its single line, and the snippet renders
-  // in a *separate* band below it that only exists under `sm`. It exists because
-  // a page with a search box and seven chips leaves about two chips visible on a
-  // 375px screen, and a filter you have to swipe to discover is one you don't
-  // use. Costs ~40px of phone chrome, so pass it only where the chips are the
+  // in a *separate* band below it, at every width. It exists because a page with
+  // a search box and seven chips leaves about two chips visible on a 375px
+  // screen — and on a laptop the same chips squeeze the search input and the
+  // meta line down to nothing. A filter you have to swipe to discover is one you
+  // don't use. Costs ~40px of chrome, so pass it only where the chips are the
   // page's primary control.
   type Tab = { id: string; label: string; count?: number | string | null };
 
@@ -42,12 +43,12 @@
     /** Toggles and search. Scrolls horizontally when it overflows. */
     filters?: Snippet;
     /**
-     * Rendered in its own scrolling band below the bar, on phones only. Pair it with an
-     * `sm:hidden` wrapper's counterpart in `filters` so the same controls appear inline on
-     * a wide screen — one of the two copies is always `display:none`, so neither the DOM
-     * order nor the accessibility tree ever holds both.
+     * Rendered in its own scrolling band below the bar, at every width. Use it for the
+     * page's primary filter set so the header keeps only identity, search and actions.
+     * Pass `undefined` on views with no filters — an empty band is still a bordered
+     * 40px stripe.
      */
-    mobileFilters?: Snippet;
+    filterRow?: Snippet;
     /** Buttons. Never scrolls, never wraps. */
     actions?: Snippet;
   };
@@ -61,7 +62,7 @@
     activeTab,
     onselectTab,
     filters,
-    mobileFilters,
+    filterRow,
     actions
   }: Props = $props();
 </script>
@@ -108,10 +109,10 @@
   {/if}
 </header>
 
-{#if mobileFilters}
+{#if filterRow}
   <div
-    class="no-scrollbar border-border bg-background flex shrink-0 items-center gap-2 overflow-x-auto border-b px-4 py-1.5 sm:hidden"
+    class="no-scrollbar border-border bg-background flex shrink-0 items-center gap-2 overflow-x-auto border-b px-4 py-1.5 sm:gap-3 sm:px-7"
   >
-    {@render mobileFilters()}
+    {@render filterRow()}
   </div>
 {/if}
