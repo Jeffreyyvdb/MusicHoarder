@@ -126,6 +126,22 @@ internal static class ComposeFileExtensions
         // swarm leaves postgres untouched when its image tag doesn't change.)
         file.Services["postgres"].WithStopFirstUpdate();
 
+        // ── Streaming-FLAC acquisition sidecar (spotiflac) ─────────────────────────────────────
+        // Ships in the stack so the hosted instance can download AND quality-upgrade with it. Two
+        // swarm-shape differences from the self-host copy:
+        //  - No `profiles:` gate. `docker stack deploy` does not honour compose profiles, so the task
+        //    always runs; the FEATURE is gated purely by deploy env — the provider reports NotFound
+        //    while SPOTIFLAC_SIDECAR_URL is empty, and it is only ever called when "spotiflac" is in
+        //    MusicEnricher:DownloadProviders. An unwired sidecar therefore sits idle.
+        //  - No `restart`/`pull_policy` (both rejected by stack deploy) — restart_policy comes from
+        //    the deploy block below, and swarm only pulls on an image-reference change, so refreshing
+        //    the mutable :latest tag relies on the same `--resolve-image always` the app images do
+        //    (see README "Zero-downtime deploys"). Pin SPOTIFLAC_VERSION to freeze it instead.
+        // stop-first: one task at a time. Two relays would race nothing (each acquire writes its own
+        // GUID-stemmed file), but a single instance keeps upstream request volume predictable, and a
+        // brief gap on redeploy only costs the in-flight track, which the chain retries.
+        file.AddStreamingFlacSidecar().WithStopFirstUpdate();
+
         ApplyProviderEnvDefaults(api);
 
         // Aspire emits `depends_on` in the long (map+condition) form, which `docker stack deploy`
@@ -328,39 +344,14 @@ internal static class ComposeFileExtensions
             }
         }
 
-        // Optional streaming-FLAC acquisition sidecar (spotiflac). Profile-gated so it is inert unless
-        // the operator opts in with COMPOSE_PROFILES=spotiflac — safe to ship in the shared self-host
-        // compose (a git-synced instance enables it via .env alone, no compose edit). Pulls its own
-        // GHCR image and shares the API's download staging volume at the same path so the FLAC it
-        // writes is visible to the API. Only self-host ships the service; prod/preview carry just the
-        // inert StreamingFlac__SidecarUrl env. The build-from-source override layers `build:` on it.
-        file.Services["spotiflac"] = new Service
-        {
-            Name = "spotiflac",
-            Image = "ghcr.io/jeffreyyvdb/musichoarder/spotiflac:${SPOTIFLAC_VERSION:-latest}",
-            Restart = "always",
-            PullPolicy = "always",
-            Profiles = ["spotiflac"],
-            Networks = ["aspire"],
-            Environment = new()
-            {
-                // Optional self-hosted backends instead of the module's built-in community relay.
-                ["SPOTIFLAC_TIDAL_CUSTOM_API"] = "${SPOTIFLAC_TIDAL_CUSTOM_API:-}",
-                ["SPOTIFLAC_QOBUZ_LOCAL_API_URL"] = "${SPOTIFLAC_QOBUZ_LOCAL_API_URL:-}",
-            },
-            Volumes =
-            [
-                new Volume { Name = "musichoarder-downloads", Type = "volume", Source = "musichoarder-downloads", Target = "/data/downloads" },
-            ],
-            Healthcheck = new Healthcheck
-            {
-                Test = ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"],
-                Interval = "30s",
-                Timeout = "10s",
-                Retries = 3,
-                StartPeriod = "20s",
-            },
-        };
+        // Optional streaming-FLAC acquisition sidecar (spotiflac). Profile-gated here so it is inert
+        // unless the operator opts in with COMPOSE_PROFILES=spotiflac — safe to ship in the shared
+        // self-host compose (a git-synced instance enables it via .env alone, no compose edit). The
+        // build-from-source override layers `build:` on it.
+        var spotiflac = file.AddStreamingFlacSidecar();
+        spotiflac.Profiles = ["spotiflac"];
+        spotiflac.Restart = "always";
+        spotiflac.PullPolicy = "always";
 
         api.DependsOn.Clear();
         frontend.DependsOn.Clear();
@@ -548,5 +539,64 @@ internal static class ComposeFileExtensions
 
         // Optional cookies bind: harmless /dev/null when YTDLP_COOKIES_HOST_PATH is unset.
         api.AddVolume(new Volume { Name = "youtube-cookies", Type = "bind", Source = "${YTDLP_COOKIES_HOST_PATH:-/dev/null}", Target = "/data/cookies/youtube.txt", ReadOnly = true });
+    }
+
+    /// <summary>
+    /// Adds the optional streaming-FLAC acquisition sidecar (<c>spotiflac</c>) — the container behind the
+    /// <c>spotiflac</c> download/upgrade provider. Shared by every shape that ships it so the two never
+    /// drift; the caller applies its own rollout style (profiles + <c>restart</c> for plain compose,
+    /// swarm <c>deploy:</c> blocks for the stack).
+    /// <para>
+    /// It pulls its own GHCR image (versioned independently of the app's semver line) and shares the
+    /// API's download staging volume at the same absolute path, so the FLAC path it returns resolves
+    /// inside the API container. Nothing about it is compiled into the API — the integration stays off
+    /// until <c>SPOTIFLAC_SIDECAR_URL</c> is set and <c>spotiflac</c> appears in the
+    /// <c>MusicEnricher:DownloadProviders</c> chain (which drives wishlist downloads AND quality
+    /// upgrades — see <c>QualityUpgradeService</c>).
+    /// </para>
+    /// <para>
+    /// Logs are capped: a crash-looping build of this container once filled a host disk with a single
+    /// unbounded JSON log, and the sidecar is the only service here whose upstream is a third party.
+    /// </para>
+    /// <para>
+    /// Single-node assumption: the shared staging volume uses the <c>local</c> driver, so under swarm the
+    /// api and sidecar tasks must land on the same node for the returned path to resolve. Add a placement
+    /// constraint if the stack ever spans more than one node.
+    /// </para>
+    /// </summary>
+    private static Service AddStreamingFlacSidecar(this ComposeFile file)
+    {
+        var sidecar = new Service
+        {
+            Name = "spotiflac",
+            Image = "ghcr.io/jeffreyyvdb/musichoarder/spotiflac:${SPOTIFLAC_VERSION:-latest}",
+            Networks = ["aspire"],
+            Environment = new()
+            {
+                // Optional self-hosted backends instead of the module's built-in community relay.
+                ["SPOTIFLAC_TIDAL_CUSTOM_API"] = "${SPOTIFLAC_TIDAL_CUSTOM_API:-}",
+                ["SPOTIFLAC_QOBUZ_LOCAL_API_URL"] = "${SPOTIFLAC_QOBUZ_LOCAL_API_URL:-}",
+            },
+            Volumes =
+            [
+                new Volume { Name = "musichoarder-downloads", Type = "volume", Source = "musichoarder-downloads", Target = "/data/downloads" },
+            ],
+            Healthcheck = new Healthcheck
+            {
+                Test = ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"],
+                Interval = "30s",
+                Timeout = "10s",
+                Retries = 3,
+                StartPeriod = "20s",
+            },
+            Logging = new Logging
+            {
+                Driver = "json-file",
+                Options = new() { ["max-size"] = "10m", ["max-file"] = "3" },
+            },
+        };
+
+        file.Services["spotiflac"] = sidecar;
+        return sidecar;
     }
 }
