@@ -108,6 +108,18 @@ public class YtDlpDownloadProviderTests
         Assert.Equal("ytsearch1:Artist Song", YtDlpDownloadProvider.BuildTarget(req));
     }
 
+    [Fact]
+    public void FormatChain_FallsBackToAMuxedStream_ButNeverToAnImage()
+    {
+        // The chain has to survive a day when YouTube offers this server no audio-only formats:
+        // "bestaudio" alone means audio-ONLY and hard-fails there. The muxed rungs need
+        // [acodec!=none] so the last resort can't select a storyboard/image "format".
+        Assert.StartsWith("bestaudio[ext=webm]/bestaudio/", YtDlpDownloadProvider.FormatChain);
+        foreach (var rung in YtDlpDownloadProvider.FormatChain.Split('/').Where(r => r.StartsWith("best*")))
+            Assert.Contains("[acodec!=none]", rung);
+        Assert.EndsWith("best*[acodec!=none]", YtDlpDownloadProvider.FormatChain);
+    }
+
     [Theory]
     [InlineData("ERROR: Unable to download webpage", true)]
     [InlineData("no results found", true)]

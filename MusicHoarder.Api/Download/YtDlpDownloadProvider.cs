@@ -25,6 +25,22 @@ public class YtDlpDownloadProvider(
 {
     public string Name => "yt-dlp";
 
+    /// <summary>
+    /// Format chain. Prefer a native opus/webm stream so extraction copies rather than re-encodes, then
+    /// any audio-only stream, and only then a muxed stream that carries audio — on a day when YouTube
+    /// hands this server nothing but progressive formats, a re-encode beats a hard failure.
+    /// <c>[acodec!=none]</c> is what keeps that last resort off the storyboard/image "formats" (the
+    /// low-res rung comes first so the fallback doesn't pull a 1080p file to extract 130kbps of audio).
+    /// </summary>
+    internal const string FormatChain =
+        "bestaudio[ext=webm]/bestaudio/best*[acodec!=none][height<=?480]/best*[acodec!=none]";
+
+    /// <summary>One yt-dlp invocation: its exit code, both streams, and the file it produced (if any).</summary>
+    private sealed record Attempt(int ExitCode, string Stdout, string Stderr, string? ProducedFile)
+    {
+        public bool Succeeded => ProducedFile is not null;
+    }
+
     public async Task<DownloadResult> DownloadAsync(DownloadRequest req, CancellationToken ct)
     {
         var opts = options.Value;
@@ -37,98 +53,43 @@ public class YtDlpDownloadProvider(
         {
             Directory.CreateDirectory(req.DestinationDirectory);
 
-            // Unique stem so concurrent downloads never collide and we can locate the produced file
-            // deterministically (yt-dlp writes <stem>.<format> after audio extraction).
-            var stem = Guid.NewGuid().ToString("N");
-            var outputTemplate = Path.Combine(req.DestinationDirectory, stem + ".%(ext)s");
-
             var target = BuildTarget(req);
 
-            var psi = new ProcessStartInfo(opts.YtDlpPath)
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            psi.ArgumentList.Add("--no-playlist");
-            psi.ArgumentList.Add("--no-progress");
-            // Print the resolved video id (works for ytsearch1: targets too) so the caller knows which
-            // exact video the audio came from — the companion music-video download reuses it to fetch
-            // the same video, making the sync offset 0 by construction. --print alone implies
-            // --simulate; --no-simulate keeps the download running.
-            psi.ArgumentList.Add("--no-simulate");
-            psi.ArgumentList.Add("--print");
-            psi.ArgumentList.Add("%(id)s");
-            // Prefer a native opus/webm stream so extraction can copy rather than re-encode.
-            psi.ArgumentList.Add("-f");
-            psi.ArgumentList.Add("bestaudio[ext=webm]/bestaudio");
-            psi.ArgumentList.Add("-x");
-            psi.ArgumentList.Add("--audio-format");
-            psi.ArgumentList.Add(format);
-            // Intentionally NOT --embed-metadata / --embed-thumbnail: yt-dlp would write the YouTube
-            // uploader channel into ARTIST and the full video title into TITLE, poisoning enrichment.
-            // The processor stamps the known Spotify identity via DownloadTagWriter after download.
-            // Built-in throttle: a short (optionally randomized) pause before each fetch so a bulk
-            // wishlist run doesn't machine-gun YouTube — rapid back-to-back requests are a strong
-            // bot-detection signal. Power users can still override via YtDlpExtraArgs.
-            if (opts.DownloadSleepSeconds > 0)
-            {
-                psi.ArgumentList.Add("--sleep-interval");
-                psi.ArgumentList.Add(opts.DownloadSleepSeconds.ToString());
-                if (opts.DownloadMaxSleepSeconds > opts.DownloadSleepSeconds)
-                {
-                    psi.ArgumentList.Add("--max-sleep-interval");
-                    psi.ArgumentList.Add(opts.DownloadMaxSleepSeconds.ToString());
-                }
-            }
-            if (!string.IsNullOrWhiteSpace(opts.FfmpegPath))
-            {
-                psi.ArgumentList.Add("--ffmpeg-location");
-                psi.ArgumentList.Add(opts.FfmpegPath);
-            }
-            // Authenticated cookies get past YouTube's datacenter-IP bot check ("Sign in to confirm
-            // you're not a bot"). cookiesPath is a writable copy of the configured file (or null when
-            // unset/missing) so yt-dlp's cookie-save-on-exit can't crash on a read-only mount.
-            if (cookiesPath is not null)
-            {
-                psi.ArgumentList.Add("--cookies");
-                psi.ArgumentList.Add(cookiesPath);
-            }
-            else if (!string.IsNullOrWhiteSpace(opts.YtDlpCookiesPath))
-            {
+            if (cookiesPath is null && !string.IsNullOrWhiteSpace(opts.YtDlpCookiesPath))
                 logger.LogWarning("YtDlpCookiesPath is set but the file does not exist: {Path}", LogSanitizer.ForLog(opts.YtDlpCookiesPath));
+
+            var attempt = await RunAsync(opts, req, format, target, cookiesPath, ct);
+
+            // Authenticated cookies make yt-dlp drop every player client that can't carry them
+            // (android_vr, tv_simply, ios…), leaving only the web clients — which YouTube now gates
+            // behind a GVS PO token, so they expose no plain https formats at all and every selector
+            // ends in "Requested format is not available". The cookies are only there to get past the
+            // datacenter bot check, so when they cost us the formats outright, try once anonymously
+            // before giving up. Keeps the cookie failure as the reported one if this doesn't help.
+            if (!attempt.Succeeded && cookiesPath is not null && YtDlpErrors.LooksLikeNoUsableFormats(attempt.Stderr))
+            {
+                logger.LogInformation(
+                    "yt-dlp had no usable formats for '{Target}' with cookies (the authenticated clients are PO-token gated); retrying anonymously",
+                    LogSanitizer.ForLog(target));
+                var anonymous = await RunAsync(opts, req, format, target, null, ct);
+                if (anonymous.Succeeded)
+                    attempt = anonymous;
             }
-            // Power-user escape hatch: extra extractor-args / proxy flags without a code change.
-            foreach (var extra in SplitArgs(opts.YtDlpExtraArgs))
-                psi.ArgumentList.Add(extra);
-            psi.ArgumentList.Add("-o");
-            psi.ArgumentList.Add(outputTemplate);
-            psi.ArgumentList.Add(target);
 
-            using var process = new Process { StartInfo = psi };
-            process.Start();
-
-            // Read both streams concurrently to avoid buffer-full deadlock.
-            var outputTask = process.StandardOutput.ReadToEndAsync(ct);
-            var errorTask = process.StandardError.ReadToEndAsync(ct);
-            await Task.WhenAll(outputTask, errorTask, process.WaitForExitAsync(ct));
-
-            var stderr = errorTask.Result.Trim();
-            var produced = LocateProducedFile(req.DestinationDirectory, stem);
-
-            if (produced is not null)
-                return DownloadResult.Ok(produced, ParseFirstLine(outputTask.Result));
+            if (attempt.ProducedFile is not null)
+                return DownloadResult.Ok(attempt.ProducedFile, ParseFirstLine(attempt.Stdout));
 
             // No file came out. Distinguish "nothing matched" from a real failure.
-            if (process.ExitCode == 0 || LooksLikeNoResults(stderr))
+            if (attempt.ExitCode == 0 || LooksLikeNoResults(attempt.Stderr))
             {
-                logger.LogInformation("yt-dlp found no result for '{Target}': {Error}", LogSanitizer.ForLog(target), LogSanitizer.ForLog(Truncate(stderr)));
-                return DownloadResult.Missing(stderr.Length == 0 ? "no results" : Truncate(stderr));
+                logger.LogInformation("yt-dlp found no result for '{Target}': {Error}", LogSanitizer.ForLog(target), LogSanitizer.ForLog(YtDlpErrors.Tail(attempt.Stderr)));
+                return DownloadResult.Missing(attempt.Stderr.Length == 0 ? "no results" : YtDlpErrors.Tail(attempt.Stderr));
             }
 
-            logger.LogWarning("yt-dlp exited {Code} for '{Target}': {Error}", process.ExitCode, LogSanitizer.ForLog(target), LogSanitizer.ForLog(Truncate(stderr)));
-            return DownloadResult.Failed($"exited {process.ExitCode}: {Truncate(stderr)}");
+            logger.LogWarning("yt-dlp exited {Code} for '{Target}': {Error}", attempt.ExitCode, LogSanitizer.ForLog(target), LogSanitizer.ForLog(YtDlpErrors.Tail(attempt.Stderr)));
+            // Classified: "Requested format is not available" reads like the track is at fault when it
+            // is really the server's extraction environment, and that error lands in the wishlist UI.
+            return DownloadResult.Failed(YtDlpErrors.Describe(attempt.ExitCode, attempt.Stderr));
         }
         catch (OperationCanceledException)
         {
@@ -144,6 +105,92 @@ public class YtDlpDownloadProvider(
         {
             YtDlpCookies.Cleanup(cookiesPath, opts.YtDlpCookiesPath);
         }
+    }
+
+    /// <summary>
+    /// Runs one yt-dlp fetch. <paramref name="cookiesPath"/> null means anonymous — the same call the
+    /// caller repeats when the cookie-authenticated client set turns out to have no usable formats.
+    /// Each run gets its own output stem so a retry can never pick up the previous run's leftovers.
+    /// </summary>
+    private async Task<Attempt> RunAsync(
+        MusicEnricherOptions opts, DownloadRequest req, string format, string target, string? cookiesPath, CancellationToken ct)
+    {
+        // Unique stem so concurrent downloads never collide and we can locate the produced file
+        // deterministically (yt-dlp writes <stem>.<format> after audio extraction).
+        var stem = Guid.NewGuid().ToString("N");
+        var outputTemplate = Path.Combine(req.DestinationDirectory, stem + ".%(ext)s");
+
+        var psi = new ProcessStartInfo(opts.YtDlpPath)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        psi.ArgumentList.Add("--no-playlist");
+        psi.ArgumentList.Add("--no-progress");
+        // Print the resolved video id (works for ytsearch1: targets too) so the caller knows which
+        // exact video the audio came from — the companion music-video download reuses it to fetch
+        // the same video, making the sync offset 0 by construction. --print alone implies
+        // --simulate; --no-simulate keeps the download running.
+        psi.ArgumentList.Add("--no-simulate");
+        psi.ArgumentList.Add("--print");
+        psi.ArgumentList.Add("%(id)s");
+        psi.ArgumentList.Add("-f");
+        psi.ArgumentList.Add(FormatChain);
+        psi.ArgumentList.Add("-x");
+        psi.ArgumentList.Add("--audio-format");
+        psi.ArgumentList.Add(format);
+        // Intentionally NOT --embed-metadata / --embed-thumbnail: yt-dlp would write the YouTube
+        // uploader channel into ARTIST and the full video title into TITLE, poisoning enrichment.
+        // The processor stamps the known Spotify identity via DownloadTagWriter after download.
+        // Built-in throttle: a short (optionally randomized) pause before each fetch so a bulk
+        // wishlist run doesn't machine-gun YouTube — rapid back-to-back requests are a strong
+        // bot-detection signal. Power users can still override via YtDlpExtraArgs.
+        if (opts.DownloadSleepSeconds > 0)
+        {
+            psi.ArgumentList.Add("--sleep-interval");
+            psi.ArgumentList.Add(opts.DownloadSleepSeconds.ToString());
+            if (opts.DownloadMaxSleepSeconds > opts.DownloadSleepSeconds)
+            {
+                psi.ArgumentList.Add("--max-sleep-interval");
+                psi.ArgumentList.Add(opts.DownloadMaxSleepSeconds.ToString());
+            }
+        }
+        if (!string.IsNullOrWhiteSpace(opts.FfmpegPath))
+        {
+            psi.ArgumentList.Add("--ffmpeg-location");
+            psi.ArgumentList.Add(opts.FfmpegPath);
+        }
+        // Authenticated cookies get past YouTube's datacenter-IP bot check ("Sign in to confirm
+        // you're not a bot"). cookiesPath is a writable copy of the configured file (or null when
+        // unset/missing/retrying anonymously) so yt-dlp's cookie-save-on-exit can't crash on a
+        // read-only mount.
+        if (cookiesPath is not null)
+        {
+            psi.ArgumentList.Add("--cookies");
+            psi.ArgumentList.Add(cookiesPath);
+        }
+        // Power-user escape hatch: extra extractor-args / proxy flags without a code change.
+        foreach (var extra in SplitArgs(opts.YtDlpExtraArgs))
+            psi.ArgumentList.Add(extra);
+        psi.ArgumentList.Add("-o");
+        psi.ArgumentList.Add(outputTemplate);
+        psi.ArgumentList.Add(target);
+
+        using var process = new Process { StartInfo = psi };
+        process.Start();
+
+        // Read both streams concurrently to avoid buffer-full deadlock.
+        var outputTask = process.StandardOutput.ReadToEndAsync(ct);
+        var errorTask = process.StandardError.ReadToEndAsync(ct);
+        await Task.WhenAll(outputTask, errorTask, process.WaitForExitAsync(ct));
+
+        return new Attempt(
+            process.ExitCode,
+            outputTask.Result,
+            errorTask.Result.Trim(),
+            LocateProducedFile(req.DestinationDirectory, stem));
     }
 
     /// <summary>
@@ -224,5 +271,4 @@ public class YtDlpDownloadProvider(
         || stderr.Contains("Unable to download webpage", StringComparison.OrdinalIgnoreCase)
         || stderr.Contains("no video", StringComparison.OrdinalIgnoreCase);
 
-    private static string Truncate(string s) => s.Length <= 500 ? s : s[..500];
 }

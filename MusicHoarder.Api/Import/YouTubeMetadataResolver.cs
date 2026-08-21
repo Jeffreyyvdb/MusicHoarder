@@ -100,8 +100,8 @@ public sealed class YouTubeMetadataResolver(
             // both live at the end, so head-truncation would hide the root cause.
             logger.LogInformation(
                 "yt-dlp probe exited {Code} for {Url}: {Error}",
-                process.ExitCode, LogSanitizer.ForLog(url), LogSanitizer.ForLog(Tail(stderr)));
-            return YouTubeProbeOutcome.Failed(Classify(stderr), Tail(stderr));
+                process.ExitCode, LogSanitizer.ForLog(url), LogSanitizer.ForLog(YtDlpErrors.Tail(stderr)));
+            return YouTubeProbeOutcome.Failed(YtDlpErrors.Classify(stderr), YtDlpErrors.Tail(stderr));
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -128,34 +128,6 @@ public sealed class YouTubeMetadataResolver(
         {
             YtDlpCookies.Cleanup(cookiesPath, opts.YtDlpCookiesPath);
         }
-    }
-
-    /// <summary>
-    /// Maps common yt-dlp stderr signatures to an actionable owner-facing hint. The two that bite a
-    /// server deployment: YouTube's datacenter-IP bot check (needs a cookies file) and a missing JS
-    /// runtime (deno) for the player challenge.
-    /// </summary>
-    internal static string? Classify(string stderr)
-    {
-        if (string.IsNullOrWhiteSpace(stderr)) return null;
-
-        bool Has(string s) => stderr.Contains(s, StringComparison.OrdinalIgnoreCase);
-
-        if (Has("Sign in to confirm") || Has("not a bot") || Has("confirm you’re") || Has("confirm you're"))
-            return "YouTube is asking this server to sign in (datacenter bot check). Set MusicEnricher:YtDlpCookiesPath to a cookies.txt exported from a logged-in browser.";
-        if (Has("No supported JavaScript runtime"))
-            return "yt-dlp needs a JavaScript runtime (deno) to read YouTube, and none was found on the server.";
-        if (Has("Private video"))
-            return "That video is private.";
-        if (Has("age") && Has("restrict"))
-            return "That video is age-restricted and needs authenticated cookies.";
-        if (Has("Video unavailable") || Has("This video is not available"))
-            return "That video is unavailable.";
-        if (Has("HTTP Error 429") || Has("Too Many Requests"))
-            return "YouTube is rate-limiting this server. Try again shortly.";
-        if (Has("Read-only file system") && Has("cookies"))
-            return "yt-dlp couldn't write back the cookies file (read-only mount). The server needs a writable cookies copy.";
-        return null;
     }
 
     internal static YouTubeProbeResult? Parse(string json)
@@ -253,12 +225,4 @@ public sealed class YouTubeMetadataResolver(
         root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String
             ? el.GetString()
             : null;
-
-    /// <summary>Last ~800 chars of stderr — the salient error (yt-dlp "ERROR:" / traceback exception)
-    /// is at the end, so we keep the tail rather than the head.</summary>
-    private static string Tail(string s)
-    {
-        s = s.Trim();
-        return s.Length <= 800 ? s : "…" + s[^800..];
-    }
 }
