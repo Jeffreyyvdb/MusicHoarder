@@ -13,6 +13,14 @@
   //     back out one page at a time.
   //   • It never wraps. The `filters` region scrolls sideways instead, so a
   //     narrow screen can't turn one bar into three lines.
+  //
+  // `mobileFilters` is the one sanctioned exception, and it does not break either
+  // rule: the header keeps its h-11 and its single line, and the snippet renders
+  // in a *separate* band below it that only exists under `sm`. It exists because
+  // a page with a search box and seven chips leaves about two chips visible on a
+  // 375px screen, and a filter you have to swipe to discover is one you don't
+  // use. Costs ~40px of phone chrome, so pass it only where the chips are the
+  // page's primary control.
   type Tab = { id: string; label: string; count?: number | string | null };
 
   type Props = {
@@ -33,6 +41,13 @@
     onselectTab?: (id: string) => void;
     /** Toggles and search. Scrolls horizontally when it overflows. */
     filters?: Snippet;
+    /**
+     * Rendered in its own scrolling band below the bar, on phones only. Pair it with an
+     * `sm:hidden` wrapper's counterpart in `filters` so the same controls appear inline on
+     * a wide screen — one of the two copies is always `display:none`, so neither the DOM
+     * order nor the accessibility tree ever holds both.
+     */
+    mobileFilters?: Snippet;
     /** Buttons. Never scrolls, never wraps. */
     actions?: Snippet;
   };
@@ -46,6 +61,7 @@
     activeTab,
     onselectTab,
     filters,
+    mobileFilters,
     actions
   }: Props = $props();
 </script>
@@ -91,3 +107,11 @@
     <div class="flex shrink-0 items-center gap-1.5">{@render actions()}</div>
   {/if}
 </header>
+
+{#if mobileFilters}
+  <div
+    class="no-scrollbar border-border bg-background flex shrink-0 items-center gap-2 overflow-x-auto border-b px-4 py-1.5 sm:hidden"
+  >
+    {@render mobileFilters()}
+  </div>
+{/if}

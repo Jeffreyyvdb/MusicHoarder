@@ -302,6 +302,14 @@ public static class SongsEndpoints
                 s.PlayCount,
                 s.LastPlayedAtUtc,
                 s.AcquisitionIntent,
+                // "There is a music video on disk for this track." Same predicate the stream endpoint
+                // gates on and the share tracklist already uses, reached through the one-to-one nav so
+                // EF emits a LEFT JOIN on the unique IX_SongMusicVideos_SongId — no extra round-trip.
+                // Deliberately NOT VideoInfoDto.FileMissing: that needs a per-row File.Exists, which is
+                // not something to do thousands of times in a full-library listing.
+                HasMusicVideo = s.MusicVideo != null
+                    && s.MusicVideo.Status == MusicVideoStatus.Ready
+                    && s.MusicVideo.FilePath != null,
             })
             .ToListAsync();
 
@@ -366,6 +374,19 @@ public static class SongsEndpoints
                 s.SpotifyId != null && likedSaveDatesBySpotifyId.TryGetValue(s.SpotifyId, out var idSaveDate)
                     ? idSaveDate
                     : null),
+            // Spotify's save date for the Liked Songs collection *specifically* — what the library's
+            // "Spotify Liked" filter tests and orders by. SpotifyAddedAtUtc above cannot answer that:
+            // a playlist wishlist link also carries a date (when the track entered that playlist), so
+            // a track you never saved would read as liked. Only the liked-songs link and the
+            // liked_sync match cache (already filtered to that source) contribute here.
+            SpotifyLikedAtUtc = Earliest(
+                Earliest(
+                    origin.Source == SongOriginSource.SpotifyLiked ? origin.SpotifyAddedAtUtc : null,
+                    likedSaveDates.TryGetValue(s.Id, out var likedDate) ? likedDate : null),
+                s.SpotifyId != null && likedSaveDatesBySpotifyId.TryGetValue(s.SpotifyId, out var idLikedDate)
+                    ? idLikedDate
+                    : null),
+            s.HasMusicVideo,
             // Whether the owner asked for this track or album completion added it. Unlike the derived
             // Origin* fields above this is a stored column, so it's the one "My music" filters on.
             AcquisitionIntent = s.AcquisitionIntent.ToString(),

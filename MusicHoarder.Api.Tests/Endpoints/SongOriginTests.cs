@@ -302,6 +302,129 @@ public class SongOriginTests
         Assert.Null(GetProperty<DateTime?>(row, "SpotifyAddedAtUtc"));
     }
 
+    [Fact]
+    public async Task ListSongs_SpotifyLikedAtUtc_IgnoresAPlaylistSaveDate()
+    {
+        // The whole reason SpotifyLikedAtUtc exists next to SpotifyAddedAtUtc. A collected playlist
+        // stamps the item with the date the track entered *that playlist*, which is not a save — so a
+        // filter built on SpotifyAddedAtUtc would claim every playlist track the owner never liked.
+        var playlisted = new DateTime(2025, 5, 5, 0, 0, 0, DateTimeKind.Utc);
+
+        await using var db = NewContext();
+        var song = NewSong($"{DownloadDir}/track.opus");
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        db.WishlistSources.Add(new WishlistSource
+        {
+            Id = 1,
+            OwnerUserId = WellKnownUsers.OwnerId,
+            SourceType = WishlistSourceType.Playlist,
+            Name = "Late Night",
+            SpotifyPlaylistId = "pl-1",
+        });
+        db.WishlistItems.Add(new WishlistItem
+        {
+            OwnerUserId = WellKnownUsers.OwnerId,
+            WishlistSourceId = 1,
+            Title = "Track",
+            Artist = "Artist",
+            SpotifyAddedAtUtc = playlisted,
+            Status = WishlistItemStatus.Downloaded,
+            DownloadedSongId = song.Id,
+        });
+        await db.SaveChangesAsync();
+
+        var result = await ListSongsCaller.Invoke(db, DownloadDir, SyncedDir);
+        var row = Songs(result).Single();
+
+        Assert.Equal(playlisted, GetProperty<DateTime?>(row, "SpotifyAddedAtUtc"));
+        Assert.Null(GetProperty<DateTime?>(row, "SpotifyLikedAtUtc"));
+    }
+
+    [Fact]
+    public async Task ListSongs_SpotifyLikedAtUtc_ComesFromTheLikedSongsLinkOrTheMatchCache()
+    {
+        var linkedDate = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var cachedDate = new DateTime(2023, 2, 2, 0, 0, 0, DateTimeKind.Utc);
+
+        await using var db = NewContext();
+        var viaLink = NewSong($"{DownloadDir}/linked.opus");
+        // No wishlist link at all — already owned when the like happened, so only the sweep saw it.
+        var viaCache = NewSong("/music/Artist/cached.flac");
+        db.Songs.AddRange(viaLink, viaCache);
+        await db.SaveChangesAsync();
+
+        db.WishlistSources.Add(new WishlistSource
+        {
+            Id = 1,
+            OwnerUserId = WellKnownUsers.OwnerId,
+            SourceType = WishlistSourceType.LikedSongs,
+            Name = "Liked Songs",
+        });
+        db.WishlistItems.Add(new WishlistItem
+        {
+            OwnerUserId = WellKnownUsers.OwnerId,
+            WishlistSourceId = 1,
+            Title = "Linked",
+            Artist = "Artist",
+            SpotifyAddedAtUtc = linkedDate,
+            Status = WishlistItemStatus.Downloaded,
+            DownloadedSongId = viaLink.Id,
+        });
+        db.SpotifyTrackLibraryMatches.Add(
+            NewMatch("sp-cached", viaCache.Id, cachedDate, SpotifyLibraryComparisonService.SourceLikedSync));
+        await db.SaveChangesAsync();
+
+        var result = await ListSongsCaller.Invoke(db, DownloadDir, SyncedDir);
+        var rows = Songs(result).ToList();
+
+        Assert.Equal(linkedDate, GetProperty<DateTime?>(
+            rows.Single(r => GetProperty<int>(r, "Id") == viaLink.Id), "SpotifyLikedAtUtc"));
+        Assert.Equal(cachedDate, GetProperty<DateTime?>(
+            rows.Single(r => GetProperty<int>(r, "Id") == viaCache.Id), "SpotifyLikedAtUtc"));
+    }
+
+    [Theory]
+    [InlineData(MusicVideoStatus.Ready, "/data/videos/track.mp4", true)]
+    [InlineData(MusicVideoStatus.Fetching, null, false)]
+    [InlineData(MusicVideoStatus.Failed, null, false)]
+    // Ready but with the path cleared: the stream endpoint would 404, so the list must not promise one.
+    [InlineData(MusicVideoStatus.Ready, null, false)]
+    public async Task ListSongs_HasMusicVideo_OnlyWhenAFileIsActuallyThere(
+        MusicVideoStatus status, string? filePath, bool expected)
+    {
+        await using var db = NewContext();
+        var song = NewSong("/music/Artist/track.flac");
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        db.SongMusicVideos.Add(new SongMusicVideo
+        {
+            SongId = song.Id,
+            Status = status,
+            FilePath = filePath,
+        });
+        await db.SaveChangesAsync();
+
+        var result = await ListSongsCaller.Invoke(db, DownloadDir, SyncedDir);
+        var row = Songs(result).Single();
+
+        Assert.Equal(expected, GetProperty<bool>(row, "HasMusicVideo"));
+    }
+
+    [Fact]
+    public async Task ListSongs_HasMusicVideo_IsFalseWhenNoVideoRowExists()
+    {
+        await using var db = NewContext();
+        db.Songs.Add(NewSong("/music/Artist/track.flac"));
+        await db.SaveChangesAsync();
+
+        var result = await ListSongsCaller.Invoke(db, DownloadDir, SyncedDir);
+
+        Assert.False(GetProperty<bool>(Songs(result).Single(), "HasMusicVideo"));
+    }
+
     private static SpotifyTrackLibraryMatch NewMatch(string spotifyId, int songId, DateTime addedAt, string source) => new()
     {
         OwnerUserId = WellKnownUsers.OwnerId,
