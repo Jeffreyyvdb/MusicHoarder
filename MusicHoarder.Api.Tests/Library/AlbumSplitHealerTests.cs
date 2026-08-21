@@ -403,6 +403,77 @@ public class AlbumSplitHealerTests
         Assert.All(songs, s => Assert.Equal("Domo Genesis", s.AlbumArtist));
     }
 
+    [Fact]
+    public async Task HealAsync_CollaboratorSuffixSplit_ConvergesOnOneSpelling()
+    {
+        await using var db = NewContext();
+        // "Ain't No Mountain High Enough" on prod: per-song enrichment credited half of United to
+        // "Marvin Gaye" and half to "Marvin Gaye & Tammi Terrell". While the group key kept the
+        // collaborator suffix those were two logical albums, each internally in agreement, so the
+        // heal was a permanent no-op and the album lived in two artist folders — with any correction
+        // moving a song across the boundary into the group that elects the other spelling.
+        for (var i = 1; i <= 3; i++)
+            db.Songs.Add(UnitedSong($"/mg{i}.flac", $"Track {i}", i, "Marvin Gaye"));
+        for (var i = 4; i <= 6; i++)
+            db.Songs.Add(UnitedSong($"/mgtt{i}.flac", $"Track {i}", i, "Marvin Gaye & Tammi Terrell"));
+        await db.SaveChangesAsync();
+
+        var result = await Healer(db).HealAsync();
+
+        Assert.Equal(1, result.GroupsHealed);
+        var songs = await db.Songs.ToListAsync();
+        Assert.Single(songs.Select(s => s.AlbumArtist).Distinct(StringComparer.Ordinal));
+
+        // Fixed point: the converged album never moves again, so no further re-tag/relocate churn.
+        Assert.Equal(new AlbumSplitHealResult(0, 0, 0), await Healer(db).HealAsync());
+    }
+
+    [Fact]
+    public async Task HealAsync_CollaboratorSuffixSplit_WithCrossPointingCanonicals_ConvergesInOnePass()
+    {
+        await using var db = NewContext();
+        // Same album, plus the canonical rows prod actually holds: one per artist-spelling key, each
+        // naming the OTHER spelling. As two groups the heal swapped both halves wholesale on every
+        // pass (six corrections and six re-tags each time) until the oscillation freeze finally
+        // caught it. One group means one election — converge on the first pass, then never move.
+        var albumKey = TitleNormalizer.NormalizeForSearch("United");
+        foreach (var (keyedTo, displayArtist) in new[]
+        {
+            ("Marvin Gaye", "Marvin Gaye & Tammi Terrell"),
+            ("Marvin Gaye & Tammi Terrell", "Marvin Gaye"),
+        })
+        {
+            db.CanonicalAlbums.Add(new CanonicalAlbum
+            {
+                ArtistKey = TitleNormalizer.NormalizeForSearch(keyedTo),
+                AlbumKey = albumKey,
+                DisplayTitle = "United",
+                DisplayArtist = displayArtist,
+                Year = 1967,
+                Status = CanonicalAlbumStatus.Fetched,
+            });
+        }
+
+        for (var i = 1; i <= 3; i++)
+            db.Songs.Add(UnitedSong($"/mg{i}.flac", $"Track {i}", i, "Marvin Gaye"));
+        for (var i = 4; i <= 6; i++)
+            db.Songs.Add(UnitedSong($"/mgtt{i}.flac", $"Track {i}", i, "Marvin Gaye & Tammi Terrell"));
+        await db.SaveChangesAsync();
+
+        var first = await Healer(db).HealAsync();
+        Assert.Equal(1, first.GroupsHealed);
+
+        var songs = await db.Songs.ToListAsync();
+        Assert.Single(songs.Select(s => s.AlbumArtist).Distinct(StringComparer.Ordinal));
+
+        // No second flip: the very next pass is already a no-op.
+        Assert.Equal(new AlbumSplitHealResult(0, 0, 0), await Healer(db).HealAsync());
+    }
+
+    private static SongMetadata UnitedSong(string path, string title, int trackNumber, string albumArtist) =>
+        Song(path, title, trackNumber, year: 1967, album: "United",
+            artist: "Marvin Gaye & Tammi Terrell", albumArtist: albumArtist);
+
     private static SongMetadata NoIdolsSong(string path, string title, int trackNumber, string albumArtist) =>
         Song(path, title, trackNumber, year: 2023, album: "No Idols",
             artist: albumArtist, albumArtist: albumArtist);

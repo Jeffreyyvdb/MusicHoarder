@@ -83,6 +83,61 @@ public class AlbumGroupKeyTests
     }
 
     [Theory]
+    [InlineData("Marvin Gaye", "Marvin Gaye & Tammi Terrell")]
+    [InlineData("Domo Genesis", "Domo Genesis, The Alchemist")]
+    [InlineData("JAY-Z", "JAY-Z & Kanye West")]
+    [InlineData("Juice WRLD", "Juice WRLD feat. The Weeknd")]
+    public void For_CollaboratorSuffixSpellings_ShareOneKey(string solo, string collaboration)
+    {
+        // The prod flip: per-song enrichment credited half of an album to the lead artist alone and
+        // half to the full collaboration. While those were two keys the album-identity election never
+        // saw the halves together, so each half elected its own spelling and the album lived in two
+        // artist folders at once.
+        var a = Song(album: "United", albumArtist: solo, artist: collaboration);
+        var b = Song(album: "United", albumArtist: collaboration, artist: collaboration);
+
+        Assert.Equal(AlbumGroupKey.For(a), AlbumGroupKey.For(b));
+    }
+
+    [Fact]
+    public void For_IsInvariantUnderTheAlbumIdentityElection()
+    {
+        // The property that stops the oscillation. Both writers of the album identity — the
+        // build-time election in LibraryBuilderService and the persisting AlbumSplitHealer — group on
+        // this key and then write AlbumArtist. If that write can move a member into a different
+        // group, the other group elects the other spelling and the album ping-pongs forever, each
+        // flip a full re-tag + relocate + sync push. So: whatever the election writes back, every
+        // member must still key to the group that elected it.
+        var members = new[]
+        {
+            Song(album: "United", albumArtist: "Marvin Gaye", artist: "Marvin Gaye & Tammi Terrell"),
+            Song(album: "United", albumArtist: "Marvin Gaye", artist: "Marvin Gaye & Tammi Terrell"),
+            Song(album: "United", albumArtist: "Marvin Gaye & Tammi Terrell", artist: "Marvin Gaye & Tammi Terrell"),
+        };
+        var key = AlbumGroupKey.For(members[0])!;
+        Assert.All(members, m => Assert.Equal(key, AlbumGroupKey.For(m)));
+
+        var elected = new AlbumIdentityReconciler().Reconcile(members);
+        foreach (var member in members)
+        {
+            member.ApplyIdentityCorrection(elected);
+        }
+
+        Assert.Single(members.Select(m => m.AlbumArtist).Distinct(StringComparer.Ordinal));
+        Assert.All(members, m => Assert.Equal(key, AlbumGroupKey.For(m)));
+    }
+
+    [Fact]
+    public void For_DifferentLeadArtists_StayDistinct()
+    {
+        // The lead-artist fold must not merge two artists who merely share an album title.
+        var a = Song(album: "Greatest Hits", albumArtist: "Marvin Gaye");
+        var b = Song(album: "Greatest Hits", albumArtist: "Tammi Terrell");
+
+        Assert.NotEqual(AlbumGroupKey.For(a), AlbumGroupKey.For(b));
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
@@ -112,6 +167,26 @@ public class AlbumGroupKeyTests
 
         Assert.Equal(key.ArtistKey, AlbumGroupKey.ComputeArtistKey("Kanye West"));
         Assert.Equal(key.AlbumKey, AlbumGroupKey.ComputeAlbumKey("Graduation (Deluxe)"));
+    }
+
+    [Fact]
+    public void ComputeArtistKey_CollaborationCredit_MatchesEitherSpelling()
+    {
+        // The rebuild / album-dedup endpoints are handed whichever spelling the album view happens to
+        // be showing; both must resolve to the group the song rows are in.
+        var song = Song(album: "United", albumArtist: "Marvin Gaye & Tammi Terrell");
+        var key = AlbumGroupKey.For(song)!;
+
+        Assert.Equal(key.ArtistKey, AlbumGroupKey.ComputeArtistKey("Marvin Gaye & Tammi Terrell"));
+        Assert.Equal(key.ArtistKey, AlbumGroupKey.ComputeArtistKey("Marvin Gaye"));
+    }
+
+    [Fact]
+    public void ComputeArtistKey_LeadFoldsToNothing_KeepsTheWholeCredit()
+    {
+        // A credit whose lead segment is pure punctuation would otherwise key to the empty string and
+        // drop the song out of every group.
+        Assert.Equal("marvin gaye", AlbumGroupKey.ComputeArtistKey("?, Marvin Gaye"));
     }
 
     private static SongMetadata Song(
