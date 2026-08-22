@@ -47,6 +47,76 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # Set up here rather than with the Android steps below so the signing preflight can run
+      # *before* semantic-release: a broken keystore config is then reported on every push to main,
+      # release or not, instead of surfacing after a version has already been cut.
+      - name: Setup JDK
+        uses: actions/setup-java@v5
+        with:
+          # Matches android/gradle/gradle-daemon-jvm.properties.
+          distribution: temurin
+          java-version: '25'
+
+      # Checks the four signing secrets without building anything. It deliberately never fails the
+      # job — an Android-only problem must not hold back the API/frontend deploy. It emits an error
+      # annotation and reports ok=false, which makes the APK step fall back to the debug build: the
+      # release still carries an installable APK and the run says why it is not signed.
+      - name: Preflight — Android signing secrets
+        id: android_signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          MH_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          MH_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          MH_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -uo pipefail
+
+          emit() { echo "ok=$1" >> "$GITHUB_OUTPUT"; }
+          fail() {
+            echo "::error title=Android signing preflight::$1"
+            emit false
+            exit 0
+          }
+
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "No ANDROID_KEYSTORE_BASE64 secret — a release would attach a debug-signed APK. See android/README.md."
+            emit false
+            exit 0
+          fi
+
+          [ -n "${MH_KEYSTORE_PASSWORD:-}" ] || fail "ANDROID_KEYSTORE_PASSWORD is not set."
+          [ -n "${MH_KEY_ALIAS:-}" ]         || fail "ANDROID_KEY_ALIAS is not set."
+          [ -n "${MH_KEY_PASSWORD:-}" ]      || fail "ANDROID_KEY_PASSWORD is not set. Gradle passes it separately from the store password, so signing fails without it. For a PKCS12 keystore it equals ANDROID_KEYSTORE_PASSWORD."
+
+          KS="$RUNNER_TEMP/preflight.jks"
+          PROBE_DIR="$RUNNER_TEMP/preflight-probe"
+          PROBE_JAR="$RUNNER_TEMP/preflight-probe.jar"
+          rm -rf "$KS" "$PROBE_DIR" "$PROBE_JAR"
+
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KS" 2>/dev/null || true
+          [ -s "$KS" ] || fail "ANDROID_KEYSTORE_BASE64 did not decode to a file. Re-encode it — on macOS: base64 -i keystore.jks | tr -d '\n' | gh secret set ANDROID_KEYSTORE_BASE64"
+
+          keytool -list -keystore "$KS" -storepass "$MH_KEYSTORE_PASSWORD" >/dev/null 2>&1 \
+            || fail "Cannot open the keystore. Either ANDROID_KEYSTORE_PASSWORD is wrong, or ANDROID_KEYSTORE_BASE64 does not hold a keystore."
+
+          keytool -list -keystore "$KS" -storepass "$MH_KEYSTORE_PASSWORD" -alias "$MH_KEY_ALIAS" >/dev/null 2>&1 \
+            || fail "ANDROID_KEY_ALIAS does not name an entry in this keystore. List the aliases locally with: keytool -list -v -keystore <file> | grep 'Alias name'"
+
+          # keytool cannot probe the key password — on a PKCS12 store it ignores -keypass entirely.
+          # jarsigner calls KeyStore.getKey(alias, keyPassword) exactly like the Android Gradle
+          # plugin, so signing a throwaway jar is the only check that reproduces a packageRelease
+          # key failure.
+          mkdir -p "$PROBE_DIR" && : > "$PROBE_DIR/probe.txt"
+          jar cf "$PROBE_JAR" -C "$PROBE_DIR" . 2>/dev/null || fail "Could not build the probe jar."
+
+          jarsigner -keystore "$KS" -storepass "$MH_KEYSTORE_PASSWORD" -keypass "$MH_KEY_PASSWORD" \
+            "$PROBE_JAR" "$MH_KEY_ALIAS" >/dev/null 2>&1 \
+            || fail "ANDROID_KEY_PASSWORD cannot unlock the key. For a PKCS12 keystore (anything keytool made recently) it must equal ANDROID_KEYSTORE_PASSWORD."
+
+          rm -rf "$KS" "$PROBE_DIR" "$PROBE_JAR"
+          echo "Keystore, alias and both passwords check out — a release will attach a signed APK."
+          emit true
+
       # Gate the release on a green build of both deployables.
       - name: Frontend check / lint / build
         working-directory: frontend
@@ -81,13 +151,6 @@ jobs:
       # variants on every PR, so this failing is the unusual case. The release exists for a minute
       # or two without the APK attached.
 
-      - name: Setup JDK
-        if: steps.semrel.outputs.new_release_version != ''
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '25'
-
       - name: Setup Android SDK
         if: steps.semrel.outputs.new_release_version != ''
         uses: android-actions/setup-android@v4
@@ -104,6 +167,7 @@ jobs:
         working-directory: android
         env:
           VERSION: ${{ steps.semrel.outputs.new_release_version }}
+          SIGNING_OK: ${{ steps.android_signing.outputs.ok }}
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           MH_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           MH_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -117,17 +181,17 @@ jobs:
           VERSION_CODE=$(( MAJOR * 1000000 + MINOR * 1000 + PATCH ))
           echo "Building $VERSION (versionCode $VERSION_CODE)"
 
-          if [ -n "${KEYSTORE_BASE64:-}" ]; then
+          if [ "${SIGNING_OK:-false}" = "true" ]; then
             printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
             export MH_KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
             ./gradlew :app:assembleRelease -PmhVersionName="$VERSION" -PmhVersionCode="$VERSION_CODE"
             SOURCE=app/build/outputs/apk/release/app-release.apk
             APK="$RUNNER_TEMP/musichoarder-$VERSION.apk"
           else
-            # Without a keystore `assembleRelease` yields an APK nobody can install, so publish the
-            # debug build instead and say so in the filename. See android/README.md for the four
-            # secrets that switch this over.
-            echo "::warning title=Unsigned release::No ANDROID_KEYSTORE_BASE64 secret — attaching a debug-signed APK."
+            # The preflight rejected the signing secrets (or there are none). `assembleRelease`
+            # would yield an APK nobody can install, so publish the debug build instead and say so
+            # in the filename. The preflight step above carries the reason.
+            echo "::warning title=Unsigned release::Signing preflight did not pass — attaching a debug-signed APK. See the preflight step for the reason."
             ./gradlew :app:assembleDebug -PmhVersionName="$VERSION" -PmhVersionCode="$VERSION_CODE"
             SOURCE=app/build/outputs/apk/debug/app-debug.apk
             APK="$RUNNER_TEMP/musichoarder-$VERSION-debug.apk"
