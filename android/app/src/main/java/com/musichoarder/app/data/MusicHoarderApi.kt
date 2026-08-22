@@ -109,12 +109,24 @@ class MusicHoarderApi(
         runCatching { post("/songs/$songId/played") }
     }
 
+    /**
+     * The heart. Unlike [reportPlayed] these throw: the caller flips its copy optimistically and has
+     * to be able to put it back, which it cannot do if the failure is swallowed here.
+     */
+    suspend fun likeSong(songId: Int) = post("/songs/$songId/like")
+
+    suspend fun unlikeSong(songId: Int) = delete("/songs/$songId/like")
+
     private suspend fun <T> get(path: String, parse: (String) -> T): T = withContext(Dispatchers.IO) {
         execute(Request.Builder().url(url(path)).get().build()) { parse(it) }
     }
 
     private suspend fun post(path: String) = withContext(Dispatchers.IO) {
         execute(Request.Builder().url(url(path)).post(EMPTY_BODY).build()) { }
+    }
+
+    private suspend fun delete(path: String) = withContext(Dispatchers.IO) {
+        execute(Request.Builder().url(url(path)).delete().build()) { }
     }
 
     private fun <T> execute(request: Request, parse: (String) -> T): T =

@@ -52,6 +52,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _lyrics = MutableStateFlow<LyricsUiState>(LyricsUiState.Loading)
     val lyrics: StateFlow<LyricsUiState> = _lyrics.asStateFlow()
 
+    /** The hearted songs, as `GET /songs` reported them plus anything toggled since. */
+    val likedIds: StateFlow<Set<Int>> = graph.library.likedIds
+
+    /**
+     * Flips one song's heart optimistically and puts it back if the server disagrees — the same
+     * contract as the web's `songsStore.toggleLike`. Waiting for the round trip to paint would make
+     * every tap feel broken on a phone that is talking to a home server over the internet.
+     */
+    fun toggleLike(songId: Int) {
+        val liked = !graph.library.likedIds.value.contains(songId)
+        graph.library.setLiked(songId, liked)
+        viewModelScope.launch {
+            val result = runCatching {
+                if (liked) graph.api.likeSong(songId) else graph.api.unlikeSong(songId)
+            }
+            if (result.isFailure) graph.library.setLiked(songId, !liked)
+        }
+    }
+
+    /**
+     * Playback speed. The clip has to move with it: it chases the audio clock and hard-seeks past
+     * 300 ms of drift, so left at 1x behind a 1.5x song it would be re-seeking on every tick.
+     */
+    fun setPlaybackSpeed(rate: Float) {
+        player.setPlaybackSpeed(rate)
+        video.setSpeed(rate)
+    }
+
     private var lyricsSongId: Int? = null
     private var lyricsJob: Job? = null
 

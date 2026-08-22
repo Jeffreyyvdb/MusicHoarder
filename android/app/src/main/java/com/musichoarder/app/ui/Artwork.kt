@@ -1,5 +1,6 @@
 package com.musichoarder.app.ui
 
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -8,14 +9,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.musichoarder.app.ui.theme.MhTheme
 import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
@@ -50,6 +58,55 @@ fun Artwork(
         }
     }
 }
+
+/**
+ * The ambient wash the web paints behind the player and the fullscreen lyrics: the cover blown up,
+ * blurred hard, and half-faded into the page colour.
+ *
+ * `Modifier.blur` needs a `RenderEffect`, which is API 31 and up. Below that this leans on the
+ * other half of the recipe — [url] should be a small thumbnail (128 px is plenty), and a 128 px
+ * cover stretched across a phone is already soft enough to read as a wash rather than a picture.
+ */
+@Composable
+fun AmbientBackdrop(
+    url: String?,
+    artist: String,
+    title: String,
+    modifier: Modifier = Modifier,
+    scrimAlpha: Float = 0.8f,
+    blurRadius: Dp = 48.dp,
+) {
+    val colors = MhTheme.colors
+    val tint = remember(artist, title) { albumTint(artist, title) }
+    Box(modifier = modifier.clipToBounds().background(colors.background)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .scale(1.1f)
+                .ambientBlur(blurRadius)
+                .alpha(0.5f)
+                .background(tint)
+        ) {
+            if (url != null) {
+                AsyncImage(
+                    model = url,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+        Box(Modifier.fillMaxSize().background(colors.background.copy(alpha = scrimAlpha)))
+    }
+}
+
+/** `blur-3xl`, where the platform can do it at all. */
+private fun Modifier.ambientBlur(radius: Dp): Modifier =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        blur(radius, BlurredEdgeTreatment.Unbounded)
+    } else {
+        this
+    }
 
 /**
  * Port of `frontend/src/lib/album-tint.ts`. Same (artist, title) tuple must yield the same tint on

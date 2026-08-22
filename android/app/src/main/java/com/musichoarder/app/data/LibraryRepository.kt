@@ -24,6 +24,16 @@ class LibraryRepository(private val api: MusicHoarderApi) {
     private val _state = MutableStateFlow(LibraryState())
     val state: StateFlow<LibraryState> = _state.asStateFlow()
 
+    /**
+     * The hearted songs, kept beside the track list rather than on [Track].
+     *
+     * A like has to repaint one button, and copying the whole (whole-library) track list to flip one
+     * boolean would repaint every list that reads it. The set is seeded from the dump's `likedAtUtc`
+     * and is the only thing [setLiked] touches.
+     */
+    private val _likedIds = MutableStateFlow<Set<Int>>(emptySet())
+    val likedIds: StateFlow<Set<Int>> = _likedIds.asStateFlow()
+
     private val loadMutex = Mutex()
 
     suspend fun refresh(force: Boolean = false) {
@@ -31,7 +41,8 @@ class LibraryRepository(private val api: MusicHoarderApi) {
             if (_state.value.tracks.isNotEmpty() && !force) return
             _state.value = _state.value.copy(isLoading = true, error = null, isPairingRevoked = false)
             try {
-                val tracks = api.fetchSongs()
+                val songs = api.fetchSongs()
+                val tracks = songs
                     // Only the clean output, exactly as every "Listen" surface on the web does.
                     // A scan indexes everything it finds; until the builder has copied and tagged a
                     // song into the destination it is pipeline state, not library.
@@ -46,6 +57,7 @@ class LibraryRepository(private val api: MusicHoarderApi) {
                         )
                     )
                 _state.value = LibraryState(tracks = tracks, albums = tracks.toAlbums())
+                _likedIds.value = songs.filter { it.isLiked }.map { it.id }.toSet()
             } catch (e: UnauthorizedException) {
                 _state.value = _state.value.copy(isLoading = false, error = e.message, isPairingRevoked = true)
             } catch (e: Exception) {
@@ -59,7 +71,13 @@ class LibraryRepository(private val api: MusicHoarderApi) {
 
     fun trackById(id: Int): Track? = _state.value.tracks.firstOrNull { it.id == id }
 
+    /** Flips one song's heart. Callers do this optimistically and call again to roll back. */
+    fun setLiked(songId: Int, liked: Boolean) {
+        _likedIds.value = if (liked) _likedIds.value + songId else _likedIds.value - songId
+    }
+
     fun clear() {
         _state.value = LibraryState()
+        _likedIds.value = emptySet()
     }
 }

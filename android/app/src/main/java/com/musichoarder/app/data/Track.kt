@@ -22,10 +22,14 @@ data class ApiSong(
     val durationMs: Int? = null,
     val hasCoverArt: Boolean = false,
     val acquiredAtUtc: String? = null,
+    /** The local heart, set by `POST /songs/{id}/like`. Null means not liked. */
+    val likedAtUtc: String? = null,
     val destinationPath: String? = null,
     /** Serialized as a number by `/songs`, but the web's type allows the enum name too. */
     val libraryBuildStatus: JsonPrimitive? = null,
 ) {
+    val isLiked: Boolean get() = !likedAtUtc.isNullOrBlank()
+
     /**
      * A song is "built" once it reached the destination library: `LibraryBuildStatus == Done` and a
      * destination path is set. That implies it was enriched and matched first.

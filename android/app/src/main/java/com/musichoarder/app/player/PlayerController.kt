@@ -39,6 +39,7 @@ data class PlayerUiState(
     val hasPrevious: Boolean = false,
     val shuffleEnabled: Boolean = false,
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
+    val playbackRate: Float = 1f,
     val error: String? = null,
 ) {
     val isActive: Boolean get() = trackId != null
@@ -149,6 +150,14 @@ class PlayerController(
         player.shuffleModeEnabled = !player.shuffleModeEnabled
     }
 
+    /**
+     * Pitch-preserved playback speed. Media3 runs a non-1x rate through Sonic, which keeps the pitch
+     * — the same contract as the web player's `preservesPitch = true`.
+     */
+    fun setPlaybackSpeed(rate: Float) {
+        controller?.setPlaybackSpeed(rate.coerceIn(0.25f, 2f))
+    }
+
     /** Off → repeat all → repeat one → off. */
     fun cycleRepeatMode() {
         val player = controller ?: return
@@ -203,6 +212,7 @@ class PlayerController(
             hasPrevious = player.hasPreviousMediaItem(),
             shuffleEnabled = player.shuffleModeEnabled,
             repeatMode = player.repeatMode,
+            playbackRate = player.playbackParameters.speed,
         )
 
         // Count a play once the track actually starts, not when it is queued — the same moment the

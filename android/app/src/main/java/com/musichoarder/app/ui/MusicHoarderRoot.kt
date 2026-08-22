@@ -6,6 +6,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -25,6 +27,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -45,9 +48,13 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     val lyricsState by viewModel.lyrics.collectAsStateWithLifecycle()
     val videoState by viewModel.video.state.collectAsStateWithLifecycle()
     val pendingPairingHost by viewModel.pendingPairingHost.collectAsStateWithLifecycle()
+    val likedIds by viewModel.likedIds.collectAsStateWithLifecycle()
 
-    var openAlbumKey by remember { mutableStateOf<String?>(null) }
-    var showNowPlaying by remember { mutableStateOf(false) }
+    // Saveable, not remembered: a rotation or a trip through process death used to drop the open
+    // player and whatever album was underneath it.
+    var openAlbumKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var showNowPlaying by rememberSaveable { mutableStateOf(false) }
+    var showVideoBackdrop by rememberSaveable { mutableStateOf(true) }
 
     // The media notification is the playback controls — without it, background playback is invisible.
     val notificationPermission = rememberLauncherForActivityResult(
@@ -102,11 +109,13 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     // video behind a closed sheet would burn battery for nothing. `sync` is also the only thing that
     // ever starts the video, so closing the sheet has to park it explicitly; otherwise it just keeps
     // streaming with nothing left running to stop it.
-    LaunchedEffect(showNowPlaying, playerState.positionMs, playerState.isPlaying) {
-        if (showNowPlaying) viewModel.video.sync(playerState.positionMs, playerState.isPlaying)
+    LaunchedEffect(showNowPlaying, showVideoBackdrop, playerState.positionMs, playerState.isPlaying) {
+        if (showNowPlaying && showVideoBackdrop) {
+            viewModel.video.sync(playerState.positionMs, playerState.isPlaying)
+        }
     }
-    LaunchedEffect(showNowPlaying) {
-        if (!showNowPlaying) viewModel.video.pause()
+    LaunchedEffect(showNowPlaying, showVideoBackdrop) {
+        if (!showNowPlaying || !showVideoBackdrop) viewModel.video.pause()
     }
 
     BackHandler(enabled = showNowPlaying || openAlbum != null) {
@@ -163,14 +172,22 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
 
         AnimatedVisibility(
             visible = showNowPlaying && playerState.isActive,
-            enter = slideInVertically { it },
-            exit = slideOutVertically { it },
+            // The web's house curve for punchy chrome — expo-out, 280ms.
+            enter = slideInVertically(tween(280, easing = SheetEasing)) { it },
+            exit = slideOutVertically(tween(220, easing = SheetEasing)) { it },
         ) {
             NowPlayingScreen(
                 state = playerState,
                 coverUrl = viewModel.coverUrl(playerState.trackId, playerState.hasCover, 640),
+                // The ambient wash is a blown-up blur, so the smallest thumbnail is plenty — and on
+                // API 30 and below, where there is no RenderEffect, the upscale *is* the blur.
+                ambientCoverUrl = viewModel.coverUrl(playerState.trackId, playerState.hasCover, 128),
                 lyricsState = lyricsState,
                 videoState = videoState,
+                isLiked = playerState.trackId in likedIds,
+                showVideoBackdrop = showVideoBackdrop,
+                onToggleVideoBackdrop = { showVideoBackdrop = !showVideoBackdrop },
+                onToggleLike = { playerState.trackId?.let(viewModel::toggleLike) },
                 onCollapse = { showNowPlaying = false },
                 onPlayPause = viewModel.player::togglePlayPause,
                 onNext = viewModel.player::next,
@@ -179,6 +196,7 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                     viewModel.player.seekTo(positionMs)
                     viewModel.video.onSeek(positionMs)
                 },
+                onSetSpeed = viewModel::setPlaybackSpeed,
                 onToggleShuffle = viewModel.player::toggleShuffle,
                 onCycleRepeat = viewModel.player::cycleRepeatMode,
                 onAttachVideoSurface = viewModel.video::attachSurface,
@@ -188,3 +206,6 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
         }
     }
 }
+
+/** `cubic-bezier(0.23, 1, 0.32, 1)` — the easing the web's floating chrome enters on. */
+private val SheetEasing = CubicBezierEasing(0.23f, 1f, 0.32f, 1f)
