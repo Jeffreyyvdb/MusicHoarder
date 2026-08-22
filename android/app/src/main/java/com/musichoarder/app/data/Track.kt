@@ -65,6 +65,8 @@ data class ApiSong(
      * rows the web deliberately never shows — including untagged files with no artist or title — so
      * the two clients disagree about what is even in the library.
      */
+    val isLiked: Boolean get() = !likedAtUtc.isNullOrBlank()
+
     val isBuilt: Boolean
         get() {
             if (destinationPath.isNullOrBlank()) return false

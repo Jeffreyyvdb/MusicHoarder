@@ -1,8 +1,8 @@
 package com.musichoarder.app.ui
 
-import android.view.SurfaceView
-import android.view.ViewGroup
+import android.view.TextureView
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,412 +13,599 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.Lyrics
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.LocalMovies
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
-import androidx.compose.material.icons.rounded.SkipNext
-import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material.icons.rounded.Videocam
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import com.musichoarder.app.player.PlayerUiState
 import com.musichoarder.app.player.VideoState
+import com.musichoarder.app.ui.theme.LocalMhColors
+import com.musichoarder.app.ui.theme.MhDarkColors
 import com.musichoarder.app.ui.theme.MhTheme
 
-/** What the middle of the player screen is showing. */
-private enum class PlayerPane { Artwork, Lyrics, Video }
+/**
+ * What the middle of the player screen is showing. The labels are the tab strip's, and `Song` sits
+ * where the web's panel puts `Metadata` — the phone's home for a track is its artwork, not the
+ * enrichment record.
+ */
+private enum class PlayerPane(val label: String) {
+    Song("Song"),
+    Lyrics("Lyrics"),
+    Video("Video"),
+}
 
 /**
- * The full-screen player: big art, a real scrubber, the transport controls, and the two extras the
- * web player has — synced lyrics and the song's music video.
+ * The full-screen player, built to read as the same thing as the web panel it mirrors: a pill tab
+ * strip between a close button and the heart, a big cover over an ambient wash of itself, the
+ * `artist · album` line, and one hairline-scrubber transport.
  *
- * The video is a *backdrop* by default, exactly as on the web: muted, behind everything, slaved to
- * the audio clock. Tapping the video button promotes it to a watch view where it replaces the
- * artwork and the scrim lifts.
+ * The music video is a *backdrop* by default, exactly as on the web: muted, behind everything,
+ * slaved to the audio clock. The Video tab promotes it to a watch view where it is letterboxed
+ * rather than cropped and the scrim lifts.
  */
 @Composable
 fun NowPlayingScreen(
     state: PlayerUiState,
     coverUrl: String?,
+    ambientCoverUrl: String?,
     lyricsState: LyricsUiState,
     videoState: VideoState,
+    isLiked: Boolean,
+    showVideoBackdrop: Boolean,
+    onToggleVideoBackdrop: () -> Unit,
+    onToggleLike: () -> Unit,
     onCollapse: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     onSeek: (Long) -> Unit,
+    onSetSpeed: (Float) -> Unit,
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
-    onAttachVideoSurface: (SurfaceView) -> Unit,
+    onAttachVideoSurface: (TextureView) -> Unit,
     onDetachVideoSurface: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = MhTheme.colors
-    var pane by remember { mutableStateOf(PlayerPane.Artwork) }
+
+    // Two different questions: is there still a clip to offer a tab for, and is one running right
+    // now? Switching the backdrop off stops the clip, and must not take the Video tab with it.
+    val watchable = videoState.isWatchable
+    var pane by rememberSaveable { mutableStateOf(PlayerPane.Song) }
+    var lyricsExpanded by rememberSaveable { mutableStateOf(false) }
+    // The track whose default tab has already been decided (or overridden by a tap).
+    var settledTrackId by rememberSaveable { mutableStateOf<Int?>(null) }
 
     // A song without a video must not strand the screen in a watch view it can no longer show.
-    if (pane == PlayerPane.Video && !(videoState.hasVideo && videoState.isVisible)) {
-        pane = PlayerPane.Artwork
+    if (pane == PlayerPane.Video && !watchable) pane = PlayerPane.Song
+
+    // The web opens the panel on Lyrics when the track has any, else on the first tab — and only
+    // ever on a song *change*, so a manual switch is never clobbered. Lyrics arrive asynchronously
+    // here, so the decision waits for the fetch to answer and a tap settles the track early.
+    LaunchedEffect(state.trackId, lyricsState) {
+        val id = state.trackId ?: return@LaunchedEffect
+        if (id == settledTrackId || lyricsState is LyricsUiState.Loading) return@LaunchedEffect
+        settledTrackId = id
+        pane = if (lyricsState.hasLyrics) PlayerPane.Lyrics else PlayerPane.Song
     }
 
-    // While a finger is on the slider the player's own position must not fight the drag.
-    var scrubPosition by remember { mutableFloatStateOf(0f) }
-    var isScrubbing by remember { mutableStateOf(false) }
-    val position = if (isScrubbing) scrubPosition else state.positionMs.toFloat()
-    // Duration is unknown for the first moments of a track (and for some containers, longer). Left
-    // to itself the slider would clamp the position into a 0..0 range and sit pinned at 100%, which
-    // reads as a bug; show an inert bar and "--:--" until the real length arrives.
-    val hasDuration = state.durationMs > 0
-    val duration = state.durationMs.toFloat().coerceAtLeast(1f)
+    val panes = remember(watchable) {
+        if (watchable) listOf(PlayerPane.Song, PlayerPane.Lyrics, PlayerPane.Video)
+        else listOf(PlayerPane.Song, PlayerPane.Lyrics)
+    }
+    val watching = pane == PlayerPane.Video
+    // Anything painted over a running clip needs the web's text-shadow treatment to stay readable.
+    val onSurface = videoState.isVisible && showVideoBackdrop
 
     Box(modifier = modifier.fillMaxSize().background(colors.background)) {
-        // The surface stays mounted whenever a clip exists, so the decoder is not torn down every
-        // time the pane changes and the first frame is already there when it is promoted.
-        // `isVisible` — not just `hasVideo`: once the song outlives the clip, or both stream retries
-        // fail, the controller drops it and the surface has to come down with it. Keying on
-        // `hasVideo` alone left a frozen last frame sitting behind the scrim.
-        if (videoState.hasVideo && videoState.isVisible) {
-            VideoSurface(
-                onAttach = onAttachVideoSurface,
-                onDetach = onDetachVideoSurface,
-                modifier = Modifier.fillMaxSize(),
-            )
-            // As a backdrop the clip is atmosphere and legibility wins, so it sits under a heavy
-            // scrim in the page colour — heavier in the light theme, where a saturated frame
-            // bleeds straight through pale text. The watch pane scrims with black instead: a
-            // video wants to look like a video, not like a tinted page.
-            Box(
+        PlayerBackdrop(
+            ambientCoverUrl = ambientCoverUrl,
+            state = state,
+            videoState = videoState,
+            showVideo = videoState.isVisible && showVideoBackdrop,
+            watching = watching,
+            onAttachVideoSurface = onAttachVideoSurface,
+            onDetachVideoSurface = onDetachVideoSurface,
+        )
+
+        // Insets go on the chrome, not on the screen: the ambient wash and the clip have to reach
+        // the very edges, or the window's own (light) background shows as bars top and bottom.
+        CompositionLocalProvider(LocalMhColors provides if (watching) MhDarkColors else colors) {
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(
-                        if (pane == PlayerPane.Video) Color.Black.copy(alpha = 0.25f)
-                        else colors.background.copy(alpha = if (colors.isDark) 0.86f else 0.95f)
-                    )
-            )
-            // Watching means the flat scrim stays light enough to see the clip, which leaves the
-            // transport sitting on whatever the video happens to be showing. A gradient foot keeps
-            // the controls readable over a bright frame without dimming the picture itself.
-            if (pane == PlayerPane.Video) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0.55f to Color.Transparent,
-                                1f to Color.Black.copy(alpha = 0.75f),
-                            )
-                        )
-                )
-            }
-        }
-
-        Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onCollapse) {
-                    Icon(
-                        Icons.Rounded.KeyboardArrowDown,
-                        contentDescription = "Collapse player",
-                        tint = colors.mutedForeground,
-                    )
-                }
-                Text(
-                    text = state.album,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = colors.mutedForeground,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.size(48.dp))
-            }
-
-            Box(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentAlignment = Alignment.Center,
+                    .statusBarsPadding()
+                    .navigationBarsPadding(),
             ) {
-                Crossfade(targetState = pane, label = "player-pane") { current ->
-                    when (current) {
-                        PlayerPane.Artwork -> Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Artwork(
-                                url = coverUrl,
-                                artist = state.artist,
-                                title = state.album.ifBlank { state.title },
-                                modifier = Modifier.widthIn(max = 420.dp).fillMaxWidth().aspectRatio(1f),
-                                shape = RoundedCornerShape(12.dp),
+                PlayerTopBar(
+                    panes = panes,
+                    selected = pane,
+                    isLiked = isLiked,
+                    onSelect = {
+                        settledTrackId = state.trackId
+                        // You cannot watch the video with the video switched off.
+                        if (it == PlayerPane.Video && !showVideoBackdrop) onToggleVideoBackdrop()
+                        pane = it
+                    },
+                    onClose = onCollapse,
+                    onToggleLike = onToggleLike,
+                )
+
+                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    Crossfade(targetState = pane, animationSpec = tween(220), label = "player-pane") { current ->
+                        when (current) {
+                            PlayerPane.Song -> SongPane(state, coverUrl, onSurface)
+
+                            PlayerPane.Lyrics -> LyricsPane(
+                                state = state,
+                                coverUrl = coverUrl,
+                                lyricsState = lyricsState,
+                                onSurface = onSurface,
+                                onPlayPause = onPlayPause,
+                                onNext = onNext,
+                                onPrevious = onPrevious,
+                                onSeek = onSeek,
+                                onSetSpeed = onSetSpeed,
+                                onExpandLyrics = { lyricsExpanded = true },
                             )
+
+                            // The clip is already painted full-bleed behind this column; the watch pane
+                            // just names the track and gets out of its way.
+                            PlayerPane.Video -> VideoPane(state, coverUrl, onSurface = true)
                         }
-
-                        PlayerPane.Lyrics -> LyricsView(
-                            state = lyricsState,
-                            positionMs = state.positionMs,
-                            onSeek = onSeek,
-                        )
-
-                        // The clip itself is already painted full-bleed behind this column; the
-                        // watch pane just gets out of its way.
-                        PlayerPane.Video -> Box(Modifier.fillMaxSize())
                     }
                 }
-            }
 
-            Spacer(Modifier.height(20.dp))
+                // The Lyrics pane carries its own transport in the hero, the way the web's does.
+                if (pane != PlayerPane.Lyrics) {
+                    PlayerTransport(
+                        state = state,
+                        onPlayPause = onPlayPause,
+                        onNext = onNext,
+                        onPrevious = onPrevious,
+                        onSeek = onSeek,
+                        onSetSpeed = onSetSpeed,
+                        onSurface = onSurface || watching,
+                        modifier = Modifier.padding(horizontal = 20.dp),
+                    )
+                }
 
-            Text(
-                state.title,
-                style = MaterialTheme.typography.headlineSmall,
-                color = colors.foreground,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                state.artist,
-                style = MaterialTheme.typography.bodyLarge,
-                color = colors.mutedForeground,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-
-            Spacer(Modifier.height(16.dp))
-
-            Slider(
-                value = if (hasDuration) position.coerceIn(0f, duration) else 0f,
-                valueRange = 0f..duration,
-                enabled = hasDuration,
-                onValueChange = {
-                    isScrubbing = true
-                    scrubPosition = it
-                },
-                onValueChangeFinished = {
-                    onSeek(scrubPosition.toLong())
-                    isScrubbing = false
-                },
-                colors = SliderDefaults.colors(
-                    thumbColor = colors.foreground,
-                    activeTrackColor = colors.foreground,
-                    inactiveTrackColor = colors.muted,
-                    disabledThumbColor = colors.mutedForeground,
-                    disabledActiveTrackColor = colors.muted,
-                    disabledInactiveTrackColor = colors.muted,
-                ),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    formatDuration(position.toLong()),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = colors.mutedForeground,
+                PlayerBottomChrome(
+                    state = state,
+                    // On the watch pane the clip is the point, so there is nothing to switch off there.
+                    hasVideo = watchable && !watching,
+                    showVideoBackdrop = showVideoBackdrop,
+                    onToggleShuffle = onToggleShuffle,
+                    onCycleRepeat = onCycleRepeat,
+                    onToggleVideoBackdrop = onToggleVideoBackdrop,
                 )
-                Text(
-                    if (hasDuration) formatDuration(state.durationMs) else "--:--",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = colors.mutedForeground,
-                )
-            }
 
-            Spacer(Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onToggleShuffle) {
-                    Icon(
-                        Icons.Rounded.Shuffle,
-                        contentDescription = "Shuffle",
-                        tint = if (state.shuffleEnabled) colors.primary else colors.mutedForeground,
+                state.error?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MhTheme.colors.destructive,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
                     )
                 }
-                IconButton(onClick = onPrevious, enabled = state.hasPrevious) {
-                    Icon(
-                        Icons.Rounded.SkipPrevious,
-                        contentDescription = "Previous track",
-                        tint = if (state.hasPrevious) colors.foreground else colors.mutedForeground,
-                        modifier = Modifier.size(34.dp),
-                    )
-                }
-                // The one filled control on the screen, in the brand green.
-                Box(
-                    modifier = Modifier
-                        .size(64.dp)
-                        .clip(CircleShape)
-                        .background(colors.primary)
-                        .clickable(onClick = onPlayPause),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (state.isBuffering && !state.isPlaying) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            strokeWidth = 3.dp,
-                            color = colors.primaryForeground,
-                        )
-                    } else {
-                        Icon(
-                            if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            contentDescription = if (state.isPlaying) "Pause" else "Play",
-                            tint = colors.primaryForeground,
-                            modifier = Modifier.size(32.dp),
-                        )
-                    }
-                }
-                IconButton(onClick = onNext, enabled = state.hasNext) {
-                    Icon(
-                        Icons.Rounded.SkipNext,
-                        contentDescription = "Next track",
-                        tint = if (state.hasNext) colors.foreground else colors.mutedForeground,
-                        modifier = Modifier.size(34.dp),
-                    )
-                }
-                IconButton(onClick = onCycleRepeat) {
-                    Icon(
-                        if (state.repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne
-                        else Icons.Rounded.Repeat,
-                        contentDescription = "Repeat",
-                        tint = if (state.repeatMode == Player.REPEAT_MODE_OFF) colors.mutedForeground
-                        else colors.primary,
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PaneToggle(
-                    icon = Icons.Rounded.Lyrics,
-                    label = "Lyrics",
-                    selected = pane == PlayerPane.Lyrics,
-                ) {
-                    pane = if (pane == PlayerPane.Lyrics) PlayerPane.Artwork else PlayerPane.Lyrics
-                }
-                if (videoState.hasVideo && videoState.isVisible) {
-                    PaneToggle(
-                        icon = Icons.Rounded.Videocam,
-                        label = "Video",
-                        selected = pane == PlayerPane.Video,
-                    ) {
-                        pane = if (pane == PlayerPane.Video) PlayerPane.Artwork else PlayerPane.Video
-                    }
-                }
-            }
-
-            state.error?.let {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.destructive,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(),
-                )
             }
         }
     }
-}
 
-/** The pill toggles under the transport, in the shell's chip idiom. */
-@Composable
-private fun PaneToggle(
-    icon: ImageVector,
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    val colors = MhTheme.colors
-    Row(
-        modifier = Modifier
-            .clip(CircleShape)
-            .background(if (selected) colors.primary.copy(alpha = 0.16f) else colors.secondary)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = if (selected) colors.primary else colors.mutedForeground,
-            modifier = Modifier.size(15.dp),
-        )
-        Spacer(Modifier.size(6.dp))
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = if (selected) colors.primary else colors.mutedForeground,
+    if (lyricsExpanded) {
+        LyricsFullscreen(
+            state = lyricsState,
+            playerState = state,
+            coverUrl = coverUrl,
+            ambientUrl = ambientCoverUrl,
+            onPlayPause = onPlayPause,
+            onSeek = onSeek,
+            onSetSpeed = onSetSpeed,
+            onClose = { lyricsExpanded = false },
         )
     }
 }
 
 /**
- * The video output. ExoPlayer renders straight into a [SurfaceView] — media3-ui's PlayerView would
- * bring its own controls and layout, and all this needs is the pixels.
+ * The layers under the chrome: the cover blurred to a wash, then the clip, then whatever scrim the
+ * current pane needs to keep text on top of it readable.
  */
 @Composable
-private fun VideoSurface(
-    onAttach: (SurfaceView) -> Unit,
-    onDetach: () -> Unit,
-    modifier: Modifier = Modifier,
+private fun PlayerBackdrop(
+    ambientCoverUrl: String?,
+    state: PlayerUiState,
+    videoState: VideoState,
+    showVideo: Boolean,
+    watching: Boolean,
+    onAttachVideoSurface: (TextureView) -> Unit,
+    onDetachVideoSurface: () -> Unit,
 ) {
-    AndroidView(
-        modifier = modifier,
-        factory = { context ->
-            SurfaceView(context).apply {
-                layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                )
-                onAttach(this)
-            }
-        },
+    val colors = MhTheme.colors
+
+    if (watching) {
+        // A video wants to look like a video, not a tinted page: no ambient wash, just the black
+        // room its letterbox sits in.
+        Box(Modifier.fillMaxSize().background(Color.Black))
+    } else {
+        AmbientBackdrop(
+            url = ambientCoverUrl,
+            artist = state.artist,
+            title = state.album.ifBlank { state.title },
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
+
+    if (!showVideo) return
+
+    // The surface stays mounted whenever a clip is running, so the decoder is not torn down every
+    // time the pane changes and the first frame is already there when it is promoted. Only the fit
+    // changes: cropped to fill behind the player, letterboxed when you are actually watching.
+    PlayerVideoLayer(
+        aspectRatio = videoState.aspectRatio,
+        crop = !watching,
+        onAttach = onAttachVideoSurface,
+        onDetach = onDetachVideoSurface,
+        modifier = Modifier.fillMaxSize(),
     )
-    DisposableEffect(Unit) { onDispose { onDetach() } }
+
+    if (watching) {
+        // The picture stays undimmed; the chrome gets its own gradients to sit on instead.
+        Box(
+            modifier = Modifier.fillMaxSize().background(
+                Brush.verticalGradient(
+                    0f to Color.Black.copy(alpha = 0.7f),
+                    0.22f to Color.Transparent,
+                    0.62f to Color.Transparent,
+                    1f to Color.Black.copy(alpha = 0.8f),
+                )
+            )
+        )
+    } else {
+        // As a backdrop the clip is atmosphere and legibility wins, so it sits under the same
+        // vertical wash the web uses — heaviest at the top and foot, where the chrome lives.
+        Box(
+            modifier = Modifier.fillMaxSize().background(
+                Brush.verticalGradient(
+                    0f to colors.background.copy(alpha = 0.75f),
+                    0.5f to colors.background.copy(alpha = 0.45f),
+                    1f to colors.background.copy(alpha = 0.85f),
+                )
+            )
+        )
+    }
 }
+
+/** Close · the segmented tab strip · the heart. The web's share button is not implemented here. */
+@Composable
+private fun PlayerTopBar(
+    panes: List<PlayerPane>,
+    selected: PlayerPane,
+    isLiked: Boolean,
+    onSelect: (PlayerPane) -> Unit,
+    onClose: () -> Unit,
+    onToggleLike: () -> Unit,
+) {
+    val colors = MhTheme.colors
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        MhCircleIconButton(
+            icon = Icons.Rounded.Close,
+            contentDescription = "Close player",
+            onClick = onClose,
+        )
+        MhPillTabs(
+            labels = panes.map { it.label },
+            selectedIndex = panes.indexOf(selected).coerceAtLeast(0),
+            onSelect = { onSelect(panes[it]) },
+            modifier = Modifier.weight(1f),
+        )
+        MhCircleIconButton(
+            icon = if (isLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+            contentDescription = if (isLiked) "Remove from liked songs" else "Add to liked songs",
+            onClick = onToggleLike,
+            tint = if (isLiked) colors.primary else colors.foreground,
+        )
+    }
+}
+
+@Composable
+private fun SongPane(state: PlayerUiState, coverUrl: String?, onSurface: Boolean) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        HeroCover(state, coverUrl)
+        Spacer(Modifier.height(20.dp))
+        TrackTitle(state.title, onSurface, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(4.dp))
+        TrackSubtitle(state.artist, state.album, onSurface, textAlign = TextAlign.Center)
+    }
+}
+
+@Composable
+private fun LyricsPane(
+    state: PlayerUiState,
+    coverUrl: String?,
+    lyricsState: LyricsUiState,
+    onSurface: Boolean,
+    onPlayPause: () -> Unit,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onSetSpeed: (Float) -> Unit,
+    onExpandLyrics: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp)
+            .padding(top = 16.dp, bottom = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        HeroCover(state, coverUrl)
+        Spacer(Modifier.height(20.dp))
+        TrackTitle(state.title, onSurface, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(4.dp))
+        TrackSubtitle(state.artist, state.album, onSurface, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(24.dp))
+        PlayerTransport(
+            state = state,
+            onPlayPause = onPlayPause,
+            onNext = onNext,
+            onPrevious = onPrevious,
+            onSeek = onSeek,
+            onSetSpeed = onSetSpeed,
+            onSurface = onSurface,
+            modifier = Modifier.widthIn(max = 340.dp),
+        )
+        Spacer(Modifier.height(32.dp))
+        LyricsCard(
+            state = lyricsState,
+            positionMs = state.positionMs,
+            onExpand = onExpandLyrics,
+        )
+    }
+}
+
+@Composable
+private fun VideoPane(state: PlayerUiState, coverUrl: String?, onSurface: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .padding(top = 4.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Artwork(
+            url = coverUrl,
+            artist = state.artist,
+            title = state.album.ifBlank { state.title },
+            modifier = Modifier.size(56.dp),
+            shape = RoundedCornerShape(8.dp),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                state.title,
+                style = legible(CompactTitleStyle, onSurface),
+                color = MhTheme.colors.foreground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            TrackSubtitle(state.artist, state.album, onSurface, textAlign = TextAlign.Start, small = true)
+        }
+    }
+}
+
+@Composable
+private fun HeroCover(state: PlayerUiState, coverUrl: String?) {
+    Artwork(
+        url = coverUrl,
+        artist = state.artist,
+        title = state.album.ifBlank { state.title },
+        shape = HeroShape,
+        modifier = Modifier
+            .widthIn(max = 224.dp)
+            .fillMaxWidth()
+            .aspectRatio(1f)
+            .shadow(24.dp, HeroShape, clip = false, ambientColor = Color.Black, spotColor = Color.Black),
+    )
+}
+
+@Composable
+private fun TrackTitle(title: String, onSurface: Boolean, textAlign: TextAlign) {
+    Text(
+        text = title,
+        style = legible(HeroTitleStyle, onSurface),
+        color = MhTheme.colors.foreground,
+        // One line, like the web's `truncate`: a long "(feat. ...)" title would otherwise push the
+        // cover around from track to track.
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        textAlign = textAlign,
+    )
+}
+
+/** `artist · album`, with the album half a shade quieter — the web's `text-muted-foreground/70`. */
+@Composable
+private fun TrackSubtitle(
+    artist: String,
+    album: String,
+    onSurface: Boolean,
+    textAlign: TextAlign,
+    small: Boolean = false,
+) {
+    val colors = MhTheme.colors
+    val text = buildAnnotatedString {
+        withStyle(SpanStyle(color = colors.mutedForeground)) { append(artist) }
+        if (album.isNotBlank()) {
+            withStyle(SpanStyle(color = colors.mutedForeground)) { append(" · ") }
+            withStyle(SpanStyle(color = colors.mutedForeground.copy(alpha = 0.7f))) { append(album) }
+        }
+    }
+    Text(
+        text = text,
+        style = legible(if (small) MaterialTheme.typography.bodySmall else SubtitleStyle, onSurface),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        textAlign = textAlign,
+    )
+}
+
+/**
+ * Shuffle and repeat, plus the backdrop toggle.
+ *
+ * The web transport has no queue modes at all — they live elsewhere in the app — but they work on
+ * the phone today and should not regress, so they get a quiet row of their own rather than being
+ * pushed back into the transport and knocking the play button off the centre line. The film glyph
+ * is the web's `Film` button, reduced to the one control in its popover that is not an owner-only
+ * mutation: whether the clip plays behind the player.
+ */
+@Composable
+private fun PlayerBottomChrome(
+    state: PlayerUiState,
+    hasVideo: Boolean,
+    showVideoBackdrop: Boolean,
+    onToggleShuffle: () -> Unit,
+    onCycleRepeat: () -> Unit,
+    onToggleVideoBackdrop: () -> Unit,
+) {
+    val colors = MhTheme.colors
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Mirrors the film button so the queue glyphs stay on the centre line either way.
+        Spacer(Modifier.width(36.dp))
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ChromeGlyph(
+                icon = Icons.Rounded.Shuffle,
+                contentDescription = "Shuffle",
+                tint = if (state.shuffleEnabled) colors.primary else colors.mutedForeground,
+                onClick = onToggleShuffle,
+            )
+            Spacer(Modifier.width(20.dp))
+            ChromeGlyph(
+                icon = if (state.repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne
+                else Icons.Rounded.Repeat,
+                contentDescription = "Repeat",
+                tint = if (state.repeatMode == Player.REPEAT_MODE_OFF) colors.mutedForeground
+                else colors.primary,
+                onClick = onCycleRepeat,
+            )
+        }
+        if (hasVideo) {
+            ChromeGlyph(
+                icon = Icons.Rounded.LocalMovies,
+                contentDescription = if (showVideoBackdrop) "Hide the music video" else "Show the music video",
+                tint = if (showVideoBackdrop) colors.primary else colors.mutedForeground,
+                onClick = onToggleVideoBackdrop,
+                ground = true,
+            )
+        } else {
+            Spacer(Modifier.width(36.dp))
+        }
+    }
+}
+
+@Composable
+private fun ChromeGlyph(
+    icon: ImageVector,
+    contentDescription: String,
+    tint: Color,
+    onClick: () -> Unit,
+    ground: Boolean = false,
+) {
+    val colors = MhTheme.colors
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(if (ground) colors.background.copy(alpha = 0.4f) else Color.Transparent)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(18.dp))
+    }
+}
+
+private val HeroShape = RoundedCornerShape(12.dp)
+
+/** `text-2xl font-bold tracking-[-0.02em]` — the panel's hero title. */
+private val HeroTitleStyle = TextStyle(
+    fontFamily = FontFamily.Default,
+    fontSize = 24.sp,
+    lineHeight = 32.sp,
+    fontWeight = FontWeight.Bold,
+    letterSpacing = (-0.48).sp,
+)
+
+/** `text-base font-semibold tracking-[-0.01em]` — the compact header's title. */
+private val CompactTitleStyle = TextStyle(
+    fontFamily = FontFamily.Default,
+    fontSize = 16.sp,
+    lineHeight = 20.sp,
+    fontWeight = FontWeight.SemiBold,
+    letterSpacing = (-0.16).sp,
+)
+
+/** `text-sm` — the `artist · album` line under a hero title. */
+private val SubtitleStyle = TextStyle(
+    fontFamily = FontFamily.Default,
+    fontSize = 14.sp,
+    lineHeight = 20.sp,
+)

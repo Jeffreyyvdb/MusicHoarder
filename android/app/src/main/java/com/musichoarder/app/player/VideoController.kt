@@ -1,11 +1,12 @@
 package com.musichoarder.app.player
 
 import android.content.Context
-import android.view.SurfaceView
+import android.view.TextureView
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -28,8 +29,23 @@ data class VideoState(
     val info: VideoInfo? = null,
     /** True once the clip is attached and should be painted over the artwork. */
     val isVisible: Boolean = false,
+    /**
+     * The decoded frame's width / height, pixel aspect ratio included. Null until the first frame
+     * arrives — the API's `VideoInfo` carries no dimensions, so the decoder is the only source.
+     */
+    val aspectRatio: Float? = null,
+    /**
+     * The clip is done for this playthrough — it ran past its end, or both stream retries failed.
+     *
+     * Distinct from [isVisible], which also goes false for benign reasons (the sheet closed, the
+     * backdrop was switched off). Only a retired clip should take the Video tab away with it.
+     */
+    val isRetired: Boolean = false,
 ) {
     val hasVideo: Boolean get() = info?.isPlayable == true
+
+    /** Whether there is still a clip worth offering a Video tab for. */
+    val isWatchable: Boolean get() = hasVideo && !isRetired
 }
 
 /**
@@ -65,6 +81,14 @@ class VideoController(
             repeatMode = Player.REPEAT_MODE_OFF
             addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) = onLoadError()
+
+                // Without this nothing in the app knows the clip's shape, and the surface — which
+                // ExoPlayer never resizes on its own — stretches whatever it is given to fill.
+                override fun onVideoSizeChanged(size: VideoSize) {
+                    val ratio = if (size.width == 0 || size.height == 0) null
+                    else size.width * size.pixelWidthHeightRatio / size.height
+                    _state.value = _state.value.copy(aspectRatio = ratio)
+                }
             })
         }
 
@@ -73,9 +97,29 @@ class VideoController(
     /** Set once the clip runs past its end while the song keeps going — fall back to artwork. */
     private var ended = false
 
-    fun attachSurface(surfaceView: SurfaceView) = player.setVideoSurfaceView(surfaceView)
+    /**
+     * A [TextureView], not a `SurfaceView`.
+     *
+     * A SurfaceView lives in its own layer behind the window and is only visible through a hole it
+     * punches in whatever the window painted. That cannot survive this screen: the clip sits under
+     * an ambient wash, a scrim and a gradient, and the blur promotes part of that stack into its own
+     * graphics layer. The decoder ran and nothing appeared. A TextureView composites in the ordinary
+     * view draw order, so the layers above it behave like layers — and it is captured by
+     * screenshots, which a surface is not.
+     */
+    fun attachSurface(textureView: TextureView) = player.setVideoTextureView(textureView)
 
     fun clearSurface() = player.clearVideoSurface()
+
+    /**
+     * Matches the audio's rate. The clip is slaved to the audio clock and hard-seeks past
+     * [DRIFT_TOLERANCE_MS]; left at 1x while the song runs at 1.5x it would fall behind fast enough
+     * to be re-seeking on almost every tick.
+     */
+    fun setSpeed(rate: Float) {
+        val clamped = rate.coerceIn(0.25f, 2f)
+        if (player.playbackParameters.speed != clamped) player.setPlaybackSpeed(clamped)
+    }
 
     /** Looks up the song's video and prepares it. Safe to call on every track change. */
     fun load(songId: Int?) {
@@ -128,7 +172,10 @@ class VideoController(
         // Re-check on every tick rather than only when the full player's slider seeks: a seek from
         // the lock screen, the notification or a headset button never reaches `onSeek`, and the clip
         // would otherwise stay retired for the rest of the track. This mirrors the web's effect.
-        if (ended && isBackBeforeClipEnd(mapped)) ended = false
+        if (ended && isBackBeforeClipEnd(mapped)) {
+            ended = false
+            _state.value = _state.value.copy(isRetired = false)
+        }
         if (ended) return
 
         if (mapped < 0) {
@@ -143,7 +190,7 @@ class VideoController(
             // The song outlives the clip — fall back to the artwork.
             ended = true
             player.pause()
-            _state.value = _state.value.copy(isVisible = false)
+            _state.value = _state.value.copy(isVisible = false, isRetired = true)
             return
         }
 
@@ -171,7 +218,10 @@ class VideoController(
     /** A seek back before the clip's end brings the video back, without waiting for the next tick. */
     fun onSeek(audioPositionMs: Long) {
         val info = _state.value.info ?: return
-        if (ended && isBackBeforeClipEnd(audioPositionMs + info.syncOffsetMs)) ended = false
+        if (ended && isBackBeforeClipEnd(audioPositionMs + info.syncOffsetMs)) {
+            ended = false
+            _state.value = _state.value.copy(isRetired = false)
+        }
     }
 
     /**
@@ -192,7 +242,7 @@ class VideoController(
      */
     private fun onLoadError() {
         if (retries >= RETRY_DELAYS_MS.size) {
-            _state.value = _state.value.copy(isVisible = false)
+            _state.value = _state.value.copy(isVisible = false, isRetired = true)
             return
         }
         val attempt = retries

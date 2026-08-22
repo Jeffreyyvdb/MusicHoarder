@@ -18,6 +18,7 @@ import com.musichoarder.app.data.ServerSession
 import com.musichoarder.app.data.Track
 import com.musichoarder.app.data.defaultAscending
 import com.musichoarder.app.data.foldLibrary
+import com.musichoarder.app.data.likedNow
 import com.musichoarder.app.data.resolveAlbum
 import com.musichoarder.app.data.sortForChipChange
 import com.musichoarder.app.player.PlayerController
@@ -118,6 +119,33 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _lyrics = MutableStateFlow<LyricsUiState>(LyricsUiState.Loading)
     val lyrics: StateFlow<LyricsUiState> = _lyrics.asStateFlow()
+
+    /**
+     * The hearted songs, as `GET /songs` reported them plus anything toggled since — the boolean
+     * view of the like overlay, for callers that do not need the timestamp (the player's heart).
+     * The library lists read the overlay directly, because their "liked" sort orders on the date.
+     */
+    val likedIds: StateFlow<Set<Int>> =
+        combine(graph.library.state, graph.library.likes) { state, likes ->
+            state.trackListBase.filterTo(mutableListOf()) { likedNow(likes, it) }.mapTo(HashSet()) { it.id }
+        }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    /** The player's heart, which knows a song id rather than the row it came from. */
+    fun toggleLike(songId: Int) {
+        val track = graph.library.trackById(songId) ?: return
+        toggleLike(track)
+    }
+
+    /**
+     * Playback speed. The clip has to move with it: it chases the audio clock and hard-seeks past
+     * 300 ms of drift, so left at 1x behind a 1.5x song it would be re-seeking on every tick.
+     */
+    fun setPlaybackSpeed(rate: Float) {
+        player.setPlaybackSpeed(rate)
+        video.setSpeed(rate)
+    }
 
     private var lyricsSongId: Int? = null
     private var lyricsJob: Job? = null
