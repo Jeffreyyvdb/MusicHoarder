@@ -39,6 +39,7 @@ data class PlayerUiState(
     val hasPrevious: Boolean = false,
     val shuffleEnabled: Boolean = false,
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
+    val playbackRate: Float = 1f,
     val error: String? = null,
 ) {
     val isActive: Boolean get() = trackId != null
@@ -149,6 +150,14 @@ class PlayerController(
         player.shuffleModeEnabled = !player.shuffleModeEnabled
     }
 
+    /**
+     * Pitch-preserved playback speed. Media3 runs a non-1x rate through Sonic, which keeps the pitch
+     * — the same contract as the web player's `preservesPitch = true`.
+     */
+    fun setPlaybackSpeed(rate: Float) {
+        controller?.setPlaybackSpeed(rate.coerceIn(0.25f, 2f))
+    }
+
     /** Off → repeat all → repeat one → off. */
     fun cycleRepeatMode() {
         val player = controller ?: return
@@ -176,6 +185,11 @@ class PlayerController(
                 .setArtist(track.artist)
                 .setAlbumTitle(track.album)
                 .setAlbumArtist(track.albumArtist)
+                // The library already knows how long the track is. ExoPlayer only learns it once
+                // it has parsed enough of the stream, which over the internet can take most of a
+                // minute — and until then the bar is inert and the label reads "--:--". This is
+                // the web transport's `fallbackDuration` prop, carried on the item.
+                .setDurationMs(track.durationMs)
                 .setArtworkUri(
                     // 640 is the largest server-side thumbnail bucket — enough for the lock screen.
                     if (track.hasCover) Uri.parse(api.coverUrl(track.id, 640)) else null
@@ -198,11 +212,12 @@ class PlayerController(
             isPlaying = player.isPlaying,
             isBuffering = player.playbackState == Player.STATE_BUFFERING,
             positionMs = player.currentPosition.coerceAtLeast(0),
-            durationMs = player.duration.takeIf { it > 0 } ?: 0,
+            durationMs = player.durationOr(metadata.durationMs),
             hasNext = player.hasNextMediaItem(),
             hasPrevious = player.hasPreviousMediaItem(),
             shuffleEnabled = player.shuffleModeEnabled,
             repeatMode = player.repeatMode,
+            playbackRate = player.playbackParameters.speed,
         )
 
         // Count a play once the track actually starts, not when it is queued — the same moment the
@@ -230,12 +245,16 @@ class PlayerController(
                 val player = controller ?: continue
                 _state.value = _state.value.copy(
                     positionMs = player.currentPosition.coerceAtLeast(0),
-                    durationMs = player.duration.takeIf { it > 0 } ?: 0,
+                    durationMs = player.durationOr(player.mediaMetadata.durationMs),
                 )
             }
         }
     }
 }
+
+/** The real duration once the stream has been parsed, else the length the library reported. */
+private fun Player.durationOr(fallbackMs: Long?): Long =
+    duration.takeIf { it > 0 } ?: fallbackMs?.takeIf { it > 0 } ?: 0
 
 /**
  * Awaits a Guava future without pulling in `kotlinx-coroutines-guava` for the single call site that

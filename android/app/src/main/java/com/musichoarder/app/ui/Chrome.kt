@@ -3,6 +3,7 @@ package com.musichoarder.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,15 +24,18 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.musichoarder.app.ui.theme.MhTheme
 
@@ -177,5 +181,89 @@ fun MhPageToolbar(
             color = MhTheme.colors.foreground,
         )
         trailing()
+    }
+}
+
+/**
+ * The web's segmented tab strip: a `foreground/5` track with one pill per tab, the active one
+ * filled with the page colour and lifted a hair. Used by the player's Song / Lyrics / Video
+ * switcher, and by anything else that needs the same control.
+ *
+ * The strip scrolls when it does not fit and centres itself when it does — the same behaviour as
+ * `Tabs.List`'s `mx-auto w-max` inside an `overflow-x-auto` scroller.
+ */
+@Composable
+fun MhPillTabs(
+    labels: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MhTheme.colors
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Row(
+            modifier = Modifier
+                .horizontalScroll(rememberScrollState())
+                .clip(CircleShape)
+                .background(colors.foreground.copy(alpha = 0.05f))
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            labels.forEachIndexed { index, label ->
+                val selected = index == selectedIndex
+                Box(
+                    modifier = Modifier
+                        .then(
+                            if (selected) Modifier.shadow(1.dp, CircleShape) else Modifier
+                        )
+                        .clip(CircleShape)
+                        .background(if (selected) colors.background else Color.Transparent)
+                        .clickable { onSelect(index) }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = if (selected) colors.foreground else colors.mutedForeground,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * `size-9 rounded-full bg-foreground/5` — the round chrome buttons the overlays use (close, heart,
+ * the fullscreen-lyrics collapse chevron), as opposed to [MhIconButton]'s bordered square.
+ */
+@Composable
+fun MhCircleIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tint: Color? = null,
+    groundAlpha: Float = 0.05f,
+    size: Dp = 36.dp,
+    iconSize: Dp = 16.dp,
+) {
+    val colors = MhTheme.colors
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(colors.foreground.copy(alpha = groundAlpha))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = contentDescription,
+            tint = tint ?: colors.foreground,
+            modifier = Modifier.size(iconSize),
+        )
     }
 }

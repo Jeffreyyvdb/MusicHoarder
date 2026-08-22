@@ -73,7 +73,8 @@ data/     ServerSession (pairing + DataStore), MusicHoarderApi (OkHttp + kotlinx
           LibraryRepository (the library, held in memory), Track/Album models, Lyrics (+ LRC parser)
 player/   PlaybackService (Media3 MediaSessionService), PlayerController (MediaController + UI state),
           VideoController (the muted clip that chases the audio clock)
-ui/       PairScreen, LibraryScreen, AlbumScreen, NowPlayingScreen, MiniPlayer, LyricsView, AppViewModel
+ui/       PairScreen, LibraryScreen, AlbumScreen, NowPlayingScreen (+ PlayerTransport, PlayerVideo,
+          LyricsView), MiniPlayer, Chrome, AppViewModel
 AppGraph  One OkHttpClient shared by the API, ExoPlayer, and Coil — so all three carry the token
 ```
 
@@ -86,10 +87,47 @@ Notable choices:
 - **`GET /songs` is a whole-library dump**, fetched once per app start (the web app does the same).
   A paged or delta endpoint is the obvious next step for very large libraries.
 
+## The player
+
+The full-screen player mirrors the web panel it shares a design with: a close button, a segmented
+pill strip, and the heart across the top; a big rounded cover over an ambient wash of itself; the
+`artist · album` line; and one hairline-scrubber transport reading
+`0:10 ⏪ ▶ ⏩ 2:54 1×`. Tokens come from the same components — `TrackPanel.svelte`,
+`SongTransport.svelte`, `Scrubber.svelte`, `LyricsCard.svelte`, `LyricsFullscreen.svelte` — so a
+change on either side is easy to mirror.
+
+The strip has **Song / Lyrics / Video**, where `Song` sits where the web puts `Metadata`: the
+phone's home for a track is its artwork, not the enrichment record. The panel opens on Lyrics when
+the track has any, and only ever re-decides on a song *change*, so a manual switch is never
+clobbered. Metadata, Fingerprint and Enrichment are not ported — they are owner-facing debug panels
+that would need a whole new DTO layer.
+
+The ambient wash is `Modifier.blur`, which needs a `RenderEffect` and so API 31. Below that it
+leans on the other half of the recipe: the backdrop asks for the 128 px thumbnail, and a 128 px
+cover stretched across a phone is already soft enough to read as a wash rather than a picture.
+
+The player draws edge to edge: the ambient wash and the clip reach the very top and bottom of the
+window, and only the chrome inside takes the system-bar insets. Inset the screen instead and the
+window's own (light) background shows as bars above and below.
+
+**Duration** comes from the library row until ExoPlayer has parsed enough of the stream to know it
+— the web transport's `fallbackDuration` prop, carried on the `MediaItem`. Without it the bar is
+inert and the label reads `--:--`, which over the internet can last most of a minute.
+
+**The heart** reads `likedAtUtc` from the library dump and calls `POST`/`DELETE /songs/{id}/like`,
+flipping optimistically and rolling back on failure — the same contract as the web's
+`songsStore.toggleLike`. **Playback speed** is the eight pitch-preserved presets from
+`SongTransport.svelte`; the clip has to move with it, because it chases the audio clock and
+hard-seeks past 300 ms of drift, so a 1x video behind a 1.5x song would re-seek on every tick.
+
+Shuffle and repeat have no home in the web transport — they live elsewhere in that app — but they
+work here and get a quiet row of their own rather than being pushed back into the transport, where
+they would knock the play button off the centre line. Sharing a song, and the AI lyrics actions,
+are not wired up.
+
 ## Lyrics and music videos
 
-The player screen carries the same two extras the web player does, behind pill toggles under the
-transport.
+The two per-song extras behind the Lyrics and Video tabs.
 
 **Lyrics** come from `GET /api/tracks/{id}/lyrics`, fetched per song rather than shipped with the
 library dump — the AI transcription text in particular is large and most songs never have their
@@ -105,8 +143,26 @@ from `/songs/{id}/video/stream` into a second, muted ExoPlayer, and it plays beh
 a heavy scrim. The audio is always the master clock — `VideoController` only chases it
 (`videoTime = audioTime + syncOffsetMs`) and hard-seeks past 300 ms of drift, the same tolerance the
 web backdrop uses, so a clip with an intro stays lined up with the song rather than the file. The
-**Video** toggle promotes it to a watch view where the scrim lifts. Syncing runs only while the
-player is on screen, so nothing decodes video behind a closed sheet.
+**Video** tab promotes it to a watch view. Syncing runs only while the player is on screen, so
+nothing decodes video behind a closed sheet, and the film button switches the backdrop off without
+taking the Video tab with it — `VideoState.isVisible` means "painting right now", `isRetired` means
+"done for this playthrough", and only the second removes the tab.
+
+ExoPlayer renders into a **`TextureView`**, not a `SurfaceView`. A surface lives in its own layer
+behind the window and is only visible through a hole it punches in whatever the window painted, and
+that cannot survive this screen: the clip sits under an ambient wash, a scrim and a gradient, and
+the blur promotes part of that stack into its own graphics layer. The decoder ran and nothing
+appeared. A TextureView composites in the ordinary view draw order, so the layers above it behave
+like layers — and it is captured by screenshots, which a surface is not. media3-ui's `PlayerView`
+would bring its own controls and layout, and all this needs is the pixels.
+
+What it also needs, and what ExoPlayer never does on its own, is **shape** — a view left at
+`MATCH_PARENT` stretches every clip to the phone's portrait box, which made a 16:9 video roughly
+2.4x too tall. `VideoFrameLayout` in `ui/PlayerVideo.kt` is `AspectRatioFrameLayout` minus
+everything else: it reads the decoded size from `onVideoSizeChanged`, sizes its child from it, and
+centres it, clipping the overflow. The two fits are the web's two `object-fit`s — cropped to fill
+behind the player, letterboxed in the watch view. `videoChildSize` is the whole rule and is pinned
+by `VideoChildSizeTest`; `VideoFrameLayoutTest` pins that a real measure pass applies it.
 
 Not wired up: fetching or deleting a video, nudging the sync offset by hand, triggering a
 transcription, and the pronunciation/translation overlay — all of them owner-only mutations the
@@ -203,9 +259,19 @@ The app deliberately looks like the web app rather than like stock Material.
 - **Placeholders** — `albumTint()` in `Artwork.kt` is a direct port of `frontend/src/lib/album-tint.ts`,
   down to `cyrb53`'s 32-bit multiplies, so an album without a cover gets the same gradient on both
   clients.
-- **Chrome** — `Chrome.kt` carries the shared pieces: section pills, bordered icon buttons, and the
-  rounded-full search field. The mini player is the web's floating `rounded-2xl` card, inset from
-  both edges with the progress hairline across its top.
+- **Chrome** — `Chrome.kt` carries the shared pieces: section pills, the segmented `MhPillTabs`
+  strip, bordered and round icon buttons, and the rounded-full search field. The mini player is the
+  web's floating `rounded-2xl` card, inset from both edges with the progress hairline across its top.
+- **Screenshots** — `PlayerScreenshotTest` renders each pane over fixture data and writes a PNG per
+  pane, so the layout can be compared against the web without a paired server. Run it with
+  `am instrument` rather than `connectedDebugAndroidTest`, which uninstalls the APKs (and the
+  output) when it finishes:
+
+  ```bash
+  adb shell am instrument -w -e class com.musichoarder.app.ui.PlayerScreenshotTest \
+    com.musichoarder.app.test/androidx.test.runner.AndroidJUnitRunner
+  adb pull /sdcard/Android/data/com.musichoarder.app/files/player-screenshots
+  ```
 
 One thing the web grid has that this does not: the small completeness dot on album covers, which
 encodes canonical-tracklist state the app never fetches.
