@@ -34,12 +34,25 @@ fun Artwork(
     title: String,
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(6.dp),
+    fallbackUrl: String? = null,
 ) {
     val tint = remember(artist, title) { albumTint(artist, title) }
     Box(
         modifier = modifier.clip(shape).background(tint),
         contentAlignment = Alignment.Center,
     ) {
+        // Both layers are simply stacked rather than wired through an error callback: an image that
+        // fails paints nothing, so the one underneath shows through on its own. That is what the
+        // artist grid needs, where the portrait endpoint 404s for anyone the providers do not know
+        // and the album cover has to take over without a flash of empty tile.
+        if (fallbackUrl != null) {
+            AsyncImage(
+                model = fallbackUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
         if (url != null) {
             AsyncImage(
                 model = url,

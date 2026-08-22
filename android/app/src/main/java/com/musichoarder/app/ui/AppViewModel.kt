@@ -4,26 +4,88 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.musichoarder.app.MusicHoarderApp
+import com.musichoarder.app.data.Album
+import com.musichoarder.app.data.AlbumSortKey
+import com.musichoarder.app.data.ArtistMode
+import com.musichoarder.app.data.ChipKey
+import com.musichoarder.app.data.LibraryContent
+import com.musichoarder.app.data.LibraryTab
+import com.musichoarder.app.data.LibraryUiState
 import com.musichoarder.app.data.PairingUri
+import com.musichoarder.app.data.SortKey
 import com.musichoarder.app.data.UnauthorizedException
 import com.musichoarder.app.data.ServerSession
 import com.musichoarder.app.data.Track
+import com.musichoarder.app.data.defaultAscending
+import com.musichoarder.app.data.foldLibrary
+import com.musichoarder.app.data.resolveAlbum
+import com.musichoarder.app.data.sortForChipChange
 import com.musichoarder.app.player.PlayerController
 import com.musichoarder.app.player.VideoController
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.random.Random
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val graph = (application as MusicHoarderApp).graph
 
     val session: StateFlow<ServerSession?> = graph.sessions.session
     val library = graph.library.state
+
+    /** Failures the library reports that are worth a snackbar rather than a whole error screen. */
+    val messages: SharedFlow<String> = graph.library.messages
+
+    /** Optimistic heart state, read by every row that draws one. */
+    val likes = graph.library.likes
+
+    /** Provider-link status per album, keyed `artistLower::albumLower`. */
+    val albumStatuses = graph.library.albumStatuses
+
+    private val _ui = MutableStateFlow(LibraryUiState(seed = Random.nextInt().toString(radix = 36)))
+    val ui: StateFlow<LibraryUiState> = _ui.asStateFlow()
+
+    /**
+     * The lists the four tabs render.
+     *
+     * `mapLatest` drops an in-flight fold the moment the next keystroke arrives, and `flowOn` keeps
+     * the whole thing off the main thread - grouping and sorting four thousand tracks is not frame
+     * work. Nothing here belongs in `derivedStateOf`, which would run it on the composition.
+     */
+    val content: StateFlow<LibraryContent> = combine(
+        graph.library.state,
+        _ui,
+        graph.library.likes,
+        graph.library.plays,
+    ) { state, ui, likes, plays -> Fold(state, ui, likes, plays) }
+        .mapLatest { foldLibrary(it.state, it.ui, it.likes, it.plays) }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LibraryContent())
+
+    private data class Fold(
+        val state: com.musichoarder.app.data.LibraryState,
+        val ui: LibraryUiState,
+        val likes: Map<Int, String?>,
+        val plays: Map<Int, com.musichoarder.app.data.PlayStat>,
+    )
+
+    /** The album the drilldown is showing, resolved against the unscoped list. */
+    val openAlbum: StateFlow<Album?> = combine(graph.library.state, _ui) { state, ui ->
+        resolveAlbum(state.albums, ui.openAlbumKey)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _pairError = MutableStateFlow<String?>(null)
     val pairError: StateFlow<String?> = _pairError.asStateFlow()
@@ -38,7 +100,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         context = application,
         api = graph.api,
         scope = viewModelScope,
-        onTrackStarted = { songId -> viewModelScope.launch { graph.api.reportPlayed(songId) } },
+        onTrackStarted = { songId ->
+            // Mirror what the server is about to record, so the Overview's "Last played" and
+            // "Discover" shelves move as you listen instead of waiting for the next full fetch.
+            graph.library.notePlayed(songId, System.currentTimeMillis())
+            viewModelScope.launch { graph.api.reportPlayed(songId) }
+        },
     )
 
     /** The muted clip behind the player; it chases [player]'s clock and never drives it. */
@@ -190,6 +257,60 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             graph.sessions.clear()
         }
     }
+
+    // ---- Library view state ------------------------------------------------------------------
+    // Every mutation goes through a named method so the state stays one object and the back handler
+    // has a single place to read.
+
+    fun selectTab(tab: LibraryTab) = _ui.update { it.copy(tab = tab) }
+
+    fun setQuery(query: String) = _ui.update { it.copy(query = query) }
+
+    fun toggleChip(key: ChipKey) = _ui.update { state ->
+        val next = if (key in state.chips) state.chips - key else state.chips + key
+        val (sortKey, ascending) = sortForChipChange(state.chips, next, state.sortKey, state.sortAscending)
+        state.copy(chips = next, sortKey = sortKey, sortAscending = ascending)
+    }
+
+    fun clearChips() = _ui.update { state ->
+        val (sortKey, ascending) = sortForChipChange(state.chips, emptySet(), state.sortKey, state.sortAscending)
+        state.copy(chips = emptySet(), sortKey = sortKey, sortAscending = ascending)
+    }
+
+    /** Picking the current key again flips the direction, as the web's column headers do. */
+    fun setSort(key: SortKey) = _ui.update { state ->
+        if (state.sortKey == key) state.copy(sortAscending = !state.sortAscending)
+        else state.copy(sortKey = key, sortAscending = defaultAscending(key))
+    }
+
+    fun setAlbumSort(key: AlbumSortKey) = _ui.update { it.copy(albumSort = key) }
+
+    fun toggleUnreleasedOnly() = _ui.update { it.copy(unreleasedOnly = !it.unreleasedOnly) }
+
+    fun setArtistMode(mode: ArtistMode) = _ui.update { it.copy(artistMode = mode) }
+
+    fun setLetter(letter: String?) = _ui.update { it.copy(letter = letter) }
+
+    /** Tapping an artist narrows the Albums tab in place, the way the web's `?artist=` link does. */
+    fun openArtist(name: String) =
+        _ui.update { it.copy(artistFilter = name, tab = LibraryTab.Albums, letter = null) }
+
+    fun clearArtistFilter() = _ui.update { it.copy(artistFilter = null) }
+
+    fun openAlbum(album: Album) = _ui.update { it.copy(openAlbumKey = album.key) }
+
+    fun closeAlbum() = _ui.update { it.copy(openAlbumKey = null) }
+
+    /** Loads the album grid's link-status dots for what is currently on screen. */
+    fun ensureAlbumStatuses(albums: List<Album>) =
+        graph.library.loadAlbumStatuses(albums, viewModelScope)
+
+    fun toggleLike(track: Track) {
+        viewModelScope.launch { graph.library.toggleLike(track) }
+    }
+
+    /** The artist portrait endpoint. 404s are common and simply never paint. */
+    fun artistImageUrl(name: String): String = graph.api.artistImageUrl(name)
 
     fun play(tracks: List<Track>, startIndex: Int) = player.play(tracks, startIndex)
 

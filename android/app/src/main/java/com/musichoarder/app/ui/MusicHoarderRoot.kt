@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,30 +28,36 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.musichoarder.app.data.Album
+import com.musichoarder.app.data.LibraryTab
 import com.musichoarder.app.ui.theme.MhTheme
 
 /**
- * The whole app in one place: pair, browse, play. Navigation is two booleans deep, which is exactly
- * as much as a first player needs — no nav graph to maintain yet.
+ * The whole app in one place: pair, browse, play. Navigation is the library's four tabs plus two
+ * overlays deep, which is exactly as much as a player needs - no nav graph to maintain yet.
  */
 @Composable
 fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val library by viewModel.library.collectAsStateWithLifecycle()
+    val ui by viewModel.ui.collectAsStateWithLifecycle()
+    val content by viewModel.content.collectAsStateWithLifecycle()
+    val likes by viewModel.likes.collectAsStateWithLifecycle()
+    val albumStatuses by viewModel.albumStatuses.collectAsStateWithLifecycle()
+    val openAlbum by viewModel.openAlbum.collectAsStateWithLifecycle()
     val playerState by viewModel.player.state.collectAsStateWithLifecycle()
     val pairError by viewModel.pairError.collectAsStateWithLifecycle()
     val lyricsState by viewModel.lyrics.collectAsStateWithLifecycle()
     val videoState by viewModel.video.state.collectAsStateWithLifecycle()
     val pendingPairingHost by viewModel.pendingPairingHost.collectAsStateWithLifecycle()
 
-    var openAlbumKey by remember { mutableStateOf<String?>(null) }
     var showNowPlaying by remember { mutableStateOf(false) }
+    val snackbarHost = remember { SnackbarHostState() }
 
-    // The media notification is the playback controls — without it, background playback is invisible.
+    // The media notification is the playback controls - without it, background playback is invisible.
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
@@ -57,6 +65,11 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
         if (session != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+
+    // A failed heart reverts itself; saying nothing would just look like the tap missed.
+    LaunchedEffect(Unit) {
+        viewModel.messages.collect { snackbarHost.showSnackbar(it) }
     }
 
     pendingPairingHost?.let { host ->
@@ -89,16 +102,18 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
         return
     }
 
-    val openAlbum: Album? = remember(openAlbumKey, library.albums) {
-        library.albums.firstOrNull { it.key == openAlbumKey }
-    }
-
     // Lyrics and the video clip are per-song extras the library dump does not carry.
     LaunchedEffect(playerState.trackId) {
         viewModel.onNowPlayingTrackChanged(playerState.trackId)
     }
 
-    // The clip chases the audio clock, and only while the player is actually on screen — decoding
+    // The album cards' provider-link dots. One batch request per distinct album set, so the silent
+    // refetches do not re-post the whole library.
+    LaunchedEffect(library.albums) {
+        if (library.albums.isNotEmpty()) viewModel.ensureAlbumStatuses(library.albums)
+    }
+
+    // The clip chases the audio clock, and only while the player is actually on screen - decoding
     // video behind a closed sheet would burn battery for nothing. `sync` is also the only thing that
     // ever starts the video, so closing the sheet has to park it explicitly; otherwise it just keeps
     // streaming with nothing left running to stop it.
@@ -109,18 +124,27 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
         if (!showNowPlaying) viewModel.video.pause()
     }
 
-    BackHandler(enabled = showNowPlaying || openAlbum != null) {
-        if (showNowPlaying) showNowPlaying = false else openAlbumKey = null
-    }
+    // One ordered list rather than nested ifs, so it is obvious what Back unwinds and in what order.
+    val backSteps: List<Pair<Boolean, () -> Unit>> = listOf(
+        showNowPlaying to { showNowPlaying = false },
+        (openAlbum != null) to viewModel::closeAlbum,
+        (ui.artistFilter != null) to viewModel::clearArtistFilter,
+        (ui.tab != LibraryTab.Overview) to { viewModel.selectTab(LibraryTab.Overview) },
+    )
+    val backStep = backSteps.firstOrNull { it.first }?.second
+    BackHandler(enabled = backStep != null) { backStep?.invoke() }
 
     Box(modifier = modifier.fillMaxSize().background(MhTheme.colors.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.weight(1f)) {
-                if (openAlbum != null) {
+                val album = openAlbum
+                if (album != null) {
                     AlbumScreen(
-                        album = openAlbum,
+                        album = album,
                         coverUrl = { track, size -> viewModel.coverUrl(track.id, track.hasCover, size) },
                         playingTrackId = playerState.trackId,
+                        likes = likes,
+                        onToggleLike = viewModel::toggleLike,
                         onPlay = { tracks, index ->
                             viewModel.play(tracks, index)
                             showNowPlaying = true
@@ -129,18 +153,45 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                             viewModel.play(tracks.shuffled(), 0)
                             showNowPlaying = true
                         },
-                        onBack = { openAlbumKey = null },
+                        onBack = viewModel::closeAlbum,
                         contentPadding = PaddingValues(bottom = 12.dp),
                     )
                 } else {
-                    LibraryScreen(
+                    LibraryShell(
                         state = library,
-                        coverUrl = { track, size -> viewModel.coverUrl(track.id, track.hasCover, size) },
+                        ui = ui,
+                        content = content,
+                        albumStatuses = albumStatuses,
+                        likes = likes,
                         playingTrackId = playerState.trackId,
-                        onPlay = viewModel::play,
-                        onOpenAlbum = { openAlbumKey = it.key },
-                        onRefresh = viewModel::refresh,
-                        onUnpair = viewModel::unpair,
+                        isPlayingNow = playerState.isPlaying,
+                        coverUrl = { track, size -> viewModel.coverUrl(track.id, track.hasCover, size) },
+                        artistImageUrl = viewModel::artistImageUrl,
+                        actions = LibraryActions(
+                            onSelectTab = viewModel::selectTab,
+                            onQueryChange = viewModel::setQuery,
+                            onToggleChip = viewModel::toggleChip,
+                            onClearChips = viewModel::clearChips,
+                            onSetSort = viewModel::setSort,
+                            onSetAlbumSort = viewModel::setAlbumSort,
+                            onToggleUnreleased = viewModel::toggleUnreleasedOnly,
+                            onSetArtistMode = viewModel::setArtistMode,
+                            onSetLetter = viewModel::setLetter,
+                            onOpenArtist = { viewModel.openArtist(it.label) },
+                            onClearArtistFilter = viewModel::clearArtistFilter,
+                            onOpenAlbum = viewModel::openAlbum,
+                            onToggleLike = viewModel::toggleLike,
+                            onPlay = { tracks, index ->
+                                viewModel.play(tracks, index)
+                                showNowPlaying = true
+                            },
+                            onShuffle = { tracks ->
+                                viewModel.play(tracks.shuffled(), 0)
+                                showNowPlaying = true
+                            },
+                            onRefresh = viewModel::refresh,
+                            onUnpair = viewModel::unpair,
+                        ),
                         contentPadding = PaddingValues(bottom = 12.dp),
                     )
                 }
@@ -160,6 +211,14 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
             }
             Spacer(Modifier.navigationBarsPadding())
         }
+
+        SnackbarHost(
+            hostState = snackbarHost,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 76.dp),
+        )
 
         AnimatedVisibility(
             visible = showNowPlaying && playerState.isActive,
