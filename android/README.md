@@ -203,12 +203,21 @@ keytool -genkeypair -v -keystore musichoarder-release.jks -alias musichoarder \
   -keyalg RSA -keysize 4096 -validity 10000
 ```
 
+`keytool` writes a PKCS12 keystore, and PKCS12 has no separate per-entry password — the one
+password you type at the prompt is *both* the store password and the key password. Set both
+secrets to it. The Android Gradle plugin still reads the two independently, so leaving
+`ANDROID_KEY_PASSWORD` unset fails `packageRelease` with `Get Key failed`.
+
 ```bash
-gh secret set ANDROID_KEYSTORE_BASE64 < <(base64 -w0 musichoarder-release.jks)
+base64 -i musichoarder-release.jks | tr -d '\n' | gh secret set ANDROID_KEYSTORE_BASE64
 ```
 
+(`base64 -w0` is GNU-only and errors out on macOS. Line wrapping is harmless either way —
+`base64 --decode` on the runner ignores newlines — so the `tr` is belt and braces.)
+
 Then set `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` (`musichoarder` above), and
-`ANDROID_KEY_PASSWORD` the same way. The build reads them as `MH_KEYSTORE_PATH`,
+`ANDROID_KEY_PASSWORD` the same way. Passing no `--body` makes `gh` prompt, which keeps the
+password out of your shell history. The build reads them as `MH_KEYSTORE_PATH`,
 `MH_KEYSTORE_PASSWORD`, `MH_KEY_ALIAS` and `MH_KEY_PASSWORD`, so the identical four variables
 produce a signed build locally:
 
@@ -219,6 +228,20 @@ MH_KEYSTORE_PATH=/path/to/musichoarder-release.jks MH_KEYSTORE_PASSWORD=… \
 
 With no keystore in the environment `assembleRelease` writes `app-release-unsigned.apk` instead —
 that is the signal that signing was not configured.
+
+### The signing preflight
+
+`release.yml` validates the four secrets *before* semantic-release runs, on every push to `main`
+whether or not a version is cut: it decodes the keystore, opens it with the store password, looks
+up the alias, and signs a throwaway jar with `jarsigner` to prove the key password works. That last
+step exists because `keytool` cannot check a key password — on a PKCS12 store it ignores `-keypass`
+entirely, so only something that calls `KeyStore.getKey(alias, keyPassword)`, as the Android Gradle
+plugin does, reproduces a `packageRelease` key failure.
+
+The preflight never fails the job. An Android-only problem must not hold back the API/frontend
+deploy, so it writes an error annotation, reports `ok=false`, and the APK step falls back to the
+debug build — the Release still carries an installable APK, and the run states why it is not
+signed. A green run with no annotation means the next release will be properly signed.
 
 ## Design
 
