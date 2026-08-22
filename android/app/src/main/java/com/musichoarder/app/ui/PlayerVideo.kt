@@ -2,7 +2,7 @@ package com.musichoarder.app.ui
 
 import android.content.Context
 import android.view.Gravity
-import android.view.SurfaceView
+import android.view.TextureView
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.runtime.Composable
@@ -14,27 +14,26 @@ import kotlin.math.roundToInt
 /**
  * The video output.
  *
- * ExoPlayer renders straight into a [SurfaceView] — media3-ui's `PlayerView` would bring its own
- * controls and layout, and all this needs is the pixels. What it also needs, and what a bare
- * `SurfaceView` does not do, is *shape*: `setVideoSurfaceView` never resizes the view, so a surface
- * left at `MATCH_PARENT` stretches every clip to the phone's portrait box — a 16:9 video comes out
- * roughly 2.4x too tall. Sizing the surface from the decoded frame is what `AspectRatioFrameLayout`
- * does inside `PlayerView`, and [VideoFrameLayout] is that, minus everything else.
+ * ExoPlayer renders straight into a [TextureView] — media3-ui's `PlayerView` would bring its own
+ * controls and layout, and all this needs is the pixels. What it also needs, and what neither view
+ * does on its own, is *shape*: ExoPlayer never resizes the view it is given, so one left at
+ * `MATCH_PARENT` stretches every clip to the phone's portrait box — a 16:9 video comes out roughly
+ * 2.4x too tall. Sizing it from the decoded frame is what `AspectRatioFrameLayout` does inside
+ * `PlayerView`, and [VideoFrameLayout] is that, minus everything else.
  *
  * [crop] picks between the web's two fits:
  * - `true` — `object-cover`, the ambient backdrop: fill the box and let the overflow be clipped.
  * - `false` — `object-contain`, the watch view: fit inside the box and letterbox the rest.
  *
- * There is no fade-in here, unlike the web's 500 ms cross-fade. A `<video>` with no first frame
- * paints nothing, so the web has to reveal it; a `SurfaceView` paints black, and alpha on a surface
- * is not reliably honoured. The surface is instead only mounted once `VideoState.isVisible` says the
- * clip is actually running, which keeps the black window down to a frame or two.
+ * There is no fade-in here, unlike the web's 500 ms cross-fade: the view is only mounted once
+ * `VideoState.isVisible` says the clip is actually running, which keeps the blank window before the
+ * first frame down to a frame or two.
  */
 @Composable
 fun PlayerVideoLayer(
     aspectRatio: Float?,
     crop: Boolean,
-    onAttach: (SurfaceView) -> Unit,
+    onAttach: (TextureView) -> Unit,
     onDetach: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -43,7 +42,7 @@ fun PlayerVideoLayer(
         factory = { context ->
             VideoFrameLayout(context).apply {
                 addView(
-                    SurfaceView(context).also(onAttach),
+                    TextureView(context).also(onAttach),
                     FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -62,9 +61,8 @@ fun PlayerVideoLayer(
 
 /**
  * A frame that sizes its single child to the clip's aspect ratio and centres it, clipping whatever
- * hangs over the edge. `clipChildren` is on by default, and a `SurfaceView` *is* clipped by its
- * parent view's bounds — which is why the overflow has to happen inside a real `ViewGroup` rather
- * than under a Compose `clipToBounds`, whose canvas clip a surface would ignore.
+ * hangs over the edge. `clipChildren` is on by default, so the crop mode's overflow is trimmed by
+ * the frame rather than spilling across the screen.
  */
 internal class VideoFrameLayout(context: Context) : FrameLayout(context) {
     /** Width / height of the decoded frame; 0 means "not known yet" and fills the box. */

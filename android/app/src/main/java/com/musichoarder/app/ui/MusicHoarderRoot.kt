@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -201,7 +200,6 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                 onCycleRepeat = viewModel.player::cycleRepeatMode,
                 onAttachVideoSurface = viewModel.video::attachSurface,
                 onDetachVideoSurface = viewModel.video::clearSurface,
-                modifier = Modifier.statusBarsPadding().navigationBarsPadding(),
             )
         }
     }

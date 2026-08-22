@@ -1,7 +1,7 @@
 package com.musichoarder.app.player
 
 import android.content.Context
-import android.view.SurfaceView
+import android.view.TextureView
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -97,7 +97,17 @@ class VideoController(
     /** Set once the clip runs past its end while the song keeps going — fall back to artwork. */
     private var ended = false
 
-    fun attachSurface(surfaceView: SurfaceView) = player.setVideoSurfaceView(surfaceView)
+    /**
+     * A [TextureView], not a `SurfaceView`.
+     *
+     * A SurfaceView lives in its own layer behind the window and is only visible through a hole it
+     * punches in whatever the window painted. That cannot survive this screen: the clip sits under
+     * an ambient wash, a scrim and a gradient, and the blur promotes part of that stack into its own
+     * graphics layer. The decoder ran and nothing appeared. A TextureView composites in the ordinary
+     * view draw order, so the layers above it behave like layers — and it is captured by
+     * screenshots, which a surface is not.
+     */
+    fun attachSurface(textureView: TextureView) = player.setVideoTextureView(textureView)
 
     fun clearSurface() = player.clearVideoSurface()
 

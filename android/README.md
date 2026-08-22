@@ -106,6 +106,14 @@ The ambient wash is `Modifier.blur`, which needs a `RenderEffect` and so API 31.
 leans on the other half of the recipe: the backdrop asks for the 128 px thumbnail, and a 128 px
 cover stretched across a phone is already soft enough to read as a wash rather than a picture.
 
+The player draws edge to edge: the ambient wash and the clip reach the very top and bottom of the
+window, and only the chrome inside takes the system-bar insets. Inset the screen instead and the
+window's own (light) background shows as bars above and below.
+
+**Duration** comes from the library row until ExoPlayer has parsed enough of the stream to know it
+— the web transport's `fallbackDuration` prop, carried on the `MediaItem`. Without it the bar is
+inert and the label reads `--:--`, which over the internet can last most of a minute.
+
 **The heart** reads `likedAtUtc` from the library dump and calls `POST`/`DELETE /songs/{id}/like`,
 flipping optimistically and rolling back on failure — the same contract as the web's
 `songsStore.toggleLike`. **Playback speed** is the eight pitch-preserved presets from
@@ -140,15 +148,21 @@ nothing decodes video behind a closed sheet, and the film button switches the ba
 taking the Video tab with it — `VideoState.isVisible` means "painting right now", `isRetired` means
 "done for this playthrough", and only the second removes the tab.
 
-ExoPlayer renders into a plain `SurfaceView`; media3-ui's `PlayerView` would bring its own controls
-and layout, and all this needs is the pixels. What it also needs, and what `setVideoSurfaceView`
-never does, is **shape** — a surface left at `MATCH_PARENT` stretches every clip to the phone's
-portrait box, which made a 16:9 video roughly 2.4x too tall. `VideoFrameLayout` in `ui/PlayerVideo.kt`
-is `AspectRatioFrameLayout` minus everything else: it reads the decoded size from
-`onVideoSizeChanged`, sizes its child from it, and centres it, clipping the overflow. The two fits
-are the web's two `object-fit`s — cropped to fill behind the player, letterboxed in the watch view.
-`videoChildSize` is the whole rule and is pinned by `VideoChildSizeTest`; `VideoFrameLayoutTest`
-pins that a real measure pass applies it.
+ExoPlayer renders into a **`TextureView`**, not a `SurfaceView`. A surface lives in its own layer
+behind the window and is only visible through a hole it punches in whatever the window painted, and
+that cannot survive this screen: the clip sits under an ambient wash, a scrim and a gradient, and
+the blur promotes part of that stack into its own graphics layer. The decoder ran and nothing
+appeared. A TextureView composites in the ordinary view draw order, so the layers above it behave
+like layers — and it is captured by screenshots, which a surface is not. media3-ui's `PlayerView`
+would bring its own controls and layout, and all this needs is the pixels.
+
+What it also needs, and what ExoPlayer never does on its own, is **shape** — a view left at
+`MATCH_PARENT` stretches every clip to the phone's portrait box, which made a 16:9 video roughly
+2.4x too tall. `VideoFrameLayout` in `ui/PlayerVideo.kt` is `AspectRatioFrameLayout` minus
+everything else: it reads the decoded size from `onVideoSizeChanged`, sizes its child from it, and
+centres it, clipping the overflow. The two fits are the web's two `object-fit`s — cropped to fill
+behind the player, letterboxed in the watch view. `videoChildSize` is the whole rule and is pinned
+by `VideoChildSizeTest`; `VideoFrameLayoutTest` pins that a real measure pass applies it.
 
 Not wired up: fetching or deleting a video, nudging the sync offset by hand, triggering a
 transcription, and the pronunciation/translation overlay — all of them owner-only mutations the

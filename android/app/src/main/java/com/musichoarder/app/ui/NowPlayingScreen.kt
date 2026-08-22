@@ -1,6 +1,6 @@
 package com.musichoarder.app.ui
 
-import android.view.SurfaceView
+import android.view.TextureView
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -13,9 +13,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -34,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,6 +63,8 @@ import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import com.musichoarder.app.player.PlayerUiState
 import com.musichoarder.app.player.VideoState
+import com.musichoarder.app.ui.theme.LocalMhColors
+import com.musichoarder.app.ui.theme.MhDarkColors
 import com.musichoarder.app.ui.theme.MhTheme
 
 /**
@@ -101,7 +106,7 @@ fun NowPlayingScreen(
     onSetSpeed: (Float) -> Unit,
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
-    onAttachVideoSurface: (SurfaceView) -> Unit,
+    onAttachVideoSurface: (TextureView) -> Unit,
     onDetachVideoSurface: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -147,78 +152,87 @@ fun NowPlayingScreen(
             onDetachVideoSurface = onDetachVideoSurface,
         )
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            PlayerTopBar(
-                panes = panes,
-                selected = pane,
-                isLiked = isLiked,
-                onSelect = {
-                    settledTrackId = state.trackId
-                    // You cannot watch the video with the video switched off.
-                    if (it == PlayerPane.Video && !showVideoBackdrop) onToggleVideoBackdrop()
-                    pane = it
-                },
-                onClose = onCollapse,
-                onToggleLike = onToggleLike,
-            )
+        // Insets go on the chrome, not on the screen: the ambient wash and the clip have to reach
+        // the very edges, or the window's own (light) background shows as bars top and bottom.
+        CompositionLocalProvider(LocalMhColors provides if (watching) MhDarkColors else colors) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding(),
+            ) {
+                PlayerTopBar(
+                    panes = panes,
+                    selected = pane,
+                    isLiked = isLiked,
+                    onSelect = {
+                        settledTrackId = state.trackId
+                        // You cannot watch the video with the video switched off.
+                        if (it == PlayerPane.Video && !showVideoBackdrop) onToggleVideoBackdrop()
+                        pane = it
+                    },
+                    onClose = onCollapse,
+                    onToggleLike = onToggleLike,
+                )
 
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                Crossfade(targetState = pane, animationSpec = tween(220), label = "player-pane") { current ->
-                    when (current) {
-                        PlayerPane.Song -> SongPane(state, coverUrl, onSurface)
+                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    Crossfade(targetState = pane, animationSpec = tween(220), label = "player-pane") { current ->
+                        when (current) {
+                            PlayerPane.Song -> SongPane(state, coverUrl, onSurface)
 
-                        PlayerPane.Lyrics -> LyricsPane(
-                            state = state,
-                            coverUrl = coverUrl,
-                            lyricsState = lyricsState,
-                            onSurface = onSurface,
-                            onPlayPause = onPlayPause,
-                            onNext = onNext,
-                            onPrevious = onPrevious,
-                            onSeek = onSeek,
-                            onSetSpeed = onSetSpeed,
-                            onExpandLyrics = { lyricsExpanded = true },
-                        )
+                            PlayerPane.Lyrics -> LyricsPane(
+                                state = state,
+                                coverUrl = coverUrl,
+                                lyricsState = lyricsState,
+                                onSurface = onSurface,
+                                onPlayPause = onPlayPause,
+                                onNext = onNext,
+                                onPrevious = onPrevious,
+                                onSeek = onSeek,
+                                onSetSpeed = onSetSpeed,
+                                onExpandLyrics = { lyricsExpanded = true },
+                            )
 
-                        // The clip is already painted full-bleed behind this column; the watch pane
-                        // just names the track and gets out of its way.
-                        PlayerPane.Video -> VideoPane(state, coverUrl, onSurface = true)
+                            // The clip is already painted full-bleed behind this column; the watch pane
+                            // just names the track and gets out of its way.
+                            PlayerPane.Video -> VideoPane(state, coverUrl, onSurface = true)
+                        }
                     }
                 }
-            }
 
-            // The Lyrics pane carries its own transport in the hero, the way the web's does.
-            if (pane != PlayerPane.Lyrics) {
-                PlayerTransport(
+                // The Lyrics pane carries its own transport in the hero, the way the web's does.
+                if (pane != PlayerPane.Lyrics) {
+                    PlayerTransport(
+                        state = state,
+                        onPlayPause = onPlayPause,
+                        onNext = onNext,
+                        onPrevious = onPrevious,
+                        onSeek = onSeek,
+                        onSetSpeed = onSetSpeed,
+                        onSurface = onSurface || watching,
+                        modifier = Modifier.padding(horizontal = 20.dp),
+                    )
+                }
+
+                PlayerBottomChrome(
                     state = state,
-                    onPlayPause = onPlayPause,
-                    onNext = onNext,
-                    onPrevious = onPrevious,
-                    onSeek = onSeek,
-                    onSetSpeed = onSetSpeed,
-                    onSurface = onSurface || watching,
-                    modifier = Modifier.padding(horizontal = 20.dp),
+                    // On the watch pane the clip is the point, so there is nothing to switch off there.
+                    hasVideo = watchable && !watching,
+                    showVideoBackdrop = showVideoBackdrop,
+                    onToggleShuffle = onToggleShuffle,
+                    onCycleRepeat = onCycleRepeat,
+                    onToggleVideoBackdrop = onToggleVideoBackdrop,
                 )
-            }
 
-            PlayerBottomChrome(
-                state = state,
-                // On the watch pane the clip is the point, so there is nothing to switch off there.
-                hasVideo = watchable && !watching,
-                showVideoBackdrop = showVideoBackdrop,
-                onToggleShuffle = onToggleShuffle,
-                onCycleRepeat = onCycleRepeat,
-                onToggleVideoBackdrop = onToggleVideoBackdrop,
-            )
-
-            state.error?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.destructive,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
-                )
+                state.error?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MhTheme.colors.destructive,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+                    )
+                }
             }
         }
     }
@@ -248,21 +262,22 @@ private fun PlayerBackdrop(
     videoState: VideoState,
     showVideo: Boolean,
     watching: Boolean,
-    onAttachVideoSurface: (SurfaceView) -> Unit,
+    onAttachVideoSurface: (TextureView) -> Unit,
     onDetachVideoSurface: () -> Unit,
 ) {
     val colors = MhTheme.colors
 
-    AmbientBackdrop(
-        url = ambientCoverUrl,
-        artist = state.artist,
-        title = state.album.ifBlank { state.title },
-        // Watching wants a dark room, not a tinted page — the letterbox should read as a frame.
-        scrimAlpha = if (watching) 0.92f else 0.8f,
-        modifier = Modifier.fillMaxSize(),
-    )
     if (watching) {
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)))
+        // A video wants to look like a video, not a tinted page: no ambient wash, just the black
+        // room its letterbox sits in.
+        Box(Modifier.fillMaxSize().background(Color.Black))
+    } else {
+        AmbientBackdrop(
+            url = ambientCoverUrl,
+            artist = state.artist,
+            title = state.album.ifBlank { state.title },
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 
     if (!showVideo) return
