@@ -114,11 +114,26 @@ window's own (light) background shows as bars above and below.
 — the web transport's `fallbackDuration` prop, carried on the `MediaItem`. Without it the bar is
 inert and the label reads `--:--`, which over the internet can last most of a minute.
 
+**Seeking** needs one thing a browser gives you for free: a seek map. A constant-bitrate MP3 carries
+no seek table unless its encoder wrote a Xing/VBRI header, and the frontend's `/api/mh` proxy used
+to drop `Content-Length` as well, so ExoPlayer could not derive one from the file size either. With
+no seek map the current item reports itself unseekable, `COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM` drops
+out of the session's commands, and `MediaController.seekTo` **silently returns** — no error, no log,
+the position simply never moves, from the scrubber and from a tapped lyric line alike. `MediaSources`
+turns on constant-bitrate seeking (`...AlwaysEnabled`, for streams whose length is still unknown),
+which estimates the byte offset from the first frame's bitrate — the same thing a browser's
+`<audio>` element does with the same file. Containers that carry real seek information (FLAC, M4A, a
+Xing-tagged MP3) ignore the flags and stay sample-accurate. `Mp3SeekabilityTest` pins the whole
+chain on a synthetic header-only CBR stream: unseekable under Media3's defaults when the length
+is unknown, seekable with the flags, and seekable on the length alone. It is the one test here
+that needs Robolectric — Media3's `ParsableByteArray` reads `Build.FINGERPRINT` on every read,
+so the stubbed `android.jar` a plain JVM test gets is not enough.
+
 **The heart** reads `likedAtUtc` from the library dump and calls `POST`/`DELETE /songs/{id}/like`,
 flipping optimistically and rolling back on failure — the same contract as the web's
 `songsStore.toggleLike`. **Playback speed** is the eight pitch-preserved presets from
 `SongTransport.svelte`; the clip has to move with it, because it chases the audio clock and
-hard-seeks past 300 ms of drift, so a 1x video behind a 1.5x song would re-seek on every tick.
+hard-seeks when it drifts, so a 1x video behind a 1.5x song would re-seek on every tick.
 
 Shuffle and repeat have no home in the web transport — they live elsewhere in that app — but they
 work here and get a quiet row of their own rather than being pushed back into the transport, where
@@ -141,12 +156,24 @@ seeks. Untimed lyrics fall back to a plain scroll, and instrumentals say so.
 **The music video** is a backdrop first: `GET /songs/{id}/video` reports sync info, the clip streams
 from `/songs/{id}/video/stream` into a second, muted ExoPlayer, and it plays behind the player under
 a heavy scrim. The audio is always the master clock — `VideoController` only chases it
-(`videoTime = audioTime + syncOffsetMs`) and hard-seeks past 300 ms of drift, the same tolerance the
-web backdrop uses, so a clip with an intro stays lined up with the song rather than the file. The
+(`videoTime = audioTime + syncOffsetMs`) and hard-seeks when it drifts, so a clip with an intro
+stays lined up with the song rather than the file. The
 **Video** tab promotes it to a watch view. Syncing runs only while the player is on screen, so
 nothing decodes video behind a closed sheet, and the film button switches the backdrop off without
 taking the Video tab with it — `VideoState.isVisible` means "painting right now", `isRetired` means
 "done for this playthrough", and only the second removes the tab.
+
+**When** it re-seeks is `shouldResyncVideo`, pinned by `VideoResyncTest`, and the rule is more
+careful than the web's because an ExoPlayer seek costs more than assigning `video.currentTime`: it
+drops the buffer and re-primes the decoder over the same connection the song is streaming on. The
+web backdrop's flat 300 ms tolerance froze the picture outright above 1x, because a seek pins the
+clip's reported position at its target while the request is out, so the next 200 ms tick found the
+song another 200·rate ms further on and the drift *larger* than the one that caused the seek —
+correct, re-buffer, fall further behind, correct again, forever. So: the tolerance scales with the
+rate (one tick's worth of stall is not drift), a clip that is still buffering is waiting rather than
+drifting and is left alone unless it is on the wrong part of the song entirely, and corrections are
+rate-limited so the decoder always gets a stretch of wall clock to catch up under its own steam.
+Corrective seeks are `SeekParameters.CLOSEST_SYNC` — nothing here needs a frame-accurate landing.
 
 ExoPlayer renders into a **`TextureView`**, not a `SurfaceView`. A surface lives in its own layer
 behind the window and is only visible through a hole it punches in whatever the window painted, and

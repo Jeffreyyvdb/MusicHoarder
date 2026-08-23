@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -200,6 +201,13 @@ private fun MhScrubber(
         label = "scrubber-height",
     )
 
+    // `pointerInput` keeps running the lambda it was given when its key last changed — a
+    // recomposition alone does not replace it. The callbacks close over the track's duration, so
+    // without this the gesture would go on seeking against whatever the duration was when the bar
+    // first became scrubbable, and land on the wrong second of every track after the first.
+    val currentOnScrub by rememberUpdatedState(onScrub)
+    val currentOnScrubEnd by rememberUpdatedState(onScrubEnd)
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -209,15 +217,15 @@ private fun MhScrubber(
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     isPressed = true
-                    onScrub((down.position.x / size.width).coerceIn(0f, 1f))
+                    currentOnScrub((down.position.x / size.width).coerceIn(0f, 1f))
                     while (true) {
                         val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
                         if (change == null || !change.pressed) break
-                        onScrub((change.position.x / size.width).coerceIn(0f, 1f))
+                        currentOnScrub((change.position.x / size.width).coerceIn(0f, 1f))
                         change.consume()
                     }
                     isPressed = false
-                    onScrubEnd()
+                    currentOnScrubEnd()
                 }
             },
         contentAlignment = Alignment.Center,

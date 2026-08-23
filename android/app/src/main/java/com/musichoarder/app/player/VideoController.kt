@@ -1,6 +1,7 @@
 package com.musichoarder.app.player
 
 import android.content.Context
+import android.os.SystemClock
 import android.view.TextureView
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
@@ -8,10 +9,8 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.SeekParameters
 import com.musichoarder.app.data.MusicHoarderApi
 import com.musichoarder.app.data.VideoInfo
 import kotlinx.coroutines.CoroutineScope
@@ -70,15 +69,18 @@ class VideoController(
 
     private val player: ExoPlayer = ExoPlayer.Builder(appContext)
         .setMediaSourceFactory(
-            DefaultMediaSourceFactory(
-                DefaultDataSource.Factory(appContext, OkHttpDataSource.Factory(httpClient))
-            )
+            MediaSources.mediaSourceFactory(MediaSources.dataSourceFactory(appContext, httpClient))
         )
         .build()
         .apply {
             // The song is the audio; the clip is wallpaper.
             volume = 0f
             repeatMode = Player.REPEAT_MODE_OFF
+            // Corrective seeks land on the nearest keyframe rather than decoding forward from one.
+            // Nothing here needs frame accuracy — the clip is chasing a clock it is already allowed
+            // to be a quarter of a second off — and an exact seek costs a full re-decode every time,
+            // which over a phone connection is the difference between a nudge and a stall.
+            setSeekParameters(SeekParameters.CLOSEST_SYNC)
             addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) = onLoadError()
 
@@ -96,6 +98,8 @@ class VideoController(
     private var retries = 0
     /** Set once the clip runs past its end while the song keeps going — fall back to artwork. */
     private var ended = false
+    /** When the last corrective seek went out, on the monotonic clock. See [shouldResyncVideo]. */
+    private var lastResyncAtMs = 0L
 
     /**
      * A [TextureView], not a `SurfaceView`.
@@ -112,13 +116,18 @@ class VideoController(
     fun clearSurface() = player.clearVideoSurface()
 
     /**
-     * Matches the audio's rate. The clip is slaved to the audio clock and hard-seeks past
-     * [DRIFT_TOLERANCE_MS]; left at 1x while the song runs at 1.5x it would fall behind fast enough
-     * to be re-seeking on almost every tick.
+     * Matches the audio's rate. The clip is slaved to the audio clock and hard-seeks past its drift
+     * tolerance; left at 1x while the song runs at 1.5x it would fall behind fast enough to be
+     * re-seeking on almost every tick.
+     *
+     * Changing the rate makes the renderers re-prime, so the clip is given the usual cooldown to
+     * settle at the new speed before it is judged for drift again.
      */
     fun setSpeed(rate: Float) {
         val clamped = rate.coerceIn(0.25f, 2f)
-        if (player.playbackParameters.speed != clamped) player.setPlaybackSpeed(clamped)
+        if (player.playbackParameters.speed == clamped) return
+        player.setPlaybackSpeed(clamped)
+        lastResyncAtMs = SystemClock.elapsedRealtime()
     }
 
     /** Looks up the song's video and prepares it. Safe to call on every track change. */
@@ -129,6 +138,8 @@ class VideoController(
         player.clearMediaItems()
         retries = 0
         ended = false
+        // A fresh clip has to be placed on the song's clock straight away, not a cooldown later.
+        lastResyncAtMs = 0L
         _state.value = VideoState(songId = songId)
         if (songId == null) return
 
@@ -194,7 +205,16 @@ class VideoController(
             return
         }
 
-        if (abs(player.currentPosition - mapped) > DRIFT_TOLERANCE_MS) {
+        val now = SystemClock.elapsedRealtime()
+        if (
+            shouldResyncVideo(
+                driftMs = player.currentPosition - mapped,
+                rate = player.playbackParameters.speed,
+                isBuffering = player.playbackState != Player.STATE_READY,
+                sinceLastResyncMs = now - lastResyncAtMs,
+            )
+        ) {
+            lastResyncAtMs = now
             player.seekTo(mapped)
         }
         if (isPlaying && !player.isPlaying) {
@@ -218,6 +238,9 @@ class VideoController(
     /** A seek back before the clip's end brings the video back, without waiting for the next tick. */
     fun onSeek(audioPositionMs: Long) {
         val info = _state.value.info ?: return
+        // The user moved the song, so the clip is not drifting, it is in the wrong place — it should
+        // follow on the very next tick rather than sitting out the rest of a cooldown.
+        lastResyncAtMs = 0L
         if (ended && isBackBeforeClipEnd(audioPositionMs + info.syncOffsetMs)) {
             ended = false
             _state.value = _state.value.copy(isRetired = false)
@@ -261,10 +284,60 @@ class VideoController(
     }
 
     private companion object {
-        /** The web backdrop's tolerance: below this, a seek would be more jarring than the drift. */
-        const val DRIFT_TOLERANCE_MS = 300L
         const val END_GUARD_MS = 50L
         val RETRY_DELAYS_MS = longArrayOf(1000, 3000)
         val INFO_RETRY_DELAYS_MS = longArrayOf(1000, 3000)
     }
 }
+
+/** The web backdrop's tolerance at 1x: below this, a seek would be more jarring than the drift. */
+private const val DRIFT_TOLERANCE_MS = 300L
+
+/** The least wall clock between two corrective seeks. */
+private const val RESYNC_COOLDOWN_MS = 1_000L
+
+/**
+ * Drift that is not drift but dislocation: the clip is on a different part of the song altogether,
+ * which is what a scrub of the *audio* leaves behind. Worth interrupting a buffering clip for.
+ */
+private const val GROSS_DRIFT_MS = 2_000L
+
+/**
+ * Whether the clip should be hard-seeked back onto the audio clock on this tick.
+ *
+ * A corrective seek is not free: it throws away the buffer and re-primes the decoder over the same
+ * connection the song is streaming on. That is affordable once in a while and ruinous in a loop —
+ * and a loop is exactly what the old unconditional `abs(drift) > 300ms` check produced above 1x,
+ * which is why the picture froze at 1.5x and 2x. A seek pins the reported position at its target
+ * while the request goes out, so on the next tick the song has moved another 200·rate ms and the
+ * drift is *larger* than the one that triggered the seek: correct, re-buffer, fall further behind,
+ * correct again, forever, with no frame ever reaching the surface.
+ *
+ * Three guards break that cycle:
+ *  - [sinceLastResyncMs] rate-limits corrections, so the decoder always gets a stretch of wall clock
+ *    to catch up under its own steam — usually all it needed;
+ *  - a clip that is still buffering ([isBuffering]) is not drifting, it is waiting, and re-seeking it
+ *    only restarts the wait. Only [GROSS_DRIFT_MS] — the clip being on the wrong part of the song
+ *    entirely — is worth interrupting for;
+ *  - the tolerance scales with [rate], because one 200 ms UI tick moves the song 200·rate ms and a
+ *    fixed 300 ms window is already blown by a single tick's worth of stall at 2x.
+ */
+internal fun shouldResyncVideo(
+    driftMs: Long,
+    rate: Float,
+    isBuffering: Boolean,
+    sinceLastResyncMs: Long,
+): Boolean {
+    if (sinceLastResyncMs < RESYNC_COOLDOWN_MS) return false
+    val drift = abs(driftMs)
+    if (isBuffering) return drift > GROSS_DRIFT_MS
+    return drift > driftToleranceMs(rate)
+}
+
+/**
+ * How far the clip may wander at [rate] before it is pulled back. Speeds below 1x are held to the
+ * 1x tolerance — a slow song leaves plenty of room to correct in, and loosening it there would only
+ * make the lip-sync worse where it is easiest to see.
+ */
+internal fun driftToleranceMs(rate: Float): Long =
+    (DRIFT_TOLERANCE_MS * rate.coerceAtLeast(1f)).toLong()

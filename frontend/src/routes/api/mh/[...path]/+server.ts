@@ -44,8 +44,15 @@ async function proxy(request: Request, pathSegments: string, search: string): Pr
   }
 
   const responseHeaders = new Headers(response.headers);
-  responseHeaders.delete('content-encoding');
-  responseHeaders.delete('content-length');
+  // `fetch` has already decoded a compressed body, so both headers describe bytes the client will
+  // never see. When the API sent no encoding at all, the body is passed through untouched and
+  // `content-length` is exactly right — and worth keeping: it is how a progressive media player
+  // learns a stream's size, and without it ExoPlayer cannot derive a seek position in a constant
+  // bitrate MP3 (nor a duration), which left the Android player's scrubber unable to move.
+  if (response.headers.has('content-encoding')) {
+    responseHeaders.delete('content-encoding');
+    responseHeaders.delete('content-length');
+  }
   // Hop-by-hop / connection-specific headers — forbidden under HTTP/2, which the
   // dev server now uses since Aspire serves the frontend over HTTPS.
   responseHeaders.delete('transfer-encoding');
