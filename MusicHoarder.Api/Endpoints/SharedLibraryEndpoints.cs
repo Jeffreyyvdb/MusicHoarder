@@ -37,10 +37,113 @@ public static class SharedLibraryEndpoints
             .WithName("GetSharedLibrarySongCover");
         group.MapGet("/songs/{id:int}/lyrics", GetSharedLibrarySongLyrics)
             .WithName("GetSharedLibrarySongLyrics");
+        group.MapGet("/songs/{id:int}/video", GetSharedLibrarySongVideoInfo)
+            .WithName("GetSharedLibrarySongVideoInfo");
         group.MapGet("/songs/{id:int}/video/stream", StreamSharedLibrarySongVideo)
             .WithName("StreamSharedLibrarySongVideo");
 
+        // Per-friend listening state. These are the friend's own rows (FriendSongState), never
+        // the owner's like/play columns — and they only accept songs the caller's grants expose.
+        // FriendReadOnlyMiddleware allowlists /api/shared/ writes for exactly this reason.
+        group.MapPost("/songs/{id:int}/like", LikeSharedSong)
+            .WithName("LikeSharedSong")
+            .WithSummary("Mark a shared song as liked for the calling account (idempotent).");
+        group.MapDelete("/songs/{id:int}/like", UnlikeSharedSong)
+            .WithName("UnlikeSharedSong")
+            .WithSummary("Remove a shared song from the calling account's liked songs.");
+        group.MapPost("/songs/{id:int}/played", ReportSharedSongPlayed)
+            .WithName("ReportSharedSongPlayed")
+            .WithSummary("Record a playback start of a shared song for the calling account.");
+
         return app;
+    }
+
+    internal static async Task<IResult> LikeSharedSong(
+        int id,
+        MusicHoarderDbContext db,
+        ICurrentUserAccessor currentUser,
+        ISharedLibraryGrantResolver resolver,
+        CancellationToken ct)
+    {
+        var song = await ResolveSongAsync(db, currentUser, resolver, id, ct);
+        if (song is null)
+            return SharedSongNotFound();
+
+        var state = await UpsertStateAsync(db, currentUser.UserId, id, s => s.LikedAtUtc ??= DateTime.UtcNow, ct);
+        return Results.Ok(new { Id = id, state.LikedAtUtc });
+    }
+
+    internal static async Task<IResult> UnlikeSharedSong(
+        int id,
+        MusicHoarderDbContext db,
+        ICurrentUserAccessor currentUser,
+        ISharedLibraryGrantResolver resolver,
+        CancellationToken ct)
+    {
+        var song = await ResolveSongAsync(db, currentUser, resolver, id, ct);
+        if (song is null)
+            return SharedSongNotFound();
+
+        var state = await db.FriendSongStates
+            .FirstOrDefaultAsync(s => s.UserId == currentUser.UserId && s.SongId == id, ct);
+        if (state is not null)
+        {
+            state.LikedAtUtc = null;
+            await db.SaveChangesAsync(ct);
+        }
+        return Results.Ok(new { Id = id, LikedAtUtc = (DateTime?)null });
+    }
+
+    internal static async Task<IResult> ReportSharedSongPlayed(
+        int id,
+        MusicHoarderDbContext db,
+        ICurrentUserAccessor currentUser,
+        ISharedLibraryGrantResolver resolver,
+        CancellationToken ct)
+    {
+        var song = await ResolveSongAsync(db, currentUser, resolver, id, ct);
+        if (song is null)
+            return SharedSongNotFound();
+
+        var state = await UpsertStateAsync(db, currentUser.UserId, id, s =>
+        {
+            s.PlayCount++;
+            s.LastPlayedAtUtc = DateTime.UtcNow;
+        }, ct);
+        return Results.Ok(new { Id = id, state.PlayCount, state.LastPlayedAtUtc });
+    }
+
+    /// <summary>
+    /// Load-or-create the caller's state row for a song, retrying once if a concurrent first
+    /// write wins the unique (UserId, SongId) race.
+    /// </summary>
+    private static async Task<FriendSongState> UpsertStateAsync(
+        MusicHoarderDbContext db,
+        Guid userId,
+        int songId,
+        Action<FriendSongState> mutate,
+        CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            var state = await db.FriendSongStates
+                .FirstOrDefaultAsync(s => s.UserId == userId && s.SongId == songId, ct);
+            var isNew = state is null;
+            state ??= new FriendSongState { UserId = userId, SongId = songId };
+            mutate(state);
+            if (isNew) db.FriendSongStates.Add(state);
+
+            try
+            {
+                await db.SaveChangesAsync(ct);
+                return state;
+            }
+            catch (DbUpdateException) when (isNew && attempt == 0)
+            {
+                // Someone else inserted the row between our read and write; detach and re-read.
+                db.Entry(state).State = Microsoft.EntityFrameworkCore.EntityState.Detached;
+            }
+        }
     }
 
     internal static async Task<IResult> ListSharedSongs(
@@ -78,33 +181,53 @@ public static class SharedLibraryEndpoints
                 .Select(v => v.SongId)
                 .ToHashSetAsync(ct);
 
-        var songs = rows.Select(s => new
+        // The caller's own listening state (their FriendSongState rows — the query filter already
+        // scopes to them). Owners/demo have none, matching their empty song list.
+        var stateBySongId = songIds.Count == 0
+            ? new Dictionary<int, FriendSongState>()
+            : await db.FriendSongStates.AsNoTracking()
+                .Where(f => f.UserId == currentUser.UserId && songIds.Contains(f.SongId))
+                .ToDictionaryAsync(f => f.SongId, ct);
+
+        var songs = rows.Select(s =>
         {
-            s.Id,
-            // ApiSong requires the field; the owner's real path is none of the friend's business.
-            SourcePath = "",
-            s.FileName,
-            s.Extension,
-            s.FileSizeBytes,
-            s.Artist,
-            s.Artists,
-            s.AlbumArtist,
-            s.Album,
-            s.Title,
-            s.Year,
-            s.TrackNumber,
-            s.DiscNumber,
-            s.DurationSeconds,
-            s.DurationMs,
-            s.Genre,
-            s.ReleaseDate,
-            s.Label,
-            s.HasCoverArt,
-            HasSyncedLyrics = !string.IsNullOrWhiteSpace(s.DisplaySyncedLyrics),
-            HasPlainLyrics = !string.IsNullOrWhiteSpace(s.DisplayPlainLyrics),
-            IsInstrumental = s.IsInstrumental == true,
-            HasMusicVideo = videoSongIds.Contains(s.Id),
-            s.AcquiredAtUtc,
+            var state = stateBySongId.GetValueOrDefault(s.Id);
+            return new
+            {
+                s.Id,
+                // ApiSong requires the field; the owner's real path is none of the friend's business.
+                SourcePath = "",
+                s.FileName,
+                s.Extension,
+                s.FileSizeBytes,
+                s.Artist,
+                s.Artists,
+                s.AlbumArtist,
+                s.Album,
+                s.Title,
+                s.Year,
+                s.TrackNumber,
+                s.DiscNumber,
+                s.DurationSeconds,
+                s.DurationMs,
+                s.Bitrate,
+                s.Genre,
+                s.ReleaseDate,
+                s.OriginalReleaseDate,
+                s.Label,
+                s.HasCoverArt,
+                HasSyncedLyrics = !string.IsNullOrWhiteSpace(s.DisplaySyncedLyrics),
+                HasPlainLyrics = !string.IsNullOrWhiteSpace(s.DisplayPlainLyrics),
+                IsInstrumental = s.IsInstrumental == true,
+                HasMusicVideo = videoSongIds.Contains(s.Id),
+                s.IndexedAtUtc,
+                s.AcquiredAtUtc,
+                // Per-friend listening state, projected under the same keys the owner rows use so
+                // the frontend's liked/recently-played features work unchanged.
+                LikedAtUtc = state?.LikedAtUtc,
+                PlayCount = state?.PlayCount ?? 0,
+                LastPlayedAtUtc = state?.LastPlayedAtUtc,
+            };
         }).ToList();
 
         return Results.Ok(new { Count = songs.Count, Songs = songs });
@@ -167,6 +290,24 @@ public static class SharedLibraryEndpoints
             TranslatedPlain = translationFresh ? song.TranslatedPlainLyrics : null,
             DetectedLanguage = translationFresh ? song.DetectedLyricsLanguage : null,
         });
+    }
+
+    internal static async Task<IResult> GetSharedLibrarySongVideoInfo(
+        int id,
+        MusicHoarderDbContext db,
+        ICurrentUserAccessor currentUser,
+        ISharedLibraryGrantResolver resolver,
+        CancellationToken ct)
+    {
+        var song = await ResolveSongAsync(db, currentUser, resolver, id, ct);
+        if (song is null)
+            return SharedSongNotFound();
+
+        var video = await db.SongMusicVideos.IgnoreQueryFilters().AsNoTracking()
+            .FirstOrDefaultAsync(v => v.SongId == song.Id, ct);
+        return video is null
+            ? Results.NotFound(new { message = "No music video for this song." })
+            : Results.Ok(MusicVideoEndpoints.ToDto(video));
     }
 
     internal static async Task<IResult> StreamSharedLibrarySongVideo(

@@ -42,8 +42,10 @@ public class SharedLibraryEndpointsTests
         // The owner's real path must not leak; ApiSong just needs the key present.
         Assert.Equal("", GetProperty<string>(first, "SourcePath"));
         Assert.Null(first.GetType().GetProperty("DestinationPath"));
-        Assert.Null(first.GetType().GetProperty("LikedAtUtc"));
-        Assert.Null(first.GetType().GetProperty("PlayCount"));
+        // Like/play fields exist but are the CALLER's own state (FriendSongState), never the
+        // owner's columns — with no state rows they read as untouched.
+        Assert.Null(GetProperty<DateTime?>(first, "LikedAtUtc"));
+        Assert.Equal(0, GetProperty<int>(first, "PlayCount"));
     }
 
     [Fact]
@@ -101,6 +103,125 @@ public class SharedLibraryEndpointsTests
 
             var lyricsResult = await SharedLibraryEndpoints.GetSharedLibrarySongLyrics(id, db, FriendAccessor(), resolver, CancellationToken.None);
             Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)lyricsResult).StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task Like_and_played_write_the_friends_own_state_not_the_owners_row()
+    {
+        var options = NewOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.Songs.Add(Song(1, TestUsers.OwnerId, "Daft Punk", "Discovery", "One More Time"));
+            seed.LibraryShareGrants.Add(AlbumGrant());
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = FriendContext(options);
+        var resolver = new SharedLibraryGrantResolver();
+
+        var liked = Value(await SharedLibraryEndpoints.LikeSharedSong(1, db, FriendAccessor(), resolver, CancellationToken.None));
+        Assert.NotNull(GetProperty<DateTime?>(liked, "LikedAtUtc"));
+
+        var played = Value(await SharedLibraryEndpoints.ReportSharedSongPlayed(1, db, FriendAccessor(), resolver, CancellationToken.None));
+        Assert.Equal(1, GetProperty<int>(played, "PlayCount"));
+
+        await using var verify = new MusicHoarderDbContext(options);
+        var state = Assert.Single(await verify.FriendSongStates.ToListAsync());
+        Assert.Equal(TestUsers.FriendId, state.UserId);
+        Assert.Equal(1, state.SongId);
+        Assert.NotNull(state.LikedAtUtc);
+        Assert.Equal(1, state.PlayCount);
+
+        // The owner's own like/play columns are untouched — friend taste never bleeds across.
+        var song = await verify.Songs.IgnoreQueryFilters().SingleAsync(s => s.Id == 1);
+        Assert.Null(song.LikedAtUtc);
+        Assert.Equal(0, song.PlayCount);
+    }
+
+    [Fact]
+    public async Task Like_out_of_scope_song_404s_and_writes_nothing()
+    {
+        var options = NewOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.Songs.Add(Song(2, TestUsers.OwnerId, "Justice", "Cross", "Not Shared"));
+            seed.LibraryShareGrants.Add(AlbumGrant()); // grants Discovery only
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = FriendContext(options);
+        var result = await SharedLibraryEndpoints.LikeSharedSong(2, db, FriendAccessor(), new SharedLibraryGrantResolver(), CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)result).StatusCode);
+        await using var verify = new MusicHoarderDbContext(options);
+        Assert.Empty(await verify.FriendSongStates.IgnoreQueryFilters().ToListAsync());
+    }
+
+    [Fact]
+    public async Task Unlike_without_prior_state_is_idempotent()
+    {
+        var options = NewOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.Songs.Add(Song(1, TestUsers.OwnerId, "Daft Punk", "Discovery", "One More Time"));
+            seed.LibraryShareGrants.Add(AlbumGrant());
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = FriendContext(options);
+        var result = Value(await SharedLibraryEndpoints.UnlikeSharedSong(1, db, FriendAccessor(), new SharedLibraryGrantResolver(), CancellationToken.None));
+
+        Assert.Null(GetProperty<DateTime?>(result, "LikedAtUtc"));
+    }
+
+    [Fact]
+    public async Task ListSharedSongs_carries_the_callers_own_state()
+    {
+        var options = NewOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.Songs.Add(Song(1, TestUsers.OwnerId, "Daft Punk", "Discovery", "One More Time"));
+            seed.LibraryShareGrants.AddRange(
+                AlbumGrant(),
+                new LibraryShareGrant
+                {
+                    OwnerUserId = TestUsers.OwnerId,
+                    GranteeUserId = TestUsers.SecondFriendId,
+                    Scope = ShareGrantScope.Album,
+                    ArtistKey = "daft punk",
+                    AlbumKey = "discovery",
+                    CreatedAtUtc = DateTime.UtcNow,
+                });
+            seed.FriendSongStates.Add(new FriendSongState
+            {
+                UserId = TestUsers.FriendId,
+                SongId = 1,
+                LikedAtUtc = DateTime.UtcNow,
+                PlayCount = 7,
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        // First friend sees their like + plays…
+        await using (var db = FriendContext(options))
+        {
+            var payload = Value(await SharedLibraryEndpoints.ListSharedSongs(
+                db, FriendAccessor(), new SharedLibraryGrantResolver(), CancellationToken.None));
+            var song = ((IEnumerable)GetProperty<object>(payload, "Songs")).Cast<object>().Single();
+            Assert.NotNull(GetProperty<DateTime?>(song, "LikedAtUtc"));
+            Assert.Equal(7, GetProperty<int>(song, "PlayCount"));
+        }
+
+        // …the second friend, granted the same album, sees a clean slate.
+        var other = new CurrentUser(TestUsers.SecondFriendId, "other@test.local", UserRole.Friend, null);
+        await using (var db = new MusicHoarderDbContext(options, new TestCurrentUserAccessor(other)))
+        {
+            var payload = Value(await SharedLibraryEndpoints.ListSharedSongs(
+                db, new TestCurrentUserAccessor(other), new SharedLibraryGrantResolver(), CancellationToken.None));
+            var song = ((IEnumerable)GetProperty<object>(payload, "Songs")).Cast<object>().Single();
+            Assert.Null(GetProperty<DateTime?>(song, "LikedAtUtc"));
+            Assert.Equal(0, GetProperty<int>(song, "PlayCount"));
         }
     }
 

@@ -14,7 +14,7 @@ namespace MusicHoarder.Api.Tests.Auth;
 public class FriendReadOnlyMiddlewareTests
 {
     [Theory]
-    [InlineData("POST", "/songs/1/like")]
+    [InlineData("POST", "/songs/1/like")] // the OWNER's like endpoint — friends use /api/shared
     [InlineData("DELETE", "/songs/1/like")]
     [InlineData("POST", "/songs/1/played")]
     [InlineData("POST", "/api/enrichment/scan")]
@@ -51,6 +51,8 @@ public class FriendReadOnlyMiddlewareTests
     [InlineData("/api/auth/webauthn/authenticate/begin")]
     [InlineData("/api/auth/webauthn/authenticate/complete")]
     [InlineData("/api/invite/accept")]
+    [InlineData("/api/shared/songs/1/like")] // per-friend listening state lives under /api/shared
+    [InlineData("/api/shared/songs/1/played")]
     public async Task friend_may_post_to_allowlisted_auth_endpoints(string path)
     {
         var (_, nextCalled) = await InvokeAsync(TestCurrentUserAccessor.FriendUser, "POST", path);

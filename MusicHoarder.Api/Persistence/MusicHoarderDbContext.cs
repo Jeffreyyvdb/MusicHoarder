@@ -61,6 +61,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<EnrichmentSnapshotSong> EnrichmentSnapshotSongs { get; set; } = null!;
     public DbSet<SongShare> SongShares { get; set; } = null!;
     public DbSet<LibraryShareGrant> LibraryShareGrants { get; set; } = null!;
+    public DbSet<FriendSongState> FriendSongStates { get; set; } = null!;
     public DbSet<TrackSyncState> TrackSyncStates { get; set; } = null!;
     public DbSet<UpgradeRequest> UpgradeRequests { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
@@ -497,6 +498,25 @@ public class MusicHoarderDbContext : DbContext
             // resolution — so the /api/shared endpoints need no IgnoreQueryFilters() on grants
             // (only on the subsequent Song reads, which are re-scoped to the grant's owner).
             entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId || e.GranteeUserId == userId);
+        });
+
+        modelBuilder.Entity<FriendSongState>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // One state row per (friend, song); the friend-side reads join by these two.
+            entity.HasIndex(e => new { e.UserId, e.SongId }).IsUnique();
+            // The friend's liked list / recently-played sorts.
+            entity.HasIndex(e => new { e.UserId, e.LikedAtUtc });
+
+            entity.HasOne(e => e.Song)
+                .WithMany()
+                .HasForeignKey(e => e.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Private to the friend it belongs to. The song relationship crosses tenants by
+            // design (UserId is the grantee, Song.OwnerUserId the grantor), so the filter is on
+            // the state's own UserId — writes additionally verify grant scope at the endpoint.
+            entity.HasQueryFilter(e => !hasUser || e.UserId == userId);
         });
 
         modelBuilder.Entity<User>(entity =>

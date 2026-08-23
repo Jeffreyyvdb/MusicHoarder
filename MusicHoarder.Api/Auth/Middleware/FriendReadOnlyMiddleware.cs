@@ -20,8 +20,10 @@ public sealed class FriendReadOnlyMiddleware
     // The only non-safe requests a logged-in friend session legitimately makes: end its session,
     // pair a phone (mints a bearer for the friend's OWN session — same power as their cookie),
     // begin/finish a passkey login to switch into the owner account (the browser carries the
-    // stale friend cookie into the anonymous WebAuthn authenticate ceremony), or accept a fresh
-    // invite while a stale friend cookie is still present. Everything else that mutates state is
+    // stale friend cookie into the anonymous WebAuthn authenticate ceremony), accept a fresh
+    // invite while a stale friend cookie is still present, or write their OWN listening state
+    // (/api/shared is the friend-facing surface by definition: its writes touch FriendSongState
+    // rows keyed to the caller, never the owner's data). Everything else that mutates state is
     // off-limits.
     private static readonly string[] AllowlistedWritePaths =
     [
@@ -29,6 +31,7 @@ public sealed class FriendReadOnlyMiddleware
         "/api/auth/device-token",
         "/api/auth/webauthn/authenticate",
         "/api/invite/accept",
+        "/api/shared/",
     ];
 
     private readonly RequestDelegate _next;
