@@ -123,7 +123,11 @@ the position simply never moves, from the scrubber and from a tapped lyric line 
 turns on constant-bitrate seeking (`...AlwaysEnabled`, for streams whose length is still unknown),
 which estimates the byte offset from the first frame's bitrate — the same thing a browser's
 `<audio>` element does with the same file. Containers that carry real seek information (FLAC, M4A, a
-Xing-tagged MP3) ignore the flags and stay sample-accurate.
+Xing-tagged MP3) ignore the flags and stay sample-accurate. `Mp3SeekabilityTest` pins the whole
+chain on a synthetic header-only CBR stream: unseekable under Media3's defaults when the length
+is unknown, seekable with the flags, and seekable on the length alone. It is the one test here
+that needs Robolectric — Media3's `ParsableByteArray` reads `Build.FINGERPRINT` on every read,
+so the stubbed `android.jar` a plain JVM test gets is not enough.
 
 **The heart** reads `likedAtUtc` from the library dump and calls `POST`/`DELETE /songs/{id}/like`,
 flipping optimistically and rolling back on failure — the same contract as the web's

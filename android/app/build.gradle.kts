@@ -58,6 +58,12 @@ android {
     buildFeatures {
         compose = true
     }
+    testOptions {
+        // Media3's extractors log through android.util.Log, which is an unimplemented stub in a
+        // plain JVM test. Nothing here asserts on logging, so let the stubs return rather than throw.
+        unitTests.isReturnDefaultValues = true
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 dependencies {
@@ -82,6 +88,8 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.play.services.code.scanner)
     testImplementation(libs.junit)
+    testImplementation(libs.androidx.media3.test.utils)
+    testImplementation(libs.robolectric)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)
