@@ -33,6 +33,14 @@ public class AuthOptions
     [Range(1, 1440)]
     public int MagicLinkTtlMinutes { get; set; } = 15;
 
+    /// <summary>
+    /// How long a friend-invite link stays redeemable. Much longer than a magic link (the owner
+    /// hands it over out-of-band and the recipient may not open it for days), still bounded so a
+    /// forgotten link doesn't stay live forever. Default 7 days.
+    /// </summary>
+    [Range(1, 8760)]
+    public int InviteTtlHours { get; set; } = 168;
+
     [Range(1, 365)]
     public int SessionLifetimeDays { get; set; } = 30;
 

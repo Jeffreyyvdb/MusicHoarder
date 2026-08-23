@@ -9,4 +9,5 @@ public sealed record CurrentUser(Guid Id, string Email, UserRole Role, string? D
 {
     public bool IsOwner => Role == UserRole.Owner;
     public bool IsDemo => Role == UserRole.Demo;
+    public bool IsFriend => Role == UserRole.Friend;
 }

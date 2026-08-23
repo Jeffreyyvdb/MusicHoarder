@@ -120,6 +120,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAuthService, AuthService>();
         services.AddSingleton<ConsoleMagicLinkSender>();
         services.AddScoped<RequireOwnerFilter>();
+        services.AddScoped<Sharing.ISharedLibraryGrantResolver, Sharing.SharedLibraryGrantResolver>();
 
         // Pick the magic-link sender at startup: Resend when an API key is configured, otherwise
         // the console-logging fallback. Registered as a singleton; no Resend → no Resend client.

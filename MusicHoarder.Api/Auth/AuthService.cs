@@ -202,6 +202,148 @@ public sealed class AuthService : IAuthService
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 
+    public async Task<InviteMintResult?> CreateOrRotateInviteAsync(Guid ownerUserId, string email, CancellationToken ct)
+    {
+        var normalized = User.Normalize(email);
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+        var nowUtc = DateTime.UtcNow;
+
+        // The email must not belong to an existing non-Friend account: the owner can't invite
+        // themselves or the demo. A disabled Friend is fine — acceptance re-enables them.
+        var existingUser = await db.Users
+            .FirstOrDefaultAsync(u => u.EmailNormalized == normalized, ct)
+            .ConfigureAwait(false);
+        if (existingUser is not null && existingUser.Role != UserRole.Friend)
+            return null;
+
+        var rawToken = GenerateRawToken();
+
+        // Explicit CreatedByUserId predicate (not just the ambient query filter): this method
+        // may run in a background scope where the filter is off.
+        var invite = await db.Invites.IgnoreQueryFilters()
+            .Where(i => i.CreatedByUserId == ownerUserId
+                && i.EmailNormalized == normalized
+                && i.ConsumedAtUtc == null
+                && i.RevokedAtUtc == null
+                && i.ExpiresAtUtc > nowUtc)
+            .OrderByDescending(i => i.CreatedAtUtc)
+            .FirstOrDefaultAsync(ct)
+            .ConfigureAwait(false);
+
+        if (invite is null)
+        {
+            invite = new Invite
+            {
+                Id = Guid.NewGuid(),
+                CreatedByUserId = ownerUserId,
+                Email = email.Trim(),
+                EmailNormalized = normalized,
+                CreatedAtUtc = nowUtc,
+            };
+            db.Invites.Add(invite);
+        }
+
+        // Rotate-in-place for an existing active invite: the old link dies, the row (and the
+        // owner's mental model of "one pending invite per person") stays.
+        invite.TokenHash = Sha256(rawToken);
+        invite.CreatedAtUtc = nowUtc;
+        invite.ExpiresAtUtc = nowUtc.AddHours(_options.CurrentValue.InviteTtlHours);
+
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        return new InviteMintResult(invite, rawToken);
+    }
+
+    public async Task<InvitePeekResult?> PeekInviteAsync(string rawToken, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(rawToken)) return null;
+
+        var hash = Sha256(rawToken);
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+        var nowUtc = DateTime.UtcNow;
+
+        // IgnoreQueryFilters: the clicker is anonymous — or worse, carries a stale demo/friend
+        // cookie whose Invites filter (CreatedByUserId == theirs) would hide the row.
+        var invite = await db.Invites.IgnoreQueryFilters().AsNoTracking()
+            .FirstOrDefaultAsync(i => i.TokenHash == hash, ct)
+            .ConfigureAwait(false);
+        if (invite is null || !invite.IsConsumable(nowUtc)) return null;
+
+        var inviter = await db.Users.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == invite.CreatedByUserId, ct)
+            .ConfigureAwait(false);
+
+        return new InvitePeekResult(inviter?.DisplayName ?? "The owner", invite.Email);
+    }
+
+    public async Task<Session?> AcceptInviteAsync(string rawToken, string? ip, string? userAgent, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(rawToken)) return null;
+        var hash = Sha256(rawToken);
+
+        // Two attempts: if a concurrent accept for the same email wins the unique-EmailNormalized
+        // race, the retry (in a fresh scope, so no poisoned change tracker) finds the existing
+        // user and proceeds down the reuse path. The invite's ConsumedAtUtc guards double-consume.
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+            var nowUtc = DateTime.UtcNow;
+
+            var invite = await db.Invites.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(i => i.TokenHash == hash, ct)
+                .ConfigureAwait(false);
+            if (invite is null || !invite.IsConsumable(nowUtc)) return null;
+
+            var user = await db.Users
+                .FirstOrDefaultAsync(u => u.EmailNormalized == invite.EmailNormalized, ct)
+                .ConfigureAwait(false);
+
+            if (user is null)
+            {
+                user = new User
+                {
+                    Id = Guid.NewGuid(),
+                    Email = invite.Email,
+                    EmailNormalized = invite.EmailNormalized,
+                    Role = UserRole.Friend,
+                    CreatedAtUtc = nowUtc,
+                };
+                db.Users.Add(user);
+            }
+            else if (user.Role == UserRole.Friend)
+            {
+                // Owner-authorized re-entry: a removed ("disabled") friend accepting a fresh
+                // invite comes back, instead of dead-ending at a disabled account.
+                user.IsDisabled = false;
+            }
+            else
+            {
+                // The email meanwhile belongs to the owner/demo (CreateOrRotate already rejects
+                // this; here we guard the race). Uniform failure.
+                return null;
+            }
+
+            invite.ConsumedAtUtc = nowUtc;
+            invite.ConsumedByUserId = user.Id;
+            user.LastLoginAtUtc = nowUtc;
+            var session = CreateSession(user.Id, ip, userAgent, nowUtc);
+            db.Sessions.Add(session);
+
+            try
+            {
+                await db.SaveChangesAsync(ct).ConfigureAwait(false);
+                return session;
+            }
+            catch (DbUpdateException) when (attempt == 0)
+            {
+                _logger.LogInformation("Invite accept hit a concurrent user insert; retrying once.");
+            }
+        }
+        return null;
+    }
+
     private Session CreateSession(Guid userId, string? ip, string? userAgent, DateTime nowUtc) =>
         new()
         {
