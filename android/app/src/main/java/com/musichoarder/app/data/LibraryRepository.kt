@@ -102,7 +102,12 @@ class LibraryRepository(private val api: MusicHoarderApi) {
     }
 
     private fun fold(songs: List<ApiSong>): LibraryState {
-        val mapped = songs.map { song -> song.toTrack() to song.isBuilt }
+        // In shared-library (Friend) mode every row counts as built: build state is the owner's
+        // pipeline concern, and the reduced /api/shared payload carries no destinationPath — the
+        // grant already guarantees the row is playable. Port of the same escape in the web's
+        // `album-sections.ts`; without it a friend's phone folds to a blank "No built tracks yet."
+        val shared = api.isSharedLibrary
+        val mapped = songs.map { song -> song.toTrack() to (shared || song.isBuilt) }
         val base = mapped
             .filter { (track, isBuilt) -> isBuilt || (track.isLocalFile && track.needsReview) }
             .map { it.first }
@@ -122,6 +127,9 @@ class LibraryRepository(private val api: MusicHoarderApi) {
      * silent refetches never re-post the whole library.
      */
     fun loadAlbumStatuses(albums: List<Album>, scope: CoroutineScope) {
+        // Owner-only metadata: the endpoint is write-blocked for friends (read-only middleware),
+        // so don't fire a guaranteed 403 per album set — the dots simply don't paint.
+        if (api.isSharedLibrary) return
         val identities = albums.map { AlbumIdentity(it.artist, it.name) }
         // Separators no artist or album name can contain, so two different sets cannot
         // collide on one signature.

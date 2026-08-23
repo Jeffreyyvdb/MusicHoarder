@@ -86,6 +86,13 @@ Notable choices:
   same contract as the web player.
 - **`GET /songs` is a whole-library dump**, fetched once per app start (the web app does the same).
   A paged or delta endpoint is the obvious next step for very large libraries.
+- **Friend pairings read the shared library.** `/api/auth/me` is probed at pairing time anyway; the
+  role it reports is kept on the stored session, and a `Friend` session swaps every music route to
+  the grant-scoped `/api/shared` surface (`ApiRoutes` holds the owner↔shared pairs, pinned by
+  `ApiRoutesTest`). The reduced shared payload has no build state — the grant already means
+  "playable" — so the library fold counts every shared row as built, likes/plays write the friend's
+  own state server-side, and the owner-only album-status lookup is skipped instead of fired into a
+  guaranteed 403. Phones paired before roles existed carry no stored role and keep owner behaviour.
 
 ## The player
 
@@ -144,9 +151,9 @@ are not wired up.
 
 The two per-song extras behind the Lyrics and Video tabs.
 
-**Lyrics** come from `GET /api/tracks/{id}/lyrics`, fetched per song rather than shipped with the
-library dump — the AI transcription text in particular is large and most songs never have their
-lyrics opened. `parseLrc()` is a port of `frontend/src/lib/lyrics/parse-lrc.ts` with the same
+**Lyrics** come from `GET /api/tracks/{id}/lyrics` (`/api/shared/songs/{id}/lyrics` for a Friend
+pairing), fetched per song rather than shipped with the library dump — the AI transcription text in
+particular is large and most songs never have their lyrics opened. `parseLrc()` is a port of `frontend/src/lib/lyrics/parse-lrc.ts` with the same
 tolerances (CRLF, `.`/`:` fractions, 1–3 digit minutes, repeated timestamps on one line), and
 `ParseLrcTest` mirrors the web's test case for case, since a tolerance on one side only shows up as
 a blank panel on exactly one client. The viewer centres the active line and follows the audio;
