@@ -9,6 +9,7 @@
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import PurgeStatusBanner from '$lib/components/settings/PurgeStatusBanner.svelte';
   import PairDeviceCard from '$lib/components/settings/PairDeviceCard.svelte';
+  import PeopleCard from '$lib/components/settings/PeopleCard.svelte';
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import { isPasskeySupported } from '$lib/webauthn-client';
   import {
@@ -56,13 +57,14 @@
   } from '@lucide/svelte';
 
   // ── tabs ─────────────────────────────────────────────────────────────────────
-  type TabId = 'sources' | 'providers' | 'rules' | 'output' | 'account' | 'updates';
+  type TabId = 'sources' | 'providers' | 'rules' | 'output' | 'account' | 'people' | 'updates';
   const TABS: { id: TabId; label: string }[] = [
     { id: 'sources', label: 'Sources' },
     { id: 'providers', label: 'Providers' },
     { id: 'rules', label: 'Filename rules' },
     { id: 'output', label: 'Library output' },
     { id: 'account', label: 'Account' },
+    { id: 'people', label: 'People' },
     { id: 'updates', label: 'Updates' }
   ];
 
@@ -83,9 +85,12 @@
   // ── account ────────────────────────────────────────────────────────────────────
   const user = $derived(
     page.data.user as
-      | { id: string; email: string; role: 'Owner' | 'Demo'; displayName: string | null }
+      | { id: string; email: string; role: 'Owner' | 'Demo' | 'Friend'; displayName: string | null }
       | undefined
   );
+
+  // Invites/sharing are owner powers — everyone else just doesn't get the tab.
+  const visibleTabs = $derived(user?.role === 'Owner' ? TABS : TABS.filter((t) => t.id !== 'people'));
   const initials = $derived((user?.displayName ?? user?.email ?? '?').slice(0, 2).toUpperCase());
 
   async function handleSignOut(allSessions = false) {
@@ -459,7 +464,7 @@
 <PageToolbarV2
   icon={Settings}
   title="Settings"
-  tabs={TABS}
+  tabs={visibleTabs}
   {activeTab}
   onselectTab={(id) => selectTab(id as TabId)}
 />
@@ -1299,6 +1304,15 @@
               </div>
             {/if}
           </div>
+        </section>
+      {/if}
+    {:else if activeTab === 'people'}
+      <!-- =================== PEOPLE (owner-only) =================== -->
+      {#if user?.role === 'Owner'}
+        <PeopleCard />
+      {:else}
+        <section class="border-border bg-card rounded-lg border p-5">
+          <p class="text-muted-foreground text-sm">Only the owner can invite friends and share music.</p>
         </section>
       {/if}
     {:else if activeTab === 'updates'}

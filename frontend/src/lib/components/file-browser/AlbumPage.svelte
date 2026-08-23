@@ -21,14 +21,17 @@
     Share2,
     Shuffle,
     Tag,
-    TriangleAlert
+    TriangleAlert,
+    UsersRound
   } from '@lucide/svelte';
   import { untrack } from 'svelte';
+  import { page } from '$app/state';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import * as Tooltip from '$lib/components/ui/tooltip';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import AlbumTimelineDialog from '$lib/components/file-browser/AlbumTimelineDialog.svelte';
+  import ShareWithFriendDialog from '$lib/components/file-browser/ShareWithFriendDialog.svelte';
   import { albumTint } from '$lib/album-tint';
   import { buildDisplayRows } from '$lib/album-rows';
   import {
@@ -233,6 +236,12 @@
   // Share: mint (or fetch the existing) public link for this album and copy it. The link plays
   // the album and shows lyrics/metadata to anyone — no account needed.
   let shareState = $state<'idle' | 'loading'>('idle');
+
+  // Account-to-account sharing (grants) is an owner power; friends/demo don't get the button.
+  const isOwner = $derived(
+    (page.data.user as { role?: string } | undefined)?.role === 'Owner'
+  );
+  let shareWithFriendOpen = $state(false);
 
   async function shareAlbum() {
     const first = album?.songs[0];
@@ -604,6 +613,29 @@
           </Tooltip.Content>
         </Tooltip.Root>
       </Tooltip.Provider>
+
+      {#if isOwner}
+        <Tooltip.Provider delayDuration={300}>
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  onclick={() => (shareWithFriendOpen = true)}
+                  aria-label="Share with a friend"
+                  class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full transition-colors"
+                >
+                  <UsersRound class="size-4" />
+                </button>
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content>
+              Share with a friend — pick which invited friends can stream this album.
+            </Tooltip.Content>
+          </Tooltip.Root>
+        </Tooltip.Provider>
+      {/if}
 
       {#if destinationFolder}
         <Tooltip.Provider delayDuration={300}>
@@ -1012,6 +1044,14 @@
   </ScrollArea>
 
   <AlbumTimelineDialog bind:open={timelineOpen} artist={album.artist} album={album.title} />
+
+  {#if isOwner}
+    <ShareWithFriendDialog
+      bind:open={shareWithFriendOpen}
+      artist={album.artist}
+      album={album.title}
+    />
+  {/if}
 {/if}
 
 <style>
