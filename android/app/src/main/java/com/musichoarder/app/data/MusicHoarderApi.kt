@@ -7,9 +7,11 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
+import java.net.URLEncoder
 
 /** Thrown when a call needs a pairing this phone does not have (yet). */
 class NotPairedException : IOException("This device is not paired with a MusicHoarder server.")
@@ -104,18 +106,50 @@ class MusicHoarderApi(
     /** Range-enabled mp4 of the music video, played muted behind the player. */
     fun videoStreamUrl(songId: Int): String = url("/songs/$songId/video/stream")
 
+    /**
+     * The artist's portrait, by name.
+     *
+     * The endpoint **302s to Deezer or Spotify**, and 404s when nobody has a verified portrait. Both
+     * are safe here: the bearer is attached by a network interceptor that re-checks the origin on
+     * every hop, so the credential never rides the redirect off-server, and Coil follows it through
+     * the same client. A 404 simply never paints, leaving the album cover underneath.
+     */
+    fun artistImageUrl(name: String): String =
+        url("/api/artists/image?name=${URLEncoder.encode(name, "UTF-8")}")
+
+    /** Hearts or un-hearts a song. Returns the server's `likedAtUtc` — null once unliked. */
+    suspend fun setLiked(songId: Int, liked: Boolean): String? = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url(url("/songs/$songId/like"))
+            .apply { if (liked) post(EMPTY_BODY) else delete() }
+            .build()
+        execute(request) { json.decodeFromString<LikeResponse>(it).likedAtUtc }
+    }
+
+    /**
+     * Provider-link status for a batch of albums, keyed `artistLower::albumLower` — the corner dot on
+     * the album cards. One request for the whole grid rather than one per tile.
+     */
+    suspend fun fetchAlbumStatuses(albums: List<AlbumIdentity>): Map<String, AlbumStatus> =
+        withContext(Dispatchers.IO) {
+            if (albums.isEmpty()) return@withContext emptyMap()
+            val body = json.encodeToString(AlbumStatusRequest(albums)).toRequestBody(JSON_MEDIA_TYPE)
+            val request = Request.Builder()
+                .url(url("/api/albums/canonical-status"))
+                .post(body)
+                .build()
+            execute(request) { payload ->
+                json.decodeFromString<List<AlbumStatusResponse>>(payload).associate { row ->
+                    "${row.artist.lowercase()}::${row.album.lowercase()}" to
+                        AlbumStatus(row.status, row.providers, row.verdict)
+                }
+            }
+        }
+
     /** Bumps play count / last-played, same as the web player does on track start. */
     suspend fun reportPlayed(songId: Int) {
         runCatching { post("/songs/$songId/played") }
     }
-
-    /**
-     * The heart. Unlike [reportPlayed] these throw: the caller flips its copy optimistically and has
-     * to be able to put it back, which it cannot do if the failure is swallowed here.
-     */
-    suspend fun likeSong(songId: Int) = post("/songs/$songId/like")
-
-    suspend fun unlikeSong(songId: Int) = delete("/songs/$songId/like")
 
     private suspend fun <T> get(path: String, parse: (String) -> T): T = withContext(Dispatchers.IO) {
         execute(Request.Builder().url(url(path)).get().build()) { parse(it) }
@@ -123,10 +157,6 @@ class MusicHoarderApi(
 
     private suspend fun post(path: String) = withContext(Dispatchers.IO) {
         execute(Request.Builder().url(url(path)).post(EMPTY_BODY).build()) { }
-    }
-
-    private suspend fun delete(path: String) = withContext(Dispatchers.IO) {
-        execute(Request.Builder().url(url(path)).delete().build()) { }
     }
 
     private fun <T> execute(request: Request, parse: (String) -> T): T =
@@ -140,5 +170,6 @@ class MusicHoarderApi(
         /** The frontend route that proxies to the API, header-for-header. */
         const val API_PREFIX = "/api/mh"
         private val EMPTY_BODY = ByteArray(0).toRequestBody(null)
+        private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 }

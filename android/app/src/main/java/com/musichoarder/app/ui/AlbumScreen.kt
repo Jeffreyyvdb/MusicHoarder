@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.musichoarder.app.data.Album
 import com.musichoarder.app.data.Track
+import com.musichoarder.app.data.likedNow
 import com.musichoarder.app.ui.theme.MhTheme
 
 /** One album, in track order — the phone's take on the web album page's hero + tracklist. */
@@ -46,6 +47,8 @@ fun AlbumScreen(
     album: Album,
     coverUrl: (Track, Int) -> String?,
     playingTrackId: Int?,
+    likes: Map<Int, String?>,
+    onToggleLike: (Track) -> Unit,
     onPlay: (List<Track>, Int) -> Unit,
     onShuffle: (List<Track>) -> Unit,
     onBack: () -> Unit,
@@ -108,6 +111,16 @@ fun AlbumScreen(
                         color = colors.mutedForeground,
                         textAlign = TextAlign.Center,
                     )
+                    if (album.folderKeys.size > 1) {
+                        // This card folds several destination folders together - say so, rather
+                        // than silently hiding that the album is split on disk.
+                        Text(
+                            "${album.folderKeys.size} editions",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.mutedForeground.copy(alpha = 0.8f),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
 
                     Spacer(Modifier.height(20.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -133,6 +146,8 @@ fun AlbumScreen(
                     track = track,
                     coverUrl = null,
                     isPlaying = track.id == playingTrackId,
+                    liked = likedNow(likes, track),
+                    onToggleLike = { onToggleLike(track) },
                     onClick = { onPlay(album.tracks, index) },
                     trackNumber = track.trackNumber,
                     // The cover is already the header — repeating it 12 times adds nothing.
