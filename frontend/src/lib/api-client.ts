@@ -1799,7 +1799,10 @@ export function getSongCoverUrl(songId: number, size?: number): string {
 
 /** Marks our cover-endpoint URLs so {@link coverThumbUrl} only appends a size to those. */
 function isOwnCoverUrl(url: string): boolean {
-  return url.startsWith(`${API_PREFIX}/songs/`) && url.includes("/cover")
+  return (
+    (url.startsWith(`${API_PREFIX}/songs/`) || url.startsWith(`${API_PREFIX}/api/shared/songs/`)) &&
+    url.includes("/cover")
+  )
 }
 
 /**
@@ -1888,6 +1891,123 @@ export async function revokeSongShare(id: number): Promise<void> {
 /** The public URL a friend opens — same origin, so it works for every deployment. */
 export function shareUrl(token: string): string {
   return `${location.origin}/share/${encodeURIComponent(token)}`
+}
+
+// ── Friends (owner-only management: invites + grants) ────────────────────────
+
+export interface FriendInviteView {
+  id: string
+  email: string
+  /** Present on creation only — the DB stores a hash, so the URL can't be re-shown later. */
+  inviteUrl?: string
+  createdAtUtc?: string
+  expiresAtUtc: string
+  emailSent?: boolean
+  emailInLogs?: boolean
+}
+
+export interface FriendGrantView {
+  id: number
+  scope: "Album" | "Artist" | "Library"
+  artist?: string | null
+  album?: string | null
+  createdAtUtc: string
+}
+
+export interface FriendView {
+  id: string
+  email: string
+  displayName?: string | null
+  isDisabled: boolean
+  createdAtUtc: string
+  lastLoginAtUtc?: string | null
+  grants: FriendGrantView[]
+}
+
+/**
+ * Create (or rotate) the invite link for an email. Re-inviting the same address replaces the
+ * token — the previous link stops working — which is also how "resend" works.
+ */
+export async function createFriendInvite(email: string, sendEmail?: boolean): Promise<FriendInviteView> {
+  return requestJson<FriendInviteView>("/api/friends/invites", {
+    method: "POST",
+    body: JSON.stringify({ email, sendEmail }),
+  })
+}
+
+export async function listFriendInvites(): Promise<FriendInviteView[]> {
+  return requestJson<FriendInviteView[]>("/api/friends/invites")
+}
+
+export async function revokeFriendInvite(id: string): Promise<void> {
+  const response = await fetch(`${API_PREFIX}/api/friends/invites/${id}`, { method: "DELETE", cache: "no-store" })
+  if (!response.ok) throw new Error(`Could not revoke invite (${response.status}).`)
+}
+
+export async function listFriends(): Promise<FriendView[]> {
+  return requestJson<FriendView[]>("/api/friends")
+}
+
+/** Remove a friend: disables their account, kills their sessions, revokes their grants. */
+export async function removeFriend(userId: string): Promise<void> {
+  const response = await fetch(`${API_PREFIX}/api/friends/${userId}`, { method: "DELETE", cache: "no-store" })
+  if (!response.ok) throw new Error(`Could not remove friend (${response.status}).`)
+}
+
+export async function createFriendGrant(
+  userId: string,
+  grant: { scope: "album" | "artist" | "library"; artist?: string; album?: string }
+): Promise<FriendGrantView> {
+  return requestJson<FriendGrantView>(`/api/friends/${userId}/grants`, {
+    method: "POST",
+    body: JSON.stringify(grant),
+  })
+}
+
+export async function revokeFriendGrant(userId: string, grantId: number): Promise<void> {
+  const response = await fetch(`${API_PREFIX}/api/friends/${userId}/grants/${grantId}`, {
+    method: "DELETE",
+    cache: "no-store",
+  })
+  if (!response.ok) throw new Error(`Could not revoke grant (${response.status}).`)
+}
+
+// ── Shared library (what friends read; owner/demo callers just get an empty list) ─────
+
+/**
+ * Every song shared with the calling account. The rows are a reduced ApiSong subset (no
+ * filesystem paths, no like/play fields); `albumArt` is stamped client-side by the
+ * shared-library store so the album grid and player resolve covers through the shared
+ * endpoints instead of the owner-only ones.
+ */
+export async function fetchSharedSongs(): Promise<ApiSong[]> {
+  const data = await requestJson<{ count: number; songs: ApiSong[] }>("/api/shared/songs")
+  return data.songs
+}
+
+export function getSharedSongStreamUrl(songId: number): string {
+  return `${API_PREFIX}/api/shared/songs/${songId}/stream`
+}
+
+export function getSharedSongCoverUrl(songId: number, size?: number): string {
+  const base = `${API_PREFIX}/api/shared/songs/${songId}/cover`
+  return size ? `${base}?size=${Math.round(size)}` : base
+}
+
+export interface SharedSongLyrics {
+  id: number
+  synced?: string | null
+  plain?: string | null
+  isInstrumental: boolean
+  romanizedSynced?: string | null
+  romanizedPlain?: string | null
+  translatedSynced?: string | null
+  translatedPlain?: string | null
+  detectedLanguage?: string | null
+}
+
+export async function fetchSharedSongLyrics(songId: number): Promise<SharedSongLyrics> {
+  return requestJson<SharedSongLyrics>(`/api/shared/songs/${songId}/lyrics`)
 }
 
 // ── Likes + play reporting ───────────────────────────────────────────────────
@@ -2587,7 +2707,7 @@ export async function regenerateExportedPlaylists(): Promise<{ queued: boolean }
 // Auth API
 // ---------------------------------------------------------------------------
 
-export type AuthRole = "Owner" | "Demo"
+export type AuthRole = "Owner" | "Demo" | "Friend"
 
 export interface AuthMe {
   id: string

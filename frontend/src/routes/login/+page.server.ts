@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import { probeSession } from '$lib/server/session';
-import { APP_HOME } from '$lib/app-home';
+import { APP_HOME, FRIEND_HOME } from '$lib/app-home';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -23,6 +23,9 @@ export const load: PageServerLoad = async ({ request, url }) => {
 
   if (probe.status === 'authenticated' && probe.user.role === 'Owner') {
     throw redirect(303, APP_HOME);
+  }
+  if (probe.status === 'authenticated' && probe.user.role === 'Friend') {
+    throw redirect(303, FRIEND_HOME);
   }
 
   return {};

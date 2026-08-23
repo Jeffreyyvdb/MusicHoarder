@@ -1,5 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import { probeSession, SESSION_COOKIE } from '$lib/server/session';
+import { FRIEND_HOME } from '$lib/app-home';
 import type { LayoutServerLoad } from './$types';
 
 /**
@@ -17,7 +18,11 @@ export const load: LayoutServerLoad = async ({ request, cookies }) => {
     timeoutMs: 8000
   });
 
-  if (probe.status === 'authenticated') return { user: probe.user };
+  if (probe.status === 'authenticated') {
+    // Friends never see the owner chrome — their whole surface is the shared library.
+    if (probe.user.role === 'Friend') throw redirect(303, FRIEND_HOME);
+    return { user: probe.user };
+  }
 
   if (probe.status === 'anonymous') {
     // Drop any stale cookie so the browser stops sending an invalid session.

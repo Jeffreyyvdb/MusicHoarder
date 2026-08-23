@@ -12,12 +12,14 @@
 import { goto } from '$app/navigation';
 import { signOut } from '$lib/api-client';
 import { songsStore } from '$lib/stores/songs.svelte';
+import { sharedLibraryStore } from '$lib/stores/shared-library.svelte';
 import { playerStore } from '$lib/stores/player.svelte';
 
 export async function signOutAndReset(allSessions = false): Promise<void> {
   await signOut(allSessions);
   // Drop cached user data so it can't leak into the next session.
   songsStore.reset();
+  sharedLibraryStore.reset();
   playerStore.stop();
   await goto('/login', { invalidateAll: true });
 }

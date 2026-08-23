@@ -1,7 +1,7 @@
 import { goto } from '$app/navigation';
 import { page } from '$app/state';
 import { signInAsDemo } from '$lib/api-client';
-import { APP_HOME } from '$lib/app-home';
+import { APP_HOME, FRIEND_HOME } from '$lib/app-home';
 import type { SessionRole } from '$lib/auth/session-types';
 
 export interface PrimaryCtaOptions {
@@ -26,7 +26,13 @@ export function createPrimaryCta(options: PrimaryCtaOptions) {
   let launching = $state(false);
 
   const role = $derived((page.data.sessionRole ?? null) as SessionRole | null);
-  const signedInLabel = $derived(role === 'Owner' ? 'Open your library' : 'Continue the demo');
+  const signedInLabel = $derived(
+    role === 'Owner'
+      ? 'Open your library'
+      : role === 'Friend'
+        ? 'Open shared music'
+        : 'Continue the demo'
+  );
   const label = $derived(role ? signedInLabel : options.signedOutLabel);
   const shortLabel = $derived(
     role ? signedInLabel : (options.shortSignedOutLabel ?? options.signedOutLabel)
@@ -38,7 +44,7 @@ export function createPrimaryCta(options: PrimaryCtaOptions) {
     try {
       // Already signed in — go straight in rather than replacing the session with a demo one.
       if (role) {
-        await goto(APP_HOME);
+        await goto(role === 'Friend' ? FRIEND_HOME : APP_HOME);
         return;
       }
       await signInAsDemo();
