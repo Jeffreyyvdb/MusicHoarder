@@ -4,12 +4,13 @@ import { APP_HOME } from '$lib/app-home';
 import type { LayoutServerLoad } from './$types';
 
 /**
- * The slice of the app a Friend session may enter: the Listen group. Friends share the owner's
- * routes and components (fed from /api/shared by the client's library mode); everything else —
- * Inbox, Add, Manage — is owner vocabulary, so a friend deep-linking there is bounced home
- * rather than shown pages full of empty or 403ing panels.
+ * The slice of the app a Friend session may enter: the Listen group, plus Settings (which
+ * renders only the account tab — sign out and phone pairing — for friends). Friends share the
+ * owner's routes and components (fed from /api/shared by the client's library mode); everything
+ * else — Inbox, Add, the rest of Manage — is owner vocabulary, so a friend deep-linking there
+ * is bounced home rather than shown pages full of empty or 403ing panels.
  */
-const FRIEND_ALLOWED_PREFIXES = ['/overview', '/library', '/artists', '/tracks', '/liked'];
+const FRIEND_ALLOWED_PREFIXES = ['/overview', '/library', '/artists', '/tracks', '/liked', '/settings'];
 
 /**
  * Auth gate for every (app) route. Despite `(app)/+layout.ts` setting `ssr = false`, server load

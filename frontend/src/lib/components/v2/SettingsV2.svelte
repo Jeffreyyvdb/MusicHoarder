@@ -89,9 +89,25 @@
       | undefined
   );
 
-  // Invites/sharing are owner powers — everyone else just doesn't get the tab.
-  const visibleTabs = $derived(user?.role === 'Owner' ? TABS : TABS.filter((t) => t.id !== 'people'));
+  // Invites/sharing are owner powers — everyone else just doesn't get the tab. Friends get
+  // Settings only for their own account (sign out, phone pairing): every other tab is the
+  // owner's instance configuration.
+  const visibleTabs = $derived(
+    user?.role === 'Friend'
+      ? TABS.filter((t) => t.id === 'account')
+      : user?.role === 'Owner'
+        ? TABS
+        : TABS.filter((t) => t.id !== 'people')
+  );
   const initials = $derived((user?.displayName ?? user?.email ?? '?').slice(0, 2).toUpperCase());
+
+  // A deep link (or the 'sources' default) can point at a tab this role doesn't have —
+  // fold it to the first visible one rather than rendering an inaccessible section.
+  $effect(() => {
+    if (visibleTabs.length > 0 && !visibleTabs.some((t) => t.id === activeTab)) {
+      selectTab(visibleTabs[0].id);
+    }
+  });
 
   async function handleSignOut(allSessions = false) {
     await signOutAndReset(allSessions);
@@ -219,6 +235,12 @@
   );
 
   $effect(() => {
+    // Spotify creds, purge state, and the settings document are all owner configuration —
+    // a friend's Settings is just their account card + pairing, so skip the fetches.
+    if (user?.role === 'Friend') {
+      isLoading = false;
+      return;
+    }
     let cancelled = false;
     void (async () => {
       isLoading = true;
@@ -1143,9 +1165,15 @@
             {/if}
           </div>
         </section>
+      {/if}
 
+      {#if user?.role === 'Owner' || user?.role === 'Friend'}
+        <!-- Friends pair phones too: the token rides their own session, and the server's
+             friend allowlist deliberately permits POST /api/auth/device-token. -->
         <PairDeviceCard />
+      {/if}
 
+      {#if user?.role === 'Owner'}
         <!-- Anonymous telemetry — not API-writable yet -->
         <section class="border-border bg-card rounded-lg border border-dashed">
           <header class="border-border flex items-center gap-2 border-b border-dashed px-5 py-3.5">
