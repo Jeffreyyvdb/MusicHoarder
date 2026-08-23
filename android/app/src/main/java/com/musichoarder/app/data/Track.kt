@@ -7,6 +7,10 @@ import kotlinx.serialization.json.JsonPrimitive
 /**
  * The slice of `GET /songs` this client cares about. The endpoint returns the whole enrichment
  * record per row; [kotlinx.serialization.json.Json.ignoreUnknownKeys] drops the rest.
+ *
+ * The set is deliberately narrower than the web's `ApiSong`: the desktop track table's size,
+ * format, bitrate, match-confidence and source columns are hidden below 576px there too, so nothing
+ * on a phone renders them and they stay out of the model.
  */
 @Serializable
 data class ApiSong(
@@ -14,6 +18,8 @@ data class ApiSong(
     val fileName: String = "",
     val title: String? = null,
     val artist: String? = null,
+    /** Discrete credited artist names, ';'-joined (e.g. "21 Savage; Travis Scott; Metro Boomin"). */
+    val artists: String? = null,
     val albumArtist: String? = null,
     val album: String? = null,
     val year: Int? = null,
@@ -22,23 +28,45 @@ data class ApiSong(
     val durationMs: Int? = null,
     val hasCoverArt: Boolean = false,
     val acquiredAtUtc: String? = null,
-    /** The local heart, set by `POST /songs/{id}/like`. Null means not liked. */
-    val likedAtUtc: String? = null,
+    val indexedAtUtc: String? = null,
+    val libraryBuiltAtUtc: String? = null,
     val destinationPath: String? = null,
     /** Serialized as a number by `/songs`, but the web's type allows the enum name too. */
     val libraryBuildStatus: JsonPrimitive? = null,
+    /** Same number-or-name treatment as [libraryBuildStatus]. */
+    val enrichmentStatus: JsonPrimitive? = null,
+    /** When you hearted this song here — the local like, independent of Spotify. */
+    val likedAtUtc: String? = null,
+    /** Spotify's own save date for any collection the track appears in. */
+    val spotifyAddedAtUtc: String? = null,
+    /** Narrower: only set by a Liked Songs save, so this is the one the Spotify chip can trust. */
+    val spotifyLikedAtUtc: String? = null,
+    val playCount: Int? = null,
+    val lastPlayedAtUtc: String? = null,
+    /** "Unknown" | "Released" | "Unreleased" | "LikelyUnreleased", derived server-side. */
+    val releaseClassification: String? = null,
+    /** How the file got here: "Scanned" | "Downloaded" | "Synced". */
+    val originKind: String? = null,
+    /** Which collection asked for it: "SpotifyLiked" | "DirectUrl" | … */
+    val originSource: String? = null,
+    /** "Explicit" when you asked for it, "AlbumFill" when album completion added it. */
+    val acquisitionIntent: String? = null,
+    val hasSyncedLyrics: Boolean = false,
+    val hasPlainLyrics: Boolean = false,
+    val lrclibId: String? = null,
+    val hasMusicVideo: Boolean = false,
 ) {
-    val isLiked: Boolean get() = !likedAtUtc.isNullOrBlank()
-
     /**
      * A song is "built" once it reached the destination library: `LibraryBuildStatus == Done` and a
      * destination path is set. That implies it was enriched and matched first.
      *
-     * This is the port of `isBuiltSong` in `frontend/src/lib/album-sections.ts`, and every "Listen"
-     * surface on the web filters by it. Without the same filter the phone lists raw scanned rows the
-     * web deliberately never shows — including untagged files with no artist or title — so the two
-     * clients disagree about what is even in the library.
+     * This is the port of `isBuiltSong` in `frontend/src/lib/album-sections.ts`, and the album and
+     * artist grids on both clients filter by it. Without the same filter the phone lists raw scanned
+     * rows the web deliberately never shows — including untagged files with no artist or title — so
+     * the two clients disagree about what is even in the library.
      */
+    val isLiked: Boolean get() = !likedAtUtc.isNullOrBlank()
+
     val isBuilt: Boolean
         get() {
             if (destinationPath.isNullOrBlank()) return false
@@ -57,66 +85,126 @@ data class SongsResponse(@SerialName("songs") val songs: List<ApiSong> = emptyLi
 @Serializable
 data class AuthMe(val email: String? = null, val role: String? = null, val displayName: String? = null)
 
-/** A playable row, with every display field already resolved so the UI never re-decides. */
+/**
+ * A playable row, with every display field already resolved so the UI never re-decides.
+ *
+ * Everything the library views sort or filter on is resolved **here**, once per fetch, rather than
+ * inside a comparator: the web's sorts call `Date.parse` from within `sort()`, which at four
+ * thousand rows is ninety thousand parses per keystroke. After this, every sort key is a primitive
+ * and every filter chip is a boolean field read.
+ */
 data class Track(
     val id: Int,
     val title: String,
+    /** The track credit, as tagged. */
     val artist: String,
     val album: String,
+    /**
+     * The lead artist — `albumArtist ?: artist`. This is the web's `artistOf`, and it is what every
+     * library surface displays and groups on, so a compilation lists under its album artist rather
+     * than under whoever performs track one.
+     */
     val albumArtist: String,
+    /** Every credited artist, already split; falls back to [albumArtist] when none were recorded. */
+    val artists: List<String>,
     val trackNumber: Int?,
     val year: Int?,
     val durationMs: Long?,
+    val durationSeconds: Int,
     val hasCover: Boolean,
-    val acquiredAtUtc: String?,
-) {
-    /** Groups tracks into albums the way the destination library lays them out on disk. */
-    val albumKey: String get() = "$albumArtist $album"
-}
+    /**
+     * The destination folder this track was built into — the unit a music server groups on, where
+     * the builder elects one reconciled release identity. Falls back to [nameKey] when the song has
+     * no destination path yet. Albums are keyed on this, not on the artist/album tags.
+     */
+    val folderKey: String,
+    /** `artistLower::albumLower` — the name-level album identity, used to fold split folders back. */
+    val nameKey: String,
+    val addedAtMs: Long,
+    val likedAtMs: Long,
+    val spotifyLikedAtMs: Long,
+    val spotifyAddedAtMs: Long,
+    val lastPlayedAtMs: Long,
+    /** Raw stamp, kept so the heart can round-trip the server's value. */
+    val likedAtUtc: String?,
+    val playCount: Int,
+    val isSpotifyLiked: Boolean,
+    val isLocalFile: Boolean,
+    val isAddedByLink: Boolean,
+    val hasVideo: Boolean,
+    val hasLyrics: Boolean,
+    val isUnreleased: Boolean,
+    /** Album completion added this because you already owned another track from the same album. */
+    val isAlbumFill: Boolean,
+    val needsReview: Boolean,
+)
 
 const val UNKNOWN_ARTIST = "Unknown artist"
 const val UNKNOWN_ALBUM = "Unknown album"
 
 fun ApiSong.toTrack(): Track {
-    val artist = artist?.takeIf { it.isNotBlank() } ?: UNKNOWN_ARTIST
-    val albumArtist = albumArtist?.takeIf { it.isNotBlank() } ?: artist
+    val trackArtist = artist?.takeIf { it.isNotBlank() } ?: UNKNOWN_ARTIST
+    val leadArtist = albumArtist?.takeIf { it.isNotBlank() } ?: trackArtist
+    val albumName = album?.takeIf { it.isNotBlank() } ?: UNKNOWN_ALBUM
+    val nameKey = "${leadArtist.lowercase()}::${albumName.lowercase()}"
+
+    val acquiredAt = parseIsoUtcMillis(acquiredAtUtc)
+    val spotifyLikedAt = parseIsoUtcMillis(spotifyLikedAtUtc)
+    val spotifyAddedAt = parseIsoUtcMillis(spotifyAddedAtUtc)
+    val likedAt = parseIsoUtcMillis(likedAtUtc)
+
     return Track(
         id = id,
         // A song that never matched has no title tag; its filename is the only name it has.
         title = title?.takeIf { it.isNotBlank() } ?: fileName.substringBeforeLast('.').ifBlank { "Untitled" },
-        artist = artist,
-        album = album?.takeIf { it.isNotBlank() } ?: UNKNOWN_ALBUM,
-        albumArtist = albumArtist,
+        artist = trackArtist,
+        album = albumName,
+        albumArtist = leadArtist,
+        artists = discreteArtists(artists, leadArtist),
         trackNumber = trackNumber,
         year = year,
         durationMs = durationMs?.toLong() ?: durationSeconds?.let { it * 1000L },
+        durationSeconds = durationSeconds ?: durationMs?.let { it / 1000 } ?: 0,
         hasCover = hasCoverArt,
-        acquiredAtUtc = acquiredAtUtc,
+        folderKey = destinationFolder() ?: nameKey,
+        nameKey = nameKey,
+        addedAtMs = songAddedMillis(
+            spotifyAddedAt = spotifyAddedMillis(spotifyLikedAt, spotifyAddedAt),
+            acquiredAt = acquiredAt,
+            libraryBuiltAt = parseIsoUtcMillis(libraryBuiltAtUtc),
+            indexedAt = parseIsoUtcMillis(indexedAtUtc),
+        ),
+        likedAtMs = songLikedMillis(likedAt, spotifyLikedAt, spotifyAddedAt),
+        spotifyLikedAtMs = spotifyLikedAt,
+        spotifyAddedAtMs = spotifyAddedMillis(spotifyLikedAt, spotifyAddedAt),
+        lastPlayedAtMs = parseIsoUtcMillis(lastPlayedAtUtc),
+        likedAtUtc = likedAtUtc?.takeIf { it.isNotBlank() },
+        playCount = playCount ?: 0,
+        isSpotifyLiked = spotifyLikedAt > 0L,
+        isLocalFile = originKind.equals("Scanned", ignoreCase = true),
+        isAddedByLink = originSource.equals("DirectUrl", ignoreCase = true),
+        hasVideo = hasMusicVideo,
+        hasLyrics = hasSyncedLyrics || hasPlainLyrics || !lrclibId.isNullOrBlank(),
+        isUnreleased = releaseClassification.equals("Unreleased", ignoreCase = true) ||
+            releaseClassification.equals("LikelyUnreleased", ignoreCase = true),
+        isAlbumFill = acquisitionIntent.equals("AlbumFill", ignoreCase = true),
+        needsReview = mapEnrichmentState(enrichmentStatus?.content) == EnrichmentState.NeedsReview,
     )
 }
 
-/** One album's worth of tracks, in disc/track order. */
-data class Album(
-    val key: String,
-    val name: String,
-    val artist: String,
-    val year: Int?,
-    val tracks: List<Track>,
-) {
-    /** Cover art comes from a track — the album itself has no id on the API. */
-    val coverTrackId: Int? get() = tracks.firstOrNull { it.hasCover }?.id
+/**
+ * The destination folder directory of a built song. Null when the song has not been built yet, in
+ * which case album grouping falls back to the artist/album name key.
+ */
+private fun ApiSong.destinationFolder(): String? {
+    val path = destinationPath?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val index = path.lastIndexOf('/')
+    return if (index > 0) path.substring(0, index) else path
 }
 
-fun List<Track>.toAlbums(): List<Album> =
-    groupBy { it.albumKey }
-        .map { (key, tracks) ->
-            val sorted = tracks.sortedWith(compareBy({ it.trackNumber ?: Int.MAX_VALUE }, { it.title }))
-            Album(
-                key = key,
-                name = sorted.first().album,
-                artist = sorted.first().albumArtist,
-                year = sorted.firstNotNullOfOrNull { it.year },
-                tracks = sorted,
-            )
-        }
-        .sortedWith(compareBy({ it.artist.lowercase() }, { it.name.lowercase() }))
+/**
+ * The `liked` sort key for a heart stamp that may not be the fetched one - an optimistic tap changes
+ * `likedAtUtc` without rebuilding the track. See [songLikedMillis] for why the Spotify date can win.
+ */
+fun Track.likedSortKey(likedAtMillis: Long): Long =
+    songLikedMillis(likedAtMillis, spotifyLikedAtMs, spotifyAddedAtMs)
