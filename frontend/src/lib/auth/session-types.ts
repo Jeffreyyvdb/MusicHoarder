@@ -3,7 +3,7 @@
  * components reading `page.data`) can use the types without pulling in a server-only module.
  */
 
-export type SessionRole = 'Owner' | 'Demo';
+export type SessionRole = 'Owner' | 'Demo' | 'Friend';
 
 export interface SessionUser {
   id: string;

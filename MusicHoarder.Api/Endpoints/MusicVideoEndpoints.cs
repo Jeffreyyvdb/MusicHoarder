@@ -52,7 +52,9 @@ public static class MusicVideoEndpoints
         string? LastError,
         bool FileMissing);
 
-    private static VideoInfoDto ToDto(SongMusicVideo v) => new(
+    // Internal (not private) so SharedLibraryEndpoints can serve the identical, path-free shape
+    // for grant-scoped songs — same reuse contract as StreamVideoFile below.
+    internal static VideoInfoDto ToDto(SongMusicVideo v) => new(
         v.Status.ToString(),
         v.SyncOffsetMs,
         v.SyncSource.ToString(),

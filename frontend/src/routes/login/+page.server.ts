@@ -21,7 +21,9 @@ export const load: PageServerLoad = async ({ request, url }) => {
     timeoutMs: 4000
   });
 
-  if (probe.status === 'authenticated' && probe.user.role === 'Owner') {
+  // Friends share the owner's front door: both land on the Listen home (the client's library
+  // mode decides whose songs it shows).
+  if (probe.status === 'authenticated' && (probe.user.role === 'Owner' || probe.user.role === 'Friend')) {
     throw redirect(303, APP_HOME);
   }
 

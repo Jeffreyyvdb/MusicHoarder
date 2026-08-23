@@ -100,6 +100,12 @@ library, let it run, and review anything it isn't sure about.
   cover, an album queue that plays straight through, and a **full-screen synced-lyrics theater** that
   scrolls line-by-line with the song and follows the queue as it advances. Nothing else in your
   library is exposed, and the link is revocable anytime.
+- **Friend accounts & sharing** — invite people by email (Settings → People mints a one-time link)
+  to create their own listen-only account, then share albums, artists, or your entire library per
+  friend. Friends get the full listening app — Overview, Albums/Artists/Tracks with search and
+  filters, synced-lyrics theater, music videos, and their own likes and play history — over
+  exactly what you granted. Your library stays scoped to your account, every grant is revocable,
+  and removing a friend disables their account and signs them out everywhere.
 - **Library history** — an audit log of every change written to the destination (album
   consolidations, artist renames, year corrections, cover art, per-field tag diffs), so you can see
   exactly "what Navidrome sees differently."
@@ -121,9 +127,10 @@ library, let it run, and review anything it isn't sure about.
 ### Platform
 
 - **Passwordless auth + read-only demo** — sign in by emailed magic link or WebAuthn passkey
-  (Touch ID / Windows Hello / security key), with Owner (full control) and Demo (read-only) roles. A
-  one-click **[Try the demo](https://musichoarder.app/login)** account browses and plays a seeded
-  library while every mutating action is denied.
+  (Touch ID / Windows Hello / security key), with Owner (full control), Friend (invited, listen-only,
+  sees only what the owner shared), and Demo (read-only) roles. A one-click
+  **[Try the demo](https://musichoarder.app/login)** account browses and plays a seeded library
+  while every mutating action is denied.
 - **Self-hosted** — runs on your own hardware via .NET Aspire (dev) or Docker Compose (prod),
   pulling prebuilt GHCR images. Your music never leaves your machine.
 

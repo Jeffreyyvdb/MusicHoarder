@@ -1,4 +1,5 @@
 import { createPasskey, getPasskeyAssertion } from "$lib/webauthn-client"
+import { isSharedLibraryMode } from "$lib/library-mode"
 import type { PlayerSong } from "$lib/stores/player.svelte"
 
 const API_PREFIX = "/api/mh"
@@ -364,6 +365,10 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
       // DemoReadOnlyMiddleware. Surface a human message instead of the raw error code.
       if (body.error === "demo_read_only") {
         throw new ApiError("This action is disabled — the demo account is read-only.", "demo_read_only", response.status)
+      }
+      // Same idea for invited friends: their account is listen-only outside /api/shared.
+      if (body.error === "friend_read_only") {
+        throw new ApiError("This action is only available to the library's owner.", "friend_read_only", response.status)
       }
       // Other error codes (e.g. "owner_required") read as raw JSON in error banners —
       // fall back to the code itself as readable text.
@@ -1023,6 +1028,9 @@ export async function fetchFolderFiles(path: string): Promise<SourceFile[]> {
 }
 
 export async function fetchSongs(includeDeleted = false): Promise<ApiSong[]> {
+  // A Friend session's "library" is what the owner shared with them — one switch here feeds
+  // songsStore (and everything derived from it) from the grant-scoped surface.
+  if (isSharedLibraryMode()) return fetchSharedSongs()
   const result = await requestJson<SongsResponse>(`/songs?includeDeleted=${includeDeleted}`)
   return result.songs ?? []
 }
@@ -1487,6 +1495,9 @@ export function openProgressStream(
   onSnapshot: (snapshot: ProgressSnapshot) => void,
   onClose?: () => void
 ): () => void {
+  // Friends have no pipeline to watch — hand back an inert cleanup instead of an EventSource
+  // that would open, 403, and close on every mount.
+  if (isSharedLibraryMode()) return () => {}
   const es = new EventSource(`${API_PREFIX}/api/enrichment/progress`)
 
   let parseFailures = 0
@@ -1598,11 +1609,40 @@ const inFlightTrackLyrics = new Map<number, Promise<TrackLyricsResponse>>()
 export async function fetchTrackLyrics(trackId: number): Promise<TrackLyricsResponse> {
   const pending = inFlightTrackLyrics.get(trackId)
   if (pending) return pending
-  const request = requestJson<TrackLyricsResponse>(`/api/tracks/${trackId}/lyrics`).finally(() => {
+  const request = (
+    isSharedLibraryMode() ? fetchSharedTrackLyrics(trackId) : requestJson<TrackLyricsResponse>(`/api/tracks/${trackId}/lyrics`)
+  ).finally(() => {
     inFlightTrackLyrics.delete(trackId)
   })
   inFlightTrackLyrics.set(trackId, request)
   return request
+}
+
+/**
+ * Friend-mode lyrics: the grant-scoped endpoint already serves the *display* lyrics (LRCLIB or
+ * the promoted AI transcription, picked server-side) plus fresh translations, so the response
+ * widens into {@link TrackLyricsResponse} with the owner-only comparison fields nulled.
+ */
+async function fetchSharedTrackLyrics(trackId: number): Promise<TrackLyricsResponse> {
+  const shared = await requestJson<SharedSongLyrics>(`/api/shared/songs/${trackId}/lyrics`)
+  const hasLyrics = Boolean(shared.synced || shared.plain)
+  const hasTranslation = Boolean(
+    shared.translatedSynced || shared.translatedPlain || shared.romanizedSynced || shared.romanizedPlain
+  )
+  return {
+    id: shared.id,
+    lyricsStatus: shared.isInstrumental ? "Instrumental" : hasLyrics ? "Fetched" : "NotFound",
+    isInstrumental: shared.isInstrumental,
+    synced: shared.synced,
+    plain: shared.plain,
+    romanizedSynced: shared.romanizedSynced,
+    romanizedPlain: shared.romanizedPlain,
+    translatedSynced: shared.translatedSynced,
+    translatedPlain: shared.translatedPlain,
+    detectedLanguage: shared.detectedLanguage,
+    lyricsTranslationStatus: hasTranslation ? "Completed" : null,
+    lyricsTranslationStale: false,
+  }
 }
 
 export interface RecheckLyricsResponse {
@@ -1686,6 +1726,7 @@ export async function translateSongLyrics(songId: number): Promise<TranslateLyri
 }
 
 export function getSongStreamUrl(songId: number): string {
+  if (isSharedLibraryMode()) return getSharedSongStreamUrl(songId)
   return `${API_PREFIX}/songs/${songId}/stream`
 }
 
@@ -1711,10 +1752,15 @@ export interface SongVideoInfo {
  * full-screen backdrop both gate on this response, so one dropped fetch at app start would
  * otherwise hide the video until the song changes.
  */
+/** Owner reads `/songs/{id}/video`; a Friend session reads the grant-scoped twin. */
+function songVideoInfoPath(songId: number): string {
+  return isSharedLibraryMode() ? `/api/shared/songs/${songId}/video` : `/songs/${songId}/video`
+}
+
 export async function getSongVideoInfo(songId: number): Promise<SongVideoInfo | null> {
   for (let attempt = 0; ; attempt++) {
     try {
-      return await requestJson<SongVideoInfo>(`/songs/${songId}/video`)
+      return await requestJson<SongVideoInfo>(songVideoInfoPath(songId))
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) return null
       if (attempt >= 2) throw err
@@ -1738,7 +1784,7 @@ export async function getSongVideoInfoUntilSettled(
   const RETRY_DELAYS_MS = [1000, 2000, 5000, 10000, 15000]
   for (let attempt = 0; ; attempt++) {
     try {
-      return await requestJson<SongVideoInfo>(`/songs/${songId}/video`)
+      return await requestJson<SongVideoInfo>(songVideoInfoPath(songId))
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) return null
       if (opts.signal.aborted) throw err
@@ -1751,6 +1797,7 @@ export async function getSongVideoInfoUntilSettled(
 }
 
 export function getSongVideoStreamUrl(songId: number): string {
+  if (isSharedLibraryMode()) return `${API_PREFIX}/api/shared/songs/${songId}/video/stream`
   return `${API_PREFIX}/songs/${songId}/video/stream`
 }
 
@@ -1793,13 +1840,17 @@ export async function deleteSongVideo(songId: number): Promise<void> {
  * clamps to its nearest size bucket. Omit `size` for the original (downloads / full-screen).
  */
 export function getSongCoverUrl(songId: number, size?: number): string {
+  if (isSharedLibraryMode()) return getSharedSongCoverUrl(songId, size)
   const base = `${API_PREFIX}/songs/${songId}/cover`
   return size ? `${base}?size=${Math.round(size)}` : base
 }
 
 /** Marks our cover-endpoint URLs so {@link coverThumbUrl} only appends a size to those. */
 function isOwnCoverUrl(url: string): boolean {
-  return url.startsWith(`${API_PREFIX}/songs/`) && url.includes("/cover")
+  return (
+    (url.startsWith(`${API_PREFIX}/songs/`) || url.startsWith(`${API_PREFIX}/api/shared/songs/`)) &&
+    url.includes("/cover")
+  )
 }
 
 /**
@@ -1890,15 +1941,134 @@ export function shareUrl(token: string): string {
   return `${location.origin}/share/${encodeURIComponent(token)}`
 }
 
+// ── Friends (owner-only management: invites + grants) ────────────────────────
+
+export interface FriendInviteView {
+  id: string
+  email: string
+  /** Present on creation only — the DB stores a hash, so the URL can't be re-shown later. */
+  inviteUrl?: string
+  createdAtUtc?: string
+  expiresAtUtc: string
+  emailSent?: boolean
+  emailInLogs?: boolean
+}
+
+export interface FriendGrantView {
+  id: number
+  scope: "Album" | "Artist" | "Library"
+  artist?: string | null
+  album?: string | null
+  createdAtUtc: string
+}
+
+export interface FriendView {
+  id: string
+  email: string
+  displayName?: string | null
+  isDisabled: boolean
+  createdAtUtc: string
+  lastLoginAtUtc?: string | null
+  grants: FriendGrantView[]
+}
+
+/**
+ * Create (or rotate) the invite link for an email. Re-inviting the same address replaces the
+ * token — the previous link stops working — which is also how "resend" works.
+ */
+export async function createFriendInvite(email: string, sendEmail?: boolean): Promise<FriendInviteView> {
+  return requestJson<FriendInviteView>("/api/friends/invites", {
+    method: "POST",
+    body: JSON.stringify({ email, sendEmail }),
+  })
+}
+
+export async function listFriendInvites(): Promise<FriendInviteView[]> {
+  return requestJson<FriendInviteView[]>("/api/friends/invites")
+}
+
+export async function revokeFriendInvite(id: string): Promise<void> {
+  const response = await fetch(`${API_PREFIX}/api/friends/invites/${id}`, { method: "DELETE", cache: "no-store" })
+  if (!response.ok) throw new Error(`Could not revoke invite (${response.status}).`)
+}
+
+export async function listFriends(): Promise<FriendView[]> {
+  return requestJson<FriendView[]>("/api/friends")
+}
+
+/** Remove a friend: disables their account, kills their sessions, revokes their grants. */
+export async function removeFriend(userId: string): Promise<void> {
+  const response = await fetch(`${API_PREFIX}/api/friends/${userId}`, { method: "DELETE", cache: "no-store" })
+  if (!response.ok) throw new Error(`Could not remove friend (${response.status}).`)
+}
+
+export async function createFriendGrant(
+  userId: string,
+  grant: { scope: "album" | "artist" | "library"; artist?: string; album?: string }
+): Promise<FriendGrantView> {
+  return requestJson<FriendGrantView>(`/api/friends/${userId}/grants`, {
+    method: "POST",
+    body: JSON.stringify(grant),
+  })
+}
+
+export async function revokeFriendGrant(userId: string, grantId: number): Promise<void> {
+  const response = await fetch(`${API_PREFIX}/api/friends/${userId}/grants/${grantId}`, {
+    method: "DELETE",
+    cache: "no-store",
+  })
+  if (!response.ok) throw new Error(`Could not revoke grant (${response.status}).`)
+}
+
+// ── Shared library (what friends read; owner/demo callers just get an empty list) ─────
+
+/**
+ * Every song shared with the calling account. The rows are a reduced ApiSong subset — no
+ * filesystem paths or pipeline fields, and the like/play fields are the caller's own
+ * per-friend state. In a Friend session `fetchSongs` delegates here, and the mode-aware URL
+ * helpers (`getSongStreamUrl`, `getSongCoverUrl`, …) point at the matching shared routes.
+ */
+export async function fetchSharedSongs(): Promise<ApiSong[]> {
+  const data = await requestJson<{ count: number; songs: ApiSong[] }>("/api/shared/songs")
+  return data.songs
+}
+
+export function getSharedSongStreamUrl(songId: number): string {
+  return `${API_PREFIX}/api/shared/songs/${songId}/stream`
+}
+
+export function getSharedSongCoverUrl(songId: number, size?: number): string {
+  const base = `${API_PREFIX}/api/shared/songs/${songId}/cover`
+  return size ? `${base}?size=${Math.round(size)}` : base
+}
+
+export interface SharedSongLyrics {
+  id: number
+  synced?: string | null
+  plain?: string | null
+  isInstrumental: boolean
+  romanizedSynced?: string | null
+  romanizedPlain?: string | null
+  translatedSynced?: string | null
+  translatedPlain?: string | null
+  detectedLanguage?: string | null
+}
+
+export async function fetchSharedSongLyrics(songId: number): Promise<SharedSongLyrics> {
+  return requestJson<SharedSongLyrics>(`/api/shared/songs/${songId}/lyrics`)
+}
+
 // ── Likes + play reporting ───────────────────────────────────────────────────
 
 /** Mark a song as liked. Idempotent — re-liking keeps the original timestamp. */
 export async function likeSong(songId: number): Promise<{ id: number; likedAtUtc: string }> {
-  return requestJson<{ id: number; likedAtUtc: string }>(`/songs/${songId}/like`, { method: "POST" })
+  const path = isSharedLibraryMode() ? `/api/shared/songs/${songId}/like` : `/songs/${songId}/like`
+  return requestJson<{ id: number; likedAtUtc: string }>(path, { method: "POST" })
 }
 
 export async function unlikeSong(songId: number): Promise<{ id: number; likedAtUtc: null }> {
-  return requestJson<{ id: number; likedAtUtc: null }>(`/songs/${songId}/like`, { method: "DELETE" })
+  const path = isSharedLibraryMode() ? `/api/shared/songs/${songId}/like` : `/songs/${songId}/like`
+  return requestJson<{ id: number; likedAtUtc: null }>(path, { method: "DELETE" })
 }
 
 /**
@@ -1908,8 +2078,9 @@ export async function unlikeSong(songId: number): Promise<{ id: number; likedAtU
 export async function reportSongPlayed(
   songId: number
 ): Promise<{ id: number; playCount: number; lastPlayedAtUtc: string }> {
+  const path = isSharedLibraryMode() ? `/api/shared/songs/${songId}/played` : `/songs/${songId}/played`
   return requestJson<{ id: number; playCount: number; lastPlayedAtUtc: string }>(
-    `/songs/${songId}/played`,
+    path,
     { method: "POST" }
   )
 }
@@ -2587,7 +2758,7 @@ export async function regenerateExportedPlaylists(): Promise<{ queued: boolean }
 // Auth API
 // ---------------------------------------------------------------------------
 
-export type AuthRole = "Owner" | "Demo"
+export type AuthRole = "Owner" | "Demo" | "Friend"
 
 export interface AuthMe {
   id: string

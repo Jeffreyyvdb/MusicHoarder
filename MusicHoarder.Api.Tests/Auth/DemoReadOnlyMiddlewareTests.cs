@@ -47,6 +47,7 @@ public class DemoReadOnlyMiddlewareTests
     [InlineData("/api/auth/demo-login")]
     [InlineData("/api/auth/webauthn/authenticate/begin")]
     [InlineData("/api/auth/webauthn/authenticate/complete")]
+    [InlineData("/api/invite/accept")]
     public async Task demo_may_post_to_allowlisted_auth_endpoints(string path)
     {
         var (_, nextCalled) = await InvokeAsync(Demo(), "POST", path);

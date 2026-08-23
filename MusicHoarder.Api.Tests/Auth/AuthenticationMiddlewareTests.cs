@@ -166,5 +166,14 @@ public class AuthenticationMiddlewareTests
 
         public Task RevokeAsync(Guid sessionId, bool allForUser, CancellationToken ct)
             => Task.CompletedTask;
+
+        public Task<InviteMintResult?> CreateOrRotateInviteAsync(Guid ownerUserId, string email, CancellationToken ct)
+            => throw new NotSupportedException();
+
+        public Task<InvitePeekResult?> PeekInviteAsync(string rawToken, CancellationToken ct)
+            => throw new NotSupportedException();
+
+        public Task<Session?> AcceptInviteAsync(string rawToken, string? ip, string? userAgent, CancellationToken ct)
+            => throw new NotSupportedException();
     }
 }

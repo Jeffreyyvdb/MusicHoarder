@@ -61,4 +61,35 @@ public sealed class ResendMagicLinkSender : IMagicLinkSender
             throw new InvalidOperationException($"Resend send failed: {(int)response.StatusCode}");
         }
     }
+
+    public async Task SendInviteAsync(User inviter, string inviteeEmail, string inviteUrl, CancellationToken ct = default)
+    {
+        // Only the owner can mint invites (RequireOwner on the endpoint), so no demo
+        // short-circuit is needed here — the inviter is never the demo account.
+        var opts = _options.CurrentValue;
+        var inviterName = string.IsNullOrWhiteSpace(inviter.DisplayName) ? "A MusicHoarder user" : inviter.DisplayName;
+        var payload = new
+        {
+            from = opts.FromAddress,
+            to = new[] { inviteeEmail },
+            subject = $"{inviterName} invited you to their MusicHoarder library",
+            text = $"{inviterName} wants to share music with you on MusicHoarder.\n\n" +
+                   $"Open this link to create your account:\n\n{inviteUrl}\n\n" +
+                   "The link can only be used once and expires — if it has, ask for a new one.",
+        };
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.resend.com/emails")
+        {
+            Content = JsonContent.Create(payload),
+        };
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", opts.ApiKey);
+
+        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            _logger.LogError("Resend invite send failed {Status}: {Body}", (int)response.StatusCode, body);
+            throw new InvalidOperationException($"Resend invite send failed: {(int)response.StatusCode}");
+        }
+    }
 }

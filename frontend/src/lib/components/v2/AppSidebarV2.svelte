@@ -4,7 +4,8 @@
   import { page } from '$app/state';
   import { ChevronRight, LogOut, Music } from '@lucide/svelte';
   import * as Sidebar from '$lib/components/ui/sidebar';
-  import { NAV_GROUPS, resolveNav, type NavItem } from '$lib/nav';
+  import { navGroupsFor, resolveNav, type NavItem } from '$lib/nav';
+  import { APP_HOME } from '$lib/app-home';
   import {
     buildAlbumsFromSongs,
     mergeAlbumsByName,
@@ -41,6 +42,8 @@
     // untrack: ensureLoaded reads the same isLoading flag its own fetch writes,
     // and a tracked read would re-run this effect (and its overview/stats calls).
     untrack(() => songsStore.ensureLoaded());
+    // Pipeline/storage figures are owner chrome — a friend's footer just omits them.
+    if (isFriend) return;
     let cancelled = false;
     void (async () => {
       const [ovRes, stRes] = await Promise.allSettled([fetchOverview(), fetchStats()]);
@@ -142,9 +145,12 @@
 
   const user = $derived(
     page.data.user as
-      | { email: string; role: 'Owner' | 'Demo'; displayName: string | null }
+      | { email: string; role: 'Owner' | 'Demo' | 'Friend'; displayName: string | null }
       | undefined
   );
+  const isFriend = $derived(user?.role === 'Friend');
+  // Friends see only the Listen group; the guard bounces them off everything else anyway.
+  const navGroups = $derived(navGroupsFor(user?.role));
 
   // On mobile the sidebar is an off-canvas Sheet; close it after navigating so a
   // tapped destination doesn't leave the drawer open over the freshly-loaded page.
@@ -160,7 +166,7 @@
       <Sidebar.MenuItem>
         <Sidebar.MenuButton size="lg" tooltipContent="MusicHoarder">
           {#snippet child({ props })}
-            <a {...props} href="/pipeline">
+            <a {...props} href={isFriend ? APP_HOME : '/pipeline'}>
               <div
                 class="bg-primary text-primary-foreground flex aspect-square size-[30px] shrink-0 items-center justify-center rounded-lg shadow-sm"
               >
@@ -180,7 +186,7 @@
   </Sidebar.Header>
 
   <Sidebar.Content class="gap-3.5 px-2 py-1.5">
-    {#each NAV_GROUPS as group (group.id)}
+    {#each navGroups as group (group.id)}
       {@const groupActive = match?.group.id === group.id}
       <!-- Only one nav level carries emphasis at a time: when an item is active it alone is
            highlighted and the group header stays neutral (it is already "expanded" by being

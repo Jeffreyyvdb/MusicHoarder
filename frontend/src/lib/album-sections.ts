@@ -8,13 +8,19 @@
  * Inbox — so only the build-state predicate remains.
  */
 import type { ApiSong } from '$lib/api-client';
+import { isSharedLibraryMode } from '$lib/library-mode';
 
 /**
  * A song is "built"/clean when it reached the destination library:
  * LibraryBuildStatus == Done (serialized as 3 or "Done") AND a destinationPath is set.
  * This implies it was enriched + matched first, so the main Library view can rely on it.
+ *
+ * In shared mode (a Friend session) build state is the owner's concern, not the listener's:
+ * every row the grant-scoped endpoint returns is playable by definition, and the payload
+ * deliberately omits destinationPath (the owner's disk layout) — so everything counts as built.
  */
 export function isBuiltSong(s: ApiSong): boolean {
+  if (isSharedLibraryMode()) return true;
   if (!s.destinationPath) return false;
   const status = s.libraryBuildStatus;
   if (typeof status === 'number') return status === 3;

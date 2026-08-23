@@ -3,9 +3,10 @@ using System.ComponentModel.DataAnnotations;
 namespace MusicHoarder.Api.Auth;
 
 /// <summary>
-/// A login identity. Invite-only — rows are created by EF <c>HasData</c> at migration time
-/// (Owner + Demo) and never inserted at runtime. <see cref="EmailNormalized"/> is the unique
-/// lookup key; <see cref="Email"/> is preserved for display.
+/// A login identity. Invite-only — the Owner and Demo rows are created by EF <c>HasData</c> at
+/// migration time; <see cref="UserRole.Friend"/> rows are the one runtime insert path, created
+/// when an owner-minted <see cref="Invite"/> is accepted. <see cref="EmailNormalized"/> is the
+/// unique lookup key; <see cref="Email"/> is preserved for display.
 /// </summary>
 public class User
 {

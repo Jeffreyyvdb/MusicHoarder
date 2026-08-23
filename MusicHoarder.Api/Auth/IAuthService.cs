@@ -32,6 +32,35 @@ public interface IAuthService
 
     /// <summary>Revokes one session or all sessions for the user.</summary>
     Task RevokeAsync(Guid sessionId, bool allForUser, CancellationToken ct);
+
+    /// <summary>
+    /// Mints (or rotates) the friend invite for the given email. When an active unconsumed invite
+    /// already exists for the email, its token is replaced and its expiry reset — the previous
+    /// link stops working — because only the hash is stored, so "resend" cannot re-emit the old
+    /// URL. Returns <c>null</c> when the email belongs to an existing non-Friend user (the owner
+    /// can't invite themselves or the demo). The raw token is only ever available here.
+    /// </summary>
+    Task<InviteMintResult?> CreateOrRotateInviteAsync(Guid ownerUserId, string email, CancellationToken ct);
+
+    /// <summary>
+    /// Resolves a raw invite token without consuming it, so the invite page can render before the
+    /// recipient commits (and so an email scanner's GET prefetch can't burn the single use).
+    /// Returns <c>null</c> for unknown/expired/revoked/consumed tokens.
+    /// </summary>
+    Task<InvitePeekResult?> PeekInviteAsync(string rawToken, CancellationToken ct);
+
+    /// <summary>
+    /// Consumes an invite: creates the <see cref="UserRole.Friend"/> account for the bound email
+    /// (or re-enables a previously removed friend with the same email) and starts a session.
+    /// Returns <c>null</c> when the token is invalid or the email meanwhile belongs to a
+    /// non-Friend user.
+    /// </summary>
+    Task<Session?> AcceptInviteAsync(string rawToken, string? ip, string? userAgent, CancellationToken ct);
 }
 
 public sealed record RequestLinkResult(string? DevMagicLinkUrl);
+
+/// <summary>The freshly minted invite plus its raw token (shown once, never stored).</summary>
+public sealed record InviteMintResult(Invite Invite, string RawToken);
+
+public sealed record InvitePeekResult(string InviterName, string Email);

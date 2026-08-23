@@ -252,7 +252,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             // meant a stale code — or simply scanning while offline, which is indistinguishable from
             // a rejected token here — wiped a pairing that was working perfectly well.
             val probe = runCatching { graph.api.fetchMe(newSession) }
-            if (probe.isFailure) {
+            val me = probe.getOrNull()
+            if (me == null) {
                 _pairError.value = if (probe.exceptionOrNull() is UnauthorizedException) {
                     "The server did not accept that pairing code. Try a fresh one."
                 } else {
@@ -260,7 +261,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 return@launch
             }
-            graph.sessions.save(newSession)
+            // Keep the probe's answer: the role decides which endpoints this pairing reads
+            // (a Friend session streams through /api/shared — see ApiRoutes). Captured here,
+            // before start() fires the first library fetch.
+            graph.sessions.save(newSession.copy(role = me.role))
             // Re-pairing points the app at a different server, so everything held from the last
             // one has to go: the library cache is not refetched while it still holds rows
             // (`refresh` no-ops unless forced), and a queued MediaItem keeps the absolute stream

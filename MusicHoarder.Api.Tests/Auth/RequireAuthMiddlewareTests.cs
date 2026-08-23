@@ -40,6 +40,31 @@ public class RequireAuthMiddlewareTests
         Assert.Equal(StatusCodes.Status401Unauthorized, ctx.Response.StatusCode);
     }
 
+    // The anonymous invite surface (peek + accept) must work with no session at all; the
+    // owner-only management routes live under /api/friends and stay behind the cookie gate.
+    [Theory]
+    [InlineData("/api/invite/some-token")]
+    [InlineData("/api/invite/accept")]
+    public async Task InvitePaths_PassThrough_WithoutASession(string path)
+    {
+        var (ctx, nextCalled) = await RunAsync(path, user: null);
+
+        Assert.True(nextCalled);
+        Assert.NotEqual(StatusCodes.Status401Unauthorized, ctx.Response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/api/friends")]
+    [InlineData("/api/friends/invites")]
+    [InlineData("/api/shared/songs")]
+    public async Task FriendManagementAndSharedReads_Require401_WhenAnonymous(string path)
+    {
+        var (ctx, nextCalled) = await RunAsync(path, user: null);
+
+        Assert.False(nextCalled);
+        Assert.Equal(StatusCodes.Status401Unauthorized, ctx.Response.StatusCode);
+    }
+
     private static async Task<(HttpContext Context, bool NextCalled)> RunAsync(string path, CurrentUser? user)
     {
         var nextCalled = false;

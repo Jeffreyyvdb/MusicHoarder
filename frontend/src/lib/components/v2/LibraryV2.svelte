@@ -96,6 +96,10 @@
   const isLoading = $derived(songsStore.isLoading);
   const loadError = $derived(songsStore.error);
 
+  // Friend sessions reuse this page over the grant-scoped dataset; pipeline vocabulary
+  // (enrichment %, provider badges, origin/status chips) is owner-only and hidden for them.
+  const isFriend = $derived(page.data.user?.role === 'Friend');
+
   $effect(() => {
     void songsStore.loadSongs();
     songsStore.startLive();
@@ -223,7 +227,8 @@
   let albumStatuses = $state<Map<string, AlbumStatusInfo>>(new Map());
   const albumIdentityKey = $derived(allAlbums.map((a) => `${a.artist}\u0000${a.title}`).join('\u0001'));
   $effect(() => {
-    if (albumIdentityKey === '') {
+    // The status endpoint is owner-only; a friend's grid just shows no badges.
+    if (albumIdentityKey === '' || isFriend) {
       albumStatuses = new Map();
       return;
     }
@@ -435,12 +440,18 @@
     unreleased: { label: 'Unreleased', icon: Sparkles, title: unreleasedTitle }
   });
 
+  // Chips a friend can act on: liked (their own state), video and lyrics. The rest is
+  // pipeline/origin vocabulary the shared dataset deliberately doesn't carry.
+  const FRIEND_CHIP_KEYS: readonly ChipKey[] = ['mh-liked', 'video', 'lyrics'];
+  const visibleChipKeys = $derived(isFriend ? FRIEND_CHIP_KEYS : CHIP_KEYS);
+
   // Library-wide pipeline health on the grid tabs; what you're looking at right
   // now on the list tabs (and only "X of Y" once a filter actually narrows it,
   // so an unfiltered list doesn't read "3,525 of 3,525").
   const toolbarMeta = $derived.by(() => {
     if (!isListTab) {
-      const enriched = enrichedPct != null ? ` · ${enrichedPct.toFixed(1)}% enriched` : '';
+      const enriched =
+        !isFriend && enrichedPct != null ? ` · ${enrichedPct.toFixed(1)}% enriched` : '';
       return `${totalTracks.toLocaleString()} tracks · ${artistCount.toLocaleString()} artists${enriched}`;
     }
     const { sorted, songs, stats, sortKey, sortDir } = listView;
@@ -457,7 +468,7 @@
 </script>
 
 {#snippet chipRow()}
-  {#each CHIP_KEYS as key (key)}
+  {#each visibleChipKeys as key (key)}
     {@const meta = CHIP_META[key]}
     <FilterChip
       pressed={listView.isChipActive(key)}

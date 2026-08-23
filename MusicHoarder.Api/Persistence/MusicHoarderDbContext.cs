@@ -60,9 +60,12 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<EnrichmentSnapshot> EnrichmentSnapshots { get; set; } = null!;
     public DbSet<EnrichmentSnapshotSong> EnrichmentSnapshotSongs { get; set; } = null!;
     public DbSet<SongShare> SongShares { get; set; } = null!;
+    public DbSet<LibraryShareGrant> LibraryShareGrants { get; set; } = null!;
+    public DbSet<FriendSongState> FriendSongStates { get; set; } = null!;
     public DbSet<TrackSyncState> TrackSyncStates { get; set; } = null!;
     public DbSet<UpgradeRequest> UpgradeRequests { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
+    public DbSet<Invite> Invites { get; set; } = null!;
     public DbSet<Session> Sessions { get; set; } = null!;
     public DbSet<MagicLinkToken> MagicLinkTokens { get; set; } = null!;
     public DbSet<WebAuthnCredential> WebAuthnCredentials { get; set; } = null!;
@@ -74,7 +77,8 @@ public class MusicHoarderDbContext : DbContext
         // EF query filters can reference instance state but per-EF-docs you should capture it
         // into locals so the compiled query doesn't NRE when the accessor is null (design-time,
         // tests, hosted-service scope). Combined with the IModelCacheKeyFactory below, this gives
-        // one cached model per (hasUser, userId) tuple — fine for our 2-user scale.
+        // one cached model per (hasUser, userId) tuple — fine for Owner + Demo + a handful of
+        // invited friends; revisit before tenant counts grow into dozens.
         var hasUser = _currentUser is not null;
         var userId = _currentUser?.UserId ?? Guid.Empty;
 
@@ -482,6 +486,39 @@ public class MusicHoarderDbContext : DbContext
             entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
         });
 
+        modelBuilder.Entity<LibraryShareGrant>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // Friend-side resolution: "my active grants".
+            entity.HasIndex(e => new { e.GranteeUserId, e.RevokedAtUtc });
+            // Owner-side management: "what did I share with this friend".
+            entity.HasIndex(e => new { e.OwnerUserId, e.GranteeUserId, e.RevokedAtUtc });
+
+            // Both parties see exactly their rows: the owner for management, the grantee for
+            // resolution — so the /api/shared endpoints need no IgnoreQueryFilters() on grants
+            // (only on the subsequent Song reads, which are re-scoped to the grant's owner).
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId || e.GranteeUserId == userId);
+        });
+
+        modelBuilder.Entity<FriendSongState>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // One state row per (friend, song); the friend-side reads join by these two.
+            entity.HasIndex(e => new { e.UserId, e.SongId }).IsUnique();
+            // The friend's liked list / recently-played sorts.
+            entity.HasIndex(e => new { e.UserId, e.LikedAtUtc });
+
+            entity.HasOne(e => e.Song)
+                .WithMany()
+                .HasForeignKey(e => e.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Private to the friend it belongs to. The song relationship crosses tenants by
+            // design (UserId is the grantee, Song.OwnerUserId the grantor), so the filter is on
+            // the state's own UserId — writes additionally verify grant scope at the endpoint.
+            entity.HasQueryFilter(e => !hasUser || e.UserId == userId);
+        });
+
         modelBuilder.Entity<User>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -532,6 +569,21 @@ public class MusicHoarderDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Invite>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // Anonymous acceptance is a point lookup by hash (via IgnoreQueryFilters — the
+            // clicker may carry a stale demo/friend cookie whose filter would hide the row).
+            entity.HasIndex(e => e.TokenHash).IsUnique();
+            // The owner's pending-invites list sweeps active rows.
+            entity.HasIndex(e => new { e.CreatedByUserId, e.RevokedAtUtc });
+            // Create-or-rotate looks up by the invited email.
+            entity.HasIndex(e => e.EmailNormalized);
+
+            // Owner-scoped for the management endpoints, same posture as SongShare.
+            entity.HasQueryFilter(e => !hasUser || e.CreatedByUserId == userId);
         });
 
         modelBuilder.Entity<WebAuthnCredential>(entity =>

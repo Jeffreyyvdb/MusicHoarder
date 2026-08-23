@@ -14,6 +14,7 @@
     Sparkles,
     X
   } from '@lucide/svelte';
+  import { page } from '$app/state';
   import { createShareAndCopyLink } from '$lib/share-actions';
   import { Button } from '$lib/components/ui/button';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
@@ -100,12 +101,20 @@
   // fileMissing = the mp4 vanished from disk; the stream would 404, so no watch tab.
   const hasWatchableVideo = $derived(videoInfo?.status === 'Ready' && !videoInfo.fileMissing);
 
+  // Fingerprint + Enrichment are pipeline provenance — owner vocabulary, and their lazy loads
+  // hit owner-only endpoints. A friend's panel keeps Metadata / Lyrics / Video.
+  const isOwner = $derived(page.data.user?.role === 'Owner');
+
   const TAB_DEFS = $derived<{ value: TabId; label: string }[]>([
     { value: 'metadata', label: 'Metadata' },
     { value: 'lyrics', label: 'Lyrics' },
     ...(hasWatchableVideo ? [{ value: 'video' as const, label: 'Video' }] : []),
-    { value: 'fingerprint', label: 'Fingerprint' },
-    { value: 'enrichment', label: 'Enrichment' }
+    ...(isOwner
+      ? [
+          { value: 'fingerprint' as const, label: 'Fingerprint' },
+          { value: 'enrichment' as const, label: 'Enrichment' }
+        ]
+      : [])
   ]);
 
   let activeTab = $state<TabId>('metadata');
@@ -249,6 +258,7 @@
   let upgradeError = $state<string | null>(null);
 
   $effect(() => {
+    if (!isOwner) return; // owner-only endpoint; don't even probe for friends/demo
     let cancelled = false;
     void soulseek
       .getStatus()
@@ -616,9 +626,11 @@
   // What the single AI action can actually do for this track. Translation needs lyrics to work from,
   // which stage 1 may itself have just produced — hence the `aiLyrics` term, read fresh between the
   // two stages (a demo row with no file on disk fails stage 1 and falls through to stage 2).
-  const canTranscribe = $derived(lyricsFeatureEnabled && song.isInstrumental !== true);
+  // Owner-gated: these are server writes on the owner's rows; friends still SEE existing
+  // pronunciation/translation documents (hasTranslation), they just can't generate them.
+  const canTranscribe = $derived(isOwner && lyricsFeatureEnabled && song.isInstrumental !== true);
   const canTranslate = $derived(
-    translationFeatureEnabled && song.isInstrumental !== true && (hasLyrics || aiLyrics != null)
+    isOwner && translationFeatureEnabled && song.isInstrumental !== true && (hasLyrics || aiLyrics != null)
   );
   const canEnhance = $derived(canTranscribe || canTranslate);
   const hasAiOutput = $derived(aiLyrics != null || translation != null);
@@ -933,21 +945,23 @@
       >
         <Heart class={cn('size-4', isLiked && 'text-primary')} fill={isLiked ? 'currentColor' : 'none'} />
       </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        onclick={shareSong}
-        disabled={shareState === 'loading'}
-        class="bg-foreground/5 hover:bg-foreground/10 size-9 shrink-0 rounded-full"
-        aria-label="Share song — copy a public link"
-        title="Share — copy a public link that plays this song for anyone, no account needed."
-      >
-        {#if shareState === 'loading'}
-          <Loader2 class="size-4 animate-spin" />
-        {:else}
-          <Share2 class="size-4" />
-        {/if}
-      </Button>
+      {#if isOwner}
+        <Button
+          variant="ghost"
+          size="icon"
+          onclick={shareSong}
+          disabled={shareState === 'loading'}
+          class="bg-foreground/5 hover:bg-foreground/10 size-9 shrink-0 rounded-full"
+          aria-label="Share song — copy a public link"
+          title="Share — copy a public link that plays this song for anyone, no account needed."
+        >
+          {#if shareState === 'loading'}
+            <Loader2 class="size-4 animate-spin" />
+          {:else}
+            <Share2 class="size-4" />
+          {/if}
+        </Button>
+      {/if}
     </div>
 
     <!-- Body: compact header (mobile) / left rail (desktop) + tab content + transport -->
@@ -1173,7 +1187,9 @@
       {#if canEnhance || hasTranslation}
         <!-- Control bar: one AI action (re-sync the timings + generate pronunciation and
              translation) plus, once both an LRCLIB version and an AI one exist, the compare
-             toggle that lets you put the curated timings back. -->
+             toggle that lets you put the curated timings back. Friends keep the view toggle
+             below but not this generate/compare row — those are owner writes. -->
+        {#if isOwner}
         <div
           class={cn(
             'mx-auto flex w-full items-center justify-between gap-2 px-1',
@@ -1235,6 +1251,7 @@
           <p class="text-destructive mx-auto w-full max-w-3xl px-1 text-[11px]">{enhanceError}</p>
         {:else if enhanceNote}
           <p class="text-muted-foreground mx-auto w-full max-w-3xl px-1 text-[11px]">{enhanceNote}</p>
+        {/if}
         {/if}
         {#if hasTranslation && !comparingLyrics}
           <!-- Original / Pronunciation / Translation view toggle: Pronunciation and Translation

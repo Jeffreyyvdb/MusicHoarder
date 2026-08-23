@@ -9,7 +9,9 @@ namespace MusicHoarder.Api.Persistence;
 /// two contexts with different users would otherwise share the same compiled model and the
 /// wrong filter value. This factory varies the cache key by the captured user id (and "anonymous"
 /// for design-time / background-service contexts), so each variant gets its own compiled model.
-/// At our 2-user scale this caches at most 3 models (Owner / Demo / anonymous).
+/// One model is cached per active account (Owner / Demo / each signed-in Friend / anonymous) —
+/// fine for a handful of invited friends; revisit the locals-capture strategy in
+/// <c>OnModelCreating</c> before this grows into dozens of tenants.
 /// </summary>
 public sealed class UserAwareModelCacheKeyFactory : IModelCacheKeyFactory
 {

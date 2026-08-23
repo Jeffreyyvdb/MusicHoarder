@@ -26,7 +26,13 @@ export function createPrimaryCta(options: PrimaryCtaOptions) {
   let launching = $state(false);
 
   const role = $derived((page.data.sessionRole ?? null) as SessionRole | null);
-  const signedInLabel = $derived(role === 'Owner' ? 'Open your library' : 'Continue the demo');
+  const signedInLabel = $derived(
+    role === 'Owner'
+      ? 'Open your library'
+      : role === 'Friend'
+        ? 'Open shared music'
+        : 'Continue the demo'
+  );
   const label = $derived(role ? signedInLabel : options.signedOutLabel);
   const shortLabel = $derived(
     role ? signedInLabel : (options.shortSignedOutLabel ?? options.signedOutLabel)

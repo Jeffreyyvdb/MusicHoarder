@@ -30,4 +30,18 @@ public sealed class ConsoleMagicLinkSender : IMagicLinkSender
             user.Id, user.Role, sanitizedUrl);
         return Task.CompletedTask;
     }
+
+    public Task SendInviteAsync(User inviter, string inviteeEmail, string inviteUrl, CancellationToken ct = default)
+    {
+        // Same CWE-117 posture as SendAsync: log the inviter's server-generated id, not emails
+        // (the invitee address is owner-typed input), and CRLF-strip the URL.
+        var sanitizedUrl = inviteUrl
+            .Replace("\r", string.Empty)
+            .Replace("\n", string.Empty);
+
+        _logger.LogInformation(
+            "[FRIEND INVITE] minted by user {UserId}: {Url}",
+            inviter.Id, sanitizedUrl);
+        return Task.CompletedTask;
+    }
 }

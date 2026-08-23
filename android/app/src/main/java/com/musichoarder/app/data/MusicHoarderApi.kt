@@ -61,14 +61,23 @@ class MusicHoarderApi(
 
     private fun url(path: String): String = "${baseUrl()}$API_PREFIX$path"
 
+    /**
+     * True for a Friend pairing: music is read through the grant-scoped /api/shared routes (see
+     * [ApiRoutes]), and the library repository relaxes owner-only predicates (build state, album
+     * status dots) that have no meaning for grant-scoped rows.
+     */
+    val isSharedLibrary: Boolean get() = sessions.session.value?.isFriend == true
+
+    private fun isFriend(): Boolean = isSharedLibrary
+
     /** Range-enabled audio stream; prefers the built destination copy server-side. */
-    fun streamUrl(songId: Int): String = url("/songs/$songId/stream")
+    fun streamUrl(songId: Int): String = url(ApiRoutes.stream(songId, isFriend()))
 
     /**
      * Cover art, thumbnailed server-side. [size] is snapped up to the nearest bucket
      * (128/256/400/640), so passing the real display size costs nothing.
      */
-    fun coverUrl(songId: Int, size: Int): String = url("/songs/$songId/cover?size=$size")
+    fun coverUrl(songId: Int, size: Int): String = url(ApiRoutes.cover(songId, size, isFriend()))
 
     /**
      * Identity check. [candidate] lets the pairing flow probe a session that has not been persisted
@@ -86,25 +95,25 @@ class MusicHoarderApi(
     }
 
     suspend fun fetchSongs(): List<ApiSong> =
-        get("/songs") { json.decodeFromString<SongsResponse>(it).songs }
+        get(ApiRoutes.songs(isFriend())) { json.decodeFromString<SongsResponse>(it).songs }
 
     /**
      * Lyrics are fetched per song rather than shipped with the library dump — the AI transcription
      * text in particular is large, and most songs never have their lyrics opened.
      */
     suspend fun fetchLyrics(songId: Int): Lyrics =
-        get("/api/tracks/$songId/lyrics") { json.decodeFromString<LyricsResponse>(it).toLyrics() }
+        get(ApiRoutes.lyrics(songId, isFriend())) { json.decodeFromString<LyricsResponse>(it).toLyrics() }
 
     /** Null when the song has no music video attached (the endpoint 404s, which is the common case). */
     suspend fun fetchVideoInfo(songId: Int): VideoInfo? =
         try {
-            get("/songs/$songId/video") { json.decodeFromString<VideoInfo>(it) }
+            get(ApiRoutes.video(songId, isFriend())) { json.decodeFromString<VideoInfo>(it) }
         } catch (e: ApiException) {
             if (e.status == 404) null else throw e
         }
 
     /** Range-enabled mp4 of the music video, played muted behind the player. */
-    fun videoStreamUrl(songId: Int): String = url("/songs/$songId/video/stream")
+    fun videoStreamUrl(songId: Int): String = url(ApiRoutes.videoStream(songId, isFriend()))
 
     /**
      * The artist's portrait, by name.
@@ -120,7 +129,7 @@ class MusicHoarderApi(
     /** Hearts or un-hearts a song. Returns the server's `likedAtUtc` — null once unliked. */
     suspend fun setLiked(songId: Int, liked: Boolean): String? = withContext(Dispatchers.IO) {
         val request = Request.Builder()
-            .url(url("/songs/$songId/like"))
+            .url(url(ApiRoutes.like(songId, isFriend())))
             .apply { if (liked) post(EMPTY_BODY) else delete() }
             .build()
         execute(request) { json.decodeFromString<LikeResponse>(it).likedAtUtc }
@@ -148,7 +157,7 @@ class MusicHoarderApi(
 
     /** Bumps play count / last-played, same as the web player does on track start. */
     suspend fun reportPlayed(songId: Int) {
-        runCatching { post("/songs/$songId/played") }
+        runCatching { post(ApiRoutes.played(songId, isFriend())) }
     }
 
     private suspend fun <T> get(path: String, parse: (String) -> T): T = withContext(Dispatchers.IO) {
@@ -161,7 +170,10 @@ class MusicHoarderApi(
 
     private fun <T> execute(request: Request, parse: (String) -> T): T =
         client.newCall(request).execute().use { response ->
-            if (response.code == 401 || response.code == 403) throw UnauthorizedException()
+            // Only 401 means the token itself is dead. A 403 is an authorization answer about
+            // THIS request (e.g. the server's friend/demo read-only middlewares) — treating it
+            // as a revoked pairing used to silently unpair the phone over a single denied call.
+            if (response.code == 401) throw UnauthorizedException()
             if (!response.isSuccessful) throw ApiException(response.code, "Request failed: ${response.code}")
             parse(response.body.string())
         }

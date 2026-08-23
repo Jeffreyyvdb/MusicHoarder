@@ -21,14 +21,17 @@
     Share2,
     Shuffle,
     Tag,
-    TriangleAlert
+    TriangleAlert,
+    UsersRound
   } from '@lucide/svelte';
   import { untrack } from 'svelte';
+  import { page } from '$app/state';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import * as Tooltip from '$lib/components/ui/tooltip';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import AlbumTimelineDialog from '$lib/components/file-browser/AlbumTimelineDialog.svelte';
+  import ShareWithFriendDialog from '$lib/components/file-browser/ShareWithFriendDialog.svelte';
   import { albumTint } from '$lib/album-tint';
   import { buildDisplayRows } from '$lib/album-rows';
   import {
@@ -126,7 +129,9 @@
     tracklist = null;
     linkStatus = 'pending';
     albumGrade = null;
-    if (!key) {
+    // The canonical-tracklist endpoints are owner-only; a friend's album page just renders the
+    // owned tracks without link badges/grades instead of firing a guaranteed 403.
+    if (!key || !isOwner) {
       loadingDetail = false;
       return;
     }
@@ -233,6 +238,12 @@
   // Share: mint (or fetch the existing) public link for this album and copy it. The link plays
   // the album and shows lyrics/metadata to anyone — no account needed.
   let shareState = $state<'idle' | 'loading'>('idle');
+
+  // Account-to-account sharing (grants) is an owner power; friends/demo don't get the button.
+  const isOwner = $derived(
+    (page.data.user as { role?: string } | undefined)?.role === 'Owner'
+  );
+  let shareWithFriendOpen = $state(false);
 
   async function shareAlbum() {
     const first = album?.songs[0];
@@ -579,31 +590,56 @@
         Shuffle
       </button>
 
-      <Tooltip.Provider delayDuration={300}>
-        <Tooltip.Root>
-          <Tooltip.Trigger>
-            {#snippet child({ props })}
-              <button
-                {...props}
-                type="button"
-                onclick={shareAlbum}
-                disabled={shareState === 'loading'}
-                aria-label="Share album"
-                class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {#if shareState === 'loading'}
-                  <Loader2 class="size-4 animate-spin" />
-                {:else}
-                  <Share2 class="size-4" />
-                {/if}
-              </button>
-            {/snippet}
-          </Tooltip.Trigger>
-          <Tooltip.Content>
-            Share — copy a public link that plays this album for anyone, no account needed.
-          </Tooltip.Content>
-        </Tooltip.Root>
-      </Tooltip.Provider>
+      {#if isOwner}
+        <Tooltip.Provider delayDuration={300}>
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  onclick={shareAlbum}
+                  disabled={shareState === 'loading'}
+                  aria-label="Share album"
+                  class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {#if shareState === 'loading'}
+                    <Loader2 class="size-4 animate-spin" />
+                  {:else}
+                    <Share2 class="size-4" />
+                  {/if}
+                </button>
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content>
+              Share — copy a public link that plays this album for anyone, no account needed.
+            </Tooltip.Content>
+          </Tooltip.Root>
+        </Tooltip.Provider>
+      {/if}
+
+      {#if isOwner}
+        <Tooltip.Provider delayDuration={300}>
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  onclick={() => (shareWithFriendOpen = true)}
+                  aria-label="Share with a friend"
+                  class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full transition-colors"
+                >
+                  <UsersRound class="size-4" />
+                </button>
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content>
+              Share with a friend — pick which invited friends can stream this album.
+            </Tooltip.Content>
+          </Tooltip.Root>
+        </Tooltip.Provider>
+      {/if}
 
       {#if destinationFolder}
         <Tooltip.Provider delayDuration={300}>
@@ -656,7 +692,7 @@
         </Tooltip.Provider>
       {/if}
 
-      {#each [{ icon: Fingerprint, label: 'Re-fingerprint album' }, { icon: ImageIcon, label: 'Re-fetch artwork' }, { icon: Tag, label: 'Edit metadata' }, { icon: HardDrive, label: 'Reveal in destination' }] as btn (btn.label)}
+      {#each isOwner ? [{ icon: Fingerprint, label: 'Re-fingerprint album' }, { icon: ImageIcon, label: 'Re-fetch artwork' }, { icon: Tag, label: 'Edit metadata' }, { icon: HardDrive, label: 'Reveal in destination' }] : [] as btn (btn.label)}
         <Tooltip.Provider delayDuration={300}>
           <Tooltip.Root>
             <Tooltip.Trigger>
@@ -676,26 +712,28 @@
         </Tooltip.Provider>
       {/each}
 
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger>
-          {#snippet child({ props })}
-            <button
-              {...props}
-              type="button"
-              aria-label="More"
-              class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full transition-colors"
-            >
-              <MoreHorizontal class="size-4" />
-            </button>
-          {/snippet}
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Content align="start" class="min-w-44">
-          <DropdownMenu.Item onSelect={() => (timelineOpen = true)}>
-            <History class="size-4" />
-            Show details
-          </DropdownMenu.Item>
-        </DropdownMenu.Content>
-      </DropdownMenu.Root>
+      {#if isOwner}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger>
+            {#snippet child({ props })}
+              <button
+                {...props}
+                type="button"
+                aria-label="More"
+                class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full transition-colors"
+              >
+                <MoreHorizontal class="size-4" />
+              </button>
+            {/snippet}
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Content align="start" class="min-w-44">
+            <DropdownMenu.Item onSelect={() => (timelineOpen = true)}>
+              <History class="size-4" />
+              Show details
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
+      {/if}
 
       {#if destinationFolder}
         <div
@@ -1012,6 +1050,14 @@
   </ScrollArea>
 
   <AlbumTimelineDialog bind:open={timelineOpen} artist={album.artist} album={album.title} />
+
+  {#if isOwner}
+    <ShareWithFriendDialog
+      bind:open={shareWithFriendOpen}
+      artist={album.artist}
+      album={album.title}
+    />
+  {/if}
 {/if}
 
 <style>

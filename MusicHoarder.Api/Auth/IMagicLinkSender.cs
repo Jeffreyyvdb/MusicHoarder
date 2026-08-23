@@ -10,6 +10,14 @@ public interface IMagicLinkSender
     Task SendAsync(User user, string magicLinkUrl, CancellationToken ct = default);
 
     /// <summary>
+    /// Delivers a friend-invite link to an address that has no account yet (so it takes the raw
+    /// email, not a <see cref="User"/>). Same failure contract as
+    /// <see cref="SendAsync(User, string, CancellationToken)"/>: throws on permanent failure and
+    /// the endpoint surfaces a 503.
+    /// </summary>
+    Task SendInviteAsync(User inviter, string inviteeEmail, string inviteUrl, CancellationToken ct = default);
+
+    /// <summary>
     /// True when this sender is the no-email-fallback (links written to the logs). Drives the
     /// startup banner announcing that mode, the <c>magicLinkInLogs</c> flag on the
     /// /api/auth/request-link response (config-level, so enumeration-safe), and — in

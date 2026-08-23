@@ -44,6 +44,13 @@ public class MultiTenancyIsolationTests
             var visible = await anon.Songs.IgnoreQueryFilters().ToListAsync();
             Assert.Equal(2, visible.Count); // bypass returns both
         }
+
+        // A friend is a tenant like any other: the normal filter shows them zero owner songs —
+        // shared music flows exclusively through the grant-scoped /api/shared endpoints.
+        await using (var asFriend = new MusicHoarderDbContext(options, new TestCurrentUserAccessor(TestCurrentUserAccessor.FriendUser)))
+        {
+            Assert.Empty(await asFriend.Songs.ToListAsync());
+        }
     }
 
     [Fact]

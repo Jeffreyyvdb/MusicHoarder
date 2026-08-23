@@ -31,6 +31,9 @@ public static class WebApplicationExtensions
         app.MapAlbumDedupEndpoints();
         app.MapDedupActionsEndpoints();
         app.MapSharesEndpoints();
+        app.MapFriendsEndpoints();
+        app.MapInviteEndpoints();
+        app.MapSharedLibraryEndpoints();
         app.MapAlbumsEndpoints();
         app.MapArtistsEndpoints();
         app.MapQualityEndpoints();

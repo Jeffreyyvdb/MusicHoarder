@@ -19,8 +19,14 @@ import kotlinx.coroutines.runBlocking
  * [baseUrl] is the *frontend* origin, not the API's: the SvelteKit app proxies `/api/mh` to the
  * API and forwards the Authorization header, so a paired phone needs exactly one reachable host —
  * the same one the browser uses.
+ *
+ * [role] is the account's role as reported by `/api/auth/me` at pairing time. A `Friend` session
+ * reads music through the grant-scoped `/api/shared` endpoints instead of the owner ones (see
+ * [ApiRoutes]); null means owner behaviour — which also covers phones paired before roles existed.
  */
-data class ServerSession(val baseUrl: String, val token: String)
+data class ServerSession(val baseUrl: String, val token: String, val role: String? = null) {
+    val isFriend: Boolean get() = role.equals("Friend", ignoreCase = true)
+}
 
 private val Context.sessionDataStore: DataStore<Preferences> by preferencesDataStore(name = "server_session")
 
@@ -45,6 +51,8 @@ class SessionStore(context: Context) {
         dataStore.edit { prefs ->
             prefs[KEY_BASE_URL] = session.baseUrl
             prefs[KEY_TOKEN] = session.token
+            val role = session.role
+            if (role.isNullOrBlank()) prefs.remove(KEY_ROLE) else prefs[KEY_ROLE] = role
         }
         _session.value = session
     }
@@ -57,12 +65,14 @@ class SessionStore(context: Context) {
     private fun read(prefs: Preferences): ServerSession? {
         val baseUrl = prefs[KEY_BASE_URL]
         val token = prefs[KEY_TOKEN]
-        return if (baseUrl.isNullOrBlank() || token.isNullOrBlank()) null else ServerSession(baseUrl, token)
+        if (baseUrl.isNullOrBlank() || token.isNullOrBlank()) return null
+        return ServerSession(baseUrl, token, role = prefs[KEY_ROLE])
     }
 
     private companion object {
         val KEY_BASE_URL = stringPreferencesKey("base_url")
         val KEY_TOKEN = stringPreferencesKey("token")
+        val KEY_ROLE = stringPreferencesKey("role")
     }
 }
 

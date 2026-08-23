@@ -10,6 +10,13 @@ internal static class TestUsers
 {
     public static Guid OwnerId => WellKnownUsers.OwnerId;
     public static Guid DemoId => WellKnownUsers.DemoId;
+
+    /// <summary>A friend account. Unlike Owner/Demo there is no well-known GUID — friends are
+    /// runtime-created rows — so tests pin an arbitrary fixed one.</summary>
+    public static Guid FriendId { get; } = new("f1e2d3c4-b5a6-4798-8a9b-0c1d2e3f4a5b");
+
+    /// <summary>A second friend, for isolation tests (friend B must not see friend A's grants).</summary>
+    public static Guid SecondFriendId { get; } = new("0a1b2c3d-4e5f-4a6b-8c9d-e0f1a2b3c4d5");
 }
 
 internal sealed class TestOwnerLookupService : IOwnerLookupService
@@ -32,4 +39,7 @@ internal sealed class TestCurrentUserAccessor : ICurrentUserAccessor
 
     public static CurrentUser DemoUser =>
         new(TestUsers.DemoId, "demo@test.local", UserRole.Demo, "Demo");
+
+    public static CurrentUser FriendUser =>
+        new(TestUsers.FriendId, "friend@test.local", UserRole.Friend, "Friend");
 }

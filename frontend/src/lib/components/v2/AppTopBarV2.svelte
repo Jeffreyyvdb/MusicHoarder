@@ -38,6 +38,9 @@
   const sidebar = Sidebar.useSidebar();
   const sidebarShowsItems = $derived(!sidebar.isMobile && sidebar.state === 'expanded');
   const nav = $derived(sidebarShowsItems ? null : resolveNav(page.url));
+
+  // Adding music is owner work; a friend's top bar keeps search + theme only.
+  const isFriend = $derived(page.data.user?.role === 'Friend');
 </script>
 
 <!--
@@ -80,18 +83,22 @@
         {shortcutHint}
       </kbd>
     </Button>
-    <Button
-      variant="outline"
-      size="sm"
-      class="h-8 gap-1.5 px-2.5"
-      onclick={() => (addOpen = true)}
-      title="Add a track from a Spotify or YouTube URL"
-    >
-      <Plus class="size-4" />
-      <span class="text-nav-sm hidden sm:inline">Add</span>
-    </Button>
+    {#if !isFriend}
+      <Button
+        variant="outline"
+        size="sm"
+        class="h-8 gap-1.5 px-2.5"
+        onclick={() => (addOpen = true)}
+        title="Add a track from a Spotify or YouTube URL"
+      >
+        <Plus class="size-4" />
+        <span class="text-nav-sm hidden sm:inline">Add</span>
+      </Button>
+    {/if}
     <ThemeToggle />
   </div>
 </header>
 
-<AddFromUrlDialog bind:open={addOpen} />
+{#if !isFriend}
+  <AddFromUrlDialog bind:open={addOpen} />
+{/if}
