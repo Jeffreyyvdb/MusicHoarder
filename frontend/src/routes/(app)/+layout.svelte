@@ -8,10 +8,20 @@
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { commandPalette } from '$lib/stores/command-palette.svelte';
   import { songDetail } from '$lib/stores/song-detail.svelte';
+  import { setLibraryMode } from '$lib/library-mode';
   import { resolveNav } from '$lib/nav';
 
   type Props = { children: Snippet };
   const { children }: Props = $props();
+
+  // Friends browse the SAME Listen routes and components, fed from the grant-scoped /api/shared
+  // surface — this switch is what re-points the whole data layer. Set synchronously (before any
+  // child mounts and warms songsStore), and kept in sync if the layout data ever changes.
+  const isFriendSession = $derived(page.data.user?.role === 'Friend');
+  setLibraryMode(page.data.user?.role === 'Friend' ? 'shared' : 'owner');
+  $effect(() => {
+    setLibraryMode(isFriendSession ? 'shared' : 'owner');
+  });
 
   // The (app) group is ssr=false and the pages render their content through shared
   // components, so set the browser-tab title here in one place rather than in every
@@ -49,7 +59,10 @@
 
   // Subscribe to the pipeline progress stream while the layout is mounted so the
   // header/sidebar can pulse during running jobs even with the drawer closed.
-  $effect(() => pipelineOverlay.mount());
+  // Friends have no pipeline — skip the SSE subscription entirely.
+  $effect(() => {
+    if (!isFriendSession) return pipelineOverlay.mount();
+  });
 
   // The player owns its audio element in JS (not the DOM), so warm it up once for
   // the session — it then survives every re-render and navigation.
@@ -68,6 +81,6 @@
 
 <CommandPalette />
 
-{#if drawerOpen}
+{#if drawerOpen && !isFriendSession}
   <ImportPipelineDrawer />
 {/if}

@@ -317,6 +317,17 @@ export const NAV_GROUPS: NavGroup[] = [
   }
 ];
 
+/**
+ * The groups a session role may see. Friends reuse the owner's Listen routes and components
+ * (fed from /api/shared by the client's library mode) but none of the curation machinery —
+ * Inbox, Add, and Manage are owner vocabulary, and the (app) guard bounces friends off those
+ * paths anyway. One filter here narrows the sidebar, the mobile bottom bar, the section tab
+ * strip, and the command palette together, keeping this module the single source of truth.
+ */
+export function navGroupsFor(role: string | null | undefined): NavGroup[] {
+  return role === 'Friend' ? NAV_GROUPS.filter((g) => g.id === 'listen') : NAV_GROUPS;
+}
+
 /** Where a URL sits in the nav. `item` is null when only a group-level fallback matched. */
 export type NavMatch = { group: NavGroup; item: NavItem | null };
 

@@ -11,9 +11,3 @@
  * which is a better answer to "what now?" than an A-Z wall of covers.
  */
 export const APP_HOME = '/overview';
-
-/**
- * Where a Friend session lands: the read-only "shared with me" library. Friends can never enter
- * the (app) shell — its guard bounces them here — so every sign-in door needs this second target.
- */
-export const FRIEND_HOME = '/shared';

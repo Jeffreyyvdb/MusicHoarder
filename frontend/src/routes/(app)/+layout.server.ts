@@ -1,7 +1,15 @@
 import { error, redirect } from '@sveltejs/kit';
 import { probeSession, SESSION_COOKIE } from '$lib/server/session';
-import { FRIEND_HOME } from '$lib/app-home';
+import { APP_HOME } from '$lib/app-home';
 import type { LayoutServerLoad } from './$types';
+
+/**
+ * The slice of the app a Friend session may enter: the Listen group. Friends share the owner's
+ * routes and components (fed from /api/shared by the client's library mode); everything else —
+ * Inbox, Add, Manage — is owner vocabulary, so a friend deep-linking there is bounced home
+ * rather than shown pages full of empty or 403ing panels.
+ */
+const FRIEND_ALLOWED_PREFIXES = ['/overview', '/library', '/artists', '/tracks', '/liked'];
 
 /**
  * Auth gate for every (app) route. Despite `(app)/+layout.ts` setting `ssr = false`, server load
@@ -12,15 +20,21 @@ import type { LayoutServerLoad } from './$types';
  * /login, because bouncing to the sign-in form makes people re-authenticate a session that was
  * never actually invalid.
  */
-export const load: LayoutServerLoad = async ({ request, cookies }) => {
+export const load: LayoutServerLoad = async ({ request, cookies, url }) => {
   const probe = await probeSession(request.headers.get('cookie'), {
     userAgent: request.headers.get('user-agent'),
     timeoutMs: 8000
   });
 
   if (probe.status === 'authenticated') {
-    // Friends never see the owner chrome — their whole surface is the shared library.
-    if (probe.user.role === 'Friend') throw redirect(303, FRIEND_HOME);
+    if (
+      probe.user.role === 'Friend' &&
+      !FRIEND_ALLOWED_PREFIXES.some(
+        (p) => url.pathname === p || url.pathname.startsWith(`${p}/`)
+      )
+    ) {
+      throw redirect(303, APP_HOME);
+    }
     return { user: probe.user };
   }
 

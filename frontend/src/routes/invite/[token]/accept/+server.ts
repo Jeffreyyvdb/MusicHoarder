@@ -1,5 +1,5 @@
 import { getApiBaseUrl } from '$lib/server/api-target';
-import { FRIEND_HOME } from '$lib/app-home';
+import { APP_HOME } from '$lib/app-home';
 import type { RequestHandler } from './$types';
 
 /**
@@ -26,7 +26,7 @@ export const POST: RequestHandler = async ({ params, fetch }) => {
     });
   }
 
-  const headers = new Headers({ Location: FRIEND_HOME });
+  const headers = new Headers({ Location: APP_HOME });
   for (const value of response.headers.getSetCookie?.() ?? []) {
     headers.append('set-cookie', value);
   }

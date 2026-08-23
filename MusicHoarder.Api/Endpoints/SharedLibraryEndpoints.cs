@@ -215,6 +215,12 @@ public static class SharedLibraryEndpoints
                 s.ReleaseDate,
                 s.OriginalReleaseDate,
                 s.Label,
+                // Catalog identifiers so the metadata panel isn't a wall of dashes — public IDs,
+                // not filesystem or pipeline internals.
+                s.MusicBrainzId,
+                s.MusicBrainzReleaseId,
+                s.Isrc,
+                s.SpotifyId,
                 s.HasCoverArt,
                 HasSyncedLyrics = !string.IsNullOrWhiteSpace(s.DisplaySyncedLyrics),
                 HasPlainLyrics = !string.IsNullOrWhiteSpace(s.DisplayPlainLyrics),

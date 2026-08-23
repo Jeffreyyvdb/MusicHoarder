@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import { probeSession } from '$lib/server/session';
-import { APP_HOME, FRIEND_HOME } from '$lib/app-home';
+import { APP_HOME } from '$lib/app-home';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -21,11 +21,10 @@ export const load: PageServerLoad = async ({ request, url }) => {
     timeoutMs: 4000
   });
 
-  if (probe.status === 'authenticated' && probe.user.role === 'Owner') {
+  // Friends share the owner's front door: both land on the Listen home (the client's library
+  // mode decides whose songs it shows).
+  if (probe.status === 'authenticated' && (probe.user.role === 'Owner' || probe.user.role === 'Friend')) {
     throw redirect(303, APP_HOME);
-  }
-  if (probe.status === 'authenticated' && probe.user.role === 'Friend') {
-    throw redirect(303, FRIEND_HOME);
   }
 
   return {};

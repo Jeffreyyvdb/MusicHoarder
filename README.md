@@ -102,9 +102,10 @@ library, let it run, and review anything it isn't sure about.
   library is exposed, and the link is revocable anytime.
 - **Friend accounts & sharing** — invite people by email (Settings → People mints a one-time link)
   to create their own listen-only account, then share albums, artists, or your entire library per
-  friend. A friend's "Shared with me" page streams exactly what you granted — your library stays
-  scoped to your account, every grant is revocable, and removing a friend disables their account
-  and signs them out everywhere.
+  friend. Friends get the full listening app — Overview, Albums/Artists/Tracks with search and
+  filters, synced-lyrics theater, music videos, and their own likes and play history — over
+  exactly what you granted. Your library stays scoped to your account, every grant is revocable,
+  and removing a friend disables their account and signs them out everywhere.
 - **Library history** — an audit log of every change written to the destination (album
   consolidations, artist renames, year corrections, cover art, per-field tag diffs), so you can see
   exactly "what Navidrome sees differently."

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { LyricsStatus } from '$lib/types';
+  import { page } from '$app/state';
   import { fetchTrackLyrics, recheckSongLyrics } from '$lib/api-client';
   import { Button } from '$lib/components/ui/button';
   import { Badge } from '$lib/components/ui/badge';
@@ -261,6 +262,8 @@
 </script>
 
 {#snippet recheckButton(label: string)}
+  <!-- Re-checking LRCLIB is a server write on the owner's row — hidden for friend/demo views. -->
+  {#if page.data.user?.role === 'Owner'}
   <Button
     variant="subtle"
     size="sm"
@@ -280,6 +283,7 @@
     <p class="text-muted-foreground text-xs">
       LRCLIB still has nothing new for this track.
     </p>
+  {/if}
   {/if}
 {/snippet}
 

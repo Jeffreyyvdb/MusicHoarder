@@ -9,12 +9,17 @@
   import LibraryOfflineBanner from '$lib/components/LibraryOfflineBanner.svelte';
   import QualityGradingErrorBanner from '$lib/components/QualityGradingErrorBanner.svelte';
   import VersionUpdateBanner from '$lib/components/VersionUpdateBanner.svelte';
+  import { page } from '$app/state';
   import { playerStore } from '$lib/stores/player.svelte';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { cn } from '$lib/utils';
 
   type Props = { children: Snippet };
   const { children }: Props = $props();
+
+  // The three banners report pipeline/grading/update state — owner concerns their
+  // endpoints would just 403/empty for a friend session.
+  const isFriend = $derived(page.data.user?.role === 'Friend');
 
   // Mirror the v1 inset padding so the MiniPlayer / pipeline drawer never overlap
   // the page body. Both global widgets stay mounted by the layout, shared across
@@ -34,9 +39,11 @@
   <AppSidebarV2 />
   <Sidebar.Inset class={cn('bg-background h-svh min-w-0', drawerOpen && 'md:pb-[340px]')}>
     <AppTopBarV2 />
-    <LibraryOfflineBanner bind:visible={offlineVisible} />
-    <QualityGradingErrorBanner bind:visible={gradingErrorVisible} suppressed={offlineVisible} />
-    <VersionUpdateBanner suppressed={offlineVisible || gradingErrorVisible} />
+    {#if !isFriend}
+      <LibraryOfflineBanner bind:visible={offlineVisible} />
+      <QualityGradingErrorBanner bind:visible={gradingErrorVisible} suppressed={offlineVisible} />
+      <VersionUpdateBanner suppressed={offlineVisible || gradingErrorVisible} />
+    {/if}
     <!-- Page content scrolls *behind* the floating MiniPlayer / mobile bottom nav
          so the frosted glass reveals moving content. Rather than reserving dead
          space on the inset (which left the bar over blank background), we publish

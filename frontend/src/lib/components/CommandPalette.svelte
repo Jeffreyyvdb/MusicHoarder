@@ -1,9 +1,10 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { goto } from '$app/navigation';
+  import { page } from '$app/state';
   import { Disc3, Mic2, Music, Library, Loader2 } from '@lucide/svelte';
   import * as Command from '$lib/components/ui/command';
-  import { NAV_GROUPS } from '$lib/nav';
+  import { navGroupsFor } from '$lib/nav';
   import {
     buildAlbumsFromSongs,
     mergeAlbumsByName,
@@ -28,18 +29,21 @@
     group: string;
   };
 
-  // Every nav destination, flattened from the shared groups so the Jump-to list reads exactly
-  // like the sidebar and can never miss a route — the hand-kept list this replaced had no
-  // entry for Overview, Liked songs, Wishlist, Playlist sync, Stats or History. The group
-  // name joins the haystack, so typing "manage" surfaces everything under Manage.
-  const NAV_COMMANDS: NavCommand[] = NAV_GROUPS.flatMap((group) =>
-    group.items.map((item) => ({
-      label: item.label,
-      href: item.href,
-      icon: item.icon,
-      keywords: `${group.label} ${item.keywords ?? ''}`.toLowerCase(),
-      group: group.label
-    }))
+  // Every nav destination, flattened from the shared role-filtered groups so the Jump-to list
+  // reads exactly like the sidebar and can never miss (or over-offer) a route — the hand-kept
+  // list this replaced had no entry for Overview, Liked songs, Wishlist, Playlist sync, Stats
+  // or History. The group name joins the haystack, so typing "manage" surfaces everything
+  // under Manage; a Friend session only gets Listen destinations.
+  const NAV_COMMANDS = $derived<NavCommand[]>(
+    navGroupsFor(page.data.user?.role).flatMap((group) =>
+      group.items.map((item) => ({
+        label: item.label,
+        href: item.href,
+        icon: item.icon,
+        keywords: `${group.label} ${item.keywords ?? ''}`.toLowerCase(),
+        group: group.label
+      }))
+    )
   );
 
   // bits-ui's Dialog binds cleanly to a plain local $state; the shared store
