@@ -76,7 +76,8 @@ public class MusicHoarderDbContext : DbContext
         // EF query filters can reference instance state but per-EF-docs you should capture it
         // into locals so the compiled query doesn't NRE when the accessor is null (design-time,
         // tests, hosted-service scope). Combined with the IModelCacheKeyFactory below, this gives
-        // one cached model per (hasUser, userId) tuple — fine for our 2-user scale.
+        // one cached model per (hasUser, userId) tuple — fine for Owner + Demo + a handful of
+        // invited friends; revisit before tenant counts grow into dozens.
         var hasUser = _currentUser is not null;
         var userId = _currentUser?.UserId ?? Guid.Empty;
 

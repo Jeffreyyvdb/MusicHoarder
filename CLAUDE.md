@@ -90,6 +90,10 @@ Env var form uses the double-underscore convention (`MusicEnricher__AcoustIdApiK
 
 `MusicHoarderDbContext` is the only EF context. Schema changes always go through an EF migration under `MusicHoarder.Api/Persistence/Migrations/`; `ApplyPendingMigrationsAsync()` runs on startup, so don't ship manual SQL. `SongMetadata` is the hub entity and has `ProviderAttempts` as a collection — a `ResetEnrichment` must clear it.
 
+## Accounts, tenancy, and sharing
+
+Three roles: **Owner** and **Demo** are seeded at migration time (`WellKnownUsers`, frozen GUIDs); **Friend** rows are runtime-created by accepting an owner-minted, email-bound `Invite` (hash-only token, `POST /api/invite/accept` — the *only* runtime `User` insert path). Data is tenant-scoped by `OwnerUserId` + EF global query filters; **friends own zero `SongMetadata` rows**, so the pipeline, `IOwnerLookupService`, and the demo-exclusion sweeps are untouched by them. Friends are deny-by-default read-only (`FriendReadOnlyMiddleware`, clone of the demo one — extend its allowlist, never weaken the default) and read music exclusively through `/api/shared/*`, which resolves the caller's `LibraryShareGrant` rows (album/artist/library scope, keys derived exactly like `SharesEndpoints.LoadSongsInScopeAsync`) and then re-scopes `IgnoreQueryFilters()` reads to the granting owner — the same capability-then-re-scope posture as anonymous share links. Frontend-wise a `Friend` session lives at `/shared` (`(friend)` route group) and is bounced out of the `(app)` chrome by its guard; role unions live in `session-types.ts` + `api-client.ts` (`AuthRole`). Friend likes/plays deliberately don't exist yet — likes are columns on the owner's song rows, so per-friend state needs its own table first.
+
 ## Coding conventions
 
 - **Minimal API composition**: keep `Program.cs` focused on composition (service registration, middleware, endpoint mapping) via the `AddMusicHoarderServices()` / `MapMusicHoarderEndpoints()` extensions. Prefer extension methods for cross-cutting concerns.
