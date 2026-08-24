@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
+  import { goto, invalidateAll } from '$app/navigation';
   import { page } from '$app/state';
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
@@ -26,6 +26,7 @@
     registerPasskey,
     listPasskeys,
     deletePasskey,
+    updateDisplayName,
     sync,
     soulseek,
     type PasskeyView,
@@ -51,6 +52,7 @@
     Trash2,
     Save,
     LogOut,
+    Pencil,
     Settings,
     Sparkles,
     FolderInput
@@ -111,6 +113,35 @@
 
   async function handleSignOut(allSessions = false) {
     await signOutAndReset(allSessions);
+  }
+
+  // ── account name (owner-only; demo/friend writes are rejected server-side) ────
+  let isEditingName = $state(false);
+  let nameDraft = $state('');
+  let isSavingName = $state(false);
+  let nameError = $state<string | null>(null);
+
+  function startEditName() {
+    nameDraft = user?.displayName ?? '';
+    nameError = null;
+    isEditingName = true;
+  }
+
+  async function handleSaveName() {
+    if (isSavingName) return;
+    isSavingName = true;
+    nameError = null;
+    try {
+      await updateDisplayName(nameDraft.trim() || null);
+      isEditingName = false;
+      // Session user lives in page.data — re-run the layout load so the sidebar
+      // and this card pick up the new name.
+      await invalidateAll();
+    } catch (err) {
+      nameError = err instanceof Error ? err.message : 'Could not update the account name.';
+    } finally {
+      isSavingName = false;
+    }
   }
 
   // ── passkeys (owner-only) ──────────────────────────────────────────────────────
@@ -1050,9 +1081,53 @@
               {initials}
             </div>
             <div class="min-w-0 flex-1">
-              <div class="truncate text-sm font-medium">
-                {user?.displayName ?? user?.email ?? '—'}
-              </div>
+              {#if isEditingName}
+                <div class="flex flex-wrap items-center gap-2">
+                  <Input
+                    class="h-8 max-w-56"
+                    bind:value={nameDraft}
+                    placeholder="Account name"
+                    maxlength={100}
+                    disabled={isSavingName}
+                    aria-label="Account name"
+                    onkeydown={(e) => {
+                      if (e.key === 'Enter') void handleSaveName();
+                      if (e.key === 'Escape') isEditingName = false;
+                    }}
+                  />
+                  <Button size="sm" onclick={handleSaveName} disabled={isSavingName}>
+                    {#if isSavingName}
+                      <Loader2 class="mr-2 size-4 animate-spin" />
+                    {/if}
+                    Save
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onclick={() => (isEditingName = false)}
+                    disabled={isSavingName}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              {:else}
+                <div class="flex items-center gap-1.5">
+                  <div class="truncate text-sm font-medium">
+                    {user?.displayName ?? user?.email ?? '—'}
+                  </div>
+                  {#if user?.role === 'Owner'}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      class="size-6 shrink-0"
+                      onclick={startEditName}
+                      aria-label="Edit account name"
+                    >
+                      <Pencil class="size-3.5" />
+                    </Button>
+                  {/if}
+                </div>
+              {/if}
               <div class="text-muted-foreground truncate font-mono text-xs">
                 {user?.email ?? '—'}
               </div>
@@ -1061,6 +1136,15 @@
               {user?.role ?? 'Anonymous'}
             </Badge>
           </div>
+
+          {#if nameError}
+            <div
+              class="border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+            >
+              <AlertCircle class="mt-0.5 size-4 shrink-0" />
+              <span>{nameError}</span>
+            </div>
+          {/if}
 
           {#if user?.role === 'Demo'}
             <div

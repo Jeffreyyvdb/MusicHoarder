@@ -19,6 +19,7 @@ public class DemoReadOnlyMiddlewareTests
     [InlineData("POST", "/enrichment/scan")]
     [InlineData("POST", "/api/quality/grade-all")]
     [InlineData("PUT", "/api/settings")]
+    [InlineData("PATCH", "/api/auth/me")] // rename-self is owner-only
     public async Task demo_unsafe_request_is_rejected_with_403(string method, string path)
     {
         var (ctx, nextCalled) = await InvokeAsync(Demo(), method, path);
