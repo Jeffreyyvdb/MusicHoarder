@@ -106,3 +106,25 @@ object PairingUri {
         return value
     }
 }
+
+/**
+ * The `musichoarder://auth?token=…&url=…` handoff the magic-link page offers when the sign-in was
+ * requested from the app itself (PairScreen → email sign-in). Unlike a pairing code the token is
+ * a one-time magic-link token, not a session — the app still has to exchange it at
+ * `POST /api/auth/token` before it has anything worth persisting.
+ */
+object LoginLinkUri {
+    private const val SCHEME = "musichoarder"
+    private const val HOST = "auth"
+
+    data class LoginLink(val baseUrl: String, val token: String)
+
+    /** Parses an auth handoff link, or returns null when it is not one of ours. */
+    fun parse(raw: String): LoginLink? {
+        val uri = runCatching { Uri.parse(raw.trim()) }.getOrNull() ?: return null
+        if (!SCHEME.equals(uri.scheme, ignoreCase = true) || !HOST.equals(uri.host, ignoreCase = true)) return null
+        val url = uri.getQueryParameter("url")?.let(PairingUri::normalizeBaseUrl) ?: return null
+        val token = uri.getQueryParameter("token")?.trim().orEmpty()
+        return if (token.isEmpty()) null else LoginLink(url, token)
+    }
+}

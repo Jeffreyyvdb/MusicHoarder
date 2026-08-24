@@ -14,7 +14,7 @@ public class AuthServiceTests
     public async Task RequestLink_unknown_email_returns_null_no_token_written()
     {
         var (svc, ctx) = MakeService();
-        var result = await svc.RequestLinkAsync("nobody@nowhere", "http://app", null, null, default);
+        var result = await svc.RequestLinkAsync("nobody@nowhere", "http://app", null, null, null, default);
 
         Assert.Null(result);
         await using var db = ctx();
@@ -25,7 +25,7 @@ public class AuthServiceTests
     public async Task RequestLink_owner_creates_single_use_token_and_returns_dev_url()
     {
         var (svc, ctx) = MakeService(seedOwnerEmail: "me@example.com");
-        var result = await svc.RequestLinkAsync("me@example.com", "http://app", "1.1.1.1", "ua", default);
+        var result = await svc.RequestLinkAsync("me@example.com", "http://app", null, "1.1.1.1", "ua", default);
 
         Assert.NotNull(result);
         Assert.NotNull(result!.DevMagicLinkUrl);
@@ -39,12 +39,23 @@ public class AuthServiceTests
     }
 
     [Fact]
+    public async Task RequestLink_app_client_appends_handoff_params()
+    {
+        var (svc, _) = MakeService(seedOwnerEmail: "me@example.com");
+        var result = await svc.RequestLinkAsync("me@example.com", "http://app", "app", null, null, default);
+
+        Assert.NotNull(result?.DevMagicLinkUrl);
+        Assert.Contains("&client=app", result!.DevMagicLinkUrl);
+        Assert.Contains($"&url={Uri.EscapeDataString("http://app")}", result.DevMagicLinkUrl);
+    }
+
+    [Fact]
     public async Task RequestLink_twice_invalidates_first_token()
     {
         var (svc, ctx) = MakeService(seedOwnerEmail: "me@example.com");
 
-        await svc.RequestLinkAsync("me@example.com", "http://app", null, null, default);
-        await svc.RequestLinkAsync("me@example.com", "http://app", null, null, default);
+        await svc.RequestLinkAsync("me@example.com", "http://app", null, null, null, default);
+        await svc.RequestLinkAsync("me@example.com", "http://app", null, null, null, default);
 
         await using var db = ctx();
         var tokens = await db.MagicLinkTokens.OrderBy(t => t.IssuedAtUtc).ToListAsync();
@@ -58,7 +69,7 @@ public class AuthServiceTests
     public async Task Consume_valid_token_creates_session()
     {
         var (svc, ctx) = MakeService(seedOwnerEmail: "me@example.com");
-        var requestResult = await svc.RequestLinkAsync("me@example.com", "http://app", null, null, default);
+        var requestResult = await svc.RequestLinkAsync("me@example.com", "http://app", null, null, null, default);
         Assert.NotNull(requestResult);
         var rawToken = new Uri(requestResult!.DevMagicLinkUrl!).Query
             .TrimStart('?')
@@ -78,7 +89,7 @@ public class AuthServiceTests
     public async Task Consume_reused_token_returns_null()
     {
         var (svc, _) = MakeService(seedOwnerEmail: "me@example.com");
-        var result = await svc.RequestLinkAsync("me@example.com", "http://app", null, null, default);
+        var result = await svc.RequestLinkAsync("me@example.com", "http://app", null, null, null, default);
         var rawToken = Uri.UnescapeDataString(new Uri(result!.DevMagicLinkUrl!).Query.TrimStart('?').Split('=')[1]);
 
         var first = await svc.ConsumeLinkAsync(rawToken, null, null, default);

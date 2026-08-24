@@ -32,6 +32,7 @@ public static class AuthEndpoints
                     var result = await authService.RequestLinkAsync(
                         body.Email,
                         frontendBase,
+                        body.Client,
                         ctx.Connection.RemoteIpAddress?.ToString(),
                         ctx.Request.Headers.UserAgent.ToString(),
                         ct);
@@ -236,7 +237,9 @@ public static class AuthEndpoints
         FrontendUrlResolver.Resolve(ctx, opts);
 }
 
-public sealed record RequestLinkBody(string Email);
+/// <summary><paramref name="Client"/> is <c>"app"</c> when a native app asked, so the emailed link
+/// lands on the in-browser handoff page instead of consuming the token straight away.</summary>
+public sealed record RequestLinkBody(string Email, string? Client = null);
 public sealed record ConsumeBody(string Token);
 public sealed record UpdateMeBody(string? DisplayName);
 

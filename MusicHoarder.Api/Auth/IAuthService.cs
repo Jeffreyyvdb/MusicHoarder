@@ -7,8 +7,11 @@ public interface IAuthService
     /// a known user (caller maps that to 200 OK anyway to avoid user enumeration). When a
     /// user is found, a fresh token is created, any prior unconsumed tokens for the user
     /// are revoked, and the link is dispatched via <see cref="IMagicLinkSender"/>.
+    /// <paramref name="client"/> is <c>"app"</c> when a native app requested the link: the
+    /// emailed URL then lands on the browser handoff page instead of consuming immediately,
+    /// so the token stays valid until the app exchanges it at <c>/api/auth/token</c>.
     /// </summary>
-    Task<RequestLinkResult?> RequestLinkAsync(string email, string frontendBaseUrl, string? ip, string? userAgent, CancellationToken ct);
+    Task<RequestLinkResult?> RequestLinkAsync(string email, string frontendBaseUrl, string? client, string? ip, string? userAgent, CancellationToken ct);
 
     /// <summary>
     /// Exchanges a raw token for a new session. Returns <c>null</c> when the token is

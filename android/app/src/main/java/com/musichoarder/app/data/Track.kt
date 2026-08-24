@@ -85,6 +85,21 @@ data class SongsResponse(@SerialName("songs") val songs: List<ApiSong> = emptyLi
 @Serializable
 data class AuthMe(val email: String? = null, val role: String? = null, val displayName: String? = null)
 
+/** `POST /api/auth/request-link` — `client: "app"` asks for the in-app handoff link flavor. */
+@Serializable
+data class RequestLinkBody(val email: String, val client: String? = null)
+
+/** Enumeration-safe 200: `magicLinkUrl` only ever comes back from a Development server. */
+@Serializable
+data class RequestLinkResponse(val ok: Boolean = false, val magicLinkUrl: String? = null)
+
+/** `POST /api/auth/token` — exchanges a magic-link token for the bearer this phone keeps. */
+@Serializable
+data class TokenExchangeBody(val token: String)
+
+@Serializable
+data class AccessTokenResponse(val accessToken: String)
+
 /**
  * A playable row, with every display field already resolved so the UI never re-decides.
  *
