@@ -2782,6 +2782,14 @@ export async function fetchCurrentUser(): Promise<AuthMe | null> {
   return (await response.json()) as AuthMe
 }
 
+/** Rename the signed-in account. Pass null to clear the name (UI falls back to the email). */
+export async function updateDisplayName(displayName: string | null): Promise<AuthMe> {
+  return requestJson<AuthMe>(`/api/auth/me`, {
+    method: "PATCH",
+    body: JSON.stringify({ displayName }),
+  })
+}
+
 export async function requestMagicLink(email: string): Promise<RequestLinkResult> {
   const response = await fetch(`${API_PREFIX}/api/auth/request-link`, {
     method: "POST",

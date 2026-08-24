@@ -1,6 +1,8 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Options;
+using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Endpoints;
 
@@ -163,6 +165,12 @@ public static class AuthEndpoints
             })
             .WithName("AuthMe");
 
+        // Rename-self. Demo and friend sessions never get here (their read-only middlewares
+        // block any unsafe method under /api/auth that isn't allowlisted), so in practice this
+        // is owner-only.
+        group.MapPatch("/me", UpdateMe)
+            .WithName("AuthUpdateMe");
+
         group.MapPost("/logout", async (
                 bool? all,
                 HttpContext ctx,
@@ -191,12 +199,46 @@ public static class AuthEndpoints
         return app;
     }
 
+    internal static async Task<IResult> UpdateMe(
+        UpdateMeBody body,
+        ICurrentUserAccessor accessor,
+        MusicHoarderDbContext db,
+        CancellationToken ct)
+    {
+        var current = accessor.User;
+        if (current is null)
+            return Results.Json(new { error = "unauthenticated" }, statusCode: 401);
+
+        // Empty folds to null — the UI falls back to the email in that case.
+        var displayName = body.DisplayName?.Trim();
+        if (string.IsNullOrEmpty(displayName))
+            displayName = null;
+        if (displayName is { Length: > 100 })
+            return Results.BadRequest(new { error = "display_name_too_long" });
+
+        var user = await db.Users.SingleOrDefaultAsync(u => u.Id == current.Id, ct);
+        if (user is null || user.IsDisabled)
+            return Results.Json(new { error = "user_unavailable" }, statusCode: 403);
+
+        user.DisplayName = displayName;
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(new
+        {
+            id = user.Id,
+            email = user.Email,
+            role = user.Role.ToString(),
+            displayName = user.DisplayName,
+        });
+    }
+
     private static string ResolveFrontendBaseUrl(HttpContext ctx, FrontendOptions opts) =>
         FrontendUrlResolver.Resolve(ctx, opts);
 }
 
 public sealed record RequestLinkBody(string Email);
 public sealed record ConsumeBody(string Token);
+public sealed record UpdateMeBody(string? DisplayName);
 
 /// <summary>Bearer token issued to native clients; send as <c>Authorization: Bearer …</c>.</summary>
 public sealed record AccessTokenResponse(string AccessToken, string TokenType, DateTime ExpiresAtUtc);
