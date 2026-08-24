@@ -195,7 +195,7 @@ public class InviteLifecycleTests
         var minted = await svc.CreateOrRotateInviteAsync(TestUsers.OwnerId, "pal@example.com", default);
         await svc.AcceptInviteAsync(minted!.RawToken, null, null, default);
 
-        var link = await svc.RequestLinkAsync("pal@example.com", "http://app", null, null, default);
+        var link = await svc.RequestLinkAsync("pal@example.com", "http://app", null, null, null, default);
 
         Assert.NotNull(link);
         await using var db = ctx();

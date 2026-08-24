@@ -16,11 +16,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {
     /**
-     * A `musichoarder://pair` link the system handed us — from the phone's camera, Lens, or any
-     * other QR reader. Held as a flow rather than read straight off `intent` so a scan that arrives
-     * while the app is already running (onNewIntent) reaches Compose the same way a cold start does.
+     * A `musichoarder://` link the system handed us — a pairing code from the phone's camera, Lens,
+     * or any other QR reader, or the `musichoarder://auth` sign-in handoff from the browser. Held
+     * as a flow rather than read straight off `intent` so a link that arrives while the app is
+     * already running (onNewIntent) reaches Compose the same way a cold start does.
      */
-    private val pairingLink = MutableStateFlow<String?>(null)
+    private val appLink = MutableStateFlow<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,19 +29,19 @@ class MainActivity : ComponentActivity() {
         // Only on a genuine launch. A recreation (rotation, process restore) re-delivers the same
         // intent, and re-processing it re-opened the confirmation dialog — or, if the user had
         // unpaired in between, silently re-paired the phone from a stale link with no prompt.
-        if (savedInstanceState == null) consumePairingLink(intent)
+        if (savedInstanceState == null) consumeAppLink(intent)
 
         setContent {
             MusicHoarderTheme {
                 val viewModel: AppViewModel = viewModel()
-                val link by pairingLink.collectAsStateWithLifecycle()
+                val link by appLink.collectAsStateWithLifecycle()
 
                 // In a LaunchedEffect, not the composable body: handing the link to the view model
                 // is a side effect, and composition can run any number of times.
                 LaunchedEffect(link) {
                     link?.let {
-                        viewModel.onPairingLink(it)
-                        pairingLink.value = null
+                        viewModel.onAppLink(it)
+                        appLink.value = null
                     }
                 }
 
@@ -52,16 +53,16 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        consumePairingLink(intent)
+        consumeAppLink(intent)
     }
 
     /**
      * Takes the link out of the intent as it is read, so the same scan cannot be replayed by a later
      * recreation that re-delivers it.
      */
-    private fun consumePairingLink(intent: Intent?) {
+    private fun consumeAppLink(intent: Intent?) {
         val link = intent?.dataString ?: return
         intent.data = null
-        pairingLink.value = link
+        appLink.value = link
     }
 }

@@ -81,15 +81,15 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     pendingPairingHost?.let { host ->
         AlertDialog(
             onDismissRequest = viewModel::dismissPendingPairingLink,
-            title = { Text("Pair with a different server?") },
+            title = { Text("Sign in to a different server?") },
             text = {
                 Text(
-                    "This code points at $host. Pairing will replace the library this phone is " +
-                        "showing now and stop playback."
+                    "This link points at $host. Continuing will replace the library this phone " +
+                        "is showing now and stop playback."
                 )
             },
             confirmButton = {
-                TextButton(onClick = viewModel::confirmPendingPairingLink) { Text("Pair") }
+                TextButton(onClick = viewModel::confirmPendingPairingLink) { Text("Continue") }
             },
             dismissButton = {
                 TextButton(onClick = viewModel::dismissPendingPairingLink) { Text("Cancel") }
@@ -98,10 +98,13 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     }
 
     if (session == null) {
+        val emailSentTo by viewModel.emailLinkSentTo.collectAsStateWithLifecycle()
         PairScreen(
             error = pairError,
+            emailSentTo = emailSentTo,
             onScanned = viewModel::pairFromCode,
             onManual = viewModel::pairManually,
+            onRequestEmailLink = viewModel::requestEmailLink,
             onError = viewModel::setPairError,
             modifier = modifier,
         )
