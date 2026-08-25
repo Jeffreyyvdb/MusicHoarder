@@ -32,6 +32,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.musichoarder.app.data.LibraryTab
@@ -141,6 +142,15 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     }
     LaunchedEffect(showNowPlaying, showVideoBackdrop) {
         if (!showNowPlaying || !showVideoBackdrop) viewModel.video.pause()
+    }
+
+    // The library's search box stays composed behind the player, and a focused text field keeps its
+    // input connection alive: the keyboard stayed up over the sheet, and the system then restored it
+    // on every resume - so the app came back from the background with a keyboard over the playing
+    // song. Playing a track ends the search, so the focus goes with it.
+    val focusManager = LocalFocusManager.current
+    LaunchedEffect(showNowPlaying) {
+        if (showNowPlaying) focusManager.clearFocus()
     }
 
     // One ordered list rather than nested ifs, so it is obvious what Back unwinds and in what order.

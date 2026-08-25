@@ -27,7 +27,7 @@
             android:label="@string/app_name"
             android:launchMode="singleTop"
             android:theme="@style/Theme.MusicHoarder"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize|stateAlwaysHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
