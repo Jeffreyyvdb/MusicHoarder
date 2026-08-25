@@ -23,6 +23,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.MailOutline
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -48,14 +49,18 @@ import androidx.compose.ui.unit.dp
 import com.musichoarder.app.ui.theme.MhTheme
 
 /**
- * First run. The phone has no idea where the library lives, so it either scans the QR code the web
- * UI renders (Settings → Account → Mobile app) or takes the same two values by hand.
+ * First run. The phone has no idea where the library lives, so it signs in with the account's
+ * email address (the server emails a one-time link that deep-links back into the app — no other
+ * device needed), scans the QR code the web UI renders (Settings → Account → Mobile app), or
+ * takes the base URL + token by hand.
  */
 @Composable
 fun PairScreen(
     error: String?,
+    emailSentTo: String?,
     onScanned: (String) -> Unit,
     onManual: (baseUrl: String, token: String) -> Unit,
+    onRequestEmailLink: (baseUrl: String, email: String) -> Unit,
     onError: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -63,6 +68,7 @@ fun PairScreen(
     val context = LocalContext.current
     var showManual by remember { mutableStateOf(false) }
     var baseUrl by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
     var token by remember { mutableStateOf("") }
 
     // The form has to stay reachable with the keyboard up: `imePadding` shrinks the box and the
@@ -107,8 +113,8 @@ fun PairScreen(
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Open MusicHoarder in a browser and go to Settings → Account → Mobile app, then scan " +
-                    "the pairing code it shows.",
+                "Sign in with your account email and we'll send a link to this phone — or scan " +
+                    "the pairing code from Settings → Account → Mobile app.",
                 style = MaterialTheme.typography.bodySmall,
                 color = colors.mutedForeground,
                 textAlign = TextAlign.Center,
@@ -116,19 +122,63 @@ fun PairScreen(
 
             Spacer(Modifier.height(26.dp))
 
-            PrimaryButton(
-                label = "Scan pairing code",
-                icon = Icons.Rounded.QrCodeScanner,
+            Column(
                 modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                launchPairingScan(
-                    context,
-                    onScanned = onScanned,
-                    onError = { message ->
-                        onError(message)
-                        showManual = true
-                    },
+                PairField(
+                    value = baseUrl,
+                    onValueChange = { baseUrl = it },
+                    label = "Server address",
+                    placeholder = "https://musichoarder.app",
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
+                        imeAction = ImeAction.Next,
+                    ),
                 )
+                PairField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = "Email address",
+                    placeholder = "you@example.com",
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Email,
+                        imeAction = ImeAction.Done,
+                    ),
+                )
+                Spacer(Modifier.height(2.dp))
+                PrimaryButton(
+                    label = if (emailSentTo == null) "Email me a sign-in link" else "Send a new link",
+                    icon = Icons.Rounded.MailOutline,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { onRequestEmailLink(baseUrl, email) }
+            }
+
+            if (emailSentTo != null) {
+                Spacer(Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.primary.copy(alpha = 0.12f))
+                        .border(1.dp, colors.primary.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Icon(
+                        Icons.Rounded.MailOutline,
+                        contentDescription = null,
+                        tint = colors.primary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.size(8.dp))
+                    Text(
+                        "If $emailSentTo has an account, a sign-in link is on its way. Open the " +
+                            "email on this phone and tap the link to finish.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.foreground,
+                    )
+                }
             }
 
             if (error != null) {
@@ -161,26 +211,33 @@ fun PairScreen(
             HorizontalDivider(color = colors.border)
             Spacer(Modifier.height(14.dp))
 
+            OutlineButton(
+                label = "Scan pairing code",
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                launchPairingScan(
+                    context,
+                    onScanned = onScanned,
+                    onError = { message ->
+                        onError(message)
+                        showManual = true
+                    },
+                )
+            }
+
+            Spacer(Modifier.height(14.dp))
+
             if (!showManual) {
                 OutlineButton(
-                    label = "Enter details manually",
+                    label = "Enter an access token instead",
                     modifier = Modifier.fillMaxWidth(),
                 ) { showManual = true }
             } else {
+                // Reuses the server-address field above; only the token is extra here.
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    PairField(
-                        value = baseUrl,
-                        onValueChange = { baseUrl = it },
-                        label = "Server address",
-                        placeholder = "https://musichoarder.app",
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Uri,
-                            imeAction = ImeAction.Next,
-                        ),
-                    )
                     PairField(
                         value = token,
                         onValueChange = { token = it },

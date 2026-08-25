@@ -9,9 +9,12 @@ import com.musichoarder.app.data.Album
 import com.musichoarder.app.data.AlbumSortKey
 import com.musichoarder.app.data.ArtistMode
 import com.musichoarder.app.data.ChipKey
+import android.net.Uri
+import com.musichoarder.app.data.ApiException
 import com.musichoarder.app.data.LibraryContent
 import com.musichoarder.app.data.LibraryTab
 import com.musichoarder.app.data.LibraryUiState
+import com.musichoarder.app.data.LoginLinkUri
 import com.musichoarder.app.data.PairingUri
 import com.musichoarder.app.data.SortKey
 import com.musichoarder.app.data.StoredAccount
@@ -103,11 +106,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _pairError = MutableStateFlow<String?>(null)
     val pairError: StateFlow<String?> = _pairError.asStateFlow()
 
-    /** A deep-linked pairing code waiting on confirmation, because a session already exists. */
+    /** A deep-linked pairing/sign-in link waiting on confirmation, because a session already exists. */
     private val _pendingPairingLink = MutableStateFlow<String?>(null)
     val pendingPairingHost: StateFlow<String?> = _pendingPairingLink
-        .map { raw -> raw?.let { PairingUri.parse(it)?.baseUrl } }
+        .map { raw -> raw?.let(::linkedBaseUrl) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** The email a sign-in link was just sent to; the pair screen shows the "check your email" state. */
+    private val _emailLinkSentTo = MutableStateFlow<String?>(null)
+    val emailLinkSentTo: StateFlow<String?> = _emailLinkSentTo.asStateFlow()
 
     val player = PlayerController(
         context = application,
@@ -208,28 +215,36 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * A `musichoarder://pair` link opened from outside the app.
+     * A `musichoarder://pair` or `musichoarder://auth` link opened from outside the app.
      *
-     * On first run this just pairs. When the app is already paired it asks first: a link can be
-     * handed over by anything — a web page, a message — and silently re-pointing someone's library
-     * at another server on a single tap is not a thing a link should be able to do.
+     * On first run this just pairs (or finishes the email sign-in). When the app is already paired
+     * it asks first: a link can be handed over by anything — a web page, a message — and silently
+     * re-pointing someone's library at another server on a single tap is not a thing a link should
+     * be able to do.
      */
-    fun onPairingLink(raw: String) {
+    fun onAppLink(raw: String) {
         if (_pendingPairingLink.value == raw) return
-        val parsed = PairingUri.parse(raw)
-        if (parsed == null) {
-            reportPairProblem("That code is not a MusicHoarder pairing code.")
+        if (linkedBaseUrl(raw) == null) {
+            reportPairProblem("That link is not a MusicHoarder pairing code or sign-in link.")
             return
         }
-        if (session.value == null) pair(parsed) else _pendingPairingLink.value = raw
+        if (session.value == null) applyAppLink(raw) else _pendingPairingLink.value = raw
     }
 
-    /** Confirms a pairing link that would re-point an already-paired app. */
+    /** Confirms a link that would re-point an already-paired app. */
     fun confirmPendingPairingLink() {
         val raw = _pendingPairingLink.value ?: return
         _pendingPairingLink.value = null
-        PairingUri.parse(raw)?.let(::pair)
+        applyAppLink(raw)
     }
+
+    private fun applyAppLink(raw: String) {
+        PairingUri.parse(raw)?.let { pair(it); return }
+        LoginLinkUri.parse(raw)?.let { loginWithToken(it.baseUrl, it.token) }
+    }
+
+    private fun linkedBaseUrl(raw: String): String? =
+        PairingUri.parse(raw)?.baseUrl ?: LoginLinkUri.parse(raw)?.baseUrl
 
     fun dismissPendingPairingLink() {
         _pendingPairingLink.value = null
@@ -252,6 +267,58 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun reportPairProblem(message: String) {
         if (session.value != null) _localMessages.tryEmit(message) else _pairError.value = message
+    }
+
+    /**
+     * The no-PC path: asks the server to email a one-time sign-in link. Tapping the link on this
+     * phone bounces through the browser handoff page into [onAppLink] as a `musichoarder://auth`
+     * deep link, and [loginWithToken] finishes the exchange.
+     */
+    fun requestEmailLink(baseUrl: String, email: String) {
+        val normalized = PairingUri.normalizeBaseUrl(baseUrl)
+        if (normalized == null) {
+            _pairError.value = "Enter the server address, for example https://musichoarder.app"
+            return
+        }
+        val trimmed = email.trim()
+        if (trimmed.isEmpty() || '@' !in trimmed) {
+            _pairError.value = "Enter the email address of your MusicHoarder account."
+            return
+        }
+        _pairError.value = null
+        viewModelScope.launch {
+            val result = runCatching { graph.api.requestLoginLink(normalized, trimmed) }
+            val response = result.getOrNull()
+            if (response == null) {
+                _pairError.value = "Could not reach $normalized."
+                return@launch
+            }
+            // A Development server hands the link straight back instead of emailing it; skip the
+            // inbox round-trip and sign in with it now.
+            val devToken = response.magicLinkUrl
+                ?.let { runCatching { Uri.parse(it).getQueryParameter("token") }.getOrNull() }
+            if (devToken != null) loginWithToken(normalized, devToken)
+            else _emailLinkSentTo.value = trimmed
+        }
+    }
+
+    /** Exchanges a magic-link token for a bearer session, then pairs with it as usual. */
+    private fun loginWithToken(baseUrl: String, token: String) {
+        _pairError.value = null
+        viewModelScope.launch {
+            val exchange = runCatching { graph.api.exchangeLoginToken(baseUrl, token) }
+            val bearer = exchange.getOrNull()
+            if (bearer == null) {
+                _pairError.value = if (exchange.exceptionOrNull() is ApiException) {
+                    "That sign-in link has expired or was already used. Request a new one."
+                } else {
+                    "Could not reach $baseUrl. The current pairing is untouched."
+                }
+                return@launch
+            }
+            _emailLinkSentTo.value = null
+            pair(ServerSession(baseUrl, bearer))
+        }
     }
 
     fun pairManually(baseUrl: String, token: String) {
@@ -342,6 +409,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Signs the active account out of this phone, falling back to the next remembered one. */
     fun unpair() {
+        _emailLinkSentTo.value = null
         evictActiveAccount(error = null)
     }
 

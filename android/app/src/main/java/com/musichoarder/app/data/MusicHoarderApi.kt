@@ -99,6 +99,40 @@ class MusicHoarderApi(
         execute(request) { json.decodeFromString<AuthMe>(it) }
     }
 
+    /**
+     * Asks [baseUrl] to email a sign-in link for [email]. Enumeration-safe: the server answers
+     * 200 whether or not the email belongs to an account, so "sent" only ever means "sent if it
+     * exists". `client: "app"` makes the emailed link land on the browser handoff page that
+     * offers the `musichoarder://auth` deep link back into this app.
+     */
+    suspend fun requestLoginLink(baseUrl: String, email: String): RequestLinkResponse =
+        withContext(Dispatchers.IO) {
+            val body = json.encodeToString(RequestLinkBody(email = email, client = "app"))
+                .toRequestBody(JSON_MEDIA_TYPE)
+            val request = Request.Builder()
+                .url("$baseUrl$API_PREFIX/api/auth/request-link")
+                // With no public base URL configured the server derives the link's origin from
+                // the caller; a browser sends Origin on every POST, so the app does too.
+                .header("Origin", baseUrl)
+                .post(body)
+                .build()
+            execute(request) { json.decodeFromString<RequestLinkResponse>(it) }
+        }
+
+    /**
+     * Exchanges a one-time magic-link token for the bearer token this phone will keep. Explicit
+     * [baseUrl] because this runs before any session exists to read one from.
+     */
+    suspend fun exchangeLoginToken(baseUrl: String, token: String): String =
+        withContext(Dispatchers.IO) {
+            val body = json.encodeToString(TokenExchangeBody(token)).toRequestBody(JSON_MEDIA_TYPE)
+            val request = Request.Builder()
+                .url("$baseUrl$API_PREFIX/api/auth/token")
+                .post(body)
+                .build()
+            execute(request) { json.decodeFromString<AccessTokenResponse>(it).accessToken }
+        }
+
     suspend fun fetchSongs(): List<ApiSong> =
         get(ApiRoutes.songs(isFriend())) { json.decodeFromString<SongsResponse>(it).songs }
 

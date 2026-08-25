@@ -32,6 +32,7 @@ public sealed class AuthService : IAuthService
     public async Task<RequestLinkResult?> RequestLinkAsync(
         string email,
         string frontendBaseUrl,
+        string? client,
         string? ip,
         string? userAgent,
         CancellationToken ct)
@@ -71,7 +72,10 @@ public sealed class AuthService : IAuthService
         db.MagicLinkTokens.Add(token);
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
 
-        var callbackUrl = BuildCallbackUrl(frontendBaseUrl, rawToken);
+        var callbackUrl = BuildCallbackUrl(
+            frontendBaseUrl,
+            rawToken,
+            forApp: string.Equals(client, "app", StringComparison.OrdinalIgnoreCase));
 
         try
         {
@@ -383,10 +387,14 @@ public sealed class AuthService : IAuthService
             UserAgent = userAgent,
         };
 
-    private static string BuildCallbackUrl(string frontendBaseUrl, string rawToken)
+    private static string BuildCallbackUrl(string frontendBaseUrl, string rawToken, bool forApp)
     {
         var b = frontendBaseUrl.TrimEnd('/');
-        return $"{b}/auth/callback?token={Uri.EscapeDataString(rawToken)}";
+        var url = $"{b}/auth/callback?token={Uri.EscapeDataString(rawToken)}";
+        // `url` rides along so the handoff page can hand the app an origin that doesn't depend
+        // on how the frontend reconstructs its own (ORIGIN env, proxy headers).
+        if (forApp) url += $"&client=app&url={Uri.EscapeDataString(b)}";
+        return url;
     }
 
     internal static string GenerateRawToken()

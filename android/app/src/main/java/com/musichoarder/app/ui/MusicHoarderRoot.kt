@@ -85,9 +85,9 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
             title = { Text("Add this account?") },
             text = {
                 Text(
-                    "This code points at $host. The account it pairs is added alongside the one " +
-                        "this phone is using now (which stays signed in) and becomes active — " +
-                        "playback stops while the library switches."
+                    "This link points at $host. The account it signs in is added alongside the " +
+                        "one this phone is using now (which stays signed in) and becomes active " +
+                        "— playback stops while the library switches."
                 )
             },
             confirmButton = {
@@ -100,10 +100,13 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     }
 
     if (session == null) {
+        val emailSentTo by viewModel.emailLinkSentTo.collectAsStateWithLifecycle()
         PairScreen(
             error = pairError,
+            emailSentTo = emailSentTo,
             onScanned = viewModel::pairFromCode,
             onManual = viewModel::pairManually,
+            onRequestEmailLink = viewModel::requestEmailLink,
             onError = viewModel::setPairError,
             modifier = modifier,
         )

@@ -36,9 +36,11 @@
 
             <!--
               Pairing codes scanned with anything other than the app's own scanner — the phone
-              camera, Lens, a QR app. Without this the scheme resolves to nothing at all, the code
-              silently goes nowhere, and an already-paired app carries on showing the previous
-              server. `singleTop` plus onNewIntent means it also works while the app is open.
+              camera, Lens, a QR app — and the `musichoarder://auth` handoff the magic-link page
+              offers when a sign-in was requested from the app. Without this the scheme resolves
+              to nothing at all, the link silently goes nowhere, and an already-paired app carries
+              on showing the previous server. `singleTop` plus onNewIntent means it also works
+              while the app is open.
             -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -48,6 +50,9 @@
 
                 <data
                     android:host="pair"
+                    android:scheme="musichoarder" />
+                <data
+                    android:host="auth"
                     android:scheme="musichoarder" />
             </intent-filter>
         </activity>

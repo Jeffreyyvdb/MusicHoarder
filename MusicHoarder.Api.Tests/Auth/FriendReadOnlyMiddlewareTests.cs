@@ -22,6 +22,7 @@ public class FriendReadOnlyMiddlewareTests
     [InlineData("PUT", "/api/settings")]
     [InlineData("POST", "/api/shares")]
     [InlineData("POST", "/api/friends/invites")]
+    [InlineData("PATCH", "/api/auth/me")] // rename-self is owner-only
     public async Task friend_unsafe_request_is_rejected_with_403(string method, string path)
     {
         var (ctx, nextCalled) = await InvokeAsync(TestCurrentUserAccessor.FriendUser, method, path);
