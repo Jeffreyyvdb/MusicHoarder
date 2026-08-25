@@ -32,6 +32,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.musichoarder.app.data.LibraryTab
@@ -66,6 +67,7 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     var showNowPlaying by rememberSaveable { mutableStateOf(false) }
     var showVideoBackdrop by rememberSaveable { mutableStateOf(true) }
     val snackbarHost = remember { SnackbarHostState() }
+    val context = LocalContext.current
 
     // The media notification is the playback controls - without it, background playback is invisible.
     val notificationPermission = rememberLauncherForActivityResult(
@@ -113,6 +115,8 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
             onScanned = viewModel::pairFromCode,
             onManual = viewModel::pairManually,
             onRequestEmailLink = viewModel::requestEmailLink,
+            // The Activity, not the Application: the system draws the passkey sheet over it.
+            onUsePasskey = { baseUrl -> viewModel.signInWithPasskey(context, baseUrl) },
             onError = viewModel::setPairError,
             modifier = modifier,
         )

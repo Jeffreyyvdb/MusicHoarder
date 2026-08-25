@@ -53,6 +53,7 @@ services:
       Slskd__ApiKey: "${SLSKD_API_KEY:-}"
       Slskd__DownloadsDirectory: "${SLSKD_DOWNLOADS_DIR:-}"
       StreamingFlac__SidecarUrl: "${SPOTIFLAC_SIDECAR_URL:-}"
+      WebAuthn__Origins__0: "${ANDROID_APK_KEY_HASH_ORIGIN:-}"
       Frontend__PublicBaseUrl: "${FRONTEND_PUBLIC_BASE_URL}"
       Spotify__OAuthRelayUrl: "${FRONTEND_PUBLIC_BASE_URL}/api/spotify/relay"
       MusicEnricher__EnableWishlistDownloads: "${ENABLE_WISHLIST_DOWNLOADS:-false}"

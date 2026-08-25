@@ -51,8 +51,12 @@ import com.musichoarder.app.ui.theme.MhTheme
 /**
  * First run. The phone has no idea where the library lives, so it signs in with the account's
  * email address (the server emails a one-time link that deep-links back into the app — no other
- * device needed), scans the QR code the web UI renders (Settings → Account → Mobile app), or
- * takes the base URL + token by hand.
+ * device needed), with the passkey already enrolled in the browser, scans the QR code the web UI
+ * renders (Settings → Account → Mobile app), or takes the base URL + token by hand.
+ *
+ * The email field belongs to the magic link alone: a passkey ceremony is usernameless (the
+ * authenticator surfaces the resident key and reports who it belongs to), so the passkey button
+ * needs nothing but the server address above it.
  */
 @Composable
 fun PairScreen(
@@ -61,6 +65,7 @@ fun PairScreen(
     onScanned: (String) -> Unit,
     onManual: (baseUrl: String, token: String) -> Unit,
     onRequestEmailLink: (baseUrl: String, email: String) -> Unit,
+    onUsePasskey: (baseUrl: String) -> Unit,
     onError: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -113,8 +118,8 @@ fun PairScreen(
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Sign in with your account email and we'll send a link to this phone — or scan " +
-                    "the pairing code from Settings → Account → Mobile app.",
+                "Sign in with your account email and we'll send a link to this phone, use a " +
+                    "passkey, or scan the pairing code from Settings → Account → Mobile app.",
                 style = MaterialTheme.typography.bodySmall,
                 color = colors.mutedForeground,
                 textAlign = TextAlign.Center,
@@ -152,6 +157,10 @@ fun PairScreen(
                     icon = Icons.Rounded.MailOutline,
                     modifier = Modifier.fillMaxWidth(),
                 ) { onRequestEmailLink(baseUrl, email) }
+                OutlineButton(
+                    label = "Use a passkey",
+                    modifier = Modifier.fillMaxWidth(),
+                ) { onUsePasskey(baseUrl) }
             }
 
             if (emailSentTo != null) {

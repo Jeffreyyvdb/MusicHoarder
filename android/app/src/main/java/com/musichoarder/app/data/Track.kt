@@ -106,6 +106,16 @@ data class TokenExchangeBody(val token: String)
 data class AccessTokenResponse(val accessToken: String)
 
 /**
+ * `POST /api/auth/webauthn/authenticate/native/begin` — the cookie-free ceremony start.
+ *
+ * [requestJson] is the WebAuthn request options verbatim, handed to Credential Manager as-is.
+ * [state] is the in-flight challenge, data-protected and time-limited by the server: a native
+ * client has no cookie jar to round-trip it through, so it carries it and hands it straight back.
+ */
+@Serializable
+data class PasskeyChallengeResponse(val state: String, val requestJson: String)
+
+/**
  * A playable row, with every display field already resolved so the UI never re-decides.
  *
  * Everything the library views sort or filter on is resolved **here**, once per fetch, rather than

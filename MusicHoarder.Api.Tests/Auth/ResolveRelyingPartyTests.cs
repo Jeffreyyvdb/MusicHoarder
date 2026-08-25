@@ -7,6 +7,38 @@ namespace MusicHoarder.Api.Tests.Auth;
 public class ResolveRelyingPartyTests
 {
     [Fact]
+    public void Android_apk_key_hash_origin_survives_verbatim()
+    {
+        // Load-bearing for in-app passkeys: Credential Manager reports an Android caller's origin
+        // as `android:apk-key-hash:<base64url sha256>`, and fido2-net-lib compares a non-URL origin
+        // as an exact string. If the derivation rewrote it — as it does for http(s) origins, which
+        // gain a www sibling — every passkey assertion from the app would fail the origin check.
+        const string apkOrigin = "android:apk-key-hash:9oRsCTHMFcQ1eS7Ke0EqfKPr9K4TjxRV5oXQnQ8kQ9A";
+
+        var (rpId, origins) = ServiceCollectionExtensions.ResolveRelyingParty(
+            new WebAuthnOptions { Origins = [apkOrigin] },
+            new FrontendOptions { PublicBaseUrl = "https://musichoarder.app" });
+
+        Assert.Contains(apkOrigin, origins);
+        // The web origin is untouched: the app's origin is additional, never a replacement.
+        Assert.Contains("https://musichoarder.app", origins);
+        Assert.Equal("musichoarder.app", rpId);
+    }
+
+    [Fact]
+    public void Blank_android_origin_adds_nothing()
+    {
+        // The AppHost always maps WebAuthn__Origins__0, so an unconfigured deployment binds an
+        // empty string into slot 0. It must not become an allowed origin.
+        var (_, origins) = ServiceCollectionExtensions.ResolveRelyingParty(
+            new WebAuthnOptions { Origins = [""] },
+            new FrontendOptions { PublicBaseUrl = "https://musichoarder.app" });
+
+        Assert.DoesNotContain("", origins);
+        Assert.Contains("https://musichoarder.app", origins);
+    }
+
+    [Fact]
     public void Apex_public_base_url_also_allows_www_origin()
     {
         var (rpId, origins) = ServiceCollectionExtensions.ResolveRelyingParty(
