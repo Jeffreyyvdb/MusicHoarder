@@ -1,3 +1,4 @@
+using MusicHoarder.Api.Enrichment.AlbumTracklist;
 using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Persistence;
 
@@ -85,22 +86,8 @@ public sealed class AlbumGradingDossierFactory : IAlbumGradingDossierFactory
             SongGradeRollup: rollup);
     }
 
-    private static IReadOnlyList<AlbumDossierSource> ParseSources(string? sourcesJson)
-    {
-        if (string.IsNullOrWhiteSpace(sourcesJson))
-            return [];
-        try
-        {
-            var stored = System.Text.Json.JsonSerializer.Deserialize<List<StoredSource>>(sourcesJson);
-            return stored is null
-                ? []
-                : stored.Select(s => new AlbumDossierSource(s.Provider.ToString(), s.AlbumId, s.TrackCount, s.InWinningCluster)).ToList();
-        }
-        catch (System.Text.Json.JsonException)
-        {
-            return [];
-        }
-    }
-
-    private sealed record StoredSource(EnrichmentProvider Provider, string? AlbumId, int TrackCount, bool InWinningCluster);
+    private static IReadOnlyList<AlbumDossierSource> ParseSources(string? sourcesJson) =>
+        CanonicalAlbumSources.Parse(sourcesJson)
+            .Select(s => new AlbumDossierSource(s.Provider.ToString(), s.AlbumId, s.TrackCount, s.InWinningCluster))
+            .ToList();
 }

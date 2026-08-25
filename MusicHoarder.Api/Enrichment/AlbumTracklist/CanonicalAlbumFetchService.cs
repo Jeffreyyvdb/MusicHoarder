@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
@@ -218,7 +217,7 @@ public sealed class CanonicalAlbumFetchService(
         row.CoverArtUrl = r.CoverArtUrl;
         row.ResolvedTrackCount = r.ResolvedTrackCount;
         row.TrackCountContested = r.TrackCountContested;
-        row.SourcesJson = JsonSerializer.Serialize(r.Sources);
+        row.SourcesJson = CanonicalAlbumSources.Serialize(r.Sources);
         row.Status = CanonicalAlbumStatus.Fetched;
         row.FetchedAtUtc = now;
         row.NextRetryAfterUtc = null;

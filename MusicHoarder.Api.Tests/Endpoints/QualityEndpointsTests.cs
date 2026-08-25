@@ -49,7 +49,7 @@ public class QualityEndpointsTests
 
     private static void AddGrade(
         MusicHoarderDbContext db, int songId, SongQualityVerdict verdict, int score, string statusAtGrade,
-        int? promptVersion = null, string? model = CurrentModel)
+        int? promptVersion = null, string? model = CurrentModel, DateTime? at = null, string? issuesJson = null)
     {
         db.SongQualityGrades.Add(new SongQualityGrade
         {
@@ -60,7 +60,8 @@ public class QualityEndpointsTests
             EnrichmentStatusAtGrade = statusAtGrade,
             PromptVersion = promptVersion ?? QualityGradingPrompt.Version,
             Model = model,
-            GradedAtUtc = DateTime.UtcNow,
+            IssuesJson = issuesJson,
+            GradedAtUtc = at ?? DateTime.UtcNow,
         });
         db.SaveChanges();
     }
@@ -120,6 +121,46 @@ public class QualityEndpointsTests
         Assert.False(byId[current.Id]);
         Assert.True(byId[oldPrompt.Id]);
         Assert.True(byId[oldModel.Id]);
+    }
+
+    [Fact]
+    public async Task GetSongs_UsesOnlyTheLatestGradePerSong()
+    {
+        using var db = NewContext();
+        var song = AddSong(db, 1, EnrichmentStatus.Matched);
+        AddGrade(db, song.Id, SongQualityVerdict.Wrong, 20, "Matched",
+            at: new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        AddGrade(db, song.Id, SongQualityVerdict.Good, 80, "Matched",
+            at: new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        var result = await QualityEndpoints.GetSongs(db, Opts(), CancellationToken.None);
+
+        // The superseded Wrong grade must not surface as a second row.
+        Assert.Equal(1, Read<int>(result, "total"));
+        var row = Read<List<object>>(result, "items").Single();
+        Assert.Equal("Good", (string)row.GetType().GetProperty("verdict")!.GetValue(row)!);
+    }
+
+    [Fact]
+    public async Task GetSongs_ParsesStoredIssueJson_AndTreatsGarbageAsNoIssues()
+    {
+        using var db = NewContext();
+        var graded = AddSong(db, 1, EnrichmentStatus.Matched);
+        AddGrade(db, graded.Id, SongQualityVerdict.Wrong, 20, "Matched",
+            issuesJson: """[{"code":"unsupported_identity","severity":"high"},{"code":"low_confidence","severity":"medium"}]""");
+        var garbage = AddSong(db, 2, EnrichmentStatus.Matched);
+        AddGrade(db, garbage.Id, SongQualityVerdict.Good, 80, "Matched", issuesJson: "not-json");
+
+        var items = Read<List<object>>(
+            await QualityEndpoints.GetSongs(db, Opts(), CancellationToken.None), "items");
+
+        int IdOf(object row) => (int)row.GetType().GetProperty("songId")!.GetValue(row)!;
+        List<GradingIssue> IssuesOf(object row) =>
+            (List<GradingIssue>)row.GetType().GetProperty("issues")!.GetValue(row)!;
+        var byId = items.ToDictionary(IdOf, IssuesOf);
+
+        Assert.Equal(["unsupported_identity", "low_confidence"], byId[graded.Id].Select(i => i.Code));
+        Assert.Empty(byId[garbage.Id]);
     }
 
     [Fact]

@@ -38,9 +38,8 @@ Git-synced compose):
 ```dotenv
 COMPOSE_PROFILES=spotiflac          # starts the sidecar container
 SPOTIFLAC_SIDECAR_URL=http://spotiflac:8000
-DOWNLOAD_PROVIDER_1=spotiflac       # prefer lossless; falls through to the rest
-DOWNLOAD_PROVIDER_2=slskd
-DOWNLOAD_PROVIDER_3=yt-dlp
+# The default chain already leads with spotiflac (spotiflac -> slskd -> yt-dlp), so DOWNLOAD_PROVIDER_*
+# only needs setting to change that order.
 # optional: pin the image / use your own backends
 # SPOTIFLAC_VERSION=latest
 # SPOTIFLAC_TIDAL_CUSTOM_API=...
@@ -58,11 +57,8 @@ profiles is not allowed`), and its `replicas` cannot be an env var, so the task 
 "not found" and the container idles. To turn it on, set these in Dokploy and redeploy:
 
 ```dotenv
-SPOTIFLAC_SIDECAR_URL=http://spotiflac:8000
-DOWNLOAD_PROVIDER_1=spotiflac       # drives wishlist downloads AND quality upgrades
-DOWNLOAD_PROVIDER_2=slskd
-DOWNLOAD_PROVIDER_3=yt-dlp
-ENABLE_WISHLIST_DOWNLOADS=true      # only needed if that instance downloads at all
+SPOTIFLAC_SIDECAR_URL=http://spotiflac:8000   # the default chain already leads with spotiflac
+ENABLE_WISHLIST_DOWNLOADS=true               # only needed if that instance downloads at all
 ```
 
 The stack deploy runs with `--resolve-image always`, so the mutable `:latest` tag re-pulls on every

@@ -52,6 +52,55 @@ public class AlbumCompletionSweepTests
     }
 
     [Fact]
+    public async Task Sweep_StampsResolvedSpotifyIdsOnQueuedTracks()
+    {
+        // Without an id the lossless provider can't acquire the track and the fill drops to the lossy
+        // floor — the whole point of resolving the canonical tracklist against Spotify.
+        await using var db = NewContext();
+        AddCanonicalAlbum(db, Artist, Album, "One", "Two", "Three");
+        db.Songs.Add(Song("/a.mp3", Artist, Album, title: "One", track: 1));
+        await db.SaveChangesAsync();
+
+        var resolver = new StubIdentityResolver(("Two", "spotify-two"));
+        await CreateSweep(db, identityResolver: resolver).SweepAsync(CancellationToken.None);
+
+        var items = await db.WishlistItems.IgnoreQueryFilters().ToListAsync();
+        Assert.Equal("spotify-two", items.Single(i => i.Title == "Two").SpotifyTrackId);
+        // Unidentified tracks are still queued — they just fall through the chain as before.
+        Assert.Null(items.Single(i => i.Title == "Three").SpotifyTrackId);
+    }
+
+    [Fact]
+    public async Task Sweep_SpotifyIdAlreadyOnAnotherItem_LeavesTheFillItemUnidentified()
+    {
+        // One wishlist row per (owner, Spotify track) is a unique index, so a fill track that resolves
+        // to something the owner already wishlisted must yield rather than collide.
+        await using var db = NewContext();
+        AddCanonicalAlbum(db, Artist, Album, "One", "Two");
+        db.Songs.Add(Song("/a.mp3", Artist, Album, title: "One", track: 1));
+        db.WishlistItems.Add(new WishlistItem
+        {
+            OwnerUserId = WellKnownUsers.OwnerId,
+            SpotifyTrackId = "spotify-two",
+            Title = "Two",
+            Artist = Artist,
+            Status = WishlistItemStatus.Failed,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var resolver = new StubIdentityResolver(("Two", "spotify-two"));
+        await CreateSweep(db, identityResolver: resolver).SweepAsync(CancellationToken.None);
+
+        var queued = await db.WishlistItems
+            .IgnoreQueryFilters()
+            .SingleAsync(w => w.Origin == WishlistItemOrigin.AlbumCompletion);
+        Assert.Equal("Two", queued.Title);
+        Assert.Null(queued.SpotifyTrackId);
+    }
+
+    [Fact]
     public async Task Sweep_OwningEveryTrack_QueuesNothingAndMarksNothingMissing()
     {
         await using var db = NewContext();
@@ -590,7 +639,8 @@ public class AlbumCompletionSweepTests
     private static AlbumCompletionSweep CreateSweep(
         MusicHoarderDbContext db,
         bool runtimeEnabled = true,
-        Action<MusicEnricherOptions>? configure = null)
+        Action<MusicEnricherOptions>? configure = null,
+        IAlbumCompletionIdentityResolver? identityResolver = null)
     {
         var opts = new MusicEnricherOptions
         {
@@ -606,6 +656,7 @@ public class AlbumCompletionSweepTests
             db,
             new TestOwnerLookupService(),
             new StubRuntimeSettings(runtimeEnabled && opts.EnableAlbumCompletion),
+            identityResolver ?? new StubIdentityResolver(),
             Microsoft.Extensions.Options.Options.Create(opts),
             NullLogger<AlbumCompletionSweep>.Instance);
     }
@@ -616,6 +667,21 @@ public class AlbumCompletionSweepTests
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
             .Options;
         return new MusicHoarderDbContext(options);
+    }
+
+    /// <summary>Identifies canonical tracks by title, standing in for the Spotify album lookup.</summary>
+    private sealed class StubIdentityResolver(params (string Title, string SpotifyId)[] ids)
+        : IAlbumCompletionIdentityResolver
+    {
+        public Task<IReadOnlyDictionary<int, string>> ResolveSpotifyTrackIdsAsync(
+            CanonicalAlbum album, IReadOnlyList<CanonicalAlbumTrack> tracks, CancellationToken ct)
+        {
+            var byTitle = ids.ToDictionary(x => x.Title, x => x.SpotifyId, StringComparer.Ordinal);
+            var resolved = tracks
+                .Where(t => t.Title is not null && byTitle.ContainsKey(t.Title))
+                .ToDictionary(t => t.Id, t => byTitle[t.Title!]);
+            return Task.FromResult<IReadOnlyDictionary<int, string>>(resolved);
+        }
     }
 
     private sealed class StubRuntimeSettings(bool albumCompletionEnabled) : IRuntimeSettingsService

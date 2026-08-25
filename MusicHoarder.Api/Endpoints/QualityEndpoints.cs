@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Options;
@@ -15,8 +14,6 @@ namespace MusicHoarder.Api.Endpoints;
 /// </summary>
 public static class QualityEndpoints
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-
     private static readonly EnrichmentStatus[] GradeableStatuses =
         [EnrichmentStatus.Matched, EnrichmentStatus.NeedsReview];
 
@@ -85,11 +82,6 @@ public static class QualityEndpoints
         return app;
     }
 
-    /// <summary>Latest grade per song for the current owner (correlated-subquery "no newer grade exists").</summary>
-    private static IQueryable<SongQualityGrade> LatestGrades(MusicHoarderDbContext db) =>
-        db.SongQualityGrades.Where(g =>
-            !db.SongQualityGrades.Any(g2 => g2.SongId == g.SongId && g2.GradedAtUtc > g.GradedAtUtc));
-
     private record GradeRowDto(
         int SongId,
         string SourcePath,
@@ -109,7 +101,7 @@ public static class QualityEndpoints
 
     private static async Task<List<GradeRowDto>> LoadGradeRowsAsync(MusicHoarderDbContext db, CancellationToken ct)
     {
-        return await LatestGrades(db)
+        return await db.SongQualityGrades.LatestPerSong()
             .Join(db.Songs.Where(s => s.DeletedAtUtc == null),
                 g => g.SongId, s => s.Id,
                 (g, s) => new GradeRowDto(
@@ -119,14 +111,6 @@ public static class QualityEndpoints
                     g.PromptVersion, g.Model))
             .ToListAsync(ct);
     }
-
-    /// <summary>
-    /// A grade is "outdated" when the grading prompt version or the configured model has changed since
-    /// the grade was produced. These are surfaced (not auto-regraded) so the user can choose to refresh.
-    /// </summary>
-    private static bool IsGradeOutdated(int promptVersion, string? model, string currentModel) =>
-        promptVersion != QualityGradingPrompt.Version
-        || !string.Equals(model, currentModel, StringComparison.Ordinal);
 
     private static string DirectoryOf(string sourcePath)
         => Path.GetDirectoryName(sourcePath)?.Replace('\\', '/') ?? "/";
@@ -142,7 +126,7 @@ public static class QualityEndpoints
         score = r.Score,
         verdict = r.Verdict.ToString(),
         summary = r.Summary,
-        issues = ParseIssues(r.IssuesJson),
+        issues = GradingIssueJson.Parse(r.IssuesJson),
         enrichmentStatusAtGrade = r.EnrichmentStatusAtGrade,
         destinationPathPreview = r.DestinationPathPreview,
         gradedAtUtc = r.GradedAtUtc,
@@ -160,12 +144,12 @@ public static class QualityEndpoints
         score = r.Score,
         verdict = r.Verdict.ToString(),
         summary = r.Summary,
-        issues = ParseIssues(r.IssuesJson),
+        issues = GradingIssueJson.Parse(r.IssuesJson),
         enrichmentStatusAtGrade = r.EnrichmentStatusAtGrade,
         destinationPathPreview = r.DestinationPathPreview,
         gradedAtUtc = r.GradedAtUtc,
         bucket = QualityBuckets.Classify(r.EnrichmentStatusAtGrade, r.Verdict).Name(),
-        isOutdated = IsGradeOutdated(r.PromptVersion, r.Model, currentModel),
+        isOutdated = GradeFreshness.IsSongGradeOutdated(r.PromptVersion, r.Model, currentModel),
     };
 
     // Maps the `category` query value to a predicate over the latest grade rows.
@@ -196,13 +180,6 @@ public static class QualityEndpoints
         },
         topIssues = agg.TopIssues.Select(i => new { code = i.Code, count = i.Count }),
     };
-
-    private static List<GradingIssue> ParseIssues(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json)) return [];
-        try { return JsonSerializer.Deserialize<List<GradingIssue>>(json, Json) ?? []; }
-        catch { return []; }
-    }
 
     internal static async Task<IResult> GetOverview(
         MusicHoarderDbContext db, IOptionsMonitor<QualityGradingOptions> options, CancellationToken ct)
@@ -238,7 +215,7 @@ public static class QualityEndpoints
             }
         }
 
-        var outdatedCount = rows.Count(r => IsGradeOutdated(r.PromptVersion, r.Model, currentModel));
+        var outdatedCount = rows.Count(r => GradeFreshness.IsSongGradeOutdated(r.PromptVersion, r.Model, currentModel));
 
         return Results.Ok(new
         {
@@ -341,14 +318,14 @@ public static class QualityEndpoints
             score = grade.Score,
             verdict = grade.Verdict.ToString(),
             summary = grade.Summary,
-            issues = ParseIssues(grade.IssuesJson),
+            issues = GradingIssueJson.Parse(grade.IssuesJson),
             model = grade.Model,
             promptVersion = grade.PromptVersion,
             enrichmentStatusAtGrade = grade.EnrichmentStatusAtGrade,
             destinationPathPreview = grade.DestinationPathPreview,
             durationMs = grade.DurationMs,
             gradedAtUtc = grade.GradedAtUtc,
-            isOutdated = IsGradeOutdated(grade.PromptVersion, grade.Model, options.CurrentValue.Model),
+            isOutdated = GradeFreshness.IsSongGradeOutdated(grade.PromptVersion, grade.Model, options.CurrentValue.Model),
             historyCount,
         });
     }
@@ -386,7 +363,7 @@ public static class QualityEndpoints
             score = g?.Score,
             verdict = g?.Verdict.ToString(),
             summary = g?.Summary,
-            issues = ParseIssues(g?.IssuesJson),
+            issues = GradingIssueJson.Parse(g?.IssuesJson),
             model = g?.Model,
             destinationPathPreview = g?.DestinationPathPreview,
             durationMs = g?.DurationMs,
@@ -427,8 +404,8 @@ public static class QualityEndpoints
 
         // Songs whose latest grade is outdated (prompt version or model changed). force:false is fine —
         // the grader's own staleness check still re-grades on a version/model mismatch.
-        var ids = await LatestGrades(db)
-            .Where(g => g.PromptVersion != QualityGradingPrompt.Version || g.Model != currentModel)
+        var ids = await db.SongQualityGrades.LatestPerSong()
+            .WhereOutdated(currentModel)
             .Join(
                 db.Songs.Where(s => s.DeletedAtUtc == null && !s.IsDuplicate
                     && GradeableStatuses.Contains(s.EnrichmentStatus)),
@@ -538,7 +515,7 @@ public static class QualityEndpoints
         score = g.Score,
         verdict = g.Verdict.ToString(),
         summary = g.Summary,
-        issues = ParseIssues(g.IssuesJson),
+        issues = GradingIssueJson.Parse(g.IssuesJson),
         model = g.Model,
         promptVersion = g.PromptVersion,
         enrichmentStatusAtGrade = g.EnrichmentStatusAtGrade,
