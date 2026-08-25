@@ -1,6 +1,7 @@
 package com.musichoarder.app.ui
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.musichoarder.app.MusicHoarderApp
@@ -17,6 +18,9 @@ import com.musichoarder.app.data.InviteLink
 import com.musichoarder.app.data.LibraryUiState
 import com.musichoarder.app.data.LoginLinkUri
 import com.musichoarder.app.data.PairingUri
+import com.musichoarder.app.data.PasskeyCancelledException
+import com.musichoarder.app.data.PasskeySignIn
+import com.musichoarder.app.data.PasskeyUnavailableException
 import com.musichoarder.app.data.ShareLink
 import com.musichoarder.app.data.SortKey
 import com.musichoarder.app.data.StoredAccount
@@ -31,6 +35,7 @@ import com.musichoarder.app.data.resolveAlbum
 import com.musichoarder.app.data.sortForChipChange
 import com.musichoarder.app.player.PlayerController
 import com.musichoarder.app.player.VideoController
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -325,6 +330,53 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 ?.let { runCatching { Uri.parse(it).getQueryParameter("token") }.getOrNull() }
             if (devToken != null) loginWithToken(normalized, devToken)
             else _emailLinkSentTo.value = trimmed
+        }
+    }
+
+    /**
+     * The other no-PC path: signs in with the passkey enrolled in the browser.
+     *
+     * Ends where the magic link does — [pair] with a proven bearer — but needs no inbox and no
+     * round-trip out of the app. The passkey belongs to the web origin, so Android only offers it
+     * once that origin's `/.well-known/assetlinks.json` vouches for this app; [PasskeySignIn]
+     * turns that (very likely) first-run miss into an explanation rather than a bare failure.
+     *
+     * [activityContext] has to be the Activity — the system draws the passkey sheet over it.
+     */
+    fun signInWithPasskey(activityContext: Context, baseUrl: String) {
+        val normalized = PairingUri.normalizeBaseUrl(baseUrl)
+        if (normalized == null) {
+            _pairError.value = "Enter the server address, for example https://musichoarder.app"
+            return
+        }
+        _pairError.value = null
+        viewModelScope.launch {
+            try {
+                val challenge = graph.api.beginPasskeySignIn(normalized)
+                val assertion = PasskeySignIn.authenticate(activityContext, challenge.requestJson)
+                val bearer = graph.api.completePasskeySignIn(normalized, challenge.state, assertion)
+                _emailLinkSentTo.value = null
+                pair(ServerSession(normalized, bearer))
+            } catch (e: PasskeyCancelledException) {
+                // Backing out of the system sheet is a decision, not a failure. Saying nothing is
+                // the whole point — an error pane here would read as if the passkey were broken.
+            } catch (e: PasskeyUnavailableException) {
+                _pairError.value = e.message
+            } catch (e: ApiException) {
+                // 400 is the server's answer for an expired challenge or an assertion it could not
+                // verify; both are worth another try rather than a dead end.
+                _pairError.value = if (e.status == 400) {
+                    "The server did not accept that passkey. Try again."
+                } else {
+                    "Could not reach $normalized."
+                }
+            } catch (e: CancellationException) {
+                // The scope going away is not a sign-in failure, and swallowing it here would
+                // leave a stale error on a screen that is being torn down anyway.
+                throw e
+            } catch (e: Exception) {
+                _pairError.value = "Could not reach $normalized."
+            }
         }
     }
 

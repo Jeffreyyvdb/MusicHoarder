@@ -173,7 +173,10 @@
     }
   }
 
-  // ── passkeys (owner-only) ──────────────────────────────────────────────────────
+  // ── passkeys (owner + invited friend, each for their own account) ──────────────
+  // A friend enrols too: the ceremony endpoints act on the caller's own account and never take a
+  // user id from the request, and without a passkey of their own the Android client's passkey
+  // sign-in would be owner-only. The demo stays out — its credentials are shared by every visitor.
   let passkeySupported = $state(false);
   let passkeys = $state<PasskeyView[]>([]);
   let passkeysLoading = $state(false);
@@ -181,12 +184,14 @@
   let isAddingPasskey = $state(false);
   let passkeyError = $state<string | null>(null);
 
+  const canUsePasskeys = $derived(user?.role === 'Owner' || user?.role === 'Friend');
+
   $effect(() => {
     passkeySupported = isPasskeySupported();
   });
 
   $effect(() => {
-    if (user?.role !== 'Owner') return;
+    if (!canUsePasskeys) return;
     let cancelled = false;
     void (async () => {
       passkeysLoading = true;
@@ -1266,7 +1271,7 @@
         </div>
       </section>
 
-      {#if user?.role === 'Owner'}
+      {#if canUsePasskeys}
         <section class="border-border bg-card rounded-lg border">
           <header class="border-border border-b px-5 py-3.5">
             <h2 class="flex items-center gap-2 text-sm font-semibold">
@@ -1274,8 +1279,8 @@
             </h2>
             <p class="text-muted-foreground text-xs">
               Sign in with Touch ID, Windows Hello, or a security key — no email needed. Enroll one
-              on each device you use. Keep at least one magic-link-capable email so you can recover
-              access.
+              on each device you use; the Android app signs in with the same passkey. Keep at least
+              one magic-link-capable email so you can recover access.
             </p>
           </header>
 

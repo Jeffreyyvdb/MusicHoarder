@@ -3,6 +3,8 @@ package com.musichoarder.app.data
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -128,6 +130,37 @@ class MusicHoarderApi(
             val body = json.encodeToString(TokenExchangeBody(token)).toRequestBody(JSON_MEDIA_TYPE)
             val request = Request.Builder()
                 .url("$baseUrl$API_PREFIX/api/auth/token")
+                .post(body)
+                .build()
+            execute(request) { json.decodeFromString<AccessTokenResponse>(it).accessToken }
+        }
+
+    /**
+     * Starts a passkey sign-in. Explicit [baseUrl] because this runs before any session exists to
+     * read one from, exactly like the magic-link pair above.
+     */
+    suspend fun beginPasskeySignIn(baseUrl: String): PasskeyChallengeResponse =
+        withContext(Dispatchers.IO) {
+            val request = Request.Builder()
+                .url("$baseUrl$API_PREFIX/api/auth/webauthn/authenticate/native/begin")
+                .post(EMPTY_JSON_BODY)
+                .build()
+            execute(request) { json.decodeFromString<PasskeyChallengeResponse>(it) }
+        }
+
+    /**
+     * Finishes a passkey sign-in and returns the bearer this phone will keep. [assertionJson] is
+     * Credential Manager's response, spliced in as an object rather than a string because the API
+     * binds it to a typed WebAuthn assertion.
+     */
+    suspend fun completePasskeySignIn(baseUrl: String, state: String, assertionJson: String): String =
+        withContext(Dispatchers.IO) {
+            val body = buildJsonObject {
+                put("state", state)
+                put("assertion", json.parseToJsonElement(assertionJson))
+            }.toString().toRequestBody(JSON_MEDIA_TYPE)
+            val request = Request.Builder()
+                .url("$baseUrl$API_PREFIX/api/auth/webauthn/authenticate/native/complete")
                 .post(body)
                 .build()
             execute(request) { json.decodeFromString<AccessTokenResponse>(it).accessToken }
@@ -270,5 +303,8 @@ class MusicHoarderApi(
         const val API_PREFIX = "/api/mh"
         private val EMPTY_BODY = ByteArray(0).toRequestBody(null)
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+        /** The passkey `begin` takes no parameters; OkHttp still needs a body for a POST. */
+        private val EMPTY_JSON_BODY = "{}".toRequestBody(JSON_MEDIA_TYPE)
     }
 }

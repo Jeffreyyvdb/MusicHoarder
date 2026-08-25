@@ -383,6 +383,11 @@ internal static class ComposeFileExtensions
         // run the (separate, off-by-default) sidecar. Operators opt in by setting the URL alone — the
         // chain already leads with "spotiflac".
         api.Environment["StreamingFlac__SidecarUrl"] = "${SPOTIFLAC_SIDECAR_URL:-}";
+        // The Android app's `android:apk-key-hash:` origin, checked as an exact string on an in-app
+        // passkey assertion. Blank → in-app passkey sign-in is rejected on origin and the app's
+        // other sign-in paths are unaffected, which is the right default for a deployment that
+        // ships no app of its own.
+        api.Environment["WebAuthn__Origins__0"] = "${ANDROID_APK_KEY_HASH_ORIGIN:-}";
         // Quality-first default order: lossless sidecar → Soulseek → yt-dlp (lossy Opus, the floor).
         // Each unconfigured link reports NotFound and falls through, so the default is inert on an
         // instance that runs neither sidecar. The trailing blank slot stays free for a fourth entry.
