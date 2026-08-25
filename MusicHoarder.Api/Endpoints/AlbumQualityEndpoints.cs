@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth.EndpointFilters;
@@ -17,8 +16,6 @@ namespace MusicHoarder.Api.Endpoints;
 /// </summary>
 public static class AlbumQualityEndpoints
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-
     public static IEndpointRouteBuilder MapAlbumQualityEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/api/albums/quality/overview", GetOverview)
@@ -54,11 +51,6 @@ public static class AlbumQualityEndpoints
         return app;
     }
 
-    /// <summary>Latest grade per album for the current owner ("no newer grade exists"; owner-filtered context).</summary>
-    private static IQueryable<CanonicalAlbumQualityGrade> LatestGrades(MusicHoarderDbContext db) =>
-        db.CanonicalAlbumQualityGrades.Where(g =>
-            !db.CanonicalAlbumQualityGrades.Any(g2 => g2.CanonicalAlbumId == g.CanonicalAlbumId && g2.GradedAtUtc > g.GradedAtUtc));
-
     private record GradeRowDto(
         int CanonicalAlbumId, string? Artist, string? Album, int? Year,
         int Score, SongQualityVerdict Verdict, string? Summary, string? IssuesJson,
@@ -66,7 +58,7 @@ public static class AlbumQualityEndpoints
         int PromptVersion, string? Model);
 
     private static async Task<List<GradeRowDto>> LoadGradeRowsAsync(MusicHoarderDbContext db, CancellationToken ct) =>
-        await LatestGrades(db)
+        await db.CanonicalAlbumQualityGrades.LatestPerAlbum()
             .Join(db.CanonicalAlbums, g => g.CanonicalAlbumId, a => a.Id,
                 (g, a) => new GradeRowDto(
                     a.Id, a.DisplayArtist, a.DisplayTitle, a.Year,
@@ -74,12 +66,6 @@ public static class AlbumQualityEndpoints
                     g.OwnedTrackCount, g.CanonicalTrackCount, g.GradedAtUtc,
                     g.PromptVersion, g.Model))
             .ToListAsync(ct);
-
-    /// <summary>A grade is "outdated" when the album-grading prompt version or the configured model has
-    /// changed since the grade was produced — surfaced (not auto-regraded) for an explicit refresh.</summary>
-    private static bool IsGradeOutdated(int promptVersion, string? model, string currentModel) =>
-        promptVersion != AlbumGradingPrompt.Version
-        || !string.Equals(model, currentModel, StringComparison.Ordinal);
 
     private static object ToAlbumRow(GradeRowDto r, string currentModel) => new
     {
@@ -90,11 +76,11 @@ public static class AlbumQualityEndpoints
         score = r.Score,
         verdict = r.Verdict.ToString(),
         summary = r.Summary,
-        issues = ParseIssues(r.IssuesJson),
+        issues = GradingIssueJson.Parse(r.IssuesJson),
         ownedTrackCount = r.OwnedTrackCount,
         canonicalTrackCount = r.CanonicalTrackCount,
         gradedAtUtc = r.GradedAtUtc,
-        isOutdated = IsGradeOutdated(r.PromptVersion, r.Model, currentModel),
+        isOutdated = GradeFreshness.IsAlbumGradeOutdated(r.PromptVersion, r.Model, currentModel),
     };
 
     internal static async Task<IResult> GetOverview(
@@ -113,7 +99,7 @@ public static class AlbumQualityEndpoints
             .Select(r => ToAlbumRow(r, currentModel))
             .ToList();
 
-        var outdatedCount = rows.Count(r => IsGradeOutdated(r.PromptVersion, r.Model, currentModel));
+        var outdatedCount = rows.Count(r => GradeFreshness.IsAlbumGradeOutdated(r.PromptVersion, r.Model, currentModel));
 
         return Results.Ok(new
         {
@@ -164,7 +150,7 @@ public static class AlbumQualityEndpoints
             score = g?.Score,
             verdict = g?.Verdict.ToString(),
             summary = g?.Summary,
-            issues = ParseIssues(g?.IssuesJson),
+            issues = GradingIssueJson.Parse(g?.IssuesJson),
             gradedAtUtc = g?.GradedAtUtc,
         });
     }
@@ -196,8 +182,8 @@ public static class AlbumQualityEndpoints
 
         // Albums whose latest grade is outdated (prompt version or model changed). force:false is fine —
         // the grader's own staleness check still re-grades on a version/model mismatch.
-        var ids = await LatestGrades(db)
-            .Where(g => g.PromptVersion != AlbumGradingPrompt.Version || g.Model != currentModel)
+        var ids = await db.CanonicalAlbumQualityGrades.LatestPerAlbum()
+            .WhereOutdated(currentModel)
             .Join(
                 db.CanonicalAlbums.Where(a => a.Status == CanonicalAlbumStatus.Fetched),
                 g => g.CanonicalAlbumId, a => a.Id, (g, a) => a.Id)
@@ -260,7 +246,7 @@ public static class AlbumQualityEndpoints
                 score = grade.Score,
                 verdict = grade.Verdict.ToString(),
                 summary = grade.Summary,
-                issues = ParseIssues(grade.IssuesJson),
+                issues = GradingIssueJson.Parse(grade.IssuesJson),
                 model = grade.Model,
                 promptVersion = grade.PromptVersion,
                 gradedAtUtc = grade.GradedAtUtc,
@@ -280,13 +266,6 @@ public static class AlbumQualityEndpoints
             .Where(a => a.ArtistKey == artistKey && a.AlbumKey == albumKey && a.Status == CanonicalAlbumStatus.Fetched)
             .Select(a => (int?)a.Id)
             .FirstOrDefaultAsync(ct);
-    }
-
-    private static List<GradingIssue> ParseIssues(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json)) return [];
-        try { return JsonSerializer.Deserialize<List<GradingIssue>>(json, Json) ?? []; }
-        catch { return []; }
     }
 
     private static IResult NotConfiguredProblem() =>
