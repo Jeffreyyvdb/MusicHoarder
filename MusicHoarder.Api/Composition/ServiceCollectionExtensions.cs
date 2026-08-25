@@ -293,6 +293,9 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<MusicVideoBackgroundService>();
         // Album completion: queues the tracks missing from albums the owner already holds part of, as
         // ordinary (lower-priority) wishlist items. Its own slow loop, so the throttle stays predictable.
+        // The identity resolver stamps each queued track with its Spotify id — without one the lossless
+        // provider can't acquire it and the whole fill degrades to the yt-dlp floor.
+        services.AddScoped<IAlbumCompletionIdentityResolver, SpotifyAlbumCompletionIdentityResolver>();
         services.AddScoped<AlbumCompletionSweep>();
         services.AddHostedService<AlbumCompletionBackgroundService>();
         // Single-track URL import: resolves a pasted YouTube video's metadata via a yt-dlp probe.

@@ -764,12 +764,18 @@ public class MusicEnricherOptions
     public string DownloadProvider { get; set; } = "yt-dlp";
 
     /// <summary>
-    /// Ordered download-provider chain, e.g. <c>["slskd", "yt-dlp"]</c>. Each track tries providers
-    /// in order, falling through to the next only when the current one reports "not found" (a real
-    /// transient error stops the chain so a flaky provider doesn't silently burn the fallback's
-    /// quota; the item goes Failed and the next sweep retries the whole chain). Empty falls back to
-    /// the single <see cref="DownloadProvider"/>. Unconfigured providers report "not found", so a
-    /// chain containing "slskd" is harmless on instances without slskd settings.
+    /// Ordered download-provider chain, e.g. <c>["spotiflac", "slskd", "yt-dlp"]</c>. Each track tries
+    /// providers in order, falling through to the next only when the current one reports "not found"
+    /// (a real transient error stops the chain so a flaky provider doesn't silently burn the
+    /// fallback's quota; the item goes Failed and the next sweep retries the whole chain). Empty falls
+    /// back to the single <see cref="DownloadProvider"/>. Unconfigured providers report "not found",
+    /// so a chain containing "slskd"/"spotiflac" is harmless on instances without those settings.
+    /// <para>
+    /// The shipped quality-first order (spotiflac → slskd → yt-dlp) is a *deployment* default, set in
+    /// <c>ComposeFileExtensions</c>/<c>.env.example</c> rather than here: the configuration binder
+    /// <em>appends</em> to a non-empty default array, so seeding this property would prepend itself to
+    /// every operator-supplied chain instead of being replaced by it.
+    /// </para>
     /// </summary>
     public string[] DownloadProviders { get; set; } = [];
 
