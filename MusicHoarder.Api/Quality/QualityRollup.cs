@@ -1,4 +1,3 @@
-using System.Text.Json;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Quality;
@@ -37,7 +36,7 @@ public static class QualityRollup
         var issueCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in rows)
         {
-            foreach (var code in ParseIssueCodes(row.IssuesJson))
+            foreach (var code in GradingIssueJson.ParseCodes(row.IssuesJson))
                 issueCounts[code] = issueCounts.GetValueOrDefault(code) + 1;
         }
 
@@ -51,17 +50,4 @@ public static class QualityRollup
         return new QualityAggregate(rows.Count, avg, breakdown, top);
     }
 
-    private static IEnumerable<string> ParseIssueCodes(string? issuesJson)
-    {
-        if (string.IsNullOrWhiteSpace(issuesJson)) yield break;
-        List<GradingIssue>? issues = null;
-        try { issues = JsonSerializer.Deserialize<List<GradingIssue>>(issuesJson, JsonOptions); }
-        catch { yield break; }
-        if (issues is null) yield break;
-        foreach (var issue in issues)
-            if (!string.IsNullOrWhiteSpace(issue.Code))
-                yield return issue.Code;
-    }
-
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 }

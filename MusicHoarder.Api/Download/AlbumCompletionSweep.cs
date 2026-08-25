@@ -54,6 +54,11 @@ public readonly record struct AlbumCompletionSweepResult(
 /// downloader, the staging directory, the scanner, enrichment, the builder — is the existing wishlist
 /// pipeline, unchanged.
 /// <para>
+/// Each queued track is handed to <see cref="IAlbumCompletionIdentityResolver"/> first: a canonical
+/// track carries no streaming id, and without one the lossless provider cannot acquire it and the fill
+/// silently degrades to the yt-dlp floor.
+/// </para>
+/// <para>
 /// The threshold is one owned track, so the candidate set is effectively the whole library. Three
 /// independent throttles keep that from becoming a flood: a per-sweep album cap, a per-album track
 /// cap, and — the one that actually matters — a ceiling on pending album-completion items, which
@@ -64,6 +69,7 @@ public class AlbumCompletionSweep(
     MusicHoarderDbContext db,
     IOwnerLookupService ownerLookup,
     IRuntimeSettingsService runtimeSettings,
+    IAlbumCompletionIdentityResolver identityResolver,
     IOptions<MusicEnricherOptions> options,
     ILogger<AlbumCompletionSweep> logger)
 {
@@ -189,12 +195,16 @@ public class AlbumCompletionSweep(
         var filled = 0;
         var skipped = 0;
         var alreadyComplete = 0;
+        // (OwnerUserId, SpotifyTrackId) is uniquely indexed, and rows added for earlier albums in this
+        // pass are not visible to a query until the single SaveChanges below — so claims are tracked
+        // across the whole sweep, not per album.
+        var claimedSpotifyIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (group, canonical) in candidates)
         {
             ct.ThrowIfCancellationRequested();
             var (queued, status) = await ProcessAlbumAsync(
                 ownerId, group.Select(x => x.Song).ToList(), canonical!,
-                markerByAlbumId.GetValueOrDefault(canonical!.Id), opts, now, ct);
+                markerByAlbumId.GetValueOrDefault(canonical!.Id), opts, now, claimedSpotifyIds, ct);
 
             enqueued += queued;
             switch (status)
@@ -244,6 +254,7 @@ public class AlbumCompletionSweep(
         AlbumCompletionState? marker,
         MusicEnricherOptions opts,
         DateTime now,
+        HashSet<string> claimedSpotifyIds,
         CancellationToken ct)
     {
         var candidateFacts = owned
@@ -320,6 +331,12 @@ public class AlbumCompletionSweep(
             ? canonical.DisplayTitle
             : owned.Select(s => s.Album).FirstOrDefault(a => !string.IsNullOrWhiteSpace(a));
 
+        // The identity the download chain needs. Resolved here, once per album, rather than at download
+        // time: the canonical tracklist and its Spotify counterpart are album-shaped, so one lookup
+        // identifies every missing track — and a queued item that already carries the id survives a
+        // later retry without asking Spotify again.
+        var spotifyIds = await ResolveSpotifyIdsAsync(ownerId, canonical, missing, claimedSpotifyIds, ct);
+
         foreach (var track in missing)
         {
             db.WishlistItems.Add(new WishlistItem
@@ -334,6 +351,9 @@ public class AlbumCompletionSweep(
                 Album = album is null ? null : Truncate(album, 512),
                 DurationMs = track.DurationMs ?? 0,
                 AlbumArt = canonical.CoverArtUrl is null ? null : Truncate(canonical.CoverArtUrl, 1024),
+                // Not "the owner saved this on Spotify" — it is the acquisition key the lossless
+                // provider resolves to a source. Null when unresolvable; the chain then falls through.
+                SpotifyTrackId = spotifyIds.GetValueOrDefault(track.Id),
                 // Means "when the owner saved it on Spotify", and they never did. Left null rather than
                 // faked; the Origin discriminator is what orders the download queue.
                 SpotifyAddedAtUtc = null,
@@ -345,6 +365,41 @@ public class AlbumCompletionSweep(
 
         UpsertMarker(ownerId, canonical, marker, AlbumCompletionStatus.Filled, owned.Count, missing.Count, null, now);
         return (missing.Count, AlbumCompletionStatus.Filled);
+    }
+
+    /// <summary>
+    /// Spotify track ids for the tracks about to be queued, minus any id already spoken for. One
+    /// wishlist row per (owner, Spotify track) is a unique index, and a fill track can legitimately
+    /// resolve to a track the owner already wishlisted from Spotify — that row is the better claimant,
+    /// so this one is simply left unidentified rather than colliding.
+    /// </summary>
+    private async Task<Dictionary<int, string>> ResolveSpotifyIdsAsync(
+        Guid ownerId,
+        CanonicalAlbum canonical,
+        IReadOnlyList<CanonicalAlbumTrack> missing,
+        HashSet<string> claimedSpotifyIds,
+        CancellationToken ct)
+    {
+        var resolved = await identityResolver.ResolveSpotifyTrackIdsAsync(canonical, missing, ct);
+        if (resolved.Count == 0)
+            return [];
+
+        var ids = resolved.Values.Distinct(StringComparer.Ordinal).ToList();
+        var taken = await db.WishlistItems
+            .IgnoreQueryFilters()
+            .Where(w => w.OwnerUserId == ownerId && w.SpotifyTrackId != null && ids.Contains(w.SpotifyTrackId))
+            .Select(w => w.SpotifyTrackId!)
+            .ToListAsync(ct);
+        claimedSpotifyIds.UnionWith(taken);
+
+        var usable = new Dictionary<int, string>(resolved.Count);
+        foreach (var (trackId, spotifyId) in resolved)
+        {
+            if (claimedSpotifyIds.Add(spotifyId))
+                usable[trackId] = spotifyId;
+        }
+
+        return usable;
     }
 
     private void UpsertMarker(

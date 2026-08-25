@@ -380,12 +380,16 @@ internal static class ComposeFileExtensions
         api.Environment["Slskd__DownloadsDirectory"] = "${SLSKD_DOWNLOADS_DIR:-}";
         // Optional streaming-FLAC acquisition sidecar (spotiflac). Blank → the "spotiflac" chain entry
         // reports NotFound and downloads fall through, so this default is safe on instances that never
-        // run the (separate, off-by-default) sidecar. Operators opt in by setting the URL and adding
-        // "spotiflac" to the provider chain (e.g. DOWNLOAD_PROVIDER_1=spotiflac).
+        // run the (separate, off-by-default) sidecar. Operators opt in by setting the URL alone — the
+        // chain already leads with "spotiflac".
         api.Environment["StreamingFlac__SidecarUrl"] = "${SPOTIFLAC_SIDECAR_URL:-}";
-        api.Environment["MusicEnricher__DownloadProviders__0"] = "${DOWNLOAD_PROVIDER_1:-slskd}";
-        api.Environment["MusicEnricher__DownloadProviders__1"] = "${DOWNLOAD_PROVIDER_2:-yt-dlp}";
-        api.Environment["MusicEnricher__DownloadProviders__2"] = "${DOWNLOAD_PROVIDER_3:-}";
+        // Quality-first default order: lossless sidecar → Soulseek → yt-dlp (lossy Opus, the floor).
+        // Each unconfigured link reports NotFound and falls through, so the default is inert on an
+        // instance that runs neither sidecar. The trailing blank slot stays free for a fourth entry.
+        api.Environment["MusicEnricher__DownloadProviders__0"] = "${DOWNLOAD_PROVIDER_1:-spotiflac}";
+        api.Environment["MusicEnricher__DownloadProviders__1"] = "${DOWNLOAD_PROVIDER_2:-slskd}";
+        api.Environment["MusicEnricher__DownloadProviders__2"] = "${DOWNLOAD_PROVIDER_3:-yt-dlp}";
+        api.Environment["MusicEnricher__DownloadProviders__3"] = "${DOWNLOAD_PROVIDER_4:-}";
         // Instance sync: role is pure config on one shared build — Push on the private instance,
         // Receive on the public one, Off (the default) everywhere else. The key gates the
         // internet-facing receive endpoints, so generate a long random one (openssl rand -base64 48).
