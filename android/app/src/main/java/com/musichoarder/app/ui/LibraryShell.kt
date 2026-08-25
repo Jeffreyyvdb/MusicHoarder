@@ -20,7 +20,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ListAlt
-import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
@@ -48,6 +47,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.musichoarder.app.data.ALBUM_SORT_LABELS
+import com.musichoarder.app.data.AccountsState
 import com.musichoarder.app.data.Album
 import com.musichoarder.app.data.AlbumSortKey
 import com.musichoarder.app.data.AlbumStatus
@@ -84,6 +84,9 @@ class LibraryActions(
     val onShuffle: (List<Track>) -> Unit,
     val onRefresh: () -> Unit,
     val onUnpair: () -> Unit,
+    val onSwitchAccount: (Int) -> Unit,
+    val onAddAccountScanned: (String) -> Unit,
+    val onScanError: (String) -> Unit,
 )
 
 /**
@@ -99,6 +102,7 @@ fun LibraryShell(
     state: LibraryState,
     ui: LibraryUiState,
     content: LibraryContent,
+    accounts: AccountsState,
     albumStatuses: Map<String, AlbumStatus>,
     likes: Map<Int, String?>,
     playingTrackId: Int?,
@@ -132,7 +136,13 @@ fun LibraryShell(
             Spacer(Modifier.size(6.dp))
             MhIconButton(Icons.Rounded.Refresh, "Refresh library", actions.onRefresh)
             Spacer(Modifier.size(6.dp))
-            MhIconButton(Icons.AutoMirrored.Rounded.Logout, "Unpair this device", actions.onUnpair)
+            AccountMenu(
+                accounts = accounts,
+                onSwitchAccount = actions.onSwitchAccount,
+                onAddAccountScanned = actions.onAddAccountScanned,
+                onScanError = actions.onScanError,
+                onUnpair = actions.onUnpair,
+            )
         }
         HorizontalDivider(color = colors.border)
 

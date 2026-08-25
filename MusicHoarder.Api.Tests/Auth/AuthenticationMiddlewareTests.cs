@@ -125,6 +125,14 @@ public class AuthenticationMiddlewareTests
         public void Write(HttpContext context, Guid sessionId) { }
 
         public void Clear(HttpContext context) => ClearCount++;
+
+        public string AltsCookieName => CookieName + "_alts";
+
+        public IReadOnlyList<Guid> ReadAlts(HttpContext context) => [];
+
+        public void WriteAlts(HttpContext context, IReadOnlyList<Guid> sessionIds) { }
+
+        public void ClearAlts(HttpContext context) { }
     }
 
     private sealed class FakeAuthService : IAuthService
@@ -151,6 +159,9 @@ public class AuthenticationMiddlewareTests
             };
             return Task.FromResult<(Session, User)?>((session, user));
         }
+
+        public Task<IReadOnlyList<(Session Session, User User)>> ResolveSessionsAsync(IReadOnlyCollection<Guid> sessionIds, CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<(Session, User)>>([]);
 
         public Task<RequestLinkResult?> RequestLinkAsync(string email, string frontendBaseUrl, string? client, string? ip, string? userAgent, CancellationToken ct)
             => throw new NotSupportedException();

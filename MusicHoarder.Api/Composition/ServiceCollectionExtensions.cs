@@ -118,6 +118,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IOwnerLookupService, OwnerLookupService>();
         services.AddSingleton<ISessionCookieService, SessionCookieService>();
         services.AddSingleton<IAuthService, AuthService>();
+        services.AddSingleton<IAccountSwitchService, AccountSwitchService>();
         services.AddSingleton<ConsoleMagicLinkSender>();
         services.AddScoped<RequireOwnerFilter>();
         services.AddScoped<Sharing.ISharedLibraryGrantResolver, Sharing.SharedLibraryGrantResolver>();

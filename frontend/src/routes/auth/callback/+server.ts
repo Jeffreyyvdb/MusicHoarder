@@ -17,7 +17,7 @@ import type { RequestHandler } from './$types';
  * Instead a small handoff page offers the `musichoarder://auth` deep link into the app, with a
  * plain browser sign-in (the consume path, minus `client`) as the fallback.
  */
-export const GET: RequestHandler = async ({ url, fetch }) => {
+export const GET: RequestHandler = async ({ url, fetch, request }) => {
   const token = url.searchParams.get('token');
   if (!token) throw error(400, 'Missing token.');
 
@@ -34,7 +34,12 @@ export const GET: RequestHandler = async ({ url, fetch }) => {
   const apiBase = getApiBaseUrl().replace(/\/$/, '');
   const response = await fetch(`${apiBase}/api/auth/consume`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      // Forward the browser's cookies so a still-signed-in session gets parked by the account
+      // switcher instead of silently discarded.
+      cookie: request.headers.get('cookie') ?? ''
+    },
     body: JSON.stringify({ token })
   });
 

@@ -60,6 +60,14 @@ async function proxy(request: Request, pathSegments: string, search: string): Pr
   responseHeaders.delete('keep-alive');
   responseHeaders.delete('proxy-connection');
   responseHeaders.delete('upgrade');
+  // Multi-account sign-in can set two cookies on one response (mh_session + mh_session_alts).
+  // Re-append them individually via getSetCookie() — a `new Headers(...)` copy may fold
+  // multiple set-cookie values into one comma-joined header, which browsers misparse.
+  const setCookies = response.headers.getSetCookie?.() ?? [];
+  if (setCookies.length > 0) {
+    responseHeaders.delete('set-cookie');
+    for (const value of setCookies) responseHeaders.append('set-cookie', value);
+  }
 
   return new Response(response.body, {
     status: response.status,

@@ -14,12 +14,19 @@ import type { PageServerLoad } from './$types';
  *  - `?switch` opts out of the redirect entirely, so a signed-in owner can still reach the form.
  */
 export const load: PageServerLoad = async ({ request, url }) => {
-  if (url.searchParams.has('switch')) return {};
-
   const probe = await probeSession(request.headers.get('cookie'), {
     userAgent: request.headers.get('user-agent'),
     timeoutMs: 4000
   });
+
+  if (url.searchParams.has('switch')) {
+    // "Add account" mode: the form renders even while signed in, with a banner explaining the
+    // current account stays signed in (the account switcher parks it on login).
+    return {
+      switching: true,
+      currentUser: probe.status === 'authenticated' ? probe.user : null
+    };
+  }
 
   // Friends share the owner's front door: both land on the Listen home (the client's library
   // mode decides whose songs it shows).
@@ -27,5 +34,5 @@ export const load: PageServerLoad = async ({ request, url }) => {
     throw redirect(303, APP_HOME);
   }
 
-  return {};
+  return { switching: false, currentUser: null };
 };

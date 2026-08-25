@@ -32,6 +32,11 @@ class ApiException(val status: Int, message: String) : IOException(message)
 class AuthInterceptor(private val sessions: SessionStore) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
+        // A request that already carries an Authorization header set it deliberately — the pairing
+        // probe proving a *candidate* token (see MusicHoarderApi.fetchMe). Replacing it with the
+        // active account's token would probe the wrong identity, and with multiple accounts on one
+        // server the add-account dedupe would then fold the new account into the active one.
+        if (request.header("Authorization") != null) return chain.proceed(request)
         val session = sessions.session.value ?: return chain.proceed(request)
         val base = session.baseUrl.toHttpUrlOrNull() ?: return chain.proceed(request)
         // Scheme included deliberately: a redirect to http:// on the same host and effective port

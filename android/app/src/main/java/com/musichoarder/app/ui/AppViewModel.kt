@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.musichoarder.app.MusicHoarderApp
+import com.musichoarder.app.data.AccountsState
 import com.musichoarder.app.data.Album
 import com.musichoarder.app.data.AlbumSortKey
 import com.musichoarder.app.data.ArtistMode
@@ -16,6 +17,7 @@ import com.musichoarder.app.data.LibraryUiState
 import com.musichoarder.app.data.LoginLinkUri
 import com.musichoarder.app.data.PairingUri
 import com.musichoarder.app.data.SortKey
+import com.musichoarder.app.data.StoredAccount
 import com.musichoarder.app.data.UnauthorizedException
 import com.musichoarder.app.data.ServerSession
 import com.musichoarder.app.data.Track
@@ -29,6 +31,7 @@ import com.musichoarder.app.player.VideoController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -38,6 +41,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -48,10 +53,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val graph = (application as MusicHoarderApp).graph
 
     val session: StateFlow<ServerSession?> = graph.sessions.session
+
+    /** Every account remembered on this phone, for the switcher in the library top bar. */
+    val accounts: StateFlow<AccountsState> = graph.sessions.accounts
     val library = graph.library.state
 
+    /** Account-switcher events (eviction fallbacks) that deserve the same snackbar treatment. */
+    private val _localMessages = MutableSharedFlow<String>(extraBufferCapacity = 4)
+
     /** Failures the library reports that are worth a snackbar rather than a whole error screen. */
-    val messages: SharedFlow<String> = graph.library.messages
+    val messages: SharedFlow<String> = merge(graph.library.messages, _localMessages)
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000))
 
     /** Optimistic heart state, read by every row that draws one. */
     val likes = graph.library.likes
@@ -180,13 +192,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     init {
         if (session.value != null) start()
 
-        // A revoked or expired device session should land the user back on the pairing screen with
-        // an explanation, not on an empty library that silently never loads.
+        // A revoked or expired device session evicts only the account it belongs to: with another
+        // account remembered the app falls back to it, and only losing the last one lands the user
+        // back on the pairing screen with an explanation — not on an empty library that silently
+        // never loads.
         viewModelScope.launch {
             graph.library.state.collect { state ->
                 if (state.isPairingRevoked) {
-                    _pairError.value = state.error
-                    unpair()
+                    evictActiveAccount(state.error)
                 }
             }
         }
@@ -212,7 +225,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun onAppLink(raw: String) {
         if (_pendingPairingLink.value == raw) return
         if (linkedBaseUrl(raw) == null) {
-            _pairError.value = "That link is not a MusicHoarder pairing code or sign-in link."
+            reportPairProblem("That link is not a MusicHoarder pairing code or sign-in link.")
             return
         }
         if (session.value == null) applyAppLink(raw) else _pendingPairingLink.value = raw
@@ -241,10 +254,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun pairFromCode(raw: String) {
         val parsed = PairingUri.parse(raw)
         if (parsed == null) {
-            _pairError.value = "That code is not a MusicHoarder pairing code."
+            reportPairProblem("That code is not a MusicHoarder pairing code.")
             return
         }
         pair(parsed)
+    }
+
+    /**
+     * Pairing problems land where the user is: the pairing screen's error pane when unpaired, a
+     * snackbar when the scan came from the account menu of an already-paired app (the pairing
+     * screen — and its error pane — is not on screen then).
+     */
+    fun reportPairProblem(message: String) {
+        if (session.value != null) _localMessages.tryEmit(message) else _pairError.value = message
     }
 
     /**
@@ -321,21 +343,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val probe = runCatching { graph.api.fetchMe(newSession) }
             val me = probe.getOrNull()
             if (me == null) {
-                _pairError.value = if (probe.exceptionOrNull() is UnauthorizedException) {
-                    "The server did not accept that pairing code. Try a fresh one."
-                } else {
-                    "Could not reach ${newSession.baseUrl}. The current pairing is untouched."
-                }
+                reportPairProblem(
+                    if (probe.exceptionOrNull() is UnauthorizedException) {
+                        "The server did not accept that pairing code. Try a fresh one."
+                    } else {
+                        "Could not reach ${newSession.baseUrl}. The current pairing is untouched."
+                    },
+                )
                 return@launch
             }
             // Keep the probe's answer: the role decides which endpoints this pairing reads
-            // (a Friend session streams through /api/shared — see ApiRoutes). Captured here,
-            // before start() fires the first library fetch.
-            graph.sessions.save(newSession.copy(role = me.role))
-            // Re-pairing points the app at a different server, so everything held from the last
-            // one has to go: the library cache is not refetched while it still holds rows
-            // (`refresh` no-ops unless forced), and a queued MediaItem keeps the absolute stream
-            // URL it was built with, so playback would carry on against the old host.
+            // (a Friend session streams through /api/shared — see ApiRoutes), and the identity
+            // fields label the account switcher. Captured here, before start() fires the first
+            // library fetch. addAccount dedupes, so re-scanning a QR for a known account just
+            // renews its token; a new account is added alongside the current one and made active.
+            graph.sessions.addAccount(
+                StoredAccount(
+                    baseUrl = newSession.baseUrl,
+                    token = newSession.token,
+                    role = me.role,
+                    userId = me.id,
+                    email = me.email,
+                    displayName = me.displayName,
+                ),
+            )
+            // Activating a different pairing means everything held from the last one has to go:
+            // the library cache is not refetched while it still holds rows (`refresh` no-ops
+            // unless forced), and a queued MediaItem keeps the absolute stream URL it was built
+            // with, so playback would carry on against the old host (or the old account).
             player.stop()
             video.load(null)
             graph.library.clear()
@@ -343,18 +378,68 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Activates the remembered account at [index]; a stale index is ignored. */
+    fun switchAccount(index: Int) {
+        val current = accounts.value
+        if (index == current.activeIndex || current.accounts.getOrNull(index) == null) return
+        viewModelScope.launch {
+            graph.sessions.switchTo(index) ?: return@launch
+            // Same teardown as pairing: stop the old account's playback and drop its library.
+            player.stop()
+            video.load(null)
+            graph.library.clear()
+            start()
+            // Opportunistic identity refresh: the switch runs on the stored role (instant, works
+            // offline); if the server disagrees — role changed, or the session died — this
+            // corrects it. A 401 flows through the library's isPairingRevoked path and evicts
+            // just this account.
+            runCatching { graph.api.fetchMe() }.getOrNull()?.let { me ->
+                val stored = graph.sessions.accounts.value.active
+                if (stored != null && stored.role != me.role) {
+                    graph.sessions.updateActive(me.role, me.id, me.email, me.displayName)
+                    graph.library.refresh(force = true)
+                }
+            }
+        }
+    }
+
     fun setPairError(message: String?) {
         _pairError.value = message
     }
 
+    /** Signs the active account out of this phone, falling back to the next remembered one. */
     fun unpair() {
         _emailLinkSentTo.value = null
+        evictActiveAccount(error = null)
+    }
+
+    /**
+     * Drops the active account (revoked session, or an explicit sign-out) and falls back to the
+     * next remembered account when there is one; only losing the last account tears the player
+     * down and returns to the pairing screen.
+     */
+    private fun evictActiveAccount(error: String?) {
         viewModelScope.launch {
+            val state = graph.sessions.accounts.value
+            val evicted = state.active
+            graph.sessions.removeAccount(state.activeIndex)
+
             video.load(null)
             player.stop()
-            player.release()
             graph.library.clear()
-            graph.sessions.clear()
+
+            val next = graph.sessions.accounts.value.active
+            if (next != null) {
+                start()
+                _localMessages.tryEmit(
+                    if (evicted != null) "Signed out of ${evicted.label} — now using ${next.label}"
+                    else "Now using ${next.label}",
+                )
+            } else {
+                player.release()
+                graph.sessions.clear()
+                _pairError.value = error
+            }
         }
     }
 

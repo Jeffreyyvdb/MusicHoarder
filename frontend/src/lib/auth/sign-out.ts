@@ -11,12 +11,19 @@
 
 import { goto } from '$app/navigation';
 import { signOut } from '$lib/api-client';
+import { APP_HOME } from '$lib/app-home';
 import { setLibraryMode } from '$lib/library-mode';
 import { songsStore } from '$lib/stores/songs.svelte';
 import { playerStore } from '$lib/stores/player.svelte';
 
 export async function signOutAndReset(allSessions = false): Promise<void> {
-  await signOut(allSessions);
+  const { fallback } = await signOut(allSessions);
+  if (fallback) {
+    // The server promoted a parked account. A hard reload (not `goto`) resets every module
+    // singleton for the new identity — same reasoning as `switch-account.ts`.
+    location.assign(APP_HOME);
+    return;
+  }
   // Drop cached user data so it can't leak into the next session — including the library mode,
   // or a friend → owner login in the same tab would keep reading /api/shared.
   songsStore.reset();
