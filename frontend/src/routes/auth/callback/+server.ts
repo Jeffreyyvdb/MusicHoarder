@@ -12,14 +12,19 @@ import type { RequestHandler } from './$types';
  * swallow any Set-Cookie issued during an intermediate hop. Doing the consume here keeps the
  * cookie write on the same response that lands in the browser.
  */
-export const GET: RequestHandler = async ({ url, fetch }) => {
+export const GET: RequestHandler = async ({ url, fetch, request }) => {
   const token = url.searchParams.get('token');
   if (!token) throw error(400, 'Missing token.');
 
   const apiBase = getApiBaseUrl().replace(/\/$/, '');
   const response = await fetch(`${apiBase}/api/auth/consume`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      // Forward the browser's cookies so a still-signed-in session gets parked by the account
+      // switcher instead of silently discarded.
+      cookie: request.headers.get('cookie') ?? ''
+    },
     body: JSON.stringify({ token })
   });
 

@@ -25,9 +25,11 @@
     fetchPurgeStatus,
     registerPasskey,
     listPasskeys,
+    listAccounts,
     deletePasskey,
     sync,
     soulseek,
+    type AccountView,
     type PasskeyView,
     type SyncStatus,
     type SoulseekStatus,
@@ -40,6 +42,7 @@
     type SpotifyStatusResponse
   } from '$lib/api-client';
   import { signOutAndReset } from '$lib/auth/sign-out';
+  import { switchAccountAndReload } from '$lib/auth/switch-account';
   import {
     Loader2,
     CheckCircle2,
@@ -53,7 +56,8 @@
     LogOut,
     Settings,
     Sparkles,
-    FolderInput
+    FolderInput,
+    UserPlus
   } from '@lucide/svelte';
 
   // ── tabs ─────────────────────────────────────────────────────────────────────
@@ -111,6 +115,31 @@
 
   async function handleSignOut(allSessions = false) {
     await signOutAndReset(allSessions);
+  }
+
+  // ── accounts on this browser (account switcher) ────────────────────────────────
+  let browserAccounts = $state<AccountView[] | null>(null);
+  let accountSwitchingTo = $state<string | null>(null);
+
+  $effect(() => {
+    if (activeTab !== 'account' || browserAccounts !== null) return;
+    void (async () => {
+      try {
+        browserAccounts = await listAccounts();
+      } catch {
+        browserAccounts = [];
+      }
+    })();
+  });
+
+  async function handleSwitchAccount(account: AccountView) {
+    if (account.isActive || accountSwitchingTo) return;
+    accountSwitchingTo = account.userId;
+    try {
+      await switchAccountAndReload(account.userId);
+    } catch {
+      accountSwitchingTo = null;
+    }
   }
 
   // ── passkeys (owner-only) ──────────────────────────────────────────────────────
@@ -1073,12 +1102,83 @@
             </div>
           {/if}
 
-          <div class="border-border flex flex-wrap items-center gap-2 border-t pt-4">
-            <Button variant="outline" onclick={() => handleSignOut(false)}>
-              <LogOut class="mr-2 size-4" /> Sign out
-            </Button>
-            <Button variant="ghost" onclick={() => handleSignOut(true)}>Sign out everywhere</Button>
+          <div class="border-border space-y-2 border-t pt-4">
+            <div class="flex flex-wrap items-center gap-2">
+              <Button variant="outline" onclick={() => handleSignOut(false)}>
+                <LogOut class="mr-2 size-4" /> Sign out
+              </Button>
+              <Button variant="ghost" onclick={() => handleSignOut(true)}>Sign out everywhere</Button>
+            </div>
+            <p class="text-muted-foreground text-xs leading-relaxed">
+              Sign out ends this account's session here; if another account is remembered in this
+              browser you drop into it. Sign out everywhere ends all of this account's sessions —
+              including paired phones — and forgets the other remembered accounts on this browser.
+            </p>
           </div>
+        </div>
+      </section>
+
+      <section class="border-border bg-card rounded-lg border">
+        <header class="border-border border-b px-5 py-3.5">
+          <h2 class="flex items-center gap-2 text-sm font-semibold">
+            <UserPlus class="size-4" /> Accounts on this browser
+          </h2>
+          <p class="text-muted-foreground text-xs">
+            Sign in to each account once and switch between them without logging out — handy for
+            hopping between an owner and a friend account.
+          </p>
+        </header>
+
+        <div class="space-y-4 p-5">
+          <div class="border-border divide-border divide-y rounded-lg border">
+            {#if browserAccounts === null}
+              <div class="text-muted-foreground px-4 py-3 text-sm">Loading…</div>
+            {:else if browserAccounts.length === 0}
+              <div class="text-muted-foreground px-4 py-3 text-sm">
+                Could not load the account list.
+              </div>
+            {:else}
+              {#each browserAccounts as account (account.userId)}
+                <div class="flex items-center gap-3 px-4 py-3">
+                  <div
+                    class="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500/80 to-indigo-500/80 text-xs font-semibold text-white"
+                  >
+                    {(account.displayName ?? account.email).slice(0, 2).toUpperCase()}
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="truncate text-sm font-medium">
+                      {account.displayName ?? account.email}
+                    </div>
+                    <div class="text-muted-foreground truncate font-mono text-xs">
+                      {account.email}
+                    </div>
+                  </div>
+                  <Badge variant={account.role === 'Owner' ? 'default' : 'secondary'}>
+                    {account.role}
+                  </Badge>
+                  {#if account.isActive}
+                    <span class="text-muted-foreground text-xs">Active</span>
+                  {:else}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={accountSwitchingTo !== null}
+                      onclick={() => handleSwitchAccount(account)}
+                    >
+                      {#if accountSwitchingTo === account.userId}
+                        <Loader2 class="mr-2 size-3.5 animate-spin" />
+                      {/if}
+                      Switch
+                    </Button>
+                  {/if}
+                </div>
+              {/each}
+            {/if}
+          </div>
+
+          <Button variant="outline" onclick={() => location.assign('/login?switch')}>
+            <UserPlus class="mr-2 size-4" /> Add account
+          </Button>
         </div>
       </section>
 

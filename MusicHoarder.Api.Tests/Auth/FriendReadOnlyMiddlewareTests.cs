@@ -48,6 +48,7 @@ public class FriendReadOnlyMiddlewareTests
     [Theory]
     [InlineData("/api/auth/logout")]
     [InlineData("/api/auth/device-token")]
+    [InlineData("/api/auth/switch")] // back to an account parked in the friend's own browser
     [InlineData("/api/auth/webauthn/authenticate/begin")]
     [InlineData("/api/auth/webauthn/authenticate/complete")]
     [InlineData("/api/invite/accept")]

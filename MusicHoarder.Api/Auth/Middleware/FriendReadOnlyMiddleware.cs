@@ -21,14 +21,16 @@ public sealed class FriendReadOnlyMiddleware
     // pair a phone (mints a bearer for the friend's OWN session — same power as their cookie),
     // begin/finish a passkey login to switch into the owner account (the browser carries the
     // stale friend cookie into the anonymous WebAuthn authenticate ceremony), accept a fresh
-    // invite while a stale friend cookie is still present, or write their OWN listening state
-    // (/api/shared is the friend-facing surface by definition: its writes touch FriendSongState
-    // rows keyed to the caller, never the owner's data). Everything else that mutates state is
-    // off-limits.
+    // invite while a stale friend cookie is still present, switch to another account already
+    // parked in its own browser (possession of the alts cookie is the credential — see
+    // AccountSwitchService), or write their OWN listening state (/api/shared is the friend-facing
+    // surface by definition: its writes touch FriendSongState rows keyed to the caller, never the
+    // owner's data). Everything else that mutates state is off-limits.
     private static readonly string[] AllowlistedWritePaths =
     [
         "/api/auth/logout",
         "/api/auth/device-token",
+        "/api/auth/switch",
         "/api/auth/webauthn/authenticate",
         "/api/invite/accept",
         "/api/shared/",

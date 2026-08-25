@@ -44,6 +44,7 @@ import com.musichoarder.app.ui.theme.MhTheme
 @Composable
 fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     val session by viewModel.session.collectAsStateWithLifecycle()
+    val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val library by viewModel.library.collectAsStateWithLifecycle()
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val content by viewModel.content.collectAsStateWithLifecycle()
@@ -81,15 +82,16 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     pendingPairingHost?.let { host ->
         AlertDialog(
             onDismissRequest = viewModel::dismissPendingPairingLink,
-            title = { Text("Pair with a different server?") },
+            title = { Text("Add this account?") },
             text = {
                 Text(
-                    "This code points at $host. Pairing will replace the library this phone is " +
-                        "showing now and stop playback."
+                    "This code points at $host. The account it pairs is added alongside the one " +
+                        "this phone is using now (which stays signed in) and becomes active — " +
+                        "playback stops while the library switches."
                 )
             },
             confirmButton = {
-                TextButton(onClick = viewModel::confirmPendingPairingLink) { Text("Pair") }
+                TextButton(onClick = viewModel::confirmPendingPairingLink) { Text("Add account") }
             },
             dismissButton = {
                 TextButton(onClick = viewModel::dismissPendingPairingLink) { Text("Cancel") }
@@ -169,6 +171,7 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                         state = library,
                         ui = ui,
                         content = content,
+                        accounts = accounts,
                         albumStatuses = albumStatuses,
                         likes = likes,
                         playingTrackId = playerState.trackId,
@@ -199,6 +202,9 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                             },
                             onRefresh = viewModel::refresh,
                             onUnpair = viewModel::unpair,
+                            onSwitchAccount = viewModel::switchAccount,
+                            onAddAccountScanned = viewModel::pairFromCode,
+                            onScanError = viewModel::reportPairProblem,
                         ),
                         contentPadding = PaddingValues(bottom = 12.dp),
                     )

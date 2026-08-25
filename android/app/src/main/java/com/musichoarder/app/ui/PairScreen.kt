@@ -45,9 +45,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.musichoarder.app.ui.theme.MhTheme
 
 /**
@@ -124,26 +121,14 @@ fun PairScreen(
                 icon = Icons.Rounded.QrCodeScanner,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                val options = GmsBarcodeScannerOptions.Builder()
-                    .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-                    .enableAutoZoom()
-                    .build()
-                // Google's scanner runs out of process: no camera permission to request and no
-                // preview surface to own.
-                GmsBarcodeScanning.getClient(context, options).startScan()
-                    .addOnSuccessListener { barcode ->
-                        val value = barcode.rawValue
-                        if (value.isNullOrBlank()) {
-                            onError("That code was empty. Try scanning again.")
-                        } else {
-                            onScanned(value)
-                        }
-                    }
-                    .addOnCanceledListener { }
-                    .addOnFailureListener {
-                        onError("The scanner is unavailable on this device — enter the details by hand instead.")
+                launchPairingScan(
+                    context,
+                    onScanned = onScanned,
+                    onError = { message ->
+                        onError(message)
                         showManual = true
-                    }
+                    },
+                )
             }
 
             if (error != null) {

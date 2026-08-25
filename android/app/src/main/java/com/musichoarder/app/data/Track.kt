@@ -83,7 +83,12 @@ private const val LIBRARY_BUILD_DONE = 3
 data class SongsResponse(@SerialName("songs") val songs: List<ApiSong> = emptyList())
 
 @Serializable
-data class AuthMe(val email: String? = null, val role: String? = null, val displayName: String? = null)
+data class AuthMe(
+    val id: String? = null,
+    val email: String? = null,
+    val role: String? = null,
+    val displayName: String? = null,
+)
 
 /**
  * A playable row, with every display field already resolved so the UI never re-decides.

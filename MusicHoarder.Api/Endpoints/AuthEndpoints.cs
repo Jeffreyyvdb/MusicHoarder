@@ -57,7 +57,7 @@ public static class AuthEndpoints
                 ConsumeBody body,
                 HttpContext ctx,
                 IAuthService authService,
-                ISessionCookieService cookieService,
+                IAccountSwitchService accountSwitch,
                 CancellationToken ct) =>
             {
                 if (string.IsNullOrWhiteSpace(body.Token))
@@ -71,7 +71,7 @@ public static class AuthEndpoints
                 if (session is null)
                     return Results.Json(new { error = "invalid_token" }, statusCode: 400);
 
-                cookieService.Write(ctx, session.Id);
+                await accountSwitch.SignInAsync(ctx, session, ct);
                 return Results.Ok(new { ok = true });
             })
             .WithName("AuthConsume");
@@ -133,7 +133,7 @@ public static class AuthEndpoints
         group.MapPost("/demo-login", async (
                 HttpContext ctx,
                 IAuthService authService,
-                ISessionCookieService cookieService,
+                IAccountSwitchService accountSwitch,
                 CancellationToken ct) =>
             {
                 var session = await authService.StartDemoSessionAsync(
@@ -143,7 +143,7 @@ public static class AuthEndpoints
                 if (session is null)
                     return Results.Json(new { error = "demo_unavailable" }, statusCode: 503);
 
-                cookieService.Write(ctx, session.Id);
+                await accountSwitch.SignInAsync(ctx, session, ct);
                 return Results.Ok(new { ok = true });
             })
             .WithName("AuthDemoLogin");
@@ -168,15 +168,19 @@ public static class AuthEndpoints
                 HttpContext ctx,
                 IAuthService authService,
                 ISessionCookieService cookieService,
+                IAccountSwitchService accountSwitch,
                 CancellationToken ct) =>
             {
-                // Cookie (browser) or bearer token (native client) — revoke whichever carried
-                // this request's session.
-                string? raw = null;
+                // Cookie (browser): the account switcher revokes the active session and falls
+                // back to the newest parked account, if any.
                 if (ctx.Request.Cookies.TryGetValue(cookieService.CookieName, out var cookie) && !string.IsNullOrEmpty(cookie))
-                    raw = cookie;
-                raw ??= BearerToken.TryRead(ctx);
+                {
+                    var outcome = await accountSwitch.LogoutAsync(ctx, allForActiveUser: all == true, ct);
+                    return Results.Ok(new { ok = true, fallback = outcome.Fallback });
+                }
 
+                // Bearer token (native client) — no cookies involved, just revoke.
+                var raw = BearerToken.TryRead(ctx);
                 if (raw is not null)
                 {
                     var sessionId = cookieService.Unprotect(raw);
@@ -184,9 +188,45 @@ public static class AuthEndpoints
                         await authService.RevokeAsync(sessionId.Value, allForUser: all == true, ct);
                 }
                 cookieService.Clear(ctx);
-                return Results.Ok(new { ok = true });
+                return Results.Ok(new { ok = true, fallback = (AccountView?)null });
             })
             .WithName("AuthLogout");
+
+        group.MapGet("/accounts", async (
+                HttpContext ctx,
+                ICurrentUserAccessor accessor,
+                IAccountSwitchService accountSwitch,
+                CancellationToken ct) =>
+            {
+                if (accessor.User is null)
+                    return Results.Json(new { error = "unauthenticated" }, statusCode: 401);
+
+                var accounts = await accountSwitch.ListAccountsAsync(ctx, ct);
+                return Results.Ok(new { accounts });
+            })
+            .WithName("AuthAccounts");
+
+        // CSRF posture matches /logout: SameSite=Lax withholds the cookies on cross-site POSTs,
+        // and a forged switch could only shuffle between sessions already present in the victim's
+        // own browser — possession of the HttpOnly alts cookie is the credential, no session is
+        // ever minted here.
+        group.MapPost("/switch", async (
+                SwitchAccountBody body,
+                HttpContext ctx,
+                ICurrentUserAccessor accessor,
+                IAccountSwitchService accountSwitch,
+                CancellationToken ct) =>
+            {
+                if (accessor.User is null)
+                    return Results.Json(new { error = "unauthenticated" }, statusCode: 401);
+
+                var switched = await accountSwitch.SwitchAsync(ctx, body.UserId, ct);
+                if (switched is null)
+                    return Results.Json(new { error = "account_not_found" }, statusCode: 404);
+
+                return Results.Ok(new { ok = true, user = switched });
+            })
+            .WithName("AuthSwitchAccount");
 
         return app;
     }
@@ -197,6 +237,7 @@ public static class AuthEndpoints
 
 public sealed record RequestLinkBody(string Email);
 public sealed record ConsumeBody(string Token);
+public sealed record SwitchAccountBody(Guid UserId);
 
 /// <summary>Bearer token issued to native clients; send as <c>Authorization: Bearer …</c>.</summary>
 public sealed record AccessTokenResponse(string AccessToken, string TokenType, DateTime ExpiresAtUtc);

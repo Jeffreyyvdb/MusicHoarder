@@ -45,6 +45,7 @@ public class DemoReadOnlyMiddlewareTests
     [Theory]
     [InlineData("/api/auth/logout")]
     [InlineData("/api/auth/demo-login")]
+    [InlineData("/api/auth/switch")] // back to an account parked in the demo tab's own browser
     [InlineData("/api/auth/webauthn/authenticate/begin")]
     [InlineData("/api/auth/webauthn/authenticate/complete")]
     [InlineData("/api/invite/accept")]

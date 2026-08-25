@@ -2797,11 +2797,52 @@ export async function requestMagicLink(email: string): Promise<RequestLinkResult
   return { ok: true, magicLinkUrl: body.magicLinkUrl ?? null, magicLinkInLogs: body.magicLinkInLogs ?? false }
 }
 
-export async function signOut(allSessions = false): Promise<void> {
-  await fetch(`${API_PREFIX}/api/auth/logout${allSessions ? "?all=true" : ""}`, {
+/** One signed-in account in this browser, as reported by the account switcher. */
+export interface AccountView {
+  userId: string
+  email: string
+  role: AuthRole
+  displayName: string | null
+  isActive: boolean
+}
+
+export interface SignOutResult {
+  /** The parked account promoted to active by the logout, or null when none was left. */
+  fallback: AccountView | null
+}
+
+export async function signOut(allSessions = false): Promise<SignOutResult> {
+  const response = await fetch(`${API_PREFIX}/api/auth/logout${allSessions ? "?all=true" : ""}`, {
     method: "POST",
     cache: "no-store",
   })
+  const body = (await response.json().catch(() => ({}))) as { fallback?: AccountView | null }
+  return { fallback: body.fallback ?? null }
+}
+
+/** Accounts remembered in this browser: the active one first, then parked ones by recency. */
+export async function listAccounts(): Promise<AccountView[]> {
+  const response = await fetch(`${API_PREFIX}/api/auth/accounts`, { cache: "no-store" })
+  if (!response.ok) throw new Error(`auth/accounts failed: ${response.status}`)
+  const body = (await response.json()) as { accounts: AccountView[] }
+  return body.accounts
+}
+
+/**
+ * Makes a parked account the active one. Returns null when the account is no longer switchable
+ * (its parked session expired or was revoked) — the server prunes it in that case.
+ */
+export async function switchAccount(userId: string): Promise<AccountView | null> {
+  const response = await fetch(`${API_PREFIX}/api/auth/switch`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ userId }),
+    cache: "no-store",
+  })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`auth/switch failed: ${response.status}`)
+  const body = (await response.json()) as { user: AccountView }
+  return body.user
 }
 
 /** A bearer token minted for a native client (Android app), plus when it stops working. */

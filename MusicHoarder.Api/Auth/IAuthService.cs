@@ -30,6 +30,13 @@ public interface IAuthService
     /// <summary>Loads + refreshes a session if needed. Returns null when not valid.</summary>
     Task<(Session Session, User User)?> ResolveSessionAsync(Guid sessionId, CancellationToken ct);
 
+    /// <summary>
+    /// Loads the given sessions in one query and returns only the live ones (active, user not
+    /// disabled), in input order. Read-only: no sliding renewal — used by the account switcher to
+    /// validate the active + parked cookie set without a write per parked session.
+    /// </summary>
+    Task<IReadOnlyList<(Session Session, User User)>> ResolveSessionsAsync(IReadOnlyCollection<Guid> sessionIds, CancellationToken ct);
+
     /// <summary>Revokes one session or all sessions for the user.</summary>
     Task RevokeAsync(Guid sessionId, bool allForUser, CancellationToken ct);
 

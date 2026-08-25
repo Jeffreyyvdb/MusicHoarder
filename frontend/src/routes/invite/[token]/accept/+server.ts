@@ -10,11 +10,16 @@ import type { RequestHandler } from './$types';
  * `redirect: 'follow'`, which would swallow any Set-Cookie issued during an intermediate hop.
  * Doing the accept here keeps the cookie write on the same response that lands in the browser.
  */
-export const POST: RequestHandler = async ({ params, fetch }) => {
+export const POST: RequestHandler = async ({ params, fetch, request }) => {
   const apiBase = getApiBaseUrl().replace(/\/$/, '');
   const response = await fetch(`${apiBase}/api/invite/accept`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      // Forward the browser's cookies so a still-signed-in session gets parked by the account
+      // switcher instead of silently discarded.
+      cookie: request.headers.get('cookie') ?? ''
+    },
     body: JSON.stringify({ token: params.token })
   });
 

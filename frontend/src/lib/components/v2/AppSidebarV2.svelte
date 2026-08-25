@@ -2,8 +2,9 @@
   import { untrack } from 'svelte';
   import { afterNavigate } from '$app/navigation';
   import { page } from '$app/state';
-  import { ChevronRight, LogOut, Music } from '@lucide/svelte';
+  import { Check, ChevronRight, Loader2, LogOut, Music, Settings, UserPlus } from '@lucide/svelte';
   import * as Sidebar from '$lib/components/ui/sidebar';
+  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import { navGroupsFor, resolveNav, type NavItem } from '$lib/nav';
   import { APP_HOME } from '$lib/app-home';
   import {
@@ -12,11 +13,14 @@
     fetchOverview,
     fetchStats,
     isLocalFile,
+    listAccounts,
     mapEnrichmentStatus,
+    type AccountView,
     type ApiOverview,
     type ApiStats
   } from '$lib/api-client';
   import { signOutAndReset } from '$lib/auth/sign-out';
+  import { switchAccountAndReload } from '$lib/auth/switch-account';
   import { isBuiltSong } from '$lib/album-sections';
   import { songsStore } from '$lib/stores/songs.svelte';
   import { cn } from '$lib/utils';
@@ -151,6 +155,32 @@
   const isFriend = $derived(user?.role === 'Friend');
   // Friends see only the Listen group; the guard bounces them off everything else anyway.
   const navGroups = $derived(navGroupsFor(user?.role));
+
+  // ── account switcher ──────────────────────────────────────────────────────
+  // Accounts remembered in this browser (active + parked), fetched lazily the first time the
+  // menu opens — the list only changes via login/switch/logout, each of which hard-reloads.
+  let accounts = $state<AccountView[] | null>(null);
+  let accountsError = $state(false);
+  let switchingTo = $state<string | null>(null);
+
+  async function loadAccounts(open: boolean) {
+    if (!open || accounts !== null) return;
+    try {
+      accounts = await listAccounts();
+    } catch {
+      accountsError = true;
+    }
+  }
+
+  async function handleSwitch(account: AccountView) {
+    if (account.isActive || switchingTo) return;
+    switchingTo = account.userId;
+    try {
+      await switchAccountAndReload(account.userId);
+    } catch {
+      switchingTo = null;
+    }
+  }
 
   // On mobile the sidebar is an off-canvas Sheet; close it after navigating so a
   // tapped destination doesn't leave the drawer open over the freshly-loaded page.
@@ -304,22 +334,72 @@
       <div
         class="bg-surface-sunken border-sidebar-border mt-1 flex items-center gap-[9px] rounded-md border px-2.5 py-2"
       >
-        <a
-          href="/settings"
-          class="focus-visible:ring-sidebar-ring flex min-w-0 flex-1 items-center gap-[9px] rounded-sm outline-none focus-visible:ring-2"
-          aria-label="Account settings"
-        >
-          <div
-            class="flex size-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-700/90 to-cyan-300/90 text-[10.5px] font-semibold text-white"
+        <DropdownMenu.Root onOpenChange={loadAccounts}>
+          <DropdownMenu.Trigger
+            class="focus-visible:ring-sidebar-ring flex min-w-0 flex-1 items-center gap-[9px] rounded-sm outline-none focus-visible:ring-2"
+            aria-label="Switch account"
           >
-            {(user.displayName ?? user.email).slice(0, 2).toUpperCase()}
-          </div>
-          <div class="min-w-0 flex-1">
-            <div class="truncate text-[11.5px] font-medium">{user.displayName ?? user.email}</div>
-            <div class="text-muted-foreground truncate text-[10.5px]">{user.email}</div>
-          </div>
-          <ChevronRight class="text-muted-foreground size-3.5 shrink-0" />
-        </a>
+            <div
+              class="flex size-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-700/90 to-cyan-300/90 text-[10.5px] font-semibold text-white"
+            >
+              {(user.displayName ?? user.email).slice(0, 2).toUpperCase()}
+            </div>
+            <div class="min-w-0 flex-1 text-left">
+              <div class="truncate text-[11.5px] font-medium">{user.displayName ?? user.email}</div>
+              <div class="text-muted-foreground truncate text-[10.5px]">{user.email}</div>
+            </div>
+            <ChevronRight class="text-muted-foreground size-3.5 shrink-0" />
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Content side="top" align="start" class="w-60">
+            {#if accounts === null}
+              <div class="text-muted-foreground flex items-center gap-2 px-2 py-2 text-xs">
+                {#if accountsError}
+                  Could not load accounts.
+                {:else}
+                  <Loader2 class="size-3.5 animate-spin" /> Loading accounts…
+                {/if}
+              </div>
+            {:else}
+              {#each accounts as account (account.userId)}
+                <DropdownMenu.Item
+                  onSelect={() => handleSwitch(account)}
+                  disabled={switchingTo !== null && switchingTo !== account.userId}
+                  class="gap-2"
+                >
+                  <div
+                    class="flex size-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-700/90 to-cyan-300/90 text-[10px] font-semibold text-white"
+                  >
+                    {(account.displayName ?? account.email).slice(0, 2).toUpperCase()}
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="truncate text-xs font-medium">
+                      {account.displayName ?? account.email}
+                    </div>
+                    <div class="text-muted-foreground truncate text-[10.5px]">
+                      {account.role === 'Owner' ? account.email : `${account.email} · ${account.role}`}
+                    </div>
+                  </div>
+                  {#if account.isActive}
+                    <Check class="text-muted-foreground size-4 shrink-0" />
+                  {:else if switchingTo === account.userId}
+                    <Loader2 class="text-muted-foreground size-4 shrink-0 animate-spin" />
+                  {/if}
+                </DropdownMenu.Item>
+              {/each}
+            {/if}
+            <DropdownMenu.Separator />
+            <DropdownMenu.Item onSelect={() => location.assign('/login?switch')}>
+              <UserPlus class="size-4" /> Add account
+            </DropdownMenu.Item>
+            <DropdownMenu.Item onSelect={() => location.assign('/settings')}>
+              <Settings class="size-4" /> Account settings
+            </DropdownMenu.Item>
+            <DropdownMenu.Separator />
+            <DropdownMenu.Item onSelect={() => signOutAndReset()}>
+              <LogOut class="size-4" /> Sign out
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
         <button
           type="button"
           aria-label="Sign out"

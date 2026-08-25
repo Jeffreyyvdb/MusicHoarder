@@ -40,7 +40,10 @@ export const load: LayoutServerLoad = async ({ request, cookies, url }) => {
   }
 
   if (probe.status === 'anonymous') {
-    // Drop any stale cookie so the browser stops sending an invalid session.
+    // Drop any stale cookie so the browser stops sending an invalid session. Deliberately only
+    // the active-session cookie: the parked-accounts cookie (mh_session_alts) stays, so accounts
+    // remembered by the switcher survive an active-session expiry — the next login parks/dedupes
+    // against them server-side.
     cookies.delete(SESSION_COOKIE, { path: '/' });
     throw redirect(303, '/login');
   }
