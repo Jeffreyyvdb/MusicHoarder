@@ -1,8 +1,8 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
+using MusicHoarder.Api.Enrichment.AlbumTracklist;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Options;
@@ -14,8 +14,6 @@ namespace MusicHoarder.Api.Endpoints;
 
 public static class AlbumsEndpoints
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-
     public static IEndpointRouteBuilder MapAlbumsEndpoints(this IEndpointRouteBuilder app)
     {
         // The read-only album GETs deliberately have no RequireOwner: the demo account (UserRole.Demo)
@@ -274,14 +272,14 @@ public static class AlbumsEndpoints
                 score = grade.Score,
                 verdict = grade.Verdict.ToString(),
                 summary = grade.Summary,
-                issues = ParseIssues(grade.IssuesJson),
+                issues = GradingIssueJson.Parse(grade.IssuesJson),
                 model = grade.Model,
                 promptVersion = grade.PromptVersion,
                 ownedTrackCount = grade.OwnedTrackCount,
                 canonicalTrackCount = grade.CanonicalTrackCount,
                 durationMs = grade.DurationMs,
                 gradedAtUtc = grade.GradedAtUtc,
-                isOutdated = IsGradeOutdated(grade.PromptVersion, grade.Model, gradingOptions.CurrentValue.Model),
+                isOutdated = GradeFreshness.IsAlbumGradeOutdated(grade.PromptVersion, grade.Model, gradingOptions.CurrentValue.Model),
                 historyCount,
             };
         }
@@ -317,8 +315,8 @@ public static class AlbumsEndpoints
         var albumIds = rows.Select(r => r.Id).ToList();
         var grades = await db.CanonicalAlbumQualityGrades
             .AsNoTracking()
-            .Where(g => albumIds.Contains(g.CanonicalAlbumId)
-                && !db.CanonicalAlbumQualityGrades.Any(g2 => g2.CanonicalAlbumId == g.CanonicalAlbumId && g2.GradedAtUtc > g.GradedAtUtc))
+            .LatestPerAlbum()
+            .Where(g => albumIds.Contains(g.CanonicalAlbumId))
             .Select(g => new { g.CanonicalAlbumId, g.Verdict })
             .ToListAsync(ct);
         var verdictByAlbum = grades.ToDictionary(g => g.CanonicalAlbumId, g => g.Verdict.ToString());
@@ -339,7 +337,7 @@ public static class AlbumsEndpoints
                 artist = k.Artist,
                 album = k.Album,
                 status,
-                providers = status == "linked" ? WinningProviderNames(row!.SourcesJson) : [],
+                providers = status == "linked" ? CanonicalAlbumSources.WinningProviderNames(row!.SourcesJson) : [],
                 verdict = row is not null && verdictByAlbum.TryGetValue(row.Id, out var v) ? v : null,
             };
         }).ToArray();
@@ -587,7 +585,7 @@ public static class AlbumsEndpoints
 
     private static string DescribeCanonical(CanonicalAlbum canonical)
     {
-        var winners = WinningProviderNames(canonical.SourcesJson);
+        var winners = CanonicalAlbumSources.WinningProviderNames(canonical.SourcesJson);
         var description = $"Canonical album resolved · {Plural(canonical.ResolvedTrackCount, "track")}";
         if (winners.Length > 0)
             description += $" · from {string.Join(", ", winners)}";
@@ -614,68 +612,22 @@ public static class AlbumsEndpoints
         _ => "pending",
     };
 
-    /// <summary>Distinct provider names that won the reconciliation cluster (for the UI badge/chip).</summary>
-    private static string[] WinningProviderNames(string? sourcesJson)
-    {
-        if (string.IsNullOrWhiteSpace(sourcesJson))
-            return [];
-        try
-        {
-            var stored = JsonSerializer.Deserialize<List<StoredSource>>(sourcesJson);
-            return stored is null
-                ? []
-                : stored.Where(s => s.InWinningCluster).Select(s => s.Provider.ToString()).Distinct().ToArray();
-        }
-        catch (JsonException)
-        {
-            return [];
-        }
-    }
-
-    /// <summary>Parses the stored grading-issue JSON; empty/garbage → no issues.</summary>
-    private static List<GradingIssue> ParseIssues(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json)) return [];
-        try { return JsonSerializer.Deserialize<List<GradingIssue>>(json, Json) ?? []; }
-        catch { return []; }
-    }
-
-    /// <summary>A grade is "outdated" when the album-grading prompt version or the configured model has
-    /// changed since the grade was produced — surfaced (not auto-regraded) for an explicit refresh.</summary>
-    private static bool IsGradeOutdated(int promptVersion, string? model, string currentModel) =>
-        promptVersion != AlbumGradingPrompt.Version
-        || !string.Equals(model, currentModel, StringComparison.Ordinal);
-
     public sealed record CanonicalStatusRequest(List<AlbumIdentity>? Albums);
     public sealed record AlbumIdentity(string Artist, string Album);
 
     private static string[] SplitProviders(string? csv)
         => string.IsNullOrWhiteSpace(csv) ? [] : csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-    private static object[] ParseSources(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json))
-            return [];
-        try
-        {
-            var stored = JsonSerializer.Deserialize<List<StoredSource>>(json);
-            return stored is null
-                ? []
-                : stored.Select(s => (object)new
-                {
-                    provider = s.Provider.ToString(),
-                    albumId = s.AlbumId,
-                    trackCount = s.TrackCount,
-                    inWinningCluster = s.InWinningCluster,
-                }).ToArray();
-        }
-        catch (JsonException)
-        {
-            return [];
-        }
-    }
-
-    private sealed record StoredSource(EnrichmentProvider Provider, string? AlbumId, int TrackCount, bool InWinningCluster);
+    private static object[] ParseSources(string? json) =>
+        CanonicalAlbumSources.Parse(json)
+            .Select(s => (object)new
+            {
+                provider = s.Provider.ToString(),
+                albumId = s.AlbumId,
+                trackCount = s.TrackCount,
+                inWinningCluster = s.InWinningCluster,
+            })
+            .ToArray();
 }
 
 /// <summary>
