@@ -441,7 +441,7 @@ One more requirement that is easy to miss: a **personal** developer account crea
 before Google grants production access at all. Organisation accounts are exempt. Until that is
 done, `internal` (or `alpha`) is the only track that works anyway.
 
-### Play App Signing breaks the App Links fingerprint
+### Play App Signing breaks the assetlinks fingerprint
 
 This is the trap. When Play App Signing is on — and it is mandatory for new apps — Google **re-signs**
 the bundle with an app signing key it holds. So a build installed from Play carries a *different*
@@ -449,8 +449,11 @@ certificate from the APK on the GitHub Release, which is signed with your upload
 
 Two consequences:
 
-- **`/.well-known/assetlinks.json` needs both fingerprints**, or share and invite links stop opening
-  in the Play build. `ANDROID_ASSETLINKS_FINGERPRINTS` is comma-separated for exactly this:
+- **`/.well-known/assetlinks.json` needs both fingerprints.** Miss the Play one and the Play build
+  loses *both* capabilities the file grants: share and invite links stop opening in the app
+  (`handle_all_urls`), and the passkey sheet reports no usable credential (`get_login_creds`).
+  Neither failure can be fixed from inside the app. `ANDROID_ASSETLINKS_FINGERPRINTS` is
+  comma-separated for exactly this:
 
   ```
   ANDROID_ASSETLINKS_FINGERPRINTS=<upload key SHA-256>,<Play app signing key SHA-256>
