@@ -183,6 +183,34 @@ public sealed class AuthService : IAuthService
         return (session, session.User);
     }
 
+    public async Task<IReadOnlyList<(Session Session, User User)>> ResolveSessionsAsync(
+        IReadOnlyCollection<Guid> sessionIds,
+        CancellationToken ct)
+    {
+        if (sessionIds.Count == 0) return [];
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+        var nowUtc = DateTime.UtcNow;
+
+        var sessions = await db.Sessions.AsNoTracking()
+            .Include(s => s.User)
+            .Where(s => sessionIds.Contains(s.Id))
+            .ToListAsync(ct).ConfigureAwait(false);
+
+        var byId = sessions
+            .Where(s => s.User is not null && !s.User.IsDisabled && s.IsActive(nowUtc))
+            .ToDictionary(s => s.Id);
+
+        var result = new List<(Session, User)>(byId.Count);
+        foreach (var id in sessionIds)
+        {
+            if (byId.TryGetValue(id, out var s))
+                result.Add((s, s.User!));
+        }
+        return result;
+    }
+
     public async Task RevokeAsync(Guid sessionId, bool allForUser, CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();

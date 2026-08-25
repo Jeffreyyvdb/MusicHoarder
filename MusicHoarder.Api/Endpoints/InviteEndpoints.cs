@@ -45,7 +45,7 @@ public static class InviteEndpoints
         AcceptInviteBody body,
         HttpContext ctx,
         IAuthService authService,
-        ISessionCookieService cookieService,
+        IAccountSwitchService accountSwitch,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(body.Token))
@@ -59,7 +59,7 @@ public static class InviteEndpoints
         if (session is null)
             return Results.Json(new { error = "invalid_token" }, statusCode: 400);
 
-        cookieService.Write(ctx, session.Id);
+        await accountSwitch.SignInAsync(ctx, session, ct);
         return Results.Ok(new { ok = true });
     }
 

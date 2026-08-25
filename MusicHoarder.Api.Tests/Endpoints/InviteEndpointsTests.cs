@@ -77,10 +77,14 @@ public class InviteEndpointsTests
     private sealed class FakeCookieService : ISessionCookieService
     {
         public string CookieName => "mh_session";
+        public string AltsCookieName => "mh_session_alts";
         public string Protect(Guid sessionId) => $"protected:{sessionId:N}";
         public Guid? Unprotect(string cookieValue) => null;
         public void Write(HttpContext context, Guid sessionId) { }
         public void Clear(HttpContext context) { }
+        public IReadOnlyList<Guid> ReadAlts(HttpContext context) => [];
+        public void WriteAlts(HttpContext context, IReadOnlyList<Guid> sessionIds) { }
+        public void ClearAlts(HttpContext context) { }
     }
 
     private static (IAuthService Service, Func<MusicHoarderDbContext> CreateCtx) MakeService()
