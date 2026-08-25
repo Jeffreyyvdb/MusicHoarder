@@ -26,7 +26,7 @@ cd android && ./gradlew :app:installDebug
 
 ## Signing in
 
-Two ways in, neither involving a password.
+Three ways in, none involving a password.
 
 **Email sign-in (no other device needed).** On the connect screen, enter the server address and the
 email address of your account — owner or invited friend — and press **Email me a sign-in link**.
@@ -35,6 +35,20 @@ phone lands on a small browser handoff page instead of signing the browser in. I
 MusicHoarder app** button is a `musichoarder://auth?token=…&url=…` deep link; the app exchanges the
 one-time token at `POST /api/auth/token` for its own bearer session. The link stays consumable by
 the browser too ("Sign in in this browser instead"), and either use burns it.
+
+**Passkey (no inbox, no other device).** Enter the server address and press **Use a passkey**. The
+app runs the WebAuthn ceremony through Android's Credential Manager against
+`POST /api/auth/webauthn/authenticate/native/{begin,complete}` — the cookie-free variant of the
+browser's ceremony: the in-flight challenge comes back as an opaque, time-limited, data-protected
+blob the app hands straight back, and the reply is a bearer token rather than a `Set-Cookie`. No
+email field is involved, because a passkey ceremony is usernameless — the authenticator surfaces
+the resident key and reports whose it is.
+
+The passkey is the one enrolled in the browser under **Settings → Account** (owners and invited
+friends both have that card). It belongs to the *web* origin, so the app can only use it once that
+origin vouches for the app — see [Passkeys need the trust file
+too](#passkeys-need-the-trust-file-too) below. Until then the sheet reports no usable credential
+and the app says so; the other two paths are unaffected.
 
 **QR pairing (from a signed-in browser).** The web UI mints a bearer token directly:
 
@@ -99,6 +113,27 @@ keytool -list -v -keystore musichoarder-release.jks -alias musichoarder | grep '
 The release workflow's signing preflight prints the release fingerprint as a `::notice` on every
 run, so step 2 is copy-paste from the Actions log for the official keystore.
 
+### Passkeys need the trust file too
+
+Credential Manager reads the same `/.well-known/assetlinks.json`, so a deployment that already set
+`ANDROID_ASSETLINKS_FINGERPRINTS` for share/invite links has done most of the work — the statement
+list carries a `get_login_creds` relation alongside `handle_all_urls`, both naming this package.
+
+One extra value is needed, and only for passkeys. Inside the app the assertion's origin is not a
+URL but `android:apk-key-hash:<base64url-sha256>` of the same signing certificate, and FIDO2
+compares non-URL origins as exact strings — so the API rejects in-app assertions on origin until
+that string is in its allowed-origins list. Set `ANDROID_APK_KEY_HASH_ORIGIN`, derived from the
+fingerprint you already have:
+
+```bash
+# AA:BB:… is the SHA-256 from step 2 above.
+echo "AA:BB:…" | tr -d ':' | xxd -r -p | base64 | tr '+/' '-_' | tr -d '='
+# → prefix it:  ANDROID_APK_KEY_HASH_ORIGIN=android:apk-key-hash:<that>
+```
+
+Leave it blank and everything else still works: share and invite App Links, the email sign-in, and
+QR pairing are all untouched — only the in-app passkey is refused.
+
 Debugging: `adb shell pm get-app-links com.musichoarder.app` shows the per-host verification
 state; `adb shell pm verify-app-links --re-verify com.musichoarder.app` re-runs it, and
 `adb shell pm set-app-links --package com.musichoarder.app 2 <host>` force-approves a host on an
@@ -123,7 +158,8 @@ makes it possible, since the bearer token rides every request.
 
 ```
 data/     ServerSession (pairing + DataStore), MusicHoarderApi (OkHttp + kotlinx.serialization),
-          LibraryRepository (the library, held in memory), Track/Album models, Lyrics (+ LRC parser)
+          PasskeySignIn (the Credential Manager sheet), LibraryRepository (the library, held in
+          memory), Track/Album models, Lyrics (+ LRC parser)
 player/   PlaybackService (Media3 MediaSessionService), PlayerController (MediaController + UI state),
           VideoController (the muted clip that chases the audio clock)
 ui/       PairScreen, LibraryScreen, AlbumScreen, NowPlayingScreen (+ PlayerTransport, PlayerVideo,

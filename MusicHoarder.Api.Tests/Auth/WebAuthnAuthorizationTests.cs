@@ -9,8 +9,9 @@ namespace MusicHoarder.Api.Tests.Auth;
 
 /// <summary>
 /// Guards the access rules the WebAuthn enrollment/management endpoints rely on
-/// (<see cref="RouteHandlerBuilderExtensions.RequireOwner"/>) plus the relying-party derivation
-/// that feeds the FIDO2 configuration.
+/// (<see cref="RouteHandlerBuilderExtensions.RequireRealAccount"/>, plus
+/// <see cref="RouteHandlerBuilderExtensions.RequireOwner"/> which the rest of the API uses) and the
+/// relying-party derivation that feeds the FIDO2 configuration.
 /// </summary>
 public class WebAuthnAuthorizationTests
 {
@@ -35,6 +36,30 @@ public class WebAuthnAuthorizationTests
     {
         var result = await Invoke(TestCurrentUserAccessor.OwnerUser);
         Assert.Equal("next", result);
+    }
+
+    [Fact]
+    public async Task RequireRealAccount_rejects_anonymous_with_401()
+    {
+        var result = await Invoke(currentUser: null, new RequireRealAccountFilter());
+        Assert.Equal(StatusCodes.Status401Unauthorized, Assert.IsType<int>(GetStatusCode(result)));
+    }
+
+    [Fact]
+    public async Task RequireRealAccount_rejects_demo_with_403()
+    {
+        // The demo's credentials are shared by every visitor, so it never enrols anything.
+        var result = await Invoke(TestCurrentUserAccessor.DemoUser, new RequireRealAccountFilter());
+        Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<int>(GetStatusCode(result)));
+    }
+
+    [Fact]
+    public async Task RequireRealAccount_allows_owner_and_friend_through()
+    {
+        Assert.Equal("next", await Invoke(TestCurrentUserAccessor.OwnerUser, new RequireRealAccountFilter()));
+        // A friend enrolling a passkey for their own account is what makes the Android client's
+        // passkey sign-in available to them at all.
+        Assert.Equal("next", await Invoke(TestCurrentUserAccessor.FriendUser, new RequireRealAccountFilter()));
     }
 
     [Fact]
@@ -70,18 +95,20 @@ public class WebAuthnAuthorizationTests
         Assert.Contains("https://b.example.com", origins);
     }
 
-    private static async Task<object?> Invoke(CurrentUser? currentUser)
+    private static Task<object?> Invoke(CurrentUser? currentUser) =>
+        Invoke(currentUser, new RequireOwnerFilter());
+
+    private static async Task<object?> Invoke(CurrentUser? currentUser, IEndpointFilter filter)
     {
         var services = new ServiceCollection();
         services.AddSingleton<ICurrentUserAccessor>(new TestCurrentUserAccessor(currentUser));
         var httpContext = new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };
 
-        var filter = new RequireOwnerFilter();
         var ctx = EndpointFilterInvocationContext.Create(httpContext);
         return await filter.InvokeAsync(ctx, _ => ValueTask.FromResult<object?>("next"));
     }
 
-    // RequireOwnerFilter returns Results.Json(..., statusCode) for rejections; surface the code.
+    // Both filters return Results.Json(..., statusCode) for rejections; surface the code.
     private static object GetStatusCode(object? result)
     {
         Assert.NotNull(result);

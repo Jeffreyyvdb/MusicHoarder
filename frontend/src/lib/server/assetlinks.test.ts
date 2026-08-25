@@ -20,17 +20,26 @@ describe('parseFingerprints', () => {
 });
 
 describe('assetlinksJson', () => {
+  const target = {
+    namespace: 'android_app',
+    package_name: ANDROID_PACKAGE_NAME,
+    sha256_cert_fingerprints: ['AA:BB', 'CC:DD']
+  };
+
   it('emits the handle_all_urls statement Android expects', () => {
     const parsed = JSON.parse(assetlinksJson(['AA:BB', 'CC:DD']));
-    expect(parsed).toEqual([
-      {
-        relation: ['delegate_permission/common.handle_all_urls'],
-        target: {
-          namespace: 'android_app',
-          package_name: ANDROID_PACKAGE_NAME,
-          sha256_cert_fingerprints: ['AA:BB', 'CC:DD']
-        }
-      }
-    ]);
+    expect(parsed).toContainEqual({
+      relation: ['delegate_permission/common.handle_all_urls'],
+      target
+    });
+  });
+
+  it('emits the get_login_creds statement, without which in-app passkeys find nothing', () => {
+    const parsed = JSON.parse(assetlinksJson(['AA:BB', 'CC:DD']));
+    expect(parsed).toContainEqual({
+      relation: ['delegate_permission/common.get_login_creds'],
+      target
+    });
+    expect(parsed).toHaveLength(2);
   });
 });

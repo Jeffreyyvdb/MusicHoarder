@@ -52,6 +52,13 @@ public class FriendReadOnlyMiddlewareTests
     [InlineData("/api/auth/switch")] // back to an account parked in the friend's own browser
     [InlineData("/api/auth/webauthn/authenticate/begin")]
     [InlineData("/api/auth/webauthn/authenticate/complete")]
+    [InlineData("/api/auth/webauthn/authenticate/native/begin")]
+    [InlineData("/api/auth/webauthn/authenticate/native/complete")]
+    // Enrolling a passkey on the friend's OWN account: RequireRealAccount gates these, and they
+    // only ever read the caller's own id. Without them the Android client's passkey sign-in would
+    // be owner-only.
+    [InlineData("/api/auth/webauthn/register/begin")]
+    [InlineData("/api/auth/webauthn/register/complete")]
     [InlineData("/api/invite/accept")]
     [InlineData("/api/shared/songs/1/like")] // per-friend listening state lives under /api/shared
     [InlineData("/api/shared/songs/1/played")]
@@ -60,6 +67,27 @@ public class FriendReadOnlyMiddlewareTests
         var (_, nextCalled) = await InvokeAsync(TestCurrentUserAccessor.FriendUser, "POST", path);
 
         Assert.True(nextCalled());
+    }
+
+    [Fact]
+    public async Task friend_may_delete_their_own_passkey()
+    {
+        var (_, nextCalled) = await InvokeAsync(
+            TestCurrentUserAccessor.FriendUser, "DELETE", $"/api/auth/webauthn/credentials/{Guid.NewGuid()}");
+
+        Assert.True(nextCalled());
+    }
+
+    [Fact]
+    public async Task friend_still_cannot_reach_a_neighbouring_auth_write()
+    {
+        // The allowlist is prefix-matched, so this pins that widening it for `webauthn/register`
+        // did not open up sibling auth writes.
+        var (ctx, nextCalled) = await InvokeAsync(
+            TestCurrentUserAccessor.FriendUser, "POST", "/api/auth/demo-login");
+
+        Assert.False(nextCalled());
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
     }
 
     [Fact]
