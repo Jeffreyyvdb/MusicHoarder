@@ -113,6 +113,13 @@ jobs:
             "$PROBE_JAR" "$MH_KEY_ALIAS" >/dev/null 2>&1 \
             || fail "ANDROID_KEY_PASSWORD cannot unlock the key. For a PKCS12 keystore (anything keytool made recently) it must equal ANDROID_KEYSTORE_PASSWORD."
 
+          # Surface the signing cert's SHA-256 for Android App Links: this is the value the
+          # frontend's ANDROID_ASSETLINKS_FINGERPRINTS env var needs so share/invite links open
+          # the app. Cert fingerprints are public — printing one leaks nothing.
+          FP=$(keytool -list -v -keystore "$KS" -storepass "$MH_KEYSTORE_PASSWORD" -alias "$MH_KEY_ALIAS" 2>/dev/null \
+            | grep -m1 'SHA256:' | sed 's/.*SHA256: //') || true
+          [ -n "$FP" ] && echo "::notice title=App Links fingerprint::Set ANDROID_ASSETLINKS_FINGERPRINTS=$FP on the frontend so share/invite links open the Android app."
+
           rm -rf "$KS" "$PROBE_DIR" "$PROBE_JAR"
           echo "Keystore, alias and both passwords check out — a release will attach a signed APK."
           emit true

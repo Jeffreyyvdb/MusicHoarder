@@ -56,6 +56,9 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     val videoState by viewModel.video.state.collectAsStateWithLifecycle()
     val pendingPairingHost by viewModel.pendingPairingHost.collectAsStateWithLifecycle()
     val likedIds by viewModel.likedIds.collectAsStateWithLifecycle()
+    val share by viewModel.share.collectAsStateWithLifecycle()
+    val invite by viewModel.invite.collectAsStateWithLifecycle()
+    val isShareQueue by viewModel.isShareQueue.collectAsStateWithLifecycle()
 
     // Saveable, not remembered: a rotation or a trip through process death used to drop the open
     // player. The open album moved into the ViewModel with the rest of the library's view state.
@@ -67,8 +70,9 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
-    LaunchedEffect(session) {
-        if (session != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+    LaunchedEffect(session, share) {
+        // A share plays music too — its media notification needs the permission just the same.
+        if ((session != null || share != null) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
@@ -97,7 +101,9 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
         )
     }
 
-    if (session == null) {
+    // The share viewer and the invite flow are the two surfaces that work without a pairing —
+    // an App Link must never dead-end on the pairing screen.
+    if (session == null && share == null && invite == null) {
         val emailSentTo by viewModel.emailLinkSentTo.collectAsStateWithLifecycle()
         PairScreen(
             error = pairError,
@@ -138,6 +144,8 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     // One ordered list rather than nested ifs, so it is obvious what Back unwinds and in what order.
     val backSteps: List<Pair<Boolean, () -> Unit>> = listOf(
         showNowPlaying to { showNowPlaying = false },
+        (invite != null) to viewModel::dismissInvite,
+        (share != null) to viewModel::closeShare,
         (openAlbum != null) to viewModel::closeAlbum,
         (ui.artistFilter != null) to viewModel::clearArtistFilter,
         (ui.tab != LibraryTab.Overview) to { viewModel.selectTab(LibraryTab.Overview) },
@@ -149,7 +157,34 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
         Column(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.weight(1f)) {
                 val album = openAlbum
-                if (album != null) {
+                val inviteState = invite
+                val shareState = share
+                if (inviteState != null) {
+                    InviteScreen(
+                        state = inviteState,
+                        currentHost = session?.baseUrl?.substringAfter("://"),
+                        onAccept = viewModel::acceptInvite,
+                        onDismiss = viewModel::dismissInvite,
+                        onRetry = viewModel::retryInvite,
+                    )
+                } else if (shareState != null) {
+                    ShareScreen(
+                        state = shareState,
+                        playingTrackId = playerState.trackId,
+                        isPlayingNow = playerState.isPlaying,
+                        onPlay = { tracks, index ->
+                            viewModel.playShare(tracks, index)
+                            showNowPlaying = true
+                        },
+                        onShuffle = { tracks ->
+                            viewModel.playShare(tracks.shuffled(), 0)
+                            showNowPlaying = true
+                        },
+                        onClose = viewModel::closeShare,
+                        onRetry = viewModel::retryShare,
+                        contentPadding = PaddingValues(bottom = 12.dp),
+                    )
+                } else if (album != null) {
                     AlbumScreen(
                         album = album,
                         coverUrl = { track, size -> viewModel.coverUrl(track.id, track.hasCover, size) },
@@ -213,7 +248,9 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
             if (playerState.isActive) {
                 MiniPlayer(
                     state = playerState,
-                    coverUrl = viewModel.coverUrl(playerState.trackId, playerState.hasCover, 128),
+                    // From the queue item itself, never rebuilt from the paired routes — a share
+                    // queue's covers live on the sharing server, and unpaired there is no route.
+                    coverUrl = playerState.artworkUrl,
                     onExpand = { showNowPlaying = true },
                     onPlayPause = viewModel.player::togglePlayPause,
                     onNext = viewModel.player::next,
@@ -239,16 +276,19 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
         ) {
             NowPlayingScreen(
                 state = playerState,
-                coverUrl = viewModel.coverUrl(playerState.trackId, playerState.hasCover, 640),
-                // The ambient wash is a blown-up blur, so the smallest thumbnail is plenty — and on
-                // API 30 and below, where there is no RenderEffect, the upscale *is* the blur.
-                ambientCoverUrl = viewModel.coverUrl(playerState.trackId, playerState.hasCover, 128),
+                // The item's own artwork URL (the 640 bucket for library tracks) — see MiniPlayer.
+                coverUrl = playerState.artworkUrl,
+                // The ambient wash is a blown-up blur, so the full-size artwork works fine — it is
+                // the same cached image the hero shows.
+                ambientCoverUrl = playerState.artworkUrl,
                 lyricsState = lyricsState,
                 videoState = videoState,
-                isLiked = playerState.trackId in likedIds,
+                isLiked = !isShareQueue && playerState.trackId in likedIds,
                 showVideoBackdrop = showVideoBackdrop,
                 onToggleVideoBackdrop = { showVideoBackdrop = !showVideoBackdrop },
-                onToggleLike = { playerState.trackId?.let(viewModel::toggleLike) },
+                onToggleLike = if (isShareQueue) null else {
+                    { playerState.trackId?.let(viewModel::toggleLike) }
+                },
                 onCollapse = { showNowPlaying = false },
                 onPlayPause = viewModel.player::togglePlayPause,
                 onNext = viewModel.player::next,

@@ -12,13 +12,16 @@ import android.net.Uri
 import com.musichoarder.app.data.ApiException
 import com.musichoarder.app.data.LibraryContent
 import com.musichoarder.app.data.LibraryTab
+import com.musichoarder.app.data.InviteLink
 import com.musichoarder.app.data.LibraryUiState
 import com.musichoarder.app.data.LoginLinkUri
 import com.musichoarder.app.data.PairingUri
+import com.musichoarder.app.data.ShareLink
 import com.musichoarder.app.data.SortKey
 import com.musichoarder.app.data.UnauthorizedException
 import com.musichoarder.app.data.ServerSession
 import com.musichoarder.app.data.Track
+import com.musichoarder.app.data.toTrack
 import com.musichoarder.app.data.defaultAscending
 import com.musichoarder.app.data.foldLibrary
 import com.musichoarder.app.data.likedNow
@@ -109,10 +112,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         api = graph.api,
         scope = viewModelScope,
         onTrackStarted = { songId ->
-            // Mirror what the server is about to record, so the Overview's "Last played" and
-            // "Discover" shelves move as you listen instead of waiting for the next full fetch.
-            graph.library.notePlayed(songId, System.currentTimeMillis())
-            viewModelScope.launch { graph.api.reportPlayed(songId) }
+            // A share queue's ids belong to the sharing server — feeding them into the local
+            // play stats (or reporting them against the paired one) would corrupt both.
+            if (!_isShareQueue.value) {
+                // Mirror what the server is about to record, so the Overview's "Last played" and
+                // "Discover" shelves move as you listen instead of waiting for the next full fetch.
+                graph.library.notePlayed(songId, System.currentTimeMillis())
+                viewModelScope.launch { graph.api.reportPlayed(songId) }
+            }
         },
     )
 
@@ -162,7 +169,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * dump does not carry, so they are fetched when the player actually shows a track.
      */
     fun onNowPlayingTrackChanged(songId: Int?) {
-        video.load(songId)
+        // Share queues: no video backdrop (the controller is wired to the paired api), and lyrics
+        // come from the share's own anonymous endpoint on the sharing server.
+        val shareLink = if (_isShareQueue.value) _share.value?.link else null
+        if (shareLink == null) video.load(songId) else video.load(null)
         if (songId == lyricsSongId) return
         lyricsSongId = songId
         lyricsJob?.cancel()
@@ -170,7 +180,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (songId == null) return
         lyricsJob = viewModelScope.launch {
             _lyrics.value = try {
-                LyricsUiState.Ready(graph.api.fetchLyrics(songId))
+                LyricsUiState.Ready(
+                    if (shareLink != null) graph.api.fetchShareLyrics(shareLink, songId)
+                    else graph.api.fetchLyrics(songId)
+                )
             } catch (e: Exception) {
                 LyricsUiState.Failed(e.message ?: "Could not load lyrics.")
             }
@@ -201,21 +214,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { graph.library.refresh(force = true) }
     }
 
+    // ---- Deep links --------------------------------------------------------------------------
+
     /**
-     * A `musichoarder://pair` or `musichoarder://auth` link opened from outside the app.
+     * Any link the system handed the app: an https share/invite App Link, a `musichoarder://pair`
+     * code, or the `musichoarder://auth` sign-in handoff from the browser.
      *
-     * On first run this just pairs (or finishes the email sign-in). When the app is already paired
-     * it asks first: a link can be handed over by anything — a web page, a message — and silently
-     * re-pointing someone's library at another server on a single tap is not a thing a link should
-     * be able to do.
+     * Share and invite links open their own surfaces without touching the pairing. For the
+     * custom-scheme links, first run just pairs (or finishes the email sign-in); when the app is
+     * already paired it asks first — a link can be handed over by anything, and silently
+     * re-pointing someone's library at another server on a single tap is not a thing a link
+     * should be able to do. Https links that match neither token grammar are dropped silently:
+     * routing a stray link to the website into the pairing flow would show a misleading error.
      */
     fun onAppLink(raw: String) {
-        if (_pendingPairingLink.value == raw) return
-        if (linkedBaseUrl(raw) == null) {
+        val trimmed = raw.trim()
+        ShareLink.parse(trimmed)?.let { openShare(it); return }
+        InviteLink.parse(trimmed)?.let { openInvite(it); return }
+        if (trimmed.startsWith("http://", ignoreCase = true) ||
+            trimmed.startsWith("https://", ignoreCase = true)
+        ) {
+            return
+        }
+        if (_pendingPairingLink.value == trimmed) return
+        if (linkedBaseUrl(trimmed) == null) {
             _pairError.value = "That link is not a MusicHoarder pairing code or sign-in link."
             return
         }
-        if (session.value == null) applyAppLink(raw) else _pendingPairingLink.value = raw
+        if (session.value == null) applyAppLink(trimmed) else _pendingPairingLink.value = trimmed
     }
 
     /** Confirms a link that would re-point an already-paired app. */
@@ -336,6 +362,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             // one has to go: the library cache is not refetched while it still holds rows
             // (`refresh` no-ops unless forced), and a queued MediaItem keeps the absolute stream
             // URL it was built with, so playback would carry on against the old host.
+            _isShareQueue.value = false
             player.stop()
             video.load(null)
             graph.library.clear()
@@ -347,9 +374,135 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _pairError.value = message
     }
 
+    // ---- Anonymous share viewer --------------------------------------------------------------
+    // Works with or without a pairing: the link's token is the whole capability, and every URL is
+    // absolute against the link's own origin.
+
+    private val _share = MutableStateFlow<ShareUiState?>(null)
+    val share: StateFlow<ShareUiState?> = _share.asStateFlow()
+
+    /**
+     * True while the player's queue came from the share viewer. A share's ids belong to the
+     * sharing server, so the flag keeps them out of play stats, likes, and the paired lyrics
+     * and video routes.
+     */
+    private val _isShareQueue = MutableStateFlow(false)
+    val isShareQueue: StateFlow<Boolean> = _isShareQueue.asStateFlow()
+
+    private var shareJob: Job? = null
+
+    fun openShare(link: ShareLink) {
+        shareJob?.cancel()
+        _share.value = ShareUiState.Loading(link)
+        shareJob = viewModelScope.launch {
+            _share.value = try {
+                val payload = graph.api.fetchShare(link)
+                val tracks = payload.tracks.map { dto ->
+                    dto.toTrack(
+                        album = payload.album,
+                        streamUrl = graph.api.shareStreamUrl(link, dto.id),
+                        artworkUrl = if (dto.hasCoverArt) graph.api.shareCoverUrl(link, dto.id, 640) else null,
+                    )
+                }
+                ShareUiState.Ready(link, payload.album, payload.scope, tracks)
+            } catch (e: ApiException) {
+                // The server answers a uniform 404 for unknown, revoked, and out-of-scope tokens.
+                if (e.status == 404) {
+                    ShareUiState.Failed(link, "This share link does not exist or has been revoked.", gone = true)
+                } else {
+                    ShareUiState.Failed(link, "Could not load the share (${e.status}).", gone = false)
+                }
+            } catch (e: Exception) {
+                ShareUiState.Failed(link, "Could not reach ${link.origin}.", gone = false)
+            }
+        }
+    }
+
+    fun retryShare() {
+        _share.value?.let { openShare(it.link) }
+    }
+
+    /** Plays from the share viewer — same queue plumbing, foreign-id guards on. */
+    fun playShare(tracks: List<Track>, startIndex: Int) {
+        _isShareQueue.value = true
+        // A share track can collide with a library id; force the next lyrics/video fetch.
+        lyricsSongId = null
+        player.play(tracks, startIndex)
+    }
+
+    fun closeShare() {
+        shareJob?.cancel()
+        _share.value = null
+        if (_isShareQueue.value) {
+            // Nothing should keep streaming another server's audio behind the library (or the
+            // pairing screen, when this viewer was the only thing on screen).
+            player.stop()
+            _isShareQueue.value = false
+        }
+    }
+
+    // ---- Friend invites ------------------------------------------------------------------------
+
+    private val _invite = MutableStateFlow<InviteUiState?>(null)
+    val invite: StateFlow<InviteUiState?> = _invite.asStateFlow()
+
+    private var inviteJob: Job? = null
+
+    /** Peeks the invite — never consumes the single-use token; that takes the explicit Accept. */
+    fun openInvite(link: InviteLink) {
+        inviteJob?.cancel()
+        _invite.value = InviteUiState.Loading(link)
+        inviteJob = viewModelScope.launch {
+            _invite.value = try {
+                val peek = graph.api.peekInvite(link)
+                InviteUiState.Ready(link, peek.inviterName?.takeIf { it.isNotBlank() } ?: "Someone", peek.email)
+            } catch (e: ApiException) {
+                InviteUiState.Failed(link, "This invite does not exist or has expired.", gone = e.status == 404)
+            } catch (e: Exception) {
+                InviteUiState.Failed(link, "Could not reach ${link.origin}.", gone = false)
+            }
+        }
+    }
+
+    fun retryInvite() {
+        _invite.value?.let { openInvite(it.link) }
+    }
+
+    fun dismissInvite() {
+        inviteJob?.cancel()
+        _invite.value = null
+    }
+
+    /**
+     * Consumes the invite and pairs this phone as the new Friend account. Goes through [pair]'s
+     * probe-then-save path, so the role lands as the server reports it and the old library state
+     * is torn down exactly like any other re-pair.
+     */
+    fun acceptInvite() {
+        val ready = _invite.value as? InviteUiState.Ready ?: return
+        _invite.value = InviteUiState.Accepting(ready.link, ready.inviterName, ready.email)
+        inviteJob = viewModelScope.launch {
+            val result = runCatching { graph.api.acceptInvite(ready.link) }
+            val token = result.getOrNull()?.takeIf { it.isNotBlank() }
+            if (token == null) {
+                val gone = (result.exceptionOrNull() as? ApiException)?.status in setOf(400, 404)
+                _invite.value = InviteUiState.Failed(
+                    ready.link,
+                    if (gone) "This invite does not exist or has expired." else "Could not reach ${ready.link.origin}.",
+                    gone = gone,
+                )
+                return@launch
+            }
+            _invite.value = null
+            closeShare()
+            pair(ServerSession(ready.link.origin, token))
+        }
+    }
+
     fun unpair() {
         _emailLinkSentTo.value = null
         viewModelScope.launch {
+            _isShareQueue.value = false
             video.load(null)
             player.stop()
             player.release()
@@ -412,7 +565,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /** The artist portrait endpoint. 404s are common and simply never paint. */
     fun artistImageUrl(name: String): String = graph.api.artistImageUrl(name)
 
-    fun play(tracks: List<Track>, startIndex: Int) = player.play(tracks, startIndex)
+    fun play(tracks: List<Track>, startIndex: Int) {
+        if (_isShareQueue.value) {
+            _isShareQueue.value = false
+            lyricsSongId = null
+        }
+        player.play(tracks, startIndex)
+    }
 
     /** Null when there is nothing to show — callers fall back to a letter tile. */
     fun coverUrl(trackId: Int?, hasCover: Boolean, size: Int): String? =

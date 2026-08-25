@@ -62,6 +62,49 @@ The token rides its own server-side session, so signing the browser out leaves t
 **Sign out everywhere** in the web UI revokes it; so does **Unpair** (the sign-out icon in the app's
 toolbar). If the server rejects the token, the app returns to the pairing screen and says why.
 
+## Share and invite links (App Links)
+
+The web's `https://<host>/share/<token>` share links and `https://<host>/invite/<token>` friend
+invites open in the app when it is installed. Both work **without any pairing**:
+
+- A **share link** opens an anonymous viewer — tracklist, playback, lyrics — against the sharing
+  server's `/api/share` surface; the token in the path is the whole capability. Nothing from a
+  share touches the paired library: no likes, no play counts, and closing the viewer stops its
+  playback.
+- An **invite link** shows who invited you and only consumes its single-use token when you press
+  **Accept**, which redeems it at `POST /api/invite/accept-token` (the bearer-returning variant of
+  the web's cookie flow) and pairs the phone as the new Friend account. If the app is already
+  paired, the card says that accepting replaces the current pairing.
+
+Opening in the app instead of the browser is **verified App Links**: the manifest registers an
+`android:autoVerify` filter for `https://musichoarder.app/share/` and `/invite/`, and Android
+checks `https://musichoarder.app/.well-known/assetlinks.json` — served by the frontend when
+`ANDROID_ASSETLINKS_FINGERPRINTS` is set — against the APK's signing certificate at install time.
+
+Intent-filter hosts are baked into the APK, so a self-hosted instance needs its own build and its
+own trust file:
+
+```bash
+# 1. Build with your host in the filter (defaults to musichoarder.app):
+./gradlew :app:assembleRelease -PmhShareHost=music.example.com
+
+# 2. Get your signing cert's fingerprint (debug keystore: ~/.android/debug.keystore,
+#    alias androiddebugkey, storepass android):
+keytool -list -v -keystore musichoarder-release.jks -alias musichoarder | grep 'SHA256:'
+
+# 3. Set it (comma-separate several, e.g. release + debug) on the frontend:
+#    ANDROID_ASSETLINKS_FINGERPRINTS=AA:BB:...  →  /.well-known/assetlinks.json goes live.
+```
+
+The release workflow's signing preflight prints the release fingerprint as a `::notice` on every
+run, so step 2 is copy-paste from the Actions log for the official keystore.
+
+Debugging: `adb shell pm get-app-links com.musichoarder.app` shows the per-host verification
+state; `adb shell pm verify-app-links --re-verify com.musichoarder.app` re-runs it, and
+`adb shell pm set-app-links --package com.musichoarder.app 2 <host>` force-approves a host on an
+emulator that cannot reach the real trust file. A link can always be exercised without the filter:
+`adb shell am start -a android.intent.action.VIEW -d "https://<host>/share/<token>" com.musichoarder.app`.
+
 ### Local development
 
 Point the app at a frontend dev server rather than the Aspire HTTPS endpoint, whose development

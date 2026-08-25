@@ -194,6 +194,54 @@ class MusicHoarderApi(
         runCatching { post(ApiRoutes.played(songId, isFriend())) }
     }
 
+    // --- Anonymous share links (https://host/share/{token}) ---------------------------------
+    // Addressed by the link's own origin, never baseUrl(): a share can point at any server and
+    // must work with no pairing at all. The token rides in the path — no header, so the origin-
+    // scoped AuthInterceptor is irrelevant to these calls.
+
+    /** The share's playable tracklist + display metadata. [ApiException] 404 = revoked/unknown. */
+    suspend fun fetchShare(link: ShareLink): SharePayload = withContext(Dispatchers.IO) {
+        val request = Request.Builder().url(shareUrl(link)).get().build()
+        execute(request) { json.decodeFromString<SharePayload>(it) }
+    }
+
+    fun shareStreamUrl(link: ShareLink, songId: Int): String = shareUrl(link, "/songs/$songId/stream")
+
+    fun shareCoverUrl(link: ShareLink, songId: Int, size: Int): String =
+        shareUrl(link, "/songs/$songId/cover?size=$size")
+
+    suspend fun fetchShareLyrics(link: ShareLink, songId: Int): Lyrics = withContext(Dispatchers.IO) {
+        val request = Request.Builder().url(shareUrl(link, "/songs/$songId/lyrics")).get().build()
+        execute(request) { json.decodeFromString<LyricsResponse>(it).toLyrics() }
+    }
+
+    private fun shareUrl(link: ShareLink, path: String = ""): String =
+        "${link.origin}$API_PREFIX/api/share/${URLEncoder.encode(link.token, "UTF-8")}$path"
+
+    // --- Friend invites (https://host/invite/{token}) ----------------------------------------
+
+    /** Who invited you and for which email — never consumes the single-use token. */
+    suspend fun peekInvite(link: InviteLink): InvitePeek = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url("${link.origin}$API_PREFIX/api/invite/${URLEncoder.encode(link.token, "UTF-8")}")
+            .get()
+            .build()
+        execute(request) { json.decodeFromString<InvitePeek>(it) }
+    }
+
+    /**
+     * Redeems the invite and returns the bearer this phone will pair with — the native-client
+     * variant of the web's cookie-writing accept, consumed only on the explicit Accept tap.
+     */
+    suspend fun acceptInvite(link: InviteLink): String = withContext(Dispatchers.IO) {
+        val body = json.encodeToString(AcceptInviteBody(link.token)).toRequestBody(JSON_MEDIA_TYPE)
+        val request = Request.Builder()
+            .url("${link.origin}$API_PREFIX/api/invite/accept-token")
+            .post(body)
+            .build()
+        execute(request) { json.decodeFromString<AccessTokenResponse>(it).accessToken }
+    }
+
     private suspend fun <T> get(path: String, parse: (String) -> T): T = withContext(Dispatchers.IO) {
         execute(Request.Builder().url(url(path)).get().build()) { parse(it) }
     }
