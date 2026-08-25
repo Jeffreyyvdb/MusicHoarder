@@ -257,23 +257,26 @@ web UI already covers.
 
 ## CI and releases
 
-`.github/workflows/android.yml` runs the unit tests and builds both variants
-(`:app:testDebugUnitTest :app:assembleDebug :app:assembleRelease`), path-filtered to `android/**`
-so a backend-only PR does not pay for a Gradle build. `assembleRelease` is in there deliberately:
-without a keystore it only yields an unsigned APK, but it is the one thing that exercises the
-release variant's config, and that breaking would otherwise surface in the release workflow *after*
-a version had been cut.
+`.github/workflows/android.yml` runs the unit tests and builds every shipping artifact
+(`:app:testDebugUnitTest :app:assembleDebug :app:assembleRelease :app:bundleRelease`),
+path-filtered to `android/**` so a backend-only PR does not pay for a Gradle build. The release
+APK and bundle are in there deliberately: without a keystore they only yield unsigned artifacts,
+but they are the one thing that exercises the release variant's config, and that breaking would
+otherwise surface in the release workflow *after* a version had been cut.
 
 The filter is only safe because this is not a required status check on `main` (just `dotnet` and
 `frontend` are) — a skipped run would otherwise leave a PR waiting on a check that never reports.
 If you make it required, drop the path filter or add a skipped-but-successful fallback job first.
 
-`.github/workflows/release.yml` builds the APK and attaches it to the GitHub Release, after
-semantic-release has run. The app is not deployed by a release, so an Android breakage never holds
-back the API/frontend deploy — the trade is that the Release exists for a minute or two before the
-APK lands on it. The version comes from the release: the workflow passes `-PmhVersionName` and a
-`-PmhVersionCode` derived from the semver (`1.2.3` → `1002003`, monotonic for up to 999 minors and
-patches).
+`.github/workflows/release.yml` builds the APK and the Android App Bundle after semantic-release
+has run, attaches the APK to the GitHub Release, and uploads the bundle to Google Play. The app is
+not deployed by a release, so an Android breakage never holds back the API/frontend deploy — the
+trade is that the Release exists for a minute or two before the APK lands on it. The version comes
+from the release: the workflow passes `-PmhVersionName` and a `-PmhVersionCode` derived from the
+semver (`1.2.3` → `1002003`, monotonic for up to 999 minors and patches).
+
+The bundle is **not** attached to the Release. An `.aab` is not installable, and offering one next
+to the APK only invites people to download the wrong file; it goes to the run's artifacts instead.
 
 ### Signing the released APK
 
@@ -329,6 +332,100 @@ The preflight never fails the job. An Android-only problem must not hold back th
 deploy, so it writes an error annotation, reports `ok=false`, and the APK step falls back to the
 debug build — the Release still carries an installable APK, and the run states why it is not
 signed. A green run with no annotation means the next release will be properly signed.
+
+## Google Play
+
+Play only accepts Android App Bundles, so `release.yml` builds `:app:bundleRelease` next to the APK
+and uploads it with [`r0adkll/upload-google-play`](https://github.com/r0adkll/upload-google-play).
+The step is skipped, with a note in the log, when no service account is configured or when the
+signing preflight did not pass — Play rejects a debug-signed upload, so there would be nothing
+valid to send.
+
+### One-time setup
+
+1. **Create the app in the Play Console** with the package name `com.musichoarder.app`, complete
+   the store listing and the content declarations, and **upload one bundle by hand**. The
+   Publishing API cannot create an app or make its first release; until a build exists on a track,
+   every API upload fails. Grab an `.aab` from a release run's artifacts, or build one locally:
+
+   ```bash
+   MH_KEYSTORE_PATH=/path/to/musichoarder-release.jks MH_KEYSTORE_PASSWORD=… \
+     MH_KEY_ALIAS=musichoarder MH_KEY_PASSWORD=… ./gradlew :app:bundleRelease
+   ```
+
+   That first upload also enrols the app in **Play App Signing** and registers this keystore as the
+   *upload key* — see the fingerprint warning below before you do it.
+
+2. **Make a service account.** In the Google Cloud project linked to the Play Console
+   (Play Console → Setup → API access), create a service account, then create a **JSON key** for
+   it and download the file.
+
+3. **Grant it release permission.** Play Console → Users and permissions → Invite new users, paste
+   the service account's `…@….iam.gserviceaccount.com` address, scope it to this app, and give it
+   *Release to testing tracks* (add *Release to production* only if you intend to publish there
+   automatically). Permissions granted in Google Cloud do nothing here; the grant has to be in the
+   Play Console.
+
+4. **Store the key.** The whole JSON file, not one field of it:
+
+   ```bash
+   gh secret set ANDROID_PLAY_SERVICE_ACCOUNT_JSON < path/to/service-account.json
+   ```
+
+The preflight validates the secret on every push to `main`, release or not, and — like the signing
+preflight — never fails the job over it.
+
+### Which track, and how often
+
+Two optional repo *variables* (`gh variable set`, not secrets) steer the upload:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `ANDROID_PLAY_TRACK` | `internal` | The track the bundle is uploaded to: `internal`, `alpha`, `beta`, or `production`. |
+| `ANDROID_PLAY_STATUS` | `completed` | `completed` rolls the release out; `draft` uploads it and waits for you to press the button in the Console. |
+
+The default is deliberate. This repo cuts a release from **every** `fix:` or `feat:` commit on
+`main`, which can be several a day, and that cadence does not fit the production track:
+
+- **Internal testing publishes in minutes with no review** and takes up to 100 testers, so every
+  release can go there safely.
+- **Production releases are reviewed**, typically within a day for an established account but
+  occasionally longer, and each one is a staged rollout that users actually receive. Shipping ten
+  of those in a week is not rate-limited by Google — the Publishing API's quota is 200,000 calls a
+  day, nowhere near a constraint — but it burns review turnarounds, and a bad build reaches
+  everybody before the next one clears review.
+
+The sane shape is the default: every release lands on `internal` automatically, and you **promote**
+a build you like to production from the Play Console when you want it to reach everyone. If you do
+set `ANDROID_PLAY_TRACK=production`, set `ANDROID_PLAY_STATUS=draft` with it so a release still
+needs a deliberate press.
+
+One more requirement that is easy to miss: a **personal** developer account created after
+13 November 2023 must run a closed test with at least 12 testers opted in continuously for 14 days
+before Google grants production access at all. Organisation accounts are exempt. Until that is
+done, `internal` (or `alpha`) is the only track that works anyway.
+
+### Play App Signing breaks the App Links fingerprint
+
+This is the trap. When Play App Signing is on — and it is mandatory for new apps — Google **re-signs**
+the bundle with an app signing key it holds. So a build installed from Play carries a *different*
+certificate from the APK on the GitHub Release, which is signed with your upload key.
+
+Two consequences:
+
+- **`/.well-known/assetlinks.json` needs both fingerprints**, or share and invite links stop opening
+  in the Play build. `ANDROID_ASSETLINKS_FINGERPRINTS` is comma-separated for exactly this:
+
+  ```
+  ANDROID_ASSETLINKS_FINGERPRINTS=<upload key SHA-256>,<Play app signing key SHA-256>
+  ```
+
+  The upload key's fingerprint is the `::notice` the signing preflight prints on every release run.
+  The app signing key's is in Play Console → Test and release → Setup → App integrity → App signing.
+
+- **The two builds cannot upgrade each other.** Someone who sideloaded the GitHub APK has to
+  uninstall before installing from Play, and the reverse. Nothing can fix that; only mention it in
+  release notes if people are sideloading today.
 
 ## Design
 

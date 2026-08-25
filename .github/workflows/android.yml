@@ -30,10 +30,11 @@ concurrency:
 
 jobs:
   build:
-    # `assembleRelease` runs alongside the debug build: with no keystore on a PR it only yields an
-    # unsigned APK, but it is the one thing that exercises the release variant's config — and that
-    # config breaking would otherwise surface in the release workflow, after a version has already
-    # been cut.
+    # `assembleRelease` and `bundleRelease` run alongside the debug build: with no keystore on a PR
+    # they only yield unsigned artifacts, but they are the one thing that exercises the release
+    # variant's config — and that config breaking would otherwise surface in the release workflow,
+    # after a version has already been cut. The bundle is built too because it, not the APK, is
+    # what gets uploaded to Google Play.
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -62,4 +63,4 @@ jobs:
           validate-wrappers: true
 
       - name: Test and build
-        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease :app:bundleRelease
