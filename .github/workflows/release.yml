@@ -4,8 +4,9 @@ name: Release
 # Conventional Commits across BOTH the .NET API and the SvelteKit frontend; a single
 # `vX.Y.Z` git tag + GitHub Release is cut covering both. When a release happens this
 # workflow dispatches aspire-deploy.yml with the new version, which builds and semver-tags
-# the api + frontend images and redeploys Dokploy, and it attaches the Android APK to the
-# Release. `workflow_dispatch` triggered by the default GITHUB_TOKEN is permitted to start the
+# the api + frontend images and redeploys Dokploy; it also attaches the Android APK to the Release
+# and uploads the Android App Bundle to Google Play.
+# `workflow_dispatch` triggered by the default GITHUB_TOKEN is permitted to start the
 # downstream run (the one exception to the "GITHUB_TOKEN-created events don't trigger workflows"
 # rule), so no PAT is needed.
 
@@ -124,6 +125,35 @@ jobs:
           echo "Keystore, alias and both passwords check out — a release will attach a signed APK."
           emit true
 
+      # Same posture as the signing preflight: report a broken Google Play setup on every push to
+      # main, and never fail the job over it. Without a usable service-account key the release still
+      # happens and still carries an APK — it just does not reach the Play Console.
+      #
+      # Nothing that identifies the account is printed: Actions logs on this repo are public.
+      - name: Preflight — Google Play service account
+        id: android_play
+        env:
+          SERVICE_ACCOUNT_JSON: ${{ secrets.ANDROID_PLAY_SERVICE_ACCOUNT_JSON }}
+          TRACK: ${{ vars.ANDROID_PLAY_TRACK || 'internal' }}
+        run: |
+          set -uo pipefail
+
+          if [ -z "${SERVICE_ACCOUNT_JSON:-}" ]; then
+            echo "No ANDROID_PLAY_SERVICE_ACCOUNT_JSON secret — releases are not published to Google Play. See android/README.md."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! printf '%s' "$SERVICE_ACCOUNT_JSON" \
+            | jq -e 'select(.type == "service_account") | (.client_email and .private_key)' >/dev/null 2>&1; then
+            echo "::error title=Google Play preflight::ANDROID_PLAY_SERVICE_ACCOUNT_JSON is not a Google Cloud service-account JSON key. Paste the whole downloaded file, not one field of it."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Service-account key parses — a release will upload the bundle to the '$TRACK' track."
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
       # Gate the release on a green build of both deployables.
       - name: Frontend check / lint / build
         working-directory: frontend
@@ -168,7 +198,7 @@ jobs:
         with:
           validate-wrappers: true
 
-      - name: Build Android APK
+      - name: Build Android APK and App Bundle
         id: apk
         if: steps.semrel.outputs.new_release_version != ''
         working-directory: android
@@ -191,14 +221,25 @@ jobs:
           if [ "${SIGNING_OK:-false}" = "true" ]; then
             printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
             export MH_KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
-            ./gradlew :app:assembleRelease -PmhVersionName="$VERSION" -PmhVersionCode="$VERSION_CODE"
+            # Two artifacts from one signed release variant: the APK is what people sideload from
+            # the GitHub release, the bundle is the only format Google Play accepts.
+            ./gradlew :app:assembleRelease :app:bundleRelease \
+              -PmhVersionName="$VERSION" -PmhVersionCode="$VERSION_CODE"
             SOURCE=app/build/outputs/apk/release/app-release.apk
             APK="$RUNNER_TEMP/musichoarder-$VERSION.apk"
+
+            AAB_SOURCE=app/build/outputs/bundle/release/app-release.aab
+            AAB="$RUNNER_TEMP/musichoarder-$VERSION.aab"
+            test -f "$AAB_SOURCE" || { echo "::error::Expected AAB at $AAB_SOURCE"; exit 1; }
+            cp "$AAB_SOURCE" "$AAB"
+            echo "aab=$AAB" >> "$GITHUB_OUTPUT"
           else
             # The preflight rejected the signing secrets (or there are none). `assembleRelease`
             # would yield an APK nobody can install, so publish the debug build instead and say so
             # in the filename. The preflight step above carries the reason.
-            echo "::warning title=Unsigned release::Signing preflight did not pass — attaching a debug-signed APK. See the preflight step for the reason."
+            # No bundle either: Play rejects a debug-signed upload, so leaving the `aab` output
+            # empty is what skips the publish step below.
+            echo "::warning title=Unsigned release::Signing preflight did not pass — attaching a debug-signed APK and skipping Google Play. See the preflight step for the reason."
             ./gradlew :app:assembleDebug -PmhVersionName="$VERSION" -PmhVersionCode="$VERSION_CODE"
             SOURCE=app/build/outputs/apk/debug/app-debug.apk
             APK="$RUNNER_TEMP/musichoarder-$VERSION-debug.apk"
@@ -217,3 +258,66 @@ jobs:
           VERSION: ${{ steps.semrel.outputs.new_release_version }}
           APK: ${{ steps.apk.outputs.apk }}
         run: gh release upload "v$VERSION" "$APK" --clobber
+
+      # The bundle is not attached to the Release — an .aab is not installable, and offering one
+      # next to the APK only invites people to download the wrong file. It goes to the run's
+      # artifacts instead, which is where you fetch it from for the one manual Play Console upload
+      # that has to happen before the API is allowed to publish (see android/README.md).
+      - name: Upload the App Bundle as a run artifact
+        if: steps.apk.outputs.aab != ''
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: musichoarder-aab-${{ steps.semrel.outputs.new_release_version }}
+          path: ${{ steps.apk.outputs.aab }}
+          retention-days: 30
+          if-no-files-found: error
+
+      # ── Google Play ────────────────────────────────────────────────────────────────────────
+      # Play's "What's new" is 500 characters of plain text per locale, so the Release's markdown
+      # is flattened to bullets and cut at a whole line rather than pasted in. The link is appended
+      # unconditionally, which also means the file is never empty — the upload rejects an empty one.
+      #
+      # awk stops printing rather than `exit`ing: exiting would close the pipe under the upstream
+      # sed, and `pipefail` would then read the SIGPIPE as a failure — precisely on the long-notes
+      # release that the truncation exists for.
+      - name: Compose the Play release notes
+        id: whatsnew
+        if: steps.apk.outputs.aab != '' && steps.android_play.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.semrel.outputs.new_release_version }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/whatsnew"
+          mkdir -p "$DIR"
+          {
+            gh release view "v$VERSION" --json body -q .body \
+              | sed -n 's/^\* /- /p' \
+              | sed -e 's/ (\[[^]]*\]([^)]*))//g' -e 's/\[\([^]]*\)\]([^)]*)/\1/g' -e 's/\*\*//g' \
+              | awk '{ if (stop || n + length($0) + 1 > 380) { stop = 1; next } print; n += length($0) + 1 }'
+            echo
+            echo "Full notes: https://github.com/$REPO/releases/tag/v$VERSION"
+          } > "$DIR/whatsnew-en-US"
+          cat "$DIR/whatsnew-en-US"
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+
+      # Publishes to the track named by the ANDROID_PLAY_TRACK repo variable, default `internal`.
+      # Internal testing goes live in minutes with no review, which is the only track that keeps up
+      # with a repo that can cut several releases in a day; promote a build to production from the
+      # Play Console when you want one to reach everyone. Set the variable to `production` (and
+      # ANDROID_PLAY_STATUS to `draft` if you would rather still press the button yourself) to
+      # change that — see android/README.md for why you probably should not.
+      #
+      # Skipped when the preflight found no service-account key, so a fork releases exactly as it
+      # did before this step existed.
+      - name: Publish to Google Play
+        if: steps.apk.outputs.aab != '' && steps.android_play.outputs.ok == 'true'
+        uses: r0adkll/upload-google-play@v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.ANDROID_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.musichoarder.app
+          releaseFiles: ${{ steps.apk.outputs.aab }}
+          track: ${{ vars.ANDROID_PLAY_TRACK || 'internal' }}
+          status: ${{ vars.ANDROID_PLAY_STATUS || 'completed' }}
+          whatsNewDirectory: ${{ steps.whatsnew.outputs.dir }}
