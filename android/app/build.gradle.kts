@@ -10,6 +10,12 @@ plugins {
 val mhVersionName = (findProperty("mhVersionName") as String?)?.takeIf { it.isNotBlank() } ?: "1.0"
 val mhVersionCode = (findProperty("mhVersionCode") as String?)?.toIntOrNull() ?: 1
 
+// The host whose https share/invite links open this app (the autoVerify intent filter in the
+// manifest). Intent-filter hosts are static per APK, so a self-hosted instance needs its own
+// build: ./gradlew :app:assembleRelease -PmhShareHost=music.example.com — and its frontend must
+// serve /.well-known/assetlinks.json with that build's signing fingerprint.
+val mhShareHost = (findProperty("mhShareHost") as String?)?.takeIf { it.isNotBlank() } ?: "musichoarder.app"
+
 // Release signing is configured only when a keystore is supplied — by the release workflow from
 // repo secrets, or by a developer exporting the same variables. Without one, `assembleRelease`
 // produces an unsigned APK that nobody can install, so CI publishes the debug build instead
@@ -28,6 +34,7 @@ android {
         targetSdk = 37
         versionCode = mhVersionCode
         versionName = mhVersionName
+        manifestPlaceholders["shareHost"] = mhShareHost
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

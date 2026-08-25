@@ -31,6 +31,12 @@ data class PlayerUiState(
     val artist: String = "",
     val album: String = "",
     val hasCover: Boolean = false,
+    /**
+     * The queued item's own artwork URL. The UI renders covers from this rather than rebuilding a
+     * paired-library URL from [trackId], so share-queue artwork works — including fully unpaired,
+     * where a paired-route rebuild would throw.
+     */
+    val artworkUrl: String? = null,
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
     val positionMs: Long = 0,
@@ -178,7 +184,9 @@ class PlayerController(
 
     private fun toMediaItem(track: Track): MediaItem = MediaItem.Builder()
         .setMediaId(track.id.toString())
-        .setUri(api.streamUrl(track.id))
+        // A share track carries its own absolute token-in-path URL; only library tracks go
+        // through the paired route (which throws when unpaired — shares must not).
+        .setUri(track.streamUrl ?: api.streamUrl(track.id))
         .setMediaMetadata(
             MediaMetadata.Builder()
                 .setTitle(track.title)
@@ -192,7 +200,8 @@ class PlayerController(
                 .setDurationMs(track.durationMs)
                 .setArtworkUri(
                     // 640 is the largest server-side thumbnail bucket — enough for the lock screen.
-                    if (track.hasCover) Uri.parse(api.coverUrl(track.id, 640)) else null
+                    track.artworkUrl?.let(Uri::parse)
+                        ?: if (track.hasCover) Uri.parse(api.coverUrl(track.id, 640)) else null
                 )
                 .setIsBrowsable(false)
                 .setIsPlayable(true)
@@ -209,6 +218,7 @@ class PlayerController(
             artist = metadata.artist?.toString().orEmpty(),
             album = metadata.albumTitle?.toString().orEmpty(),
             hasCover = metadata.artworkUri != null,
+            artworkUrl = metadata.artworkUri?.toString(),
             isPlaying = player.isPlaying,
             isBuffering = player.playbackState == Player.STATE_BUFFERING,
             positionMs = player.currentPosition.coerceAtLeast(0),

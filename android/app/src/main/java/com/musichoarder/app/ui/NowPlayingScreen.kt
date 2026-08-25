@@ -97,7 +97,8 @@ fun NowPlayingScreen(
     isLiked: Boolean,
     showVideoBackdrop: Boolean,
     onToggleVideoBackdrop: () -> Unit,
-    onToggleLike: () -> Unit,
+    /** Null hides the heart — the share queue's foreign ids have nothing to like. */
+    onToggleLike: (() -> Unit)?,
     onCollapse: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
@@ -328,7 +329,7 @@ private fun PlayerTopBar(
     isLiked: Boolean,
     onSelect: (PlayerPane) -> Unit,
     onClose: () -> Unit,
-    onToggleLike: () -> Unit,
+    onToggleLike: (() -> Unit)?,
 ) {
     val colors = MhTheme.colors
     Row(
@@ -347,12 +348,14 @@ private fun PlayerTopBar(
             onSelect = { onSelect(panes[it]) },
             modifier = Modifier.weight(1f),
         )
-        MhCircleIconButton(
-            icon = if (isLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-            contentDescription = if (isLiked) "Remove from liked songs" else "Add to liked songs",
-            onClick = onToggleLike,
-            tint = if (isLiked) colors.primary else colors.foreground,
-        )
+        if (onToggleLike != null) {
+            MhCircleIconButton(
+                icon = if (isLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                contentDescription = if (isLiked) "Remove from liked songs" else "Add to liked songs",
+                onClick = onToggleLike,
+                tint = if (isLiked) colors.primary else colors.foreground,
+            )
+        }
     }
 }
 

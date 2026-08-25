@@ -99,7 +99,8 @@ library, let it run, and review anything it isn't sure about.
   or a whole album. The public page is a chrome-free player with ambient artwork pulled from the
   cover, an album queue that plays straight through, and a **full-screen synced-lyrics theater** that
   scrolls line-by-line with the song and follows the queue as it advances. Nothing else in your
-  library is exposed, and the link is revocable anytime.
+  library is exposed, and the link is revocable anytime. With the Android app installed, share and
+  invite links open natively in the app (verified App Links; see `android/README.md`).
 - **Friend accounts & sharing** — invite people by email (Settings → People mints a one-time link)
   to create their own listen-only account, then share albums, artists, or your entire library per
   friend. Friends get the full listening app — Overview, Albums/Artists/Tracks with search and

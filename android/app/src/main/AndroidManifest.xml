@@ -55,6 +55,29 @@
                     android:host="auth"
                     android:scheme="musichoarder" />
             </intent-filter>
+
+            <!--
+              Verified App Links: https share/invite links open the app directly once Android has
+              checked https://${shareHost}/.well-known/assetlinks.json against this APK's signing
+              cert. The trailing slash on the prefixes is load-bearing — a bare /share would also
+              capture the authenticated /shared friend routes. The host is a manifest placeholder
+              (default musichoarder.app) so self-hosters can rebuild with -PmhShareHost=their-host.
+            -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="${shareHost}"
+                    android:pathPrefix="/share/"
+                    android:scheme="https" />
+                <data
+                    android:host="${shareHost}"
+                    android:pathPrefix="/invite/"
+                    android:scheme="https" />
+            </intent-filter>
         </activity>
 
         <!-- Exported so system media controllers (lock screen, Android Auto, Assistant) can bind. -->
