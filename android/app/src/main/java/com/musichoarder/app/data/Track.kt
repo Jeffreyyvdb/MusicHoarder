@@ -83,7 +83,12 @@ private const val LIBRARY_BUILD_DONE = 3
 data class SongsResponse(@SerialName("songs") val songs: List<ApiSong> = emptyList())
 
 @Serializable
-data class AuthMe(val email: String? = null, val role: String? = null, val displayName: String? = null)
+data class AuthMe(
+    val id: String? = null,
+    val email: String? = null,
+    val role: String? = null,
+    val displayName: String? = null,
+)
 
 /** `POST /api/auth/request-link` — `client: "app"` asks for the in-app handoff link flavor. */
 @Serializable
@@ -152,6 +157,14 @@ data class Track(
     /** Album completion added this because you already owned another track from the same album. */
     val isAlbumFill: Boolean,
     val needsReview: Boolean,
+    /**
+     * Absolute stream URL for a track that did not come from the paired library (the anonymous
+     * share viewer). When set, the player uses it instead of the paired `/api/mh` route — which
+     * also makes playback work with no pairing at all.
+     */
+    val streamUrl: String? = null,
+    /** Absolute artwork URL override, same purpose as [streamUrl]. */
+    val artworkUrl: String? = null,
 )
 
 const val UNKNOWN_ARTIST = "Unknown artist"

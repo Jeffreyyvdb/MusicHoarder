@@ -110,7 +110,7 @@ public static class WebAuthnEndpoints
                 AuthenticatorAssertionRawResponse assertion,
                 HttpContext ctx,
                 IWebAuthnService webAuthn,
-                ISessionCookieService cookieService,
+                IAccountSwitchService accountSwitch,
                 IDataProtectionProvider dp,
                 CancellationToken ct) =>
             {
@@ -129,7 +129,7 @@ public static class WebAuthnEndpoints
                 if (session is null)
                     return Results.Json(new { error = "invalid_assertion" }, statusCode: 400);
 
-                cookieService.Write(ctx, session.Id);
+                await accountSwitch.SignInAsync(ctx, session, ct);
                 return Results.Ok(new { ok = true });
             })
             .WithName("WebAuthnAuthenticateComplete");

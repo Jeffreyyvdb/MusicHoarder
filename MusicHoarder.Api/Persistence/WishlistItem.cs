@@ -73,7 +73,13 @@ public class WishlistItem
     public int? CanonicalAlbumId { get; set; }
     public CanonicalAlbum? CanonicalAlbum { get; set; }
 
-    /// <summary>Spotify track id. Null for Deezer-sourced items with no resolved Spotify equivalent.</summary>
+    /// <summary>
+    /// Spotify track id — the acquisition key the lossless download provider resolves to a source, not
+    /// just provenance. Carried over from the source for Spotify-sourced items, and resolved from the
+    /// canonical tracklist for <see cref="WishlistItemOrigin.AlbumCompletion"/> ones
+    /// (<c>IAlbumCompletionIdentityResolver</c>). Null for Deezer-sourced items with no resolved
+    /// Spotify equivalent, and for anything the resolver could not identify confidently.
+    /// </summary>
     [MaxLength(64)]
     public string? SpotifyTrackId { get; set; }
 

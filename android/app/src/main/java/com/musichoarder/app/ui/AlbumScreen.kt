@@ -159,9 +159,9 @@ fun AlbumScreen(
     }
 }
 
-/** The web's primary / outline button pair, rounded-full. */
+/** The web's primary / outline button pair, rounded-full. Shared with the share viewer. */
 @Composable
-private fun PillButton(
+fun PillButton(
     label: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     filled: Boolean,

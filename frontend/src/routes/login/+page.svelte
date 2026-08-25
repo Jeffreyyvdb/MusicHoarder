@@ -1,16 +1,22 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
   import { requestMagicLink, signInAsDemo, loginWithPasskey } from '$lib/api-client';
   import { isPasskeySupported } from '$lib/webauthn-client';
   import { APP_HOME } from '$lib/app-home';
-  import { LogIn, Mail, Loader2, CheckCircle2, AlertCircle, ExternalLink, Sparkles, KeyRound } from '@lucide/svelte';
+  import { LogIn, Mail, Loader2, CheckCircle2, AlertCircle, ExternalLink, Sparkles, KeyRound, UserPlus } from '@lucide/svelte';
+  import type { PageData } from './$types';
+
+  let { data }: { data: PageData } = $props();
 
   // After sign-in, land on the app home — shared with the magic-link callback and the
   // landing-page CTAs so every door opens onto the same screen.
   const landingRoute = () => APP_HOME;
+
+  // Hard navigation, not `goto`: the (app) group's stores are module singletons, and in
+  // ?switch mode a soft nav would carry the previous account's data into the new session.
+  const enterApp = () => location.assign(landingRoute());
 
   let email = $state('');
   let isSending = $state(false);
@@ -32,7 +38,7 @@
     result = null;
     try {
       await loginWithPasskey();
-      await goto(landingRoute(), { invalidateAll: true });
+      enterApp();
     } catch (err) {
       result = {
         ok: false,
@@ -69,7 +75,7 @@
     isStartingDemo = true;
     try {
       await signInAsDemo();
-      await goto(landingRoute(), { invalidateAll: true });
+      enterApp();
     } catch (err) {
       result = {
         ok: false,
@@ -96,8 +102,15 @@
         <circle cx="11" cy="11" r="1.3" fill="#fff" />
       </svg>
     </div>
-    <h1 class="mob-login-h">Welcome back.</h1>
+    <h1 class="mob-login-h">{data.switching ? 'Add an account.' : 'Welcome back.'}</h1>
     <div class="mob-login-s">Magic-link sign-in to your library. It stays on this host.</div>
+
+    {#if data.switching && data.currentUser}
+      <div class="text-primary mt-3 text-[13px]">
+        You stay signed in as <span class="font-medium">{data.currentUser.displayName ?? data.currentUser.email}</span>
+        — the account you sign in with here becomes the active one, and you can switch back any time.
+      </div>
+    {/if}
 
     <form class="mob-login-fields" onsubmit={handleSubmit}>
       <label class="mob-login-field">
@@ -162,10 +175,23 @@
         <LogIn class="text-foreground size-5" />
       </div>
       <div>
-        <h1 class="text-2xl font-semibold tracking-tight">Sign in</h1>
+        <h1 class="text-2xl font-semibold tracking-tight">{data.switching ? 'Add an account' : 'Sign in'}</h1>
         <p class="text-muted-foreground text-sm">Magic-link sign-in to MusicHoarder.</p>
       </div>
     </div>
+
+    {#if data.switching && data.currentUser}
+      <div
+        class="border-primary/40 bg-primary/5 text-primary mb-4 flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+      >
+        <UserPlus class="mt-0.5 size-4 shrink-0" />
+        <span>
+          You stay signed in as
+          <span class="font-medium">{data.currentUser.displayName ?? data.currentUser.email}</span> — the
+          account you sign in with here becomes the active one, and you can switch back any time.
+        </span>
+      </div>
+    {/if}
 
     <form onsubmit={handleSubmit} class="space-y-4">
       <div class="space-y-2">

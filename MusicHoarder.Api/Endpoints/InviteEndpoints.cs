@@ -26,6 +26,9 @@ public static class InviteEndpoints
         group.MapPost("/accept", AcceptInvite)
             .WithName("AcceptInvite")
             .WithSummary("Anonymous: redeem an invite — creates the friend account and signs it in.");
+        group.MapPost("/accept-token", AcceptInviteToken)
+            .WithName("AcceptInviteToken")
+            .WithSummary("Anonymous: redeem an invite for a bearer token — the native-client variant of accept.");
 
         return app;
     }
@@ -39,6 +42,34 @@ public static class InviteEndpoints
     }
 
     internal static async Task<IResult> AcceptInvite(
+        AcceptInviteBody body,
+        HttpContext ctx,
+        IAuthService authService,
+        IAccountSwitchService accountSwitch,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(body.Token))
+            return Results.BadRequest(new { error = "token_required" });
+
+        var session = await authService.AcceptInviteAsync(
+            body.Token,
+            ctx.Connection.RemoteIpAddress?.ToString(),
+            ctx.Request.Headers.UserAgent.ToString(),
+            ct);
+        if (session is null)
+            return Results.Json(new { error = "invalid_token" }, statusCode: 400);
+
+        await accountSwitch.SignInAsync(ctx, session, ct);
+        return Results.Ok(new { ok = true });
+    }
+
+    /// <summary>
+    /// The native-client variant of <see cref="AcceptInvite"/>, mirroring how <c>/api/auth/token</c>
+    /// pairs with <c>/api/auth/consume</c>: same single-use redemption, but the session comes back as
+    /// a bearer instead of a cookie — what the Android app pairs with when an invite App Link is
+    /// accepted in the app.
+    /// </summary>
+    internal static async Task<IResult> AcceptInviteToken(
         AcceptInviteBody body,
         HttpContext ctx,
         IAuthService authService,
@@ -56,8 +87,8 @@ public static class InviteEndpoints
         if (session is null)
             return Results.Json(new { error = "invalid_token" }, statusCode: 400);
 
-        cookieService.Write(ctx, session.Id);
-        return Results.Ok(new { ok = true });
+        return Results.Ok(new AccessTokenResponse(
+            cookieService.Protect(session.Id), "Bearer", session.ExpiresAtUtc));
     }
 
     /// <summary>Uniform 404 for unknown, expired, revoked, and consumed invites — no oracle for probing.</summary>

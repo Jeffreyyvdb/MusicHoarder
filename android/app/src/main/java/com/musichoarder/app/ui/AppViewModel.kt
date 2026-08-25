@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.musichoarder.app.MusicHoarderApp
+import com.musichoarder.app.data.AccountsState
 import com.musichoarder.app.data.Album
 import com.musichoarder.app.data.AlbumSortKey
 import com.musichoarder.app.data.ArtistMode
@@ -12,13 +13,17 @@ import android.net.Uri
 import com.musichoarder.app.data.ApiException
 import com.musichoarder.app.data.LibraryContent
 import com.musichoarder.app.data.LibraryTab
+import com.musichoarder.app.data.InviteLink
 import com.musichoarder.app.data.LibraryUiState
 import com.musichoarder.app.data.LoginLinkUri
 import com.musichoarder.app.data.PairingUri
+import com.musichoarder.app.data.ShareLink
 import com.musichoarder.app.data.SortKey
+import com.musichoarder.app.data.StoredAccount
 import com.musichoarder.app.data.UnauthorizedException
 import com.musichoarder.app.data.ServerSession
 import com.musichoarder.app.data.Track
+import com.musichoarder.app.data.toTrack
 import com.musichoarder.app.data.defaultAscending
 import com.musichoarder.app.data.foldLibrary
 import com.musichoarder.app.data.likedNow
@@ -29,6 +34,7 @@ import com.musichoarder.app.player.VideoController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -38,6 +44,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -48,10 +56,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val graph = (application as MusicHoarderApp).graph
 
     val session: StateFlow<ServerSession?> = graph.sessions.session
+
+    /** Every account remembered on this phone, for the switcher in the library top bar. */
+    val accounts: StateFlow<AccountsState> = graph.sessions.accounts
     val library = graph.library.state
 
+    /** Account-switcher events (eviction fallbacks) that deserve the same snackbar treatment. */
+    private val _localMessages = MutableSharedFlow<String>(extraBufferCapacity = 4)
+
     /** Failures the library reports that are worth a snackbar rather than a whole error screen. */
-    val messages: SharedFlow<String> = graph.library.messages
+    val messages: SharedFlow<String> = merge(graph.library.messages, _localMessages)
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000))
 
     /** Optimistic heart state, read by every row that draws one. */
     val likes = graph.library.likes
@@ -109,10 +124,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         api = graph.api,
         scope = viewModelScope,
         onTrackStarted = { songId ->
-            // Mirror what the server is about to record, so the Overview's "Last played" and
-            // "Discover" shelves move as you listen instead of waiting for the next full fetch.
-            graph.library.notePlayed(songId, System.currentTimeMillis())
-            viewModelScope.launch { graph.api.reportPlayed(songId) }
+            // A share queue's ids belong to the sharing server — feeding them into the local
+            // play stats (or reporting them against the paired one) would corrupt both.
+            if (!_isShareQueue.value) {
+                // Mirror what the server is about to record, so the Overview's "Last played" and
+                // "Discover" shelves move as you listen instead of waiting for the next full fetch.
+                graph.library.notePlayed(songId, System.currentTimeMillis())
+                viewModelScope.launch { graph.api.reportPlayed(songId) }
+            }
         },
     )
 
@@ -162,7 +181,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * dump does not carry, so they are fetched when the player actually shows a track.
      */
     fun onNowPlayingTrackChanged(songId: Int?) {
-        video.load(songId)
+        // Share queues: no video backdrop (the controller is wired to the paired api), and lyrics
+        // come from the share's own anonymous endpoint on the sharing server.
+        val shareLink = if (_isShareQueue.value) _share.value?.link else null
+        if (shareLink == null) video.load(songId) else video.load(null)
         if (songId == lyricsSongId) return
         lyricsSongId = songId
         lyricsJob?.cancel()
@@ -170,7 +192,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (songId == null) return
         lyricsJob = viewModelScope.launch {
             _lyrics.value = try {
-                LyricsUiState.Ready(graph.api.fetchLyrics(songId))
+                LyricsUiState.Ready(
+                    if (shareLink != null) graph.api.fetchShareLyrics(shareLink, songId)
+                    else graph.api.fetchLyrics(songId)
+                )
             } catch (e: Exception) {
                 LyricsUiState.Failed(e.message ?: "Could not load lyrics.")
             }
@@ -180,13 +205,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     init {
         if (session.value != null) start()
 
-        // A revoked or expired device session should land the user back on the pairing screen with
-        // an explanation, not on an empty library that silently never loads.
+        // A revoked or expired device session evicts only the account it belongs to: with another
+        // account remembered the app falls back to it, and only losing the last one lands the user
+        // back on the pairing screen with an explanation — not on an empty library that silently
+        // never loads.
         viewModelScope.launch {
             graph.library.state.collect { state ->
                 if (state.isPairingRevoked) {
-                    _pairError.value = state.error
-                    unpair()
+                    evictActiveAccount(state.error)
                 }
             }
         }
@@ -201,21 +227,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { graph.library.refresh(force = true) }
     }
 
+    // ---- Deep links --------------------------------------------------------------------------
+
     /**
-     * A `musichoarder://pair` or `musichoarder://auth` link opened from outside the app.
+     * Any link the system handed the app: an https share/invite App Link, a `musichoarder://pair`
+     * code, or the `musichoarder://auth` sign-in handoff from the browser.
      *
-     * On first run this just pairs (or finishes the email sign-in). When the app is already paired
-     * it asks first: a link can be handed over by anything — a web page, a message — and silently
-     * re-pointing someone's library at another server on a single tap is not a thing a link should
-     * be able to do.
+     * Share and invite links open their own surfaces without touching the pairing. For the
+     * custom-scheme links, first run just pairs (or finishes the email sign-in); when the app is
+     * already paired it asks first — a link can be handed over by anything, and silently
+     * re-pointing someone's library at another server on a single tap is not a thing a link
+     * should be able to do. Https links that match neither token grammar are dropped silently:
+     * routing a stray link to the website into the pairing flow would show a misleading error.
      */
     fun onAppLink(raw: String) {
-        if (_pendingPairingLink.value == raw) return
-        if (linkedBaseUrl(raw) == null) {
-            _pairError.value = "That link is not a MusicHoarder pairing code or sign-in link."
+        val trimmed = raw.trim()
+        ShareLink.parse(trimmed)?.let { openShare(it); return }
+        InviteLink.parse(trimmed)?.let { openInvite(it); return }
+        if (trimmed.startsWith("http://", ignoreCase = true) ||
+            trimmed.startsWith("https://", ignoreCase = true)
+        ) {
             return
         }
-        if (session.value == null) applyAppLink(raw) else _pendingPairingLink.value = raw
+        if (_pendingPairingLink.value == trimmed) return
+        if (linkedBaseUrl(trimmed) == null) {
+            reportPairProblem("That link is not a MusicHoarder pairing code or sign-in link.")
+            return
+        }
+        if (session.value == null) applyAppLink(trimmed) else _pendingPairingLink.value = trimmed
     }
 
     /** Confirms a link that would re-point an already-paired app. */
@@ -241,10 +280,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun pairFromCode(raw: String) {
         val parsed = PairingUri.parse(raw)
         if (parsed == null) {
-            _pairError.value = "That code is not a MusicHoarder pairing code."
+            reportPairProblem("That code is not a MusicHoarder pairing code.")
             return
         }
         pair(parsed)
+    }
+
+    /**
+     * Pairing problems land where the user is: the pairing screen's error pane when unpaired, a
+     * snackbar when the scan came from the account menu of an already-paired app (the pairing
+     * screen — and its error pane — is not on screen then).
+     */
+    fun reportPairProblem(message: String) {
+        if (session.value != null) _localMessages.tryEmit(message) else _pairError.value = message
     }
 
     /**
@@ -321,21 +369,35 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val probe = runCatching { graph.api.fetchMe(newSession) }
             val me = probe.getOrNull()
             if (me == null) {
-                _pairError.value = if (probe.exceptionOrNull() is UnauthorizedException) {
-                    "The server did not accept that pairing code. Try a fresh one."
-                } else {
-                    "Could not reach ${newSession.baseUrl}. The current pairing is untouched."
-                }
+                reportPairProblem(
+                    if (probe.exceptionOrNull() is UnauthorizedException) {
+                        "The server did not accept that pairing code. Try a fresh one."
+                    } else {
+                        "Could not reach ${newSession.baseUrl}. The current pairing is untouched."
+                    },
+                )
                 return@launch
             }
             // Keep the probe's answer: the role decides which endpoints this pairing reads
-            // (a Friend session streams through /api/shared — see ApiRoutes). Captured here,
-            // before start() fires the first library fetch.
-            graph.sessions.save(newSession.copy(role = me.role))
-            // Re-pairing points the app at a different server, so everything held from the last
-            // one has to go: the library cache is not refetched while it still holds rows
-            // (`refresh` no-ops unless forced), and a queued MediaItem keeps the absolute stream
-            // URL it was built with, so playback would carry on against the old host.
+            // (a Friend session streams through /api/shared — see ApiRoutes), and the identity
+            // fields label the account switcher. Captured here, before start() fires the first
+            // library fetch. addAccount dedupes, so re-scanning a QR for a known account just
+            // renews its token; a new account is added alongside the current one and made active.
+            graph.sessions.addAccount(
+                StoredAccount(
+                    baseUrl = newSession.baseUrl,
+                    token = newSession.token,
+                    role = me.role,
+                    userId = me.id,
+                    email = me.email,
+                    displayName = me.displayName,
+                ),
+            )
+            // Activating a different pairing means everything held from the last one has to go:
+            // the library cache is not refetched while it still holds rows (`refresh` no-ops
+            // unless forced), and a queued MediaItem keeps the absolute stream URL it was built
+            // with, so playback would carry on against the old host (or the old account).
+            _isShareQueue.value = false
             player.stop()
             video.load(null)
             graph.library.clear()
@@ -343,18 +405,194 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Activates the remembered account at [index]; a stale index is ignored. */
+    fun switchAccount(index: Int) {
+        val current = accounts.value
+        if (index == current.activeIndex || current.accounts.getOrNull(index) == null) return
+        viewModelScope.launch {
+            graph.sessions.switchTo(index) ?: return@launch
+            // Same teardown as pairing: stop the old account's playback and drop its library.
+            player.stop()
+            video.load(null)
+            graph.library.clear()
+            start()
+            // Opportunistic identity refresh: the switch runs on the stored role (instant, works
+            // offline); if the server disagrees — role changed, or the session died — this
+            // corrects it. A 401 flows through the library's isPairingRevoked path and evicts
+            // just this account.
+            runCatching { graph.api.fetchMe() }.getOrNull()?.let { me ->
+                val stored = graph.sessions.accounts.value.active
+                if (stored != null && stored.role != me.role) {
+                    graph.sessions.updateActive(me.role, me.id, me.email, me.displayName)
+                    graph.library.refresh(force = true)
+                }
+            }
+        }
+    }
+
     fun setPairError(message: String?) {
         _pairError.value = message
     }
 
+    // ---- Anonymous share viewer --------------------------------------------------------------
+    // Works with or without a pairing: the link's token is the whole capability, and every URL is
+    // absolute against the link's own origin.
+
+    private val _share = MutableStateFlow<ShareUiState?>(null)
+    val share: StateFlow<ShareUiState?> = _share.asStateFlow()
+
+    /**
+     * True while the player's queue came from the share viewer. A share's ids belong to the
+     * sharing server, so the flag keeps them out of play stats, likes, and the paired lyrics
+     * and video routes.
+     */
+    private val _isShareQueue = MutableStateFlow(false)
+    val isShareQueue: StateFlow<Boolean> = _isShareQueue.asStateFlow()
+
+    private var shareJob: Job? = null
+
+    fun openShare(link: ShareLink) {
+        shareJob?.cancel()
+        _share.value = ShareUiState.Loading(link)
+        shareJob = viewModelScope.launch {
+            _share.value = try {
+                val payload = graph.api.fetchShare(link)
+                val tracks = payload.tracks.map { dto ->
+                    dto.toTrack(
+                        album = payload.album,
+                        streamUrl = graph.api.shareStreamUrl(link, dto.id),
+                        artworkUrl = if (dto.hasCoverArt) graph.api.shareCoverUrl(link, dto.id, 640) else null,
+                    )
+                }
+                ShareUiState.Ready(link, payload.album, payload.scope, tracks)
+            } catch (e: ApiException) {
+                // The server answers a uniform 404 for unknown, revoked, and out-of-scope tokens.
+                if (e.status == 404) {
+                    ShareUiState.Failed(link, "This share link does not exist or has been revoked.", gone = true)
+                } else {
+                    ShareUiState.Failed(link, "Could not load the share (${e.status}).", gone = false)
+                }
+            } catch (e: Exception) {
+                ShareUiState.Failed(link, "Could not reach ${link.origin}.", gone = false)
+            }
+        }
+    }
+
+    fun retryShare() {
+        _share.value?.let { openShare(it.link) }
+    }
+
+    /** Plays from the share viewer — same queue plumbing, foreign-id guards on. */
+    fun playShare(tracks: List<Track>, startIndex: Int) {
+        _isShareQueue.value = true
+        // A share track can collide with a library id; force the next lyrics/video fetch.
+        lyricsSongId = null
+        player.play(tracks, startIndex)
+    }
+
+    fun closeShare() {
+        shareJob?.cancel()
+        _share.value = null
+        if (_isShareQueue.value) {
+            // Nothing should keep streaming another server's audio behind the library (or the
+            // pairing screen, when this viewer was the only thing on screen).
+            player.stop()
+            _isShareQueue.value = false
+        }
+    }
+
+    // ---- Friend invites ------------------------------------------------------------------------
+
+    private val _invite = MutableStateFlow<InviteUiState?>(null)
+    val invite: StateFlow<InviteUiState?> = _invite.asStateFlow()
+
+    private var inviteJob: Job? = null
+
+    /** Peeks the invite — never consumes the single-use token; that takes the explicit Accept. */
+    fun openInvite(link: InviteLink) {
+        inviteJob?.cancel()
+        _invite.value = InviteUiState.Loading(link)
+        inviteJob = viewModelScope.launch {
+            _invite.value = try {
+                val peek = graph.api.peekInvite(link)
+                InviteUiState.Ready(link, peek.inviterName?.takeIf { it.isNotBlank() } ?: "Someone", peek.email)
+            } catch (e: ApiException) {
+                InviteUiState.Failed(link, "This invite does not exist or has expired.", gone = e.status == 404)
+            } catch (e: Exception) {
+                InviteUiState.Failed(link, "Could not reach ${link.origin}.", gone = false)
+            }
+        }
+    }
+
+    fun retryInvite() {
+        _invite.value?.let { openInvite(it.link) }
+    }
+
+    fun dismissInvite() {
+        inviteJob?.cancel()
+        _invite.value = null
+    }
+
+    /**
+     * Consumes the invite and pairs this phone as the new Friend account. Goes through [pair]'s
+     * probe-then-save path, so the role lands as the server reports it and the old library state
+     * is torn down exactly like any other re-pair.
+     */
+    fun acceptInvite() {
+        val ready = _invite.value as? InviteUiState.Ready ?: return
+        _invite.value = InviteUiState.Accepting(ready.link, ready.inviterName, ready.email)
+        inviteJob = viewModelScope.launch {
+            val result = runCatching { graph.api.acceptInvite(ready.link) }
+            val token = result.getOrNull()?.takeIf { it.isNotBlank() }
+            if (token == null) {
+                val gone = (result.exceptionOrNull() as? ApiException)?.status in setOf(400, 404)
+                _invite.value = InviteUiState.Failed(
+                    ready.link,
+                    if (gone) "This invite does not exist or has expired." else "Could not reach ${ready.link.origin}.",
+                    gone = gone,
+                )
+                return@launch
+            }
+            _invite.value = null
+            closeShare()
+            pair(ServerSession(ready.link.origin, token))
+        }
+    }
+
+    /** Signs the active account out of this phone, falling back to the next remembered one. */
     fun unpair() {
         _emailLinkSentTo.value = null
+        evictActiveAccount(error = null)
+    }
+
+    /**
+     * Drops the active account (revoked session, or an explicit sign-out) and falls back to the
+     * next remembered account when there is one; only losing the last account tears the player
+     * down and returns to the pairing screen.
+     */
+    private fun evictActiveAccount(error: String?) {
         viewModelScope.launch {
+            val state = graph.sessions.accounts.value
+            val evicted = state.active
+            graph.sessions.removeAccount(state.activeIndex)
+
+            _isShareQueue.value = false
             video.load(null)
             player.stop()
-            player.release()
             graph.library.clear()
-            graph.sessions.clear()
+
+            val next = graph.sessions.accounts.value.active
+            if (next != null) {
+                start()
+                _localMessages.tryEmit(
+                    if (evicted != null) "Signed out of ${evicted.label} — now using ${next.label}"
+                    else "Now using ${next.label}",
+                )
+            } else {
+                player.release()
+                graph.sessions.clear()
+                _pairError.value = error
+            }
         }
     }
 
@@ -412,7 +650,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /** The artist portrait endpoint. 404s are common and simply never paint. */
     fun artistImageUrl(name: String): String = graph.api.artistImageUrl(name)
 
-    fun play(tracks: List<Track>, startIndex: Int) = player.play(tracks, startIndex)
+    fun play(tracks: List<Track>, startIndex: Int) {
+        if (_isShareQueue.value) {
+            _isShareQueue.value = false
+            lyricsSongId = null
+        }
+        player.play(tracks, startIndex)
+    }
 
     /** Null when there is nothing to show — callers fall back to a letter tile. */
     fun coverUrl(trackId: Int?, hasCover: Boolean, size: Int): String? =

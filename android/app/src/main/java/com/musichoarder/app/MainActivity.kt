@@ -16,10 +16,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {
     /**
-     * A `musichoarder://` link the system handed us — a pairing code from the phone's camera, Lens,
-     * or any other QR reader, or the `musichoarder://auth` sign-in handoff from the browser. Held
-     * as a flow rather than read straight off `intent` so a link that arrives while the app is
-     * already running (onNewIntent) reaches Compose the same way a cold start does.
+     * A link the system handed us — a `musichoarder://` pairing code from the phone's camera, Lens,
+     * or any other QR reader, the `musichoarder://auth` sign-in handoff from the browser, or an
+     * https share/invite App Link. Held as a flow rather than read straight off `intent` so a link
+     * that arrives while the app is already running (onNewIntent) reaches Compose the same way a
+     * cold start does. The view model decides which kind it is.
      */
     private val appLink = MutableStateFlow<String?>(null)
 
@@ -57,7 +58,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Takes the link out of the intent as it is read, so the same scan cannot be replayed by a later
+     * Takes the link out of the intent as it is read, so the same link cannot be replayed by a later
      * recreation that re-delivers it.
      */
     private fun consumeAppLink(intent: Intent?) {

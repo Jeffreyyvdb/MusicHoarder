@@ -64,6 +64,11 @@ var publicUmamiWebsiteId = builder.AddParameter("public-umami-website-id", build
 var publicUmamiRecorderSrc = builder.AddParameter("public-umami-recorder-src", builder.Configuration["Parameters:public-umami-recorder-src"] ?? "")
     .WithDescription("Optional Umami session-recorder URL ending in /recorder.js. Blank disables the recorder.");
 
+// Android App Links: the frontend serves /.well-known/assetlinks.json from this so share/invite
+// links open the native app. Blank → the endpoint 404s and links open in the browser.
+var androidAssetlinksFingerprints = builder.AddParameter("android-assetlinks-fingerprints", builder.Configuration["Parameters:android-assetlinks-fingerprints"] ?? "")
+    .WithDescription("Comma-separated SHA-256 signing-cert fingerprint(s) of the Android app allowed to open this host's share/invite links (keytool -list -v | grep SHA256:). Blank disables /.well-known/assetlinks.json.");
+
 // AI quality grading calls an OpenAI-compatible endpoint (OpenRouter by default). The key is the
 // only required secret; with it blank the grader degrades to a no-op like the other providers.
 var qualityGradingApiKey = builder.AddParameter("quality-grading-api-key", builder.Configuration["Parameters:quality-grading-api-key"] ?? "", secret: true)
@@ -192,6 +197,7 @@ var frontend = builder.AddViteApp("frontend", "../frontend")
     .WithEnvironment("PUBLIC_UMAMI_SRC", publicUmamiSrc)
     .WithEnvironment("PUBLIC_UMAMI_WEBSITE_ID", publicUmamiWebsiteId)
     .WithEnvironment("PUBLIC_UMAMI_RECORDER_SRC", publicUmamiRecorderSrc)
+    .WithEnvironment("ANDROID_ASSETLINKS_FINGERPRINTS", androidAssetlinksFingerprints)
     .WaitForStart(api)
     .WithExternalHttpEndpoints()
     .PublishAsNodeServer(entryPoint: "build/index.js", outputPath: "build");

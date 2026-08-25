@@ -79,6 +79,7 @@ Nothing is strictly required for a localhost trial — every value defaults. The
 | `LYRICS_TRANSCRIPTION_API_KEY` | — | Experimental AI lyrics transcription + compare. **Blank → the feature is hidden in the UI.** Groq recommended; see below. |
 | `LYRICS_TRANSCRIPTION_BASE_URL` / `_MODEL` / `_LLM_MODEL` | — | Transcription endpoint, Whisper model, and (optional) cleanup LLM for the above. |
 | `PUBLIC_UMAMI_*` | — | Optional self-hosted Umami analytics. |
+| `ANDROID_ASSETLINKS_FINGERPRINTS` | — | Optional Android App Links: signing-cert fingerprint(s) so share/invite links open the native app (see below). |
 | `AUTO_SCAN_INTERVAL_MINUTES` | — | How often the source library is re-scanned so newly copied files are picked up without clicking Scan. Defaults to `15`; `0` disables it. |
 | `SCAN_SETTLE_SECONDS` | — | How long a file must sit untouched before a scan will index it, so a scan landing mid-copy doesn't index a half-written file. Defaults to `60`; `0` disables the guard. |
 
@@ -150,6 +151,11 @@ web form:
   optionally use a fast cleanup LLM (`LYRICS_TRANSCRIPTION_LLM_MODEL`) via the `QUALITY_GRADING_*` creds.
 - **Umami analytics** — set `PUBLIC_UMAMI_SRC` (full `…/script.js` URL) and
   `PUBLIC_UMAMI_WEBSITE_ID` to load a self-hosted Umami tracker.
+- **Android App Links** — set `ANDROID_ASSETLINKS_FINGERPRINTS` to the SHA-256 signing-cert
+  fingerprint(s) of your Android build (comma-separated) so `https://<your-host>/share/…` and
+  `/invite/…` links open the native app when installed. The stock APK only verifies
+  `musichoarder.app`; build your own with `./gradlew :app:assembleRelease -PmhShareHost=<your-host>`
+  (see `android/README.md`). Blank → the links open in the browser as before.
 - **Soulseek via slskd** — MusicHoarder can use a [slskd](https://github.com/slskd/slskd) instance
   **you run and manage yourself** as a wishlist download source (tried before yt-dlp) and for
   manual per-track/album quality upgrades. MusicHoarder never joins the Soulseek network itself —
@@ -171,9 +177,9 @@ web form:
   exactly like slskd. The sidecar service already ships in `docker-compose.yml` **behind a Compose
   profile**, so enabling it is pure `.env` — no compose editing (works even for a read-only
   Git-synced compose). Set: `COMPOSE_PROFILES=spotiflac` (starts the sidecar container, pulled from
-  GHCR), `SPOTIFLAC_SIDECAR_URL=http://spotiflac:8000`, and put `spotiflac` first in the chain —
-  `DOWNLOAD_PROVIDER_1=spotiflac`, `DOWNLOAD_PROVIDER_2=slskd`, `DOWNLOAD_PROVIDER_3=yt-dlp` — then
-  `docker compose up -d`. Leave `COMPOSE_PROFILES` unset and the sidecar never starts and the provider
+  GHCR) and `SPOTIFLAC_SIDECAR_URL=http://spotiflac:8000`, then `docker compose up -d`. The
+  download chain already leads with `spotiflac` by default (`spotiflac` → `slskd` → `yt-dlp`), so no
+  `DOWNLOAD_PROVIDER_*` change is needed. Leave `COMPOSE_PROFILES` unset and the sidecar never starts and the provider
   reports "not found", so it's inert for everyone who doesn't opt in. The sidecar shares the API's
   download staging volume at the same path, so the FLAC it writes is visible to the API. A track with
   no lossless source upstream falls through to slskd/yt-dlp; a downed sidecar fails the item and
