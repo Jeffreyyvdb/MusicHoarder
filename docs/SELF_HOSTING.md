@@ -177,9 +177,9 @@ web form:
   exactly like slskd. The sidecar service already ships in `docker-compose.yml` **behind a Compose
   profile**, so enabling it is pure `.env` — no compose editing (works even for a read-only
   Git-synced compose). Set: `COMPOSE_PROFILES=spotiflac` (starts the sidecar container, pulled from
-  GHCR), `SPOTIFLAC_SIDECAR_URL=http://spotiflac:8000`, and put `spotiflac` first in the chain —
-  `DOWNLOAD_PROVIDER_1=spotiflac`, `DOWNLOAD_PROVIDER_2=slskd`, `DOWNLOAD_PROVIDER_3=yt-dlp` — then
-  `docker compose up -d`. Leave `COMPOSE_PROFILES` unset and the sidecar never starts and the provider
+  GHCR) and `SPOTIFLAC_SIDECAR_URL=http://spotiflac:8000`, then `docker compose up -d`. The
+  download chain already leads with `spotiflac` by default (`spotiflac` → `slskd` → `yt-dlp`), so no
+  `DOWNLOAD_PROVIDER_*` change is needed. Leave `COMPOSE_PROFILES` unset and the sidecar never starts and the provider
   reports "not found", so it's inert for everyone who doesn't opt in. The sidecar shares the API's
   download staging volume at the same path, so the FLAC it writes is visible to the API. A track with
   no lossless source upstream falls through to slskd/yt-dlp; a downed sidecar fails the item and
