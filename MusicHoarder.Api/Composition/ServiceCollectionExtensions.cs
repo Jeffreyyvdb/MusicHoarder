@@ -296,6 +296,8 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<DownloadBackgroundService>();
         // Music videos ("clips"): companion YouTube fetch + audio↔video sync alignment worker.
         // Independent of the download provider chain so slskd/spotiflac audio still gets a clip.
+        services.AddSingleton<IMusicVideoProbe, MusicVideoProbe>();
+        services.AddSingleton<IMusicVideoFileAnalyzer, MusicVideoFileAnalyzer>();
         services.AddSingleton<IMusicVideoDownloader, MusicVideoDownloader>();
         services.AddSingleton<MusicVideoChannel>();
         services.AddScoped<MusicVideoAlignmentService>();

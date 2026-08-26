@@ -42,6 +42,8 @@ data class LibraryUiState(
 /** The lists the four tabs render, folded once per state change off the main thread. */
 data class LibraryContent(
     val albums: List<Album> = emptyList(),
+    /** The server is too old to group albums — say so rather than showing an empty grid. */
+    val albumsUnsupported: Boolean = false,
     val artists: List<ArtistGroup> = emptyList(),
     /** Which A-Z buckets have anyone in them, so the bar can grey out the rest. */
     val presentLetters: Set<String> = emptySet(),
@@ -166,6 +168,7 @@ fun foldLibrary(
 
     return LibraryContent(
         albums = sortAlbums(matchingAlbums, ui.albumSort),
+        albumsUnsupported = state.albumsUnsupported,
         artists = letteredArtists,
         presentLetters = presentLetters,
         tracks = sorted,

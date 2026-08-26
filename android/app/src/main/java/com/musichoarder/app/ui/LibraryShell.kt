@@ -180,7 +180,16 @@ fun LibraryShell(
             )
 
             ui.tab == LibraryTab.Albums -> if (content.albums.isEmpty()) {
-                MessagePane(noMatchMessage(ui, "albums"))
+                // An empty grid because the server cannot group albums reads exactly like an empty
+                // library, and the fix is on the server rather than anything the listener can do
+                // here — so say which it is.
+                MessagePane(
+                    if (content.albumsUnsupported) {
+                        "Albums need a newer server. Everything else still works."
+                    } else {
+                        noMatchMessage(ui, "albums")
+                    },
+                )
             } else {
                 AlbumsTab(
                     albums = content.albums,
