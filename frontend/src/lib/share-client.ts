@@ -3,6 +3,8 @@
 // must work for visitors without an account. All requests still go through the same-origin
 // /api/mh proxy, so no CORS is involved.
 
+import type { LyricsProvenance } from "$lib/types"
+
 const API_PREFIX = "/api/mh"
 
 export interface ShareTrack {
@@ -35,6 +37,11 @@ export interface ShareLyrics {
   synced?: string | null
   plain?: string | null
   isInstrumental: boolean
+  /**
+   * How much of these lyrics came from an AI. The share page is read by people who never see the
+   * library UI, so the disclosure has to travel with the words rather than live in the app.
+   */
+  lyricsProvenance?: LyricsProvenance | null
   /** LLM pronunciation guide + English translation — present only when fresh (never stale docs). */
   romanizedSynced?: string | null
   romanizedPlain?: string | null

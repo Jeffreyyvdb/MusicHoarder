@@ -55,6 +55,7 @@
   } from '$lib/api-client';
   import { fingerprintBars, fingerprintHash, providerAttemptRows } from '$lib/review-helpers';
   import { formatDuration, formatFileSize } from '$lib/formatters';
+  import { computeLyricsProvenance } from '$lib/lyrics/provenance';
   import { lrclibWebUrl, lrclibWebSearchUrl } from '$lib/lrclib-url';
   import { acoustIdSourceConnected, lrclibSourceConnected } from '$lib/source-connection';
   import { playerStore } from '$lib/stores/player.svelte';
@@ -180,8 +181,20 @@
   // "Enhance with AI" runs the transcription (which re-times the song's own official lyrics when it
   // has them, so it doubles as a re-sync) and then the pronunciation + translation, in one click.
   // The two server calls stay separate so the first result lands on screen while the second runs.
-  type AiLyrics = { synced?: string; plain?: string; model?: string; at?: string };
+  type AiLyrics = {
+    synced?: string;
+    plain?: string;
+    model?: string;
+    at?: string;
+    /**
+     * True when the transcription re-timed the song's OWN official lyrics rather than inventing its
+     * words — the bit that separates an "AI Enhanced" label from an "AI Generated" one.
+     */
+    alignedToReference?: boolean;
+  };
   let aiLyrics = $state<AiLyrics | null>(null);
+  /** Non-null when the stored LRC's timestamps were repaired by a measured offset. */
+  let lyricsSyncOffsetMs = $state<number | null>(null);
   // Which version the big synced viewer shows when both exist, the compare-view toggle, and save state.
   let preferredSource = $state<'lrclib' | 'transcribed'>('lrclib');
   let showCompare = $state(false);
@@ -479,6 +492,7 @@
     if (aiLoadedForSongId === id) return;
     aiLoadedForSongId = id;
     aiLyrics = null;
+    lyricsSyncOffsetMs = null;
     showCompare = false;
     translation = null;
     lyricsView = 'original';
@@ -501,9 +515,11 @@
             synced: d.transcribedSynced ?? undefined,
             plain: d.transcribedPlain ?? undefined,
             model: d.transcriptionModel ?? undefined,
-            at: d.transcribedAtUtc ?? undefined
+            at: d.transcribedAtUtc ?? undefined,
+            alignedToReference: d.transcriptionAlignedToReference === true
           };
         }
+        lyricsSyncOffsetMs = d.lyricsSyncOffsetMs ?? null;
         if (d.lyricsTranslationStatus === 'Completed') {
           translation = {
             romanizedSynced: d.romanizedSynced ?? undefined,
@@ -527,7 +543,8 @@
       synced: r.synced ?? undefined,
       plain: r.plain ?? undefined,
       model: r.model ?? undefined,
-      at: r.transcribedAtUtc ?? undefined
+      at: r.transcribedAtUtc ?? undefined,
+      alignedToReference: r.resynced === true
     };
     // A re-sync of the song's own official lyrics is promoted server-side; mirror that here so the
     // viewer shows the freshly-timed version straight away.
@@ -668,6 +685,37 @@
   // The big synced viewer shows the AI version when it's the chosen default (or it's all we have).
   const showAiInViewer = $derived(
     lyricsFeatureEnabled && aiLyrics != null && (!hasLyrics || preferredSource === 'transcribed')
+  );
+
+  // The AI disclosure for whatever the viewer is showing right now. Recomputed locally because the
+  // compare toggle above switches sources without a refetch, so the server's value would go stale the
+  // moment the user flips it.
+  const viewerProvenance = $derived(
+    computeLyricsProvenance({
+      showingTranscription: showAiInViewer,
+      alignedToReference: aiLyrics?.alignedToReference === true,
+      hasSyncedLyrics: song.hasSyncedLyrics === true,
+      syncOffsetMs: lyricsSyncOffsetMs
+    })
+  );
+
+  // The compare view shows both versions at once, so each column states its own provenance rather
+  // than the viewer default's.
+  const lrclibProvenance = $derived(
+    computeLyricsProvenance({
+      showingTranscription: false,
+      alignedToReference: false,
+      hasSyncedLyrics: song.hasSyncedLyrics === true,
+      syncOffsetMs: lyricsSyncOffsetMs
+    })
+  );
+  const aiProvenance = $derived(
+    computeLyricsProvenance({
+      showingTranscription: true,
+      alignedToReference: aiLyrics?.alignedToReference === true,
+      hasSyncedLyrics: song.hasSyncedLyrics === true,
+      syncOffsetMs: lyricsSyncOffsetMs
+    })
   );
 
   // The mobile lyrics card / fullscreen overlay present the same source as the big viewer.
@@ -1174,6 +1222,7 @@
                     lyricsStatus={showAiInViewer ? 'Fetched' : lyricsStatus}
                     hasSyncedLyrics={showAiInViewer ? Boolean(aiLyrics?.synced) : (song.hasSyncedLyrics ?? false)}
                     hasPlainLyrics={showAiInViewer ? Boolean(aiLyrics?.plain) : (song.hasPlainLyrics ?? false)}
+                    provenance={viewerProvenance}
                     isInstrumental={song.isInstrumental ?? undefined}
                     currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
                     {secondarySynced}
@@ -1315,6 +1364,7 @@
               {lyricsStatus}
               hasSyncedLyrics={song.hasSyncedLyrics ?? false}
               hasPlainLyrics={song.hasPlainLyrics ?? false}
+              provenance={lrclibProvenance}
               currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
               onSeek={isCurrentlyLoaded ? (timeMs: number) => playerStore.seek(timeMs / 1000) : undefined}
               lrclibUrl={lrclibWebUrl(trackArtist, trackTitle)}
@@ -1351,6 +1401,7 @@
                 lyricsStatus="Fetched"
                 hasSyncedLyrics={Boolean(aiLyrics?.synced)}
                 hasPlainLyrics={Boolean(aiLyrics?.plain)}
+                provenance={aiProvenance}
                 currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
                 onSeek={isCurrentlyLoaded ? (timeMs: number) => playerStore.seek(timeMs / 1000) : undefined}
               />
@@ -1369,6 +1420,7 @@
               lyricsStatus={showAiInViewer ? 'Fetched' : lyricsStatus}
               hasSyncedLyrics={showAiInViewer ? Boolean(aiLyrics?.synced) : (song.hasSyncedLyrics ?? false)}
               hasPlainLyrics={showAiInViewer ? Boolean(aiLyrics?.plain) : (song.hasPlainLyrics ?? false)}
+              provenance={viewerProvenance}
               isInstrumental={song.isInstrumental ?? undefined}
               currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
               onSeek={isCurrentlyLoaded ? (timeMs: number) => playerStore.seek(timeMs / 1000) : undefined}
@@ -1684,6 +1736,7 @@
           lyricsStatus={showAiInViewer ? 'Fetched' : lyricsStatus}
           hasSyncedLyrics={showAiInViewer ? Boolean(aiLyrics?.synced) : (song.hasSyncedLyrics ?? false)}
           hasPlainLyrics={showAiInViewer ? Boolean(aiLyrics?.plain) : (song.hasPlainLyrics ?? false)}
+          provenance={viewerProvenance}
           isInstrumental={song.isInstrumental ?? undefined}
           currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
           onSeek={isCurrentlyLoaded ? (timeMs: number) => playerStore.seek(timeMs / 1000) : undefined}

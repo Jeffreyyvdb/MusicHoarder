@@ -3,6 +3,21 @@ using System.Text;
 namespace MusicHoarder.Api.Enrichment;
 
 /// <summary>
+/// The full outcome of a forced alignment, for callers that need more than the finished LRC.
+/// </summary>
+/// <param name="Lines">Every reference line stamped, unanchored runs interpolated — the LRC-ready result.</param>
+/// <param name="AnchoredStarts">
+/// Per line, the audio time of its first word that <b>actually matched</b> the transcript, or null when the
+/// line was only interpolated. The timing probe compares these — and only these — against the LRC's own
+/// claims, because an interpolated stamp is derived from its neighbours and would launder their error.
+/// </param>
+/// <param name="MatchRatio">Fraction of reference words the transcript agreed with, 0-1.</param>
+public record ForcedAlignment(
+    List<(double Start, string Text)> Lines,
+    double?[] AnchoredStarts,
+    double MatchRatio);
+
+/// <summary>
 /// Deterministic forced alignment of known lyric text (e.g. LRCLIB plain) to Whisper's word clock — the
 /// technique real karaoke tools use. It computes a Needleman–Wunsch global alignment between the reference
 /// word sequence and the transcript word sequence, then stamps each lyric line with the start time of its
@@ -25,6 +40,15 @@ public static class ForcedLyricsAligner
 
     public static List<(double Start, string Text)>? Align(
         IReadOnlyList<string> referenceLines, IReadOnlyList<TimedWord> words)
+        => AlignDetailed(referenceLines, words)?.Lines;
+
+    /// <summary>
+    /// As <see cref="Align"/>, but also reports how well the reference matched the audio and which lines were
+    /// genuinely anchored. <paramref name="minMatchRatio"/> overrides the trust gate — the timing probe works
+    /// on a short window of a song, where a lower bar is appropriate because there is less text to agree on.
+    /// </summary>
+    public static ForcedAlignment? AlignDetailed(
+        IReadOnlyList<string> referenceLines, IReadOnlyList<TimedWord> words, double? minMatchRatio = null)
     {
         if (referenceLines.Count == 0 || words.Count == 0)
             return null;
@@ -92,7 +116,8 @@ public static class ForcedLyricsAligner
         }
 
         // Quality gate: if the reference barely matches the audio, don't trust this alignment.
-        if (matches < n * MinMatchRatio)
+        var ratio = (double)matches / n;
+        if (ratio < (minMatchRatio ?? MinMatchRatio))
             return null;
 
         // Each line's start = the start time of its first aligned word.
@@ -104,7 +129,7 @@ public static class ForcedLyricsAligner
                 lineStart[line] = words[alignedHyp[k]].Start;
         }
 
-        return BuildLines(referenceLines, lineStart);
+        return new ForcedAlignment(BuildLines(referenceLines, lineStart), lineStart, ratio);
     }
 
     /// <summary>Stamps every line, interpolating unanchored lines across the gap and forcing non-decreasing times.</summary>

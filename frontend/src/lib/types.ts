@@ -1,5 +1,23 @@
 export type LyricsStatus = "NotFetched" | "Fetched" | "Instrumental" | "NotFound" | "Failed"
 
+/**
+ * How much of the lyrics on screen came from an AI. Mirrors the API's `LyricsProvenance` enum.
+ *
+ * - `Human` — human-contributed LRCLIB lyrics, timing untouched. No badge.
+ * - `AiEnhanced` — the song's own words, re-timed by AI (a forced alignment, or a measured offset
+ *   applied to an LRC that was running early or late).
+ * - `AiGenerated` — an AI transcribed the audio; both the words and the timing are the machine's.
+ */
+export type LyricsProvenance = "Human" | "AiEnhanced" | "AiGenerated"
+
+/** Outcome of checking a stored LRC's timestamps against the audio. Mirrors the API enum. */
+export type LyricsSyncStatus =
+  | "NotChecked"
+  | "Ok"
+  | "Suspect"
+  | "Corrected"
+  | "Unverifiable"
+
 export interface TrackMetadata {
   title: string
   artist: string

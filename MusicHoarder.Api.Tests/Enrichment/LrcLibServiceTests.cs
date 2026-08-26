@@ -77,6 +77,73 @@ public class LrcLibServiceTests
         Assert.Null(await CreateService(handler).FetchLyricsAsync(song));
     }
 
+    // --- Duration gating on the /search fallback ---
+    //
+    // /api/get is handed a &duration= and LRCLIB enforces it. /api/search is keyed on track name alone, so it
+    // returns live cuts, sped-up edits and extended mixes of the same song — the right words on a clock that
+    // has nothing to do with our audio. That is the single biggest source of lyrics whose timestamps are
+    // wildly off, and it is free to prevent.
+
+    private static string Entry(int id, double duration, string synced) => string.Create(
+        System.Globalization.CultureInfo.InvariantCulture,
+        $$"""
+          {"id":{{id}},"trackName":"RUBBERZ","artistName":"Fenix Flexin","instrumental":false,
+           "duration":{{duration}},"plainLyrics":"plain words","syncedLyrics":"{{synced}}"}
+          """);
+
+    [Fact]
+    public async Task FetchLyricsAsync_SearchHitForADifferentLengthRecording_IsRejected()
+    {
+        // The only hit is a 5:20 live version of our 2:54 track. Its lyrics are right and its timing is not.
+        var handler = new RoutingHandler(req => req.RequestUri!.AbsolutePath.EndsWith("/search")
+            ? Json($"[{Entry(1, 320, "[00:01.00] live version")}]")
+            : NotFound());
+
+        Assert.Null(await CreateService(handler).FetchLyricsAsync(Song("RUBBERZ", "Fenix Flexin", 174)));
+    }
+
+    [Fact]
+    public async Task FetchLyricsAsync_SearchPrefersTheEntryClosestToOurLength()
+    {
+        // A remix, our recording, and a radio edit all come back. Only one was timed against our audio.
+        var handler = new RoutingHandler(req => req.RequestUri!.AbsolutePath.EndsWith("/search")
+            ? Json($"[{Entry(1, 320, "[00:01.00] remix")},{Entry(2, 175, "[00:01.00] ours")},{Entry(3, 140, "[00:01.00] radio edit")}]")
+            : NotFound());
+
+        var result = await CreateService(handler).FetchLyricsAsync(Song("RUBBERZ", "Fenix Flexin", 174));
+
+        Assert.Equal(2, result!.LrclibId);
+        Assert.Equal("[00:01.00] ours", result.SyncedLyrics);
+        Assert.Equal(175, result.DurationSeconds);
+    }
+
+    [Fact]
+    public async Task FetchLyricsAsync_SearchHitsWithNoDurationAtAll_AreStillAccepted()
+    {
+        // Absence of evidence is not evidence: an entry that simply omits the field must not be discarded
+        // over it. The stored-lyrics timing check downstream still gets its say.
+        var handler = new RoutingHandler(req => req.RequestUri!.AbsolutePath.EndsWith("/search")
+            ? Json($"[{LyricsJson}]")
+            : NotFound());
+
+        var result = await CreateService(handler).FetchLyricsAsync(Song("RUBBERZ", "Fenix Flexin", 174));
+
+        Assert.NotNull(result);
+        Assert.Null(result!.DurationSeconds);
+    }
+
+    [Fact]
+    public async Task FetchLyricsAsync_CarriesTheMatchedEntrysDurationForTheTimingCheck()
+    {
+        var handler = new RoutingHandler(req => req.RequestUri!.AbsolutePath.EndsWith("/get")
+            ? Json(Entry(9, 174.5, "[00:01.00] ours"))
+            : Json("[]"));
+
+        var result = await CreateService(handler).FetchLyricsAsync(Song("RUBBERZ", "Fenix Flexin", 174));
+
+        Assert.Equal(174.5, result!.DurationSeconds);
+    }
+
     private static SongMetadata Song(string title, string artist, int durationSeconds) => new()
     {
         SourcePath = $"/s/{title}.flac",

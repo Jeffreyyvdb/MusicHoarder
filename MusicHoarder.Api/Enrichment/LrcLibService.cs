@@ -5,11 +5,17 @@ using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Enrichment;
 
+/// <param name="DurationSeconds">
+/// The track length LRCLIB holds for the matched entry. Carried through so the caller can persist it: a
+/// disagreement with our own duration is the cheapest and most decisive sign the LRC was timed against a
+/// different recording of the song (see <see cref="LyricsTimingValidator"/>).
+/// </param>
 public record LyricsResult(
     string? SyncedLyrics,
     string? PlainLyrics,
     bool IsInstrumental,
-    int? LrclibId = null);
+    int? LrclibId = null,
+    double? DurationSeconds = null);
 
 public interface ILrcLibService
 {
@@ -91,7 +97,7 @@ public sealed class LrcLibService(
                 return null;
             }
 
-            return BuildResult(dto.SyncedLyrics, dto.PlainLyrics, dto.Instrumental, dto.Id);
+            return BuildResult(dto.SyncedLyrics, dto.PlainLyrics, dto.Instrumental, dto.Id, dto.Duration);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -126,12 +132,49 @@ public sealed class LrcLibService(
                 return null;
             }
 
-            // Pick the first result that has some lyrics content, preferring synced
-            var best = results.FirstOrDefault(r => !string.IsNullOrWhiteSpace(r.SyncedLyrics))
-                ?? results.FirstOrDefault(r => !string.IsNullOrWhiteSpace(r.PlainLyrics))
-                ?? results[0];
+            // Unlike /api/get — which we hand a &duration= and which enforces a match — /api/search is keyed
+            // on track name alone, so it happily returns a LIVE cut, a sped-up edit or an extended mix of the
+            // same song. Those carry the right words on a clock that has nothing to do with our audio, which
+            // is the single biggest source of "the timestamps are very off". Drop entries whose length
+            // disagrees with ours before picking, and only fall back to the unfiltered list when we have no
+            // duration of our own to compare against.
+            var candidates = results;
+            if (song.DurationSeconds is > 0)
+            {
+                var ours = (double)song.DurationSeconds.Value;
+                var timed = results.Where(r => r.Duration > 0).ToList();
+                var sameLength = timed
+                    .Where(r => Math.Abs(r.Duration - ours) <= LyricsTimingValidator.DurationToleranceSeconds)
+                    .ToList();
 
-            return BuildResult(best.SyncedLyrics, best.PlainLyrics, best.Instrumental, best.Id);
+                if (sameLength.Count > 0)
+                {
+                    // Closest length first, so a re-recording that squeaks inside the tolerance still loses
+                    // to an exact match.
+                    candidates = sameLength.OrderBy(r => Math.Abs(r.Duration - ours)).ToList();
+                }
+                else if (timed.Count > 0)
+                {
+                    // Every entry declared a length and every one of them disagrees with ours. That is
+                    // evidence, not absence of it: these lyrics were timed against a recording we do not
+                    // hold, so taking them would mean shipping timestamps we already know are wrong.
+                    logger.LogDebug(
+                        "LRCLIB /api/search returned {Count} result(s) for SongId={SongId}, none within {Tolerance}s of our {Duration}s track; skipping.",
+                        results.Count, song.Id, LyricsTimingValidator.DurationToleranceSeconds, ours);
+                    return null;
+                }
+
+                // Otherwise no entry declared a length at all — we have nothing to judge on, so fall through
+                // unfiltered rather than discarding a hit over a field the response happened to omit. The
+                // timing check downstream still gets its say once the lyrics are stored.
+            }
+
+            // Pick the first result that has some lyrics content, preferring synced
+            var best = candidates.FirstOrDefault(r => !string.IsNullOrWhiteSpace(r.SyncedLyrics))
+                ?? candidates.FirstOrDefault(r => !string.IsNullOrWhiteSpace(r.PlainLyrics))
+                ?? candidates[0];
+
+            return BuildResult(best.SyncedLyrics, best.PlainLyrics, best.Instrumental, best.Id, best.Duration);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -144,11 +187,12 @@ public sealed class LrcLibService(
         }
     }
 
-    private static LyricsResult BuildResult(string? syncedLyrics, string? plainLyrics, bool instrumental, int? lrclibId = null)
+    private static LyricsResult BuildResult(
+        string? syncedLyrics, string? plainLyrics, bool instrumental, int? lrclibId = null, double duration = 0)
     {
         var synced = string.IsNullOrWhiteSpace(syncedLyrics) ? null : syncedLyrics.Trim();
         var plain = string.IsNullOrWhiteSpace(plainLyrics) ? null : plainLyrics.Trim();
-        return new LyricsResult(synced, plain, instrumental, lrclibId);
+        return new LyricsResult(synced, plain, instrumental, lrclibId, duration > 0 ? duration : null);
     }
 
     // --- JSON DTOs ---

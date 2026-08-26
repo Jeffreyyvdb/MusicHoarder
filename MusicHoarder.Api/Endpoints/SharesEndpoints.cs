@@ -231,6 +231,9 @@ public static class SharesEndpoints
             song.Id,
             Synced = song.DisplaySyncedLyrics,
             Plain = song.DisplayPlainLyrics,
+            // The AI disclosure travels with the lyrics onto the public share page — anyone reading these
+            // words is entitled to know a machine wrote or re-timed them, signed in or not.
+            LyricsProvenance = song.LyricsProvenance.ToString(),
             IsInstrumental = song.IsInstrumental == true,
             RomanizedSynced = translationFresh ? song.RomanizedSyncedLyrics : null,
             RomanizedPlain = translationFresh ? song.RomanizedPlainLyrics : null,

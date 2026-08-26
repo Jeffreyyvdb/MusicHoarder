@@ -63,6 +63,12 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
 
         services
+            .AddOptions<LyricsTimingOptions>()
+            .BindConfiguration(LyricsTimingOptions.SectionName)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services
             .AddOptions<LyricsTranslationOptions>()
             .BindConfiguration(LyricsTranslationOptions.SectionName)
             .ValidateDataAnnotations()
@@ -350,6 +356,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<YeTrackerTracklistCatalogService>();
         services.AddSingleton<IAlbumTracklistProvider, YeTrackerAlbumTracklistProvider>();
         services.AddHostedService<CanonicalAlbumFetchService>();
+        services.AddHostedService<LyricsTimingCheckService>();
 
         services.AddHostedService<ExternalCoverArtSweepBackgroundService>();
         services.AddHostedService<IngestRunMonitor>();
@@ -463,6 +470,11 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IOptions<MusicEnricherOptions>>(),
                 sp.GetRequiredService<ILogger<LyricsTranscriptionService>>());
         });
+
+        // Lyrics timing validation. The budget meter is a singleton on purpose: it is one process-wide
+        // allowance, and two probes running concurrently must see each other's spend.
+        services.AddSingleton<LyricsProbeBudget>();
+        services.AddSingleton<LyricsTimingProbe>();
 
         // On-demand lyrics pronunciation + translation. Same OpenRouter creds as QualityGrading with its
         // own cheap multilingual model; the service bounds each call via LyricsTranslationOptions.TimeoutSeconds.

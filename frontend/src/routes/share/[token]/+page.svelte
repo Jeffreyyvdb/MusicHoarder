@@ -369,6 +369,7 @@
                     syncedLyrics={lyrics?.synced ?? undefined}
                     plainLyrics={lyrics?.plain ?? undefined}
                     isInstrumental={activeTrack.isInstrumental}
+                    provenance={lyrics?.lyricsProvenance}
                     currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
                     {secondarySynced}
                     {secondaryPlain}
@@ -411,6 +412,7 @@
                   syncedLyrics={lyrics?.synced ?? undefined}
                   plainLyrics={lyrics?.plain ?? undefined}
                   isInstrumental={activeTrack.isInstrumental}
+                  provenance={lyrics?.lyricsProvenance}
                   currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
                   onSeek={(ms) => {
                     if (isCurrentlyLoaded) playerStore.seek(ms / 1000);
@@ -456,6 +458,7 @@
             syncedLyrics={lyrics?.synced ?? undefined}
             plainLyrics={lyrics?.plain ?? undefined}
             isInstrumental={activeTrack.isInstrumental}
+            provenance={lyrics?.lyricsProvenance}
             currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
             onSeek={(ms) => {
               if (isCurrentlyLoaded) playerStore.seek(ms / 1000);

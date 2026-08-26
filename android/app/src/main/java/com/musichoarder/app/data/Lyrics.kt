@@ -16,7 +16,40 @@ data class LyricsResponse(
     val transcriptionStatus: String? = null,
     /** "Lrclib" | "Transcribed" — which pair the viewer should show when both exist. */
     val preferredLyricsSource: String? = null,
+    /**
+     * "Human" | "AiEnhanced" | "AiGenerated" — how much of the displayed lyrics came from an AI.
+     * Sent by the server on both the owner and the grantee shape; [toLyrics] falls back to deriving
+     * it locally so an older API still produces a correct badge.
+     */
+    val lyricsProvenance: String? = null,
+    /** True when the transcription re-timed the official words rather than guessing at them. */
+    val transcriptionAlignedToReference: Boolean? = null,
+    /** Non-null when the stored LRC's timestamps were repaired by a measured constant offset. */
+    val lyricsSyncOffsetMs: Int? = null,
 )
+
+/**
+ * How much of the lyrics on screen came from an AI. A port of the API's `LyricsProvenance` enum and
+ * of the web's `computeLyricsProvenance`.
+ *
+ * The distinction is the point: [AiEnhanced] means a machine only moved timestamps under the real
+ * lyric, while [AiGenerated] means a machine chose the words. Collapsing the two would let the
+ * weaker disclosure cover the stronger case.
+ */
+enum class LyricsProvenance {
+    Human,
+    AiEnhanced,
+    AiGenerated,
+    ;
+
+    companion object {
+        fun parse(value: String?): LyricsProvenance = when {
+            value.equals("AiEnhanced", ignoreCase = true) -> AiEnhanced
+            value.equals("AiGenerated", ignoreCase = true) -> AiGenerated
+            else -> Human
+        }
+    }
+}
 
 /** What the lyrics view actually renders, after choosing a source and parsing. */
 data class Lyrics(
@@ -25,6 +58,8 @@ data class Lyrics(
     val isInstrumental: Boolean,
     /** True when the shown text came from the AI transcription rather than LRCLIB. */
     val isTranscribed: Boolean,
+    /** The AI disclosure for the words on screen — drives the badge above the lyrics. */
+    val provenance: LyricsProvenance = LyricsProvenance.Human,
 ) {
     val isSynced: Boolean get() = lines.isNotEmpty()
     val isEmpty: Boolean get() = lines.isEmpty() && plainText.isNullOrBlank()
@@ -38,8 +73,12 @@ data class LrcLine(val timeMs: Long, val text: String)
  * fallback for lyrics whose timestamps do not parse.
  */
 fun LyricsResponse.toLyrics(): Lyrics {
-    val preferTranscribed = preferredLyricsSource.equals("Transcribed", ignoreCase = true) &&
-        !(transcribedSynced.isNullOrBlank() && transcribedPlain.isNullOrBlank())
+    val hasTranscription = !(transcribedSynced.isNullOrBlank() && transcribedPlain.isNullOrBlank())
+    // Mirrors the API's UseTranscribedForDisplay: the transcription shows when it is this song's
+    // chosen default OR when it is the only thing there is — the usual reason to transcribe at all.
+    val preferTranscribed = hasTranscription &&
+        (preferredLyricsSource.equals("Transcribed", ignoreCase = true) ||
+            (synced.isNullOrBlank() && plain.isNullOrBlank()))
 
     val syncedText = if (preferTranscribed) transcribedSynced ?: synced else synced ?: transcribedSynced
     val plainText = if (preferTranscribed) transcribedPlain ?: plain else plain ?: transcribedPlain
@@ -50,6 +89,13 @@ fun LyricsResponse.toLyrics(): Lyrics {
         plainText = plainText?.takeIf { it.isNotBlank() } ?: syncedText?.takeIf { it.isNotBlank() },
         isInstrumental = isInstrumental == true,
         isTranscribed = preferTranscribed,
+        // The server's own verdict when it sent one; otherwise the same rule applied to what we hold.
+        provenance = lyricsProvenance?.let(LyricsProvenance::parse) ?: when {
+            preferTranscribed && transcriptionAlignedToReference == true -> LyricsProvenance.AiEnhanced
+            preferTranscribed -> LyricsProvenance.AiGenerated
+            lyricsSyncOffsetMs != null && !synced.isNullOrBlank() -> LyricsProvenance.AiEnhanced
+            else -> LyricsProvenance.Human
+        },
     )
 }
 

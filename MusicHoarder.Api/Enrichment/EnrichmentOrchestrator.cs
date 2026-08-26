@@ -558,6 +558,27 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         return gotLyrics;
     }
 
+    /// <summary>
+    /// Records the free (arithmetic, no-API) timing verdict for a song that just gained synced lyrics. Costs
+    /// nothing, so it runs on every fetch rather than on a sweep — a Suspect verdict is what later makes the
+    /// paid AI probe eligible. See <see cref="LyricsTimingValidator"/>.
+    /// </summary>
+    private void ApplyFreeTimingCheck(SongMetadata song)
+    {
+        if (string.IsNullOrWhiteSpace(song.SyncedLyrics))
+            return;
+
+        var verdict = LyricsTimingValidator.Check(song);
+        song.ApplyLyricsSyncVerdict(verdict.Status, verdict.Issue);
+
+        if (verdict.Status == LyricsSyncStatus.Suspect)
+        {
+            _logger.LogInformation(
+                "Lyrics timing looks wrong for {Track} (SongId={SongId}): {Issue}",
+                song.TrackLabel, song.Id, verdict.Issue);
+        }
+    }
+
     private async Task FetchLyricsForSongAsync(SongMetadata song, MusicHoarderDbContext dbContext, CancellationToken ct)
     {
         if (!song.IsReadyForLyricsFetch)
@@ -578,12 +599,13 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             }
             else if (result.IsInstrumental)
             {
-                song.ApplyLyricsResult(null, null, true, result.LrclibId);
+                song.ApplyLyricsResult(null, null, true, result.LrclibId, result.DurationSeconds);
                 _logger.LogInformation("Lyrics: instrumental confirmed for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
             }
             else
             {
-                song.ApplyLyricsResult(result.SyncedLyrics, result.PlainLyrics, false, result.LrclibId);
+                song.ApplyLyricsResult(result.SyncedLyrics, result.PlainLyrics, false, result.LrclibId, result.DurationSeconds);
+                ApplyFreeTimingCheck(song);
                 var kind = result.SyncedLyrics is not null ? "synced" : "plain";
                 _logger.LogInformation("Lyrics: fetched ({Kind}) for {Track} (SongId={SongId})", kind, song.TrackLabel, song.Id);
             }
@@ -630,10 +652,12 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             var result = await _lrcLibService.FetchLyricsAsync(song, ct);
 
             improved = result is not null
-                && song.TryApplyLyricsUpgrade(result.SyncedLyrics, result.PlainLyrics, result.IsInstrumental, result.LrclibId);
+                && song.TryApplyLyricsUpgrade(
+                    result.SyncedLyrics, result.PlainLyrics, result.IsInstrumental, result.LrclibId, result.DurationSeconds);
 
             if (improved)
             {
+                ApplyFreeTimingCheck(song);
                 var kind = song.LyricsStatus == LyricsStatus.Instrumental
                     ? "instrumental"
                     : song.SyncedLyrics is not null ? "synced" : "plain";
