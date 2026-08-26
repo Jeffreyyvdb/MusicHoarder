@@ -164,9 +164,17 @@ class MusicHoarderApi(
     /**
      * The album cards. Fetched alongside the library dump rather than derived from it: grouping
      * songs into albums is one set of rules, and it lives on the server now.
+     *
+     * Null when the server is older than that route. A phone from the Play Store can be newer than
+     * the self-hosted server it talks to, and losing the album grid is no reason to refuse to show
+     * the library at all — `/songs` answered perfectly well.
      */
-    suspend fun fetchAlbums(): List<AlbumSummaryDto> =
-        get(ApiRoutes.albums()) { json.decodeFromString<AlbumsResponse>(it).albums }
+    suspend fun fetchAlbums(): List<AlbumSummaryDto>? =
+        try {
+            get(ApiRoutes.albums()) { json.decodeFromString<AlbumsResponse>(it).albums }
+        } catch (e: ApiException) {
+            if (e.status == 404) null else throw e
+        }
 
     /**
      * Lyrics are fetched per song rather than shipped with the library dump — the AI transcription
