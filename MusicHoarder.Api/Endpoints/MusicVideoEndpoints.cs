@@ -38,7 +38,7 @@ public static class MusicVideoEndpoints
             .RequireAdmin();
         app.MapGet("/songs/{id:int}/video/candidates", GetVideoCandidates)
             .WithName("GetSongVideoCandidates")
-            .WithSummary("Search YouTube for this song's music video and report each candidate's motion (real clip vs static album cover) and download size, WITHOUT downloading anything.")
+            .WithSummary("Search YouTube for this song's music video and return the ranked candidates without downloading anything. Motion verdicts come from the per-candidate probe endpoint.")
             .WithTags("MusicVideos")
             .RequireAdmin();
         app.MapGet("/songs/{id:int}/video/probe/{videoId}", ProbeVideoCandidate)
@@ -173,9 +173,12 @@ public static class MusicVideoEndpoints
         bool IsCurrent);
 
     /// <summary>
-    /// Ranked candidates with a verdict on each, so the owner can see that the top hit is a static
-    /// album cover costing 12 MB before spending the 12 MB. Nothing is downloaded here; only the
-    /// top few candidates are probed, because each probe costs a metadata call and a sprite sheet.
+    /// The ranked candidates, from one flat search. Nothing is downloaded and nothing is probed:
+    /// this is a synchronous request behind a reverse proxy, and a flat search is bounded work
+    /// whereas a full metadata extraction per candidate is not — probing three of them inline is
+    /// what made this endpoint exceed a 100 s gateway timeout in production. The caller fills in
+    /// verdicts through <see cref="ProbeVideoCandidate"/>, one request per candidate, so a slow
+    /// video costs only its own row.
     /// </summary>
     internal static async Task<IResult> GetVideoCandidates(
         int id,
@@ -201,20 +204,21 @@ public static class MusicVideoEndpoints
                 current, PinIsExplicit: false,
                 song.Artist ?? string.Empty, song.Title ?? string.Empty,
                 song.DurationMs ?? song.DurationSeconds * 1000),
-            options.Value.MusicVideoProbeCandidates,
             ct);
 
-        return Results.Ok(candidates.Select(c => new VideoCandidateDto(
-            c.VideoId,
-            c.Title,
-            c.Channel,
-            c.DurationSeconds,
-            c.Score,
-            (c.Probe?.Motion ?? MusicVideoMotion.Unknown).ToString(),
-            c.Probe?.EstimatedBytes,
-            c.Probe?.SquareSource ?? false,
-            c.ThumbnailUrl is not null,
-            IsCurrent: c.VideoId == current)).ToList());
+        return Results.Ok(new VideoCandidatesDto(
+            ProbeLimit: options.Value.MusicVideoProbeCandidates,
+            Candidates: [.. candidates.Select(c => new VideoCandidateDto(
+                c.VideoId,
+                c.Title,
+                c.Channel,
+                c.DurationSeconds,
+                c.Score,
+                nameof(MusicVideoMotion.Unknown),
+                null,
+                false,
+                c.ThumbnailUrl is not null,
+                IsCurrent: c.VideoId == current))]));
     }
 
     /// <summary>
@@ -278,6 +282,12 @@ public static class MusicVideoEndpoints
         return Results.NotFound(new { message = "No thumbnail available." });
     }
 
+    /// <param name="ProbeLimit">
+    /// How many of the leading candidates the caller should measure without being asked. The server
+    /// no longer probes them itself, but it still owns the budget.
+    /// </param>
+    public record VideoCandidatesDto(int ProbeLimit, List<VideoCandidateDto> Candidates);
+
     public record VideoAuditRowDto(
         int SongId,
         string? Artist,
@@ -307,7 +317,10 @@ public static class MusicVideoEndpoints
         int? limit,
         CancellationToken ct)
     {
-        var take = Math.Clamp(limit ?? 100, 1, 500);
+        // Each row costs an ffmpeg keyframe decode. Kept modest for the same reason the candidate
+        // search no longer probes: this is a synchronous request behind a reverse proxy, and the
+        // caller pages through with `more` rather than waiting on the whole library at once.
+        var take = Math.Clamp(limit ?? 50, 1, 200);
 
         // IgnoreQueryFilters is NOT used here: the audit is an owner tool over the caller's own
         // library, so the ambient tenant filter is exactly the scope wanted.

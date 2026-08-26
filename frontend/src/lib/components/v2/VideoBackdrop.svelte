@@ -57,7 +57,7 @@
   let candidates = $state<SongVideoCandidate[] | null>(null);
   let candidatesLoading = $state(false);
   let candidatesError = $state<string | null>(null);
-  let probingId = $state<string | null>(null);
+  let probing = $state<Set<string>>(new Set());
 
   // Hand-rolled popover dismissal: click/tap outside the cluster closes it, and Escape closes it
   // WITHOUT bubbling to the bits-ui Dialog (which would close the whole full-screen panel) —
@@ -217,7 +217,12 @@
     candidatesLoading = true;
     candidatesError = null;
     try {
-      candidates = await getSongVideoCandidates(songId);
+      const result = await getSongVideoCandidates(songId);
+      candidates = result.candidates;
+      // The list arrives unmeasured — one flat search, so it is quick. Measuring is a request per
+      // candidate: fire the leading few in PARALLEL and let each row settle on its own, so one
+      // slow video delays only its own verdict instead of the whole picker.
+      void Promise.all(result.candidates.slice(0, result.probeLimit).map((c) => onCheck(c.videoId)));
     } catch {
       candidatesError = 'Search failed — try again.';
     } finally {
@@ -226,11 +231,12 @@
   }
 
   async function onCheck(videoId: string) {
-    if (probingId) return;
-    probingId = videoId;
+    if (probing.has(videoId)) return;
+    probing = new Set([...probing, videoId]);
     try {
       const probed = await probeSongVideoCandidate(songId, videoId);
-      // Keep the list's own ranking and labels; only the measured fields are filled in.
+      // Keep the list's own ranking; fill in what was measured, plus the title/channel/duration
+      // for a pinned row the search itself never described.
       candidates =
         candidates?.map((c) =>
           c.videoId === videoId
@@ -238,14 +244,18 @@
                 ...c,
                 motion: probed.motion,
                 estimatedBytes: probed.estimatedBytes,
-                squareSource: probed.squareSource
+                squareSource: probed.squareSource,
+                title: c.title || probed.title,
+                channel: c.channel || probed.channel,
+                durationSeconds: c.durationSeconds ?? probed.durationSeconds
               }
             : c
         ) ?? null;
     } catch {
-      candidatesError = 'Could not check that video.';
+      // Leave the row unmeasured and re-checkable. This must not clear the list: an unmeasured
+      // candidate is still a perfectly valid thing to pick.
     } finally {
-      probingId = null;
+      probing = new Set([...probing].filter((id) => id !== videoId));
     }
   }
 
@@ -584,7 +594,7 @@
                                   }
                                 }}
                               >
-                                {#if probingId === candidate.videoId}
+                                {#if probing.has(candidate.videoId)}
                                   <Loader2 class="size-2.5 animate-spin" /> checking…
                                 {:else}
                                   check

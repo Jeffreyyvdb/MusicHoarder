@@ -114,7 +114,16 @@ public class MusicVideoProbe(
             psi.ArgumentList.Add("-J");
             psi.ArgumentList.Add(url);
 
-            var (_, stdout, stderr) = await YtDlpProcess.RunAsync(psi, ct);
+            // A full extraction is normally a second or two, but YouTube can make one crawl (a
+            // datacenter IP being challenged, signature JS interpreted in Python). Bound it: an
+            // unmeasured candidate is a fine outcome, a request that never returns is not.
+            var (timedOut, _, stdout, stderr) = await YtDlpProcess.RunAsync(
+                psi, TimeSpan.FromSeconds(opts.MusicVideoProbeTimeoutSeconds), ct);
+            if (timedOut)
+            {
+                logger.LogInformation("Music video probe timed out for {VideoId}", LogSanitizer.ForLog(videoId));
+                return Unknown(videoId, stderr);
+            }
             if (string.IsNullOrWhiteSpace(stdout))
             {
                 logger.LogInformation("Music video probe returned no metadata for {VideoId}: {Error}",

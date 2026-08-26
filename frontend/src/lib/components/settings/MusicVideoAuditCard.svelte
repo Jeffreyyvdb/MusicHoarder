@@ -26,7 +26,7 @@
     loading = true;
     error = null;
     try {
-      audit = await auditStoredVideos(100);
+      audit = await auditStoredVideos(50);
       removed = new Set();
     } catch {
       error = 'Could not scan the stored videos.';
@@ -99,7 +99,7 @@
 
     {#if audit?.more}
       <p class="text-muted-foreground text-xs">
-        Showing the first 100 videos — scan again after clearing these to check the rest.
+        Showing the first 50 videos — scan again after clearing these to check the rest.
       </p>
     {/if}
 

@@ -1882,13 +1882,19 @@ export interface SongVideoCandidate {
   isCurrent: boolean
 }
 
+export interface SongVideoCandidates {
+  /** How many leading candidates the client should measure via {@link probeSongVideoCandidate}. */
+  probeLimit: number
+  candidates: SongVideoCandidate[]
+}
+
 /**
- * Search YouTube for this song's music video and report what each candidate would cost and whether
- * it is a real clip — without downloading any of them. Only the first few carry a measured `motion`;
- * the rest report "Unknown" because probing each one costs a metadata call and a sprite sheet.
+ * Search YouTube for this song's music video without downloading anything. Every candidate comes
+ * back with `motion: "Unknown"` — measuring is a separate request per candidate, because probing
+ * several inline made this call exceed the gateway timeout in production.
  */
-export async function getSongVideoCandidates(songId: number): Promise<SongVideoCandidate[]> {
-  return requestJson<SongVideoCandidate[]>(`/songs/${songId}/video/candidates`)
+export async function getSongVideoCandidates(songId: number): Promise<SongVideoCandidates> {
+  return requestJson<SongVideoCandidates>(`/songs/${songId}/video/candidates`)
 }
 
 export interface StoredVideoAuditRow {
@@ -1917,7 +1923,7 @@ export interface StoredVideoAudit {
  * Measure the music videos already on disk and report which are static album covers, with the disk
  * they occupy. Read-only — removing one still goes through {@link deleteSongVideo}.
  */
-export async function auditStoredVideos(limit = 100): Promise<StoredVideoAudit> {
+export async function auditStoredVideos(limit = 50): Promise<StoredVideoAudit> {
   return requestJson<StoredVideoAudit>(`/musicvideos/audit?limit=${Math.round(limit)}`)
 }
 
