@@ -1,4 +1,4 @@
-<Project Sdk="Aspire.AppHost.Sdk/13.4.6">
+<Project Sdk="Aspire.AppHost.Sdk/13.5.3">
 
     <PropertyGroup>
         <OutputType>Exe</OutputType>
@@ -6,6 +6,10 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <UserSecretsId>df146f6f-c6e2-439e-aab4-9a0c9f006153</UserSecretsId>
+        <!-- ASPIRE010 (new in Aspire 13.5) warns that AspireUseCliBundle is unset, so DCP and the
+             dashboard come from the restored NuGet packages instead of an installed Aspire CLI.
+             That is deliberate: it keeps the AppHost buildable without the CLI on PATH. -->
+        <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>
@@ -13,9 +17,9 @@
     </ItemGroup>
 
     <ItemGroup>
-      <PackageReference Include="Aspire.Hosting.Docker" Version="13.5.0" />
-      <PackageReference Include="Aspire.Hosting.JavaScript" Version="13.5.0" />
-      <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.5.0" />
+      <PackageReference Include="Aspire.Hosting.Docker" Version="13.5.3" />
+      <PackageReference Include="Aspire.Hosting.JavaScript" Version="13.5.3" />
+      <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.5.3" />
       <PackageReference Include="MessagePack" Version="3.1.8" />
     </ItemGroup>
 
