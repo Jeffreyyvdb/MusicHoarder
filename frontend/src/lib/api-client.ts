@@ -3759,7 +3759,27 @@ export async function captureSnapshot(
   })
 }
 
-// --- Library history (destination-write change feed) ---
+// --- Library history (the activity feed) ---
+
+/**
+ * The filter buckets the feed slices by. Mirrors ActivityCategory on the API — a value the backend
+ * adds and this union does not carry will fail to compile at the chip list and the icon map, which is
+ * the point.
+ */
+export type HistoryCategory =
+  | "acquired"
+  | "enriched"
+  | "written"
+  | "lyrics"
+  | "video"
+  | "artwork"
+  | "listening"
+  | "sync"
+  | "curation"
+  | "pipeline"
+
+/** Severity, sharing the timeline's vocabulary so both can be rendered the same way. */
+export type HistoryTint = "ok" | "info" | "warn" | "err"
 
 export interface HistoryRawChange {
   songId?: number | null
@@ -3769,15 +3789,28 @@ export interface HistoryRawChange {
   newValue?: string | null
   isAlbumIdentity: boolean
   writtenAtUtc: string
+  /** Free text for entries that aren't a field diff — a provider name, an error, a reason. */
+  detail?: string | null
 }
 
 export interface HistorySummary {
   id: string
-  /** "consolidation" | "artist-rename" | "year-correction" | "cover" | "tags" */
+  /**
+   * Fine-grained event type, e.g. "downloaded" | "lyrics-timing-fixed" | "video-added". Open-ended
+   * on purpose: each API source owns its own kinds, and the UI falls back to the category's icon for
+   * one it does not recognise.
+   */
   kind: string
+  category: HistoryCategory
   headline: string
+  /** Second line: the provider, the reason, the error. */
+  detail?: string | null
+  tint: HistoryTint
   albumArtist?: string | null
   album?: string | null
+  /** Set when the entry is about exactly one track, so the row links straight to it. */
+  songId?: number | null
+  trackTitle?: string | null
   trackCount: number
   latestWrittenAtUtc: string
   runId?: string | null
@@ -3787,24 +3820,36 @@ export interface HistorySummary {
 export interface HistoryFeedResponse {
   summaries: HistorySummary[]
   nextCursor?: string | null
+  /** Entries matching the current filters in the window — not field writes. */
   totalEventsInWindow: number
+  /** Entry count per category before the category filter — the chips' numbers. */
+  categoryCounts: Partial<Record<HistoryCategory, number>>
 }
 
-export async function fetchHistory(params: {
-  from?: string
-  to?: string
-  artist?: string
-  album?: string
-  cursor?: string
-  take?: number
-} = {}): Promise<HistoryFeedResponse> {
+export async function fetchHistory(
+  params: {
+    from?: string
+    to?: string
+    artist?: string
+    album?: string
+    /** One or more categories; omitted means every category. */
+    category?: HistoryCategory[]
+    /** Narrow to warnings and failures — the "what broke" question, without picking categories. */
+    problems?: boolean
+    cursor?: string
+    take?: number
+  } = {},
+  signal?: AbortSignal,
+): Promise<HistoryFeedResponse> {
   const q = new URLSearchParams()
   if (params.from) q.set("from", params.from)
   if (params.to) q.set("to", params.to)
   if (params.artist) q.set("artist", params.artist)
   if (params.album) q.set("album", params.album)
+  if (params.category?.length) q.set("category", params.category.join(","))
+  if (params.problems) q.set("problems", "true")
   if (params.cursor) q.set("cursor", params.cursor)
   if (params.take != null) q.set("take", String(params.take))
   const query = q.toString()
-  return requestJson<HistoryFeedResponse>(`/api/history${query ? `?${query}` : ""}`)
+  return requestJson<HistoryFeedResponse>(`/api/history${query ? `?${query}` : ""}`, { signal })
 }
