@@ -277,6 +277,42 @@ public class LibraryBuilderServiceTests
     }
 
     [Fact]
+    public async Task ProcessNextBatchAsync_QuarantinesImmediately_WhenSourceFileIsUnreadable()
+    {
+        // A file the tagger can't open at all (a corrupt/incomplete download — the Ogg Opus with no
+        // OpusTags header seen in production) is broken bytes, not a transient write failure: every
+        // retry copies the same file and fails identically. It must quarantine on the FIRST failure
+        // instead of four more pointless copies, and with an error that names the file's problem
+        // rather than TagLib's internal one.
+        var sourcePath = "/source/track.opus";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourcePath, 5));
+        await db.SaveChangesAsync();
+
+        var tagWriter = new UnreadableFileTagWriter();
+        var service = CreateService(db, fileSystem, tagWriter);
+
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        var song = await db.Songs.SingleAsync();
+
+        Assert.Equal(1, result.Failed);
+        Assert.Equal(LibraryBuildStatus.Failed, song.LibraryBuildStatus);
+        Assert.Equal(5, song.LibraryBuildAttempts);   // straight to MaxLibraryBuildAttempts
+        Assert.Contains("Not a readable audio file", song.LibraryBuildError!, StringComparison.Ordinal);
+        Assert.Single(tagWriter.Paths);
+
+        // Quarantined: the next sweep must not select it again (that's the 5x churn this removes).
+        var second = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        Assert.Equal(0, second.TotalTracks);
+        Assert.Single(tagWriter.Paths);
+    }
+
+    [Fact]
     public async Task ProcessNextBatchAsync_ProcessesSingleCandidate_WhenDestinationCollidesWithinBatch()
     {
         var sourcePath1 = "/source/track1.mp3";
@@ -1359,6 +1395,19 @@ public class LibraryBuilderServiceTests
             ct.ThrowIfCancellationRequested();
             Paths.Add(path);
             throw new IOException("tag writer exploded");
+        }
+    }
+
+    // Models TagLibLibraryTagWriter meeting a file whose container it cannot open at all.
+    private sealed class UnreadableFileTagWriter : ILibraryTagWriter
+    {
+        public List<string> Paths { get; } = [];
+
+        public Task WriteTagsAsync(string path, SongMetadata song, AlbumIdentity albumIdentity, CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            Paths.Add(path);
+            throw new UnreadableAudioFileException(path, new ArgumentNullException("data"));
         }
     }
 

@@ -68,7 +68,11 @@ public class FileScanner(
             }
             catch (Exception ex)
             {
-                logger.LogDebug("Could not read tags from {File}: {Message}", fileName, ex.Message);
+                // Warning, not Debug: a file whose container the tagger can't open is usually a
+                // corrupt/incomplete download, and it goes on to look exactly like an untagged song
+                // (no artist, no title) all the way to the build, where it fails. This line is the
+                // first and cheapest place to see it.
+                logger.LogWarning("Could not read tags from {File}: {Message}", fileName, ex.Message);
             }
 
             FpcalcResult? fpcalcResult = null;

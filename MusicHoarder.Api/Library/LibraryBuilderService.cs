@@ -52,7 +52,7 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
     {
         ct.ThrowIfCancellationRequested();
 
-        using var tagFile = TagLib.File.Create(path);
+        using var tagFile = OpenForTagging(path);
         var tag = tagFile.Tag;
 
         // Album-IDENTITY fields come from the reconciled identity (shared by every track of the album)
@@ -121,6 +121,31 @@ public class TagLibLibraryTagWriter : ILibraryTagWriter
 
         tagFile.Save();
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Opens the file for tagging, translating "TagLib cannot read this container at all" into
+    /// <see cref="UnreadableAudioFileException"/>. Two reasons: the stored build error then names the
+    /// real problem instead of TagLib's internal one (a malformed Ogg Opus surfaces as "Value cannot
+    /// be null. (Parameter 'data')"), and the builder can quarantine broken bytes at once rather than
+    /// re-copying them on every attempt. Only format/parse failures qualify — an IO error (locked or
+    /// missing file) stays transient and keeps its bounded retries.
+    /// </summary>
+    private static TagLib.File OpenForTagging(string path)
+    {
+        try
+        {
+            return TagLib.File.Create(path);
+        }
+        catch (Exception ex) when (
+            ex is TagLib.CorruptFileException
+            or TagLib.UnsupportedFormatException
+            // TagLib parses header packets without validating them first, so a malformed stream comes
+            // out as an argument exception from deep inside its readers.
+            or ArgumentException)
+        {
+            throw new UnreadableAudioFileException(path, ex);
+        }
     }
 
     private static void SetIfPresent(string? value, Action<string> set)
@@ -1013,8 +1038,25 @@ public class LibraryBuilderService(
                 "Library build failed for {Track} (SongId={SongId}). Source={SourcePath}, Temp={TempPath}, Destination={DestinationPath}",
                 song.TrackLabel, songId, song.SourcePath, tempPath, destinationPath);
             song.MarkBuildFailed(ex.Message);
+            // A file the tagger cannot open at all is broken bytes, not a transient write failure:
+            // every further attempt copies the same file and fails identically. Quarantine it on the
+            // first failure instead of four more copies later.
+            var unreadable = ex is UnreadableAudioFileException;
+            if (unreadable)
+            {
+                song.LibraryBuildAttempts =
+                    Math.Max(song.LibraryBuildAttempts, options.Value.MaxLibraryBuildAttempts);
+            }
+
             await db.SaveChangesAsync(ct);
-            if (song.LibraryBuildAttempts >= options.Value.MaxLibraryBuildAttempts)
+            if (unreadable)
+            {
+                logger.LogError(
+                    "Quarantining {Track} (SongId={SongId}): {SourcePath} is not a readable audio file, "
+                    + "so no retry can succeed; excluded from the build queue until reset. Error: {Error}",
+                    song.TrackLabel, songId, song.SourcePath, ex.Message);
+            }
+            else if (song.LibraryBuildAttempts >= options.Value.MaxLibraryBuildAttempts)
             {
                 // Quarantined: the build query stops selecting this row until a manual re-build/re-enrich
                 // resets the counter, so one un-writable file can't loop the builder forever (issue #239).

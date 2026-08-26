@@ -439,6 +439,64 @@ public class TagLibLibraryTagWriterTests : IDisposable
         Assert.Equal(["21 Savage, Travis Scott & Metro Boomin"], file.Tag.Performers);
     }
 
+    [Fact]
+    public async Task WriteTags_Opus_WritesXiphComment()
+    {
+        var path = CopyFixture("silence.opus");
+        var song = BasicSong();
+        song.Extension = ".opus";
+
+        await new TagLibLibraryTagWriter().WriteTagsAsync(path, song, Identity(song));
+
+        using var file = TagLib.File.Create(path);
+        Assert.Equal("A Title", file.Tag.Title);
+        Assert.Equal(["An Artist"], file.Tag.AlbumArtists);
+    }
+
+    [Fact]
+    public async Task WriteTags_OpusWithoutCommentHeader_ThrowsUnreadableAudioFile()
+    {
+        // A malformed Ogg Opus: the OpusTags comment-header page is missing, which is what an
+        // incomplete or mangled download looks like (ffmpeg rejects the same file). TagLib builds its
+        // Xiph comment from a null packet and surfaces "Value cannot be null. (Parameter 'data')" —
+        // a message that says nothing about the file. The writer must translate that into a file-level
+        // failure, which is the builder's signal to quarantine instead of re-copying broken bytes.
+        var path = CopyFixture("silence.opus");
+        StripOpusCommentPage(path);
+        var song = BasicSong();
+        song.Extension = ".opus";
+
+        var ex = await Assert.ThrowsAsync<UnreadableAudioFileException>(
+            () => new TagLibLibraryTagWriter().WriteTagsAsync(path, song, Identity(song)));
+
+        Assert.Equal(path, ex.Path);
+        Assert.Contains("Not a readable audio file", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Removes the whole Ogg page carrying the file's OpusTags comment header.</summary>
+    private static void StripOpusCommentPage(string path)
+    {
+        var data = File.ReadAllBytes(path);
+        var tags = Find(data, "OpusTags"u8, 0);
+        Assert.True(tags > 0, "fixture should carry an OpusTags header");
+
+        var pageStarts = new List<int>();
+        for (var i = Find(data, "OggS"u8, 0); i >= 0; i = Find(data, "OggS"u8, i + 4))
+        {
+            pageStarts.Add(i);
+        }
+
+        var pageStart = pageStarts.Last(p => p < tags);
+        var nextPage = pageStarts.First(p => p > tags);
+        File.WriteAllBytes(path, [.. data[..pageStart], .. data[nextPage..]]);
+    }
+
+    private static int Find(byte[] data, ReadOnlySpan<byte> needle, int start)
+    {
+        var index = data.AsSpan(start).IndexOf(needle);
+        return index < 0 ? -1 : start + index;
+    }
+
     // The identity that mirrors a song's own album fields — what reconciliation produces for a
     // single-member album, so existing per-song assertions hold unchanged.
     private static AlbumIdentity Identity(SongMetadata song) => AlbumIdentity.FromSong(song);
