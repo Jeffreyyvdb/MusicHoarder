@@ -423,6 +423,73 @@ public class SongMetadata
         && (PreferredLyricsSource == PreferredLyricsSource.Transcribed
             || (string.IsNullOrWhiteSpace(SyncedLyrics) && string.IsNullOrWhiteSpace(PlainLyrics)));
 
+    /// <summary>
+    /// True when the stored transcription carries the song's <b>official</b> lyric text re-timed against
+    /// the audio (a successful forced/LLM alignment to the LRCLIB words) rather than the AI's own guess at
+    /// the words. This is the single bit that separates an <i>AI enhanced</i> lyric from an <i>AI generated</i>
+    /// one, so it is persisted rather than recomputed — the alignment inputs (Whisper's word clock) are gone
+    /// once the request ends. See <see cref="LyricsProvenance"/>.
+    /// </summary>
+    public bool TranscriptionAlignedToReference { get; set; }
+
+    // --- Lyrics timing validation ---
+    //
+    // LRCLIB is a community database keyed on track name; its /api/search fallback can return an LRC that
+    // belongs to a DIFFERENT recording of the same song (a live cut, a sped-up edit, an extended mix), whose
+    // timestamps are wildly wrong for our audio. These columns record whether a stored LRC's timing has been
+    // checked against the track, and what the check concluded. Display-only — a Suspect verdict never hides
+    // the lyrics, it only labels them and queues the AI probe.
+
+    /// <summary>The track length LRCLIB reported for the matched entry, in seconds. Null before the fix landed.</summary>
+    public double? LrclibDurationSeconds { get; set; }
+
+    public LyricsSyncStatus LyricsSyncStatus { get; set; } = LyricsSyncStatus.NotChecked;
+
+    /// <summary>Short human-readable reason for a non-Ok verdict, e.g. "lyrics run 48s past the end of the track".</summary>
+    public string? LyricsSyncIssue { get; set; }
+
+    public DateTime? LyricsSyncCheckedAtUtc { get; set; }
+
+    /// <summary>
+    /// The constant shift the AI probe measured and applied to <see cref="SyncedLyrics"/>, in milliseconds
+    /// (positive = the stored LRC was running early and every line was pushed later). Non-null means the
+    /// displayed LRCLIB lyrics carry AI-derived timing, which is what makes them <i>AI enhanced</i>.
+    /// </summary>
+    public int? LyricsSyncOffsetMs { get; set; }
+
+    /// <summary>Fraction of probed reference words the transcript agreed with, 0-1. Diagnostics + label confidence.</summary>
+    public double? LyricsSyncConfidence { get; set; }
+
+    /// <summary>How many times the paid AI timing probe has run for this song. Bounds the retry on a Suspect row.</summary>
+    public int LyricsSyncProbeAttempts { get; set; }
+
+    /// <summary>
+    /// How much AI is in the lyrics the app is showing right now — the value the badge in the web player,
+    /// the share page and the Android viewer renders. Derived, never stored, so a preferred-source flip or a
+    /// re-fetch can never leave a stale label behind.
+    /// </summary>
+    public LyricsProvenance LyricsProvenance => ComputeLyricsProvenance(
+        UseTranscribedForDisplay,
+        TranscriptionAlignedToReference,
+        !string.IsNullOrWhiteSpace(SyncedLyrics),
+        LyricsSyncOffsetMs);
+
+    /// <summary>
+    /// The provenance rule in one place, as a static so a projection that never materialises the entity
+    /// (the songs list) reaches the same verdict as the entity itself.
+    ///
+    /// Note the asymmetry, which is deliberate: an AI transcription we could NOT align to the official
+    /// lyrics is reported as fully AI-generated, because its words are the machine's guess. Anything else
+    /// the AI touched only moved timestamps, and the words stayed human.
+    /// </summary>
+    public static LyricsProvenance ComputeLyricsProvenance(
+        bool showingTranscription, bool alignedToReference, bool hasSyncedLyrics, int? syncOffsetMs)
+        => showingTranscription
+            ? (alignedToReference ? LyricsProvenance.AiEnhanced : LyricsProvenance.AiGenerated)
+            : syncOffsetMs is not null && hasSyncedLyrics
+                ? LyricsProvenance.AiEnhanced
+                : LyricsProvenance.Human;
+
     // --- AI lyrics pronunciation + translation (generated on demand from the display lyrics) ---
     //
     // An LLM-generated romanization/pronunciation guide (Arabizi for Arabic, pinyin, romaji, phonetic
@@ -1012,10 +1079,14 @@ public class SongMetadata
         && !string.IsNullOrWhiteSpace(Title)
         && !string.IsNullOrWhiteSpace(Artist);
 
-    public void ApplyLyricsResult(string? syncedLyrics, string? plainLyrics, bool instrumental, int? lrclibId = null)
+    public void ApplyLyricsResult(
+        string? syncedLyrics, string? plainLyrics, bool instrumental, int? lrclibId = null, double? lrclibDuration = null)
     {
         IsInstrumental = instrumental;
         if (lrclibId is not null) LrclibId = lrclibId.Value.ToString();
+        if (lrclibDuration is > 0) LrclibDurationSeconds = lrclibDuration;
+        // New text means any earlier timing verdict (and any offset we applied to the old text) is void.
+        ResetLyricsSyncCheck();
         if (instrumental)
         {
             LyricsStatus = LyricsStatus.Instrumental;
@@ -1104,7 +1175,8 @@ public class SongMetadata
     /// song we already have plain lyrics for is treated as noise and ignored rather than clearing them.
     /// Anything that would leave the song unchanged returns false so the caller skips the re-tag.
     /// </summary>
-    public bool TryApplyLyricsUpgrade(string? syncedLyrics, string? plainLyrics, bool instrumental, int? lrclibId = null)
+    public bool TryApplyLyricsUpgrade(
+        string? syncedLyrics, string? plainLyrics, bool instrumental, int? lrclibId = null, double? lrclibDuration = null)
     {
         // Already the best outcome LRCLIB can give us — nothing to upgrade.
         if (!string.IsNullOrWhiteSpace(SyncedLyrics))
@@ -1118,7 +1190,7 @@ public class SongMetadata
             if (hasPlain)
                 return false;
 
-            ApplyLyricsResult(null, null, true, lrclibId);
+            ApplyLyricsResult(null, null, true, lrclibId, lrclibDuration);
             return true;
         }
 
@@ -1128,7 +1200,7 @@ public class SongMetadata
             return false;
 
         // Keep the plain lyrics we already have if this response carried only the synced form.
-        ApplyLyricsResult(syncedLyrics, plainLyrics ?? PlainLyrics, false, lrclibId);
+        ApplyLyricsResult(syncedLyrics, plainLyrics ?? PlainLyrics, false, lrclibId, lrclibDuration);
         return true;
     }
 
@@ -1144,13 +1216,21 @@ public class SongMetadata
         LyricsLastAttemptedAtUtc = null;
         LyricsFetchAttempts = 0;
         LyricsNextRecheckAfterUtc = null;
+        LrclibDurationSeconds = null;
+        ResetLyricsSyncCheck();
         // The pronunciation/translation was generated from these lyrics — resetting them makes it stale.
         ResetLyricsTranslation();
     }
 
     // --- AI transcription lifecycle ---
 
-    public void ApplyTranscriptionResult(string? syncedLyrics, string? plainLyrics, string model)
+    /// <param name="alignedToReference">
+    /// True when these lines are the song's official words re-timed against the audio rather than the AI's
+    /// own guess at the words — the bit <see cref="LyricsProvenance"/> turns into an "AI enhanced" vs
+    /// "AI generated" label.
+    /// </param>
+    public void ApplyTranscriptionResult(
+        string? syncedLyrics, string? plainLyrics, string model, bool alignedToReference = false)
     {
         TranscribedSyncedLyrics = string.IsNullOrWhiteSpace(syncedLyrics) ? null : syncedLyrics;
         TranscribedPlainLyrics = string.IsNullOrWhiteSpace(plainLyrics) ? null : plainLyrics;
@@ -1158,6 +1238,7 @@ public class SongMetadata
         TranscribedAtUtc = DateTime.UtcNow;
         TranscriptionModel = model;
         TranscriptionError = null;
+        TranscriptionAlignedToReference = alignedToReference;
     }
 
     public void MarkTranscriptionFailed(string error)
@@ -1175,7 +1256,50 @@ public class SongMetadata
         TranscribedAtUtc = null;
         TranscriptionModel = null;
         TranscriptionError = null;
+        TranscriptionAlignedToReference = false;
     }
+
+    // --- Lyrics timing validation lifecycle ---
+
+    /// <summary>Clears every timing verdict, including a measured offset. Call whenever the LRC text changes.</summary>
+    public void ResetLyricsSyncCheck()
+    {
+        LyricsSyncStatus = LyricsSyncStatus.NotChecked;
+        LyricsSyncIssue = null;
+        LyricsSyncCheckedAtUtc = null;
+        LyricsSyncOffsetMs = null;
+        LyricsSyncConfidence = null;
+        LyricsSyncProbeAttempts = 0;
+    }
+
+    /// <summary>Records a verdict from the free (arithmetic) checks or from the AI probe.</summary>
+    public void ApplyLyricsSyncVerdict(LyricsSyncStatus status, string? issue, double? confidence = null)
+    {
+        LyricsSyncStatus = status;
+        LyricsSyncIssue = status is LyricsSyncStatus.Ok or LyricsSyncStatus.Corrected || issue is null
+            ? null
+            : Truncate(issue, MaxErrorLength);
+        LyricsSyncCheckedAtUtc = DateTime.UtcNow;
+        if (confidence is not null)
+            LyricsSyncConfidence = confidence;
+    }
+
+    /// <summary>
+    /// Replaces <see cref="SyncedLyrics"/> with the same lines shifted by a measured constant offset. The
+    /// words are untouched — only the timestamps move — so the result stays the human-written lyric with
+    /// AI-derived timing, which <see cref="LyricsProvenance"/> reports as <see cref="LyricsProvenance.AiEnhanced"/>.
+    /// </summary>
+    public void ApplyLyricsSyncOffset(string shiftedLrc, int offsetMs, double? confidence)
+    {
+        SyncedLyrics = string.IsNullOrWhiteSpace(shiftedLrc) ? SyncedLyrics : shiftedLrc;
+        // Accumulate: a second probe measures against the ALREADY-shifted text, so the total drift from the
+        // LRCLIB original is the sum, and that total is what the label reasons about.
+        LyricsSyncOffsetMs = (LyricsSyncOffsetMs ?? 0) + offsetMs;
+        ApplyLyricsSyncVerdict(LyricsSyncStatus.Corrected, null, confidence);
+    }
+
+    /// <summary>Notes that the paid AI probe ran, whatever it concluded, so a hopeless row stops being retried.</summary>
+    public void RecordLyricsSyncProbeAttempt() => LyricsSyncProbeAttempts++;
 
     // --- AI pronunciation/translation lifecycle ---
 
@@ -1274,6 +1398,38 @@ public enum PreferredLyricsSource
 {
     Lrclib = 0,
     Transcribed = 1,
+}
+
+/// <summary>Outcome of checking a stored LRC's timestamps against the actual audio. DB contract — never renumber.</summary>
+public enum LyricsSyncStatus
+{
+    /// <summary>No verdict yet (no synced lyrics, or the check has not run).</summary>
+    NotChecked = 0,
+
+    /// <summary>The LRC's timing is consistent with the track. Either the free checks passed or the AI probe agreed.</summary>
+    Ok = 1,
+
+    /// <summary>The timing is inconsistent with the track — most often an LRC belonging to a different recording.</summary>
+    Suspect = 2,
+
+    /// <summary>The AI probe found a constant offset and shifted every line by it; the timing is now trusted.</summary>
+    Corrected = 3,
+
+    /// <summary>Checked, but nothing conclusive could be said (too few lines, unknown track duration).</summary>
+    Unverifiable = 4,
+}
+
+/// <summary>How much of the lyrics the app is currently displaying came from an AI. DB contract — never renumber.</summary>
+public enum LyricsProvenance
+{
+    /// <summary>Human-contributed LRCLIB lyrics, timing untouched.</summary>
+    Human = 0,
+
+    /// <summary>The song's official words, re-timed by AI — a forced alignment or a measured constant offset.</summary>
+    AiEnhanced = 1,
+
+    /// <summary>Both the words and the timing came from an AI transcription of the audio.</summary>
+    AiGenerated = 2,
 }
 
 public enum LyricsTranslationStatus

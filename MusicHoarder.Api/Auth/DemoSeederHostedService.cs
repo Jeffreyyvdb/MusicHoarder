@@ -287,7 +287,8 @@ public sealed class DemoSeederHostedService : IHostedService
                 if (lyrics is null)
                     meta.MarkLyricsNotFound();
                 else
-                    meta.ApplyLyricsResult(lyrics.SyncedLyrics, lyrics.PlainLyrics, lyrics.IsInstrumental, lyrics.LrclibId);
+                    meta.ApplyLyricsResult(
+                        lyrics.SyncedLyrics, lyrics.PlainLyrics, lyrics.IsInstrumental, lyrics.LrclibId, lyrics.DurationSeconds);
             }
             catch (Exception ex)
             {

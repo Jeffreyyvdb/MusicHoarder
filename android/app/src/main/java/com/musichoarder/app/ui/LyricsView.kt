@@ -32,6 +32,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.OpenInFull
@@ -52,6 +53,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.musichoarder.app.data.Lyrics
+import com.musichoarder.app.data.LyricsProvenance
 import com.musichoarder.app.player.PlayerUiState
 import com.musichoarder.app.ui.theme.MhTheme
 
@@ -128,7 +132,10 @@ fun LyricsView(
                     )
                 }
 
-                lyrics.isSynced -> SyncedLyrics(lyrics, positionMs, onSeek, modifier)
+                lyrics.isSynced -> Column(modifier.fillMaxSize()) {
+                    AiLyricsBadge(lyrics.provenance)
+                    SyncedLyrics(lyrics, positionMs, onSeek, Modifier.weight(1f))
+                }
 
                 !lyrics.plainText.isNullOrBlank() -> Column(
                     modifier = modifier
@@ -136,6 +143,7 @@ fun LyricsView(
                         .verticalScroll(rememberScrollState(), enabled = onSeek != null)
                         .padding(horizontal = 8.dp, vertical = 24.dp),
                 ) {
+                    AiLyricsBadge(lyrics.provenance)
                     Text(
                         lyrics.plainText,
                         style = LyricLineStyle,
@@ -154,6 +162,66 @@ fun LyricsView(
                 }
             }
         }
+    }
+}
+
+/**
+ * The AI disclosure, mirroring the web's `AiLyricsBadge`: a quiet pill above the lyrics saying who
+ * actually wrote the words being read.
+ *
+ * Two labels, deliberately not one. "AI Enhanced" means a machine only moved the timestamps under the
+ * song's real lyric; "AI Generated" means a machine chose the words themselves and may have them
+ * wrong. Human lyrics render nothing at all — a badge on every song would teach people to ignore it.
+ */
+@Composable
+private fun AiLyricsBadge(provenance: LyricsProvenance, modifier: Modifier = Modifier) {
+    if (provenance == LyricsProvenance.Human) return
+
+    val colors = MhTheme.colors
+    val label = when (provenance) {
+        LyricsProvenance.AiEnhanced -> "AI Enhanced"
+        LyricsProvenance.AiGenerated -> "AI Generated"
+        LyricsProvenance.Human -> return
+    }
+    val description = when (provenance) {
+        LyricsProvenance.AiEnhanced ->
+            "The song's own lyrics. Only the timing was adjusted by AI to match this recording."
+        LyricsProvenance.AiGenerated ->
+            "An AI transcribed these lyrics from the audio, so the words may be wrong."
+        LyricsProvenance.Human -> return
+    }
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .semantics { contentDescription = "$label. $description" },
+    ) {
+        Spacer(Modifier.weight(1f))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(colors.foreground.copy(alpha = 0.08f))
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+        ) {
+            Icon(
+                Icons.Rounded.AutoAwesome,
+                contentDescription = null,
+                tint = colors.foreground.copy(alpha = 0.55f),
+                modifier = Modifier.size(12.dp),
+            )
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+                color = colors.foreground.copy(alpha = 0.7f),
+            )
+        }
+        Spacer(Modifier.weight(1f))
     }
 }
 

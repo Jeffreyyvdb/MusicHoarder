@@ -33,6 +33,10 @@ public class TranscribeLyricsEndpointTests : IDisposable
         public Task<TranscriptionResult> TranscribeAsync(
             SongMetadata song, string audioFilePath, CancellationToken ct = default)
             => Task.FromResult(result);
+
+        public Task<IReadOnlyList<TimedWord>> TranscribeClipAsync(
+            string audioFilePath, double startSeconds, double lengthSeconds, string? promptText = null, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<TimedWord>>(Array.Empty<TimedWord>());
     }
 
     /// <summary>A built song with LRCLIB lyrics and a real (stub) file the endpoint can resolve.</summary>

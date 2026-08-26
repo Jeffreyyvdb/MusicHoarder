@@ -1,5 +1,6 @@
 import { createPasskey, getPasskeyAssertion } from "$lib/webauthn-client"
 import type { PlayerSong } from "$lib/stores/player.svelte"
+import type { LyricsProvenance, LyricsSyncStatus } from "$lib/types"
 
 const API_PREFIX = "/api/mh"
 
@@ -160,6 +161,12 @@ export interface ApiSong {
   transcriptionModel?: string | null
   /** Which lyrics the synced viewer shows when both exist: "Lrclib" | "Transcribed". */
   preferredLyricsSource?: string | null
+  /** How much of this song's displayed lyrics came from an AI. */
+  lyricsProvenance?: LyricsProvenance | null
+  /** What the timing check concluded about the stored LRC. */
+  lyricsSyncStatus?: LyricsSyncStatus | null
+  lyricsSyncIssue?: string | null
+  lyricsSyncOffsetMs?: number | null
   /** Sample rate in Hz (e.g. 44100). Shown in track details when present. */
   sampleRate?: number | null
   /** Bitrate in kbps (e.g. 320, 1411). Shown in track details when present. */
@@ -1704,6 +1711,18 @@ export interface TrackLyricsResponse {
   transcribedAtUtc?: string | null
   transcriptionModel?: string | null
   preferredLyricsSource?: string | null
+  /** How much of the lyrics being displayed came from an AI — drives the badge in every player. */
+  lyricsProvenance?: LyricsProvenance | null
+  /** True when the stored transcription carries the official words re-timed, not the AI's own guess. */
+  transcriptionAlignedToReference?: boolean | null
+  /** What the timing check concluded about the stored LRC's timestamps. */
+  lyricsSyncStatus?: LyricsSyncStatus | null
+  /** Human-readable reason for a Suspect verdict, e.g. "the lyrics run 48s past the end of the track". */
+  lyricsSyncIssue?: string | null
+  /** The constant shift the AI probe measured and applied, in ms. Non-null means the timing is AI-derived. */
+  lyricsSyncOffsetMs?: number | null
+  lyricsSyncConfidence?: number | null
+  lyricsSyncCheckedAtUtc?: string | null
   romanizedSynced?: string | null
   romanizedPlain?: string | null
   translatedSynced?: string | null
@@ -1753,6 +1772,33 @@ export interface RecheckLyricsResponse {
  */
 export async function recheckSongLyrics(songId: number): Promise<RecheckLyricsResponse> {
   return requestJson<RecheckLyricsResponse>(`/songs/${songId}/lyrics/recheck`, { method: "POST" })
+}
+
+export interface VerifyLyricsTimingResponse {
+  id: number
+  lyricsSyncStatus: LyricsSyncStatus
+  lyricsSyncIssue?: string | null
+  lyricsSyncOffsetMs?: number | null
+  lyricsSyncConfidence?: number | null
+  lyricsSyncCheckedAtUtc?: string | null
+  lyricsProvenance?: LyricsProvenance | null
+  /** True when the check rewrote every timestamp — the caller must reload the lyrics text. */
+  repaired: boolean
+  /** False when the verdict came from the free arithmetic checks alone and cost no API quota. */
+  usedAi: boolean
+}
+
+/**
+ * Check whether a track's stored LRC timestamps actually match its audio, and repair them when the
+ * drift turns out to be one constant offset.
+ *
+ * Cheap by construction: the free arithmetic checks run first, and only if they cannot settle it does
+ * the server transcribe a single ~30-second window of the track. It never rewrites the words — a
+ * repair moves timestamps only, which is why a repaired track is labelled "AI Enhanced" rather than
+ * "AI Generated".
+ */
+export async function verifyLyricsTiming(songId: number): Promise<VerifyLyricsTimingResponse> {
+  return requestJson<VerifyLyricsTimingResponse>(`/songs/${songId}/lyrics/verify-timing`, { method: "POST" })
 }
 
 /** Choose which lyrics the synced viewer shows when both an LRCLIB version and an AI transcription exist. */

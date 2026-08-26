@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -32,6 +33,23 @@ public interface ILyricsTranscriptionService
     /// word clock, falling back to a deterministic split. Throws on a transcode or API failure.
     /// </summary>
     Task<TranscriptionResult> TranscribeAsync(SongMetadata song, string audioFilePath, CancellationToken ct = default);
+
+    /// <summary>
+    /// Transcribes a single short WINDOW of a file and returns its words on the track's own clock (times are
+    /// shifted back by <paramref name="startSeconds"/>, so callers compare them directly against an LRC).
+    ///
+    /// This is the cheap half of the API: the free-tier audio budget is measured in audio-seconds, so a 30s
+    /// window costs about a seventh of what a whole song does. That is what makes checking every song's
+    /// timing affordable — the check only needs to see enough of the track to tell whether the LRC's claims
+    /// land where the words actually are.
+    /// </summary>
+    /// <param name="promptText">
+    /// Optional lyric text seeded into Whisper's <c>prompt</c>. Whisper conditions on it, so feeding it the
+    /// words we expect markedly raises how many it gets right — which is exactly what the alignment then
+    /// scores on. Free: the prompt is not audio and does not touch the audio-seconds budget.
+    /// </param>
+    Task<IReadOnlyList<TimedWord>> TranscribeClipAsync(
+        string audioFilePath, double startSeconds, double lengthSeconds, string? promptText = null, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -65,13 +83,19 @@ public sealed class LyricsTranscriptionService(
         {
             await TranscodeToMp3Async(audioFilePath, tempMp3, ct);
 
-            var response = await UploadWithRetryAsync(tempMp3, opts, ct);
-            var words = ToTimedWords(response.Words);
-            var transcriptText = NullIfBlank(response.Text);
-
             // Official lyric text (correct line breaks + punctuation) yields the best lines; prefer LRCLIB
             // plain. Whisper supplies the timing; the LLM only chooses where lines start.
+            //
+            // Resolved BEFORE the upload on purpose: it also seeds Whisper's prompt. Transcription is not
+            // deterministic, and the forced aligner only trusts a run whose words overlap the reference
+            // enough — so an unprimed run can land either side of that bar on the same song, which is why
+            // asking twice used to give two different answers. Priming it costs nothing and stops most of
+            // that coin-flip at the source.
             var referenceText = await ResolveReferenceLyricsAsync(song, ct);
+
+            var response = await UploadWithRetryAsync(tempMp3, opts, BuildPrompt(referenceText), ct);
+            var words = ToTimedWords(response.Words);
+            var transcriptText = NullIfBlank(response.Text);
 
             var refLines = LrcBuilder.SplitReferenceLines(referenceText);
             List<(double Start, string Text)>? lines = null;
@@ -82,9 +106,18 @@ public sealed class LyricsTranscriptionService(
                 // Tier B — we have the official lyrics. Deterministic forced alignment is robust to
                 // repeated lines (an LLM can't tell which repetition is which and collapses the timing);
                 // the LLM is only a fallback if the reference text doesn't match the audio well.
-                lines = ForcedLyricsAligner.Align(refLines, words);
+                var forced = ForcedLyricsAligner.AlignDetailed(refLines, words);
+                lines = forced?.Lines;
                 if (LrcBuilder.IsDegenerate(lines))
                     lines = null;
+
+                logger.LogInformation(
+                    "Transcription alignment for SongId={SongId}: forced alignment {Outcome} (word agreement {Ratio:P0}, {Words} transcript words vs {Lines} lyric lines).",
+                    song.Id,
+                    lines is null ? "rejected" : "accepted",
+                    forced?.MatchRatio ?? 0,
+                    words.Count,
+                    refLines.Count);
 
                 if (lines is null && opts.UseLlmAlignment && aligner.IsAvailable)
                 {
@@ -117,6 +150,42 @@ public sealed class LyricsTranscriptionService(
             var synced = lines is { Count: > 0 } ? LrcBuilder.Format(lines) : null;
             var plain = NullIfBlank(referenceText) ?? transcriptText;
             return new TranscriptionResult(synced, plain, opts.Model, alignedToReference);
+        }
+        finally
+        {
+            TryDelete(tempMp3);
+        }
+    }
+
+    public async Task<IReadOnlyList<TimedWord>> TranscribeClipAsync(
+        string audioFilePath,
+        double startSeconds,
+        double lengthSeconds,
+        string? promptText = null,
+        CancellationToken ct = default)
+    {
+        var opts = options.CurrentValue;
+        if (!opts.IsConfigured)
+            throw new InvalidOperationException("Lyrics transcription is not configured (missing BaseUrl/ApiKey).");
+
+        if (!File.Exists(audioFilePath))
+            throw new FileNotFoundException("Audio file not found on disk.", audioFilePath);
+
+        if (lengthSeconds <= 0)
+            return Array.Empty<TimedWord>();
+
+        var start = Math.Max(0, startSeconds);
+        var tempMp3 = Path.Combine(Path.GetTempPath(), $"mh-stt-clip-{Guid.NewGuid():N}.mp3");
+        try
+        {
+            await TranscodeToMp3Async(audioFilePath, tempMp3, ct, start, lengthSeconds);
+            var response = await UploadWithRetryAsync(tempMp3, opts, promptText, ct);
+
+            // The clip's clock starts at zero; put the words back on the track's clock so the caller can
+            // compare them with an LRC without having to remember the window it asked for.
+            return ToTimedWords(response.Words)
+                .Select(w => w with { Start = w.Start + start, End = w.End + start })
+                .ToList();
         }
         finally
         {
@@ -174,7 +243,8 @@ public sealed class LyricsTranscriptionService(
     /// so this is lossless to accuracy while keeping a full song well under OpenAI's 25 MB upload cap.
     /// Mirrors the concurrent-stream-read pattern used by <c>FpcalcService</c> to avoid pipe deadlock.
     /// </summary>
-    private async Task TranscodeToMp3Async(string inputPath, string outputPath, CancellationToken ct)
+    private async Task TranscodeToMp3Async(
+        string inputPath, string outputPath, CancellationToken ct, double? startSeconds = null, double? lengthSeconds = null)
     {
         var ffmpeg = string.IsNullOrWhiteSpace(enricherOptions.Value.FfmpegPath)
             ? "ffmpeg"
@@ -188,8 +258,21 @@ public sealed class LyricsTranscriptionService(
             CreateNoWindow = true,
         };
         psi.ArgumentList.Add("-y");
+        // -ss BEFORE -i is the fast input seek: ffmpeg jumps to the keyframe instead of decoding the whole
+        // file up to the window, which is the difference between a clip probe costing milliseconds and
+        // costing as much as a full transcode.
+        if (startSeconds is > 0)
+        {
+            psi.ArgumentList.Add("-ss");
+            psi.ArgumentList.Add(startSeconds.Value.ToString("0.###", CultureInfo.InvariantCulture));
+        }
         psi.ArgumentList.Add("-i");
         psi.ArgumentList.Add(inputPath);
+        if (lengthSeconds is > 0)
+        {
+            psi.ArgumentList.Add("-t");
+            psi.ArgumentList.Add(lengthSeconds.Value.ToString("0.###", CultureInfo.InvariantCulture));
+        }
         psi.ArgumentList.Add("-ac");
         psi.ArgumentList.Add("1");
         psi.ArgumentList.Add("-ar");
@@ -223,8 +306,21 @@ public sealed class LyricsTranscriptionService(
         }
     }
 
+    /// <summary>
+    /// The leading words of the reference lyrics, for Whisper's <c>prompt</c>. Capped well inside Whisper's
+    /// 224-token prompt window — anything past that is silently dropped by the API anyway.
+    /// </summary>
+    private static string? BuildPrompt(string? referenceText)
+    {
+        if (string.IsNullOrWhiteSpace(referenceText))
+            return null;
+        var words = referenceText.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        return string.Join(' ', words.Take(150));
+    }
+
     /// <summary>Posts the mp3 to <c>/audio/transcriptions</c>, retrying transient failures with backoff.</summary>
-    private async Task<WhisperVerboseResponse> UploadWithRetryAsync(string mp3Path, LyricsTranscriptionOptions opts, CancellationToken ct)
+    private async Task<WhisperVerboseResponse> UploadWithRetryAsync(
+        string mp3Path, LyricsTranscriptionOptions opts, string? promptText, CancellationToken ct)
     {
         var url = $"{opts.BaseUrl.TrimEnd('/')}/audio/transcriptions";
         var maxAttempts = Math.Max(0, opts.MaxRetries) + 1;
@@ -243,6 +339,8 @@ public sealed class LyricsTranscriptionService(
             form.Add(new StringContent("verbose_json"), "response_format");
             form.Add(new StringContent("segment"), "timestamp_granularities[]");
             form.Add(new StringContent("word"), "timestamp_granularities[]");
+            if (!string.IsNullOrWhiteSpace(promptText))
+                form.Add(new StringContent(promptText), "prompt");
 
             using var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = form };
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", opts.ApiKey);

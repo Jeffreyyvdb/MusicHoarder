@@ -185,6 +185,9 @@ public static class SharedLibraryEndpoints
             Synced = song.DisplaySyncedLyrics,
             Plain = song.DisplayPlainLyrics,
             IsInstrumental = song.IsInstrumental == true,
+            // The AI disclosure is a property of the words, not of who is reading them, so a grantee
+            // sees exactly the label the owner sees.
+            LyricsProvenance = song.LyricsProvenance.ToString(),
             RomanizedSynced = translationFresh ? song.RomanizedSyncedLyrics : null,
             RomanizedPlain = translationFresh ? song.RomanizedPlainLyrics : null,
             TranslatedSynced = translationFresh ? song.TranslatedSyncedLyrics : null,

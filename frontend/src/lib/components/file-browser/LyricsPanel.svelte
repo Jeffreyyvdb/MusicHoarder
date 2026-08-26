@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { LyricsStatus } from '$lib/types';
+  import type { LyricsProvenance, LyricsStatus, LyricsSyncStatus } from '$lib/types';
   import { page } from '$app/state';
-  import { fetchTrackLyrics, recheckSongLyrics } from '$lib/api-client';
+  import { fetchTrackLyrics, recheckSongLyrics, verifyLyricsTiming } from '$lib/api-client';
   import { Button } from '$lib/components/ui/button';
   import { Badge } from '$lib/components/ui/badge';
   import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
@@ -21,6 +21,7 @@
   import { cn } from '$lib/utils';
   import { parseLrc } from '$lib/lyrics/parse-lrc';
   import LyricsStatusBadge from './LyricsStatusBadge.svelte';
+  import AiLyricsBadge from './AiLyricsBadge.svelte';
   import { isAdmin } from '$lib/auth/capabilities';
 
   type Props = {
@@ -47,6 +48,12 @@
      */
     secondarySynced?: string;
     secondaryPlain?: string;
+    /**
+     * How much of these lyrics came from an AI. Passed in by callers that already hold the lyrics
+     * (the share page fetches through its own anonymous endpoint); when the panel fetches for
+     * itself it reads the value off that response instead.
+     */
+    provenance?: LyricsProvenance | null;
   };
 
   const {
@@ -62,7 +69,8 @@
     lrclibUrl,
     variant = 'panel',
     secondarySynced,
-    secondaryPlain
+    secondaryPlain,
+    provenance: provenanceFromProps
   }: Props = $props();
 
   const theater = $derived(variant === 'theater');
@@ -78,6 +86,13 @@
   let loadedSynced = $state<string | null | undefined>(undefined);
   let loadedPlain = $state<string | null | undefined>(undefined);
   let loadState = $state<'idle' | 'loading' | 'error'>('idle');
+  let loadedProvenance = $state<LyricsProvenance | null>(null);
+  let loadedSyncStatus = $state<LyricsSyncStatus | null>(null);
+  let loadedSyncIssue = $state<string | null>(null);
+
+  // The panel's own fetch is the richer source (it carries the timing verdict too), so it wins over
+  // the prop once it lands. Before that, the prop is what the share page has already loaded.
+  const effectiveProvenance = $derived(loadedProvenance ?? provenanceFromProps ?? null);
 
   // Re-sync from props whenever the song changes. The detail panel reuses this
   // one LyricsPanel instance across tracks (it isn't re-keyed per song), so a
@@ -91,8 +106,12 @@
     syncedForSongId = songId;
     loadedSynced = syncedLyricsFromProps;
     loadedPlain = plainLyricsFromProps;
+    loadedProvenance = null;
+    loadedSyncStatus = null;
+    loadedSyncIssue = null;
     loadState = 'idle';
     recheckState = 'idle';
+    verifyState = 'idle';
     statusOverride = null;
     followActive = true;
   });
@@ -119,10 +138,59 @@
       const lyrics = await fetchTrackLyrics(songId);
       loadedSynced = lyrics.synced ?? undefined;
       loadedPlain = lyrics.plain ?? undefined;
+      applyLyricsMeta(lyrics);
       statusOverride = result.lyricsStatus as LyricsStatus;
       recheckState = 'idle';
     } catch {
       recheckState = 'unchanged';
+    }
+  }
+
+  // --- Timing verification ---
+  //
+  // LRCLIB lyrics can belong to a different recording of the same song, in which case the words are
+  // right and the timestamps are not. Most of that is caught for free server-side; this button is for
+  // when the user can hear the drift on a track nothing flagged. The endpoint runs the free checks
+  // first and only pays for an AI listen when they cannot settle it.
+  let verifyState = $state<'idle' | 'checking' | 'done'>('idle');
+  let verifyMessage = $state<string | null>(null);
+
+  function applyLyricsMeta(data: {
+    lyricsProvenance?: LyricsProvenance | null;
+    lyricsSyncStatus?: LyricsSyncStatus | null;
+    lyricsSyncIssue?: string | null;
+  }) {
+    loadedProvenance = data.lyricsProvenance ?? null;
+    loadedSyncStatus = data.lyricsSyncStatus ?? null;
+    loadedSyncIssue = data.lyricsSyncIssue ?? null;
+  }
+
+  async function verifyTiming() {
+    if (songId === null || verifyState === 'checking') return;
+    verifyState = 'checking';
+    verifyMessage = null;
+    try {
+      const result = await verifyLyricsTiming(songId);
+      loadedSyncStatus = result.lyricsSyncStatus;
+      loadedSyncIssue = result.lyricsSyncIssue ?? null;
+      loadedProvenance = result.lyricsProvenance ?? loadedProvenance;
+
+      if (result.repaired) {
+        // Every timestamp moved, so the text on screen is stale — pull the repaired LRC.
+        const lyrics = await fetchTrackLyrics(songId);
+        loadedSynced = lyrics.synced ?? undefined;
+        loadedPlain = lyrics.plain ?? undefined;
+        const shift = Math.round((result.lyricsSyncOffsetMs ?? 0) / 1000);
+        verifyMessage = `Timing repaired — every line moved ${Math.abs(shift)}s ${shift >= 0 ? 'later' : 'earlier'}.`;
+      } else if (result.lyricsSyncStatus === 'Ok') {
+        verifyMessage = 'The timing matches the audio.';
+      } else if (result.lyricsSyncStatus === 'Unverifiable') {
+        verifyMessage = 'Could not tell — try a full AI re-sync instead.';
+      }
+      verifyState = 'done';
+    } catch {
+      verifyMessage = 'The timing check could not be completed.';
+      verifyState = 'done';
     }
   }
 
@@ -146,6 +214,7 @@
       .then((data) => {
         loadedSynced = data.synced ?? undefined;
         loadedPlain = data.plain ?? undefined;
+        applyLyricsMeta(data);
         loadState = 'idle';
       })
       .catch(() => {
@@ -288,6 +357,49 @@
   {/if}
 {/snippet}
 
+{#snippet timingNotice()}
+  <!--
+    The timing verdict, and the button that settles it. Owner-only: verifying is a server write that
+    can rewrite the stored LRC, and a Suspect verdict is a maintenance signal about the library rather
+    than something a listener can act on.
+  -->
+  {#if isAdmin(page.data.user) && hasSynced}
+    {#if loadedSyncStatus === 'Suspect'}
+      <div class="flex flex-wrap items-center gap-2">
+        <Badge
+          variant="outline"
+          class="gap-1 border-amber-500/30 text-amber-700 dark:text-amber-400"
+          title={loadedSyncIssue ?? undefined}
+        >
+          <AlertCircle class="size-3" />
+          Timing looks wrong
+        </Badge>
+        <Button
+          variant="subtle"
+          size="sm"
+          class="gap-1.5"
+          disabled={verifyState === 'checking' || songId === null}
+          onclick={verifyTiming}
+        >
+          {#if verifyState === 'checking'}
+            <Loader2 class="size-3.5 animate-spin" />
+            Listening…
+          {:else}
+            <Timer class="size-3.5" />
+            Check the timing
+          {/if}
+        </Button>
+      </div>
+      {#if loadedSyncIssue}
+        <p class="text-muted-foreground text-xs">{loadedSyncIssue}</p>
+      {/if}
+    {/if}
+    {#if verifyMessage}
+      <p class="text-muted-foreground text-xs">{verifyMessage}</p>
+    {/if}
+  {/if}
+{/snippet}
+
 {#if isInstrumental}
   <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 py-8 text-center">
     <Music class="text-muted-foreground size-10 opacity-40" />
@@ -327,8 +439,9 @@
   <div class="flex min-h-0 flex-1 flex-col gap-3">
     {#if !theater}
     <div class="flex flex-wrap items-center justify-between gap-2">
-      <div class="flex min-w-0 items-center gap-2">
+      <div class="flex min-w-0 flex-wrap items-center gap-2">
         <LyricsStatusBadge status={effectiveStatus} />
+        <AiLyricsBadge provenance={effectiveProvenance} />
         {#if hasSynced}
           <span
             title="Synced lyrics (LRC)"
@@ -377,6 +490,17 @@
     {/if}
 
     <!--
+      The theater view (full-screen player, share page) has no header row to hang the badge on, so
+      the AI disclosure gets its own quiet strip above the lyrics. It must appear here too: this is
+      the view people actually read lyrics in.
+    -->
+    {#if theater && effectiveProvenance && effectiveProvenance !== 'Human'}
+      <div class="flex justify-center px-1 sm:px-6">
+        <AiLyricsBadge provenance={effectiveProvenance} variant="theater" />
+      </div>
+    {/if}
+
+    <!--
       Unsynced lyrics are not a dead end: LRCLIB is community-contributed, so someone may have
       added an LRC for this track since it was enriched. Offered in both variants — the theater
       view is where a missing LRC is actually noticed.
@@ -384,6 +508,12 @@
     {#if !hasSynced}
       <div class={cn('flex flex-wrap items-center gap-2', theater && 'justify-center px-1 sm:px-6')}>
         {@render recheckButton('Look for synced lyrics')}
+      </div>
+    {/if}
+
+    {#if !theater}
+      <div class="flex flex-col gap-2">
+        {@render timingNotice()}
       </div>
     {/if}
 

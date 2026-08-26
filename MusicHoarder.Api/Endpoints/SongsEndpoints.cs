@@ -30,6 +30,10 @@ public static class SongsEndpoints
             .WithName("TranscribeLyrics")
             .WithSummary("Experimental: transcribe a song's audio via OpenAI Whisper into a synced LRC, stored separately from LRCLIB lyrics for comparison.")
             .WithTags("Lyrics");
+        app.MapPost("/songs/{id:int}/lyrics/verify-timing", VerifyLyricsTiming)
+            .WithName("VerifyLyricsTiming")
+            .WithSummary("Check a song's LRC timestamps against its audio using one short AI-transcribed window, and shift the whole LRC when the drift turns out to be a constant offset.")
+            .WithTags("Lyrics");
         app.MapPost("/songs/{id:int}/lyrics/recheck", RecheckLyrics)
             .WithName("RecheckSongLyrics")
             .WithSummary("Ask LRCLIB again for a song whose lyrics are missing or unsynced — LRCLIB gains lyrics over time. Ignores the automatic backoff; never clears lyrics already stored.")
@@ -373,6 +377,10 @@ public static class SongsEndpoints
                 s.TranscribedAtUtc,
                 s.TranscriptionModel,
                 s.PreferredLyricsSource,
+                s.TranscriptionAlignedToReference,
+                s.LyricsSyncStatus,
+                s.LyricsSyncIssue,
+                s.LyricsSyncOffsetMs,
                 s.LikedAtUtc,
                 s.PlayCount,
                 s.LastPlayedAtUtc,
@@ -432,6 +440,19 @@ public static class SongsEndpoints
             s.TranscribedAtUtc,
             s.TranscriptionModel,
             PreferredLyricsSource = s.PreferredLyricsSource.ToString(),
+            // How much AI is in the lyrics this row would display, plus what the timing check concluded —
+            // the badge in the player and the "timing looks off" affordance both read these.
+            LyricsProvenance = SongMetadata.ComputeLyricsProvenance(
+                showingTranscription:
+                    s.HasTranscribedLyrics
+                    && (s.PreferredLyricsSource == PreferredLyricsSource.Transcribed
+                        || (string.IsNullOrWhiteSpace(s.SyncedLyrics) && string.IsNullOrWhiteSpace(s.PlainLyrics))),
+                alignedToReference: s.TranscriptionAlignedToReference,
+                hasSyncedLyrics: !string.IsNullOrWhiteSpace(s.SyncedLyrics),
+                syncOffsetMs: s.LyricsSyncOffsetMs).ToString(),
+            LyricsSyncStatus = s.LyricsSyncStatus.ToString(),
+            s.LyricsSyncIssue,
+            s.LyricsSyncOffsetMs,
             s.LikedAtUtc,
             s.PlayCount,
             s.LastPlayedAtUtc,
@@ -530,6 +551,9 @@ public static class SongsEndpoints
                 Synced = song.DisplaySyncedLyrics,
                 Plain = song.DisplayPlainLyrics,
                 IsInstrumental = song.IsInstrumental == true,
+                // A guest sees the same AI label the owner does — the disclosure is about the words on the
+                // screen, so it must not depend on who is reading them.
+                LyricsProvenance = song.LyricsProvenance.ToString(),
                 RomanizedSynced = translationFresh ? song.RomanizedSyncedLyrics : null,
                 RomanizedPlain = translationFresh ? song.RomanizedPlainLyrics : null,
                 TranslatedSynced = translationFresh ? song.TranslatedSyncedLyrics : null,
@@ -551,6 +575,13 @@ public static class SongsEndpoints
             song.TranscribedAtUtc,
             song.TranscriptionModel,
             PreferredLyricsSource = song.PreferredLyricsSource.ToString(),
+            LyricsProvenance = song.LyricsProvenance.ToString(),
+            song.TranscriptionAlignedToReference,
+            LyricsSyncStatus = song.LyricsSyncStatus.ToString(),
+            song.LyricsSyncIssue,
+            song.LyricsSyncOffsetMs,
+            song.LyricsSyncConfidence,
+            song.LyricsSyncCheckedAtUtc,
             RomanizedSynced = song.RomanizedSyncedLyrics,
             RomanizedPlain = song.RomanizedPlainLyrics,
             TranslatedSynced = song.TranslatedSyncedLyrics,
@@ -615,6 +646,64 @@ public static class SongsEndpoints
         });
     }
 
+    /// <summary>
+    /// On-demand timing check for one song — the "verify timing" button. Runs the free arithmetic checks
+    /// first (they are instant and cost nothing) and only pays for an AI window when they cannot settle it,
+    /// so pressing the button on an obviously-broken LRC still spends a window, while pressing it on a
+    /// healthy one spends nothing.
+    /// </summary>
+    internal static async Task<IResult> VerifyLyricsTiming(
+        int id,
+        MusicHoarderDbContext db,
+        LyricsTimingProbe probe,
+        IOptionsMonitor<LyricsTimingOptions> timingOptions,
+        CancellationToken ct)
+    {
+        var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null, ct);
+        if (song is null)
+            return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+        if (string.IsNullOrWhiteSpace(song.SyncedLyrics))
+            return Results.UnprocessableEntity(new { message = "This song has no synced lyrics whose timing could be wrong." });
+
+        // The free checks: decisive when they fire, free when they don't.
+        var free = LyricsTimingValidator.Check(song);
+        song.ApplyLyricsSyncVerdict(free.Status, free.Issue);
+
+        var probed = false;
+        if (free.Status != LyricsSyncStatus.Ok && probe.IsAvailable)
+        {
+            var filePath = ResolveAudioFilePath(song);
+            if (filePath is not null)
+            {
+                var result = await probe.ProbeAsync(song, filePath, ct);
+                if (result is not null)
+                {
+                    song.RecordLyricsSyncProbeAttempt();
+                    LyricsTimingCheckService.ApplyProbeResult(song, result, timingOptions.CurrentValue);
+                    probed = true;
+                }
+            }
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(new
+        {
+            song.Id,
+            LyricsSyncStatus = song.LyricsSyncStatus.ToString(),
+            song.LyricsSyncIssue,
+            song.LyricsSyncOffsetMs,
+            song.LyricsSyncConfidence,
+            song.LyricsSyncCheckedAtUtc,
+            LyricsProvenance = song.LyricsProvenance.ToString(),
+            // The caller reloads the lyrics when this is true — a repair rewrote every timestamp.
+            Repaired = song.LyricsSyncStatus == LyricsSyncStatus.Corrected,
+            // False means the verdict came from the free checks alone and cost nothing.
+            UsedAi = probed,
+        });
+    }
+
     internal static async Task<IResult> TranscribeLyrics(
         int id,
         MusicHoarderDbContext db,
@@ -650,7 +739,8 @@ public static class SongsEndpoints
         {
             var result = await transcriber.TranscribeAsync(song, filePath, ct);
             // Stored separately from SyncedLyrics/PlainLyrics so it never clobbers the LRCLIB version.
-            song.ApplyTranscriptionResult(result.SyncedLyrics, result.PlainLyrics, result.Model);
+            song.ApplyTranscriptionResult(
+                result.SyncedLyrics, result.PlainLyrics, result.Model, result.AlignedToReference);
 
             // A re-sync of the song's OWN official lyrics (forced alignment against the LRCLIB text)
             // is the same words with better timing, so it becomes the default automatically — that is
@@ -688,6 +778,8 @@ public static class SongsEndpoints
                 HasExistingLyrics = song.LyricsStatus == LyricsStatus.Fetched,
                 // True when this run re-timed the official lyrics rather than inventing its own words.
                 Resynced = result.AlignedToReference,
+                // The label the players will now show for this song.
+                LyricsProvenance = song.LyricsProvenance.ToString(),
                 // Lets the client show the new version in the viewer without a refetch.
                 PreferredLyricsSource = song.PreferredLyricsSource.ToString(),
                 Promoted = promoted,
