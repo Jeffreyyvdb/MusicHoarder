@@ -42,9 +42,9 @@ public record MusicVideoDownloadResult(
 }
 
 /// <summary>
-/// A search hit offered to the owner before anything is downloaded, carrying both the title-based
-/// score and (for the top few) the pixel-level <see cref="MusicVideoProbeResult"/> — so "this one is
-/// a static album cover and would cost 12 MB" is visible at the moment of choosing.
+/// A search hit offered to the owner before anything is downloaded. Carries only what the search
+/// itself returned; the motion verdict and download size arrive separately, per candidate, so a
+/// slow video cannot hold up the list.
 /// </summary>
 public record MusicVideoCandidate(
     string VideoId,
@@ -52,8 +52,7 @@ public record MusicVideoCandidate(
     string Channel,
     int? DurationSeconds,
     int Score,
-    string? ThumbnailUrl,
-    MusicVideoProbeResult? Probe);
+    string? ThumbnailUrl);
 
 public interface IMusicVideoDownloader
 {
@@ -61,11 +60,13 @@ public interface IMusicVideoDownloader
     Task<MusicVideoDownloadResult> DownloadAsync(MusicVideoFetchRequest request, CancellationToken ct);
 
     /// <summary>
-    /// Searches for a song's music video and returns the ranked candidates WITHOUT downloading any
-    /// of them, probing the top <paramref name="probeLimit"/> for motion and size.
+    /// Searches for a song's music video and returns the ranked candidates WITHOUT downloading or
+    /// probing any of them. Deliberately search-only: it is a synchronous request, and one flat
+    /// search is bounded work, whereas a full metadata extraction per candidate is not. Motion
+    /// verdicts are filled in afterwards, one candidate per request, by <see cref="IMusicVideoProbe"/>.
     /// </summary>
     Task<IReadOnlyList<MusicVideoCandidate>> SuggestAsync(
-        MusicVideoFetchRequest request, int probeLimit, CancellationToken ct);
+        MusicVideoFetchRequest request, CancellationToken ct);
 
     /// <summary>The resolved videos directory (creates nothing; empty when downloads are unconfigured).</summary>
     string ResolveVideoDirectory();
@@ -225,7 +226,7 @@ public class MusicVideoDownloader(
     }
 
     public async Task<IReadOnlyList<MusicVideoCandidate>> SuggestAsync(
-        MusicVideoFetchRequest request, int probeLimit, CancellationToken ct)
+        MusicVideoFetchRequest request, CancellationToken ct)
     {
         var opts = options.Value;
         var cookiesPath = YtDlpCookies.PrepareWritableCopy(opts.YtDlpCookiesPath, logger);
@@ -236,7 +237,8 @@ public class MusicVideoDownloader(
             var ranked = RankCandidates(candidates, request.DurationMs, titleTokens);
 
             // A pinned video is the audio's own source: offer it alongside the search hits (first,
-            // since it is the only one guaranteed to be in sync) rather than hiding it.
+            // since it is the only one guaranteed to be in sync) rather than hiding it. The search
+            // gave us no row for it, so it carries no title until it is probed.
             var pinned = CanonicalizePin(request.PinnedIdOrUrl);
             if (pinned is not null && ImportUrlParser.TryParse(pinned, out _, out var pinnedId)
                 && !ranked.Any(c => c.Id == pinnedId))
@@ -244,22 +246,13 @@ public class MusicVideoDownloader(
                 ranked.Insert(0, new SearchCandidate(pinnedId, "", "", null));
             }
 
-            var result = new List<MusicVideoCandidate>(ranked.Count);
-            for (var i = 0; i < ranked.Count; i++)
-            {
-                var candidate = ranked[i];
-                var probed = i < probeLimit ? await probe.ProbeAsync(candidate.Id, ct) : null;
-                result.Add(new MusicVideoCandidate(
-                    candidate.Id,
-                    // The flat search omits the title for a pinned id we injected; the probe has it.
-                    candidate.Title.Length > 0 ? candidate.Title : probed?.Title ?? "",
-                    candidate.Channel.Length > 0 ? candidate.Channel : probed?.Channel ?? "",
-                    candidate.DurationSeconds is > 0 ? (int)candidate.DurationSeconds.Value : probed?.DurationSeconds,
-                    ScoreCandidate(candidate, request.DurationMs, titleTokens),
-                    candidate.ThumbnailUrl ?? probed?.ThumbnailUrl,
-                    probed));
-            }
-            return result;
+            return [.. ranked.Select(c => new MusicVideoCandidate(
+                c.Id,
+                c.Title,
+                c.Channel,
+                c.DurationSeconds is > 0 ? (int)c.DurationSeconds.Value : null,
+                ScoreCandidate(c, request.DurationMs, titleTokens),
+                c.ThumbnailUrl))];
         }
         finally
         {

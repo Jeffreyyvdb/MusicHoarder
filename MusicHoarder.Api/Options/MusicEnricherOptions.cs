@@ -903,6 +903,14 @@ public class MusicEnricherOptions
     [Range(1, 10)]
     public int MusicVideoProbeCandidates { get; set; } = 3;
 
+    /// <summary>
+    /// Deadline for one candidate probe. A probe is a full yt-dlp metadata extraction, which is
+    /// normally a second or two but can crawl when YouTube challenges the host. Hitting this leaves
+    /// the candidate unmeasured rather than failing anything, and the yt-dlp process is killed.
+    /// </summary>
+    [Range(5, 180)]
+    public int MusicVideoProbeTimeoutSeconds { get; set; } = 25;
+
     // ── Album completion (own ≥1 track → auto-fill the rest) ────────────────
     // A background sweep that compares each owned album against its reconciled CanonicalAlbum
     // tracklist and queues the missing tracks as WishlistItemOrigin.AlbumCompletion items. Songs that

@@ -23,7 +23,7 @@ public sealed class FakeMusicVideoDownloader : IMusicVideoDownloader
     public Func<MusicVideoFetchRequest, IReadOnlyList<MusicVideoCandidate>>? OnSuggest { get; set; }
 
     public Task<IReadOnlyList<MusicVideoCandidate>> SuggestAsync(
-        MusicVideoFetchRequest request, int probeLimit, CancellationToken ct)
+        MusicVideoFetchRequest request, CancellationToken ct)
     {
         SuggestCalls.Add(request);
         return Task.FromResult(OnSuggest?.Invoke(request) ?? (IReadOnlyList<MusicVideoCandidate>)[]);
