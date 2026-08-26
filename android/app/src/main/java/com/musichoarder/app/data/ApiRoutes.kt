@@ -19,6 +19,16 @@ internal object ApiRoutes {
      */
     fun albums() = "/api/albums"
 
+    /**
+     * What to play once the queue runs dry — ids ordered by similarity to [seedSongId]. The ranking
+     * is the server's (`MusicHoarder.Api/Library/RadioRanker.cs`), so the phone and the web app
+     * build the same station instead of each having their own idea of "similar".
+     */
+    fun radio(seedSongId: Int, exclude: List<Int>, limit: Int): String {
+        val excludeParam = if (exclude.isEmpty()) "" else "&exclude=${exclude.joinToString(",")}"
+        return "/api/radio?seedSongId=$seedSongId&limit=$limit$excludeParam"
+    }
+
     fun stream(id: Int) = "${song(id)}/stream"
 
     fun cover(id: Int, size: Int) = "${song(id)}/cover?size=$size"

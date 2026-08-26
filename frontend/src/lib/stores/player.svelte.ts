@@ -1,8 +1,9 @@
 import { untrack } from 'svelte';
 import { browser } from '$app/environment';
 import { toast } from 'svelte-sonner';
-import { coverThumbUrl, reportSongPlayed } from '$lib/api-client';
+import { coverThumbUrl, fetchRadio, reportSongPlayed, toPlayerSong } from '$lib/api-client';
 import { songsStore } from '$lib/stores/songs.svelte';
+import { artistOf } from '$lib/track-list-view.svelte';
 
 export interface PlayerSong {
   id: number;
@@ -30,11 +31,30 @@ let playbackRateState = $state(1);
 /**
  * Ordered playback context the current song was started from (an album's
  * tracks, a review list, etc.). `queueIndex` points at `currentSong` within it.
- * When a song ends we advance to `queue[queueIndex + 1]`; there is no wrap, so
- * playback simply stops after the last track.
+ * When a song ends we advance to `queue[queueIndex + 1]`; reaching the end no
+ * longer stops playback — the radio appends more (see `topUpRadio`).
  */
 let queue = $state<PlayerSong[]>([]);
 let queueIndex = $state(-1);
+
+/**
+ * The track this station was built from: the last song the user *chose*, not
+ * whatever the radio happens to be playing now. Anchoring it keeps a station
+ * coherent — reseeding from each appended track lets it wander off in a few
+ * hops until it has nothing to do with what was picked.
+ */
+let radioSeedId = $state<number | null>(null);
+/** True once the server has no unplayed neighbour left; stops us asking again. */
+let radioExhausted = $state(false);
+/** The in-flight top-up, so a prefetch and an `ended` cannot both ask. */
+let radioTopUp: Promise<boolean> | null = null;
+
+/** Tracks fetched per top-up. Enough to outlive a few skips without a stall. */
+const RADIO_BATCH = 20;
+/** Remaining tracks at which the next batch is fetched, so the gap is inaudible. */
+const RADIO_PREFETCH_AT = 2;
+/** Ids sent as already-heard. Matches the server's own cap on the parameter. */
+const RADIO_EXCLUDE_CAP = 400;
 /**
  * Set to true while the in-page TrackPanel is mounted with its own waveform
  * player. The global MiniPlayer hides itself when this is true to avoid
@@ -137,7 +157,7 @@ function refreshActionHandlers() {
   set('play', () => resume());
   set('pause', () => pause());
   set('previoustrack', queueIndex > 0 ? () => playPrevious() : null);
-  set('nexttrack', queueIndex >= 0 && queueIndex < queue.length - 1 ? () => playNext() : null);
+  set('nexttrack', canAdvance() ? () => playNext() : null);
   set('seekto', (details) => {
     if (typeof details.seekTime === 'number') seek(details.seekTime);
   });
@@ -289,6 +309,12 @@ async function playSong(song: PlayerSong, contextQueue?: PlayerSong[], index?: n
     queueIndex = 0;
   }
 
+  // A deliberate pick re-seeds the station and revives an exhausted one: the user has just said
+  // what they want to hear next, which is exactly the question the radio answers.
+  radioSeedId = song.id;
+  radioExhausted = false;
+  maybePrefetchRadio();
+
   if (currentSong?.id === song.id) {
     if (audioEl.paused) {
       attemptPlay();
@@ -303,9 +329,89 @@ async function playSong(song: PlayerSong, contextQueue?: PlayerSong[], index?: n
 }
 
 function playNext() {
-  if (queueIndex < 0 || queueIndex >= queue.length - 1) return;
+  if (queueIndex < 0) return;
+  if (queueIndex < queue.length - 1) {
+    advance();
+    return;
+  }
+  // At the tail. This is the path a one-track album takes: nothing follows it in the queue, so the
+  // station is what keeps the music going instead of the bar going silent.
+  void topUpRadio().then((appended) => {
+    if (appended) advance();
+  });
+}
+
+function advance() {
   queueIndex += 1;
   void loadAndPlay(queue[queueIndex]);
+  maybePrefetchRadio();
+}
+
+/** True while there is either a queued track ahead or a station able to supply one. */
+function canAdvance(): boolean {
+  if (queueIndex < 0) return false;
+  return queueIndex < queue.length - 1 || (radioSeedId !== null && !radioExhausted);
+}
+
+/** Fetch the next batch before the queue actually runs out, so no gap is heard. */
+function maybePrefetchRadio() {
+  if (queue.length - 1 - queueIndex <= RADIO_PREFETCH_AT) void topUpRadio();
+}
+
+/**
+ * Append the station's next tracks to the queue, resolving ids against the rows the library
+ * already holds.
+ *
+ * The ranking itself is deliberately not here: it lives in `RadioRanker` on the server so the
+ * Android client plays the same station. This end only joins ids and appends.
+ *
+ * @returns whether anything was appended.
+ */
+async function topUpRadio(): Promise<boolean> {
+  if (radioSeedId === null || radioExhausted) return false;
+  if (radioTopUp) return radioTopUp;
+
+  const seed = radioSeedId;
+  radioTopUp = (async () => {
+    try {
+      const heard = queue.map((s) => s.id);
+      const ids = await fetchRadio(seed, heard.slice(-RADIO_EXCLUDE_CAP), RADIO_BATCH);
+      // The user may have picked something else while this was in flight; those ids are for a
+      // station nobody is listening to any more.
+      if (radioSeedId !== seed) return false;
+
+      const queued = new Set(heard);
+      const rows = songsStore.songsById;
+      const additions: PlayerSong[] = [];
+      for (const id of ids) {
+        if (queued.has(id)) continue;
+        const row = rows.get(id);
+        if (!row) continue; // not in this account's library view — skip rather than guess a URL
+        additions.push(toPlayerSong(row, artistOf(row)));
+        queued.add(id);
+      }
+
+      if (additions.length === 0) {
+        radioExhausted = true;
+        return false;
+      }
+
+      queue = [...queue, ...additions];
+      refreshActionHandlers(); // a next track exists now, so the OS control lights up
+      return true;
+    } catch {
+      // A failed top-up is not worth a toast: the user asked to play a song, not to run a radio.
+      // It does end the station though, rather than re-asking on every `ended` — the anonymous
+      // share viewer has no radio to reach at all, and a Next button that stays lit and does
+      // nothing is worse than one that goes out. Picking another track revives it.
+      radioExhausted = true;
+      return false;
+    } finally {
+      radioTopUp = null;
+    }
+  })();
+
+  return radioTopUp;
 }
 
 function playPrevious() {
@@ -384,6 +490,8 @@ function stop() {
   duration = 0;
   queue = [];
   queueIndex = -1;
+  radioSeedId = null;
+  radioExhausted = false;
   miniPlayerDismissed = false;
   const ms = mediaSession();
   if (ms) {
@@ -437,7 +545,7 @@ export const playerStore = {
     return playbackRateState;
   },
   get hasNext() {
-    return queueIndex >= 0 && queueIndex < queue.length - 1;
+    return canAdvance();
   },
   get hasPrevious() {
     return queueIndex > 0;

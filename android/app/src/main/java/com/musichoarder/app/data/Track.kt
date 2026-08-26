@@ -105,6 +105,12 @@ data class SongsResponse(
     @SerialName("grantors") val grantors: List<Grantor> = emptyList(),
 )
 
+/** `GET /api/radio` — what to play after the queue runs dry, as ids to join against [SongsResponse]. */
+@Serializable
+data class RadioResponse(
+    @SerialName("songIds") val songIds: List<Int> = emptyList(),
+)
+
 /**
  * An account whose music appears in your library, for the "Shared by …" attribution.
  *

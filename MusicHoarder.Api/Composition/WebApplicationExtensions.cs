@@ -35,6 +35,7 @@ public static class WebApplicationExtensions
         app.MapInviteEndpoints();
         app.MapSharedLibraryEndpoints();
         app.MapAlbumsEndpoints();
+        app.MapRadioEndpoints();
         app.MapArtistsEndpoints();
         app.MapQualityEndpoints();
         app.MapAlbumQualityEndpoints();

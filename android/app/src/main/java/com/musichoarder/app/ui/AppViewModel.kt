@@ -149,6 +149,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 viewModelScope.launch { graph.api.reportPlayed(songId) }
             }
         },
+        radioTracks = { seedId, exclude ->
+            // No station for a share queue: those ids belong to the sharing server, so asking the
+            // paired one about them would answer about somebody else's songs entirely.
+            if (_isShareQueue.value) {
+                emptyList()
+            } else {
+                graph.api.fetchRadio(seedId, exclude).mapNotNull(graph.library::trackById)
+            }
+        },
     )
 
     /** The muted clip behind the player; it chases [player]'s clock and never drives it. */
