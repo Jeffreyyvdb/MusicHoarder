@@ -454,6 +454,9 @@ public static class ServiceCollectionExtensions
         // Experimental AI lyrics transcription (OpenAI-compatible /audio/transcriptions). Infinite
         // HttpClient timeout — the service bounds each call itself via LyricsTranscriptionOptions.TimeoutSeconds.
         // The aligner calls OpenRouter (same creds as QualityGrading) with its own fast LlmModel + reasoning off.
+        // One limiter for the whole process: the provider's request-per-minute allowance is org-wide, so
+        // the sweep, the probe and a user-triggered re-sync all have to queue behind the same counter.
+        services.AddSingleton<LyricsTranscriptionRateLimiter>();
         services.AddSingleton<LlmLyricsAligner>(sp => new LlmLyricsAligner(
             new HttpClient { Timeout = Timeout.InfiniteTimeSpan },
             sp.GetRequiredService<IOptionsMonitor<QualityGradingOptions>>(),
@@ -466,6 +469,7 @@ public static class ServiceCollectionExtensions
                 httpClient,
                 sp.GetRequiredService<ILrcLibService>(),
                 sp.GetRequiredService<LlmLyricsAligner>(),
+                sp.GetRequiredService<LyricsTranscriptionRateLimiter>(),
                 sp.GetRequiredService<IOptionsMonitor<LyricsTranscriptionOptions>>(),
                 sp.GetRequiredService<IOptions<MusicEnricherOptions>>(),
                 sp.GetRequiredService<ILogger<LyricsTranscriptionService>>());

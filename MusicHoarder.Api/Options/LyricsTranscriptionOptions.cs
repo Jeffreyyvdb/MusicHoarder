@@ -39,6 +39,25 @@ public class LyricsTranscriptionOptions
     public int MaxRetries { get; set; } = 2;
 
     /// <summary>
+    /// Requests per rolling minute this app will send to the transcription endpoint, enforced locally by
+    /// <c>LyricsTranscriptionRateLimiter</c> before the call leaves.
+    ///
+    /// Providers meter transcription by requests as well as by audio — Groq's free tier allows 20 whisper
+    /// requests a minute — and that ceiling binds long before any audio budget when the timing probe is
+    /// sending thirty-second windows. The default leaves headroom under 20 so a sweep in full flight cannot
+    /// starve a transcription the user just asked for.
+    /// </summary>
+    [Range(1, 1000)]
+    public int RequestsPerMinute { get; set; } = 15;
+
+    /// <summary>
+    /// Longest a single call will wait for a rate-limit slot before giving up. Background work treats a
+    /// timeout here as "we did not look" and comes back later; it must never be recorded as a result.
+    /// </summary>
+    [Range(0, 600)]
+    public int RateLimitMaxWaitSeconds { get; set; } = 45;
+
+    /// <summary>
     /// LRC line-splitting: Whisper emits one timestamp per coarse <em>segment</em> (often several sung
     /// lines merged). We re-chunk using the word-level timestamps, breaking a line whenever the silent
     /// gap between two consecutive words reaches this many seconds — approximating LRCLIB's per-line
