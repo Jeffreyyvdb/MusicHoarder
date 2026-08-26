@@ -48,6 +48,8 @@ fun TrackRow(
     isPlayingNow: Boolean = false,
     liked: Boolean = false,
     onToggleLike: (() -> Unit)? = null,
+    /** "Shared by X" when this track came from someone else's library; null when it is yours. */
+    sharedBy: String? = null,
 ) {
     val colors = MhTheme.colors
     Row(
@@ -103,6 +105,8 @@ fun TrackRow(
             ) {
                 if (track.needsReview) MhMonoBadge("REVIEW", tint = colors.destructive)
                 if (track.hasLyrics) MhMonoBadge("LRC")
+                // Absent for your own tracks, so an admin's list looks exactly as it did.
+                if (sharedBy != null) MhMonoBadge("SHARED")
                 Text(
                     text = track.albumArtist,
                     style = MaterialTheme.typography.bodySmall,

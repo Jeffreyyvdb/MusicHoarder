@@ -22,7 +22,8 @@
     Shuffle,
     Tag,
     TriangleAlert,
-    UsersRound
+    UsersRound,
+    Users
   } from '@lucide/svelte';
   import { untrack } from 'svelte';
   import { page } from '$app/state';
@@ -60,8 +61,10 @@
   import { createShareAndCopyLink } from '$lib/share-actions';
   import { albumViewPrefs } from '$lib/stores/album-view-prefs.svelte';
   import { playerStore } from '$lib/stores/player.svelte';
+  import { songsStore } from '$lib/stores/songs.svelte';
   import { songDetail } from '$lib/stores/song-detail.svelte';
   import { cn, shuffle } from '$lib/utils';
+  import { isAdmin } from '$lib/auth/capabilities';
 
   type Props = {
     album: AlbumSummary | null;
@@ -71,6 +74,19 @@
 
   const tint = $derived(album ? albumTint(album.artist, album.title) : null);
   const tracks = $derived(album?.songs ?? []);
+
+  /**
+   * Who shared this album, or null when the current account owns it. Taken from the first track
+   * that carries an attribution — an album is always one grantor's, since grant scoping never
+   * mixes owners into a single album.
+   */
+  const sharedBy = $derived.by(() => {
+    for (const track of tracks) {
+      const grantor = songsStore.grantorOf(track);
+      if (grantor) return grantor.displayName?.trim() || 'someone';
+    }
+    return null;
+  });
 
   // Reconciled multi-provider canonical tracklist for this album, fetched lazily by album identity
   // (artist + title). `linkStatus` tells us whether the album is matched to a provider album
@@ -241,7 +257,7 @@
 
   // Account-to-account sharing (grants) is an owner power; friends/demo don't get the button.
   const isOwner = $derived(
-    (page.data.user as { role?: string } | undefined)?.role === 'Owner'
+    isAdmin(page.data.user)
   );
   let shareWithFriendOpen = $state(false);
 
@@ -473,6 +489,13 @@
             </span>
             <span class="opacity-50">·</span>
             <span class="font-mono">{formatFileSize(album.byteSize)}</span>
+            {#if sharedBy}
+              <span class="opacity-50">·</span>
+              <span class="inline-flex items-center gap-1 font-semibold">
+                <Users class="size-3.5" aria-hidden="true" />
+                Shared by {sharedBy}
+              </span>
+            {/if}
             {#if completeness}
               <span class="opacity-50">·</span>
               <span

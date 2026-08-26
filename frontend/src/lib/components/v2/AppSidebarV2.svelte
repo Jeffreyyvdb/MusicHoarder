@@ -24,6 +24,7 @@
   import { isBuiltSong } from '$lib/album-sections';
   import { songsStore } from '$lib/stores/songs.svelte';
   import { cn } from '$lib/utils';
+  import { isAdmin, roleLabel } from '$lib/auth/capabilities';
 
   // The running build's version (clean semver), surfaced by the root layout load.
   const version = $derived(page.data.appVersion as string | null | undefined);
@@ -152,9 +153,9 @@
       | { email: string; role: 'Owner' | 'Demo' | 'Friend'; displayName: string | null }
       | undefined
   );
-  const isFriend = $derived(user?.role === 'Friend');
+  const isFriend = $derived(!isAdmin(user));
   // Friends see only the Listen group; the guard bounces them off everything else anyway.
-  const navGroups = $derived(navGroupsFor(user?.role));
+  const navGroups = $derived(navGroupsFor(user));
 
   // ── account switcher ──────────────────────────────────────────────────────
   // Accounts remembered in this browser (active + parked), fetched lazily the first time the
@@ -376,7 +377,7 @@
                       {account.displayName ?? account.email}
                     </div>
                     <div class="text-muted-foreground truncate text-[10.5px]">
-                      {account.role === 'Owner' ? account.email : `${account.email} · ${account.role}`}
+                      {account.role === 'Owner' ? account.email : `${account.email} · ${roleLabel(account.role)}`}
                     </div>
                   </div>
                   {#if account.isActive}

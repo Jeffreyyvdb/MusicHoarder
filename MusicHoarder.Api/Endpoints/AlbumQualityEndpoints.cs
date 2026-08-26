@@ -21,32 +21,32 @@ public static class AlbumQualityEndpoints
         app.MapGet("/api/albums/quality/overview", GetOverview)
             .WithName("GetAlbumQualityOverview")
             .WithSummary("Library-wide album-reconciliation grade rollup: verdict counts, average score, worst-offender albums.")
-            .WithTags("Quality").RequireOwner();
+            .WithTags("Quality").RequireAdmin();
 
         app.MapPost("/api/albums/quality/grade", GradeAlbum)
             .WithName("GradeAlbumQuality")
             .WithSummary("Grade one album now (forces a fresh LLM call).")
-            .WithTags("Quality").RequireOwner();
+            .WithTags("Quality").RequireAdmin();
 
         app.MapPost("/api/albums/quality/grade-all", GradeAll)
             .WithName("GradeAllAlbumQuality")
             .WithSummary("Enqueue every linked album for reconciliation grading (skips unchanged).")
-            .WithTags("Quality").RequireOwner();
+            .WithTags("Quality").RequireAdmin();
 
         app.MapPost("/api/albums/quality/grade-outdated", GradeOutdated)
             .WithName("GradeOutdatedAlbumQuality")
             .WithSummary("Enqueue only albums whose latest grade is outdated (prompt version or model changed since it was graded).")
-            .WithTags("Quality").RequireOwner();
+            .WithTags("Quality").RequireAdmin();
 
         app.MapGet("/api/albums/quality/progress", GetProgress)
             .WithName("GetAlbumQualityProgress")
             .WithSummary("Current album grading run progress.")
-            .WithTags("Quality").RequireOwner();
+            .WithTags("Quality").RequireAdmin();
 
         app.MapGet("/api/albums/quality/export", ExportAlbum)
             .WithName("ExportAlbumQuality")
             .WithSummary("Download the dossier + grade for one album (for feeding to an agent).")
-            .WithTags("Quality").RequireOwner();
+            .WithTags("Quality").RequireAdmin();
 
         return app;
     }

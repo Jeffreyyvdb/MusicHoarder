@@ -35,7 +35,7 @@ public static class SpotifyEndpoints
             })
             .WithName("SpotifyConnect")
             .WithSummary("Returns the Spotify authorization URL to initiate the OAuth flow.")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapGet("/callback", async (
                 string? code,
@@ -127,7 +127,7 @@ public static class SpotifyEndpoints
             {
                 // Spotify state is the OWNER's (services resolve WellKnownUsers.OwnerId regardless of
                 // caller), so report a clean "not connected" to non-owners rather than leaking it.
-                if (currentUser.User?.IsOwner != true)
+                if (currentUser.User?.IsAdmin != true)
                     return Results.Ok(new { connected = false, connectedAt = (DateTime?)null, hasCredentials = false, tokenExpired = false });
 
                 var status = await spotifyOAuth.GetStatusAsync(ct);
@@ -149,7 +149,7 @@ public static class SpotifyEndpoints
             })
             .WithName("SpotifyDisconnect")
             .WithSummary("Clears all stored Spotify tokens and disconnects the account.")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapPut("/credentials", async (SpotifyCredentialsRequest body, ISpotifyOAuthService spotifyOAuth, CancellationToken ct) =>
             {
@@ -161,11 +161,11 @@ public static class SpotifyEndpoints
             })
             .WithName("SaveSpotifyCredentials")
             .WithSummary("Save Spotify API client credentials (ClientId and ClientSecret).")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapGet("/credentials", async (ISpotifyOAuthService spotifyOAuth, ICurrentUserAccessor currentUser, CancellationToken ct) =>
             {
-                if (currentUser.User?.IsOwner != true)
+                if (currentUser.User?.IsAdmin != true)
                     return Results.Ok(new { clientId = (string?)null, hasClientSecret = false });
 
                 var creds = await spotifyOAuth.GetCredentialsAsync(ct);
@@ -314,7 +314,7 @@ internal sealed class SpotifyOwnerReadFilter : IEndpointFilter
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
         var accessor = context.HttpContext.RequestServices.GetRequiredService<ICurrentUserAccessor>();
-        if (accessor.User?.IsOwner != true)
+        if (accessor.User?.IsAdmin != true)
             return Results.Json(new { error = "spotify_not_connected" }, statusCode: StatusCodes.Status401Unauthorized);
 
         return await next(context);

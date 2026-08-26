@@ -110,7 +110,7 @@ public class AuthEndpointsTests
             Email = "owner@example.com",
             EmailNormalized = User.Normalize("owner@example.com"),
             DisplayName = "Owner",
-            Role = UserRole.Owner,
+            Role = UserRole.Admin,
             CreatedAtUtc = DateTime.UtcNow,
         });
         seed.SaveChanges();

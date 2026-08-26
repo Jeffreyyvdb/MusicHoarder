@@ -24,10 +24,13 @@
     removeFriend,
     revokeFriendGrant,
     revokeFriendInvite,
+    updatePersonCapabilities,
+    type Capability,
     type FriendGrantView,
     type FriendInviteView,
     type FriendView
   } from '$lib/api-client';
+  import { Switch } from '$lib/components/ui/switch';
 
   /**
    * Owner-side management of friend accounts: mint/rotate/revoke invite links, and manage what
@@ -166,6 +169,69 @@
     if (grant.scope === 'Library') return 'Entire library';
     if (grant.scope === 'Artist') return `Artist · ${grant.artist ?? '?'}`;
     return `${grant.artist ?? '?'} — ${grant.album ?? '?'}`;
+  }
+
+  // ── capabilities ───────────────────────────────────────────────────────────
+  /**
+   * What each switch means, in the person's terms rather than the enum's. Order is deliberate:
+   * the two everyday toggles first, then re-sharing, then the one that hands over the instance.
+   */
+  const CAPABILITIES: { key: Capability; label: string; hint: string }[] = [
+    {
+      key: 'TrackListening',
+      label: 'Likes and play history',
+      hint: 'Keeps their own likes and play counts. Never touches yours.'
+    },
+    {
+      key: 'DownloadMusic',
+      label: 'Request downloads',
+      hint: 'Not wired up yet — the download pipeline is still yours alone.'
+    },
+    {
+      key: 'ManageOwnShares',
+      label: 'Re-share what they have',
+      hint: 'Lets them pass along music you shared with them.'
+    },
+    {
+      key: 'Administer',
+      label: 'Administrator',
+      hint: 'Full access: invites, capabilities, and the whole pipeline.'
+    }
+  ];
+
+  let capabilityBusy = $state<string | null>(null);
+
+  function has(friend: FriendView, capability: Capability): boolean {
+    return (friend.capabilities ?? []).includes(capability);
+  }
+
+  async function setCapability(friend: FriendView, capability: Capability, enabled: boolean) {
+    // Send the whole desired set, not a delta — matches the endpoint's contract and keeps the
+    // request idempotent if it is retried.
+    const next = new Set<Capability>(friend.capabilities ?? []);
+    if (enabled) next.add(capability);
+    else next.delete(capability);
+
+    capabilityBusy = `${friend.id}:${capability}`;
+    try {
+      const updated = await updatePersonCapabilities(friend.id, [...next]);
+      // Patch in place so the switches do not flicker through a full reload.
+      friends = friends.map((f) => (f.id === updated.id ? { ...f, ...updated } : f));
+      toast.success(enabled ? 'Turned on.' : 'Turned off.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not change that.';
+      toast.error(
+        message.includes('last_admin')
+          ? 'Someone has to stay an administrator.'
+          : message.includes('cannot_change_own_capabilities')
+            ? 'You cannot change your own access.'
+            : message
+      );
+      // The server refused, so re-read rather than leaving the switch showing a state it rejected.
+      await refresh();
+    } finally {
+      capabilityBusy = null;
+    }
   }
 </script>
 
@@ -312,6 +378,9 @@
                   {/if}
                 </div>
               </div>
+              {#if friend.isAdmin}
+                <Badge>Admin</Badge>
+              {/if}
               {#if friend.isDisabled}
                 <Badge variant="secondary">Removed</Badge>
               {/if}
@@ -344,6 +413,30 @@
             </div>
 
             {#if !friend.isDisabled}
+              <div class="border-border/60 mt-3 space-y-2 border-t pt-3">
+                <div class="text-muted-foreground text-xs font-medium">What they can do</div>
+                {#each CAPABILITIES as capability (capability.key)}
+                  <label class="flex items-start justify-between gap-3">
+                    <span class="min-w-0">
+                      <span class="block text-xs font-medium">{capability.label}</span>
+                      <span class="text-muted-foreground block text-xs">{capability.hint}</span>
+                    </span>
+                    <Switch
+                      checked={has(friend, capability.key)}
+                      disabled={capabilityBusy === `${friend.id}:${capability.key}`}
+                      onCheckedChange={(checked) => setCapability(friend, capability.key, checked)}
+                      aria-label={`${capability.label} for ${friend.email}`}
+                    />
+                  </label>
+                {/each}
+                {#if friend.isAdmin}
+                  <p class="text-muted-foreground text-xs">
+                    Administrators have every permission — the switches above stay on until you
+                    turn Administrator off.
+                  </p>
+                {/if}
+              </div>
+
               <div class="mt-3 flex flex-wrap gap-1.5">
                 {#each friend.grants as grant (grant.id)}
                   <span

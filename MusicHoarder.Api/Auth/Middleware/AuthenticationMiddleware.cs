@@ -51,7 +51,7 @@ public sealed class AuthenticationMiddleware
 
         var (_, user) = resolved.Value;
         context.Items[HttpContextCurrentUserAccessor.HttpContextItemKey] = new CurrentUser(
-            user.Id, user.Email, user.Role, user.DisplayName);
+            user.Id, user.Email, user.Role, user.DisplayName, user.Capabilities);
 
         await _next(context);
     }

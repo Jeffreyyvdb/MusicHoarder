@@ -6,6 +6,7 @@ using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Navidrome;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Sync;
+using MusicHoarder.Api.Tests.Sharing;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
 
@@ -40,7 +41,7 @@ public class LikesAndPlaysTests
 
         await using (var db = NewContext(options))
         {
-            var result = await SongsEndpoints.LikeSong(songId, db, Noop, NoopSync, CancellationToken.None);
+            var result = await SongsEndpoints.LikeSong(songId, db, TestLibraryScope.For(TestUsers.OwnerId), new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser), Noop, NoopSync, CancellationToken.None);
             Assert.NotNull(GetProperty<DateTime?>(ResultValue(result), "LikedAtUtc"));
         }
 
@@ -54,7 +55,7 @@ public class LikesAndPlaysTests
         // Re-liking keeps the original timestamp (idempotent).
         await using (var db = NewContext(options))
         {
-            await SongsEndpoints.LikeSong(songId, db, Noop, NoopSync, CancellationToken.None);
+            await SongsEndpoints.LikeSong(songId, db, TestLibraryScope.For(TestUsers.OwnerId), new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser), Noop, NoopSync, CancellationToken.None);
         }
 
         await using (var db = NewContext(options))
@@ -80,7 +81,7 @@ public class LikesAndPlaysTests
 
         await using (var db = NewContext(options))
         {
-            await SongsEndpoints.UnlikeSong(songId, db, Noop, NoopSync, CancellationToken.None);
+            await SongsEndpoints.UnlikeSong(songId, db, TestLibraryScope.For(TestUsers.OwnerId), new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser), Noop, NoopSync, CancellationToken.None);
         }
 
         await using (var db = NewContext(options))
@@ -104,8 +105,8 @@ public class LikesAndPlaysTests
 
         await using (var db = NewContext(options))
         {
-            await SongsEndpoints.ReportPlayed(songId, db, CancellationToken.None);
-            await SongsEndpoints.ReportPlayed(songId, db, CancellationToken.None);
+            await SongsEndpoints.ReportPlayed(songId, db, TestLibraryScope.For(TestUsers.OwnerId), new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser), CancellationToken.None);
+            await SongsEndpoints.ReportPlayed(songId, db, TestLibraryScope.For(TestUsers.OwnerId), new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser), CancellationToken.None);
         }
 
         await using (var db = NewContext(options))
@@ -135,7 +136,7 @@ public class LikesAndPlaysTests
         await using (var db = new MusicHoarderDbContext(
             options, new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser)))
         {
-            var result = await SongsEndpoints.LikeSong(songId, db, Noop, NoopSync, CancellationToken.None);
+            var result = await SongsEndpoints.LikeSong(songId, db, TestLibraryScope.For(TestUsers.OwnerId), new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser), Noop, NoopSync, CancellationToken.None);
             Assert.Equal(StatusCodes.Status404NotFound, GetStatusCode(result));
         }
 

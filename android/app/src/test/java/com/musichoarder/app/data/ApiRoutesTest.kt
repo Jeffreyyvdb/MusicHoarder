@@ -1,47 +1,45 @@
 package com.musichoarder.app.data
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Pins the owner ↔ shared route pairs. The shared paths are the grant-scoped surface a Friend
- * pairing reads; a drifted path here silently turns a friend's phone into an empty library (or
- * worse, points it at owner endpoints that 403), so every pair is asserted verbatim.
+ * Pins the API paths verbatim. A drifted path here silently turns the phone into an empty library,
+ * or points it at an endpoint that 403s, and neither failure is visible until someone opens the
+ * app.
+ *
+ * These used to be owner ↔ shared PAIRS, because an invited account read through a parallel
+ * `/api/shared` surface. The server now scopes the ordinary endpoints to the caller, so there is
+ * one path per operation and the client no longer branches on what kind of account it holds — the
+ * disappearance of that second column is the point of this file's current shape.
  */
 class ApiRoutesTest {
     @Test
-    fun `owner routes are the tenancy-filtered endpoints`() {
-        assertEquals("/songs", ApiRoutes.songs(friend = false))
-        assertEquals("/songs/7/stream", ApiRoutes.stream(7, friend = false))
-        assertEquals("/songs/7/cover?size=256", ApiRoutes.cover(7, 256, friend = false))
-        assertEquals("/api/tracks/7/lyrics", ApiRoutes.lyrics(7, friend = false))
-        assertEquals("/songs/7/video", ApiRoutes.video(7, friend = false))
-        assertEquals("/songs/7/video/stream", ApiRoutes.videoStream(7, friend = false))
-        assertEquals("/songs/7/like", ApiRoutes.like(7, friend = false))
-        assertEquals("/songs/7/played", ApiRoutes.played(7, friend = false))
+    fun `every route is the single caller-scoped endpoint`() {
+        assertEquals("/songs", ApiRoutes.songs())
+        assertEquals("/songs/7/stream", ApiRoutes.stream(7))
+        assertEquals("/songs/7/cover?size=256", ApiRoutes.cover(7, 256))
+        assertEquals("/api/tracks/7/lyrics", ApiRoutes.lyrics(7))
+        assertEquals("/songs/7/video", ApiRoutes.video(7))
+        assertEquals("/songs/7/video/stream", ApiRoutes.videoStream(7))
+        assertEquals("/songs/7/like", ApiRoutes.like(7))
+        assertEquals("/songs/7/played", ApiRoutes.played(7))
     }
 
     @Test
-    fun `friend routes are the grant-scoped shared endpoints`() {
-        assertEquals("/api/shared/songs", ApiRoutes.songs(friend = true))
-        assertEquals("/api/shared/songs/7/stream", ApiRoutes.stream(7, friend = true))
-        assertEquals("/api/shared/songs/7/cover?size=256", ApiRoutes.cover(7, 256, friend = true))
-        assertEquals("/api/shared/songs/7/lyrics", ApiRoutes.lyrics(7, friend = true))
-        assertEquals("/api/shared/songs/7/video", ApiRoutes.video(7, friend = true))
-        assertEquals("/api/shared/songs/7/video/stream", ApiRoutes.videoStream(7, friend = true))
-        assertEquals("/api/shared/songs/7/like", ApiRoutes.like(7, friend = true))
-        assertEquals("/api/shared/songs/7/played", ApiRoutes.played(7, friend = true))
-    }
-
-    @Test
-    fun `friend flag comes from the session role, case-insensitively`() {
-        assertTrue(ServerSession("https://h", "t", role = "Friend").isFriend)
-        assertTrue(ServerSession("https://h", "t", role = "friend").isFriend)
-        assertFalse(ServerSession("https://h", "t", role = "Owner").isFriend)
-        assertFalse(ServerSession("https://h", "t", role = "Demo").isFriend)
-        // Phones paired before roles existed have no stored role — they keep owner behaviour.
-        assertFalse(ServerSession("https://h", "t", role = null).isFriend)
+    fun `no route points at the deprecated shared surface`() {
+        val all = listOf(
+            ApiRoutes.songs(),
+            ApiRoutes.stream(7),
+            ApiRoutes.cover(7, 256),
+            ApiRoutes.lyrics(7),
+            ApiRoutes.video(7),
+            ApiRoutes.videoStream(7),
+            ApiRoutes.like(7),
+            ApiRoutes.played(7),
+        )
+        // /api/shared is kept alive server-side for one release so already-installed builds keep
+        // working. A NEW build must not use it, or it will break when those routes are deleted.
+        assertEquals(emptyList<String>(), all.filter { it.startsWith("/api/shared") })
     }
 }

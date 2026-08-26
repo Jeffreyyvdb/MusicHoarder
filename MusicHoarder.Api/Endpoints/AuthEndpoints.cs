@@ -160,7 +160,11 @@ public static class AuthEndpoints
                 {
                     id = user.Id,
                     email = user.Email,
-                    role = user.Role.ToString(),
+                    // Legacy vocabulary on purpose — see WireRole. New clients read isAdmin and
+                    // capabilities instead and ignore this field.
+                    role = WireRole.ToWire(user.Role),
+                    isAdmin = user.IsAdmin,
+                    capabilities = WireRole.ToWire(user.Effective),
                     displayName = user.DisplayName,
                 });
             })
@@ -268,7 +272,10 @@ public static class AuthEndpoints
         {
             id = user.Id,
             email = user.Email,
-            role = user.Role.ToString(),
+            role = WireRole.ToWire(user.Role),
+            isAdmin = user.Role == UserRole.Admin,
+            capabilities = WireRole.ToWire(
+                user.Role == UserRole.Admin ? CapabilityDefaults.All : user.Capabilities),
             displayName = user.DisplayName,
         });
     }

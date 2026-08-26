@@ -23,7 +23,7 @@ public static class SharesEndpoints
 {
     public static IEndpointRouteBuilder MapSharesEndpoints(this IEndpointRouteBuilder app)
     {
-        var owner = app.MapGroup("/api/shares").WithTags("Shares").RequireOwner();
+        var owner = app.MapGroup("/api/shares").WithTags("Shares").RequireAdmin();
         owner.MapPost("", CreateShare)
             .WithName("CreateShare")
             .WithSummary("Create (or return the existing) share link for a song or its whole album.");

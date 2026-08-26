@@ -242,7 +242,7 @@ public class SpotifyOAuthService(
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
         var ownerId = ownerLookup.OwnerUserId;
 
-        // Spotify is owner-only in this deployment (RequireOwner on the endpoints + background
+        // Spotify is owner-only in this deployment (RequireAdmin on the endpoints + background
         // services pin to the owner row). Bypass the per-user query filter so this works from
         // hosted services that have no HTTP context.
         var settings = await db.SpotifySettings

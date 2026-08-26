@@ -6,7 +6,7 @@ public static class ArtistsEndpoints
 {
     public static IEndpointRouteBuilder MapArtistsEndpoints(this IEndpointRouteBuilder app)
     {
-        // Read-only, demo-visible (no RequireOwner): auth is still mandatory via
+        // Read-only, demo-visible (no RequireAdmin): auth is still mandatory via
         // RequireAuthMiddleware, and the portrait cache is catalog data with no tenant scope.
         app.MapGet("/api/artists/image", GetArtistImage)
             .WithName("GetArtistImage")

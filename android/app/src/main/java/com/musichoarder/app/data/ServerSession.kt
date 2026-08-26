@@ -22,16 +22,14 @@ import kotlinx.serialization.json.Json
  * API and forwards the Authorization header, so a paired phone needs exactly one reachable host —
  * the same one the browser uses.
  *
- * [role] is the account's role as reported by `/api/auth/me` at pairing time. A `Friend` session
- * reads music through the grant-scoped `/api/shared` endpoints instead of the owner ones (see
- * [ApiRoutes]); null means owner behaviour — which also covers phones paired before roles existed.
+ * [role] is the account's role as last reported by `/api/auth/me`. It no longer selects API
+ * routes — the server scopes the ordinary endpoints to the caller — so it is carried only to
+ * label the account switcher. Null for phones paired before roles existed.
  */
-data class ServerSession(val baseUrl: String, val token: String, val role: String? = null) {
-    val isFriend: Boolean get() = role.equals("Friend", ignoreCase = true)
-}
+data class ServerSession(val baseUrl: String, val token: String, val role: String? = null)
 
 /**
- * One remembered pairing. The phone can hold several — e.g. an owner and a friend account, or the
+ * One remembered pairing. The phone can hold several — e.g. an admin and a member account, or the
  * same account on two servers — and switch between them; only the active one talks to the network
  * (via [toSession]). Identity fields come from `/api/auth/me` at pairing time and label the
  * account switcher.

@@ -138,7 +138,7 @@ public class PlaylistExportServiceTests
         var options = new DbContextOptionsBuilder<MusicHoarderDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
             .Options;
-        var nonOwner = new CurrentUser(new Guid("11111111-1111-1111-1111-111111111111"), "other@test.local", UserRole.Owner, "Other");
+        var nonOwner = new CurrentUser(new Guid("11111111-1111-1111-1111-111111111111"), "other@test.local", UserRole.Admin, "Other");
         await using var db = new MusicHoarderDbContext(options, new TestCurrentUserAccessor(nonOwner));
 
         SeedBuilt(db, 1, "sp:x", "DaBaby", "POP DAT THANG", Path.Combine(temp.Root, "DaBaby", "Album", "01 - POP DAT THANG.flac"));

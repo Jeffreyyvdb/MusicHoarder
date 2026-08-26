@@ -8,20 +8,16 @@
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { commandPalette } from '$lib/stores/command-palette.svelte';
   import { songDetail } from '$lib/stores/song-detail.svelte';
-  import { setLibraryMode } from '$lib/library-mode';
   import { resolveNav } from '$lib/nav';
+  import { isAdmin } from '$lib/auth/capabilities';
 
   type Props = { children: Snippet };
   const { children }: Props = $props();
 
-  // Friends browse the SAME Listen routes and components, fed from the grant-scoped /api/shared
-  // surface — this switch is what re-points the whole data layer. Set synchronously (before any
-  // child mounts and warms songsStore), and kept in sync if the layout data ever changes.
-  const isFriendSession = $derived(page.data.user?.role === 'Friend');
-  setLibraryMode(page.data.user?.role === 'Friend' ? 'shared' : 'owner');
-  $effect(() => {
-    setLibraryMode(isFriendSession ? 'shared' : 'owner');
-  });
+  // Non-admins browse the SAME Listen routes and components. There is no data-layer switch any
+  // more: the ordinary endpoints already return their own rows plus whatever was shared with
+  // them. This flag only hides administration chrome that would render empty or 403.
+  const isFriendSession = $derived(!isAdmin(page.data.user));
 
   // The (app) group is ssr=false and the pages render their content through shared
   // components, so set the browser-tab title here in one place rather than in every

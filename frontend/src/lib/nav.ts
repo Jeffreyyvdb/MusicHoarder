@@ -27,6 +27,8 @@ import TrendingUp from '@lucide/svelte/icons/trending-up';
 import Users from '@lucide/svelte/icons/users';
 import Workflow from '@lucide/svelte/icons/workflow';
 import { APP_HOME } from '$lib/app-home';
+import { isAdmin, isDemo } from '$lib/auth/capabilities';
+import type { SessionUser } from '$lib/auth/session-types';
 
 /**
  * THE nav source of truth.
@@ -318,14 +320,57 @@ export const NAV_GROUPS: NavGroup[] = [
 ];
 
 /**
- * The groups a session role may see. Friends reuse the owner's Listen routes and components
- * (fed from /api/shared by the client's library mode) but none of the curation machinery —
- * Inbox, Add, and Manage are owner vocabulary, and the (app) guard bounces friends off those
- * paths anyway. One filter here narrows the sidebar, the mobile bottom bar, the section tab
- * strip, and the command palette together, keeping this module the single source of truth.
+ * The groups an account may see. A member reuses the admin's Listen routes and components
+ * unchanged — the data layer no longer branches, because the ordinary endpoints already scope
+ * to what was shared with them — but none of the curation machinery: Inbox, Add, and Manage are
+ * administration, not listening.
+ *
+ * One filter here narrows the sidebar, the mobile bottom bar, the section tab strip, and the
+ * command palette together, and {@link allowedPathPrefixesFor} derives the route guard from the
+ * same data, so the two can no longer disagree.
  */
-export function navGroupsFor(role: string | null | undefined): NavGroup[] {
-  return role === 'Friend' ? NAV_GROUPS.filter((g) => g.id === 'listen') : NAV_GROUPS;
+export function navGroupsFor(user: NavAudience): NavGroup[] {
+  // The demo keeps the FULL nav on purpose: it exists to show the whole product, pipeline
+  // included, and it is already write-blocked server-side by DemoReadOnlyMiddleware. Narrowing it
+  // to Listen would quietly turn the public demo into a music player. Only a member is narrowed.
+  if (isAdmin(user) || isDemo(user)) return NAV_GROUPS;
+  return NAV_GROUPS.filter((g) => g.id === 'listen');
+}
+
+/** Whoever the nav is being built for. Structural, so tests can pass a bare object. */
+export type NavAudience = Pick<SessionUser, 'role' | 'isAdmin' | 'capabilities'> | null | undefined;
+
+/**
+ * Every path prefix an account may open, derived from the groups it can see.
+ *
+ * This is what the `(app)` server guard enforces. Deriving it rather than hand-keeping a second
+ * list is the point: the two used to be maintained separately and had already drifted — the guard
+ * listed '/tracks' but not '/track', so a member who opened the song-detail sidebar and clicked
+ * through to a track page was silently bounced to the overview.
+ */
+export function allowedPathPrefixesFor(user: NavAudience): string[] {
+  // Demo roams freely for the same reason it keeps the full nav — see navGroupsFor.
+  if (isAdmin(user) || isDemo(user)) return ['/'];
+
+  const fromNav = navGroupsFor(user).flatMap((g) => g.items.map((item) => pathOf(item.href)));
+  return [
+    ...new Set([
+      ...fromNav,
+      // Listen routes that are reachable from the UI but are not themselves nav items: a track
+      // page (opened from the song-detail sidebar) and the liked-songs view (opened from the
+      // library chips). Both must stay listed by hand — deriving from nav items alone silently
+      // drops them, which is exactly the bug this function replaced.
+      '/track',
+      '/liked',
+      // Everyone manages their own account: passkeys, phone pairing, signing out.
+      '/settings'
+    ])
+  ];
+}
+
+/** True when `pathname` is covered by one of `prefixes` (exact match or a child segment). */
+export function isPathAllowed(pathname: string, prefixes: string[]): boolean {
+  return prefixes.some((p) => p === '/' || pathname === p || pathname.startsWith(`${p}/`));
 }
 
 /** Where a URL sits in the nav. `item` is null when only a group-level fallback matched. */

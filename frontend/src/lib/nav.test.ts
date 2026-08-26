@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { NAV_GROUPS, resolveNav, type NavGroupId } from './nav';
+import {
+  NAV_GROUPS,
+  allowedPathPrefixesFor,
+  isPathAllowed,
+  navGroupsFor,
+  resolveNav,
+  type NavGroupId
+} from './nav';
 
 const url = (path: string) => new URL(path, 'https://musichoarder.test');
 const at = (path: string) => resolveNav(url(path));
@@ -148,5 +155,76 @@ describe('resolveNav', () => {
     expect(at('/directories')?.item?.id).toBe('folders');
     expect(at('/stats')?.item?.id).toBe('stats');
     expect(at('/history')?.item?.id).toBe('history');
+  });
+});
+
+describe('what each account may see', () => {
+  const admin = { role: 'Owner' as const, isAdmin: true };
+  const member = { role: 'Friend' as const, isAdmin: false, capabilities: [] };
+
+  const allowed = (path: string, user: Parameters<typeof allowedPathPrefixesFor>[0]) =>
+    isPathAllowed(path, allowedPathPrefixesFor(user));
+
+  it('gives an admin every group and every path', () => {
+    expect(navGroupsFor(admin)).toHaveLength(NAV_GROUPS.length);
+    for (const path of ['/overview', '/pipeline', '/settings', '/wishlist', '/album-quality']) {
+      expect(allowed(path, admin)).toBe(true);
+    }
+  });
+
+  it('keeps the demo account on the full product, not just Listen', () => {
+    // The demo exists to SHOW the product, pipeline included, and is already write-blocked
+    // server-side. An earlier version of this keyed the narrowing on isAdmin alone, which
+    // silently demoted the public demo to a music player.
+    const demo = { role: 'Demo' as const, isAdmin: false, capabilities: [] };
+    expect(navGroupsFor(demo)).toHaveLength(NAV_GROUPS.length);
+    for (const path of ['/pipeline', '/inbox', '/stats', '/album-quality', '/wishlist']) {
+      expect(allowed(path, demo)).toBe(true);
+    }
+  });
+
+  it('narrows a member to Listen', () => {
+    expect(navGroupsFor(member).map((g) => g.id)).toEqual(['listen']);
+  });
+
+  it('lets a member reach every Listen route plus their own settings', () => {
+    for (const path of ['/overview', '/library', '/artists', '/tracks', '/settings']) {
+      expect(allowed(path, member)).toBe(true);
+    }
+  });
+
+  it('lets a member open a track page', () => {
+    // Regression: the hand-kept guard listed '/tracks' but not '/track', so a member who opened
+    // the song-detail sidebar and clicked through was silently bounced to the overview.
+    expect(allowed('/track/123', member)).toBe(true);
+  });
+
+  it('lets a member open their liked songs', () => {
+    // /liked is a real route reached from the library chips but is not a nav item, so deriving
+    // from nav items alone would drop it.
+    expect(allowed('/liked', member)).toBe(true);
+  });
+
+  it('keeps a member out of every administration route', () => {
+    for (const path of ['/pipeline', '/inbox', '/wishlist', '/discover', '/album-quality', '/stats']) {
+      expect(allowed(path, member)).toBe(false);
+    }
+  });
+
+  it('does not let a path merely starting with an allowed name through', () => {
+    // '/library-admin' must not pass because '/library' is allowed.
+    expect(allowed('/library-admin', member)).toBe(false);
+  });
+
+  it('treats an unknown or absent account as a member, not an admin', () => {
+    expect(navGroupsFor(null).map((g) => g.id)).toEqual(['listen']);
+    expect(allowed('/pipeline', null)).toBe(false);
+  });
+
+  it('reads isAdmin, not the legacy role string', () => {
+    // The wire still says 'Friend' for a member and 'Owner' for an admin, but that vocabulary is
+    // scheduled to change; nothing here may depend on it.
+    expect(navGroupsFor({ role: 'Friend', isAdmin: true })).toHaveLength(NAV_GROUPS.length);
+    expect(navGroupsFor({ role: 'Owner', isAdmin: false }).map((g) => g.id)).toEqual(['listen']);
   });
 });

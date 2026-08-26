@@ -11,8 +11,8 @@ public static class RunsEndpoints
 
     public static IEndpointRouteBuilder MapRunsEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/runs", GetRuns).WithName("GetRuns").RequireOwner();
-        app.MapGet("/runs/{id:guid}", GetRun).WithName("GetRun").RequireOwner();
+        app.MapGet("/runs", GetRuns).WithName("GetRuns").RequireAdmin();
+        app.MapGet("/runs/{id:guid}", GetRun).WithName("GetRun").RequireAdmin();
         return app;
     }
 

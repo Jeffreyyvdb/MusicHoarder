@@ -30,7 +30,7 @@ export const load: PageServerLoad = async ({ request, url }) => {
 
   // Friends share the owner's front door: both land on the Listen home (the client's library
   // mode decides whose songs it shows).
-  if (probe.status === 'authenticated' && (probe.user.role === 'Owner' || probe.user.role === 'Friend')) {
+  if (probe.status === 'authenticated' && probe.user.role !== 'Demo') {
     throw redirect(303, APP_HOME);
   }
 

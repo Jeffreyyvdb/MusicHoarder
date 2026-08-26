@@ -13,13 +13,14 @@
   import { playerStore } from '$lib/stores/player.svelte';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { cn } from '$lib/utils';
+  import { isAdmin } from '$lib/auth/capabilities';
 
   type Props = { children: Snippet };
   const { children }: Props = $props();
 
   // The three banners report pipeline/grading/update state — owner concerns their
   // endpoints would just 403/empty for a friend session.
-  const isFriend = $derived(page.data.user?.role === 'Friend');
+  const isFriend = $derived(!isAdmin(page.data.user));
 
   // Mirror the v1 inset padding so the MiniPlayer / pipeline drawer never overlap
   // the page body. Both global widgets stay mounted by the layout, shared across

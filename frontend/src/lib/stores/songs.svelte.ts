@@ -10,15 +10,24 @@
  */
 
 import {
+  currentGrantors,
   fetchSongs,
   likeSong,
   openProgressStream,
   unlikeSong,
   type ApiSong,
+  type Grantor,
   type ProgressSnapshot
 } from '$lib/api-client';
 
 let songs = $state<ApiSong[]>([]);
+/**
+ * Who shared the rows in {@link songs}. Lives HERE, as a rune, rather than in `api-client`:
+ * that module is a plain `.ts` file, so its module-level copy cannot be reactive, and a
+ * `$derived` reading it would compute once before the first fetch resolves and then stay clean
+ * forever — the "shared by X" header would simply never appear on a cold load.
+ */
+let grantors = $state<Grantor[]>([]);
 let isLoading = $state(false);
 let error = $state<string | null>(null);
 let hasLoaded = false;
@@ -28,6 +37,8 @@ async function loadSongs(opts?: { silent?: boolean }): Promise<void> {
     if (!opts?.silent) isLoading = true;
     const loaded = await fetchSongs();
     songs = loaded;
+    // Read AFTER the await: fetchSongs populates the api-client's copy as it resolves.
+    grantors = currentGrantors();
     hasLoaded = true;
     error = null;
   } catch (err) {
@@ -144,6 +155,7 @@ function notePlayed(id: number): void {
  */
 function reset(): void {
   songs = [];
+  grantors = [];
   isLoading = false;
   error = null;
   hasLoaded = false;
@@ -163,6 +175,14 @@ function reset(): void {
 export const songsStore = {
   get songs() {
     return songs;
+  },
+  get grantors() {
+    return grantors;
+  },
+  /** The grantor of one song, or null when this account owns it. */
+  grantorOf(song: Pick<ApiSong, 'sharedByUserId'>): Grantor | null {
+    if (!song.sharedByUserId) return null;
+    return grantors.find((g) => g.userId === song.sharedByUserId) ?? null;
   },
   get isLoading() {
     return isLoading;

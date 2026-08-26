@@ -143,7 +143,7 @@ public class DuplicatesEndpointsTests
 
     private sealed class StubCurrentUser(Guid userId) : ICurrentUserAccessor
     {
-        public CurrentUser? User { get; } = new(userId, "owner@test", UserRole.Owner, "Owner");
+        public CurrentUser? User { get; } = new(userId, "owner@test", UserRole.Admin, "Owner");
         public Guid UserId => userId;
     }
 }

@@ -19,7 +19,7 @@ public static class HistoryEndpoints
 
     public static IEndpointRouteBuilder MapHistoryEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/history", GetHistory).WithName("GetHistory").RequireOwner();
+        app.MapGet("/api/history", GetHistory).WithName("GetHistory").RequireAdmin();
         return app;
     }
 

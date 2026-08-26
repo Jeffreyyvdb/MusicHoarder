@@ -21,6 +21,7 @@
   import { cn } from '$lib/utils';
   import { parseLrc } from '$lib/lyrics/parse-lrc';
   import LyricsStatusBadge from './LyricsStatusBadge.svelte';
+  import { isAdmin } from '$lib/auth/capabilities';
 
   type Props = {
     songId: number | null;
@@ -263,7 +264,7 @@
 
 {#snippet recheckButton(label: string)}
   <!-- Re-checking LRCLIB is a server write on the owner's row — hidden for friend/demo views. -->
-  {#if page.data.user?.role === 'Owner'}
+  {#if isAdmin(page.data.user)}
   <Button
     variant="subtle"
     size="sm"

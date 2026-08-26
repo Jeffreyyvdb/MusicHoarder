@@ -22,22 +22,22 @@ public static class ArtistDedupEndpoints
         app.MapGet("/api/library/artists/duplicates", Detect)
             .WithName("GetArtistDuplicates")
             .WithSummary("Clusters of artist-name spellings that likely refer to the same artist, plus combined-credit candidates.")
-            .WithTags("Library").RequireOwner();
+            .WithTags("Library").RequireAdmin();
 
         app.MapPost("/api/library/artists/merge", Merge)
             .WithName("MergeArtists")
             .WithSummary("Merge variant spellings onto a canonical artist name; rewrites tags and re-queues built files for re-tag.")
-            .WithTags("Library").RequireOwner();
+            .WithTags("Library").RequireAdmin();
 
         app.MapPost("/api/library/artists/split-credit", SplitCredit)
             .WithName("SplitArtistCredit")
             .WithSummary("Backfill the discrete Artists list for songs whose display credit is a combined \"A & B\" string.")
-            .WithTags("Library").RequireOwner();
+            .WithTags("Library").RequireAdmin();
 
         app.MapPost("/api/library/artists/dismiss", Dismiss)
             .WithName("DismissArtistDuplicates")
             .WithSummary("Mark artist-name spellings as NOT the same artist; the decision persists across detections.")
-            .WithTags("Library").RequireOwner();
+            .WithTags("Library").RequireAdmin();
 
         return app;
     }

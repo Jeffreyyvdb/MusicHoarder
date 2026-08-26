@@ -35,11 +35,11 @@ internal sealed class TestCurrentUserAccessor : ICurrentUserAccessor
     public Guid UserId => User?.Id ?? Guid.Empty;
 
     public static CurrentUser OwnerUser =>
-        new(TestUsers.OwnerId, "owner@test.local", UserRole.Owner, "Owner");
+        new(TestUsers.OwnerId, "owner@test.local", UserRole.Admin, "Owner");
 
     public static CurrentUser DemoUser =>
         new(TestUsers.DemoId, "demo@test.local", UserRole.Demo, "Demo");
 
     public static CurrentUser FriendUser =>
-        new(TestUsers.FriendId, "friend@test.local", UserRole.Friend, "Friend");
+        new(TestUsers.FriendId, "friend@test.local", UserRole.Member, "Friend");
 }

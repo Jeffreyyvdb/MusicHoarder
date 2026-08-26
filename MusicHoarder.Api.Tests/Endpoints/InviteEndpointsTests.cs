@@ -37,7 +37,7 @@ public class InviteEndpointsTests
 
         await using var db = ctx();
         var friend = await db.Users.SingleAsync(u => u.EmailNormalized == User.Normalize("pal@example.com"));
-        Assert.Equal(UserRole.Friend, friend.Role);
+        Assert.Equal(UserRole.Member, friend.Role);
         var session = await db.Sessions.SingleAsync();
         Assert.Equal(friend.Id, session.UserId);
         // The bearer wraps the same server-side session row the cookie flow would have written.
@@ -102,7 +102,7 @@ public class InviteEndpointsTests
                 Email = "owner@example.com",
                 EmailNormalized = User.Normalize("owner@example.com"),
                 DisplayName = "Owner",
-                Role = UserRole.Owner,
+                Role = UserRole.Admin,
                 CreatedAtUtc = DateTime.UtcNow,
             });
             seed.SaveChanges();

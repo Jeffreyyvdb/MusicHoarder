@@ -16,7 +16,7 @@ public static class AlbumsEndpoints
 {
     public static IEndpointRouteBuilder MapAlbumsEndpoints(this IEndpointRouteBuilder app)
     {
-        // The read-only album GETs deliberately have no RequireOwner: the demo account (UserRole.Demo)
+        // The read-only album GETs deliberately have no RequireAdmin: the demo account (UserRole.Demo)
         // must be able to browse album data too. Auth is still mandatory (RequireAuthMiddleware) and
         // every owner-scoped table is filtered by the EF global query filter — same posture as the
         // songs GETs.
@@ -29,7 +29,7 @@ public static class AlbumsEndpoints
             .WithName("GetAlbumCanonicalStatuses")
             .WithSummary("Batch link-status (linked / localOnly / pending) for a list of albums, for the library grid badges.")
             .WithTags("Library")
-            .RequireOwner();
+            .RequireAdmin();
 
         app.MapGet("/api/albums/timeline", GetAlbumTimeline)
             .WithName("GetAlbumTimeline")
@@ -40,7 +40,7 @@ public static class AlbumsEndpoints
             .WithName("AcquireCanonicalTrack")
             .WithSummary("Queue one missing canonical album track for download (the manual counterpart to the album-completion sweep).")
             .WithTags("Library")
-            .RequireOwner();
+            .RequireAdmin();
 
         return app;
     }

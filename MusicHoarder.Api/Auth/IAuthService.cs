@@ -60,7 +60,7 @@ public interface IAuthService
     Task<InvitePeekResult?> PeekInviteAsync(string rawToken, CancellationToken ct);
 
     /// <summary>
-    /// Consumes an invite: creates the <see cref="UserRole.Friend"/> account for the bound email
+    /// Consumes an invite: creates the <see cref="UserRole.Member"/> account for the bound email
     /// (or re-enables a previously removed friend with the same email) and starts a session.
     /// Returns <c>null</c> when the token is invalid or the email meanwhile belongs to a
     /// non-Friend user.

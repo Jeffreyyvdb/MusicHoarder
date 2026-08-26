@@ -32,13 +32,13 @@ public static class SyncEndpoints
         m2m.MapPost("/upload", Upload).DisableAntiforgery();
         m2m.MapPost("/like", Like);
 
-        group.MapGet("/status", Status).RequireOwner();
+        group.MapGet("/status", Status).RequireAdmin();
         group.MapPost("/requeue", Requeue)
             .WithSummary("Re-arm every settled outbox row (Synced/SkippedRemoteBetter/Failed) so the push sweep re-verifies each track against the remote. Tracks the remote already holds just re-check; missing or byte-different remote copies re-upload.")
-            .RequireOwner();
+            .RequireAdmin();
         group.MapPost("/prune-duplicates", PruneDuplicates)
             .WithSummary("Receive-side cleanup: soft-delete redundant managed synced-source copies that share a fingerprint with a copy being kept, and remove their files. Dry-run unless apply=true; never touches a row that owns a destination file or a source outside the managed synced dir.")
-            .RequireOwner();
+            .RequireAdmin();
     }
 
     private static async Task<IResult> Like(

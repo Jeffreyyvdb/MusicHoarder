@@ -91,7 +91,7 @@ public sealed class DemoSeederHostedService : IHostedService
         {
             var desired = user.Role switch
             {
-                UserRole.Owner => opts.OwnerEmail,
+                UserRole.Admin => opts.OwnerEmail,
                 UserRole.Demo => opts.DemoUserEmail,
                 _ => null,
             };

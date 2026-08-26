@@ -44,6 +44,7 @@
   } from '$lib/api-client';
   import { signOutAndReset } from '$lib/auth/sign-out';
   import { switchAccountAndReload } from '$lib/auth/switch-account';
+  import { isAdmin, isDemo, roleLabel } from '$lib/auth/capabilities';
   import {
     Loader2,
     CheckCircle2,
@@ -95,15 +96,11 @@
       | undefined
   );
 
-  // Invites/sharing are owner powers — everyone else just doesn't get the tab. Friends get
-  // Settings only for their own account (sign out, phone pairing): every other tab is the
-  // owner's instance configuration.
+  // Invites and sharing are administration — everyone else just doesn't get the tab. A member
+  // gets Settings only for their own account (sign out, phone pairing, passkeys); every other
+  // tab is instance configuration.
   const visibleTabs = $derived(
-    user?.role === 'Friend'
-      ? TABS.filter((t) => t.id === 'account')
-      : user?.role === 'Owner'
-        ? TABS
-        : TABS.filter((t) => t.id !== 'people')
+    isAdmin(user) ? TABS : isDemo(user) ? TABS.filter((t) => t.id !== 'people') : TABS.filter((t) => t.id === 'account')
   );
   const initials = $derived((user?.displayName ?? user?.email ?? '?').slice(0, 2).toUpperCase());
 
@@ -184,7 +181,9 @@
   let isAddingPasskey = $state(false);
   let passkeyError = $state<string | null>(null);
 
-  const canUsePasskeys = $derived(user?.role === 'Owner' || user?.role === 'Friend');
+  // Any real account may enrol a passkey on itself — that is what lets a member sign in on the
+  // phone. Only the shared demo login is excluded, because its credentials are public.
+  const canUsePasskeys = $derived(!isDemo(user));
 
   $effect(() => {
     passkeySupported = isPasskeySupported();
@@ -239,7 +238,7 @@
   let soulseekSyncLoaded = $state(false);
 
   $effect(() => {
-    if (user?.role !== 'Owner') return;
+    if (!isAdmin(user)) return;
     let cancelled = false;
     void (async () => {
       const [slsk, syncResp] = await Promise.all([
@@ -300,9 +299,9 @@
   );
 
   $effect(() => {
-    // Spotify creds, purge state, and the settings document are all owner configuration —
-    // a friend's Settings is just their account card + pairing, so skip the fetches.
-    if (user?.role === 'Friend') {
+    // Spotify creds, purge state, and the settings document are all instance configuration —
+    // a member's Settings is just their account card + pairing, so skip the fetches.
+    if (!isAdmin(user)) {
       isLoading = false;
       return;
     }
@@ -773,7 +772,7 @@
       </section>
 
       <!-- Soulseek & sync (read-only status) -->
-      {#if user?.role === 'Owner'}
+      {#if isAdmin(user)}
         <section class="border-border bg-card rounded-lg border">
           <header class="border-border border-b px-5 py-3.5">
             <h2 class="text-[13px] font-semibold">Soulseek &amp; sync</h2>
@@ -1149,7 +1148,7 @@
                   <div class="truncate text-sm font-medium">
                     {user?.displayName ?? user?.email ?? '—'}
                   </div>
-                  {#if user?.role === 'Owner'}
+                  {#if isAdmin(user)}
                     <Button
                       variant="ghost"
                       size="icon"
@@ -1166,8 +1165,8 @@
                 {user?.email ?? '—'}
               </div>
             </div>
-            <Badge variant={user?.role === 'Owner' ? 'default' : 'secondary'}>
-              {user?.role ?? 'Anonymous'}
+            <Badge variant={isAdmin(user) ? 'default' : 'secondary'}>
+              {roleLabel(user?.role)}
             </Badge>
           </div>
 
@@ -1180,7 +1179,7 @@
             </div>
           {/if}
 
-          {#if user?.role === 'Demo'}
+          {#if isDemo(user)}
             <div
               class="border-border bg-secondary/40 text-foreground/80 rounded-lg border px-4 py-3 text-xs"
             >
@@ -1242,8 +1241,8 @@
                       {account.email}
                     </div>
                   </div>
-                  <Badge variant={account.role === 'Owner' ? 'default' : 'secondary'}>
-                    {account.role}
+                  <Badge variant={roleLabel(account.role) === 'Admin' ? 'default' : 'secondary'}>
+                    {roleLabel(account.role)}
                   </Badge>
                   {#if account.isActive}
                     <span class="text-muted-foreground text-xs">Active</span>
@@ -1356,13 +1355,13 @@
         </section>
       {/if}
 
-      {#if user?.role === 'Owner' || user?.role === 'Friend'}
+      {#if !isDemo(user)}
         <!-- Friends pair phones too: the token rides their own session, and the server's
              friend allowlist deliberately permits POST /api/auth/device-token. -->
         <PairDeviceCard />
       {/if}
 
-      {#if user?.role === 'Owner'}
+      {#if isAdmin(user)}
         <!-- Anonymous telemetry — not API-writable yet -->
         <section class="border-border bg-card rounded-lg border border-dashed">
           <header class="border-border flex items-center gap-2 border-b border-dashed px-5 py-3.5">
@@ -1525,7 +1524,7 @@
       {/if}
     {:else if activeTab === 'people'}
       <!-- =================== PEOPLE (owner-only) =================== -->
-      {#if user?.role === 'Owner'}
+      {#if isAdmin(user)}
         <PeopleCard />
       {:else}
         <section class="border-border bg-card rounded-lg border p-5">

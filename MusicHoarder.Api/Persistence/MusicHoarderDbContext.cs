@@ -61,7 +61,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<EnrichmentSnapshotSong> EnrichmentSnapshotSongs { get; set; } = null!;
     public DbSet<SongShare> SongShares { get; set; } = null!;
     public DbSet<LibraryShareGrant> LibraryShareGrants { get; set; } = null!;
-    public DbSet<FriendSongState> FriendSongStates { get; set; } = null!;
+    public DbSet<UserSongState> UserSongStates { get; set; } = null!;
     public DbSet<TrackSyncState> TrackSyncStates { get; set; } = null!;
     public DbSet<UpgradeRequest> UpgradeRequests { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
@@ -500,7 +500,7 @@ public class MusicHoarderDbContext : DbContext
             entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId || e.GranteeUserId == userId);
         });
 
-        modelBuilder.Entity<FriendSongState>(entity =>
+        modelBuilder.Entity<UserSongState>(entity =>
         {
             entity.HasKey(e => e.Id);
             // One state row per (friend, song); the friend-side reads join by these two.
@@ -524,6 +524,13 @@ public class MusicHoarderDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.EmailNormalized).IsUnique();
 
+            // Stored as the raw [Flags] int. The seeded rows below get 0 and rely on
+            // CurrentUser.Effective granting an Admin everything, so no seed data churns when a
+            // capability is added.
+            entity.Property(e => e.Capabilities)
+                .HasConversion<int>()
+                .HasDefaultValue(Capability.None);
+
             entity.HasData(
                 new User
                 {
@@ -531,7 +538,7 @@ public class MusicHoarderDbContext : DbContext
                     Email = WellKnownUsers.OwnerPlaceholderEmail,
                     EmailNormalized = User.Normalize(WellKnownUsers.OwnerPlaceholderEmail),
                     DisplayName = "Owner",
-                    Role = UserRole.Owner,
+                    Role = UserRole.Admin,
                     IsDisabled = false,
                     CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
                 },

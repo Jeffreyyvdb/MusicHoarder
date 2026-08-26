@@ -42,6 +42,7 @@
     type TimelineTint
   } from '$lib/review-helpers';
   import { formatDuration, formatFileSize, formatBitrate } from '$lib/formatters';
+  import { isAdmin } from '$lib/auth/capabilities';
 
   type Props = { songId: number };
   const { songId }: Props = $props();
@@ -178,7 +179,7 @@
 
   // ── soulseek quality upgrade (owner-only) ────────────────────────────────────
   const isOwner = $derived(
-    (page.data.user as { role?: 'Owner' | 'Demo' } | undefined)?.role === 'Owner'
+    isAdmin(page.data.user)
   );
   let soulseekConfigured = $state(false);
   let requestingUpgrade = $state(false);

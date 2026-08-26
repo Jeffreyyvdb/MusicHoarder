@@ -43,8 +43,30 @@ data class LibraryState(
     val artistsAll: List<ArtistGroup> = emptyList(),
     val error: String? = null,
     val isPairingRevoked: Boolean = false,
+    /** Who is sharing music with you, from the last fetch. Empty when it is all your own. */
+    val grantors: List<Grantor> = emptyList(),
 ) {
     val isEmpty: Boolean get() = trackListBase.isEmpty()
+
+    /** The grantor of one track, or null when this account owns it. */
+    fun grantorOf(track: Track): Grantor? {
+        val id = track.sharedByUserId ?: return null
+        return grantors.firstOrNull { it.userId == id }
+    }
+
+    /**
+     * "shared by X" for the library header, or null when nothing is shared. Names whoever actually
+     * shared the rows on screen rather than assuming a single library owner.
+     */
+    fun sharedByLabel(): String? {
+        val names = grantors.map { it.displayName?.trim()?.takeIf(String::isNotEmpty) ?: "someone" }
+        return when (names.size) {
+            0 -> null
+            1 -> "shared by ${names[0]}"
+            2 -> "shared by ${names[0]} and ${names[1]}"
+            else -> "shared by ${names[0]} and ${names.size - 1} others"
+        }
+    }
 }
 
 /**
@@ -86,10 +108,12 @@ class LibraryRepository(private val api: MusicHoarderApi) {
             if (_state.value.trackListBase.isNotEmpty() && !force) return
             _state.value = _state.value.copy(isLoading = true, error = null, isPairingRevoked = false)
             try {
-                val songs = api.fetchSongs()
+                val response = api.fetchSongs()
                 // Grouping four thousand tracks into albums and artists is far too much work for a
                 // frame, and the mapping this replaces ran on the main dispatcher.
-                _state.value = withContext(Dispatchers.Default) { fold(songs) }
+                _state.value = withContext(Dispatchers.Default) {
+                    fold(response.songs).copy(grantors = response.grantors)
+                }
             } catch (e: UnauthorizedException) {
                 _state.value = _state.value.copy(isLoading = false, error = e.message, isPairingRevoked = true)
             } catch (e: Exception) {
@@ -102,12 +126,11 @@ class LibraryRepository(private val api: MusicHoarderApi) {
     }
 
     private fun fold(songs: List<ApiSong>): LibraryState {
-        // In shared-library (Friend) mode every row counts as built: build state is the owner's
-        // pipeline concern, and the reduced /api/shared payload carries no destinationPath — the
-        // grant already guarantees the row is playable. Port of the same escape in the web's
-        // `album-sections.ts`; without it a friend's phone folds to a blank "No built tracks yet."
-        val shared = api.isSharedLibrary
-        val mapped = songs.map { song -> song.toTrack() to (shared || song.isBuilt) }
+        // Build state comes from ApiSong.isBuilt, which trusts the server's flag for rows shared
+        // with you and derives it locally for your own. That replaced a session-wide "shared
+        // library" mode this repository used to read — one rule, both row kinds, and the phone no
+        // longer needs to know what kind of account it holds.
+        val mapped = songs.map { song -> song.toTrack() to song.isBuilt }
         val base = mapped
             .filter { (track, isBuilt) -> isBuilt || (track.isLocalFile && track.needsReview) }
             .map { it.first }
@@ -127,9 +150,9 @@ class LibraryRepository(private val api: MusicHoarderApi) {
      * silent refetches never re-post the whole library.
      */
     fun loadAlbumStatuses(albums: List<Album>, scope: CoroutineScope) {
-        // Owner-only metadata: the endpoint is write-blocked for friends (read-only middleware),
-        // so don't fire a guaranteed 403 per album set — the dots simply don't paint.
-        if (api.isSharedLibrary) return
+        // Called unconditionally. The endpoint is admin-only, so a member's request comes back
+        // 403 and the dots simply do not paint — the call site is already best-effort. Guarding
+        // it here would put role knowledge back into the repository to save one request.
         val identities = albums.map { AlbumIdentity(it.artist, it.name) }
         // Separators no artist or album name can contain, so two different sets cannot
         // collide on one signature.

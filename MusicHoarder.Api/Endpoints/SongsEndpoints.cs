@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Artwork;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Contracts;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Enrichment;
@@ -9,6 +10,7 @@ using MusicHoarder.Api.Navidrome;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Scanner;
+using MusicHoarder.Api.Sharing;
 using MusicHoarder.Api.Spotify;
 using MusicHoarder.Api.Sync;
 
@@ -94,13 +96,42 @@ public static class SongsEndpoints
         return app;
     }
 
+    /// <summary>
+    /// Like a song, whether the caller owns it or was granted it.
+    ///
+    /// <para>
+    /// The whole rule in one branch: <b>own the row → write the row's own columns; do not own it →
+    /// write a <see cref="UserSongState"/> row.</b> Branch on <c>slice.IsSelf</c>, never on the
+    /// caller's role — an admin can hold a grant too, and treating their like on someone else's
+    /// track as their own would corrupt the grantor's library.
+    /// </para>
+    ///
+    /// <para>
+    /// The Navidrome and instance-sync enqueues stay strictly inside the owns-it branch. Those
+    /// mirror the library owner's own taste to their own servers; pushing a guest's like there
+    /// would silently star tracks in the owner's Navidrome that the owner never liked.
+    /// </para>
+    /// </summary>
     internal static async Task<IResult> LikeSong(
-        int id, MusicHoarderDbContext db, INavidromeLikeEnqueuer navidrome,
+        int id, MusicHoarderDbContext db, ILibraryScopeResolver scopeResolver,
+        ICurrentUserAccessor currentUser, INavidromeLikeEnqueuer navidrome,
         ITrackSyncEnqueuer trackSync, CancellationToken ct)
     {
+        var found = await scopeResolver.ResolveSongAsync(db, id, ct);
+        if (found is null)
+            return SongNotFound();
+
+        if (!found.Value.Slice.IsSelf)
+        {
+            var state = await UserSongStateWriter.UpsertAsync(
+                db, currentUser.UserId, id, s => s.LikedAtUtc ??= DateTime.UtcNow, ct);
+            return Results.Ok(new { Id = id, state.LikedAtUtc });
+        }
+
+        // Tracked read: ResolveSongAsync returns a no-tracking entity, which cannot be saved.
         var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null, ct);
         if (song is null)
-            return Results.NotFound(new { message = $"Song with id {id} not found." });
+            return SongNotFound();
 
         var wasLiked = song.IsLiked;
         song.LikedAtUtc ??= DateTime.UtcNow;
@@ -115,13 +146,26 @@ public static class SongsEndpoints
         return Results.Ok(new { song.Id, song.LikedAtUtc });
     }
 
+    /// <inheritdoc cref="LikeSong"/>
     internal static async Task<IResult> UnlikeSong(
-        int id, MusicHoarderDbContext db, INavidromeLikeEnqueuer navidrome,
+        int id, MusicHoarderDbContext db, ILibraryScopeResolver scopeResolver,
+        ICurrentUserAccessor currentUser, INavidromeLikeEnqueuer navidrome,
         ITrackSyncEnqueuer trackSync, CancellationToken ct)
     {
+        var found = await scopeResolver.ResolveSongAsync(db, id, ct);
+        if (found is null)
+            return SongNotFound();
+
+        if (!found.Value.Slice.IsSelf)
+        {
+            await UserSongStateWriter.UpsertAsync(
+                db, currentUser.UserId, id, s => s.LikedAtUtc = null, ct);
+            return Results.Ok(new { Id = id, LikedAtUtc = (DateTime?)null });
+        }
+
         var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id, ct);
         if (song is null)
-            return Results.NotFound(new { message = $"Song with id {id} not found." });
+            return SongNotFound();
 
         var wasLiked = song.IsLiked;
         song.LikedAtUtc = null;
@@ -134,11 +178,28 @@ public static class SongsEndpoints
         return Results.Ok(new { song.Id, LikedAtUtc = (DateTime?)null });
     }
 
-    internal static async Task<IResult> ReportPlayed(int id, MusicHoarderDbContext db, CancellationToken ct)
+    /// <inheritdoc cref="LikeSong"/>
+    internal static async Task<IResult> ReportPlayed(
+        int id, MusicHoarderDbContext db, ILibraryScopeResolver scopeResolver,
+        ICurrentUserAccessor currentUser, CancellationToken ct)
     {
+        var found = await scopeResolver.ResolveSongAsync(db, id, ct);
+        if (found is null)
+            return SongNotFound();
+
+        if (!found.Value.Slice.IsSelf)
+        {
+            var state = await UserSongStateWriter.UpsertAsync(db, currentUser.UserId, id, s =>
+            {
+                s.PlayCount++;
+                s.LastPlayedAtUtc = DateTime.UtcNow;
+            }, ct);
+            return Results.Ok(new { Id = id, state.PlayCount, state.LastPlayedAtUtc });
+        }
+
         var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null, ct);
         if (song is null)
-            return Results.NotFound(new { message = $"Song with id {id} not found." });
+            return SongNotFound();
 
         song.PlayCount++;
         song.LastPlayedAtUtc = DateTime.UtcNow;
@@ -146,10 +207,24 @@ public static class SongsEndpoints
         return Results.Ok(new { song.Id, song.PlayCount, song.LastPlayedAtUtc });
     }
 
+    /// <summary>
+    /// Every song the caller may see: their own rows, plus anything shared with them.
+    ///
+    /// <para>
+    /// The two halves are deliberately asymmetric. Own rows run the original query and full
+    /// projection untouched, still behind the ambient tenancy filter. Granted rows go through
+    /// <see cref="ILibraryScopeResolver"/> and the redacted <see cref="SharedSongRowDto"/>. That
+    /// asymmetry is the safety property: a member owns zero song rows, so the own-rows half is
+    /// empty for them by construction, and an admin with no grants runs exactly the code path that
+    /// shipped before this endpoint was unified.
+    /// </para>
+    /// </summary>
     internal static async Task<IResult> ListSongs(
         MusicHoarderDbContext db,
+        ILibraryScopeResolver scopeResolver,
         IOptions<MusicEnricherOptions> enricherOptions,
         IOptions<SyncOptions> syncOptions,
+        CancellationToken ct,
         bool includeDeleted = false,
         string? enrichmentStatus = null)
     {
@@ -393,26 +468,62 @@ public static class SongsEndpoints
         };
         }).ToList();
 
+        // Anything shared with the caller, appended after their own rows. `includeDeleted` and
+        // `enrichmentStatus` deliberately do not apply here — they are pipeline-triage filters over
+        // rows you own, and ScopeSongs already excludes deleted, duplicate, and synthetic rows.
+        var scope = await scopeResolver.ResolveAsync(db, ct);
+        var (sharedSongs, grantors) =
+            await SharedSongProjection.BuildAsync(db, scope, scope.Slices[0].GrantorUserId, ct);
+
+        // List<object> so both row shapes serialize by their runtime type. An admin with no grants
+        // gets an empty `grantors` array and an otherwise byte-identical payload to before.
+        var allRows = new List<object>(projected.Count + sharedSongs.Count);
+        allRows.AddRange(projected);
+        allRows.AddRange(sharedSongs);
+
         return Results.Ok(new
         {
-            Count = projected.Count,
+            Count = allRows.Count,
             IncludeDeleted = includeDeleted,
-            Songs = projected
+            Songs = allRows,
+            Grantors = grantors,
         });
     }
 
     private static DateTime? Earliest(DateTime? a, DateTime? b) =>
         a is null ? b : b is null ? a : a < b ? a : b;
 
-    private static async Task<IResult> GetTrackLyrics(int id, MusicHoarderDbContext db)
+    private static async Task<IResult> GetTrackLyrics(
+        int id, MusicHoarderDbContext db, ILibraryScopeResolver scopeResolver, CancellationToken ct)
     {
         // Full entity (not a projection) so the staleness check can use the Display*/hash computed props.
-        var song = await db.Songs
-            .AsNoTracking()
-            .FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null);
+        var found = await scopeResolver.ResolveSongAsync(db, id, ct);
+        if (found is null)
+            return SongNotFound();
 
-        if (song is null)
-            return Results.NotFound(new { message = $"Track with id {id} not found." });
+        var (song, slice) = found.Value;
+
+        // A grantee gets the reader's view, not the editor's: what the in-app viewer would show,
+        // with stale translations withheld and no transcription or pipeline state. Same shape and
+        // staleness rules as the anonymous share lyrics in SharesEndpoints.
+        if (!slice.IsSelf)
+        {
+            var translationFresh =
+                song.LyricsTranslationStatus == LyricsTranslationStatus.Completed
+                && !song.IsLyricsTranslationStale;
+            return Results.Ok(new
+            {
+                song.Id,
+                Synced = song.DisplaySyncedLyrics,
+                Plain = song.DisplayPlainLyrics,
+                IsInstrumental = song.IsInstrumental == true,
+                RomanizedSynced = translationFresh ? song.RomanizedSyncedLyrics : null,
+                RomanizedPlain = translationFresh ? song.RomanizedPlainLyrics : null,
+                TranslatedSynced = translationFresh ? song.TranslatedSyncedLyrics : null,
+                TranslatedPlain = translationFresh ? song.TranslatedPlainLyrics : null,
+                DetectedLanguage = translationFresh ? song.DetectedLyricsLanguage : null,
+            });
+        }
 
         return Results.Ok(new
         {
@@ -804,15 +915,26 @@ public static class SongsEndpoints
         return Results.Ok(new { song.Id, change.FieldName, revertedTo = change.OldValue });
     }
 
-    internal static async Task<IResult> StreamSong(int id, MusicHoarderDbContext db)
+    /// <summary>
+    /// The uniform not-found body for every song lookup, owned or shared.
+    ///
+    /// <para>
+    /// This is a security control, not cosmetics. If "no such song" and "not shared with me" read
+    /// differently, a member can walk the id space and map out the size and shape of a library
+    /// they were never granted.
+    /// </para>
+    /// </summary>
+    internal static IResult SongNotFound() =>
+        Results.NotFound(new { message = "Song not found." });
+
+    internal static async Task<IResult> StreamSong(
+        int id, MusicHoarderDbContext db, ILibraryScopeResolver scopeResolver, CancellationToken ct)
     {
-        var song = await db.Songs.AsNoTracking()
-            .FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null);
-
-        if (song is null)
-            return Results.NotFound(new { message = $"Song with id {id} not found." });
-
-        return StreamSongFile(song);
+        var found = await scopeResolver.ResolveSongAsync(db, id, ct);
+        // Paths only for a song the caller owns — for a granted row they are the grantor's.
+        return found is null
+            ? SongNotFound()
+            : StreamSongFile(found.Value.Song, includePaths: found.Value.Slice.IsSelf);
     }
 
     /// <summary>
@@ -829,17 +951,32 @@ public static class SongsEndpoints
     /// Range-enabled audio stream for a song row the caller has already loaded and authorized
     /// (also used by the anonymous share endpoints, which do their own token-based scoping).
     /// </summary>
-    internal static IResult StreamSongFile(SongMetadata song)
+    /// <param name="includePaths">
+    /// Whether the "file missing" body may name the paths. Defaults to FALSE so every caller is
+    /// safe by omission — only pass true for a song the requester actually owns.
+    ///
+    /// <para>
+    /// This matters because the same helper serves three callers: the caller's own library, an
+    /// anonymous share link, and a grantee reading someone else's library. For the latter two the
+    /// paths are the file owner's private disk layout, and a missing file is entirely routine (an
+    /// unmounted NAS, or an artist/album grant exposing a never-built row). Leaking them here
+    /// would undo the redaction <see cref="Contracts.SharedSongRowDto"/> performs — and the
+    /// reflection test that pins that DTO cannot see this code path.
+    /// </para>
+    /// </param>
+    internal static IResult StreamSongFile(SongMetadata song, bool includePaths = false)
     {
         var filePath = ResolveAudioFilePath(song);
 
         if (filePath is null)
-            return Results.NotFound(new
-            {
-                message = "Audio file not found on disk.",
-                sourcePath = song.SourcePath,
-                destinationPath = song.DestinationPath
-            });
+            return includePaths
+                ? Results.NotFound(new
+                {
+                    message = "Audio file not found on disk.",
+                    sourcePath = song.SourcePath,
+                    destinationPath = song.DestinationPath
+                })
+                : Results.NotFound(new { message = "Audio file not found on disk." });
 
         var mimeType = Path.GetExtension(filePath)?.ToLowerInvariant() switch
         {
@@ -868,13 +1005,15 @@ public static class SongsEndpoints
     internal static async Task<IResult> GetSongCover(
         int id,
         MusicHoarderDbContext db,
+        ILibraryScopeResolver scopeResolver,
         ICoverArtResolver coverArtResolver,
         ICoverThumbnailService thumbnails,
         HttpContext http,
-        int? size)
+        int? size,
+        CancellationToken ct)
     {
-        var song = await db.Songs.AsNoTracking()
-            .FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null);
+        var found = await scopeResolver.ResolveSongAsync(db, id, ct);
+        var song = found?.Song;
 
         // Synthetic (demo) rows have no real file on disk — nothing to resolve.
         if (song is null || song.IsSynthetic)
@@ -882,11 +1021,15 @@ public static class SongsEndpoints
 
         // A song with an attached music video keeps its YouTube thumbnail next to the mp4
         // (<stem>.jpg) — the fallback cover for artless downloads until real art arrives.
+        //
+        // Filter bypassed deliberately: SongMusicVideo is scoped by its parent song's owner, so an
+        // ambient-filtered read returns nothing for a grantee and every shared track silently loses
+        // its thumbnail fallback. Safe because the song was already authorized above.
         string? videoThumbnail = null;
-        var videoFilePath = await db.SongMusicVideos.AsNoTracking()
-            .Where(v => v.SongId == id)
+        var videoFilePath = await db.SongMusicVideos.IgnoreQueryFilters().AsNoTracking()
+            .Where(v => v.SongId == song.Id)
             .Select(v => v.FilePath)
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(ct);
         if (videoFilePath is not null)
         {
             var candidate = Path.ChangeExtension(videoFilePath, ".jpg");

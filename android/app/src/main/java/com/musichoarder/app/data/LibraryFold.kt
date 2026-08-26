@@ -62,7 +62,20 @@ data class LibraryContent(
     /** Every album, unscoped - the Overview's total. */
     val libraryAlbumCount: Int = 0,
     val overview: OverviewSections = OverviewSections(),
+    /**
+     * "shared by X" for the library header, or null when it is all this account's own music.
+     * Precomputed with the rest of the fold, off the main thread.
+     */
+    val sharedByLabel: String? = null,
+    /** Grantor display names by user id, for the per-item "Shared by …" badge. */
+    val grantorNames: Map<String, String> = emptyMap(),
 )
+
+/** The badge label for one track, or null when this account owns it. */
+fun LibraryContent.sharedByLabelFor(track: Track): String? {
+    val id = track.sharedByUserId ?: return null
+    return "Shared by ${grantorNames[id] ?: "someone"}"
+}
 
 /** Whether a song is hearted, reading the optimistic overlay before the fetched value. */
 fun likedNow(likes: Map<Int, String?>, track: Track): Boolean =
@@ -155,6 +168,10 @@ fun foldLibrary(
             playCountOf = playCountOf,
             lastPlayedAtMsOf = lastPlayedOf,
         ),
+        sharedByLabel = state.sharedByLabel(),
+        grantorNames = state.grantors.associate { grantor ->
+            grantor.userId to (grantor.displayName?.trim()?.takeIf(String::isNotEmpty) ?: "someone")
+        },
     )
 }
 

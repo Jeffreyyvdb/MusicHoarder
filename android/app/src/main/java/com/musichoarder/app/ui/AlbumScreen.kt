@@ -45,6 +45,8 @@ import com.musichoarder.app.ui.theme.MhTheme
 @Composable
 fun AlbumScreen(
     album: Album,
+    /** "Shared by X" for an album from someone else's library; null when this account owns it. */
+    sharedBy: String? = null,
     coverUrl: (Track, Int) -> String?,
     playingTrackId: Int?,
     likes: Map<Int, String?>,
@@ -111,6 +113,14 @@ fun AlbumScreen(
                         color = colors.mutedForeground,
                         textAlign = TextAlign.Center,
                     )
+                    sharedBy?.let { label ->
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.mutedForeground.copy(alpha = 0.9f),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                     if (album.folderKeys.size > 1) {
                         // This card folds several destination folders together - say so, rather
                         // than silently hiding that the album is split on disk.
@@ -152,6 +162,8 @@ fun AlbumScreen(
                     trackNumber = track.trackNumber,
                     // The cover is already the header — repeating it 12 times adds nothing.
                     showArtwork = false,
+                    // The album header already names the grantor, so the rows only need the mark.
+                    sharedBy = sharedBy,
                 )
                 HorizontalDivider(color = colors.border)
             }

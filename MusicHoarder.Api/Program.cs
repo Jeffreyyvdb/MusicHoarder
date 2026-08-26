@@ -102,7 +102,7 @@ if (app.Environment.IsDevelopment())
 app.UseMiddleware<AuthenticationMiddleware>();
 app.UseMiddleware<RequireAuthMiddleware>();
 app.UseMiddleware<DemoReadOnlyMiddleware>();
-app.UseMiddleware<FriendReadOnlyMiddleware>();
+app.UseMiddleware<MemberWriteGuardMiddleware>();
 
 app.MapMusicHoarderEndpoints();
 

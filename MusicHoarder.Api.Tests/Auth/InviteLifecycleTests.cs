@@ -11,7 +11,7 @@ namespace MusicHoarder.Api.Tests.Auth;
 /// <summary>
 /// The friend-invite lifecycle on <see cref="AuthService"/>: mint/rotate (hash-only storage),
 /// peek without consuming, and accept (the one runtime path that inserts a
-/// <see cref="UserRole.Friend"/> user). Uniform failure for expired/revoked/consumed tokens.
+/// <see cref="UserRole.Member"/> user). Uniform failure for expired/revoked/consumed tokens.
 /// </summary>
 public class InviteLifecycleTests
 {
@@ -92,7 +92,7 @@ public class InviteLifecycleTests
         Assert.NotNull(session);
         await using var db = ctx();
         var friend = await db.Users.SingleAsync(u => u.EmailNormalized == User.Normalize("pal@example.com"));
-        Assert.Equal(UserRole.Friend, friend.Role);
+        Assert.Equal(UserRole.Member, friend.Role);
         Assert.False(friend.IsDisabled);
         Assert.NotNull(friend.LastLoginAtUtc);
 
@@ -153,7 +153,7 @@ public class InviteLifecycleTests
         Guid friendId;
         await using (var db = ctx())
         {
-            var friend = await db.Users.SingleAsync(u => u.Role == UserRole.Friend);
+            var friend = await db.Users.SingleAsync(u => u.Role == UserRole.Member);
             friend.IsDisabled = true;
             friendId = friend.Id;
             await db.SaveChangesAsync();
@@ -180,7 +180,7 @@ public class InviteLifecycleTests
 
         await using (var db = ctx())
         {
-            var friend = await db.Users.SingleAsync(u => u.Role == UserRole.Friend);
+            var friend = await db.Users.SingleAsync(u => u.Role == UserRole.Member);
             friend.IsDisabled = true;
             await db.SaveChangesAsync();
         }
@@ -220,7 +220,7 @@ public class InviteLifecycleTests
                     Email = "owner@example.com",
                     EmailNormalized = User.Normalize("owner@example.com"),
                     DisplayName = "Owner",
-                    Role = UserRole.Owner,
+                    Role = UserRole.Admin,
                     CreatedAtUtc = DateTime.UtcNow,
                 },
                 new User

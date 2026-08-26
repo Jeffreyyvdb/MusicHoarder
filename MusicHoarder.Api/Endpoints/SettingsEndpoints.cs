@@ -27,7 +27,7 @@ public static class SettingsEndpoints
                 // Configured paths are host-level (not tenant-scoped). On a public instance a demo
                 // user must not learn the owner's filesystem layout, so blank them for non-owners.
                 // Provider toggles and pipeline tuning are harmless to surface.
-                var isOwner = currentUser.User?.IsOwner == true;
+                var isOwner = currentUser.User?.IsAdmin == true;
                 var q = qualityOptions.Value;
                 // "Configured" = a key + base URL exist on the server, independent of the runtime
                 // Enabled toggle — lets the UI tell "you turned it off" apart from "no key set".
@@ -117,7 +117,7 @@ public static class SettingsEndpoints
             })
             .WithName("UpdateSettings")
             .WithSummary("Updates the persisted runtime settings overlay (provider toggles + quality grading). Takes effect on the next enrichment cycle.")
-            .RequireOwner();
+            .RequireAdmin();
 
         return app;
     }

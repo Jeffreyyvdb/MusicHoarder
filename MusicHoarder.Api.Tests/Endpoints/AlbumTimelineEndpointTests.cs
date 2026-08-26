@@ -397,7 +397,7 @@ public class AlbumTimelineEndpointTests
 
     private sealed class StubCurrentUser(Guid userId) : Api.Auth.ICurrentUserAccessor
     {
-        public Api.Auth.CurrentUser? User { get; } = new(userId, "owner@test", Api.Auth.UserRole.Owner, "Owner");
+        public Api.Auth.CurrentUser? User { get; } = new(userId, "owner@test", Api.Auth.UserRole.Admin, "Owner");
         public Guid UserId => userId;
     }
 }

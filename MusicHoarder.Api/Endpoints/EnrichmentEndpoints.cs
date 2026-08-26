@@ -39,7 +39,7 @@ public static class EnrichmentEndpoints
             })
             .WithName("TriggerEnrichmentScan")
             .WithSummary("Trigger the ScannerService to index the source library.")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapPost("/enrich", async (
                 EnrichmentPipelineChannel channel,
@@ -54,7 +54,7 @@ public static class EnrichmentEndpoints
             })
             .WithName("TriggerEnrich")
             .WithSummary("Enqueue all pending/retryable tracks for enrichment via the always-running enrichment workers.")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapGet("/stuck", async (
                 MusicHoarderDbContext db,
@@ -86,7 +86,7 @@ public static class EnrichmentEndpoints
             })
             .WithName("GetStuckCounts")
             .WithSummary("Counts of Matched tracks stuck before the destination library: build-quarantined and lyrics-held.")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapPost("/enrich/song/{id:int}", async (
                 int id,
@@ -124,7 +124,7 @@ public static class EnrichmentEndpoints
             })
             .WithName("EnrichSong")
             .WithSummary("Enrich a single song by id and return the outcome. Pass reset=true to clear prior attempts first.")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapPost("/enrich/folder", async (
                 string path,
@@ -165,7 +165,7 @@ public static class EnrichmentEndpoints
             })
             .WithName("EnrichFolder")
             .WithSummary("Enqueue every song under a source folder (recursively) for enrichment. Pass reset=true to clear prior attempts first.")
-            .RequireOwner();
+            .RequireAdmin();
 
         // One-time heal for wishlist downloads whose files carry the downloader's native tags (yt-dlp
         // wrote the YouTube channel into ARTIST and the video title into TITLE), which blocked enrichment
@@ -211,7 +211,7 @@ public static class EnrichmentEndpoints
             })
             .WithName("RestampWishlistDownloads")
             .WithSummary("Re-stamp every linked wishlist download from its known Spotify identity (file + DB) and re-enqueue for enrichment (runs in the background). Heals downloads poisoned by the downloader's native YouTube tags.")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapPost("/fingerprint", (JobManager jobManager, IDirectoryAvailability availability) =>
             {
@@ -225,7 +225,7 @@ public static class EnrichmentEndpoints
             })
             .WithName("TriggerFingerprint")
             .WithSummary("Trigger the FingerprintService to fingerprint tracks with missing fingerprints.")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapPost("/build", (JobManager jobManager, IDirectoryAvailability availability) =>
             {
@@ -239,7 +239,7 @@ public static class EnrichmentEndpoints
             })
             .WithName("TriggerBuild")
             .WithSummary("Trigger the LibraryBuilderService to copy and tag matched tracks to the destination.")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapPost("/rebuild/album", async (
                 string artist,
@@ -318,7 +318,7 @@ public static class EnrichmentEndpoints
             })
             .WithName("RebuildAlbum")
             .WithSummary("Consolidate an album against its canonical tracklist (fix split year-folders / duplicate track numbers) and re-queue it for re-tag; falls back to a plain in-place re-tag when no canonical album exists.")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapGet("/split-albums", async (IAlbumSplitHealer healer, CancellationToken ct) =>
             {
@@ -327,7 +327,7 @@ public static class EnrichmentEndpoints
             })
             .WithName("ListSplitAlbums")
             .WithSummary("Dry-run report of split albums: logical albums whose tracks disagree on identity (release id / album / year / album artist), with the identity a self-heal pass would elect. Empty when the self-heal safeguard has converged everything.")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapPost("/split-albums/heal", async (
                 IAlbumSplitHealer healer,
@@ -354,7 +354,7 @@ public static class EnrichmentEndpoints
             })
             .WithName("HealSplitAlbums")
             .WithSummary("Run the split-album self-heal now: elect one identity per logical album, correct disagreeing tracks and re-queue built ones for re-tag. Same pass the builder runs when idle.")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapGet("/missing-artist-credits", async (IArtistCreditHealer healer, CancellationToken ct) =>
             {
@@ -363,7 +363,7 @@ public static class EnrichmentEndpoints
             })
             .WithName("ListMissingArtistCredits")
             .WithSummary("Dry-run report of matched songs missing their discrete artist credit (Artists), with the credit the artist-credit self-heal would backfill from the stored MusicBrainz/Spotify attempt. Empty when the self-heal has converged everything.")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapPost("/cancel", (JobManager jobManager, EnrichmentPipelineChannel channel) =>
             {
@@ -379,7 +379,7 @@ public static class EnrichmentEndpoints
             })
             .WithName("CancelJob")
             .WithSummary("Cancel the currently running job.")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapPost("/pause", (string step, JobManager jobManager) =>
             {
@@ -391,7 +391,7 @@ public static class EnrichmentEndpoints
             })
             .WithName("PauseStep")
             .WithSummary("Pause a pipeline step. Cancels any in-flight job for that step and prevents auto-triggering.")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapPost("/resume", (string step, JobManager jobManager) =>
             {
@@ -403,7 +403,7 @@ public static class EnrichmentEndpoints
             })
             .WithName("ResumeStep")
             .WithSummary("Resume a paused pipeline step so it can auto-trigger again.")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapGet("/status", (
                 JobManager jobManager,
@@ -450,7 +450,7 @@ public static class EnrichmentEndpoints
                     (service, jobId, ownerUserId, ct) => service.ResetPostFingerprintAsync(jobId, ownerUserId, ct)))
             .WithName("PurgePostFingerprint")
             .WithSummary("Start a background reset of enrichment, lyrics, duplicate, and library-build state. Returns 202 Accepted with a jobId; poll /purge-status for progress.")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapPost("/purge-all", (
                 JobManager jobManager,
@@ -468,7 +468,7 @@ public static class EnrichmentEndpoints
                     (service, jobId, ownerUserId, ct) => service.PurgeAllAsync(jobId, ownerUserId, ct)))
             .WithName("PurgeAll")
             .WithSummary("Start a background hard-delete of every song, provider attempt, cached Spotify match, and copied destination file. Returns 202 Accepted.")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapGet("/purge-status", (PurgeStatusTracker tracker) => Results.Ok(tracker.Get()))
             .WithName("GetPurgeStatus")

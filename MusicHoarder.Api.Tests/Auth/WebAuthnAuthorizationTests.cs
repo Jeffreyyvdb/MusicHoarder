@@ -9,14 +9,14 @@ namespace MusicHoarder.Api.Tests.Auth;
 
 /// <summary>
 /// Guards the access rules the WebAuthn enrollment/management endpoints rely on
-/// (<see cref="RouteHandlerBuilderExtensions.RequireRealAccount"/>, plus
-/// <see cref="RouteHandlerBuilderExtensions.RequireOwner"/> which the rest of the API uses) and the
+/// (<see cref="RouteHandlerBuilderExtensions.RequireNonDemo"/>, plus
+/// <see cref="RouteHandlerBuilderExtensions.RequireAdmin"/> which the rest of the API uses) and the
 /// relying-party derivation that feeds the FIDO2 configuration.
 /// </summary>
 public class WebAuthnAuthorizationTests
 {
     [Fact]
-    public async Task RequireOwner_rejects_anonymous_with_401()
+    public async Task RequireAdmin_rejects_anonymous_with_401()
     {
         var result = await Invoke(currentUser: null);
         var status = Assert.IsType<int>(GetStatusCode(result));
@@ -24,7 +24,7 @@ public class WebAuthnAuthorizationTests
     }
 
     [Fact]
-    public async Task RequireOwner_rejects_demo_with_403()
+    public async Task RequireAdmin_rejects_demo_with_403()
     {
         var result = await Invoke(TestCurrentUserAccessor.DemoUser);
         var status = Assert.IsType<int>(GetStatusCode(result));
@@ -32,34 +32,34 @@ public class WebAuthnAuthorizationTests
     }
 
     [Fact]
-    public async Task RequireOwner_allows_owner_through()
+    public async Task RequireAdmin_allows_owner_through()
     {
         var result = await Invoke(TestCurrentUserAccessor.OwnerUser);
         Assert.Equal("next", result);
     }
 
     [Fact]
-    public async Task RequireRealAccount_rejects_anonymous_with_401()
+    public async Task RequireNonDemo_rejects_anonymous_with_401()
     {
-        var result = await Invoke(currentUser: null, new RequireRealAccountFilter());
+        var result = await Invoke(currentUser: null, new RequireNonDemoFilter());
         Assert.Equal(StatusCodes.Status401Unauthorized, Assert.IsType<int>(GetStatusCode(result)));
     }
 
     [Fact]
-    public async Task RequireRealAccount_rejects_demo_with_403()
+    public async Task RequireNonDemo_rejects_demo_with_403()
     {
         // The demo's credentials are shared by every visitor, so it never enrols anything.
-        var result = await Invoke(TestCurrentUserAccessor.DemoUser, new RequireRealAccountFilter());
+        var result = await Invoke(TestCurrentUserAccessor.DemoUser, new RequireNonDemoFilter());
         Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<int>(GetStatusCode(result)));
     }
 
     [Fact]
-    public async Task RequireRealAccount_allows_owner_and_friend_through()
+    public async Task RequireNonDemo_allows_owner_and_friend_through()
     {
-        Assert.Equal("next", await Invoke(TestCurrentUserAccessor.OwnerUser, new RequireRealAccountFilter()));
+        Assert.Equal("next", await Invoke(TestCurrentUserAccessor.OwnerUser, new RequireNonDemoFilter()));
         // A friend enrolling a passkey for their own account is what makes the Android client's
         // passkey sign-in available to them at all.
-        Assert.Equal("next", await Invoke(TestCurrentUserAccessor.FriendUser, new RequireRealAccountFilter()));
+        Assert.Equal("next", await Invoke(TestCurrentUserAccessor.FriendUser, new RequireNonDemoFilter()));
     }
 
     [Fact]
@@ -96,7 +96,7 @@ public class WebAuthnAuthorizationTests
     }
 
     private static Task<object?> Invoke(CurrentUser? currentUser) =>
-        Invoke(currentUser, new RequireOwnerFilter());
+        Invoke(currentUser, new RequireCapabilityFilter(Capability.Administer, "admin_required"));
 
     private static async Task<object?> Invoke(CurrentUser? currentUser, IEndpointFilter filter)
     {
