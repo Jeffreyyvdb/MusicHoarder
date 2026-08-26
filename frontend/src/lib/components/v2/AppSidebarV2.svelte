@@ -8,8 +8,6 @@
   import { navGroupsFor, resolveNav, type NavItem } from '$lib/nav';
   import { APP_HOME } from '$lib/app-home';
   import {
-    buildAlbumsFromSongs,
-    mergeAlbumsByName,
     fetchOverview,
     fetchStats,
     isLocalFile,
@@ -97,10 +95,8 @@
       .map((s) => mapEnrichmentStatus(s.enrichmentStatus))
       .filter((s) => s === 'needsreview' || s === 'failed').length;
   });
-  // Merged like the grid, so this badge and the grid's own "N albums" footer agree.
-  const albumCount = $derived.by(() =>
-    songs.length === 0 ? null : mergeAlbumsByName(buildAlbumsFromSongs(builtSongs)).length
-  );
+  // The grid's own list, so this badge and its "N albums" footer cannot disagree.
+  const albumCount = $derived.by(() => (songs.length === 0 ? null : songsStore.albums.length));
 
   const artistCount = $derived.by(() => {
     if (songs.length === 0) return null;

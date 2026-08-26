@@ -50,13 +50,18 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -99,6 +104,13 @@ fun NowPlayingScreen(
     onToggleVideoBackdrop: () -> Unit,
     /** Null hides the heart — the share queue's foreign ids have nothing to like. */
     onToggleLike: (() -> Unit)?,
+    /**
+     * The `artist · album` line's two destinations. Null on either leaves that half plain text —
+     * see `resolveNowPlayingLinks`, which decides when this library can answer for the track.
+     * Both collapse the player on the way, so the tap lands on a page you can see.
+     */
+    onOpenArtist: (() -> Unit)?,
+    onOpenAlbum: (() -> Unit)?,
     onCollapse: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
@@ -179,7 +191,14 @@ fun NowPlayingScreen(
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     Crossfade(targetState = pane, animationSpec = tween(220), label = "player-pane") { current ->
                         when (current) {
-                            PlayerPane.Song -> SongPane(state, coverUrl, onSurface)
+                            PlayerPane.Song ->
+                                SongPane(
+                                    state = state,
+                                    coverUrl = coverUrl,
+                                    onSurface = onSurface,
+                                    onOpenArtist = onOpenArtist,
+                                    onOpenAlbum = onOpenAlbum,
+                                )
 
                             PlayerPane.Lyrics -> LyricsPane(
                                 state = state,
@@ -192,11 +211,20 @@ fun NowPlayingScreen(
                                 onSeek = onSeek,
                                 onSetSpeed = onSetSpeed,
                                 onExpandLyrics = { lyricsExpanded = true },
+                                onOpenArtist = onOpenArtist,
+                                onOpenAlbum = onOpenAlbum,
                             )
 
                             // The clip is already painted full-bleed behind this column; the watch pane
                             // just names the track and gets out of its way.
-                            PlayerPane.Video -> VideoPane(state, coverUrl, onSurface = true)
+                            PlayerPane.Video ->
+                                VideoPane(
+                                    state = state,
+                                    coverUrl = coverUrl,
+                                    onSurface = true,
+                                    onOpenArtist = onOpenArtist,
+                                    onOpenAlbum = onOpenAlbum,
+                                )
                         }
                     }
                 }
@@ -360,7 +388,13 @@ private fun PlayerTopBar(
 }
 
 @Composable
-private fun SongPane(state: PlayerUiState, coverUrl: String?, onSurface: Boolean) {
+private fun SongPane(
+    state: PlayerUiState,
+    coverUrl: String?,
+    onSurface: Boolean,
+    onOpenArtist: (() -> Unit)?,
+    onOpenAlbum: (() -> Unit)?,
+) {
     Column(
         modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -370,7 +404,14 @@ private fun SongPane(state: PlayerUiState, coverUrl: String?, onSurface: Boolean
         Spacer(Modifier.height(20.dp))
         TrackTitle(state.title, onSurface, textAlign = TextAlign.Center)
         Spacer(Modifier.height(4.dp))
-        TrackSubtitle(state.artist, state.album, onSurface, textAlign = TextAlign.Center)
+        TrackSubtitle(
+            state.artist,
+            state.album,
+            onSurface,
+            textAlign = TextAlign.Center,
+            onOpenArtist = onOpenArtist,
+            onOpenAlbum = onOpenAlbum,
+        )
     }
 }
 
@@ -386,6 +427,8 @@ private fun LyricsPane(
     onSeek: (Long) -> Unit,
     onSetSpeed: (Float) -> Unit,
     onExpandLyrics: () -> Unit,
+    onOpenArtist: (() -> Unit)?,
+    onOpenAlbum: (() -> Unit)?,
 ) {
     Column(
         modifier = Modifier
@@ -399,7 +442,14 @@ private fun LyricsPane(
         Spacer(Modifier.height(20.dp))
         TrackTitle(state.title, onSurface, textAlign = TextAlign.Center)
         Spacer(Modifier.height(4.dp))
-        TrackSubtitle(state.artist, state.album, onSurface, textAlign = TextAlign.Center)
+        TrackSubtitle(
+            state.artist,
+            state.album,
+            onSurface,
+            textAlign = TextAlign.Center,
+            onOpenArtist = onOpenArtist,
+            onOpenAlbum = onOpenAlbum,
+        )
         Spacer(Modifier.height(24.dp))
         PlayerTransport(
             state = state,
@@ -421,7 +471,13 @@ private fun LyricsPane(
 }
 
 @Composable
-private fun VideoPane(state: PlayerUiState, coverUrl: String?, onSurface: Boolean) {
+private fun VideoPane(
+    state: PlayerUiState,
+    coverUrl: String?,
+    onSurface: Boolean,
+    onOpenArtist: (() -> Unit)?,
+    onOpenAlbum: (() -> Unit)?,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -445,7 +501,15 @@ private fun VideoPane(state: PlayerUiState, coverUrl: String?, onSurface: Boolea
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            TrackSubtitle(state.artist, state.album, onSurface, textAlign = TextAlign.Start, small = true)
+            TrackSubtitle(
+                state.artist,
+                state.album,
+                onSurface,
+                textAlign = TextAlign.Start,
+                onOpenArtist = onOpenArtist,
+                onOpenAlbum = onOpenAlbum,
+                small = true,
+            )
         }
     }
 }
@@ -479,21 +543,34 @@ private fun TrackTitle(title: String, onSurface: Boolean, textAlign: TextAlign) 
     )
 }
 
-/** `artist · album`, with the album half a shade quieter — the web's `text-muted-foreground/70`. */
+/**
+ * `artist · album`, with the album half a shade quieter — the web's `text-muted-foreground/70`.
+ *
+ * Both halves are links into the library, as they are on the web. One [Text] rather than a row of
+ * two, so the line still truncates as a whole the way the web's `truncate` does — the separator
+ * stays outside both links, so it reads as two targets rather than one underlined blob.
+ */
 @Composable
 private fun TrackSubtitle(
     artist: String,
     album: String,
     onSurface: Boolean,
     textAlign: TextAlign,
+    onOpenArtist: (() -> Unit)?,
+    onOpenAlbum: (() -> Unit)?,
     small: Boolean = false,
 ) {
     val colors = MhTheme.colors
     val text = buildAnnotatedString {
-        withStyle(SpanStyle(color = colors.mutedForeground)) { append(artist) }
+        appendNavigable(artist, colors.mutedForeground, colors.foreground, onOpenArtist)
         if (album.isNotBlank()) {
             withStyle(SpanStyle(color = colors.mutedForeground)) { append(" · ") }
-            withStyle(SpanStyle(color = colors.mutedForeground.copy(alpha = 0.7f))) { append(album) }
+            appendNavigable(
+                album,
+                colors.mutedForeground.copy(alpha = 0.7f),
+                colors.foreground,
+                onOpenAlbum,
+            )
         }
     }
     Text(
@@ -503,6 +580,33 @@ private fun TrackSubtitle(
         overflow = TextOverflow.Ellipsis,
         textAlign = textAlign,
     )
+}
+
+/**
+ * One half of the subtitle: plain text when there is nowhere to go, a link when there is.
+ *
+ * The web leaves these undecorated and signals them on hover, which a finger has no equivalent of —
+ * an unmarked tap target here would simply never be found. So the underline sits at rest and the
+ * press brightens the text to `foreground`, which is the state the web's `hover:` pair produces.
+ */
+private fun AnnotatedString.Builder.appendNavigable(
+    text: String,
+    color: Color,
+    pressedColor: Color,
+    onClick: (() -> Unit)?,
+) {
+    if (onClick == null) {
+        withStyle(SpanStyle(color = color)) { append(text) }
+        return
+    }
+    val link = LinkAnnotation.Clickable(
+        tag = text,
+        styles = TextLinkStyles(
+            style = SpanStyle(color = color, textDecoration = TextDecoration.Underline),
+            pressedStyle = SpanStyle(color = pressedColor, textDecoration = TextDecoration.Underline),
+        ),
+    ) { onClick() }
+    withLink(link) { append(text) }
 }
 
 /**

@@ -36,7 +36,7 @@ class LibraryFoldTest {
     private val state = LibraryState(
         builtTracks = all,
         trackListBase = all,
-        albums = mergeAlbumsByName(buildAlbums(all)),
+        albums = listOf(albumOf(all)),
     )
 
     private fun fold(likes: Map<Int, String?> = emptyMap()): LibraryContent =

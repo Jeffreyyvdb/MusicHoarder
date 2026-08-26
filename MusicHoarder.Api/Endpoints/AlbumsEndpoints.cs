@@ -2,6 +2,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
+using MusicHoarder.Api.Contracts;
+using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Library;
+using MusicHoarder.Api.Sharing;
 using MusicHoarder.Api.Enrichment.AlbumTracklist;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Matching;
@@ -20,6 +24,11 @@ public static class AlbumsEndpoints
         // must be able to browse album data too. Auth is still mandatory (RequireAuthMiddleware) and
         // every owner-scoped table is filtered by the EF global query filter — same posture as the
         // songs GETs.
+        app.MapGet("/api/albums", ListAlbums)
+            .WithName("ListAlbums")
+            .WithSummary("Every album the caller may see, grouped server-side: destination folder first, then folded by name. Carries track ids rather than track rows — clients join them against GET /songs.")
+            .WithTags("Library");
+
         app.MapGet("/api/albums/detail", GetAlbumDetail)
             .WithName("GetAlbumDetail")
             .WithSummary("Combined per-album payload: reconciled canonical tracklist (owned-annotated) plus the latest reconciliation grade, resolved in one request.")
@@ -43,6 +52,174 @@ public static class AlbumsEndpoints
             .RequireAdmin();
 
         return app;
+    }
+
+    /// <summary>
+    /// The album list. One definition of what an album is, for every client — see
+    /// <see cref="AlbumProjection"/> for the rules, which used to live in full in both of them.
+    ///
+    /// <para>
+    /// Scoped exactly like <c>GET /songs</c>: the caller's own rows behind the ambient tenancy
+    /// filter, plus anything shared with them. The granted half is built from
+    /// <see cref="SharedSongRowDto"/> rather than from the entities, and that is load-bearing rather
+    /// than tidy — that type is the published surface for a row you do not own, so grouping through
+    /// it is what stops a grantor's destination folders deciding the grantee's album cards, and stops
+    /// their private Spotify save history deciding the order of the grid. A grantee groups by name,
+    /// as they do today.
+    /// </para>
+    ///
+    /// <para>
+    /// No <c>RequireAdmin</c>, matching the other album GETs: the demo account must be able to browse,
+    /// auth is mandatory via <c>RequireAuthMiddleware</c>, and a member owns no song rows so the
+    /// own-rows half is empty for them by construction. No <c>ExcludingDemoTenant()</c> either — that
+    /// guards all-tenant sweeps running with the filter off, and this is a request-path read where a
+    /// demo session should see the demo library.
+    /// </para>
+    /// </summary>
+    /// <param name="builtOnly">
+    /// Only songs that reached the destination library — what the grid shows. False also groups
+    /// unbuilt rows, which is what the song-detail panel resolves a song's album context against.
+    /// </param>
+    /// <param name="merge">Fold cards that are the same album under different destination folders.</param>
+    /// <param name="artist">Narrow to one artist first, matching the album/track credit or any discrete one.</param>
+    /// <param name="year">A year, or "unknown" for the no-year bucket.</param>
+    /// <param name="unreleased">Narrow to tracker-confirmed and likely-unreleased material.</param>
+    internal static async Task<IResult> ListAlbums(
+        MusicHoarderDbContext db,
+        ILibraryScopeResolver scopeResolver,
+        CancellationToken ct,
+        bool builtOnly = true,
+        bool merge = true,
+        string? artist = null,
+        string? year = null,
+        bool unreleased = false)
+    {
+        var scope = await scopeResolver.ResolveAsync(db, ct);
+        var rows = new List<AlbumTrackRow>();
+        rows.AddRange(await OwnRowsAsync(db, scope, ct));
+
+        var (sharedSongs, _) =
+            await SharedSongProjection.BuildAsync(db, scope, scope.Slices[0].GrantorUserId, ct);
+        rows.AddRange(sharedSongs.Select(FromSharedRow));
+
+        var filtered = rows.Where(r => Matches(r, builtOnly, artist, year, unreleased)).ToList();
+        var albums = AlbumProjection.Build(filtered, merge);
+
+        return Results.Ok(new { Count = albums.Count, Albums = albums });
+    }
+
+    /// <summary>
+    /// The caller's own rows, ordered exactly as <c>GET /songs</c> orders them. That is part of the
+    /// contract, not a detail: the projection's "first non-null" fields and the card's elected title
+    /// and artist all read whichever row arrives first.
+    /// </summary>
+    private static async Task<List<AlbumTrackRow>> OwnRowsAsync(
+        MusicHoarderDbContext db, ILibraryScope scope, CancellationToken ct)
+    {
+        var self = scope.Slices[0];
+        var songs = await scope.SongsFor(db, self)
+            .OrderBy(s => s.Artist ?? "")
+            .ThenBy(s => s.Album ?? "")
+            .ThenBy(s => s.TrackNumber ?? 0)
+            .ThenBy(s => s.Title ?? "")
+            .ThenBy(s => s.FileName)
+            .Select(s => new
+            {
+                s.Id, s.FileName, s.DestinationPath, s.Album, s.AlbumArtist, s.Artist, s.Artists,
+                s.Title, s.TrackNumber, s.Year, s.DurationSeconds, s.FileSizeBytes,
+                s.Genre, s.Label, s.CatalogNumber, s.Upc, s.ReleaseDate, s.MusicBrainzReleaseId,
+                s.HasCoverArt, s.PlayCount, s.LikedAtUtc, s.AcquisitionIntent, s.LibraryBuildStatus,
+                s.SpotifyId, s.Isrc, s.IsUnreleased, s.EnrichmentStatus, s.MatchedBy, s.MatchWarnings,
+                s.AcquiredAtUtc, s.LibraryBuiltAtUtc, s.IndexedAtUtc,
+            })
+            .ToListAsync(ct);
+
+        var saveDates = await SpotifySaveDates.LoadAsync(db, ct);
+
+        return songs.Select(s =>
+        {
+            var warnings = SongsEndpoints.DeserializeWarnings(s.MatchWarnings);
+            var classification = ReleaseClassifier
+                .Classify(s.IsUnreleased, s.EnrichmentStatus, s.MatchedBy, warnings, s.Isrc, s.SpotifyId);
+            return new AlbumTrackRow(
+                s.Id, s.FileName, s.DestinationPath, s.Album, s.AlbumArtist, s.Artist, s.Artists,
+                s.Title, s.TrackNumber, s.Year, s.DurationSeconds, s.FileSizeBytes,
+                s.Genre, s.Label, s.CatalogNumber, s.Upc, s.ReleaseDate, s.MusicBrainzReleaseId,
+                s.HasCoverArt, s.PlayCount, s.LikedAtUtc,
+                IsAlbumFill: s.AcquisitionIntent == SongAcquisitionIntent.AlbumFill,
+                IsBuilt: s.LibraryBuildStatus == LibraryBuildStatus.Done && s.DestinationPath != null,
+                IsUnreleased: classification is ReleaseClassification.Unreleased
+                    or ReleaseClassification.LikelyUnreleased,
+                SpotifyAddedAtUtc: saveDates.SaveDateFor(s.Id, s.SpotifyId, saveDates.LinkFor(s.Id)?.SpotifyAddedAtUtc),
+                s.AcquiredAtUtc, s.LibraryBuiltAtUtc, s.IndexedAtUtc);
+        }).ToList();
+    }
+
+    /// <summary>
+    /// A row shared with the caller, read through nothing but what <see cref="SharedSongRowDto"/>
+    /// publishes. Every null below is a field that type deliberately withholds, and reproducing that
+    /// here is what makes the grantee's album list identical to the one they compute today:
+    /// no destination path, so their albums group by name; no Spotify save history, so the grid's
+    /// order cannot expose it; no acquisition intent, so every row reads as theirs.
+    /// </summary>
+    private static AlbumTrackRow FromSharedRow(SharedSongRowDto row) => new(
+        row.Id, row.FileName, DestinationPath: null, row.Album, row.AlbumArtist, row.Artist,
+        row.Artists, row.Title, row.TrackNumber, row.Year, row.DurationSeconds, row.FileSizeBytes,
+        row.Genre, row.Label, CatalogNumber: null, Upc: null, row.ReleaseDate,
+        row.MusicBrainzReleaseId, row.HasCoverArt, row.PlayCount, row.LikedAtUtc,
+        IsAlbumFill: false, row.IsBuilt, IsUnreleased: false, SpotifyAddedAtUtc: null,
+        row.AcquiredAtUtc, LibraryBuiltAtUtc: null, row.IndexedAtUtc);
+
+    /// <summary>
+    /// The optional narrowing, applied to the songs before they are grouped rather than to the cards
+    /// afterwards. That is what keeps a browse-filtered compilation card showing only the matching
+    /// artist's tracks, which is how the library reads today.
+    /// </summary>
+    private static bool Matches(
+        AlbumTrackRow row, bool builtOnly, string? artist, string? year, bool unreleased)
+    {
+        if (builtOnly && !row.IsBuilt) return false;
+        if (unreleased && !row.IsUnreleased) return false;
+
+        if (!string.IsNullOrWhiteSpace(artist) && !CreditedTo(row, artist)) return false;
+
+        if (!string.IsNullOrWhiteSpace(year))
+        {
+            if (year.Equals("unknown", StringComparison.OrdinalIgnoreCase))
+            {
+                if (row.Year is not null) return false;
+            }
+            else if (int.TryParse(year, out var parsed) && row.Year != parsed)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// The artist label a song lists under, plus each discrete credited artist — so a multi-artist
+    /// track is reachable from every name on it, not just the combined credit.
+    /// </summary>
+    private static bool CreditedTo(AlbumTrackRow row, string artist)
+    {
+        var label = Trimmed(row.AlbumArtist) ?? Trimmed(row.Artist) ?? AlbumProjection.UnknownArtist;
+        if (string.Equals(label, artist, StringComparison.OrdinalIgnoreCase)) return true;
+
+        var discrete = (row.Artists ?? string.Empty)
+            .Split(';')
+            .Select(n => n.Trim())
+            .Where(n => n.Length > 0)
+            .ToList();
+        return discrete.Count > 0
+            && discrete.Any(n => string.Equals(n, artist, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string? Trimmed(string? value)
+    {
+        var trimmed = (value ?? string.Empty).Trim();
+        return trimmed.Length > 0 ? trimmed : null;
     }
 
     /// <summary>

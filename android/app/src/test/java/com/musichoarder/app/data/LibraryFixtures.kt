@@ -61,3 +61,37 @@ internal fun song(
     hasSyncedLyrics = hasSyncedLyrics,
     hasMusicVideo = hasMusicVideo,
 ).toTrack()
+
+/**
+ * One album card as `GET /api/albums` would send it for these tracks, joined back to them.
+ *
+ * The grouping rules are the server's — pinned by `AlbumProjectionTests` in the API suite — so a test
+ * that needs an album *states* one rather than deriving it here. Deriving it would put a second
+ * implementation of those rules back in this repository, which is the thing that kept going wrong.
+ */
+internal fun albumOf(
+    tracks: List<Track>,
+    name: String = tracks.first().album,
+    artist: String = tracks.first().albumArtist,
+    key: String = "${artist.lowercase()}::${name.lowercase()}",
+    folderKeys: List<String> = listOf(key),
+    year: Int? = tracks.firstNotNullOfOrNull { it.year },
+    addedAtUtc: String? = null,
+): Album = hydrateAlbums(
+    listOf(
+        AlbumSummaryDto(
+            key = key,
+            folderKeys = folderKeys,
+            nameKey = "${artist.lowercase()}::${name.lowercase()}",
+            title = name,
+            artist = artist,
+            year = year,
+            trackCount = tracks.size,
+            durationSeconds = tracks.sumOf { it.durationSeconds },
+            playCount = tracks.sumOf { it.playCount },
+            addedAtUtc = addedAtUtc,
+            trackIds = tracks.map { it.id },
+        ),
+    ),
+    tracks.associateBy { it.id },
+).single()

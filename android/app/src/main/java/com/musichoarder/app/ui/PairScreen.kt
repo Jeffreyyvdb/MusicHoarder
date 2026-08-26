@@ -24,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.MailOutline
+import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -46,35 +47,52 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.musichoarder.app.data.displayHost
 import com.musichoarder.app.ui.theme.MhTheme
 
 /**
- * First run. The phone has no idea where the library lives, so it signs in with the account's
- * email address (the server emails a one-time link that deep-links back into the app — no other
- * device needed), with the passkey already enrolled in the browser, scans the QR code the web UI
- * renders (Settings → Account → Mobile app), or takes the base URL + token by hand.
+ * Every way into an account, in one screen: sign in by email (the server emails a one-time link
+ * that deep-links back into the app — no other device needed), with the passkey already enrolled
+ * in the browser, by scanning the QR code the web UI renders (Settings → Account → Mobile app),
+ * or with a base URL + token by hand.
+ *
+ * It serves two entrances, exactly as the web's `/login` does. First run, when the phone has no
+ * idea where the library lives; and "Add account" from the account switcher ([isAddingAccount]),
+ * where the phone is already signed in and every option has to stay on offer — the switcher used
+ * to reach only the QR scanner, so a second account could not be added from the phone alone.
  *
  * The email field belongs to the magic link alone: a passkey ceremony is usernameless (the
  * authenticator surfaces the resident key and reports who it belongs to), so the passkey button
  * needs nothing but the server address above it.
+ *
+ * [defaultBaseUrl] is the server every button uses until someone taps Change — the public host on
+ * first run, the host already in use when adding a second account — so the common path is not a
+ * URL anybody has to type.
  */
 @Composable
 fun PairScreen(
     error: String?,
     emailSentTo: String?,
+    defaultBaseUrl: String,
+    isAddingAccount: Boolean,
+    activeAccountLabel: String?,
     onScanned: (String) -> Unit,
     onManual: (baseUrl: String, token: String) -> Unit,
     onRequestEmailLink: (baseUrl: String, email: String) -> Unit,
     onUsePasskey: (baseUrl: String) -> Unit,
     onError: (String) -> Unit,
+    onCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = MhTheme.colors
     val context = LocalContext.current
     var showManual by remember { mutableStateOf(false) }
-    var baseUrl by remember { mutableStateOf("") }
+    // Null while the default server stands; the typed override once someone taps Change. Keyed on
+    // the default so arriving from a different entrance does not keep the last screen's override.
+    var serverOverride by remember(defaultBaseUrl) { mutableStateOf<String?>(null) }
     var email by remember { mutableStateOf("") }
     var token by remember { mutableStateOf("") }
+    val baseUrl = serverOverride ?: defaultBaseUrl
 
     // The form has to stay reachable with the keyboard up: `imePadding` shrinks the box and the
     // column below scrolls, instead of the fields hiding behind the keyboard.
@@ -102,7 +120,7 @@ fun PairScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    Icons.Rounded.QrCodeScanner,
+                    if (isAddingAccount) Icons.Rounded.PersonAdd else Icons.Rounded.QrCodeScanner,
                     contentDescription = null,
                     tint = colors.primary,
                     modifier = Modifier.size(26.dp),
@@ -111,7 +129,7 @@ fun PairScreen(
 
             Spacer(Modifier.height(20.dp))
             Text(
-                "Connect to MusicHoarder",
+                if (isAddingAccount) "Add an account" else "Connect to MusicHoarder",
                 style = MaterialTheme.typography.headlineSmall,
                 color = colors.foreground,
                 textAlign = TextAlign.Center,
@@ -125,22 +143,42 @@ fun PairScreen(
                 textAlign = TextAlign.Center,
             )
 
+            // The same promise the web's "Add account" makes: nothing is signed out by doing this.
+            if (isAddingAccount) {
+                Spacer(Modifier.height(14.dp))
+                Notice(
+                    icon = Icons.Rounded.PersonAdd,
+                    tint = colors.primary,
+                    text = activeAccountLabel
+                        ?.let {
+                            "You stay signed in as $it — the account you sign in with here " +
+                                "becomes the active one, and you can switch back any time."
+                        }
+                        ?: "The account this phone is using now stays signed in, and you can " +
+                        "switch back any time.",
+                )
+            }
+
             Spacer(Modifier.height(26.dp))
 
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                PairField(
-                    value = baseUrl,
-                    onValueChange = { baseUrl = it },
-                    label = "Server address",
-                    placeholder = "https://musichoarder.app",
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Uri,
-                        imeAction = ImeAction.Next,
-                    ),
-                )
+                if (serverOverride == null) {
+                    ServerRow(host = displayHost(defaultBaseUrl)) { serverOverride = defaultBaseUrl }
+                } else {
+                    PairField(
+                        value = serverOverride.orEmpty(),
+                        onValueChange = { serverOverride = it },
+                        label = "Server address",
+                        placeholder = defaultBaseUrl,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Uri,
+                            imeAction = ImeAction.Next,
+                        ),
+                    )
+                }
                 PairField(
                     value = email,
                     onValueChange = { email = it },
@@ -165,55 +203,22 @@ fun PairScreen(
 
             if (emailSentTo != null) {
                 Spacer(Modifier.height(14.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(colors.primary.copy(alpha = 0.12f))
-                        .border(1.dp, colors.primary.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.Top,
-                ) {
-                    Icon(
-                        Icons.Rounded.MailOutline,
-                        contentDescription = null,
-                        tint = colors.primary,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(Modifier.size(8.dp))
-                    Text(
-                        "If $emailSentTo has an account, a sign-in link is on its way. Open the " +
-                            "email on this phone and tap the link to finish.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = colors.foreground,
-                    )
-                }
+                Notice(
+                    icon = Icons.Rounded.MailOutline,
+                    tint = colors.primary,
+                    text = "If $emailSentTo has an account, a sign-in link is on its way. Open the " +
+                        "email on this phone and tap the link to finish.",
+                )
             }
 
             if (error != null) {
                 Spacer(Modifier.height(14.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(colors.destructive.copy(alpha = 0.12f))
-                        .border(1.dp, colors.destructive.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.Top,
-                ) {
-                    Icon(
-                        Icons.Rounded.ErrorOutline,
-                        contentDescription = null,
-                        tint = colors.destructive,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(Modifier.size(8.dp))
-                    Text(
-                        error,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = colors.destructive,
-                    )
-                }
+                Notice(
+                    icon = Icons.Rounded.ErrorOutline,
+                    tint = colors.destructive,
+                    text = error,
+                    textColor = colors.destructive,
+                )
             }
 
             Spacer(Modifier.height(22.dp))
@@ -242,7 +247,7 @@ fun PairScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) { showManual = true }
             } else {
-                // Reuses the server-address field above; only the token is extra here.
+                // Reuses the server address above; only the token is extra here.
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -262,7 +267,76 @@ fun PairScreen(
                     ) { onManual(baseUrl, token) }
                 }
             }
+
+            // Only the added account can be backed out of — first run has nothing to go back to.
+            if (isAddingAccount) {
+                Spacer(Modifier.height(14.dp))
+                OutlineButton(label = "Cancel", modifier = Modifier.fillMaxWidth(), onClick = onCancel)
+            }
         }
+    }
+}
+
+/** The server every sign-in button will use, with the one tap that opens it up for editing. */
+@Composable
+private fun ServerRow(host: String, onChange: () -> Unit) {
+    val colors = MhTheme.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(colors.input.copy(alpha = 0.6f))
+            .border(1.dp, colors.border, RoundedCornerShape(8.dp))
+            .clickable(onClick = onChange)
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                "Server",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.mutedForeground,
+            )
+            Text(
+                host,
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.foreground,
+            )
+        }
+        Text(
+            "Change",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Medium,
+            color = colors.primary,
+        )
+    }
+}
+
+/** The tinted callout the screen uses for "check your email", the add-account promise, and errors. */
+@Composable
+private fun Notice(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tint: Color,
+    text: String,
+    textColor: Color = MhTheme.colors.foreground,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(tint.copy(alpha = 0.12f))
+            .border(1.dp, tint.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(Modifier.size(8.dp))
+        Text(text, style = MaterialTheme.typography.bodySmall, color = textColor)
     }
 }
 

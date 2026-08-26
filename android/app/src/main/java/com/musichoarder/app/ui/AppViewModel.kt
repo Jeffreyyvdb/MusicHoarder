@@ -16,6 +16,7 @@ import com.musichoarder.app.data.LibraryContent
 import com.musichoarder.app.data.LibraryTab
 import com.musichoarder.app.data.InviteLink
 import com.musichoarder.app.data.LibraryUiState
+import com.musichoarder.app.data.NowPlayingLinks
 import com.musichoarder.app.data.LoginLinkUri
 import com.musichoarder.app.data.PairingUri
 import com.musichoarder.app.data.PasskeyCancelledException
@@ -32,6 +33,7 @@ import com.musichoarder.app.data.defaultAscending
 import com.musichoarder.app.data.foldLibrary
 import com.musichoarder.app.data.likedNow
 import com.musichoarder.app.data.resolveAlbum
+import com.musichoarder.app.data.resolveNowPlayingLinks
 import com.musichoarder.app.data.sortForChipChange
 import com.musichoarder.app.player.PlayerController
 import com.musichoarder.app.player.VideoController
@@ -46,6 +48,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
@@ -123,6 +126,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /** The email a sign-in link was just sent to; the pair screen shows the "check your email" state. */
     private val _emailLinkSentTo = MutableStateFlow<String?>(null)
     val emailLinkSentTo: StateFlow<String?> = _emailLinkSentTo.asStateFlow()
+
+    /**
+     * True while the account switcher's "Add account" is showing the sign-in screen over an
+     * already-signed-in app. It is the phone's equivalent of the web's `/login?switch`: the same
+     * screen, every sign-in option, and the current account left untouched until a new one lands.
+     */
+    private val _addingAccount = MutableStateFlow(false)
+    val addingAccount: StateFlow<Boolean> = _addingAccount.asStateFlow()
 
     val player = PlayerController(
         context = application,
@@ -285,8 +296,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * custom-scheme links, first run just pairs (or finishes the email sign-in); when the app is
      * already paired it asks first — a link can be handed over by anything, and silently
      * re-pointing someone's library at another server on a single tap is not a thing a link
-     * should be able to do. Https links that match neither token grammar are dropped silently:
-     * routing a stray link to the website into the pairing flow would show a misleading error.
+     * should be able to do. The exception is the sign-in screen being open for "Add account":
+     * the link is then the answer to a request made on that screen seconds earlier, so asking
+     * again buys nothing — and the QR button right next to it already pairs without a prompt.
+     * Https links that match neither token grammar are dropped silently: routing a stray link to
+     * the website into the pairing flow would show a misleading error.
      */
     fun onAppLink(raw: String) {
         val trimmed = raw.trim()
@@ -302,7 +316,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             reportPairProblem("That link is not a MusicHoarder pairing code or sign-in link.")
             return
         }
-        if (session.value == null) applyAppLink(trimmed) else _pendingPairingLink.value = trimmed
+        val expected = session.value == null || _addingAccount.value
+        if (expected) applyAppLink(trimmed) else _pendingPairingLink.value = trimmed
     }
 
     /** Confirms a link that would re-point an already-paired app. */
@@ -335,12 +350,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Pairing problems land where the user is: the pairing screen's error pane when unpaired, a
-     * snackbar when the scan came from the account menu of an already-paired app (the pairing
-     * screen — and its error pane — is not on screen then).
+     * Pairing problems land where the user is: the sign-in screen's error pane whenever that
+     * screen is up — first run or "Add account" — and a snackbar otherwise, for the deep links
+     * that arrive at a running library with no error pane anywhere on screen.
      */
     fun reportPairProblem(message: String) {
-        if (session.value != null) _localMessages.tryEmit(message) else _pairError.value = message
+        val pairScreenShowing = session.value == null || _addingAccount.value
+        if (pairScreenShowing) _pairError.value = message else _localMessages.tryEmit(message)
     }
 
     /**
@@ -497,6 +513,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             player.stop()
             video.load(null)
             graph.library.clear()
+            _emailLinkSentTo.value = null
+            _addingAccount.value = false
             start()
         }
     }
@@ -530,6 +548,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _pairError.value = message
     }
 
+    /**
+     * Opens the full sign-in screen over the signed-in app, so a second account can be added by
+     * email, passkey, QR or token — not the QR scanner alone, which was every option the switcher
+     * used to reach. Starts clean: the last entrance's error and "check your email" state belong
+     * to the account that is already in.
+     */
+    fun beginAddAccount() {
+        _pairError.value = null
+        _emailLinkSentTo.value = null
+        _addingAccount.value = true
+    }
+
+    /** Backs out of "Add account"; the active account was never touched. */
+    fun cancelAddAccount() {
+        _pairError.value = null
+        _emailLinkSentTo.value = null
+        _addingAccount.value = false
+    }
+
     // ---- Anonymous share viewer --------------------------------------------------------------
     // Works with or without a pairing: the link's token is the whole capability, and every URL is
     // absolute against the link's own origin.
@@ -544,6 +581,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     private val _isShareQueue = MutableStateFlow(false)
     val isShareQueue: StateFlow<Boolean> = _isShareQueue.asStateFlow()
+
+    /**
+     * Where the player's `artist · album` line can navigate to, or null when nothing it links to is
+     * reachable — a share queue's foreign ids, or a row the grids do not cover. Keyed on the track
+     * id alone: the player pushes a state every 200 ms for the scrubber, and re-scanning the
+     * library at that rate to answer a question that only changes between songs would be waste.
+     */
+    val nowPlayingLinks: StateFlow<NowPlayingLinks?> = combine(
+        player.state.map { it.trackId }.distinctUntilChanged(),
+        graph.library.state,
+        _isShareQueue,
+    ) { trackId, state, isShareQueue ->
+        // A share track can carry a library track's id, so the flag has to rule it out before the
+        // lookup — otherwise a colliding id would link the wrong record.
+        if (isShareQueue) null else resolveNowPlayingLinks(state, trackId)
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private var shareJob: Job? = null
 
@@ -678,6 +733,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             graph.library.clear()
 
             val next = graph.sessions.accounts.value.active
+            // Nothing left to add an account *alongside*: whatever the switcher opened degrades to
+            // the first-run sign-in screen, which must not offer a Cancel back to an account gone.
+            if (next == null) _addingAccount.value = false
             if (next != null) {
                 start()
                 _localMessages.tryEmit(
@@ -725,13 +783,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setLetter(letter: String?) = _ui.update { it.copy(letter = letter) }
 
-    /** Tapping an artist narrows the Albums tab in place, the way the web's `?artist=` link does. */
-    fun openArtist(name: String) =
-        _ui.update { it.copy(artistFilter = name, tab = LibraryTab.Albums, letter = null) }
+    /**
+     * Tapping an artist narrows the Albums tab in place, the way the web's `?artist=` link does.
+     *
+     * Any open drilldown goes with it: an album screen sits *over* the grid this narrows, so coming
+     * from the player it would mask the very page the tap asked for.
+     */
+    fun openArtist(name: String) = _ui.update {
+        it.copy(artistFilter = name, tab = LibraryTab.Albums, letter = null, openAlbumKey = null)
+    }
 
     fun clearArtistFilter() = _ui.update { it.copy(artistFilter = null) }
 
-    fun openAlbum(album: Album) = _ui.update { it.copy(openAlbumKey = album.key) }
+    fun openAlbum(album: Album) = openAlbumKey(album.key)
+
+    /**
+     * The same drilldown addressed by key, for a caller holding one rather than a card — the player
+     * knows its track's folder, not the grid it would be a tile in. [resolveAlbum] does the
+     * matching, so a folder key that lost a name merge still lands on the card that survived.
+     */
+    fun openAlbumKey(key: String) = _ui.update { it.copy(openAlbumKey = key) }
 
     fun closeAlbum() = _ui.update { it.copy(openAlbumKey = null) }
 
