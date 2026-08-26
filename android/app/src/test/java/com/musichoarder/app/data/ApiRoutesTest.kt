@@ -24,6 +24,21 @@ class ApiRoutesTest {
         assertEquals("/songs/7/video/stream", ApiRoutes.videoStream(7))
         assertEquals("/songs/7/like", ApiRoutes.like(7))
         assertEquals("/songs/7/played", ApiRoutes.played(7))
+        assertEquals("/api/albums", ApiRoutes.albums())
+    }
+
+    @Test
+    fun `the radio route carries the seed, the limit and the ids already heard`() {
+        assertEquals(
+            "/api/radio?seedSongId=7&limit=20&exclude=7,8,9",
+            ApiRoutes.radio(7, listOf(7, 8, 9), 20),
+        )
+    }
+
+    @Test
+    fun `the radio route omits an empty exclusion rather than sending a bare parameter`() {
+        // "&exclude=" parses as one empty id server-side; leaving it out says what is meant.
+        assertEquals("/api/radio?seedSongId=7&limit=20", ApiRoutes.radio(7, emptyList(), 20))
     }
 
     @Test
@@ -37,6 +52,8 @@ class ApiRoutesTest {
             ApiRoutes.videoStream(7),
             ApiRoutes.like(7),
             ApiRoutes.played(7),
+            ApiRoutes.albums(),
+            ApiRoutes.radio(7, emptyList(), 20),
         )
         // /api/shared is kept alive server-side for one release so already-installed builds keep
         // working. A NEW build must not use it, or it will break when those routes are deleted.

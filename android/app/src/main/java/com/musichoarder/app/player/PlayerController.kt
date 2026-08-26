@@ -60,6 +60,17 @@ class PlayerController(
     private val api: MusicHoarderApi,
     private val scope: CoroutineScope,
     private val onTrackStarted: (Int) -> Unit,
+    /**
+     * The station's next tracks: what to play after the queue runs dry, given the seed and the ids
+     * already heard. Returning an empty list ends the station — which is what a share queue, an
+     * unreachable server, or a genuinely exhausted library all do.
+     *
+     * A lambda rather than a repository handle so this class keeps knowing only about [Track]s: the
+     * id-to-row join and the share-queue guard belong to the caller, exactly as [onTrackStarted]'s
+     * play reporting does.
+     */
+    private val radioTracks: suspend (seedId: Int, exclude: List<Int>) -> List<Track> =
+        { _, _ -> emptyList() },
 ) {
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
@@ -77,8 +88,23 @@ class PlayerController(
      */
     private var pendingPlay: Pair<List<Track>, Int>? = null
 
+    /**
+     * The track the station was built from: the last one the *user* chose, not whatever the radio
+     * is playing now. Anchoring it keeps a station coherent — reseeding from each appended track
+     * lets it wander somewhere unrelated within a few hops.
+     */
+    private var radioSeedId: Int? = null
+    /** True once the server has no unplayed neighbour left, so we stop asking. */
+    private var radioExhausted = false
+    private var radioJob: Job? = null
+
     private val listener = object : Player.Listener {
-        override fun onEvents(player: Player, events: Player.Events) = pushState(player)
+        override fun onEvents(player: Player, events: Player.Events) {
+            pushState(player)
+            // Every transition, skip and stall passes through here, which makes it the one place
+            // that always notices the queue running low.
+            maybeTopUpRadio()
+        }
 
         override fun onPlayerErrorChanged(error: PlaybackException?) {
             _state.value = _state.value.copy(error = error?.let { "Playback failed: ${it.errorCodeName}" })
@@ -110,6 +136,8 @@ class PlayerController(
         // started another one on top.
         tickerJob?.cancel()
         tickerJob = null
+        radioJob?.cancel()
+        radioJob = null
         controller?.removeListener(listener)
         controller?.release()
         controller = null
@@ -119,14 +147,66 @@ class PlayerController(
     /** Plays [tracks] from [startIndex] — the tapped row becomes the queue's current item. */
     fun play(tracks: List<Track>, startIndex: Int) {
         if (tracks.isEmpty()) return
+        val index = startIndex.coerceIn(tracks.indices)
+        // A deliberate pick re-seeds the station and revives an exhausted one: the user has just
+        // said what they want to hear, which is the question the radio answers.
+        radioSeedId = tracks[index].id
+        radioExhausted = false
+
         val player = controller ?: run {
             pendingPlay = tracks to startIndex
             connect()
             return
         }
-        player.setMediaItems(tracks.map(::toMediaItem), startIndex.coerceIn(tracks.indices), 0L)
+        player.setMediaItems(tracks.map(::toMediaItem), index, 0L)
         player.prepare()
         player.play()
+        maybeTopUpRadio()
+    }
+
+    /**
+     * Appends the station's next tracks before the queue actually runs out.
+     *
+     * This is what stops a one-track album ending in silence. The prefetch matters as much as the
+     * append: waiting for the last track to finish would leave an audible gap while a request goes
+     * out, so the batch is fetched a couple of tracks early and ExoPlayer advances into it on its
+     * own. When the fetch loses that race the player has already stopped, so playback is restarted
+     * on the first appended item.
+     */
+    private fun maybeTopUpRadio() {
+        val player = controller ?: return
+        val seed = radioSeedId ?: return
+        if (radioExhausted || radioJob?.isActive == true) return
+        if (player.mediaItemCount - 1 - player.currentMediaItemIndex > RADIO_PREFETCH_AT) return
+
+        val queued = (0 until player.mediaItemCount)
+            .mapNotNull { player.getMediaItemAt(it).mediaId.toIntOrNull() }
+
+        radioJob = scope.launch {
+            val fetched = runCatching { radioTracks(seed, queued.takeLast(RADIO_EXCLUDE_CAP)) }
+                .getOrDefault(emptyList())
+
+            // The user may have picked something else while this was in flight; those tracks
+            // belong to a station nobody is listening to any more.
+            if (radioSeedId != seed) return@launch
+
+            val heard = queued.toSet()
+            val fresh = fetched.filter { it.id !in heard }
+            if (fresh.isEmpty()) {
+                radioExhausted = true
+                return@launch
+            }
+
+            val target = controller ?: return@launch
+            val firstAppended = target.mediaItemCount
+            val wasEnded = target.playbackState == Player.STATE_ENDED
+            target.addMediaItems(fresh.map(::toMediaItem))
+            if (wasEnded) {
+                target.seekTo(firstAppended, 0L)
+                target.prepare()
+                target.play()
+            }
+        }
     }
 
     fun togglePlayPause() {
@@ -176,6 +256,10 @@ class PlayerController(
 
     fun stop() {
         pendingPlay = null
+        radioSeedId = null
+        radioExhausted = false
+        radioJob?.cancel()
+        radioJob = null
         controller?.stop()
         controller?.clearMediaItems()
         lastReportedTrackId = null
@@ -261,6 +345,12 @@ class PlayerController(
         }
     }
 }
+
+/** Remaining tracks at which the next station batch is fetched, so the gap is inaudible. */
+private const val RADIO_PREFETCH_AT = 2
+
+/** Ids sent as already-heard. Matches the server's own cap on the parameter. */
+private const val RADIO_EXCLUDE_CAP = 400
 
 /** The real duration once the stream has been parsed, else the length the library reported. */
 private fun Player.durationOr(fallbackMs: Long?): Long =

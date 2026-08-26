@@ -1053,6 +1053,25 @@ export async function fetchSongs(includeDeleted = false): Promise<ApiSong[]> {
   return result.songs ?? []
 }
 
+/**
+ * What to play once the queue runs dry — ids ordered by similarity to `seedSongId`.
+ *
+ * The ranking lives on the server (`MusicHoarder.Api/Library/RadioRanker.cs`) rather than here,
+ * for the same reason album grouping moved: a rule implemented in both `frontend/` and `android/`
+ * becomes two rules that drift, and a station has to sound the same on the phone and in the tab.
+ * Ids only — the caller already holds every row from {@link fetchSongs} and joins against it.
+ */
+export async function fetchRadio(
+  seedSongId: number,
+  exclude: number[] = [],
+  limit = 20
+): Promise<number[]> {
+  const params = new URLSearchParams({ seedSongId: String(seedSongId), limit: String(limit) })
+  if (exclude.length > 0) params.set("exclude", exclude.join(","))
+  const result = await requestJson<{ songIds?: number[] }>(`/api/radio?${params}`)
+  return result.songIds ?? []
+}
+
 // ── Canonical album tracklist (multi-provider, reconciled; full-album view) ─────
 
 /** One reconciled canonical track. `ownedSongId` is null when the user is missing it. */

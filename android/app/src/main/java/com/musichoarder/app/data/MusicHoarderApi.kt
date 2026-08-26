@@ -177,6 +177,25 @@ class MusicHoarderApi(
         }
 
     /**
+     * The station that follows [seedSongId] once the queue runs dry: song ids, ordered.
+     *
+     * Ids only — the caller already holds every row from [fetchSongs] and joins against it, the
+     * same contract [fetchAlbums] uses for its track ids.
+     *
+     * Empty on 404, which covers both "the server predates this route" and "that seed is not a
+     * song you may read". A phone from the Play Store can be newer than the self-hosted server it
+     * talks to, and a queue that simply ends is exactly what that server already does.
+     */
+    suspend fun fetchRadio(seedSongId: Int, exclude: List<Int>, limit: Int = 20): List<Int> =
+        try {
+            get(ApiRoutes.radio(seedSongId, exclude, limit)) {
+                json.decodeFromString<RadioResponse>(it).songIds
+            }
+        } catch (e: ApiException) {
+            if (e.status == 404) emptyList() else throw e
+        }
+
+    /**
      * Lyrics are fetched per song rather than shipped with the library dump — the AI transcription
      * text in particular is large, and most songs never have their lyrics opened.
      */
