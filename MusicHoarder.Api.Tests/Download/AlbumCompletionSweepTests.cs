@@ -423,6 +423,105 @@ public class AlbumCompletionSweepTests
         Assert.Equal(2, await db.WishlistItems.IgnoreQueryFilters().CountAsync());
     }
 
+    [Fact]
+    public async Task Sweep_TrackSharedByTwoEditions_IsQueuedOnce()
+    {
+        // A recording belongs to as many CanonicalAlbum rows as it has editions, and each of those
+        // albums tombstones only its own wishlist items. Without a claim spanning albums, one pass
+        // queues every shared track twice and the downloader fetches two copies minutes apart.
+        await using var db = NewContext();
+        AddCanonicalAlbum(db, Artist, "Discovery", "One", "Two", "Three");
+        AddCanonicalAlbum(db, Artist, "Discovery Collectors Edition", "One", "Two", "Three", "Bonus");
+        db.Songs.Add(Song("/a.mp3", Artist, "Discovery", title: "One", track: 1));
+        db.Songs.Add(Song("/b.mp3", Artist, "Discovery Collectors Edition", title: "One", track: 1));
+        await db.SaveChangesAsync();
+
+        await CreateSweep(db).SweepAsync(CancellationToken.None);
+
+        // Two and Three are queued once between the two editions; the deluxe's own extra track still is.
+        var titles = await db.WishlistItems.IgnoreQueryFilters().Select(w => w.Title).ToListAsync();
+        Assert.Equal(["Bonus", "Three", "Two"], titles.OrderBy(t => t));
+    }
+
+    [Fact]
+    public async Task Sweep_TrackInFlightForAnotherEdition_IsNotQueuedAgainOnALaterPass()
+    {
+        // The same collision across two passes rather than within one: the first edition's items are
+        // committed and still Pending, so the second edition must read them as covering the slot.
+        await using var db = NewContext();
+        AddCanonicalAlbum(db, Artist, "Discovery", "One", "Two");
+        db.Songs.Add(Song("/a.mp3", Artist, "Discovery", title: "One", track: 1));
+        await db.SaveChangesAsync();
+        Assert.Equal(1, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
+
+        // The deluxe turns up later, overlapping the album already being filled.
+        AddCanonicalAlbum(db, Artist, "Discovery Collectors Edition", "One", "Two");
+        db.Songs.Add(Song("/b.mp3", Artist, "Discovery Collectors Edition", title: "One", track: 1));
+        await db.SaveChangesAsync();
+
+        Assert.Equal(0, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
+        Assert.Equal(1, await db.WishlistItems.IgnoreQueryFilters().CountAsync());
+    }
+
+    [Theory]
+    [InlineData(WishlistItemStatus.Failed)]
+    [InlineData(WishlistItemStatus.NotFound)]
+    public async Task Sweep_AnotherEditionsAttemptFailed_DoesNotBlockThisOne(WishlistItemStatus status)
+    {
+        // The cross-album claim covers acquisitions in flight, not attempts that came up empty. A
+        // failure under one edition's artist/title must leave the sibling free to try.
+        await using var db = NewContext();
+        var other = AddCanonicalAlbum(db, Artist, "Discovery Collectors Edition", "One", "Two");
+        AddCanonicalAlbum(db, Artist, "Discovery", "One", "Two");
+        db.Songs.Add(Song("/a.mp3", Artist, "Discovery", title: "One", track: 1));
+        db.WishlistItems.Add(new WishlistItem
+        {
+            OwnerUserId = WellKnownUsers.OwnerId,
+            Origin = WishlistItemOrigin.AlbumCompletion,
+            CanonicalAlbumId = other.Id,
+            Status = status,
+            Title = "Two",
+            Artist = Artist,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var queued = await db.WishlistItems
+            .IgnoreQueryFilters()
+            .Where(w => w.Status == WishlistItemStatus.Pending)
+            .ToListAsync();
+        Assert.Empty(queued);
+
+        await CreateSweep(db).SweepAsync(CancellationToken.None);
+
+        var pending = await db.WishlistItems
+            .IgnoreQueryFilters()
+            .Where(w => w.Status == WishlistItemStatus.Pending)
+            .Select(w => w.Title)
+            .ToListAsync();
+        Assert.Equal(["Two"], pending);
+    }
+
+    [Fact]
+    public async Task Sweep_SameTitleByADifferentArtist_IsStillQueued()
+    {
+        // The claim is keyed on artist as well as title, so two artists' "Intro" stay separate tracks.
+        await using var db = NewContext();
+        AddCanonicalAlbum(db, Artist, Album, "Intro", "Two");
+        AddCanonicalAlbum(db, "Justice", "Cross", "Intro", "Genesis");
+        db.Songs.Add(Song("/a.mp3", Artist, Album, title: "Two", track: 2));
+        db.Songs.Add(Song("/b.mp3", "Justice", "Cross", title: "Genesis", track: 2));
+        await db.SaveChangesAsync();
+
+        await CreateSweep(db).SweepAsync(CancellationToken.None);
+
+        var items = await db.WishlistItems.IgnoreQueryFilters().ToListAsync();
+        Assert.Equal(2, items.Count);
+        Assert.All(items, i => Assert.Equal("Intro", i.Title));
+        Assert.Equal([Artist, "Justice"], items.Select(i => i.Artist).OrderBy(a => a));
+    }
+
     // ── Track-level filters ────────────────────────────────────────────────────
 
     [Fact]
