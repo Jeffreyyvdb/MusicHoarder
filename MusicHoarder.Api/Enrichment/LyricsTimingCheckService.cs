@@ -26,6 +26,13 @@ public sealed class LyricsTimingCheckService(
     IOptionsMonitor<LyricsTimingOptions> options,
     ILogger<LyricsTimingCheckService> logger) : BackgroundService
 {
+    /// <summary>
+    /// When the probe pass may next spend quota. A probe that comes back empty-handed means the provider is
+    /// refusing us or the budget is gone, and neither clears in the time it takes to run one more database
+    /// batch — without this the free pass (which loops as fast as the DB will serve it) would drag a
+    /// pointless, rate-limit-blocked probe attempt behind every single iteration.
+    /// </summary>
+    private DateTime _probeDeferredUntilUtc = DateTime.MinValue;
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         logger.LogInformation("Lyrics timing check service started.");
@@ -109,6 +116,9 @@ public sealed class LyricsTimingCheckService(
         if (!opts.EnableProbeSweep || !probe.IsAvailable)
             return false;
 
+        if (DateTime.UtcNow < _probeDeferredUntilUtc)
+            return false;
+
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
@@ -136,7 +146,13 @@ public sealed class LyricsTimingCheckService(
 
             var result = await probe.ProbeAsync(song, path, ct);
             if (result is null)
-                break; // out of budget (or the probe went away) — stop the batch, not just this song
+            {
+                // Out of budget, or the provider is rate-limiting us. Either way nothing was learned about
+                // this song, so stop the batch and stand down for a while rather than queueing behind a
+                // limit that has not moved.
+                _probeDeferredUntilUtc = DateTime.UtcNow.AddMinutes(1);
+                break;
+            }
 
             song.RecordLyricsSyncProbeAttempt();
             ApplyProbeResult(song, result, opts);

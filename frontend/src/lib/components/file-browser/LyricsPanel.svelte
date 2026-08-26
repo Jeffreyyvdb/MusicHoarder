@@ -182,6 +182,10 @@
         loadedPlain = lyrics.plain ?? undefined;
         const shift = Math.round((result.lyricsSyncOffsetMs ?? 0) / 1000);
         verifyMessage = `Timing repaired — every line moved ${Math.abs(shift)}s ${shift >= 0 ? 'later' : 'earlier'}.`;
+      } else if (result.deferred) {
+        // Nothing was learned and nothing was spent: the transcription quota is busy. Say that rather
+        // than letting the free checks' verdict read as the final answer.
+        verifyMessage = 'The AI check is rate-limited right now — try again in a minute.';
       } else if (result.lyricsSyncStatus === 'Ok') {
         verifyMessage = 'The timing matches the audio.';
       } else if (result.lyricsSyncStatus === 'Unverifiable') {
