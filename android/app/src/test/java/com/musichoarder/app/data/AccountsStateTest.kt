@@ -182,4 +182,11 @@ class AccountsStateTest {
         assertEquals("owner@example.com", account(displayName = null).label)
         assertEquals("musichoarder.app", account(displayName = null, email = null).label)
     }
+
+    @Test
+    fun `displayHost strips the scheme, the path and a trailing slash`() {
+        assertEquals("musichoarder.app", displayHost("https://musichoarder.app"))
+        assertEquals("musichoarder.app", displayHost("https://musichoarder.app/"))
+        assertEquals("192.168.1.10:3000", displayHost("http://192.168.1.10:3000/library"))
+    }
 }

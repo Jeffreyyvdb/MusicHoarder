@@ -7,8 +7,8 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 
 /**
  * Launches the out-of-process Google code scanner for a pairing QR — no camera permission to
- * request and no preview surface to own. Shared by the first-run [PairScreen] and the account
- * menu's "Add account". Cancelling the scanner calls neither callback.
+ * request and no preview surface to own. Called from [PairScreen], which serves both first run and
+ * the account switcher's "Add account". Cancelling the scanner calls neither callback.
  */
 fun launchPairingScan(
     context: Context,

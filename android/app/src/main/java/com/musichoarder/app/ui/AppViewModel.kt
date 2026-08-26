@@ -124,6 +124,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _emailLinkSentTo = MutableStateFlow<String?>(null)
     val emailLinkSentTo: StateFlow<String?> = _emailLinkSentTo.asStateFlow()
 
+    /**
+     * True while the account switcher's "Add account" is showing the sign-in screen over an
+     * already-signed-in app. It is the phone's equivalent of the web's `/login?switch`: the same
+     * screen, every sign-in option, and the current account left untouched until a new one lands.
+     */
+    private val _addingAccount = MutableStateFlow(false)
+    val addingAccount: StateFlow<Boolean> = _addingAccount.asStateFlow()
+
     val player = PlayerController(
         context = application,
         api = graph.api,
@@ -285,8 +293,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * custom-scheme links, first run just pairs (or finishes the email sign-in); when the app is
      * already paired it asks first — a link can be handed over by anything, and silently
      * re-pointing someone's library at another server on a single tap is not a thing a link
-     * should be able to do. Https links that match neither token grammar are dropped silently:
-     * routing a stray link to the website into the pairing flow would show a misleading error.
+     * should be able to do. The exception is the sign-in screen being open for "Add account":
+     * the link is then the answer to a request made on that screen seconds earlier, so asking
+     * again buys nothing — and the QR button right next to it already pairs without a prompt.
+     * Https links that match neither token grammar are dropped silently: routing a stray link to
+     * the website into the pairing flow would show a misleading error.
      */
     fun onAppLink(raw: String) {
         val trimmed = raw.trim()
@@ -302,7 +313,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             reportPairProblem("That link is not a MusicHoarder pairing code or sign-in link.")
             return
         }
-        if (session.value == null) applyAppLink(trimmed) else _pendingPairingLink.value = trimmed
+        val expected = session.value == null || _addingAccount.value
+        if (expected) applyAppLink(trimmed) else _pendingPairingLink.value = trimmed
     }
 
     /** Confirms a link that would re-point an already-paired app. */
@@ -335,12 +347,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Pairing problems land where the user is: the pairing screen's error pane when unpaired, a
-     * snackbar when the scan came from the account menu of an already-paired app (the pairing
-     * screen — and its error pane — is not on screen then).
+     * Pairing problems land where the user is: the sign-in screen's error pane whenever that
+     * screen is up — first run or "Add account" — and a snackbar otherwise, for the deep links
+     * that arrive at a running library with no error pane anywhere on screen.
      */
     fun reportPairProblem(message: String) {
-        if (session.value != null) _localMessages.tryEmit(message) else _pairError.value = message
+        val pairScreenShowing = session.value == null || _addingAccount.value
+        if (pairScreenShowing) _pairError.value = message else _localMessages.tryEmit(message)
     }
 
     /**
@@ -497,6 +510,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             player.stop()
             video.load(null)
             graph.library.clear()
+            _emailLinkSentTo.value = null
+            _addingAccount.value = false
             start()
         }
     }
@@ -528,6 +543,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setPairError(message: String?) {
         _pairError.value = message
+    }
+
+    /**
+     * Opens the full sign-in screen over the signed-in app, so a second account can be added by
+     * email, passkey, QR or token — not the QR scanner alone, which was every option the switcher
+     * used to reach. Starts clean: the last entrance's error and "check your email" state belong
+     * to the account that is already in.
+     */
+    fun beginAddAccount() {
+        _pairError.value = null
+        _emailLinkSentTo.value = null
+        _addingAccount.value = true
+    }
+
+    /** Backs out of "Add account"; the active account was never touched. */
+    fun cancelAddAccount() {
+        _pairError.value = null
+        _emailLinkSentTo.value = null
+        _addingAccount.value = false
     }
 
     // ---- Anonymous share viewer --------------------------------------------------------------
@@ -678,6 +712,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             graph.library.clear()
 
             val next = graph.sessions.accounts.value.active
+            // Nothing left to add an account *alongside*: whatever the switcher opened degrades to
+            // the first-run sign-in screen, which must not offer a Cancel back to an account gone.
+            if (next == null) _addingAccount.value = false
             if (next != null) {
                 start()
                 _localMessages.tryEmit(
