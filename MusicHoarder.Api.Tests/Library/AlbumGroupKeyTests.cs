@@ -57,9 +57,13 @@ public class AlbumGroupKeyTests
         var a = Song(album: "Now That's Music", albumArtist: "Various Artists", isCompilation: true);
         var b = Song(album: "Now That's Music", albumArtist: "VA", isCompilation: true);
         var c = Song(album: "Now That's Music", albumArtist: null, isCompilation: true);
+        // A provider answering in another locale names the same slot ("Verschiedene Interpreten"),
+        // so it must land in the same group rather than splitting the compilation in two.
+        var d = Song(album: "Now That's Music", albumArtist: "Verschiedene Interpreten", isCompilation: true);
 
         Assert.Equal(AlbumGroupKey.For(a), AlbumGroupKey.For(b));
         Assert.Equal(AlbumGroupKey.For(a), AlbumGroupKey.For(c));
+        Assert.Equal(AlbumGroupKey.For(a), AlbumGroupKey.For(d));
         Assert.Equal(AlbumGroupKey.VariousArtistsKey, AlbumGroupKey.For(a)!.ArtistKey);
     }
 
