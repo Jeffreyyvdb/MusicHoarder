@@ -107,4 +107,20 @@ class TrackListViewTest {
         assertEquals(listOf(3), searchTracks(tracks, "wal").map { it.id })
         assertEquals(3, searchTracks(tracks, "   ").size)
     }
+
+    @Test
+    fun `my music covers what you asked for, and a filled track only once you like it`() {
+        val filled = song(id = 6, acquisitionIntent = "AlbumFill")
+        val filledAndLiked = song(
+            id = 7,
+            acquisitionIntent = "AlbumFill",
+            likedAtUtc = "2026-08-26T00:00:00Z",
+        )
+
+        assertEquals(true, isMyMusic(scanned, isLiked(scanned)))
+        assertEquals(false, isMyMusic(filled, isLiked(filled)))
+        assertEquals(true, isMyMusic(filledAndLiked, isLiked(filledAndLiked)))
+        // The optimistic overlay promotes it before the next refetch lands.
+        assertEquals(true, isMyMusic(filled, true))
+    }
 }

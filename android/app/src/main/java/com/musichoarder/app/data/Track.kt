@@ -61,11 +61,18 @@ data class ApiSong(
      */
     val sharedByUserId: String? = null,
     /**
-     * Server-computed build state, present ONLY on rows shared with you. Those carry no
-     * [destinationPath] — the grantor's disk layout is not published — so the client has nothing
-     * to derive it from and must trust the server. See [isBuilt].
+     * Server-computed build state, sent for every row. Shared rows always needed it — they carry no
+     * [destinationPath], because the grantor's disk layout is not published, so the client has
+     * nothing to derive it from — and own rows joined them so the definition lives on the server
+     * instead of being re-spelled in each client. See [isBuilt].
      */
     @SerialName("isBuilt") val isBuiltServer: Boolean? = null,
+    /**
+     * Server-decided "album completion added this", the same fact [acquisitionIntent] spells as an
+     * enum name. Absent from a server older than the field, and from shared rows, both of which read
+     * as yours. See [Track.isAlbumFill].
+     */
+    @SerialName("isAlbumFill") val isAlbumFillServer: Boolean? = null,
 ) {
     /**
      * A song is "built" once it reached the destination library: `LibraryBuildStatus == Done` and a
@@ -266,7 +273,8 @@ fun ApiSong.toTrack(): Track {
         hasLyrics = hasSyncedLyrics || hasPlainLyrics || !lrclibId.isNullOrBlank(),
         isUnreleased = releaseClassification.equals("Unreleased", ignoreCase = true) ||
             releaseClassification.equals("LikelyUnreleased", ignoreCase = true),
-        isAlbumFill = acquisitionIntent.equals("AlbumFill", ignoreCase = true),
+        // The server's answer first; the enum-name comparison is the fallback for an older server.
+        isAlbumFill = isAlbumFillServer ?: acquisitionIntent.equals("AlbumFill", ignoreCase = true),
         needsReview = mapEnrichmentState(enrichmentStatus?.content) == EnrichmentState.NeedsReview,
         sharedByUserId = sharedByUserId,
     )

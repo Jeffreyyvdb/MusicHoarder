@@ -13,6 +13,7 @@
     fetchOverview,
     fetchStats,
     isLocalFile,
+    isMyMusic,
     listAccounts,
     mapEnrichmentStatus,
     type AccountView,
@@ -66,16 +67,17 @@
   // (LibraryBuildStatus.Done + destinationPath) songs — matching what those grids list.
   // Storage/review figures stay over all songs/stats (those are pipeline, not library, numbers).
   const builtSongs = $derived(songs.filter(isBuiltSong));
-  // Tracks is wider than the grids by exactly the rows LibraryV2's trackListBase adds: scanned
-  // source files still in review. Kept in step by hand — a badge that disagreed with the page's own
-  // "N tracks" is worse than no badge.
+  // Must mirror LibraryV2's trackListBase exactly: wider than the grids by the scanned source files
+  // still in review, and narrower by album completion's tracks. Kept in step by hand — a badge that
+  // disagreed with the page's own "N tracks" is worse than no badge.
   const trackCount = $derived.by(() =>
     songs.length === 0
       ? null
       : songs.filter(
           (s) =>
-            isBuiltSong(s) ||
-            (isLocalFile(s) && mapEnrichmentStatus(s.enrichmentStatus) === 'needsreview')
+            isMyMusic(s) &&
+            (isBuiltSong(s) ||
+              (isLocalFile(s) && mapEnrichmentStatus(s.enrichmentStatus) === 'needsreview'))
         ).length
   );
   const totalBytes = $derived(stats?.storage?.totalBytes ?? null);

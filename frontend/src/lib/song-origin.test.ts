@@ -3,6 +3,7 @@ import {
   hasMusicVideo,
   isAddedByLink,
   isLocalFile,
+  isMyMusic,
   isSpotifyLiked,
   isSpotifySourced,
   songOriginLabel,
@@ -136,5 +137,41 @@ describe('hasMusicVideo', () => {
     expect(hasMusicVideo(song({ hasMusicVideo: true }))).toBe(true);
     expect(hasMusicVideo(song({ hasMusicVideo: false }))).toBe(false);
     expect(hasMusicVideo(song({}))).toBe(false);
+  });
+});
+
+describe('isMyMusic', () => {
+  it('claims everything you asked for, and nothing album completion added', () => {
+    expect(isMyMusic(song({ acquisitionIntent: 'Explicit' }))).toBe(true);
+    expect(isMyMusic(song({ acquisitionIntent: 'AlbumFill' }))).toBe(false);
+  });
+
+  // The promotion rule, and the whole payoff of liking a filled track: it joins your music.
+  it('promotes an album-fill track once you like it', () => {
+    expect(
+      isMyMusic(song({ acquisitionIntent: 'AlbumFill', likedAtUtc: '2026-08-26T00:00:00Z' }))
+    ).toBe(true);
+  });
+
+  // Playing is not choosing — shuffling a filled album through once must not adopt every track.
+  it('is not promoted by plays alone', () => {
+    expect(isMyMusic(song({ acquisitionIntent: 'AlbumFill', playCount: 12 }))).toBe(false);
+  });
+
+  // The stored column is the authority, so a row that predates it — or a shared row, whose DTO
+  // deliberately omits it — has to degrade to "shown", never to an empty list.
+  it('treats a row with no intent as yours', () => {
+    expect(isMyMusic(song({}))).toBe(true);
+  });
+
+  // The server decides the fill half now. The enum name is only the fallback, for a server older
+  // than the boolean — so when both are present the boolean wins.
+  it('prefers the server flag over the enum name', () => {
+    expect(isMyMusic(song({ isAlbumFill: true, acquisitionIntent: 'Explicit' }))).toBe(false);
+    expect(isMyMusic(song({ isAlbumFill: false, acquisitionIntent: 'AlbumFill' }))).toBe(true);
+  });
+
+  it('falls back to the enum name when the server sent no flag', () => {
+    expect(isMyMusic(song({ acquisitionIntent: 'AlbumFill' }))).toBe(false);
   });
 });

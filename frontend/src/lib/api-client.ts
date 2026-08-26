@@ -77,8 +77,10 @@ export interface ApiSong {
    */
   sharedByUserId?: string | null
   /**
-   * Server-computed "playable from the built library". Present only on shared rows, which carry
-   * no `destinationPath` for the client to infer it from — see `isBuiltSong`.
+   * Server-computed "playable from the built library" — sent for every row. Shared rows have always
+   * carried it, because they publish no `destinationPath` for a client to infer it from; own rows
+   * gained it so the definition lives in one place rather than one per client. `isBuiltSong` still
+   * falls back to deriving it, for a server older than the field.
    */
   isBuilt?: boolean
   fileName: string
@@ -196,8 +198,18 @@ export interface ApiSong {
   /**
    * Whether you asked for this track or album completion added it because you already owned another
    * track from the same album. A stored column, unlike the derived `origin*` fields above.
+   *
+   * Prefer {@link isAlbumFill}: this one is the enum's name, kept on the wire because shipped
+   * Android builds read it.
    */
   acquisitionIntent?: SongAcquisitionIntent | null
+  /**
+   * Server-decided "album completion added this". The same fact as `acquisitionIntent === 'AlbumFill'`
+   * with the string comparison done once, on the side that owns the enum. Absent on rows shared with
+   * you (that projection carries no intent) and on a server older than the field, both of which read
+   * as "yours" — see {@link isMyMusic}.
+   */
+  isAlbumFill?: boolean | null
 }
 
 /**
@@ -251,6 +263,31 @@ export function isLocalFile(s: ApiSong): boolean {
 /** True when you imported this track yourself from a URL (the Add-from-URL dialog). */
 export function isAddedByLink(s: ApiSong): boolean {
   return s.originSource === "DirectUrl"
+}
+
+/**
+ * True when this track is *yours* — you asked for it, rather than album completion adding it because
+ * you already owned another track from the same record. The flat Tracks list and the album-recency
+ * sort are built from this; the album views deliberately are not, because a filled album has to look
+ * complete there.
+ *
+ * Two details carry weight:
+ *
+ *  • A like promotes a filled track. Hearting one is the deliberate act that says "keep this", and
+ *    it is the whole payoff of the feature — without it, liking an album-fill track would do nothing
+ *    visible. Play counts deliberately do NOT promote: shuffling an album through once would
+ *    silently adopt every track on it.
+ *  • A row that says nothing about its intent reads as yours. An API too old to send either field,
+ *    and the deliberately narrow `SharedSongRowDto` (which carries neither), must degrade to showing
+ *    everything rather than to an empty list.
+ *
+ * The server decides the fill half (`isAlbumFill`); the like half stays here because the store
+ * writes `likedAtUtc` optimistically on a heart tap, and a server-computed answer would be stale
+ * before the request that refreshed it came back.
+ */
+export function isMyMusic(s: ApiSong): boolean {
+  const fill = s.isAlbumFill ?? s.acquisitionIntent === "AlbumFill"
+  return !fill || Boolean(s.likedAtUtc)
 }
 
 /** True when a music video for this track is downloaded and playable. */
@@ -549,7 +586,14 @@ export interface AlbumSummary {
   musicBrainzReleaseId: string | null
   /** First non-null albumArt URL encountered. */
   coverUrl: string | null
-  /** Most recent "added" time across the album's tracks (ISO string); null if none known. */
+  /**
+   * Most recent "added" time across the album's tracks (ISO string); null if none known.
+   *
+   * Measured over the tracks that are {@link isMyMusic} — album completion dropping a track into a
+   * record you have owned for years must not pull it back to the front of "Recently added". An album
+   * made *entirely* of album fill falls back to all of its tracks, so it still carries a date rather
+   * than sorting last with a null.
+   */
   addedAtUtc: string | null
   /** Sum of playCount across the album's tracks. */
   playCount: number
@@ -633,6 +677,10 @@ export function sortAlbumsByRecency(albums: AlbumSummary[]): AlbumSummary[] {
  */
 export function buildAlbumsFromSongs(songs: ApiSong[]): AlbumSummary[] {
   const map = new Map<string, AlbumSummary>()
+  // Most recent added-date over ALL tracks, kept aside as the fallback for an album that has none of
+  // your own — see AlbumSummary.addedAtUtc. Not a field on the summary: nothing outside this
+  // function needs it, and one exported meaning per field is what keeps the sorts honest.
+  const anyTrackAdded = new Map<string, string>()
   for (const song of songs) {
     const title = nonEmpty(song.album) ?? UNKNOWN_ALBUM
     const artist = nonEmpty(song.albumArtist) ?? nonEmpty(song.artist) ?? UNKNOWN_ARTIST
@@ -663,8 +711,9 @@ export function buildAlbumsFromSongs(songs: ApiSong[]): AlbumSummary[] {
     }
     entry.trackCount += 1
     const added = songAddedIso(song)
-    if (added && (!entry.addedAtUtc || Date.parse(added) > Date.parse(entry.addedAtUtc))) {
-      entry.addedAtUtc = added
+    if (added) {
+      if (isLaterIso(added, anyTrackAdded.get(key) ?? null)) anyTrackAdded.set(key, added)
+      if (isMyMusic(song) && isLaterIso(added, entry.addedAtUtc)) entry.addedAtUtc = added
     }
     entry.playCount += song.playCount ?? 0
     entry.durationSeconds += song.durationSeconds ?? 0
@@ -681,8 +730,18 @@ export function buildAlbumsFromSongs(songs: ApiSong[]): AlbumSummary[] {
     if (!entry.coverUrl) entry.coverUrl = coverUrlForSong(song)
     entry.songs.push(song)
   }
-  for (const album of map.values()) album.songs.sort(byTrackNumberThenTitle)
+  for (const album of map.values()) {
+    album.songs.sort(byTrackNumberThenTitle)
+    // Nothing of your own in this album — an album completion filled in whole, or one whose owned
+    // tracks were soft-deleted. Date it from what is there so it still sorts.
+    album.addedAtUtc ??= anyTrackAdded.get(album.key) ?? null
+  }
   return Array.from(map.values()).sort(byArtistThenTitle)
+}
+
+/** True when `candidate` is a later instant than `current` (a null `current` always loses). */
+function isLaterIso(candidate: string, current: string | null): boolean {
+  return !current || Date.parse(candidate) > Date.parse(current)
 }
 
 function byTrackNumberThenTitle(a: ApiSong, b: ApiSong): number {

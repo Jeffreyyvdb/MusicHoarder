@@ -45,6 +45,18 @@ fun chipMatches(key: ChipKey, track: Track, isLiked: Boolean): Boolean = when (k
     ChipKey.Unreleased -> track.isUnreleased
 }
 
+/**
+ * Whether this track is *yours* — you asked for it, rather than album completion adding it because
+ * you already owned another track from the same record. Port of `isMyMusic` in
+ * `frontend/src/lib/api-client.ts`.
+ *
+ * The Tracks list is built from this; the album and artist grids deliberately are not, because a
+ * filled album has to look complete there. [isLiked] is passed in for the same reason
+ * [chipMatches] takes it: hearting a filled track promotes it, and the promotion has to show
+ * without waiting for the next refetch.
+ */
+fun isMyMusic(track: Track, isLiked: Boolean): Boolean = !track.isAlbumFill || isLiked
+
 /** Every active chip must match. */
 fun applyChips(tracks: List<Track>, chips: Set<ChipKey>, isLiked: (Track) -> Boolean): List<Track> {
     if (chips.isEmpty()) return tracks

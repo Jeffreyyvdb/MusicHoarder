@@ -951,7 +951,9 @@ public class SongMetadata
     /// extension change relocates <see cref="DestinationPath"/>; the old file is pruned via
     /// <see cref="PreviousDestinationPath"/>), and owns resolving the <c>(OwnerUserId, SourcePath)</c>
     /// unique-index handoff when another row occupied the new path. <see cref="HasCoverArt"/> is
-    /// deliberately untouched — it's refreshed by the next scan / cover pipeline.
+    /// deliberately untouched — it's refreshed by the next scan / cover pipeline, and
+    /// <see cref="AcquiredAtUtc"/> is pinned on the way in so the swap never moves the track in
+    /// "recently added".
     /// </summary>
     public void ApplySourceUpgrade(
         string sourcePath,
@@ -964,6 +966,12 @@ public class SongMetadata
         int? durationSeconds,
         int? durationMs)
     {
+        // Pin the acquisition date before the upgrade destroys the evidence for it. This method
+        // overwrites IndexedAtUtc and every caller then clears LibraryBuiltAtUtc — exactly the two
+        // stamps the client falls back to while AcquiredAtUtc is null. Without this, a row old
+        // enough to predate the column reads as "added today" the moment it is upgraded, which is
+        // the failure mode AcquiredAtUtc exists to prevent.
+        AcquiredAtUtc ??= SeedAcquiredAt(LastModifiedUtc, IndexedAtUtc);
         SourcePath = sourcePath;
         FileSizeBytes = fileSizeBytes;
         FileName = fileName;

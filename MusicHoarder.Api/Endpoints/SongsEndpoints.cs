@@ -464,7 +464,20 @@ public static class SongsEndpoints
             s.HasMusicVideo,
             // Whether the owner asked for this track or album completion added it. Unlike the derived
             // Origin* fields above this is a stored column, so it's the one "My music" filters on.
+            // Kept as a string alongside IsAlbumFill below: shipped Android builds read this name.
             AcquisitionIntent = s.AcquisitionIntent.ToString(),
+            // Two facts both clients used to work out for themselves — from a stringly-typed enum and
+            // from a status-plus-path pair, each with its own number-or-name handling. They are
+            // decided here now, so "is this built" and "did album completion add this" have one
+            // definition instead of one per client. Both were already computed server-side for rows
+            // shared with you (SharedSongRowDto) and in the duplicates projection; emitting them for
+            // your own rows too is what removes the asymmetry, not just the duplication.
+            //
+            // The clients keep their old derivations as a fallback, because a phone from the Play
+            // Store can be newer than the self-hosted server it talks to. Those fallbacks can go once
+            // no supported server predates this field.
+            IsAlbumFill = s.AcquisitionIntent == SongAcquisitionIntent.AlbumFill,
+            IsBuilt = s.LibraryBuildStatus == LibraryBuildStatus.Done && s.DestinationPath != null,
         };
         }).ToList();
 

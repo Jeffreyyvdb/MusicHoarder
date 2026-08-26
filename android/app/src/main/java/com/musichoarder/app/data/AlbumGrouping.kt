@@ -62,7 +62,12 @@ fun buildAlbums(tracks: List<Track>): List<Album> {
             trackCount = sorted.size,
             durationSeconds = sorted.sumOf { it.durationSeconds },
             playCount = sorted.sumOf { it.playCount },
-            addedAtMs = sorted.maxOf { it.addedAtMs },
+            // Measured over YOUR tracks: album completion dropping a track into a record you have
+            // owned for years must not pull it back to the front of "Recently added". An album that
+            // is nothing but fill falls back to all of it, so it still carries a date.
+            addedAtMs = sorted.filter { isMyMusic(it, it.likedAtUtc != null) }
+                .maxOfOrNull { it.addedAtMs }
+                ?: sorted.maxOf { it.addedAtMs },
             lastPlayedAtMs = sorted.maxOf { it.lastPlayedAtMs },
             tracks = sorted,
         )

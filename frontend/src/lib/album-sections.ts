@@ -14,11 +14,15 @@ import type { ApiSong } from '$lib/api-client';
  * LibraryBuildStatus == Done (serialized as 3 or "Done") AND a destinationPath is set.
  * This implies it was enriched + matched first, so the main Library view can rely on it.
  *
- * A row shared with you carries `isBuilt` instead, computed server-side, because the payload
- * deliberately omits `destinationPath` — the grantor's disk layout is none of your business, and
- * without it the client has nothing to infer build state from. Trusting the server here is what
- * removed the global "shared library mode" flag this module used to read: one rule, both row
- * kinds, no session-wide state.
+ * Every row now carries `isBuilt`, computed server-side, and that is what this trusts. Shared rows
+ * always had to: the payload deliberately omits `destinationPath` — the grantor's disk layout is
+ * none of your business — so the client has nothing to infer build state from. Trusting the server
+ * there is what removed the global "shared library mode" flag this module used to read: one rule,
+ * both row kinds, no session-wide state. Own rows joined them so the definition lives on the side
+ * that owns the enum rather than being re-spelled in each client.
+ *
+ * The derivation below stays as the fallback for a server older than the field. It can go once no
+ * supported server predates it.
  */
 export function isBuiltSong(s: ApiSong): boolean {
   if (typeof s.isBuilt === 'boolean') return s.isBuilt;

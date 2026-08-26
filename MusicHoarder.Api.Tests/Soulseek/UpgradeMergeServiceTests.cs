@@ -39,6 +39,13 @@ public class UpgradeMergeServiceTests : IDisposable
         target.SyncedLyrics = "[00:01.00] the lyrics";
         target.LyricsStatus = LyricsStatus.Fetched;
         target.MarkBuildDone("/dest/Artist/song.opus");
+        // A row from before AcquiredAtUtc existed. The merge bumps IndexedAtUtc and clears
+        // LibraryBuiltAtUtc, so it has to pin the acquisition date on the way through or the track
+        // reads as added today.
+        var acquiredStamp = new DateTime(2021, 3, 4, 5, 6, 7, DateTimeKind.Utc);
+        target.LastModifiedUtc = acquiredStamp;
+        target.IndexedAtUtc = acquiredStamp;
+        target.AcquiredAtUtc = null;
         var newFile = WriteStagingFile("better.flac", bytes: 2048);
         var provisional = ProvisionalSong(11, newFile, extension: ".flac", bitrate: 900, fingerprint: "FP-new");
         db.Songs.AddRange(target, provisional);
@@ -60,6 +67,8 @@ public class UpgradeMergeServiceTests : IDisposable
         Assert.Equal("Artist", song.Artist);
         Assert.Equal("the lyrics", song.PlainLyrics);
         Assert.Equal(LyricsStatus.Fetched, song.LyricsStatus);
+        // The track keeps its place in "recently added" — the swap is the same song, better bytes.
+        Assert.Equal(acquiredStamp, song.AcquiredAtUtc);
         // Destination swap armed.
         Assert.Equal(LibraryBuildStatus.Pending, song.LibraryBuildStatus);
         Assert.Equal("/dest/Artist/song.opus", song.PreviousDestinationPath);

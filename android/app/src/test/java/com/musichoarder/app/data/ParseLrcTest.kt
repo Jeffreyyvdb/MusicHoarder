@@ -114,4 +114,32 @@ class ParseLrcTest {
         assertEquals(true, ApiSong(id = 1, destinationPath = "/d", libraryBuildStatus = JsonPrimitive("Done")).isBuilt)
         assertEquals(false, ApiSong(id = 1, destinationPath = "/d", libraryBuildStatus = JsonPrimitive("Tagged")).isBuilt)
     }
+
+    @Test
+    fun `the server decides built and album fill, and the derivations are only a fallback`() {
+        // Every row carries both flags now. The local derivations below stay for one reason: a phone
+        // from the Play Store can be newer than the self-hosted server it is paired with.
+        val told = ApiSong(
+            id = 1,
+            destinationPath = null,
+            libraryBuildStatus = JsonPrimitive(0),
+            acquisitionIntent = "Explicit",
+            isBuiltServer = true,
+            isAlbumFillServer = true,
+        )
+        assertEquals(true, told.isBuilt)
+        assertEquals(true, told.toTrack().isAlbumFill)
+
+        val olderServer = ApiSong(
+            id = 2,
+            destinationPath = "/dest/a.flac",
+            libraryBuildStatus = JsonPrimitive(3),
+            acquisitionIntent = "AlbumFill",
+        )
+        assertEquals(true, olderServer.isBuilt)
+        assertEquals(true, olderServer.toTrack().isAlbumFill)
+
+        // Neither the flag nor the enum name: it reads as yours, never as a hidden row.
+        assertEquals(false, ApiSong(id = 3).toTrack().isAlbumFill)
+    }
 }
