@@ -16,6 +16,7 @@ import com.musichoarder.app.data.LibraryContent
 import com.musichoarder.app.data.LibraryTab
 import com.musichoarder.app.data.InviteLink
 import com.musichoarder.app.data.LibraryUiState
+import com.musichoarder.app.data.NowPlayingLinks
 import com.musichoarder.app.data.LoginLinkUri
 import com.musichoarder.app.data.PairingUri
 import com.musichoarder.app.data.PasskeyCancelledException
@@ -32,6 +33,7 @@ import com.musichoarder.app.data.defaultAscending
 import com.musichoarder.app.data.foldLibrary
 import com.musichoarder.app.data.likedNow
 import com.musichoarder.app.data.resolveAlbum
+import com.musichoarder.app.data.resolveNowPlayingLinks
 import com.musichoarder.app.data.sortForChipChange
 import com.musichoarder.app.player.PlayerController
 import com.musichoarder.app.player.VideoController
@@ -46,6 +48,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
@@ -545,6 +548,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _isShareQueue = MutableStateFlow(false)
     val isShareQueue: StateFlow<Boolean> = _isShareQueue.asStateFlow()
 
+    /**
+     * Where the player's `artist · album` line can navigate to, or null when nothing it links to is
+     * reachable — a share queue's foreign ids, or a row the grids do not cover. Keyed on the track
+     * id alone: the player pushes a state every 200 ms for the scrubber, and re-scanning the
+     * library at that rate to answer a question that only changes between songs would be waste.
+     */
+    val nowPlayingLinks: StateFlow<NowPlayingLinks?> = combine(
+        player.state.map { it.trackId }.distinctUntilChanged(),
+        graph.library.state,
+        _isShareQueue,
+    ) { trackId, state, isShareQueue ->
+        // A share track can carry a library track's id, so the flag has to rule it out before the
+        // lookup — otherwise a colliding id would link the wrong record.
+        if (isShareQueue) null else resolveNowPlayingLinks(state, trackId)
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     private var shareJob: Job? = null
 
     fun openShare(link: ShareLink) {
@@ -725,13 +746,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setLetter(letter: String?) = _ui.update { it.copy(letter = letter) }
 
-    /** Tapping an artist narrows the Albums tab in place, the way the web's `?artist=` link does. */
-    fun openArtist(name: String) =
-        _ui.update { it.copy(artistFilter = name, tab = LibraryTab.Albums, letter = null) }
+    /**
+     * Tapping an artist narrows the Albums tab in place, the way the web's `?artist=` link does.
+     *
+     * Any open drilldown goes with it: an album screen sits *over* the grid this narrows, so coming
+     * from the player it would mask the very page the tap asked for.
+     */
+    fun openArtist(name: String) = _ui.update {
+        it.copy(artistFilter = name, tab = LibraryTab.Albums, letter = null, openAlbumKey = null)
+    }
 
     fun clearArtistFilter() = _ui.update { it.copy(artistFilter = null) }
 
-    fun openAlbum(album: Album) = _ui.update { it.copy(openAlbumKey = album.key) }
+    fun openAlbum(album: Album) = openAlbumKey(album.key)
+
+    /**
+     * The same drilldown addressed by key, for a caller holding one rather than a card — the player
+     * knows its track's folder, not the grid it would be a tile in. [resolveAlbum] does the
+     * matching, so a folder key that lost a name merge still lands on the card that survived.
+     */
+    fun openAlbumKey(key: String) = _ui.update { it.copy(openAlbumKey = key) }
 
     fun closeAlbum() = _ui.update { it.copy(openAlbumKey = null) }
 

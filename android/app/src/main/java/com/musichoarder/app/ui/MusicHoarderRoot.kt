@@ -66,6 +66,7 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     val share by viewModel.share.collectAsStateWithLifecycle()
     val invite by viewModel.invite.collectAsStateWithLifecycle()
     val isShareQueue by viewModel.isShareQueue.collectAsStateWithLifecycle()
+    val nowPlayingLinks by viewModel.nowPlayingLinks.collectAsStateWithLifecycle()
 
     // Saveable, not remembered: a rotation or a trip through process death used to drop the open
     // player. The open album moved into the ViewModel with the rest of the library's view state.
@@ -182,6 +183,15 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     )
     val backStep = backSteps.firstOrNull { it.first }?.second
     BackHandler(enabled = backStep != null) { backStep?.invoke() }
+
+    // Leaving the player for a library page: the sheet comes down, and so does anything stacked over
+    // the library that would otherwise be what it lands on. Only the share viewer can be, and it is
+    // never the queue that is playing when these links exist — they resolve for paired rows only —
+    // so closing it here can never stop the music.
+    val leaveForLibrary = {
+        showNowPlaying = false
+        if (share != null) viewModel.closeShare()
+    }
 
     Box(modifier = modifier.fillMaxSize().background(MhTheme.colors.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -325,6 +335,12 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                 onToggleVideoBackdrop = { showVideoBackdrop = !showVideoBackdrop },
                 onToggleLike = if (isShareQueue) null else {
                     { playerState.trackId?.let(viewModel::toggleLike) }
+                },
+                onOpenArtist = nowPlayingLinks?.let { links ->
+                    { leaveForLibrary(); viewModel.openArtist(links.artist) }
+                },
+                onOpenAlbum = nowPlayingLinks?.let { links ->
+                    { leaveForLibrary(); viewModel.openAlbumKey(links.albumKey) }
                 },
                 onCollapse = { showNowPlaying = false },
                 onPlayPause = viewModel.player::togglePlayPause,

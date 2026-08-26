@@ -197,3 +197,29 @@ fun resolveAlbum(albums: List<Album>, key: String?): Album? {
     albums.firstOrNull { key in it.folderKeys }?.let { return it }
     return albums.filter { it.nameKey == key }.maxByOrNull { it.trackCount }
 }
+
+/**
+ * Where the player's `artist · album` line can navigate to.
+ *
+ * [artist] is the **lead** artist, not the credit on screen: the line reads "Trippie Redd, Drake"
+ * but files under whoever fronts the release, which is the name the Artists grid lists it by. That
+ * is the web's `artistLabelForSong`, and the two clients have to agree or the same tap lands on
+ * different pages. [albumKey] is the destination folder the album card is addressed by.
+ */
+data class NowPlayingLinks(val artist: String, val albumKey: String)
+
+/**
+ * The links for a playing song id, or null when this library cannot answer for it.
+ *
+ * Both halves resolve together, deliberately: an unbuilt row has no album card and no artist card,
+ * so offering one link of the pair would just switch tabs to an empty grid. Null instead leaves the
+ * line as plain text, which is what a share queue and an unpaired viewer get too — a share's ids
+ * belong to the sharing server and can collide with a library id, so the caller has to rule that
+ * out before asking.
+ */
+fun resolveNowPlayingLinks(state: LibraryState, trackId: Int?): NowPlayingLinks? {
+    if (trackId == null) return null
+    val track = state.trackListBase.firstOrNull { it.id == trackId } ?: return null
+    val album = resolveAlbum(state.albums, track.folderKey) ?: return null
+    return NowPlayingLinks(artist = track.albumArtist, albumKey = album.key)
+}
