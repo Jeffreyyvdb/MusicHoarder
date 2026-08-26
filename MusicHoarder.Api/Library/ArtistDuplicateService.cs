@@ -71,8 +71,12 @@ public sealed class ArtistDuplicateService(
         // ("Kanye West feat. Kid Cudi", "A & B") normalizes to its primary artist's key — clustering
         // it as a "spelling variant" would suggest a merge that silently DELETES the featuring
         // credit. Those names surface in the combined-credit report instead.
+        // Placeholders ("Various Artists", "Unknown Artist") are excluded outright: they are not an
+        // artist, they legitimately carry many different artists' MusicBrainz ids, and merging one
+        // away would rename every compilation in the library to whoever won the canonical slot.
         var names = stats.Keys
             .Where(n => ArtistCreditNormalizer.SplitArtists(n).Count == 1)
+            .Where(n => !IsPlaceholderName(n))
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToList();
         var keyOf = names.ToDictionary(n => n, TitleNormalizer.NormalizeForSearch, StringComparer.Ordinal);
@@ -84,7 +88,57 @@ public sealed class ArtistDuplicateService(
             return dismissed.Contains(pair);
         }
 
-        // Union-find over display spellings; evidence per union edge feeds the cluster report.
+        var threshold = options.Value.ArtistMergeFuzzyThreshold;
+        var identityFloor = options.Value.ArtistMergeIdentityFuzzyThreshold;
+
+        // The single edge test. Evidence is always PAIRWISE: a shared MusicBrainz id corroborates a
+        // spelling that already looks alike, it never stands on its own. Names routinely carry ids
+        // that are not theirs — an elected AlbumArtist keeps the previous row's
+        // AlbumArtistMusicBrainzId, a discrete Artists list falls out of step with its id list — so
+        // an unguarded id union let one stray id fold unrelated artists together.
+        List<string> PairEvidence(string a, string b)
+        {
+            if (IsDismissed(a, b))
+                return [];
+            var (ka, kb) = (keyOf[a], keyOf[b]);
+            if (ka.Length > 0 && string.Equals(ka, kb, StringComparison.Ordinal))
+                return ["same name after normalization"];
+
+            var why = new List<string>(2);
+            var ratio = FuzzyTextMatch.Ratio(a, b) ?? 0;
+            if (ratio >= threshold)
+                why.Add("similar spelling");
+            if (ratio >= identityFloor && stats[a].Mbids.Overlaps(stats[b].Mbids))
+                why.Add("same MusicBrainz artist id");
+            return why;
+        }
+
+        // Candidate pairs only — cheap ways two names might be related, each still gated by
+        // PairEvidence: (a) identical normalized key ("JAY-Z" / "JAYZ" / "Jaÿ-z" fold to "jayz"),
+        // (b) a shared MusicBrainz artist id, (c) the same fuzzy bucket, keyed on the first
+        // normalized character (ignoring a leading "the " so "The Notorious B.I.G." buckets with
+        // "Notorious BIG") to keep the pairwise comparison tractable; short keys are excluded
+        // (fuzzy on short names is noise).
+        static char BucketOf(string key) =>
+            key.StartsWith("the ", StringComparison.Ordinal) && key.Length > 4 ? key[4] : key[0];
+        var byMbid = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in names)
+        {
+            foreach (var mbid in stats[name].Mbids)
+                (byMbid.TryGetValue(mbid, out var bag) ? bag : byMbid[mbid] = []).Add(name);
+        }
+        // One id shared by more names than this is noise, not identity (a placeholder that slipped
+        // the filter, a provider stamping the release artist onto every credit) — expanding it
+        // pairwise only manufactures candidates.
+        var maxIdBlock = options.Value.DuplicateMaxBlockSize;
+        var candidateBlocks = names.GroupBy(n => keyOf[n]).Where(g => g.Key.Length > 0).Select(g => g.ToList())
+            .Concat(byMbid.Values.Where(g => g.Count > 1 && g.Count <= maxIdBlock))
+            .Concat(names.Where(n => keyOf[n].Length >= 4).GroupBy(n => BucketOf(keyOf[n])).Select(g => g.ToList()));
+
+        // Union-find groups the corroborated edges into components. A component is only a shortlist:
+        // union-find is transitive, and transitivity is what turned "a~b, b~c" into one cluster that
+        // renamed unrelated artists. Star-splitting below re-checks every member against the
+        // canonical it would actually be rewritten to.
         var parent = names.ToDictionary(n => n, n => n, StringComparer.Ordinal);
         string Find(string x)
         {
@@ -95,87 +149,60 @@ public sealed class ArtistDuplicateService(
             }
             return x;
         }
-        var evidence = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
-        void Union(string a, string b, string why)
+        foreach (var block in candidateBlocks)
         {
-            var (ra, rb) = (Find(a), Find(b));
-            if (ra == rb)
-                return;
-            var (root, child) = string.CompareOrdinal(ra, rb) <= 0 ? (ra, rb) : (rb, ra);
-            parent[child] = root;
-            var bag = evidence.TryGetValue(root, out var e) ? e : evidence[root] = [];
-            if (evidence.TryGetValue(child, out var childBag))
-                bag.UnionWith(childBag);
-            bag.Add(why);
-        }
-
-        // (a) identical normalized key — "JAY-Z" / "JAYZ" / "Jaÿ-z" all fold to "jayz".
-        foreach (var group in names.GroupBy(n => keyOf[n]).Where(g => g.Key.Length > 0))
-        {
-            var members = group.ToList();
-            for (var i = 1; i < members.Count; i++)
-                Union(members[0], members[i], "same name after normalization");
-        }
-
-        // (b) shared MusicBrainz artist id across different spellings — same artist by identity.
-        var byMbid = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var name in names)
-        {
-            foreach (var mbid in stats[name].Mbids)
+            for (var i = 0; i < block.Count; i++)
             {
-                if (byMbid.TryGetValue(mbid, out var first))
+                for (var j = i + 1; j < block.Count; j++)
                 {
-                    if (!IsDismissed(first, name))
-                        Union(first, name, "same MusicBrainz artist id");
-                }
-                else
-                {
-                    byMbid[mbid] = name;
-                }
-            }
-        }
-
-        // (c) fuzzy spelling distance, bucketed by first normalized character (ignoring a leading
-        // "the " so "The Notorious B.I.G." buckets with "Notorious BIG") to keep the pairwise
-        // comparison tractable; short keys are excluded (fuzzy on short names is noise).
-        var threshold = options.Value.ArtistMergeFuzzyThreshold;
-        static char BucketOf(string key) =>
-            key.StartsWith("the ", StringComparison.Ordinal) && key.Length > 4 ? key[4] : key[0];
-        foreach (var bucket in names
-                     .Where(n => keyOf[n].Length >= 4)
-                     .GroupBy(n => BucketOf(keyOf[n])))
-        {
-            var members = bucket.ToList();
-            for (var i = 0; i < members.Count; i++)
-            {
-                for (var j = i + 1; j < members.Count; j++)
-                {
-                    if (keyOf[members[i]] == keyOf[members[j]])
-                        continue; // already unioned by (a)
-                    if (IsDismissed(members[i], members[j]))
+                    if (Find(block[i]) == Find(block[j]) || PairEvidence(block[i], block[j]).Count == 0)
                         continue;
-                    if ((FuzzyTextMatch.Ratio(members[i], members[j]) ?? 0) >= threshold)
-                        Union(members[i], members[j], "similar spelling");
+                    var (ra, rb) = (Find(block[i]), Find(block[j]));
+                    var (root, child) = string.CompareOrdinal(ra, rb) <= 0 ? (ra, rb) : (rb, ra);
+                    parent[child] = root;
                 }
             }
         }
 
-        var clusters = names
-            .GroupBy(Find, StringComparer.Ordinal)
-            .Where(g => g.Count() > 1)
-            .Select(g =>
+        ArtistNameStat StatOf(string name) =>
+            new(name, stats[name].Count, stats[name].Mbids.Order(StringComparer.Ordinal).ToList());
+        static IOrderedEnumerable<ArtistNameStat> ByRank(IEnumerable<ArtistNameStat> variants) => variants
+            .OrderByDescending(v => v.MusicBrainzIds.Count > 0)
+            .ThenByDescending(v => v.SongCount)
+            .ThenBy(v => v.Name, StringComparer.Ordinal);
+
+        // A merge rewrites every variant to ONE canonical spelling, so every variant must be a
+        // plausible variant of that canonical — not merely of some neighbour two hops away. Peel the
+        // component into star-shaped clusters around its best-ranked member; whatever fails that
+        // direct check re-forms its own star (or drops out as a lone name).
+        var clusters = new List<ArtistDuplicateCluster>();
+        foreach (var component in names.GroupBy(Find, StringComparer.Ordinal).Where(g => g.Count() > 1))
+        {
+            var remaining = ByRank(component.Select(StatOf)).ToList();
+            while (remaining.Count > 1)
             {
-                var variants = g
-                    .Select(n => new ArtistNameStat(n, stats[n].Count, stats[n].Mbids.Order(StringComparer.Ordinal).ToList()))
-                    .OrderByDescending(v => v.MusicBrainzIds.Count > 0)
-                    .ThenByDescending(v => v.SongCount)
-                    .ThenBy(v => v.Name, StringComparer.Ordinal)
-                    .ToList();
-                var why = evidence.TryGetValue(Find(g.Key), out var e)
-                    ? e.Order(StringComparer.Ordinal).ToList()
-                    : [];
-                return new ArtistDuplicateCluster(variants[0].Name, variants, why);
-            })
+                var canonical = remaining[0];
+                var members = new List<ArtistNameStat> { canonical };
+                var why = new HashSet<string>(StringComparer.Ordinal);
+                var leftovers = new List<ArtistNameStat>();
+                foreach (var other in remaining.Skip(1))
+                {
+                    var evidence = PairEvidence(canonical.Name, other.Name);
+                    if (evidence.Count == 0)
+                    {
+                        leftovers.Add(other);
+                        continue;
+                    }
+                    members.Add(other);
+                    why.UnionWith(evidence);
+                }
+                if (members.Count > 1)
+                    clusters.Add(new ArtistDuplicateCluster(
+                        canonical.Name, members, why.Order(StringComparer.Ordinal).ToList()));
+                remaining = leftovers;
+            }
+        }
+        clusters = clusters
             .OrderByDescending(c => c.Variants.Sum(v => v.SongCount))
             .ThenBy(c => c.SuggestedCanonical, StringComparer.Ordinal)
             .ToList();
@@ -210,12 +237,16 @@ public sealed class ArtistDuplicateService(
     {
         var canonical = ArtistCreditNormalizer.NormalizeDisplayCredit(canonicalName)
             ?? throw new ArgumentException("Canonical name is required.", nameof(canonicalName));
+        if (IsPlaceholderName(canonical))
+            throw new ArgumentException($"'{canonical}' is a placeholder, not an artist.", nameof(canonicalName));
 
         // Variant keys plus the canonical's own key: casing/diacritic re-spellings of the canonical
         // itself also converge, and the alias row for the canonical key pins the display spelling.
+        // Placeholders never join: aliasing "various artists" onto a real name would have the album
+        // identity heal rename every compilation in the library to that artist.
         var matchKeys = variantNames
             .Select(ArtistCreditNormalizer.NormalizeDisplayCredit)
-            .Where(v => v is not null)
+            .Where(v => v is not null && !IsPlaceholderName(v))
             .Select(v => TitleNormalizer.NormalizeForSearch(v))
             .Append(TitleNormalizer.NormalizeForSearch(canonical))
             .Where(k => k.Length > 0)
@@ -224,6 +255,12 @@ public sealed class ArtistDuplicateService(
             throw new ArgumentException("At least one resolvable variant name is required.", nameof(variantNames));
 
         var songs = await QueryEligible(ownerUserId).ToListAsync(ct);
+
+        // The id the canonical spelling already carries, so rewritten rows stop carrying the
+        // variants' ids. Leaving them behind is what made the last merge self-perpetuating: the
+        // canonical name ended up holding every variant's MusicBrainz id, and the next detect run
+        // proposed the very same merge again.
+        var canonicalMbid = ResolveCanonicalMbid(songs, TitleNormalizer.NormalizeForSearch(canonical));
 
         var now = DateTime.UtcNow;
         var updated = 0;
@@ -236,9 +273,14 @@ public sealed class ArtistDuplicateService(
             if (MatchesWholeField(song.Artist, matchKeys, canonical))
                 changes.Add((nameof(SongMetadata.Artist), song.Artist, canonical, () => song.Artist = canonical));
             if (MatchesWholeField(song.AlbumArtist, matchKeys, canonical))
+            {
                 changes.Add((nameof(SongMetadata.AlbumArtist), song.AlbumArtist, canonical, () => song.AlbumArtist = canonical));
+                if (canonicalMbid is not null && !string.Equals(song.AlbumArtistMusicBrainzId, canonicalMbid, StringComparison.Ordinal))
+                    changes.Add((nameof(SongMetadata.AlbumArtistMusicBrainzId), song.AlbumArtistMusicBrainzId, canonicalMbid,
+                        () => song.AlbumArtistMusicBrainzId = canonicalMbid));
+            }
 
-            var (newArtists, newArtistIds) = MapArtistsList(song, matchKeys, canonical);
+            var (newArtists, newArtistIds) = MapArtistsList(song, matchKeys, canonical, canonicalMbid);
             if (newArtists is not null)
             {
                 var capturedArtists = newArtists;
@@ -485,6 +527,67 @@ public sealed class ArtistDuplicateService(
         return stats;
     }
 
+    /// <summary>
+    /// Placeholders on top of the various-artists sentinels
+    /// (<see cref="DestinationPathResolver.IsVariousArtistsSentinel"/>, which owns those spellings
+    /// so routing, grouping and dedup can never disagree about what counts as one).
+    /// </summary>
+    private static readonly HashSet<string> PlaceholderNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Unknown Artist", "Unknown", "[unknown]",
+    };
+
+    /// <summary>
+    /// "Various Artists" and friends are a slot, not an artist. They occur under every album artist
+    /// in the library and so accumulate every artist's MusicBrainz id — clustering or merging one is
+    /// never right.
+    /// </summary>
+    private static bool IsPlaceholderName(string name)
+    {
+        var trimmed = name.Trim();
+        return DestinationPathResolver.IsVariousArtistsSentinel(trimmed) || PlaceholderNames.Contains(trimmed);
+    }
+
+    /// <summary>
+    /// The MusicBrainz artist id the canonical spelling already carries most often, across both the
+    /// album artist and the aligned discrete artists list. Null when the canonical has none — then a
+    /// rewritten row keeps the id it had rather than losing identity it may be the only source of.
+    /// </summary>
+    private static string? ResolveCanonicalMbid(IReadOnlyList<SongMetadata> songs, string canonicalKey)
+    {
+        if (canonicalKey.Length == 0)
+            return null;
+
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        void Count(string? id)
+        {
+            if (!string.IsNullOrWhiteSpace(id))
+                counts[id.Trim()] = counts.GetValueOrDefault(id.Trim()) + 1;
+        }
+
+        foreach (var song in songs)
+        {
+            if (TitleNormalizer.NormalizeForSearch(song.AlbumArtist) == canonicalKey)
+                Count(song.AlbumArtistMusicBrainzId);
+
+            var names = MultiValue.Split(song.Artists);
+            var ids = MultiValue.Split(song.ArtistMusicBrainzIds);
+            if (ids.Length != names.Length)
+                continue;
+            for (var i = 0; i < names.Length; i++)
+            {
+                if (TitleNormalizer.NormalizeForSearch(names[i]) == canonicalKey)
+                    Count(ids[i]);
+            }
+        }
+
+        return counts
+            .OrderByDescending(kv => kv.Value)
+            .ThenBy(kv => kv.Key, StringComparer.Ordinal)
+            .Select(kv => kv.Key)
+            .FirstOrDefault();
+    }
+
     private static bool MatchesWholeField(string? value, HashSet<string> matchKeys, string canonical)
     {
         if (string.IsNullOrWhiteSpace(value) || string.Equals(value, canonical, StringComparison.Ordinal))
@@ -500,11 +603,12 @@ public sealed class ArtistDuplicateService(
 
     /// <summary>
     /// Maps matching segments of the discrete Artists list to the canonical spelling, de-duplicating
-    /// segments that collapse together and keeping the positionally-aligned MBID list in step (the
-    /// first occurrence's id wins). Returns (null, _) when nothing changed.
+    /// segments that collapse together and keeping the positionally-aligned MBID list in step (a
+    /// rewritten segment takes the canonical's own id when there is one, else the first occurrence's
+    /// id wins). Returns (null, _) when nothing changed.
     /// </summary>
     private static (string? Artists, (bool Changed, string? Value) ArtistIds) MapArtistsList(
-        SongMetadata song, HashSet<string> matchKeys, string canonical)
+        SongMetadata song, HashSet<string> matchKeys, string canonical, string? canonicalMbid)
     {
         var names = MultiValue.Split(song.Artists);
         if (names.Length == 0)
@@ -519,20 +623,24 @@ public sealed class ArtistDuplicateService(
         for (var i = 0; i < names.Length; i++)
         {
             var key = TitleNormalizer.NormalizeForSearch(names[i]);
-            var mapped = key.Length > 0 && matchKeys.Contains(key) ? canonical : names[i];
+            var isCanonical = key.Length > 0 && matchKeys.Contains(key);
+            var mapped = isCanonical ? canonical : names[i];
             changed |= !string.Equals(mapped, names[i], StringComparison.Ordinal);
+            // A segment that becomes the canonical takes the canonical's id, never the variant's —
+            // a foreign id left under the canonical spelling is what re-proposes the same merge.
+            var mappedId = isCanonical && canonicalMbid is not null ? canonicalMbid : aligned ? ids[i] : string.Empty;
 
             var existingIdx = outNames.FindIndex(n => string.Equals(n, mapped, StringComparison.Ordinal));
             if (existingIdx >= 0)
             {
                 changed = true; // segment collapsed onto an earlier one
-                if (aligned && outIds[existingIdx].Length == 0 && ids[i].Length > 0)
-                    outIds[existingIdx] = ids[i];
+                if (aligned && outIds[existingIdx].Length == 0 && mappedId.Length > 0)
+                    outIds[existingIdx] = mappedId;
                 continue;
             }
 
             outNames.Add(mapped);
-            outIds.Add(aligned ? ids[i] : string.Empty);
+            outIds.Add(aligned ? mappedId : string.Empty);
         }
 
         if (!changed)
