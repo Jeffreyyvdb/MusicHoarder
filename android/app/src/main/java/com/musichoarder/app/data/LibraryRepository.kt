@@ -44,6 +44,11 @@ data class LibraryState(
     val trackListBase: List<Track> = emptyList(),
     /** Folder-keyed then merged by name. Never scoped by a filter: this is the drilldown resolver. */
     val albums: List<Album> = emptyList(),
+    /**
+     * True when this server predates `GET /api/albums`, so there are no cards to show. Distinct from
+     * "no albums": the library may be full of music the server simply cannot group for us.
+     */
+    val albumsUnsupported: Boolean = false,
     val artistsPrimary: List<ArtistGroup> = emptyList(),
     val artistsAll: List<ArtistGroup> = emptyList(),
     val error: String? = null,
@@ -120,7 +125,8 @@ class LibraryRepository(private val api: MusicHoarderApi) {
                 // Joining four thousand tracks to their albums and grouping the artists is far too
                 // much work for a frame, and the mapping this replaces ran on the main dispatcher.
                 _state.value = withContext(Dispatchers.Default) {
-                    fold(response.songs, albums).copy(grantors = response.grantors)
+                    fold(response.songs, albums.orEmpty())
+                        .copy(grantors = response.grantors, albumsUnsupported = albums == null)
                 }
             } catch (e: UnauthorizedException) {
                 _state.value = _state.value.copy(isLoading = false, error = e.message, isPairingRevoked = true)
