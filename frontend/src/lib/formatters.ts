@@ -92,3 +92,44 @@ export function formatFamily(extension: string | null | undefined): FormatFamily
       return 'OTHER';
   }
 }
+
+/**
+ * "just now" / "12 min ago" / "3h ago" / "4d ago", falling back to a short date past a month.
+ * Lives here rather than on a page because three surfaces had grown near-identical private copies.
+ */
+export function formatRelativeTime(iso: string, now: number = Date.now()): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '';
+  const secs = Math.round((now - then) / 1000);
+  if (secs < 60) return 'just now';
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+/** "Today" / "Yesterday" / "Tue 12 Aug" — the header a day-grouped list puts above its rows. */
+export function formatDayLabel(iso: string, now: Date = new Date()): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const midnight = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((midnight(now) - midnight(date)) / 86_400_000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  return date.toLocaleDateString([], {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' })
+  });
+}
+
+/** The local calendar day an instant falls on — the key a day-grouped list groups by. */
+export function localDayKey(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
