@@ -9,7 +9,6 @@
  * resets / SSE-driven rebuilds replace the dataset.
  */
 
-import { buildAlbumsFromSongs } from '$lib/api-client';
 import { playerStore } from '$lib/stores/player.svelte';
 import { songsStore } from '$lib/stores/songs.svelte';
 
@@ -21,8 +20,10 @@ interface DetailTarget {
 let target = $state<DetailTarget | null>(null);
 let isOpen = $state(false);
 
-// Albums rebuilt only when the underlying dataset changes, not per `resolved` read.
-const albums = $derived(buildAlbumsFromSongs(songsStore.songs));
+// The panel's own album set: every song, including unbuilt ones, and per destination folder rather
+// than merged by name. Wider than the library grid on purpose — the panel opens from the MiniPlayer
+// and from Inbox rows, so a track still waiting on review has to resolve to an album too.
+const albums = $derived(songsStore.detailAlbums);
 
 const resolved = $derived.by(() => {
   if (!target) return null;
@@ -40,6 +41,7 @@ function open(songId: number, albumKey?: string): void {
   target = { songId, albumKey };
   isOpen = true;
   songsStore.ensureLoaded();
+  songsStore.ensureDetailAlbums();
 }
 
 function close(): void {

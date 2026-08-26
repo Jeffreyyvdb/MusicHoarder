@@ -1,180 +1,144 @@
 package com.musichoarder.app.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Test
 
 /**
- * Pins album grouping to `buildAlbumsFromSongs` / `mergeAlbumsByName` / `sortAlbums` in
- * `frontend/src/lib/api-client.ts`.
+ * What is left of album grouping on this side.
  *
- * This is the part of the port that changes what the user sees most obviously: the phone used to
- * group on `"$albumArtist $album"`, which produces a different album count from the browser.
+ * The grouping itself — folder keys, the name merge, the year election, the added-date rule — moved
+ * to `GET /api/albums` and is pinned by `AlbumProjectionTests` in the API suite. It used to live
+ * here, as a hand-written port of `buildAlbumsFromSongs`, alongside the web's own copy; that is how
+ * one added-date rule came to need fixing twice and how the phone and the browser came to disagree
+ * about which track names a card. What stays here is the join and the grid's own ordering.
  */
 class AlbumGroupingTest {
 
-    private fun split(id: Int, folder: String, year: Int? = null, tracks: Int = 1) =
-        (1..tracks).map {
-            song(
-                id = id * 100 + it,
-                album = "Ye",
-                artist = "Kanye West",
-                year = year,
-                trackNumber = it,
-                destinationPath = "$folder/$it.flac",
-            )
-        }
-
     @Test
-    fun `built tracks group by destination folder, not by tags`() {
-        val tracks = split(1, "/library/Kanye West/Ye (2018)") + split(2, "/library/Kanye West/Ye")
-        assertEquals(2, buildAlbums(tracks).size)
+    fun `hydration resolves track ids to the very rows the library holds`() {
+        // Identity, not equality: likes and play counts are overlays keyed on these rows, and an
+        // album carrying its own copies would show a stale heart until the next refresh.
+        val one = song(id = 1, title = "Gorgeous")
+        val two = song(id = 2, title = "Power")
+
+        val album = hydrateAlbums(listOf(card(trackIds = listOf(2, 1))), mapOf(1 to one, 2 to two))
+            .single()
+
+        assertEquals(listOf(2, 1), album.tracks.map { it.id })
+        assertSame(two, album.tracks.first())
     }
 
     @Test
-    fun `the name merge folds those folders back into one card`() {
-        val tracks = split(1, "/library/Kanye West/Ye (2018)") + split(2, "/library/Kanye West/Ye")
-        val merged = mergeAlbumsByName(buildAlbums(tracks))
-        assertEquals(1, merged.size)
-        assertEquals(2, merged.single().trackCount)
+    fun `a track the library does not have is dropped rather than left as a hole`() {
+        // The two fetches can straddle a library change; the next refresh reconciles.
+        val album = hydrateAlbums(listOf(card(trackIds = listOf(1, 99))), mapOf(1 to song(id = 1)))
+            .single()
+
+        assertEquals(listOf(1), album.tracks.map { it.id })
     }
 
     @Test
-    fun `the largest folder becomes the representative`() {
-        val small = split(1, "/library/Kanye West/Ye (bootleg)", tracks = 1)
-        val large = split(2, "/library/Kanye West/Ye", tracks = 3)
-        val merged = mergeAlbumsByName(buildAlbums(small + large)).single()
-        assertEquals("/library/Kanye West/Ye", merged.key)
-        // Every folder is still addressable, so a drilldown into the loser resolves.
-        assertEquals(
-            listOf("/library/Kanye West/Ye", "/library/Kanye West/Ye (bootleg)"),
-            merged.folderKeys,
-        )
+    fun `the cover comes from the server, and falls back to a local scan`() {
+        val withArt = song(id = 1, hasCoverArt = true)
+        val tracks = mapOf(1 to withArt)
+
+        assertEquals(1, hydrateAlbums(listOf(card(trackIds = listOf(1), coverSongId = 1)), tracks).single().coverTrackId)
+        // An older server does not name one; the joined tracks still can.
+        assertEquals(1, hydrateAlbums(listOf(card(trackIds = listOf(1))), tracks).single().coverTrackId)
+        assertNull(hydrateAlbums(listOf(card()), emptyMap()).single().coverTrackId)
     }
 
     @Test
-    fun `a tie is broken on the key, so the choice is stable across refetches`() {
-        val a = split(1, "/library/Kanye West/Ye A", tracks = 2)
-        val b = split(2, "/library/Kanye West/Ye B", tracks = 2)
-        assertEquals("/library/Kanye West/Ye A", mergeAlbumsByName(buildAlbums(b + a)).single().key)
-        assertEquals("/library/Kanye West/Ye A", mergeAlbumsByName(buildAlbums(a + b)).single().key)
-    }
-
-    @Test
-    fun `the album year is the earliest its tracks agree on`() {
-        // A deluxe re-issue's tracks carry the reissue year; the album is still the year it came out.
-        val tracks = split(1, "/library/Kanye West/Ye", year = 2018, tracks = 1) +
-            split(2, "/library/Kanye West/Ye (Deluxe)", year = 2021, tracks = 1)
-        assertEquals(2018, mergeAlbumsByName(buildAlbums(tracks)).single().year)
-    }
-
-    @Test
-    fun `a song with no destination path falls back to its name key`() {
-        val track = song(id = 1, artist = "Wally", album = "TUSI", destinationPath = null)
-        assertEquals("wally::tusi", buildAlbums(listOf(track)).single().key)
+    fun `a card with no folders of its own is still addressable by its key`() {
+        assertEquals(listOf("a::b"), hydrateAlbums(listOf(card(key = "a::b")), emptyMap()).single().folderKeys)
     }
 
     @Test
     fun `every order falls back to artist then title, so ties stay alphabetical`() {
         // None of these has a play count, a year, or an added date, so only the fallback can order
-        // them. Without it they would come out in whatever order the grouping map happened to build.
-        val tracks = listOf(
-            song(id = 1, artist = "Zebra", album = "Beta", destinationPath = "/l/z/b/1.flac"),
-            song(id = 2, artist = "Alpha", album = "Delta", destinationPath = "/l/a/d/2.flac"),
-            song(id = 3, artist = "Alpha", album = "Charlie", destinationPath = "/l/a/c/3.flac"),
+        // them. Without it they would come out in whatever order the server happened to send.
+        val albums = listOf(
+            summary(artist = "Zeta", name = "Charlie"),
+            summary(artist = "Alpha", name = "Delta"),
+            summary(artist = "Alpha", name = "Beta"),
         )
-        val albums = buildAlbums(tracks)
+
         // Title is excluded: it is the one key whose own comparator has something to say here.
         for (key in AlbumSortKey.entries - AlbumSortKey.Title) {
             assertEquals(
                 "sorted by $key",
-                listOf("Charlie", "Delta", "Beta"),
+                listOf("Beta", "Delta", "Charlie"),
                 sortAlbums(albums, key).map { it.name },
             )
         }
-        assertEquals(
-            listOf("Beta", "Charlie", "Delta"),
-            sortAlbums(albums, AlbumSortKey.Title).map { it.name },
-        )
+        assertEquals(listOf("Beta", "Charlie", "Delta"), sortAlbums(albums, AlbumSortKey.Title).map { it.name })
     }
 
     @Test
-    fun `an album-fill track does not re-date an album you already owned`() {
-        val owned = song(
-            id = 1,
-            album = "Owned",
-            acquiredAtUtc = "2020-01-01T00:00:00Z",
-            destinationPath = "/l/a/owned/1.flac",
-        )
-        val filled = song(
-            id = 2,
-            album = "Owned",
-            acquisitionIntent = "AlbumFill",
-            acquiredAtUtc = "2026-08-25T00:00:00Z",
-            destinationPath = "/l/a/owned/2.flac",
-        )
-        val fresh = song(
-            id = 3,
-            album = "Fresh",
-            acquiredAtUtc = "2026-08-10T00:00:00Z",
-            destinationPath = "/l/a/fresh/3.flac",
+    fun `names are collated, not compared by codepoint`() {
+        // Kotlin's natural String order would file every lowercase name after every uppercase one,
+        // and "Ólafur" past "Z". The server orders the same way, using the invariant culture.
+        val albums = listOf(
+            summary(artist = "Zola", name = "Z"),
+            summary(artist = "Ólafur", name = "O"),
+            summary(artist = "aphex", name = "A"),
         )
 
-        val albums = buildAlbums(listOf(owned, filled, fresh))
-
-        assertEquals(
-            listOf("Fresh", "Owned"),
-            sortAlbums(albums, AlbumSortKey.Recent).map { it.name },
-        )
+        assertEquals(listOf("aphex", "Ólafur", "Zola"), sortAlbums(albums, AlbumSortKey.Artist).map { it.artist })
     }
 
     @Test
-    fun `a liked album-fill track counts, because liking it made it yours`() {
-        val owned = song(
-            id = 1,
-            album = "Owned",
-            acquiredAtUtc = "2020-01-01T00:00:00Z",
-            destinationPath = "/l/a/owned/1.flac",
-        )
-        val kept = song(
-            id = 2,
-            album = "Owned",
-            acquisitionIntent = "AlbumFill",
-            acquiredAtUtc = "2026-08-25T00:00:00Z",
-            likedAtUtc = "2026-08-26T00:00:00Z",
-            destinationPath = "/l/a/owned/2.flac",
-        )
+    fun `most played sorts on the play count the server summed`() {
+        val albums = listOf(summary(name = "Quiet", playCount = 1), summary(name = "Loud", playCount = 9))
 
-        assertEquals(
-            kept.addedAtMs,
-            buildAlbums(listOf(owned, kept)).single().addedAtMs,
-        )
+        assertEquals(listOf("Loud", "Quiet"), sortAlbums(albums, AlbumSortKey.Played).map { it.name })
     }
 
     @Test
-    fun `an album that is nothing but fill still carries a date`() {
-        // Otherwise a wholly-filled record sorts last forever on 0.
-        val filled = song(
-            id = 1,
-            album = "Filled",
-            acquisitionIntent = "AlbumFill",
-            acquiredAtUtc = "2026-08-25T00:00:00Z",
-            destinationPath = "/l/a/filled/1.flac",
+    fun `recently added sorts on the album date the server decided`() {
+        val albums = listOf(
+            summary(name = "Old", addedAtUtc = "2019-01-01T00:00:00Z"),
+            summary(name = "New", addedAtUtc = "2026-08-01T00:00:00Z"),
         )
 
-        assertEquals(filled.addedAtMs, buildAlbums(listOf(filled)).single().addedAtMs)
+        assertEquals(listOf("New", "Old"), sortAlbums(albums, AlbumSortKey.Recent).map { it.name })
     }
 
-    @Test
-    fun `most played sorts on the summed play count`() {
-        val quiet = song(id = 1, album = "Quiet", playCount = 1, destinationPath = "/l/a/q/1.flac")
-        val loud = listOf(
-            song(id = 2, album = "Loud", playCount = 3, destinationPath = "/l/a/l/2.flac"),
-            song(id = 3, album = "Loud", playCount = 4, destinationPath = "/l/a/l/3.flac"),
-        )
-        val albums = buildAlbums(loud + quiet)
-        assertEquals(
-            listOf("Loud", "Quiet"),
-            sortAlbums(albums, AlbumSortKey.Played).map { it.name },
-        )
-    }
+    private fun card(
+        key: String = "an artist::an album",
+        coverSongId: Int? = null,
+        trackIds: List<Int> = emptyList(),
+    ) = AlbumSummaryDto(
+        key = key,
+        folderKeys = emptyList(),
+        nameKey = key,
+        title = "An Album",
+        artist = "An Artist",
+        trackIds = trackIds,
+        coverSongId = coverSongId,
+    )
+
+    /** An already-joined card, for the ordering tests — they never look at the tracks. */
+    private fun summary(
+        artist: String = "An Artist",
+        name: String = "An Album",
+        year: Int? = null,
+        playCount: Int = 0,
+        addedAtUtc: String? = null,
+    ) = hydrateAlbums(
+        listOf(
+            AlbumSummaryDto(
+                key = "${artist.lowercase()}::${name.lowercase()}",
+                nameKey = "${artist.lowercase()}::${name.lowercase()}",
+                title = name,
+                artist = artist,
+                year = year,
+                playCount = playCount,
+                addedAtUtc = addedAtUtc,
+            ),
+        ),
+        emptyMap(),
+    ).single()
 }

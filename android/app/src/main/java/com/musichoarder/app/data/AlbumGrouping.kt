@@ -2,24 +2,52 @@ package com.musichoarder.app.data
 
 import java.text.Collator
 import java.util.Locale
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 
 /**
- * One album's worth of tracks, in disc/track order.
+ * One album card exactly as `GET /api/albums` groups it.
  *
- * Keyed on the **destination folder**, not on the artist/album tags — see [buildAlbums]. Pure
- * Kotlin so the grouping rules can be unit-tested against their JavaScript originals in
- * `frontend/src/lib/api-client.ts`.
+ * The grouping rules live on the server. They used to live here, in a hand-written port of
+ * `buildAlbumsFromSongs` in `frontend/src/lib/api-client.ts`, with the web keeping its own copy —
+ * which is how the same album added-date rule came to need fixing twice, and how the phone and the
+ * browser came to disagree about which track names a card. Anything here that looks like a grouping
+ * decision is a bug: this side joins and orders, nothing more.
  */
-data class Album(
-    /** The representative destination folder. Also what the album drill-down is addressed by. */
-    val key: String,
+@Serializable
+data class AlbumSummaryDto(
+    /** The representative destination folder, and what the album drill-down is addressed by. */
+    @SerialName("key") val key: String,
     /**
-     * Every destination folder this card covers — `[key]` for a plain card, and all of the merged
-     * folders (representative first) for one produced by [mergeAlbumsByName]. Lets an open album
-     * survive a merge that elected a different folder.
+     * Every destination folder this card covers — all of the merged folders, representative first.
+     * Lets an open album survive a merge that elected a different folder.
      */
+    @SerialName("folderKeys") val folderKeys: List<String> = emptyList(),
+    /** `artistLower::albumLower` — the name-level identity, and the legacy deep-link shape. */
+    @SerialName("nameKey") val nameKey: String,
+    @SerialName("title") val title: String,
+    @SerialName("artist") val artist: String,
+    @SerialName("year") val year: Int? = null,
+    @SerialName("trackCount") val trackCount: Int = 0,
+    @SerialName("durationSeconds") val durationSeconds: Int = 0,
+    @SerialName("playCount") val playCount: Int = 0,
+    /** The first track with artwork; the album itself has no cover of its own. */
+    @SerialName("coverSongId") val coverSongId: Int? = null,
+    /** What "Recently added" sorts on — measured over your tracks, not album fill. */
+    @SerialName("addedAtUtc") val addedAtUtc: String? = null,
+    /** The album's tracks in disc/track order. Join against the library dump. */
+    @SerialName("trackIds") val trackIds: List<Int> = emptyList(),
+)
+
+@Serializable
+data class AlbumsResponse(
+    @SerialName("albums") val albums: List<AlbumSummaryDto> = emptyList(),
+)
+
+/** One album's worth of tracks, in disc/track order — a server card joined to the tracks it names. */
+data class Album(
+    val key: String,
     val folderKeys: List<String>,
-    /** `artistLower::albumLower` — the name-level identity the merge folds on. */
     val nameKey: String,
     val name: String,
     val artist: String,
@@ -28,87 +56,38 @@ data class Album(
     val durationSeconds: Int,
     val playCount: Int,
     val addedAtMs: Long,
-    val lastPlayedAtMs: Long,
+    val coverTrackId: Int?,
     val tracks: List<Track>,
-) {
-    /** Cover art comes from a track — the album itself has no id on the API. */
-    val coverTrackId: Int? get() = tracks.firstOrNull { it.hasCover }?.id
-}
+)
 
 /**
- * Group tracks into albums.
+ * Join server album cards to the tracks this app holds.
  *
- * Built tracks group by their **destination folder** — the unit the music server reads, where the
- * library builder elects one reconciled release identity — so the phone splits one album name across
- * releases exactly the way the player does. Tracks with no destination path fall back to their name
- * key. Port of `buildAlbumsFromSongs`.
+ * The tracks must be the very objects the repository keeps, not copies: likes and play counts are
+ * held as overlays keyed on those rows, and an album that carried its own copies would show a stale
+ * heart until the next refresh.
  */
-fun buildAlbums(tracks: List<Track>): List<Album> {
-    val groups = LinkedHashMap<String, MutableList<Track>>()
-    for (track in tracks) groups.getOrPut(track.folderKey) { mutableListOf() }.add(track)
-
-    return groups.map { (key, members) ->
-        val sorted = members.sortedWith(BY_TRACK_NUMBER_THEN_TITLE)
-        val lead = sorted.first()
+fun hydrateAlbums(albums: List<AlbumSummaryDto>, tracksById: Map<Int, Track>): List<Album> =
+    albums.map { album ->
+        // A track can be missing when the two fetches straddle a library change; dropping it is the
+        // honest answer, and the next refresh reconciles.
+        val tracks = album.trackIds.mapNotNull { tracksById[it] }
         Album(
-            key = key,
-            folderKeys = listOf(key),
-            nameKey = lead.nameKey,
-            name = lead.album,
-            artist = lead.albumArtist,
-            // The EARLIEST year the tracks agree on: a deluxe re-issue's tracks carry the reissue
-            // year, and the album is still the year it came out.
-            year = sorted.mapNotNull { it.year }.filter { it > 0 }.minOrNull(),
-            trackCount = sorted.size,
-            durationSeconds = sorted.sumOf { it.durationSeconds },
-            playCount = sorted.sumOf { it.playCount },
-            // Measured over YOUR tracks: album completion dropping a track into a record you have
-            // owned for years must not pull it back to the front of "Recently added". An album that
-            // is nothing but fill falls back to all of it, so it still carries a date.
-            addedAtMs = sorted.filter { isMyMusic(it, it.likedAtUtc != null) }
-                .maxOfOrNull { it.addedAtMs }
-                ?: sorted.maxOf { it.addedAtMs },
-            lastPlayedAtMs = sorted.maxOf { it.lastPlayedAtMs },
-            tracks = sorted,
-        )
-    }.sortedWith(byArtistThenTitle())
-}
-
-/**
- * Fold cards that are the same album under a different destination folder into one.
- *
- * [buildAlbums] keys on the destination folder, which mirrors what the music server shows — but it
- * also means one album whose tracks disagree about the year or the artist spelling lands as two or
- * three adjacent, near-identical cards. For *browsing* that reads as noise, so the grid merges by
- * name.
- *
- * The largest constituent folder becomes the representative (ties broken on the key, so the choice
- * is stable across refetches); [Album.folderKeys] carries all of them so a drill-down into a folder
- * that lost the election can still be resolved. Port of `mergeAlbumsByName`.
- */
-fun mergeAlbumsByName(albums: List<Album>): List<Album> {
-    val groups = LinkedHashMap<String, MutableList<Album>>()
-    for (album in albums) groups.getOrPut(album.nameKey) { mutableListOf() }.add(album)
-
-    return groups.map { (_, group) ->
-        if (group.size == 1) return@map group.first()
-        val ordered = group.sortedWith(
-            compareByDescending<Album> { it.trackCount }.thenBy { it.key }
-        )
-        val lead = ordered.first()
-        val tracks = ordered.flatMap { it.tracks }.sortedWith(BY_TRACK_NUMBER_THEN_TITLE)
-        lead.copy(
-            folderKeys = ordered.map { it.key },
-            year = ordered.mapNotNull { it.year }.minOrNull(),
-            trackCount = ordered.sumOf { it.trackCount },
-            durationSeconds = ordered.sumOf { it.durationSeconds },
-            playCount = ordered.sumOf { it.playCount },
-            addedAtMs = ordered.maxOf { it.addedAtMs },
-            lastPlayedAtMs = ordered.maxOf { it.lastPlayedAtMs },
+            key = album.key,
+            folderKeys = album.folderKeys.ifEmpty { listOf(album.key) },
+            nameKey = album.nameKey,
+            name = album.title,
+            artist = album.artist,
+            year = album.year,
+            trackCount = album.trackCount,
+            durationSeconds = album.durationSeconds,
+            playCount = album.playCount,
+            addedAtMs = parseIsoUtcMillis(album.addedAtUtc),
+            // Fall back to a local scan for a server too old to name the cover track.
+            coverTrackId = album.coverSongId ?: tracks.firstOrNull { it.hasCover }?.id,
             tracks = tracks,
         )
-    }.sortedWith(byArtistThenTitle())
-}
+    }
 
 /** How the album grid is ordered. */
 enum class AlbumSortKey { Recent, Artist, Title, Year, Played }
@@ -125,7 +104,7 @@ val ALBUM_SORT_LABELS: Map<AlbumSortKey, String> = mapOf(
 /**
  * Order albums for the grid. Every comparator falls back to artist-then-title, so albums that tie
  * (no play count, no year, same day added) keep a stable alphabetical order instead of the arbitrary
- * one the grouping map happened to produce.
+ * one they happened to arrive in.
  */
 fun sortAlbums(albums: List<Album>, key: AlbumSortKey): List<Album> {
     val fallback = byArtistThenTitle()
@@ -140,13 +119,11 @@ fun sortAlbums(albums: List<Album>, key: AlbumSortKey): List<Album> {
     return albums.sortedWith(primary.then(fallback))
 }
 
-private val BY_TRACK_NUMBER_THEN_TITLE: Comparator<Track> =
-    compareBy<Track> { it.trackNumber ?: Int.MAX_VALUE }.thenBy { it.title.lowercase() }
-
 /**
  * The web sorts names with `localeCompare`; Kotlin's `compareTo` is codepoint-ordered, which would
  * put every lowercase name after every uppercase one and file "Ólafur" past "Z". A [Collator] is the
- * JVM's equivalent of `localeCompare` and keeps the two clients' grids in the same order.
+ * JVM's equivalent of `localeCompare` and keeps the two clients' grids in the same order — and in
+ * the same order as the server, which uses the invariant culture for exactly this reason.
  */
 internal fun collator(): Collator = Collator.getInstance(Locale.ROOT)
 

@@ -72,7 +72,6 @@ fun ShareTrackDto.toTrack(album: ShareAlbum, streamUrl: String, artworkUrl: Stri
         durationMs = durationMs,
         durationSeconds = (durationMs?.let { it / 1000 } ?: 0L).toInt(),
         hasCover = hasCoverArt,
-        folderKey = nameKey,
         nameKey = nameKey,
         addedAtMs = 0L,
         likedAtMs = 0L,

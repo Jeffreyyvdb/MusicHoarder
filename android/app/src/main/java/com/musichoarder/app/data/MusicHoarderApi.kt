@@ -162,6 +162,13 @@ class MusicHoarderApi(
         get(ApiRoutes.songs()) { json.decodeFromString<SongsResponse>(it) }
 
     /**
+     * The album cards. Fetched alongside the library dump rather than derived from it: grouping
+     * songs into albums is one set of rules, and it lives on the server now.
+     */
+    suspend fun fetchAlbums(): List<AlbumSummaryDto> =
+        get(ApiRoutes.albums()) { json.decodeFromString<AlbumsResponse>(it).albums }
+
+    /**
      * Lyrics are fetched per song rather than shipped with the library dump — the AI transcription
      * text in particular is large, and most songs never have their lyrics opened.
      */

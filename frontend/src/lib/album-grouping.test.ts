@@ -1,14 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildAlbumsFromSongs,
-  mergeAlbumsByName,
+  hydrateAlbums,
   songAddedTime,
   songLikedTime,
   sortAlbums,
+  type AlbumSummary,
+  type AlbumSummaryDto,
   type ApiSong
 } from './api-client';
 
-// Minimal ApiSong factory — only the fields buildAlbumsFromSongs reads.
+/*
+ * What is left of album grouping on this side.
+ *
+ * The grouping itself — folder keys, the name merge, the year election, the added-date rule — moved
+ * to `GET /api/albums`, and is pinned by `AlbumProjectionTests` in the API suite. It used to live
+ * here in full AND in a second full copy in the Android client, which is how one added-date rule
+ * came to need fixing twice. What stays here is what depends on client state: the per-song stamps
+ * the track lists sort on, the grid's own ordering, and the join that turns server cards back into
+ * the song rows this app holds.
+ */
+
+// Minimal ApiSong factory — only the fields these helpers read.
 function song(over: Partial<ApiSong>): ApiSong {
   return {
     id: 0,
@@ -20,153 +32,33 @@ function song(over: Partial<ApiSong>): ApiSong {
   } as ApiSong;
 }
 
-describe('buildAlbumsFromSongs', () => {
-  it('splits one album name across destination folders (mirrors the player)', () => {
-    // Same artist + album name, but two different release folders (Navidrome shows two albums).
-    const songs = [
-      song({ id: 1, trackNumber: 1, destinationPath: '/dest/Kanye West/2010 - MBDTF/01 - Dark Fantasy.flac' }),
-      song({ id: 2, trackNumber: 2, destinationPath: '/dest/Kanye West/2010 - MBDTF/02 - Gorgeous.flac' }),
-      song({ id: 3, trackNumber: 1, destinationPath: "/dest/Kanye West/2013 - MBDTF/01 - Mama's Boy.flac" })
-    ];
-
-    const albums = buildAlbumsFromSongs(songs);
-
-    expect(albums).toHaveLength(2);
-    const counts = albums.map((a) => a.trackCount).sort();
-    expect(counts).toEqual([1, 2]);
-    // Keys are the destination folder directories, not the (shared) album name.
-    expect(new Set(albums.map((a) => a.key)).size).toBe(2);
-  });
-
-  it('keeps a multi-disc album (same folder) as one card', () => {
-    const songs = [
-      song({ id: 1, trackNumber: 1, destinationPath: '/dest/A/2000 - X/1-01 - a.flac' }),
-      song({ id: 2, trackNumber: 1, destinationPath: '/dest/A/2000 - X/2-01 - b.flac' })
-    ];
-
-    const albums = buildAlbumsFromSongs(songs);
-
-    expect(albums).toHaveLength(1);
-    expect(albums[0].trackCount).toBe(2);
-  });
-
-  it('falls back to artist::album name grouping when songs are not built', () => {
-    const songs = [
-      song({ id: 1, destinationPath: null }),
-      song({ id: 2, destinationPath: undefined })
-    ];
-
-    const albums = buildAlbumsFromSongs(songs);
-
-    expect(albums).toHaveLength(1);
-    expect(albums[0].key).toBe('kanye west::my beautiful dark twisted fantasy');
-  });
-});
-
-/**
- * An album's `addedAtUtc` is what "Recently added" sorts on, so album completion dropping one track
- * into a record must not resurface it. The date is measured over your own tracks only.
- */
-describe('buildAlbumsFromSongs — added date vs album fill', () => {
-  const old = '2020-01-01T00:00:00Z';
-  const recent = '2026-08-20T00:00:00Z';
-
-  it('ignores an album-fill track when dating an album you already owned', () => {
-    const albums = buildAlbumsFromSongs([
-      song({ id: 1, acquiredAtUtc: old, destinationPath: '/dest/K/2010 - X/01.flac' }),
-      song({
-        id: 2,
-        acquiredAtUtc: recent,
-        acquisitionIntent: 'AlbumFill',
-        destinationPath: '/dest/K/2010 - X/02.flac'
-      })
-    ]);
-
-    expect(albums[0].addedAtUtc).toBe(old);
-  });
-
-  it('counts a filled track you liked, because liking it made it yours', () => {
-    const albums = buildAlbumsFromSongs([
-      song({ id: 1, acquiredAtUtc: old, destinationPath: '/dest/K/2010 - X/01.flac' }),
-      song({
-        id: 2,
-        acquiredAtUtc: recent,
-        acquisitionIntent: 'AlbumFill',
-        likedAtUtc: recent,
-        destinationPath: '/dest/K/2010 - X/02.flac'
-      })
-    ]);
-
-    expect(albums[0].addedAtUtc).toBe(recent);
-  });
-
-  it('still dates an album that is nothing but album fill', () => {
-    // Otherwise a wholly-filled record sorts last forever with a null date.
-    const albums = buildAlbumsFromSongs([
-      song({
-        id: 1,
-        acquiredAtUtc: recent,
-        acquisitionIntent: 'AlbumFill',
-        destinationPath: '/dest/K/2010 - X/01.flac'
-      })
-    ]);
-
-    expect(albums[0].addedAtUtc).toBe(recent);
-  });
-
-  it('keeps a long-owned filled album behind a genuinely new one', () => {
-    const albums = buildAlbumsFromSongs([
-      song({ id: 1, album: 'Owned', acquiredAtUtc: old, destinationPath: '/dest/K/2010 - Owned/01.flac' }),
-      song({
-        id: 2,
-        album: 'Owned',
-        acquiredAtUtc: recent,
-        acquisitionIntent: 'AlbumFill',
-        destinationPath: '/dest/K/2010 - Owned/02.flac'
-      }),
-      song({
-        id: 3,
-        album: 'New',
-        acquiredAtUtc: '2026-08-10T00:00:00Z',
-        destinationPath: '/dest/K/2026 - New/01.flac'
-      })
-    ]);
-
-    expect(sortAlbums(albums, 'recent').map((a) => a.title)).toEqual(['New', 'Owned']);
-  });
-});
-
-describe('mergeAlbumsByName', () => {
-  const split = [
-    song({ id: 1, trackNumber: 2, destinationPath: '/dest/Kanye West/2010 - MBDTF/02 - Gorgeous.flac' }),
-    song({ id: 2, trackNumber: 1, destinationPath: '/dest/Kanye West/2010 - MBDTF/01 - Dark Fantasy.flac' }),
-    song({ id: 3, trackNumber: 1, destinationPath: "/dest/Kanye West/2013 - MBDTF/01 - Mama's Boy.flac" })
-  ];
-
-  it('folds one album name split across destination folders into a single card', () => {
-    const merged = mergeAlbumsByName(buildAlbumsFromSongs(split));
-
-    expect(merged).toHaveLength(1);
-    expect(merged[0].trackCount).toBe(3);
-    // The biggest folder wins the representative key, so existing ?album= links still resolve.
-    expect(merged[0].key).toBe('/dest/Kanye West/2010 - MBDTF');
-    // ...and the folder that lost is still resolvable through folderKeys.
-    expect(merged[0].folderKeys).toEqual([
-      '/dest/Kanye West/2010 - MBDTF',
-      '/dest/Kanye West/2013 - MBDTF'
-    ]);
-    expect(merged[0].songs.map((s) => s.id)).toEqual([2, 3, 1]); // re-sorted by track number
-  });
-
-  it('leaves distinct albums alone', () => {
-    const albums = buildAlbumsFromSongs([
-      song({ id: 1, album: 'Graduation', destinationPath: '/dest/Kanye West/2007 - Graduation/01.flac' }),
-      song({ id: 2, album: '808s', destinationPath: '/dest/Kanye West/2008 - 808s/01.flac' })
-    ]);
-
-    expect(mergeAlbumsByName(albums)).toHaveLength(2);
-  });
-});
+/** Minimal album card as the API sends it. */
+function card(over: Partial<AlbumSummaryDto> = {}): AlbumSummaryDto {
+  const artist = over.artist ?? 'Kanye West';
+  const title = over.title ?? 'MBDTF';
+  return {
+    key: `${artist.toLowerCase()}::${title.toLowerCase()}`,
+    folderKeys: [],
+    nameKey: `${artist.toLowerCase()}::${title.toLowerCase()}`,
+    title,
+    artist,
+    year: null,
+    trackCount: 0,
+    durationSeconds: 0,
+    byteSize: 0,
+    genre: null,
+    label: null,
+    catalogNumber: null,
+    upc: null,
+    releaseDate: null,
+    musicBrainzReleaseId: null,
+    coverSongId: null,
+    addedAtUtc: null,
+    playCount: 0,
+    trackIds: [],
+    ...over
+  };
+}
 
 describe('songAddedTime', () => {
   it('prefers the immutable acquisition stamp over pipeline timestamps', () => {
@@ -255,26 +147,21 @@ describe('songLikedTime', () => {
 });
 
 describe('sortAlbums', () => {
-  const albums = buildAlbumsFromSongs([
-    song({
-      id: 1,
+  // Cards as the API sends them — the grid orders what it is given, it no longer builds it.
+  const albums = hydrated([
+    card({
       artist: 'Zappa',
-      albumArtist: 'Zappa',
-      album: 'Hot Rats',
+      title: 'Hot Rats',
       year: 1969,
       playCount: 10,
-      acquiredAtUtc: '2020-01-01T00:00:00Z',
-      destinationPath: '/dest/Zappa/1969 - Hot Rats/01.flac'
+      addedAtUtc: '2020-01-01T00:00:00Z'
     }),
-    song({
-      id: 2,
+    card({
       artist: 'Aphex Twin',
-      albumArtist: 'Aphex Twin',
-      album: 'Drukqs',
+      title: 'Drukqs',
       year: 2001,
       playCount: 1,
-      acquiredAtUtc: '2026-01-01T00:00:00Z',
-      destinationPath: '/dest/Aphex Twin/2001 - Drukqs/01.flac'
+      addedAtUtc: '2026-01-01T00:00:00Z'
     })
   ]);
   const titles = (key: Parameters<typeof sortAlbums>[1]) =>
@@ -288,14 +175,46 @@ describe('sortAlbums', () => {
     expect(titles('played')).toEqual(['Hot Rats', 'Drukqs']);
   });
 
-  it('breaks ties alphabetically instead of leaving grouping order', () => {
-    const tied = buildAlbumsFromSongs([
-      song({ id: 1, artist: 'B', albumArtist: 'B', album: 'B album', destinationPath: '/dest/b/01.flac' }),
-      song({ id: 2, artist: 'A', albumArtist: 'A', album: 'A album', destinationPath: '/dest/a/01.flac' })
+  it('breaks ties alphabetically instead of leaving the order it was handed', () => {
+    const tied = hydrated([
+      card({ artist: 'B', title: 'B album' }),
+      card({ artist: 'A', title: 'A album' })
     ]);
 
-    // No play counts, no acquisition stamps — every comparator ties, so artist order decides.
+    // No play counts, no added dates — every comparator ties, so artist order decides.
     expect(sortAlbums(tied, 'played').map((a) => a.artist)).toEqual(['A', 'B']);
     expect(sortAlbums(tied, 'recent').map((a) => a.artist)).toEqual(['A', 'B']);
   });
 });
+
+describe('hydrateAlbums', () => {
+  it('resolves track ids to the very song objects the store holds', () => {
+    // Identity, not equality: the store mutates a row in place on a heart tap, and the album views
+    // only see that because they hold the same object. A copy here would break every overlay.
+    const one = song({ id: 1, title: 'Gorgeous' });
+    const two = song({ id: 2, title: 'Power' });
+    const byId = new Map([one, two].map((s) => [s.id, s]));
+
+    const album = hydrateAlbums([card({ trackIds: [2, 1] })], byId)[0];
+
+    expect(album.songs).toHaveLength(2);
+    expect(album.songs[0]).toBe(two);
+    expect(album.songs[1]).toBe(one);
+  });
+
+  it('drops a track the songs list does not have rather than emitting a hole', () => {
+    // The two fetches can straddle a library change; the next refresh reconciles.
+    const byId = new Map([[1, song({ id: 1 })]]);
+
+    expect(hydrateAlbums([card({ trackIds: [1, 99] })], byId)[0].songs.map((s) => s.id)).toEqual([1]);
+  });
+
+  it('turns the cover track id into a cover URL, and no artwork into null', () => {
+    expect(hydrateAlbums([card({ coverSongId: 7 })], new Map())[0].coverUrl).toContain('7');
+    expect(hydrateAlbums([card()], new Map())[0].coverUrl).toBeNull();
+  });
+});
+
+function hydrated(cards: AlbumSummaryDto[]): AlbumSummary[] {
+  return hydrateAlbums(cards, new Map());
+}
