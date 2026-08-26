@@ -614,6 +614,7 @@ public static class SongsEndpoints
         song.ApplyLyricsSyncVerdict(free.Status, free.Issue);
 
         var probed = false;
+        var deferred = false;
         if (free.Status != LyricsSyncStatus.Ok && probe.IsAvailable)
         {
             var filePath = ResolveAudioFilePath(song);
@@ -625,6 +626,12 @@ public static class SongsEndpoints
                     song.RecordLyricsSyncProbeAttempt();
                     LyricsTimingCheckService.ApplyProbeResult(song, result, timingOptions.CurrentValue);
                     probed = true;
+                }
+                else
+                {
+                    // Rate-limited or out of audio budget. Nothing was learned and nothing was spent, so
+                    // say so plainly instead of letting the free verdict read as the final word.
+                    deferred = true;
                 }
             }
         }
@@ -644,6 +651,10 @@ public static class SongsEndpoints
             Repaired = song.LyricsSyncStatus == LyricsSyncStatus.Corrected,
             // False means the verdict came from the free checks alone and cost nothing.
             UsedAi = probed,
+            // True when the AI listen was wanted but could not run right now (provider rate limit, or the
+            // day's audio budget is spent). The verdict above is the free checks' only, and asking again
+            // later may still settle it.
+            Deferred = deferred,
         });
     }
 

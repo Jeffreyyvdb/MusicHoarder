@@ -51,6 +51,66 @@ public class ArtistDuplicateServiceTests
     }
 
     [Fact]
+    public async Task Detect_NeverBridgesUnlikeNamesThatShareAnMbid()
+    {
+        // The Marvin Gaye incident, with the cast the live library actually produced. Rows carry
+        // ids that are not theirs (an elected album artist keeps the previous row's id), so one
+        // shared id must never be evidence on its own — the closest of these pairs scores 51.
+        await using var db = NewContext();
+        string[] cast =
+        [
+            "Marvin Gaye", "Lijpe", "LouiVos", "Kid Cudi", "Mula B", "Dominic Fike",
+            "Various Artists", "Verschiedene Interpreten",
+        ];
+        db.Songs.AddRange(cast.Select((name, i) =>
+            Song($"/a/{i}.mp3", artist: name, albumArtist: name, artists: name,
+                artistMbids: "mbid-stray", albumArtistMbid: "mbid-stray")));
+        await db.SaveChangesAsync();
+
+        var report = await Service(db).DetectAsync(Owner);
+
+        Assert.Empty(report.Clusters);
+    }
+
+    [Fact]
+    public async Task Detect_NeverChainsUnlikeNamesThroughAMiddleSpelling()
+    {
+        // "Kanye West" ~ "Kanye" ~ "Kanye Omari" are two corroborated edges, but the ENDS are not
+        // alike. A merge rewrites every variant to one canonical, so a variant two hops away must
+        // not ride along — that transitivity is how one cluster swallowed a whole library.
+        await using var db = NewContext();
+        db.Songs.AddRange(
+            Song("/a/1.mp3", artist: "Kanye West", artists: "Kanye West", artistMbids: "mbid-kanye"),
+            Song("/a/2.mp3", artist: "Kanye West", artists: "Kanye West", artistMbids: "mbid-kanye"),
+            Song("/a/3.mp3", artist: "Kanye", artists: "Kanye", artistMbids: "mbid-kanye"),
+            Song("/a/4.mp3", artist: "Kanye Omari", artists: "Kanye Omari", artistMbids: "mbid-kanye"));
+        await db.SaveChangesAsync();
+
+        var report = await Service(db).DetectAsync(Owner);
+
+        var cluster = Assert.Single(report.Clusters);
+        Assert.Equal("Kanye West", cluster.SuggestedCanonical);
+        Assert.Equal(["Kanye", "Kanye West"], cluster.Variants.Select(v => v.Name).Order(StringComparer.Ordinal).ToArray());
+    }
+
+    [Fact]
+    public async Task Detect_NeverClustersVariousArtistsPlaceholders()
+    {
+        // "Various Artists" is a slot, not an artist: it sits under every album artist in the
+        // library and collects all their ids. Merging it would rename every compilation.
+        await using var db = NewContext();
+        db.Songs.AddRange(
+            Song("/a/1.mp3", artist: "Various Artists", artists: "Various Artists", artistMbids: "mbid-x"),
+            Song("/a/2.mp3", artist: "Various Artist", artists: "Various Artist", artistMbids: "mbid-x"),
+            Song("/a/3.mp3", artist: "VA", artists: "VA", artistMbids: "mbid-x"));
+        await db.SaveChangesAsync();
+
+        var report = await Service(db).DetectAsync(Owner);
+
+        Assert.Empty(report.Clusters);
+    }
+
+    [Fact]
     public async Task Detect_FuzzyClustersNearSpellings()
     {
         await using var db = NewContext();
@@ -202,6 +262,69 @@ public class ArtistDuplicateServiceTests
         Assert.Single(aliases); // "jayz" == key of JAYZ, Jaÿ-z AND JAY-Z — one shared key
         Assert.Equal("jayz", aliases[0].AliasKey);
         Assert.Equal("JAY-Z", aliases[0].CanonicalName);
+    }
+
+    [Fact]
+    public async Task Merge_RewritesMbidsToTheCanonicals_SoTheClusterCannotRegenerate()
+    {
+        // Leaving the variants' ids under the canonical spelling is what made the last merge
+        // self-perpetuating: the canonical then carried every variant's id, and the next detect run
+        // proposed the very same merge again.
+        await using var db = NewContext();
+        db.Songs.AddRange(
+            Song("/a/1.mp3", artist: "Marvin Gaye", albumArtist: "Marvin Gaye", artists: "Marvin Gaye",
+                artistMbids: "mbid-marvin", albumArtistMbid: "mbid-marvin"),
+            Song("/a/2.mp3", artist: "Marvin Gay", albumArtist: "Marvin Gay", artists: "Marvin Gay; Tammi Terrell",
+                artistMbids: "mbid-lijpe; mbid-tammi", albumArtistMbid: "mbid-lijpe"));
+        await db.SaveChangesAsync();
+
+        await Service(db).MergeAsync(Owner, "Marvin Gaye", ["Marvin Gay"]);
+
+        var song = await db.Songs.OrderBy(s => s.Id).Skip(1).FirstAsync();
+        Assert.Equal("Marvin Gaye", song.AlbumArtist);
+        Assert.Equal("mbid-marvin", song.AlbumArtistMusicBrainzId);
+        Assert.Equal("Marvin Gaye; Tammi Terrell", song.Artists);
+        Assert.Equal("mbid-marvin; mbid-tammi", song.ArtistMusicBrainzIds); // the guest keeps its own
+
+        // Both id rewrites are audited, so the revert restores them.
+        var changes = await db.SongMetadataChanges.Where(c => c.Source == "artist-merge").ToListAsync();
+        Assert.Contains(changes, c => c.FieldName == nameof(SongMetadata.AlbumArtistMusicBrainzId) && c.OldValue == "mbid-lijpe");
+        Assert.Contains(changes, c => c.FieldName == nameof(SongMetadata.ArtistMusicBrainzIds));
+    }
+
+    [Fact]
+    public async Task Merge_KeepsTheRowsOwnMbid_WhenTheCanonicalHasNone()
+    {
+        await using var db = NewContext();
+        db.Songs.Add(Song("/a/1.mp3", artist: "JAYZ", albumArtist: "JAYZ", artists: "JAYZ",
+            artistMbids: "mbid-jay", albumArtistMbid: "mbid-jay"));
+        await db.SaveChangesAsync();
+
+        await Service(db).MergeAsync(Owner, "JAY-Z", ["JAYZ"]);
+
+        var song = await db.Songs.SingleAsync();
+        Assert.Equal("mbid-jay", song.AlbumArtistMusicBrainzId);
+        Assert.Equal("mbid-jay", song.ArtistMusicBrainzIds);
+    }
+
+    [Fact]
+    public async Task Merge_RejectsPlaceholderCanonical_AndNeverAliasesAPlaceholderVariant()
+    {
+        await using var db = NewContext();
+        db.Songs.Add(Song("/a/1.mp3", artist: "Various Artists", albumArtist: "Various Artists"));
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => Service(db).MergeAsync(Owner, "Various Artists", ["VA"]));
+
+        // A placeholder listed as a variant is dropped, not rewritten: aliasing "various artists"
+        // onto a real name would have the identity heal rename every compilation to that artist.
+        var result = await Service(db).MergeAsync(Owner, "Marvin Gaye", ["Various Artists"]);
+
+        Assert.Equal(0, result.SongsUpdated);
+        var song = await db.Songs.SingleAsync();
+        Assert.Equal("Various Artists", song.AlbumArtist);
+        Assert.DoesNotContain(await db.ArtistAliases.ToListAsync(), a => a.AliasKey == "various artists");
     }
 
     [Fact]
@@ -372,6 +495,7 @@ public class ArtistDuplicateServiceTests
         string? albumArtist = null,
         string? artists = null,
         string? artistMbids = null,
+        string? albumArtistMbid = null,
         Guid? owner = null,
         LibraryBuildStatus buildStatus = LibraryBuildStatus.Pending,
         string? destinationPath = null) => new()
@@ -387,6 +511,7 @@ public class ArtistDuplicateServiceTests
         AlbumArtist = albumArtist,
         Artists = artists,
         ArtistMusicBrainzIds = artistMbids,
+        AlbumArtistMusicBrainzId = albumArtistMbid,
         Title = Path.GetFileNameWithoutExtension(sourcePath),
         LibraryBuildStatus = buildStatus,
         DestinationPath = destinationPath,

@@ -1678,6 +1678,8 @@ export interface VerifyLyricsTimingResponse {
   repaired: boolean
   /** False when the verdict came from the free arithmetic checks alone and cost no API quota. */
   usedAi: boolean
+  /** True when the AI listen was wanted but could not run — provider rate limit, or budget spent. */
+  deferred?: boolean | null
 }
 
 /**

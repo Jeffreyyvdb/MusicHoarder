@@ -264,6 +264,33 @@ public class DestinationPathResolverTests
             path);
     }
 
+    [Theory]
+    [InlineData("Verschiedene Interpreten")]
+    [InlineData("Varios Artistas")]
+    [InlineData("Artisti Vari")]
+    [InlineData("Diverse Artiesten")]
+    public void ResolvePath_WithLocalizedVariousArtistsName_RoutesToVariousArtistsTree(string albumArtist)
+    {
+        // A provider answers in whatever locale it feels like — Spotify returned "Verschiedene
+        // Interpreten" for a Top Boy compilation, which earned those tracks a top-level artist
+        // folder of their own right next to Various Artists.
+        var resolver = CreateResolver();
+        var song = CreateSong(
+            artist: "Dave",
+            albumArtist: albumArtist,
+            album: "Top Boy",
+            title: "Professor X",
+            year: 2019,
+            trackNumber: 7,
+            isCompilation: true);
+
+        var path = resolver.ResolvePath(song);
+
+        Assert.Equal(
+            Path.Combine(DestinationRoot, "Various Artists", "2019 - Top Boy", "07 - Professor X.mp3"),
+            path);
+    }
+
     [Fact]
     public void ResolvePath_SingleArtistTrackOnCompilationFlaggedRelease_FilesUnderArtist()
     {
