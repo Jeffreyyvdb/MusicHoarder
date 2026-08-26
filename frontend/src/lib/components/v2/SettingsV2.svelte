@@ -8,6 +8,7 @@
   import { Switch } from '$lib/components/ui/switch';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import PurgeStatusBanner from '$lib/components/settings/PurgeStatusBanner.svelte';
+  import MusicVideoAuditCard from '$lib/components/settings/MusicVideoAuditCard.svelte';
   import PairDeviceCard from '$lib/components/settings/PairDeviceCard.svelte';
   import PeopleCard from '$lib/components/settings/PeopleCard.svelte';
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
@@ -1054,6 +1055,8 @@
           </div>
         </div>
       </section>
+
+      <MusicVideoAuditCard />
 
       <!-- Folder / filename templates — not API-writable yet -->
       <section class="border-border bg-card rounded-lg border border-dashed">

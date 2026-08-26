@@ -41,10 +41,31 @@ public record MusicVideoDownloadResult(
     public static MusicVideoDownloadResult Missing(string? error = null) => new(false, null, null, null, error, true);
 }
 
+/// <summary>
+/// A search hit offered to the owner before anything is downloaded, carrying both the title-based
+/// score and (for the top few) the pixel-level <see cref="MusicVideoProbeResult"/> — so "this one is
+/// a static album cover and would cost 12 MB" is visible at the moment of choosing.
+/// </summary>
+public record MusicVideoCandidate(
+    string VideoId,
+    string Title,
+    string Channel,
+    int? DurationSeconds,
+    int Score,
+    string? ThumbnailUrl,
+    MusicVideoProbeResult? Probe);
+
 public interface IMusicVideoDownloader
 {
     /// <summary>Downloads a track's music video (mp4) from YouTube into the videos directory.</summary>
     Task<MusicVideoDownloadResult> DownloadAsync(MusicVideoFetchRequest request, CancellationToken ct);
+
+    /// <summary>
+    /// Searches for a song's music video and returns the ranked candidates WITHOUT downloading any
+    /// of them, probing the top <paramref name="probeLimit"/> for motion and size.
+    /// </summary>
+    Task<IReadOnlyList<MusicVideoCandidate>> SuggestAsync(
+        MusicVideoFetchRequest request, int probeLimit, CancellationToken ct);
 
     /// <summary>The resolved videos directory (creates nothing; empty when downloads are unconfigured).</summary>
     string ResolveVideoDirectory();
@@ -60,6 +81,7 @@ public interface IMusicVideoDownloader
 /// </summary>
 public class MusicVideoDownloader(
     IOptions<MusicEnricherOptions> options,
+    IMusicVideoProbe probe,
     ILogger<MusicVideoDownloader> logger) : IMusicVideoDownloader
 {
     private const int SearchCandidateCount = 6;
@@ -112,13 +134,16 @@ public class MusicVideoDownloader(
     }
 
     /// <summary>
-    /// Resolves what to download: an explicit pin verbatim; a provenance pin unless it looks like an
-    /// audio-only upload (then a search); else the best-scoring search candidate.
+    /// Resolves what to download: an explicit pin verbatim; a provenance pin unless the upload is a
+    /// static cover or looks audio-only (then a search); else the best search candidate that is
+    /// actually worth watching.
     /// </summary>
     private async Task<string?> ResolveTargetAsync(
         MusicVideoFetchRequest request, string? cookiesPath, CancellationToken ct)
     {
+        var rejectStatic = options.Value.MusicVideoRejectStaticUploads;
         var pinned = CanonicalizePin(request.PinnedIdOrUrl);
+        var pinnedIsStatic = false;
         if (pinned is not null)
         {
             if (request.PinIsExplicit)
@@ -127,26 +152,39 @@ public class MusicVideoDownloader(
             // Provenance pin: the audio's own source video guarantees offset-0 sync, but a wishlist
             // download's source is very often an "Official Audio"/topic upload — a static cover
             // image, useless as a backdrop. Probe cheaply; on any probe failure keep the pin.
-            var probe = await ProbeTitleChannelAsync(pinned, cookiesPath, ct);
-            if (probe is null || !LooksLikeAudioOnlyUpload(probe.Value.Title, probe.Value.Channel))
+            var pinProbe = await probe.ProbeAsync(pinned, ct);
+            pinnedIsStatic = rejectStatic && pinProbe.Motion == MusicVideoMotion.Static;
+            // Pixels outrank titles: an upload titled "(Audio)" whose picture demonstrably moves is
+            // a fine backdrop, and it is already in perfect sync with the audio we hold.
+            var rejected = pinnedIsStatic
+                || (pinProbe.Motion == MusicVideoMotion.Unknown
+                    && LooksLikeAudioOnlyUpload(pinProbe.Title, pinProbe.Channel));
+            if (!rejected)
                 return pinned;
 
             logger.LogInformation(
-                "Music video pin for '{Artist} - {Title}' looks audio-only ('{VideoTitle}') — searching for a real video instead",
-                LogSanitizer.ForLog(request.Artist), LogSanitizer.ForLog(request.Title), LogSanitizer.ForLog(probe.Value.Title));
+                "Music video pin for '{Artist} - {Title}' is not watchable ('{VideoTitle}', motion {Motion}) — searching for a real video instead",
+                LogSanitizer.ForLog(request.Artist), LogSanitizer.ForLog(request.Title),
+                LogSanitizer.ForLog(pinProbe.Title), pinProbe.Motion);
         }
 
         var candidates = await SearchCandidatesAsync(request.Artist, request.Title, cookiesPath, ct);
-        var best = PickBestCandidate(candidates, request.DurationMs, TitleTokens(request.Artist, request.Title));
+        var ranked = RankCandidates(candidates, request.DurationMs, TitleTokens(request.Artist, request.Title));
+
+        var best = rejectStatic
+            ? await PickWatchableAsync(ranked, options.Value.MusicVideoProbeCandidates, request, ct)
+            : ranked.FirstOrDefault();
+
         if (best is null)
         {
             // Nothing plausible for THIS song. If we rejected an audio-only provenance pin above,
             // fall back to it: a static cover in perfect sync beats no video and beats a random
-            // other song's clip.
-            if (pinned is not null)
+            // other song's clip. A pin measured Static is the one case we do NOT fall back to —
+            // that is exactly the upload the owner does not want spending disk.
+            if (pinned is not null && !pinnedIsStatic)
             {
                 logger.LogInformation(
-                    "Music video search found nothing better for '{Artist} - {Title}' — keeping the audio-only source video",
+                    "Music video search found nothing better for '{Artist} - {Title}' — keeping the source video",
                     LogSanitizer.ForLog(request.Artist), LogSanitizer.ForLog(request.Title));
                 return pinned;
             }
@@ -158,6 +196,75 @@ public class MusicVideoDownloader(
             LogSanitizer.ForLog(request.Artist), LogSanitizer.ForLog(request.Title),
             LogSanitizer.ForLog(best.Title), best.Id);
         return ImportUrlParser.YouTubeWatchUrl(best.Id);
+    }
+
+    /// <summary>
+    /// Walks the ranked candidates in order and returns the first whose picture actually moves,
+    /// probing at most <paramref name="probeLimit"/> of them. An unprobed or unmeasurable candidate
+    /// is accepted — the probe may veto only what it positively measured as static.
+    /// </summary>
+    internal async Task<SearchCandidate?> PickWatchableAsync(
+        List<SearchCandidate> ranked, int probeLimit, MusicVideoFetchRequest request, CancellationToken ct)
+    {
+        for (var i = 0; i < ranked.Count && i < probeLimit; i++)
+        {
+            var candidate = ranked[i];
+            var result = await probe.ProbeAsync(candidate.Id, ct);
+            if (result.Motion != MusicVideoMotion.Static)
+                return candidate;
+
+            logger.LogInformation(
+                "Skipping static music video candidate '{VideoTitle}' ({VideoId}) for '{Artist} - {Title}'",
+                LogSanitizer.ForLog(candidate.Title), candidate.Id,
+                LogSanitizer.ForLog(request.Artist), LogSanitizer.ForLog(request.Title));
+        }
+
+        // Everything probed was a still image. Anything past the probe budget is unmeasured, so it
+        // is still a legitimate choice; below the budget there is nothing left worth downloading.
+        return ranked.Count > probeLimit ? ranked[probeLimit] : null;
+    }
+
+    public async Task<IReadOnlyList<MusicVideoCandidate>> SuggestAsync(
+        MusicVideoFetchRequest request, int probeLimit, CancellationToken ct)
+    {
+        var opts = options.Value;
+        var cookiesPath = YtDlpCookies.PrepareWritableCopy(opts.YtDlpCookiesPath, logger);
+        try
+        {
+            var titleTokens = TitleTokens(request.Artist, request.Title);
+            var candidates = await SearchCandidatesAsync(request.Artist, request.Title, cookiesPath, ct);
+            var ranked = RankCandidates(candidates, request.DurationMs, titleTokens);
+
+            // A pinned video is the audio's own source: offer it alongside the search hits (first,
+            // since it is the only one guaranteed to be in sync) rather than hiding it.
+            var pinned = CanonicalizePin(request.PinnedIdOrUrl);
+            if (pinned is not null && ImportUrlParser.TryParse(pinned, out _, out var pinnedId)
+                && !ranked.Any(c => c.Id == pinnedId))
+            {
+                ranked.Insert(0, new SearchCandidate(pinnedId, "", "", null));
+            }
+
+            var result = new List<MusicVideoCandidate>(ranked.Count);
+            for (var i = 0; i < ranked.Count; i++)
+            {
+                var candidate = ranked[i];
+                var probed = i < probeLimit ? await probe.ProbeAsync(candidate.Id, ct) : null;
+                result.Add(new MusicVideoCandidate(
+                    candidate.Id,
+                    // The flat search omits the title for a pinned id we injected; the probe has it.
+                    candidate.Title.Length > 0 ? candidate.Title : probed?.Title ?? "",
+                    candidate.Channel.Length > 0 ? candidate.Channel : probed?.Channel ?? "",
+                    candidate.DurationSeconds is > 0 ? (int)candidate.DurationSeconds.Value : probed?.DurationSeconds,
+                    ScoreCandidate(candidate, request.DurationMs, titleTokens),
+                    candidate.ThumbnailUrl ?? probed?.ThumbnailUrl,
+                    probed));
+            }
+            return result;
+        }
+        finally
+        {
+            YtDlpCookies.Cleanup(cookiesPath, opts.YtDlpCookiesPath);
+        }
     }
 
     private async Task<MusicVideoDownloadResult> DownloadTargetAsync(
@@ -205,37 +312,8 @@ public class MusicVideoDownloader(
         return MusicVideoDownloadResult.Failed($"exited {exitCode}: {Truncate(stderr)}");
     }
 
-    /// <summary>Cheap metadata probe (no download): the pinned video's title + channel. Null on any failure.</summary>
-    private async Task<(string Title, string Channel)?> ProbeTitleChannelAsync(
-        string url, string? cookiesPath, CancellationToken ct)
-    {
-        try
-        {
-            var psi = NewYtDlp(cookiesPath, includeThrottle: false);
-            psi.ArgumentList.Add("--skip-download");
-            psi.ArgumentList.Add("--print");
-            psi.ArgumentList.Add("%(title)s");
-            psi.ArgumentList.Add("--print");
-            psi.ArgumentList.Add("%(channel)s");
-            psi.ArgumentList.Add(url);
-
-            var (_, stdout, _) = await RunAsync(psi, ct);
-            var lines = stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            // Trust parseable stdout regardless of exit code (yt-dlp can print then crash on exit).
-            return lines.Length >= 1 ? (lines[0], lines.Length >= 2 ? lines[1] : "") : null;
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogDebug(ex, "Music video pin probe failed — keeping the pin");
-            return null;
-        }
-    }
-
-    internal sealed record SearchCandidate(string Id, string Title, string Channel, double? DurationSeconds);
+    internal sealed record SearchCandidate(
+        string Id, string Title, string Channel, double? DurationSeconds, string? ThumbnailUrl = null);
 
     /// <summary>Flat-playlist search: fast (no per-video page fetch), returns id/title/channel/duration.</summary>
     private async Task<List<SearchCandidate>> SearchCandidatesAsync(
@@ -269,54 +347,11 @@ public class MusicVideoDownloader(
     internal static string BuildSearchUrl(string terms) =>
         "https://www.youtube.com/results?search_query=" + Uri.EscapeDataString(terms);
 
-    private ProcessStartInfo NewYtDlp(string? cookiesPath, bool includeThrottle)
-    {
-        var opts = options.Value;
-        var psi = new ProcessStartInfo(opts.YtDlpPath)
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        psi.ArgumentList.Add("--no-playlist");
-        psi.ArgumentList.Add("--no-progress");
-        if (includeThrottle && opts.DownloadSleepSeconds > 0)
-        {
-            psi.ArgumentList.Add("--sleep-interval");
-            psi.ArgumentList.Add(opts.DownloadSleepSeconds.ToString());
-            if (opts.DownloadMaxSleepSeconds > opts.DownloadSleepSeconds)
-            {
-                psi.ArgumentList.Add("--max-sleep-interval");
-                psi.ArgumentList.Add(opts.DownloadMaxSleepSeconds.ToString());
-            }
-        }
-        if (!string.IsNullOrWhiteSpace(opts.FfmpegPath))
-        {
-            psi.ArgumentList.Add("--ffmpeg-location");
-            psi.ArgumentList.Add(opts.FfmpegPath);
-        }
-        if (cookiesPath is not null)
-        {
-            psi.ArgumentList.Add("--cookies");
-            psi.ArgumentList.Add(cookiesPath);
-        }
-        foreach (var extra in YtDlpDownloadProvider.SplitArgs(opts.YtDlpExtraArgs))
-            psi.ArgumentList.Add(extra);
-        return psi;
-    }
+    private ProcessStartInfo NewYtDlp(string? cookiesPath, bool includeThrottle) =>
+        YtDlpProcess.Create(options.Value, cookiesPath, includeThrottle);
 
-    private static async Task<(int ExitCode, string Stdout, string Stderr)> RunAsync(
-        ProcessStartInfo psi, CancellationToken ct)
-    {
-        using var process = new Process { StartInfo = psi };
-        process.Start();
-        // Read both streams concurrently to avoid buffer-full deadlock.
-        var outputTask = process.StandardOutput.ReadToEndAsync(ct);
-        var errorTask = process.StandardError.ReadToEndAsync(ct);
-        await Task.WhenAll(outputTask, errorTask, process.WaitForExitAsync(ct));
-        return (process.ExitCode, outputTask.Result, errorTask.Result.Trim());
-    }
+    private static Task<(int ExitCode, string Stdout, string Stderr)> RunAsync(
+        ProcessStartInfo psi, CancellationToken ct) => YtDlpProcess.RunAsync(psi, ct);
 
     /// <summary>Canonicalizes a pinned id/URL to a watch URL; null when unusable.</summary>
     internal static string? CanonicalizePin(string? videoIdOrUrl)
@@ -456,13 +491,21 @@ public class MusicVideoDownloader(
 
     internal static SearchCandidate? PickBestCandidate(
         List<SearchCandidate> candidates, int? songDurationMs, IReadOnlyCollection<string> titleTokens) =>
+        RankCandidates(candidates, songDurationMs, titleTokens).FirstOrDefault();
+
+    /// <summary>
+    /// The plausible candidates, best first. Separate from <see cref="PickBestCandidate"/> because
+    /// the probe needs to walk past a static top hit, and the candidate picker shows the whole list.
+    /// </summary>
+    internal static List<SearchCandidate> RankCandidates(
+        List<SearchCandidate> candidates, int? songDurationMs, IReadOnlyCollection<string> titleTokens) =>
         candidates
             .Select((c, i) => (Candidate: c, Score: ScoreCandidate(c, songDurationMs, titleTokens), Index: i))
             .Where(x => x.Score >= 0) // negative = wrong song / audio-only / degraded — not worth 100MB
             .OrderByDescending(x => x.Score)
             .ThenBy(x => x.Index) // ties → YouTube's own relevance order
             .Select(x => x.Candidate)
-            .FirstOrDefault();
+            .ToList();
 
     /// <summary>
     /// Parses `--flat-playlist -J` output into candidates. Tolerates missing fields, and skips the
@@ -494,7 +537,7 @@ public class MusicVideoDownloader(
                 double? duration = entry.TryGetProperty("duration", out var durEl) && durEl.ValueKind == JsonValueKind.Number
                     ? durEl.GetDouble()
                     : null;
-                result.Add(new SearchCandidate(id!, title, channel, duration));
+                result.Add(new SearchCandidate(id!, title, channel, duration, FlatThumbnail(entry)));
             }
         }
         catch (JsonException)
@@ -502,6 +545,23 @@ public class MusicVideoDownloader(
             // Unparseable search output → no candidates; the caller reports Missing.
         }
         return result;
+    }
+
+    /// <summary>Largest thumbnail on a flat-search row, so the picker can show a still without probing.</summary>
+    private static string? FlatThumbnail(JsonElement entry)
+    {
+        if (!entry.TryGetProperty("thumbnails", out var list) || list.ValueKind != JsonValueKind.Array)
+            return null;
+        string? best = null;
+        var bestWidth = -1;
+        foreach (var thumb in list.EnumerateArray())
+        {
+            if (thumb.ValueKind != JsonValueKind.Object) continue;
+            if (!thumb.TryGetProperty("url", out var u) || u.ValueKind != JsonValueKind.String) continue;
+            var width = thumb.TryGetProperty("width", out var w) && w.ValueKind == JsonValueKind.Number ? w.GetInt32() : 0;
+            if (width > bestWidth) { best = u.GetString(); bestWidth = width; }
+        }
+        return best;
     }
 
     /// <summary>
