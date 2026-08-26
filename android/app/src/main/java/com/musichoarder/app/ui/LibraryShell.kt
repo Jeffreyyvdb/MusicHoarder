@@ -86,8 +86,7 @@ class LibraryActions(
     val onRefresh: () -> Unit,
     val onUnpair: () -> Unit,
     val onSwitchAccount: (Int) -> Unit,
-    val onAddAccountScanned: (String) -> Unit,
-    val onScanError: (String) -> Unit,
+    val onAddAccount: () -> Unit,
 )
 
 /**
@@ -140,8 +139,7 @@ fun LibraryShell(
             AccountMenu(
                 accounts = accounts,
                 onSwitchAccount = actions.onSwitchAccount,
-                onAddAccountScanned = actions.onAddAccountScanned,
-                onScanError = actions.onScanError,
+                onAddAccount = actions.onAddAccount,
                 onUnpair = actions.onUnpair,
             )
         }
