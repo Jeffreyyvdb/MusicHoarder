@@ -98,6 +98,73 @@ class AlbumGroupingTest {
     }
 
     @Test
+    fun `an album-fill track does not re-date an album you already owned`() {
+        val owned = song(
+            id = 1,
+            album = "Owned",
+            acquiredAtUtc = "2020-01-01T00:00:00Z",
+            destinationPath = "/l/a/owned/1.flac",
+        )
+        val filled = song(
+            id = 2,
+            album = "Owned",
+            acquisitionIntent = "AlbumFill",
+            acquiredAtUtc = "2026-08-25T00:00:00Z",
+            destinationPath = "/l/a/owned/2.flac",
+        )
+        val fresh = song(
+            id = 3,
+            album = "Fresh",
+            acquiredAtUtc = "2026-08-10T00:00:00Z",
+            destinationPath = "/l/a/fresh/3.flac",
+        )
+
+        val albums = buildAlbums(listOf(owned, filled, fresh))
+
+        assertEquals(
+            listOf("Fresh", "Owned"),
+            sortAlbums(albums, AlbumSortKey.Recent).map { it.name },
+        )
+    }
+
+    @Test
+    fun `a liked album-fill track counts, because liking it made it yours`() {
+        val owned = song(
+            id = 1,
+            album = "Owned",
+            acquiredAtUtc = "2020-01-01T00:00:00Z",
+            destinationPath = "/l/a/owned/1.flac",
+        )
+        val kept = song(
+            id = 2,
+            album = "Owned",
+            acquisitionIntent = "AlbumFill",
+            acquiredAtUtc = "2026-08-25T00:00:00Z",
+            likedAtUtc = "2026-08-26T00:00:00Z",
+            destinationPath = "/l/a/owned/2.flac",
+        )
+
+        assertEquals(
+            kept.addedAtMs,
+            buildAlbums(listOf(owned, kept)).single().addedAtMs,
+        )
+    }
+
+    @Test
+    fun `an album that is nothing but fill still carries a date`() {
+        // Otherwise a wholly-filled record sorts last forever on 0.
+        val filled = song(
+            id = 1,
+            album = "Filled",
+            acquisitionIntent = "AlbumFill",
+            acquiredAtUtc = "2026-08-25T00:00:00Z",
+            destinationPath = "/l/a/filled/1.flac",
+        )
+
+        assertEquals(filled.addedAtMs, buildAlbums(listOf(filled)).single().addedAtMs)
+    }
+
+    @Test
     fun `most played sorts on the summed play count`() {
         val quiet = song(id = 1, album = "Quiet", playCount = 1, destinationPath = "/l/a/q/1.flac")
         val loud = listOf(

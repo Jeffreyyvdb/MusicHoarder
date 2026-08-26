@@ -144,6 +144,47 @@ public class SongMetadataResetTests
         Assert.NotNull(song.LibraryBuiltAtUtc);
     }
 
+    [Fact]
+    public void ApplySourceUpgrade_PinsAcquiredAt_FromThePreUpgradeStamps()
+    {
+        // A row old enough to predate AcquiredAtUtc. The upgrade overwrites IndexedAtUtc and the
+        // caller clears LibraryBuiltAtUtc — the only two stamps the client can fall back to — so
+        // without the pin the track would read as "added today" and jump to the top of the list.
+        var song = BuildFullyPopulatedSong();
+        song.AcquiredAtUtc = null;
+
+        UpgradeSource(song);
+        song.ResetLibraryBuild();
+
+        Assert.Equal(new DateTime(2026, 1, 1), song.AcquiredAtUtc);
+        Assert.NotEqual(new DateTime(2026, 1, 1), song.IndexedAtUtc); // the evidence really is gone
+        Assert.Null(song.LibraryBuiltAtUtc);
+    }
+
+    [Fact]
+    public void ApplySourceUpgrade_LeavesAnExistingAcquiredAtAlone()
+    {
+        var song = BuildFullyPopulatedSong();
+        var acquired = new DateTime(2019, 6, 5);
+        song.AcquiredAtUtc = acquired;
+
+        UpgradeSource(song);
+
+        Assert.Equal(acquired, song.AcquiredAtUtc);
+    }
+
+    /// <summary>Swaps in a better file, the way the Soulseek merge and the sync-receive path do.</summary>
+    private static void UpgradeSource(SongMetadata song) => song.ApplySourceUpgrade(
+        sourcePath: "/downloads/track.flac",
+        fileSizeBytes: 9999L,
+        fileName: "track.flac",
+        extension: ".flac",
+        lastModifiedUtc: DateTime.UtcNow,
+        bitrate: 900,
+        fingerprint: "new-fingerprint",
+        durationSeconds: 180,
+        durationMs: 180_000);
+
     private static SongMetadata BuildFullyPopulatedSong()
     {
         var song = new SongMetadata

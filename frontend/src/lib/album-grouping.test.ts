@@ -63,6 +63,79 @@ describe('buildAlbumsFromSongs', () => {
   });
 });
 
+/**
+ * An album's `addedAtUtc` is what "Recently added" sorts on, so album completion dropping one track
+ * into a record must not resurface it. The date is measured over your own tracks only.
+ */
+describe('buildAlbumsFromSongs — added date vs album fill', () => {
+  const old = '2020-01-01T00:00:00Z';
+  const recent = '2026-08-20T00:00:00Z';
+
+  it('ignores an album-fill track when dating an album you already owned', () => {
+    const albums = buildAlbumsFromSongs([
+      song({ id: 1, acquiredAtUtc: old, destinationPath: '/dest/K/2010 - X/01.flac' }),
+      song({
+        id: 2,
+        acquiredAtUtc: recent,
+        acquisitionIntent: 'AlbumFill',
+        destinationPath: '/dest/K/2010 - X/02.flac'
+      })
+    ]);
+
+    expect(albums[0].addedAtUtc).toBe(old);
+  });
+
+  it('counts a filled track you liked, because liking it made it yours', () => {
+    const albums = buildAlbumsFromSongs([
+      song({ id: 1, acquiredAtUtc: old, destinationPath: '/dest/K/2010 - X/01.flac' }),
+      song({
+        id: 2,
+        acquiredAtUtc: recent,
+        acquisitionIntent: 'AlbumFill',
+        likedAtUtc: recent,
+        destinationPath: '/dest/K/2010 - X/02.flac'
+      })
+    ]);
+
+    expect(albums[0].addedAtUtc).toBe(recent);
+  });
+
+  it('still dates an album that is nothing but album fill', () => {
+    // Otherwise a wholly-filled record sorts last forever with a null date.
+    const albums = buildAlbumsFromSongs([
+      song({
+        id: 1,
+        acquiredAtUtc: recent,
+        acquisitionIntent: 'AlbumFill',
+        destinationPath: '/dest/K/2010 - X/01.flac'
+      })
+    ]);
+
+    expect(albums[0].addedAtUtc).toBe(recent);
+  });
+
+  it('keeps a long-owned filled album behind a genuinely new one', () => {
+    const albums = buildAlbumsFromSongs([
+      song({ id: 1, album: 'Owned', acquiredAtUtc: old, destinationPath: '/dest/K/2010 - Owned/01.flac' }),
+      song({
+        id: 2,
+        album: 'Owned',
+        acquiredAtUtc: recent,
+        acquisitionIntent: 'AlbumFill',
+        destinationPath: '/dest/K/2010 - Owned/02.flac'
+      }),
+      song({
+        id: 3,
+        album: 'New',
+        acquiredAtUtc: '2026-08-10T00:00:00Z',
+        destinationPath: '/dest/K/2026 - New/01.flac'
+      })
+    ]);
+
+    expect(sortAlbums(albums, 'recent').map((a) => a.title)).toEqual(['New', 'Owned']);
+  });
+});
+
 describe('mergeAlbumsByName', () => {
   const split = [
     song({ id: 1, trackNumber: 2, destinationPath: '/dest/Kanye West/2010 - MBDTF/02 - Gorgeous.flac' }),

@@ -42,6 +42,7 @@
     fetchAlbumCanonicalStatuses,
     isAlbumSortKey,
     isLocalFile,
+    isMyMusic,
     mapEnrichmentStatus,
     mergeAlbumsByName,
     sortAlbums,
@@ -174,17 +175,23 @@
   const needsReview = (s: ApiSong) => mapEnrichmentStatus(s.enrichmentStatus) === 'needsreview';
 
   /**
-   * What the Tracks list covers: everything built, plus your own source files still waiting on
-   * review.
+   * What the Tracks list covers: the music you asked for — everything built, plus your own source
+   * files still waiting on review.
    *
-   * Wider than the album/artist grids on purpose. Those show what the builder produced, but the
-   * "Local files" chip has to be able to answer "what is on my share", and a scanned file sitting
-   * at NeedsReview is already yours — it has a playable file (the stream endpoint falls back to the
-   * source path), and the Inbox is where you *act* on it, not where you find it. Widening the base
-   * once, rather than letting a chip add rows, is what keeps every chip a pure narrowing.
+   * Wider than the album/artist grids in one direction and narrower in another, both deliberate.
+   * Wider: the grids show what the builder produced, but the "Local files" chip has to be able to
+   * answer "what is on my share", and a scanned file sitting at NeedsReview is already yours — it
+   * has a playable file (the stream endpoint falls back to the source path), and the Inbox is where
+   * you *act* on it, not where you find it. Narrower: album completion's tracks are excluded —
+   * otherwise the one flat list of what you chose fills up with records you never asked for a track
+   * from. They are still in Albums, on the album page and on the Overview's "New to you" shelf — the
+   * places where a complete album is the point — and liking one promotes it into this list.
+   *
+   * Doing both here, rather than letting a chip add or remove rows, is what keeps every chip a pure
+   * narrowing of one stated base.
    */
   const trackListBase = $derived(
-    songs.filter((s) => isBuiltSong(s) || (isLocalFile(s) && needsReview(s)))
+    songs.filter((s) => isMyMusic(s) && (isBuiltSong(s) || (isLocalFile(s) && needsReview(s))))
   );
 
   // "Unreleased only": leaks/snippets/stems, as classified by the API. Grid-only now — the Tracks

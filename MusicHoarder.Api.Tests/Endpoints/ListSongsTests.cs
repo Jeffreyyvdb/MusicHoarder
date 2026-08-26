@@ -98,6 +98,58 @@ public class ListSongsTests
         Assert.Equal("Unknown", GetProperty<string>(first, "ReleaseClassification"));
     }
 
+    /// <summary>
+    /// Both clients used to work these out for themselves — one from a stringly-typed enum, the
+    /// other from a status-plus-path pair — which is two definitions of a server fact. The endpoint
+    /// answers now; the clients only fall back for a server older than the fields.
+    /// </summary>
+    [Fact]
+    public async Task ListSongs_DecidesBuiltAndAlbumFillForTheClients()
+    {
+        await using var db = NewContext();
+        var song = NewSong("/filled.flac", "filled.flac");
+        song.AcquisitionIntent = SongAcquisitionIntent.AlbumFill;
+        song.MarkBuildDone("/dest/Artist/Album/01 - filled.flac");
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var first = SingleSong(await ListSongsCaller.Invoke(db));
+
+        Assert.True(GetProperty<bool>(first, "IsAlbumFill"));
+        Assert.True(GetProperty<bool>(first, "IsBuilt"));
+        // The enum name stays on the wire: shipped Android builds read it.
+        Assert.Equal("AlbumFill", GetProperty<string>(first, "AcquisitionIntent"));
+    }
+
+    [Fact]
+    public async Task ListSongs_AnUnbuiltTrackYouAskedFor_ReportsBothFlagsFalse()
+    {
+        await using var db = NewContext();
+        db.Songs.Add(NewSong("/mine.mp3", "mine.mp3"));
+        await db.SaveChangesAsync();
+
+        var first = SingleSong(await ListSongsCaller.Invoke(db));
+
+        Assert.False(GetProperty<bool>(first, "IsAlbumFill"));
+        Assert.False(GetProperty<bool>(first, "IsBuilt"));
+    }
+
+    [Fact]
+    public async Task ListSongs_ATrackStillCopying_IsNotBuiltYet()
+    {
+        // Done AND a destination path — a row part-way through the build has one without the other.
+        await using var db = NewContext();
+        var song = NewSong("/copying.mp3", "copying.mp3");
+        song.LibraryBuildStatus = LibraryBuildStatus.Copied;
+        song.DestinationPath = "/dest/Artist/Album/01 - copying.mp3";
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var first = SingleSong(await ListSongsCaller.Invoke(db));
+
+        Assert.False(GetProperty<bool>(first, "IsBuilt"));
+    }
+
     private static object SingleSong(IResult result)
     {
         var value = result.GetType().GetProperty("Value")!.GetValue(result)!;

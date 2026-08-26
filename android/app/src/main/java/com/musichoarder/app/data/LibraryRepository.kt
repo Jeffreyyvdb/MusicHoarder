@@ -35,6 +35,11 @@ data class LibraryState(
      * share", and a scanned file sitting at NeedsReview is already yours and already playable
      * (the stream endpoint falls back to the source path). Widening the base once, rather than
      * letting a chip add rows, is what keeps every chip a pure narrowing.
+     *
+     * Album completion's tracks ARE in here, and `foldLibrary` drops them from the Tracks list on
+     * the way past. Deliberate: this list doubles as the row resolver for the player ([trackById])
+     * and as the source of the liked-id set, both of which must still answer for a filled track
+     * played from the album screen.
      */
     val trackListBase: List<Track> = emptyList(),
     /** Folder-keyed then merged by name. Never scoped by a filter: this is the drilldown resolver. */

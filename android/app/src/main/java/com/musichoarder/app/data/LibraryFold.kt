@@ -138,9 +138,15 @@ fun foldLibrary(
         if (ui.letter == null) matchingArtists else matchingArtists.filter { it.initial == ui.letter }
 
     // ---- Tracks -------------------------------------------------------------------------------
+    // Album completion's tracks are dropped HERE rather than from LibraryState.trackListBase,
+    // which stays whole: it is also the player's row resolver (`trackById`) and the source of the
+    // liked-id set, so narrowing it would leave a filled track playing from the album screen with
+    // no metadata and an unusable heart. Narrowing the view instead also lets the optimistic like
+    // overlay promote a track the moment it is hearted.
+    val myMusic = state.trackListBase.filter { isMyMusic(it, isLiked(it)) }
     val trackScope = ui.artistFilter
-        ?.let { name -> state.trackListBase.filter { matchesArtist(it, name) } }
-        ?: state.trackListBase
+        ?.let { name -> myMusic.filter { matchesArtist(it, name) } }
+        ?: myMusic
     val searched = searchTracks(trackScope, ui.query)
     val chipped = applyChips(searched, ui.chips, isLiked)
     val sorted = sortTracks(chipped, ui.sortKey, ui.sortAscending) { track ->
