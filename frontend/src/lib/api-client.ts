@@ -1900,6 +1900,86 @@ export async function fetchSongVideo(songId: number, url?: string): Promise<Song
   })
 }
 
+/**
+ * How much a candidate's picture actually moves over its whole runtime, measured from YouTube's
+ * storyboard thumbnails before anything is downloaded. `Static` is the album-cover-for-three-minutes
+ * case; `Unknown` means the probe could not measure it, never that it is bad.
+ */
+export type VideoMotion = "Unknown" | "Static" | "LowMotion" | "RealVideo"
+
+export interface SongVideoCandidate {
+  videoId: string
+  title: string
+  channel: string
+  durationSeconds: number | null
+  score: number
+  motion: VideoMotion
+  /** Bytes the download would write, or null when yt-dlp reported no size. */
+  estimatedBytes: number | null
+  /** The upload's own frame is square — a cover image filling the screen. */
+  squareSource: boolean
+  hasThumbnail: boolean
+  /** Already attached to this song. */
+  isCurrent: boolean
+}
+
+/**
+ * Search YouTube for this song's music video and report what each candidate would cost and whether
+ * it is a real clip — without downloading any of them. Only the first few carry a measured `motion`;
+ * the rest report "Unknown" because probing each one costs a metadata call and a sprite sheet.
+ */
+export async function getSongVideoCandidates(songId: number): Promise<SongVideoCandidate[]> {
+  return requestJson<SongVideoCandidate[]>(`/songs/${songId}/video/candidates`)
+}
+
+export interface StoredVideoAuditRow {
+  songId: number
+  artist: string | null
+  title: string | null
+  motion: VideoMotion
+  /** Mean luma change between sampled frames; null when the file could not be measured. */
+  medianFrameDelta: number | null
+  fileBytes: number
+  durationSeconds: number | null
+  youTubeVideoId: string | null
+}
+
+export interface StoredVideoAudit {
+  measured: number
+  staticCount: number
+  staticBytes: number
+  totalBytes: number
+  /** More videos exist beyond the requested limit. */
+  more: boolean
+  rows: StoredVideoAuditRow[]
+}
+
+/**
+ * Measure the music videos already on disk and report which are static album covers, with the disk
+ * they occupy. Read-only — removing one still goes through {@link deleteSongVideo}.
+ */
+export async function auditStoredVideos(limit = 100): Promise<StoredVideoAudit> {
+  return requestJson<StoredVideoAudit>(`/musicvideos/audit?limit=${Math.round(limit)}`)
+}
+
+/**
+ * Measure one candidate on demand. {@link getSongVideoCandidates} probes only its top few, so this
+ * fills in a verdict for a hit further down the list that the owner is considering.
+ */
+export async function probeSongVideoCandidate(
+  songId: number,
+  videoId: string
+): Promise<SongVideoCandidate> {
+  return requestJson<SongVideoCandidate>(
+    `/songs/${songId}/video/probe/${encodeURIComponent(videoId)}`
+  )
+}
+
+/** Proxy URL for a candidate's YouTube still, so the browser never talks to YouTube directly. */
+export function getSongVideoCandidateThumbnailUrl(songId: number, videoId: string): string {
+  return `${API_PREFIX}/songs/${songId}/video/thumbnail/${encodeURIComponent(videoId)}`
+}
+
 /** Manually nudge the audio↔video sync offset (marks it Manual). */
 export async function setSongVideoOffset(songId: number, offsetMs: number): Promise<SongVideoInfo> {
   return requestJson<SongVideoInfo>(`/songs/${songId}/video/offset`, {

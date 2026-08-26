@@ -886,6 +886,23 @@ public class MusicEnricherOptions
     [Range(0.05, 0.5)]
     public double MusicVideoAlignMaxBitErrorRate { get; set; } = 0.35;
 
+    /// <summary>
+    /// When true, an automatic fetch never downloads an upload whose picture is measurably a single
+    /// still image — an album cover held for the whole song, an "Official Audio" upload. The check
+    /// reads YouTube's storyboard sprite sheet (tens of KB) instead of the video, so the cost is
+    /// paid before the tens of MB are. Manual picks are always honored verbatim; this gates only
+    /// what the search chooses on its own.
+    /// </summary>
+    public bool MusicVideoRejectStaticUploads { get; set; } = true;
+
+    /// <summary>
+    /// How many ranked search candidates to probe before giving up and taking the next unprobed one.
+    /// Each probe is one yt-dlp metadata call plus one sprite sheet, so this is the knob that trades
+    /// fetch latency for the odds of finding a real clip.
+    /// </summary>
+    [Range(1, 10)]
+    public int MusicVideoProbeCandidates { get; set; } = 3;
+
     // ── Album completion (own ≥1 track → auto-fill the rest) ────────────────
     // A background sweep that compares each owned album against its reconciled CanonicalAlbum
     // tracklist and queues the missing tracks as WishlistItemOrigin.AlbumCompletion items. Songs that
