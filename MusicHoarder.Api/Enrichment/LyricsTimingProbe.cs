@@ -90,6 +90,17 @@ public sealed class LyricsTimingProbe(
             budget.Refund(window);
             throw;
         }
+        catch (TranscriptionRateLimitedException ex)
+        {
+            // Our own throttling, not a fact about this song. Returning a verdict here would spend one of
+            // the song's bounded probe attempts on a request the provider refused to even look at, so two
+            // busy sweeps would leave it permanently unverifiable. Null means "we did not look": no verdict,
+            // no attempt recorded, and the sweep stops this batch rather than hammering a closed door.
+            budget.Refund(window);
+            logger.LogInformation(
+                "Lyrics timing probe deferred for SongId={SongId}: {Reason}", song.Id, ex.Message);
+            return null;
+        }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Lyrics timing probe failed for SongId={SongId}.", song.Id);

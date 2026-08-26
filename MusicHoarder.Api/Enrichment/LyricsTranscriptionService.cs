@@ -21,6 +21,14 @@ namespace MusicHoarder.Api.Enrichment;
 /// </param>
 public record TranscriptionResult(string? SyncedLyrics, string? PlainLyrics, string Model, bool AlignedToReference = false);
 
+/// <summary>
+/// The provider is rate-limiting us, or a local slot never came free. Deliberately its own type: this means
+/// <b>we never got an answer</b>, which is categorically different from a transcription that came back and
+/// told us nothing. Background callers must retry later rather than recording a verdict, because writing
+/// "inconclusive" here would burn a song's probe attempts on our own throttling.
+/// </summary>
+public sealed class TranscriptionRateLimitedException(string message) : Exception(message);
+
 public interface ILyricsTranscriptionService
 {
     /// <summary>True when a key + base URL are configured (the transcribe endpoint 503s otherwise).</summary>
@@ -61,6 +69,7 @@ public sealed class LyricsTranscriptionService(
     HttpClient httpClient,
     ILrcLibService lrcLib,
     LlmLyricsAligner aligner,
+    LyricsTranscriptionRateLimiter rateLimiter,
     IOptionsMonitor<LyricsTranscriptionOptions> options,
     IOptions<MusicEnricherOptions> enricherOptions,
     ILogger<LyricsTranscriptionService> logger) : ILyricsTranscriptionService
@@ -329,6 +338,14 @@ public sealed class LyricsTranscriptionService(
         {
             ct.ThrowIfCancellationRequested();
 
+            // Per ATTEMPT, not per call: the provider counts a retry as another request, so metering the
+            // call would let one reservation fire three times and trip the very limit we are avoiding.
+            if (!await rateLimiter.TryAcquireAsync(TimeSpan.FromSeconds(opts.RateLimitMaxWaitSeconds), ct))
+            {
+                throw new TranscriptionRateLimitedException(
+                    $"No transcription rate-limit slot came free within {opts.RateLimitMaxWaitSeconds}s.");
+            }
+
             // A fresh stream + form per attempt — request content can't be replayed once consumed.
             using var form = new MultipartFormDataContent();
             await using var fileStream = File.OpenRead(mp3Path);
@@ -361,10 +378,23 @@ public sealed class LyricsTranscriptionService(
                 // Never log the Authorization header; the URL/body here carry no secret.
                 logger.LogWarning("Transcription failed: {Status} {Body}", (int)resp.StatusCode, Truncate(body, 512));
 
+                if (resp.StatusCode == HttpStatusCode.TooManyRequests)
+                {
+                    // The provider knows how long it wants us gone; guessing is how a back-off turns into a
+                    // 429 storm. Tell the limiter so every other worker pauses too, not just this one.
+                    rateLimiter.NoteBackoff(ReadRetryAfter(resp) ?? TimeSpan.FromSeconds(5));
+                }
+
                 if (attempt < maxAttempts - 1 && IsRetryableStatus(resp.StatusCode))
                 {
                     await Task.Delay(ComputeBackoff(attempt), ct);
                     continue;
+                }
+
+                if (resp.StatusCode == HttpStatusCode.TooManyRequests)
+                {
+                    throw new TranscriptionRateLimitedException(
+                        $"Transcription API is rate-limiting us: {Truncate(body, 300)}");
                 }
 
                 throw new HttpRequestException(
@@ -399,12 +429,32 @@ public sealed class LyricsTranscriptionService(
         _ => false,
     };
 
+    /// <summary>
+    /// Exponential backoff with jitter — and a floor. Full jitter (<c>rand * base</c>) can return almost
+    /// zero, which meant a rate-limited retry could go back out within milliseconds and be rejected again;
+    /// half the interval is fixed so a retry is always meaningfully later than the attempt it follows.
+    /// </summary>
     private static TimeSpan ComputeBackoff(int attempt)
     {
-        var baseMs = 750.0 * Math.Pow(2, attempt);
-        var jittered = Random.Shared.NextDouble() * baseMs;
-        var capped = Math.Min(jittered, 8000);
-        return TimeSpan.FromMilliseconds(capped);
+        var baseMs = Math.Min(750.0 * Math.Pow(2, attempt), 8000);
+        var jittered = (baseMs / 2) + (Random.Shared.NextDouble() * (baseMs / 2));
+        return TimeSpan.FromMilliseconds(jittered);
+    }
+
+    /// <summary>Reads a 429's <c>Retry-After</c>, in either the delta-seconds or the HTTP-date form.</summary>
+    private static TimeSpan? ReadRetryAfter(HttpResponseMessage response)
+    {
+        var retryAfter = response.Headers.RetryAfter;
+        if (retryAfter is null)
+            return null;
+        if (retryAfter.Delta is TimeSpan delta)
+            return delta;
+        if (retryAfter.Date is DateTimeOffset date)
+        {
+            var wait = date - DateTimeOffset.UtcNow;
+            return wait > TimeSpan.Zero ? wait : null;
+        }
+        return null;
     }
 
     private static void TryDelete(string path)
