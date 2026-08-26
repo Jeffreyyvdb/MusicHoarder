@@ -113,11 +113,14 @@ class LibraryRepository(private val api: MusicHoarderApi) {
             if (_state.value.trackListBase.isNotEmpty() && !force) return
             _state.value = _state.value.copy(isLoading = true, error = null, isPairingRevoked = false)
             try {
+                // Both in one go: they are two views of the same library, so fetching them apart
+                // would let the album cards describe a song list that has already moved on.
                 val response = api.fetchSongs()
-                // Grouping four thousand tracks into albums and artists is far too much work for a
-                // frame, and the mapping this replaces ran on the main dispatcher.
+                val albums = api.fetchAlbums()
+                // Joining four thousand tracks to their albums and grouping the artists is far too
+                // much work for a frame, and the mapping this replaces ran on the main dispatcher.
                 _state.value = withContext(Dispatchers.Default) {
-                    fold(response.songs).copy(grantors = response.grantors)
+                    fold(response.songs, albums).copy(grantors = response.grantors)
                 }
             } catch (e: UnauthorizedException) {
                 _state.value = _state.value.copy(isLoading = false, error = e.message, isPairingRevoked = true)
@@ -130,7 +133,7 @@ class LibraryRepository(private val api: MusicHoarderApi) {
         }
     }
 
-    private fun fold(songs: List<ApiSong>): LibraryState {
+    private fun fold(songs: List<ApiSong>, albums: List<AlbumSummaryDto>): LibraryState {
         // Build state comes from ApiSong.isBuilt, which trusts the server's flag for rows shared
         // with you and derives it locally for your own. That replaced a session-wide "shared
         // library" mode this repository used to read — one rule, both row kinds, and the phone no
@@ -141,10 +144,13 @@ class LibraryRepository(private val api: MusicHoarderApi) {
             .map { it.first }
             .sortedWith(BASE_ORDER)
         val built = mapped.filter { it.second }.map { it.first }.sortedWith(BASE_ORDER)
+        // Joined against the whole base, not just the built rows: the cards name only built tracks
+        // anyway, and looking them up here keeps the join a lookup rather than a second filter.
+        val byId = base.associateBy { it.id }
         return LibraryState(
             builtTracks = built,
             trackListBase = base,
-            albums = mergeAlbumsByName(buildAlbums(built)),
+            albums = hydrateAlbums(albums, byId),
             artistsPrimary = buildArtistGroups(built, primaryOnly = true),
             artistsAll = buildArtistGroups(built, primaryOnly = false),
         )

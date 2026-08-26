@@ -13,6 +13,12 @@ package com.musichoarder.app.data
 internal object ApiRoutes {
     fun songs() = "/songs"
 
+    /**
+     * Album cards, grouped server-side. Query-free: the phone shows the whole grid and narrows it
+     * in memory, so it only ever asks for the default (built songs, folders merged by name).
+     */
+    fun albums() = "/api/albums"
+
     fun stream(id: Int) = "${song(id)}/stream"
 
     fun cover(id: Int, size: Int) = "${song(id)}/cover?size=$size"

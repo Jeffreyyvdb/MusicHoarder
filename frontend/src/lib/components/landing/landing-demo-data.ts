@@ -231,6 +231,7 @@ function demoAlbum(
   return {
     key,
     folderKeys: [key],
+    nameKey: key,
     title,
     artist,
     year,
@@ -243,9 +244,11 @@ function demoAlbum(
     upc: null,
     releaseDate: null,
     musicBrainzReleaseId: null,
+    coverSongId: null,
     coverUrl: null,
     addedAtUtc,
     playCount: 0,
+    trackIds: [],
     songs: []
   };
 }

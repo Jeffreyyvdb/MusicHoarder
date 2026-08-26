@@ -109,13 +109,24 @@ fun foldLibrary(
         if (filterUnreleased) state.builtTracks.filter { it.isUnreleased } else state.builtTracks
 
     // ---- Albums -------------------------------------------------------------------------------
-    val browseScoped = ui.artistFilter
-        ?.let { name -> releaseScoped.filter { matchesArtist(it, name) } }
-        ?: releaseScoped
-    val scopedAlbums = if (filterUnreleased || ui.artistFilter != null) {
-        mergeAlbumsByName(buildAlbums(browseScoped))
-    } else {
+    // Grouping is the server's; a filter narrows the cards it sent rather than re-grouping a narrowed
+    // track list. So a compilation under an artist drilldown keeps the album's own year and editions
+    // and reports only that artist's tracks — the count is the one thing the filter can change, and
+    // the grid does not draw it. The web asks the server again instead, because its cards do.
+    val albumScope: ((Track) -> Boolean)? = when {
+        ui.artistFilter != null -> { track ->
+            matchesArtist(track, ui.artistFilter) && (!filterUnreleased || track.isUnreleased)
+        }
+        filterUnreleased -> { track -> track.isUnreleased }
+        else -> null
+    }
+    val scopedAlbums = if (albumScope == null) {
         state.albums
+    } else {
+        state.albums.mapNotNull { album ->
+            val kept = album.tracks.filter(albumScope)
+            if (kept.isEmpty()) null else album.copy(tracks = kept, trackCount = kept.size)
+        }
     }
     val query = ui.query.trim()
     val matchingAlbums = if (query.isEmpty()) scopedAlbums else scopedAlbums.filter {
@@ -196,4 +207,33 @@ fun resolveAlbum(albums: List<Album>, key: String?): Album? {
     if (key == null) return null
     albums.firstOrNull { key in it.folderKeys }?.let { return it }
     return albums.filter { it.nameKey == key }.maxByOrNull { it.trackCount }
+}
+
+/**
+ * Where the player's `artist · album` line can navigate to.
+ *
+ * [artist] is the **lead** artist, not the credit on screen: the line reads "Trippie Redd, Drake"
+ * but files under whoever fronts the release, which is the name the Artists grid lists it by. That
+ * is the web's `artistLabelForSong`, and the two clients have to agree or the same tap lands on
+ * different pages. [albumKey] is the destination folder the album card is addressed by.
+ */
+data class NowPlayingLinks(val artist: String, val albumKey: String)
+
+/**
+ * The links for a playing song id, or null when this library cannot answer for it.
+ *
+ * Both halves resolve together, deliberately: an unbuilt row has no album card and no artist card,
+ * so offering one link of the pair would just switch tabs to an empty grid. Null instead leaves the
+ * line as plain text, which is what a share queue and an unpaired viewer get too — a share's ids
+ * belong to the sharing server and can collide with a library id, so the caller has to rule that
+ * out before asking.
+ */
+fun resolveNowPlayingLinks(state: LibraryState, trackId: Int?): NowPlayingLinks? {
+    if (trackId == null) return null
+    val track = state.trackListBase.firstOrNull { it.id == trackId } ?: return null
+    // Which card holds this track, asked of the cards themselves. That answers the awkward cases for
+    // free: a track whose folder lost the name merge is still on the surviving card, and an unbuilt
+    // row is on no card at all.
+    val album = state.albums.firstOrNull { card -> card.tracks.any { it.id == trackId } } ?: return null
+    return NowPlayingLinks(artist = track.albumArtist, albumKey = album.key)
 }

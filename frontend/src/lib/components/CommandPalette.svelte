@@ -6,8 +6,6 @@
   import * as Command from '$lib/components/ui/command';
   import { navGroupsFor } from '$lib/nav';
   import {
-    buildAlbumsFromSongs,
-    mergeAlbumsByName,
     buildArtistGroups,
     type ApiSong,
     type AlbumSummary,
@@ -79,9 +77,9 @@
   // and therefore lazy — none of it runs while the dialog is closed.
   const builtSongs = $derived(songs.filter(isBuiltSong));
 
-  // Merged by name so searching an album split across destination folders offers one result.
-  // Built from the same set as the Library page, so the `?album=` keys line up.
-  const albums = $derived<AlbumSummary[]>(mergeAlbumsByName(buildAlbumsFromSongs(builtSongs)));
+  // The same cards the Library page shows — one result per album even when it is split across
+  // destination folders on disk, and the same `?album=` keys, because it is literally the same list.
+  const albums = $derived<AlbumSummary[]>(songsStore.albums);
   const artists = $derived<GroupSummary[]>(buildArtistGroups(builtSongs));
 
   // Per-entity lowercase haystacks, rebuilt only when the dataset changes. Without

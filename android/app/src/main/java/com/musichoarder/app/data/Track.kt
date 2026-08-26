@@ -185,12 +185,6 @@ data class Track(
     val durationMs: Long?,
     val durationSeconds: Int,
     val hasCover: Boolean,
-    /**
-     * The destination folder this track was built into — the unit a music server groups on, where
-     * the builder elects one reconciled release identity. Falls back to [nameKey] when the song has
-     * no destination path yet. Albums are keyed on this, not on the artist/album tags.
-     */
-    val folderKey: String,
     /** `artistLower::albumLower` — the name-level album identity, used to fold split folders back. */
     val nameKey: String,
     val addedAtMs: Long,
@@ -252,7 +246,6 @@ fun ApiSong.toTrack(): Track {
         durationMs = durationMs?.toLong() ?: durationSeconds?.let { it * 1000L },
         durationSeconds = durationSeconds ?: durationMs?.let { it / 1000 } ?: 0,
         hasCover = hasCoverArt,
-        folderKey = destinationFolder() ?: nameKey,
         nameKey = nameKey,
         addedAtMs = songAddedMillis(
             spotifyAddedAt = spotifyAddedMillis(spotifyLikedAt, spotifyAddedAt),
@@ -278,16 +271,6 @@ fun ApiSong.toTrack(): Track {
         needsReview = mapEnrichmentState(enrichmentStatus?.content) == EnrichmentState.NeedsReview,
         sharedByUserId = sharedByUserId,
     )
-}
-
-/**
- * The destination folder directory of a built song. Null when the song has not been built yet, in
- * which case album grouping falls back to the artist/album name key.
- */
-private fun ApiSong.destinationFolder(): String? {
-    val path = destinationPath?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-    val index = path.lastIndexOf('/')
-    return if (index > 0) path.substring(0, index) else path
 }
 
 /**

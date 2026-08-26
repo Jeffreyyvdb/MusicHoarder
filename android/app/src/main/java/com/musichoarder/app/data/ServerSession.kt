@@ -29,6 +29,14 @@ import kotlinx.serialization.json.Json
 data class ServerSession(val baseUrl: String, val token: String, val role: String? = null)
 
 /**
+ * A base URL as a person reads it: `https://musichoarder.app/` → `musichoarder.app`. Used for the
+ * account switcher's fallback label and for the sign-in screen's server row. (No android.net.Uri
+ * here — JVM tests use this.)
+ */
+fun displayHost(baseUrl: String): String =
+    baseUrl.removePrefix("https://").removePrefix("http://").substringBefore('/').trimEnd('/')
+
+/**
  * One remembered pairing. The phone can hold several — e.g. an admin and a member account, or the
  * same account on two servers — and switch between them; only the active one talks to the network
  * (via [toSession]). Identity fields come from `/api/auth/me` at pairing time and label the
@@ -47,8 +55,7 @@ data class StoredAccount(
 
     /** What the switcher shows for this account. (No android.net.Uri here — JVM tests use this.) */
     val label: String
-        get() = displayName ?: email
-            ?: baseUrl.removePrefix("https://").removePrefix("http://").substringBefore('/')
+        get() = displayName ?: email ?: displayHost(baseUrl)
 
     /**
      * Same account on the same server? Keyed by `(baseUrl, userId)`, falling back to email for
@@ -218,6 +225,13 @@ object PairingUri {
     private const val SCHEME = "musichoarder"
     private const val HOST = "pair"
 
+    /**
+     * The server the sign-in screen offers before anybody types anything — the public instance.
+     * Self-hosters override it on that screen (Change), and every other entrance (a scanned QR, a
+     * magic-link handoff, an invite) carries its own origin and never consults this.
+     */
+    const val DEFAULT_BASE_URL = "https://musichoarder.app"
+
     /** Parses a scanned/pasted pairing code, or returns null when it is not one of ours. */
     fun parse(raw: String): ServerSession? {
         val uri = runCatching { Uri.parse(raw.trim()) }.getOrNull() ?: return null
@@ -232,9 +246,17 @@ object PairingUri {
      * slash) and returns an absolute origin, or null when it is not a usable http(s) URL.
      */
     fun normalizeBaseUrl(raw: String): String? {
-        var value = raw.trim().trimEnd('/')
+        var value = raw.trim()
         if (value.isEmpty()) return null
-        if (!value.startsWith("http://") && !value.startsWith("https://")) value = "https://$value"
+        // Scheme first, trailing slashes second. The other order turns a half-deleted "https://"
+        // into "https:", which then gets a second scheme bolted on and parses as the host "https"
+        // — a nonsense address the sign-in screen would go on to report as unreachable.
+        if (!value.startsWith("http://", ignoreCase = true) &&
+            !value.startsWith("https://", ignoreCase = true)
+        ) {
+            value = "https://$value"
+        }
+        value = value.trimEnd('/')
         val uri = runCatching { Uri.parse(value) }.getOrNull() ?: return null
         if (uri.host.isNullOrBlank()) return null
         return value

@@ -242,53 +242,9 @@ public static class SongsEndpoints
             query = query.Where(s => s.EnrichmentStatus == parsedStatus);
         }
 
-        // Provenance lookup: which wishlist item(s) point at each song, and what collection they came
-        // from. Two small owner-scoped reads (there are far fewer wishlist items than songs) rather
-        // than a join per row. Items that were SkippedOwned link too — that's how a track already in
-        // the library still reports the date it was liked on Spotify.
-        var wishlistSources = await db.WishlistSources
-            .AsNoTracking()
-            .Select(s => new { s.Id, s.SourceType, s.Name })
-            .ToDictionaryAsync(s => s.Id, s => (s.SourceType, s.Name));
-
-        var wishlistLinks = (await db.WishlistItems
-                .AsNoTracking()
-                .Where(w => w.DownloadedSongId != null)
-                .Select(w => new { SongId = w.DownloadedSongId!.Value, w.WishlistSourceId, w.SpotifyAddedAtUtc, w.SourceUrl, w.Origin, w.Album })
-                .ToListAsync())
-            .GroupBy(w => w.SongId)
-            .ToDictionary(
-                g => g.Key,
-                g => SongOriginResolver.Best(g.Select(w =>
-                {
-                    var source = w.WishlistSourceId is { } id && wishlistSources.TryGetValue(id, out var s)
-                        ? ((WishlistSourceType?)s.SourceType, s.Name)
-                        : (null, null);
-                    return new WishlistLink(source.Item1, source.Item2, w.SourceUrl, w.SpotifyAddedAtUtc, w.Origin, w.Album);
-                })));
-
-        // Second save-date source: the liked-songs match cache. A wishlist link only exists for songs
-        // the download pipeline touched — a track that was already in the library (or whose like
-        // matched a different file than the wishlist's download) has none, so its Spotify save date
-        // would read null and the frontend's liked sort would fall back to LikedAtUtc, which the
-        // auto-like sweep stamps with the *sweep* time. The liked_sync rows carry Spotify's own
-        // added-at for every liked song. Keyed two ways: by the song the sweep matched (covers
-        // unenriched files), and by Spotify track id against the song's enriched SpotifyId — the
-        // match cache re-points between duplicate copies of a track as sweeps re-run, so the id
-        // join keeps every copy's save date stable instead of only the currently-matched one.
-        var likedRows = await db.SpotifyTrackLibraryMatches
-            .AsNoTracking()
-            .Where(m => m.Source == SpotifyLibraryComparisonService.SourceLikedSync
-                && m.SpotifyAddedAtUtc != null)
-            .Select(m => new { m.SpotifyTrackId, m.MatchedSongId, AddedAt = m.SpotifyAddedAtUtc!.Value })
-            .ToListAsync();
-        var likedSaveDates = likedRows
-            .Where(m => m.MatchedSongId != null)
-            .GroupBy(m => m.MatchedSongId!.Value)
-            .ToDictionary(g => g.Key, g => g.Min(m => m.AddedAt));
-        var likedSaveDatesBySpotifyId = likedRows
-            .GroupBy(m => m.SpotifyTrackId, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.Min(m => m.AddedAt), StringComparer.OrdinalIgnoreCase);
+        // Provenance and Spotify save dates, loaded once and shared with GET /api/albums so the
+        // track list and the album grid can never disagree about when a track arrived.
+        var saveDates = await SpotifySaveDates.LoadAsync(db, ct);
 
         var downloadDirectory = enricherOptions.Value.DownloadDirectory;
         var syncedSourceDirectory = syncOptions.Value.SyncedSourceDirectory;
@@ -400,7 +356,7 @@ public static class SongsEndpoints
         {
             var origin = SongOriginResolver.Resolve(
                 s.SourcePath,
-                wishlistLinks.TryGetValue(s.Id, out var link) ? link : null,
+                saveDates.LinkFor(s.Id),
                 downloadDirectory,
                 syncedSourceDirectory);
             var matchWarnings = DeserializeWarnings(s.MatchWarnings);
@@ -463,25 +419,15 @@ public static class SongsEndpoints
             OriginKind = origin.Kind.ToString(),
             OriginSource = origin.Source.ToString(),
             OriginDetail = origin.Detail,
-            SpotifyAddedAtUtc = Earliest(
-                Earliest(
-                    origin.SpotifyAddedAtUtc,
-                    likedSaveDates.TryGetValue(s.Id, out var likedSaveDate) ? likedSaveDate : null),
-                s.SpotifyId != null && likedSaveDatesBySpotifyId.TryGetValue(s.SpotifyId, out var idSaveDate)
-                    ? idSaveDate
-                    : null),
+            SpotifyAddedAtUtc = saveDates.SaveDateFor(s.Id, s.SpotifyId, origin.SpotifyAddedAtUtc),
             // Spotify's save date for the Liked Songs collection *specifically* — what the library's
             // "Spotify Liked" filter tests and orders by. SpotifyAddedAtUtc above cannot answer that:
             // a playlist wishlist link also carries a date (when the track entered that playlist), so
             // a track you never saved would read as liked. Only the liked-songs link and the
             // liked_sync match cache (already filtered to that source) contribute here.
-            SpotifyLikedAtUtc = Earliest(
-                Earliest(
-                    origin.Source == SongOriginSource.SpotifyLiked ? origin.SpotifyAddedAtUtc : null,
-                    likedSaveDates.TryGetValue(s.Id, out var likedDate) ? likedDate : null),
-                s.SpotifyId != null && likedSaveDatesBySpotifyId.TryGetValue(s.SpotifyId, out var idLikedDate)
-                    ? idLikedDate
-                    : null),
+            SpotifyLikedAtUtc = saveDates.SaveDateFor(
+                s.Id, s.SpotifyId,
+                origin.Source == SongOriginSource.SpotifyLiked ? origin.SpotifyAddedAtUtc : null),
             s.HasMusicVideo,
             // Whether the owner asked for this track or album completion added it. Unlike the derived
             // Origin* fields above this is a stored column, so it's the one "My music" filters on.
@@ -523,9 +469,6 @@ public static class SongsEndpoints
             Grantors = grantors,
         });
     }
-
-    private static DateTime? Earliest(DateTime? a, DateTime? b) =>
-        a is null ? b : b is null ? a : a < b ? a : b;
 
     private static async Task<IResult> GetTrackLyrics(
         int id, MusicHoarderDbContext db, ILibraryScopeResolver scopeResolver, CancellationToken ct)
@@ -1665,7 +1608,8 @@ public static class SongsEndpoints
         }
     }
 
-    private static string[]? DeserializeWarnings(string? json)
+    /// <summary>Internal so the albums projection classifies releases from the same warnings.</summary>
+    internal static string[]? DeserializeWarnings(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) return null;
         try { return JsonSerializer.Deserialize<string[]>(json); }

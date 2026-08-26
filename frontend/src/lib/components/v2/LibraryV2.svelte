@@ -37,18 +37,19 @@
   } from '$lib/track-list-view.svelte';
   import {
     ALBUM_SORT_OPTIONS,
-    buildAlbumsFromSongs,
     buildArtistGroups,
     fetchAlbumCanonicalStatuses,
     isAlbumSortKey,
     isLocalFile,
     isMyMusic,
     mapEnrichmentStatus,
-    mergeAlbumsByName,
     sortAlbums,
     type AlbumSortKey,
     type AlbumStatusInfo,
+    fetchAlbums,
+    hydrateAlbums,
     type AlbumSummary,
+    type AlbumSummaryDto,
     type ApiSong,
     type GroupSummary
   } from '$lib/api-client';
@@ -219,14 +220,56 @@
       : `Show only unreleased tracks — ${trackerUnreleasedCount.toLocaleString()} confirmed by a community tracker, ${likelyUnreleasedCount.toLocaleString()} with no catalog match anywhere`
   );
 
-  const browseScoped = $derived(applyBrowseFilter(releaseScoped, browse));
+  // Grouping is the server's, so a card can span two destination folders that disagree about the
+  // year or the artist spelling. `allAlbums` stays unscoped: it is the drilldown/deep-link resolver,
+  // so an ?album= link must still resolve while a filter is on.
+  const allAlbums = $derived(songsStore.albums);
 
-  // Same album under two destination folders (a year or artist-spelling disagreement between its
-  // tracks) is one card here — see mergeAlbumsByName.
-  // `allAlbums` stays unscoped: it's the drilldown/deep-link resolver, so an ?album= link must
-  // still resolve while a filter is on.
-  const allAlbums = $derived(mergeAlbumsByName(buildAlbumsFromSongs(builtSongs)));
-  const scopedAlbums = $derived(mergeAlbumsByName(buildAlbumsFromSongs(browseScoped)));
+  /**
+   * The grid's cards, narrowed by the "Organize by" filter and the unreleased toggle.
+   *
+   * Narrowing has to happen before grouping, not after: filtering the finished cards would leave a
+   * compilation showing its full track count under `?artist=`, where today it shows only that
+   * artist's tracks. So a filter means asking the server again — which is a navigation, not a
+   * keystroke. With no filter on this is the cached list and costs nothing.
+   */
+  const albumFilter = $derived({
+    artist: browse?.artist ?? null,
+    year: browse?.yearUnknown ? 'unknown' : browse?.year != null ? String(browse.year) : null,
+    unreleased: unreleasedOnly && canFilterUnreleased
+  });
+  const isAlbumFilterActive = $derived(
+    albumFilter.artist !== null || albumFilter.year !== null || albumFilter.unreleased
+  );
+  let filteredAlbumDtos = $state<AlbumSummaryDto[]>([]);
+  // Keyed on a string so this re-runs on a real filter change and stays put through every background
+  // refresh of the same one.
+  const albumFilterKey = $derived(
+    isAlbumFilterActive
+      ? [albumFilter.artist ?? '', albumFilter.year ?? '', albumFilter.unreleased].join('\u0000')
+      : ''
+  );
+  $effect(() => {
+    if (albumFilterKey === '') {
+      filteredAlbumDtos = [];
+      return;
+    }
+    const requested = untrack(() => ({ ...albumFilter }));
+    let cancelled = false;
+    void fetchAlbums(requested)
+      .then((albums) => {
+        if (!cancelled) filteredAlbumDtos = albums;
+      })
+      .catch(() => {
+        if (!cancelled) filteredAlbumDtos = [];
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
+  const scopedAlbums = $derived(
+    isAlbumFilterActive ? hydrateAlbums(filteredAlbumDtos, songsStore.songsById) : allAlbums
+  );
 
   // Provider-link status per album (linked / localOnly / pending) for the grid corner badges.
   // One batch lookup, refreshed when the album set changes. `allAlbums` is rebuilt into fresh
