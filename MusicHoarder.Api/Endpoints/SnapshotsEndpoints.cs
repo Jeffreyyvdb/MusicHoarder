@@ -77,7 +77,11 @@ public static class SnapshotsEndpoints
             summary = SummaryDto(snap),
             config = ParseJson(snap.ConfigJson),
             previousSnapshotId = prev?.Id,
-            configDiff = prev is null ? [] : DiffConfig(prev.ConfigJson, snap.ConfigJson),
+            configDiff = prev is null
+                ? []
+                : SnapshotConfigDiff.Diff(prev.ConfigJson, snap.ConfigJson)
+                    .Select(c => (object)new { key = c.Key, from = c.From, to = c.To })
+                    .ToList(),
         });
     }
 
@@ -244,43 +248,5 @@ public static class SnapshotsEndpoints
         if (string.IsNullOrWhiteSpace(json)) return null;
         try { return JsonSerializer.Deserialize<JsonElement>(json); }
         catch (JsonException) { return null; }
-    }
-
-    /// <summary>Flattens both config JSONs to dotted leaf paths and returns the entries that differ.</summary>
-    private static List<object> DiffConfig(string fromJson, string toJson)
-    {
-        var fromFlat = new Dictionary<string, string?>();
-        var toFlat = new Dictionary<string, string?>();
-        try { Flatten(JsonSerializer.Deserialize<JsonElement>(fromJson), "", fromFlat); } catch (JsonException) { }
-        try { Flatten(JsonSerializer.Deserialize<JsonElement>(toJson), "", toFlat); } catch (JsonException) { }
-
-        var keys = fromFlat.Keys.Union(toFlat.Keys).OrderBy(k => k);
-        var diffs = new List<object>();
-        foreach (var key in keys)
-        {
-            fromFlat.TryGetValue(key, out var fv);
-            toFlat.TryGetValue(key, out var tv);
-            if (fv != tv) diffs.Add(new { key, from = fv, to = tv });
-        }
-        return diffs;
-    }
-
-    private static void Flatten(JsonElement el, string prefix, Dictionary<string, string?> into)
-    {
-        switch (el.ValueKind)
-        {
-            case JsonValueKind.Object:
-                foreach (var p in el.EnumerateObject())
-                    Flatten(p.Value, prefix.Length == 0 ? p.Name : $"{prefix}.{p.Name}", into);
-                break;
-            case JsonValueKind.Array:
-                var i = 0;
-                foreach (var item in el.EnumerateArray())
-                    Flatten(item, $"{prefix}[{i++}]", into);
-                break;
-            default:
-                into[prefix] = el.ToString();
-                break;
-        }
     }
 }

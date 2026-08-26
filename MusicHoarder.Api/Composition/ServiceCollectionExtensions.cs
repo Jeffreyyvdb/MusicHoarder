@@ -223,6 +223,20 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IArtistDuplicateService, ArtistDuplicateService>();
         services.AddScoped<IAlbumDuplicateDetector, AlbumDuplicateDetector>();
         services.AddScoped<IDedupActionHistory, DedupActionHistoryService>();
+
+        // History feed. Every source derives its entries from rows the pipeline already writes, and all
+        // of them run on every request — the endpoint merges and sorts by time, so registration order
+        // is not load-bearing.
+        services.AddScoped<History.IActivitySource, History.Sources.LibraryWriteActivitySource>();
+        services.AddScoped<History.IActivitySource, History.Sources.AcquisitionActivitySource>();
+        services.AddScoped<History.IActivitySource, History.Sources.EnrichmentActivitySource>();
+        services.AddScoped<History.IActivitySource, History.Sources.LyricsActivitySource>();
+        services.AddScoped<History.IActivitySource, History.Sources.MusicVideoActivitySource>();
+        services.AddScoped<History.IActivitySource, History.Sources.ArtworkActivitySource>();
+        services.AddScoped<History.IActivitySource, History.Sources.ListeningActivitySource>();
+        services.AddScoped<History.IActivitySource, History.Sources.SyncActivitySource>();
+        services.AddScoped<History.IActivitySource, History.Sources.CurationActivitySource>();
+        services.AddScoped<History.IActivitySource, History.Sources.PipelineActivitySource>();
         services.AddSingleton<ICanonicalAlbumConsolidator, CanonicalAlbumConsolidator>();
         services.AddSingleton<IFingerprintSimilarityGate, FingerprintSimilarityGate>();
         services.AddSingleton<IDuplicateDetectionService, DuplicateDetectionService>();
