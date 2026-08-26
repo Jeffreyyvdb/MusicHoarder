@@ -23,6 +23,7 @@
   import { playerStore } from '$lib/stores/player.svelte';
   import { songsStore } from '$lib/stores/songs.svelte';
   import { cn } from '$lib/utils';
+  import SharedByBadge from '$lib/components/v2/SharedByBadge.svelte';
 
   type Props = {
     /**
@@ -307,6 +308,8 @@
                 >
                   {artistOf(song)}
                 </a>
+                <!-- Renders nothing for a track this account owns. -->
+                <SharedByBadge {song} variant="icon" />
               </div>
             </div>
 

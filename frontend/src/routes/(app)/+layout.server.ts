@@ -1,16 +1,8 @@
 import { error, redirect } from '@sveltejs/kit';
 import { probeSession, SESSION_COOKIE } from '$lib/server/session';
 import { APP_HOME } from '$lib/app-home';
+import { allowedPathPrefixesFor, isPathAllowed } from '$lib/nav';
 import type { LayoutServerLoad } from './$types';
-
-/**
- * The slice of the app a Friend session may enter: the Listen group, plus Settings (which
- * renders only the account tab — sign out and phone pairing — for friends). Friends share the
- * owner's routes and components (fed from /api/shared by the client's library mode); everything
- * else — Inbox, Add, the rest of Manage — is owner vocabulary, so a friend deep-linking there
- * is bounced home rather than shown pages full of empty or 403ing panels.
- */
-const FRIEND_ALLOWED_PREFIXES = ['/overview', '/library', '/artists', '/tracks', '/liked', '/settings'];
 
 /**
  * Auth gate for every (app) route. Despite `(app)/+layout.ts` setting `ssr = false`, server load
@@ -28,12 +20,10 @@ export const load: LayoutServerLoad = async ({ request, cookies, url }) => {
   });
 
   if (probe.status === 'authenticated') {
-    if (
-      probe.user.role === 'Friend' &&
-      !FRIEND_ALLOWED_PREFIXES.some(
-        (p) => url.pathname === p || url.pathname.startsWith(`${p}/`)
-      )
-    ) {
+    // What a non-admin may open is DERIVED from the nav groups they can see, so the sidebar and
+    // this guard cannot disagree. Deep-linking outside it bounces home rather than rendering
+    // pages full of empty or 403ing panels. Cosmetic only — the API enforces the real rules.
+    if (!isPathAllowed(url.pathname, allowedPathPrefixesFor(probe.user))) {
       throw redirect(303, APP_HOME);
     }
     return { user: probe.user };

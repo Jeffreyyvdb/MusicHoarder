@@ -3,6 +3,7 @@ using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Import;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Sharing;
 
 namespace MusicHoarder.Api.Endpoints;
 
@@ -27,17 +28,17 @@ public static class MusicVideoEndpoints
             .WithName("FetchSongVideo")
             .WithSummary("Queue a background YouTube fetch of this song's music video (optional exact URL; otherwise searches by artist/title). Poll the info endpoint for progress.")
             .WithTags("MusicVideos")
-            .RequireOwner();
+            .RequireAdmin();
         app.MapPatch("/songs/{id:int}/video/offset", SetVideoOffset)
             .WithName("SetSongVideoOffset")
             .WithSummary("Manually nudge the audio↔video sync offset (videoTime = audioTime + offsetMs/1000), or reset to automatic re-alignment.")
             .WithTags("MusicVideos")
-            .RequireOwner();
+            .RequireAdmin();
         app.MapDelete("/songs/{id:int}/video", DeleteVideo)
             .WithName("DeleteSongVideo")
             .WithSummary("Remove the song's music video (deletes the downloaded file).")
             .WithTags("MusicVideos")
-            .RequireOwner();
+            .RequireAdmin();
         return app;
     }
 
@@ -52,9 +53,19 @@ public static class MusicVideoEndpoints
         string? LastError,
         bool FileMissing);
 
+    /// <param name="includeDiagnostics">
+    /// Whether <c>LastError</c> may be returned. Defaults to FALSE so callers are safe by
+    /// omission — only pass true for a song the requester owns.
+    ///
+    /// <para>
+    /// <c>LastError</c> is a yt-dlp stderr tail, which routinely embeds local filesystem paths and
+    /// resolved URLs. It is actionable to whoever can act on it (the library owner, who gets a
+    /// re-fetch button) and is pure internal detail to anyone else.
+    /// </para>
+    /// </param>
     // Internal (not private) so SharedLibraryEndpoints can serve the identical, path-free shape
     // for grant-scoped songs — same reuse contract as StreamVideoFile below.
-    internal static VideoInfoDto ToDto(SongMusicVideo v) => new(
+    internal static VideoInfoDto ToDto(SongMusicVideo v, bool includeDiagnostics = false) => new(
         v.Status.ToString(),
         v.SyncOffsetMs,
         v.SyncSource.ToString(),
@@ -62,27 +73,48 @@ public static class MusicVideoEndpoints
         v.DurationSeconds,
         v.YouTubeVideoId,
         v.FetchedAtUtc,
-        v.LastError,
+        includeDiagnostics ? v.LastError : null,
         // A Ready row whose mp4 vanished (volume moved, manual cleanup) would otherwise report
         // healthy while the stream endpoint 404s — the UI needs to offer a refetch, not a black
         // backdrop.
         FileMissing: v.Status == MusicVideoStatus.Ready
             && (v.FilePath is null || !File.Exists(v.FilePath)));
 
-    internal static async Task<IResult> GetVideoInfo(int id, MusicHoarderDbContext db, CancellationToken ct)
+    /// <summary>
+    /// The video row for a song the caller may read — their own, or one shared with them.
+    ///
+    /// <para>
+    /// Two steps, and the order is the security property: authorize the SONG through
+    /// <see cref="ILibraryScopeResolver"/> first, then read the video row with the tenancy filter
+    /// bypassed. The bypass is required because <see cref="SongMusicVideo"/> is scoped by its
+    /// parent song's owner, so a filtered read returns nothing for a grantee and every shared
+    /// track reports "no video". It is safe only because the song was already authorized.
+    /// </para>
+    /// </summary>
+    private static async Task<(SongMusicVideo? Video, bool IsSelf)> ResolveVideoAsync(
+        int id, MusicHoarderDbContext db, ILibraryScopeResolver scopeResolver, CancellationToken ct)
     {
-        var video = await db.SongMusicVideos.AsNoTracking()
-            .FirstOrDefaultAsync(v => v.SongId == id && v.Song.DeletedAtUtc == null, ct);
-        return video is null
-            ? Results.NotFound(new { message = "No music video for this song." })
-            : Results.Ok(ToDto(video));
+        var found = await scopeResolver.ResolveSongAsync(db, id, ct);
+        if (found is null) return (null, false);
+
+        var video = await db.SongMusicVideos.IgnoreQueryFilters().AsNoTracking()
+            .FirstOrDefaultAsync(v => v.SongId == found.Value.Song.Id, ct);
+        return (video, found.Value.Slice.IsSelf);
     }
 
-    internal static async Task<IResult> StreamVideo(int id, MusicHoarderDbContext db, CancellationToken ct)
+    internal static async Task<IResult> GetVideoInfo(
+        int id, MusicHoarderDbContext db, ILibraryScopeResolver scopeResolver, CancellationToken ct)
     {
-        var video = await db.SongMusicVideos.AsNoTracking()
-            .FirstOrDefaultAsync(v => v.SongId == id && v.Song.DeletedAtUtc == null, ct);
+        var (video, isSelf) = await ResolveVideoAsync(id, db, scopeResolver, ct);
+        return video is null
+            ? Results.NotFound(new { message = "No music video for this song." })
+            : Results.Ok(ToDto(video, includeDiagnostics: isSelf));
+    }
 
+    internal static async Task<IResult> StreamVideo(
+        int id, MusicHoarderDbContext db, ILibraryScopeResolver scopeResolver, CancellationToken ct)
+    {
+        var (video, _) = await ResolveVideoAsync(id, db, scopeResolver, ct);
         return StreamVideoFile(video);
     }
 
@@ -136,7 +168,7 @@ public static class MusicVideoEndpoints
         else if (video.Status == MusicVideoStatus.Fetching)
         {
             // Already queued/in-flight — don't stack a second fetch.
-            return Results.Accepted(value: ToDto(video));
+            return Results.Accepted(value: ToDto(video, includeDiagnostics: true));
         }
 
         video.Status = MusicVideoStatus.Fetching;
@@ -147,7 +179,7 @@ public static class MusicVideoEndpoints
         await db.SaveChangesAsync(ct);
 
         channel.Enqueue(new MusicVideoWorkItem(id, MusicVideoWorkKind.Fetch, pinnedUrl));
-        return Results.Accepted(value: ToDto(video));
+        return Results.Accepted(value: ToDto(video, includeDiagnostics: true));
     }
 
     public record SetOffsetRequest(int? OffsetMs, bool? ResetToAuto);
@@ -167,7 +199,7 @@ public static class MusicVideoEndpoints
             video.SyncConfidence = null;
             await db.SaveChangesAsync(ct);
             channel.Enqueue(new MusicVideoWorkItem(id, MusicVideoWorkKind.Align));
-            return Results.Ok(ToDto(video));
+            return Results.Ok(ToDto(video, includeDiagnostics: true));
         }
 
         if (request.OffsetMs is not { } offsetMs)
@@ -178,7 +210,7 @@ public static class MusicVideoEndpoints
         video.SyncSource = MusicVideoSyncSource.Manual;
         video.SyncConfidence = null;
         await db.SaveChangesAsync(ct);
-        return Results.Ok(ToDto(video));
+        return Results.Ok(ToDto(video, includeDiagnostics: true));
     }
 
     internal static async Task<IResult> DeleteVideo(int id, MusicHoarderDbContext db, CancellationToken ct)

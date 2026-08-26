@@ -9,7 +9,7 @@
   // sidebar, so this carries the group headers only — the same role-filtered
   // groups the sidebar renders, so the two can't disagree about which group a
   // route belongs to.
-  const navGroups = $derived(navGroupsFor(page.data.user?.role));
+  const navGroups = $derived(navGroupsFor(page.data.user));
   const active = $derived(resolveNav(page.url)?.group.id ?? null);
   const running = $derived(pipelineOverlay.isAnyRunning);
 </script>

@@ -30,7 +30,7 @@ public static class DebugEndpoints
         // Debug endpoints expose host-level state (the configured source/destination directory
         // trees are read off disk and are NOT tenant-scoped). On a public instance where untrusted
         // users can log in as the demo account, gate the whole group to the owner.
-        var group = app.MapGroup("/api/debug").WithTags("Debug").RequireOwner();
+        var group = app.MapGroup("/api/debug").WithTags("Debug").RequireAdmin();
 
         group.MapGet("/source-tree", GetSourceTree)
             .WithName("DebugSourceTree")

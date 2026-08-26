@@ -88,8 +88,8 @@
       <Dialog.Title>Share with a friend</Dialog.Title>
       <Dialog.Description>
         Pick who can see and stream <span class="text-foreground font-medium">{album}</span> by
-        <span class="text-foreground font-medium">{artist}</span>. They'll find it on their
-        “Shared with me” page.
+        <span class="text-foreground font-medium">{artist}</span>. It shows up in their library,
+        marked as shared by you.
       </Dialog.Description>
     </Dialog.Header>
 

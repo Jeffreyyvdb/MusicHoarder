@@ -148,7 +148,7 @@ public class AuthenticationMiddlewareTests
                 Email = "owner@test.local",
                 EmailNormalized = "owner@test.local",
                 DisplayName = "Owner",
-                Role = UserRole.Owner,
+                Role = UserRole.Admin,
             };
             var session = new Session
             {

@@ -120,9 +120,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAuthService, AuthService>();
         services.AddSingleton<IAccountSwitchService, AccountSwitchService>();
         services.AddSingleton<ConsoleMagicLinkSender>();
-        services.AddScoped<RequireOwnerFilter>();
-        services.AddScoped<RequireRealAccountFilter>();
+        // Endpoint filters are not registered here: RequireCapabilityFilter is constructed with
+        // its capability at map time, and RequireNonDemoFilter is activated by AddEndpointFilter<T>.
+        // Both resolve ICurrentUserAccessor from RequestServices themselves.
         services.AddScoped<Sharing.ISharedLibraryGrantResolver, Sharing.SharedLibraryGrantResolver>();
+        services.AddScoped<Sharing.ILibraryScopeResolver, Sharing.LibraryScopeResolver>();
 
         // Pick the magic-link sender at startup: Resend when an API key is configured, otherwise
         // the console-logging fallback. Registered as a singleton; no Resend → no Resend client.

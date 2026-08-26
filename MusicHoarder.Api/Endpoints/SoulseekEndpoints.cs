@@ -20,7 +20,7 @@ public static class SoulseekEndpoints
 
     public static void MapSoulseekEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/soulseek").WithTags("Soulseek").RequireOwner();
+        var group = app.MapGroup("/api/soulseek").WithTags("Soulseek").RequireAdmin();
 
         group.MapGet("/status", Status);
         group.MapPost("/upgrades", CreateUpgrades);

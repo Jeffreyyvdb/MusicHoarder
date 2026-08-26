@@ -10,6 +10,7 @@
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { songsStore } from '$lib/stores/songs.svelte';
   import { resolveNav } from '$lib/nav';
+  import { isAdmin } from '$lib/auth/capabilities';
 
   let addOpen = $state(false);
 
@@ -40,7 +41,7 @@
   const nav = $derived(sidebarShowsItems ? null : resolveNav(page.url));
 
   // Adding music is owner work; a friend's top bar keeps search + theme only.
-  const isFriend = $derived(page.data.user?.role === 'Friend');
+  const isFriend = $derived(!isAdmin(page.data.user));
 </script>
 
 <!--

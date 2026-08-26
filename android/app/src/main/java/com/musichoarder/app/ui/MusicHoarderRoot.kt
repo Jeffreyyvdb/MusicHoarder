@@ -35,8 +35,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.musichoarder.app.data.LibraryTab
+import com.musichoarder.app.data.sharedByLabelFor
 import com.musichoarder.app.ui.theme.MhTheme
 
 /**
@@ -84,6 +88,16 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     // A failed heart reverts itself; saying nothing would just look like the tap missed.
     LaunchedEffect(Unit) {
         viewModel.messages.collect { snackbarHost.showSnackbar(it) }
+    }
+
+    // Re-read identity and capabilities whenever the app comes back to the foreground. Capabilities
+    // are granted server-side by an admin; without this, turning one off would have no effect on an
+    // already-paired phone until it re-paired, which nobody would think to do.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner, session) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            viewModel.refreshIdentity()
+        }
     }
 
     pendingPairingHost?.let { host ->
@@ -203,6 +217,9 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                 } else if (album != null) {
                     AlbumScreen(
                         album = album,
+                        // An album belongs to a single grantor — grant scoping never mixes owners
+                        // into one album — so the first attributed track answers for all of them.
+                        sharedBy = album.tracks.firstNotNullOfOrNull(content::sharedByLabelFor),
                         coverUrl = { track, size -> viewModel.coverUrl(track.id, track.hasCover, size) },
                         playingTrackId = playerState.trackId,
                         likes = likes,

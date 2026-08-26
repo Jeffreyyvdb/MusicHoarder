@@ -26,17 +26,17 @@ public static class DuplicatesEndpoints
         app.MapPost("/api/library/duplicates/detect", DetectNow)
             .WithName("DetectDuplicates")
             .WithSummary("Run duplicate detection now (also runs automatically after every fingerprint pass).")
-            .WithTags("Library").RequireOwner();
+            .WithTags("Library").RequireAdmin();
 
         app.MapPost("/api/library/duplicates/resolve", Resolve)
             .WithName("ResolveDuplicates")
             .WithSummary("Choose the keeper of a duplicate cluster; the choice is pinned so detection re-runs never overturn it.")
-            .WithTags("Library").RequireOwner();
+            .WithTags("Library").RequireAdmin();
 
         app.MapPost("/api/library/duplicates/dismiss", Dismiss)
             .WithName("DismissDuplicates")
             .WithSummary("Mark a set of songs as NOT duplicates of each other; the dismissal persists across detection re-runs.")
-            .WithTags("Library").RequireOwner();
+            .WithTags("Library").RequireAdmin();
 
         return app;
     }

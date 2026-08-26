@@ -10,9 +10,8 @@
  */
 
 import { goto } from '$app/navigation';
-import { signOut } from '$lib/api-client';
+import { resetGrantors, signOut } from '$lib/api-client';
 import { APP_HOME } from '$lib/app-home';
-import { setLibraryMode } from '$lib/library-mode';
 import { songsStore } from '$lib/stores/songs.svelte';
 import { playerStore } from '$lib/stores/player.svelte';
 
@@ -24,10 +23,10 @@ export async function signOutAndReset(allSessions = false): Promise<void> {
     location.assign(APP_HOME);
     return;
   }
-  // Drop cached user data so it can't leak into the next session — including the library mode,
-  // or a friend → owner login in the same tab would keep reading /api/shared.
+  // Drop cached user data so it can't leak into the next session — including who shared what,
+  // or the next account would briefly see the previous one's "Shared by …" attribution.
   songsStore.reset();
   playerStore.stop();
-  setLibraryMode('owner');
+  resetGrantors();
   await goto('/login', { invalidateAll: true });
 }

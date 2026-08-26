@@ -20,31 +20,31 @@ public static class SnapshotsEndpoints
             .WithName("GetSnapshots")
             .WithSummary("Pipeline-quality timeline: one aggregate point per captured version, oldest first.")
             .WithTags("Snapshots")
-            .RequireOwner();
+            .RequireAdmin();
 
         app.MapGet("/api/snapshots/{id:int}", GetSnapshot)
             .WithName("GetSnapshot")
             .WithSummary("One snapshot's aggregates + parsed config + the config diff vs the previous snapshot.")
             .WithTags("Snapshots")
-            .RequireOwner();
+            .RequireAdmin();
 
         app.MapGet("/api/snapshots/compare", CompareSnapshots)
             .WithName("CompareSnapshots")
             .WithSummary("Per-song diff between two snapshots: which songs regressed or improved. Defaults to latest vs previous.")
             .WithTags("Snapshots")
-            .RequireOwner();
+            .RequireAdmin();
 
         app.MapPost("/api/snapshots", CaptureSnapshot)
             .WithName("CaptureSnapshot")
             .WithSummary("Force-capture a snapshot now (de-dups if nothing changed).")
             .WithTags("Snapshots")
-            .RequireOwner();
+            .RequireAdmin();
 
         app.MapDelete("/api/snapshots/{id:int}", DeleteSnapshot)
             .WithName("DeleteSnapshot")
             .WithSummary("Delete one snapshot (and its per-song rows).")
             .WithTags("Snapshots")
-            .RequireOwner();
+            .RequireAdmin();
 
         return app;
     }

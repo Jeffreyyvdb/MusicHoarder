@@ -63,6 +63,8 @@
   import { toast } from 'svelte-sonner';
   import { cn, scrollStripToActive } from '$lib/utils';
   import type { LyricsStatus } from '$lib/types';
+  import { isAdmin } from '$lib/auth/capabilities';
+  import SharedByBadge from '$lib/components/v2/SharedByBadge.svelte';
 
   type Props = {
     album: AlbumSummary;
@@ -103,7 +105,7 @@
 
   // Fingerprint + Enrichment are pipeline provenance — owner vocabulary, and their lazy loads
   // hit owner-only endpoints. A friend's panel keeps Metadata / Lyrics / Video.
-  const isOwner = $derived(page.data.user?.role === 'Owner');
+  const isOwner = $derived(isAdmin(page.data.user));
 
   const TAB_DEFS = $derived<{ value: TabId; label: string }[]>([
     { value: 'metadata', label: 'Metadata' },
@@ -999,6 +1001,8 @@
           <div
             class="text-muted-foreground mt-2.5 flex flex-wrap items-center gap-2 text-[11px]"
           >
+            <!-- Renders nothing for a track this account owns. -->
+            <SharedByBadge {song} />
             <span class="bg-primary/15 text-primary rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wider">
               {bitrateLabel().split(' ')[0] || 'FILE'}
             </span>

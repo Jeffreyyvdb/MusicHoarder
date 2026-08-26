@@ -46,6 +46,8 @@ fun TracksTab(
     onToggleLike: (Track) -> Unit,
     onPlay: (List<Track>, Int) -> Unit,
     contentPadding: PaddingValues,
+    /** "Shared by X" per track, or null when this account owns it. */
+    sharedByOf: (Track) -> String? = { null },
     modifier: Modifier = Modifier,
 ) {
     val colors = MhTheme.colors
@@ -88,6 +90,7 @@ fun TracksTab(
                     liked = likedIds(track),
                     onToggleLike = { onToggleLike(track) },
                     onClick = { onPlay(tracks, index) },
+                    sharedBy = sharedByOf(track),
                 )
                 HorizontalDivider(color = colors.border, modifier = Modifier.padding(start = 14.dp))
             }

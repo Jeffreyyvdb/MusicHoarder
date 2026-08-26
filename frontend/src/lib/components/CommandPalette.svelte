@@ -35,7 +35,7 @@
   // or History. The group name joins the haystack, so typing "manage" surfaces everything
   // under Manage; a Friend session only gets Listen destinations.
   const NAV_COMMANDS = $derived<NavCommand[]>(
-    navGroupsFor(page.data.user?.role).flatMap((group) =>
+    navGroupsFor(page.data.user).flatMap((group) =>
       group.items.map((item) => ({
         label: item.label,
         href: item.href,

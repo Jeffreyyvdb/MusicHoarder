@@ -5,6 +5,8 @@ using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Tests.Auth;
+using MusicHoarder.Api.Tests.Sharing;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
 
@@ -82,7 +84,7 @@ public class SongMediaEndpointsTests : IDisposable
         await using var db = NewContext();
         // no songs added
 
-        var result = await SongsEndpoints.StreamSong(999, db);
+        var result = await SongsEndpoints.StreamSong(999, db, TestLibraryScope.For(TestUsers.OwnerId), CancellationToken.None);
 
         Assert.IsAssignableFrom<IStatusCodeHttpResult>(result);
         Assert.Equal(404, ((IStatusCodeHttpResult)result).StatusCode);
@@ -97,7 +99,7 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, db);
+        var result = await SongsEndpoints.StreamSong(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), CancellationToken.None);
 
         Assert.IsAssignableFrom<IStatusCodeHttpResult>(result);
         Assert.Equal(404, ((IStatusCodeHttpResult)result).StatusCode);
@@ -113,7 +115,7 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, db);
+        var result = await SongsEndpoints.StreamSong(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), CancellationToken.None);
 
         var streamResult = Assert.IsType<FileStreamHttpResult>(result);
         Assert.Equal("audio/mpeg", streamResult.ContentType);
@@ -135,7 +137,7 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, db);
+        var result = await SongsEndpoints.StreamSong(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), CancellationToken.None);
 
         var streamResult = Assert.IsType<FileStreamHttpResult>(result);
         Assert.Equal("audio/flac", streamResult.ContentType);
@@ -159,7 +161,7 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, db);
+        var result = await SongsEndpoints.StreamSong(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), CancellationToken.None);
 
         var streamResult = Assert.IsType<FileStreamHttpResult>(result);
         Assert.Equal(destPath, ((FileStream)streamResult.FileStream).Name);
@@ -176,7 +178,7 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, db);
+        var result = await SongsEndpoints.StreamSong(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), CancellationToken.None);
 
         Assert.IsAssignableFrom<IStatusCodeHttpResult>(result);
         Assert.Equal(404, ((IStatusCodeHttpResult)result).StatusCode);
@@ -192,7 +194,7 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, db);
+        var result = await SongsEndpoints.StreamSong(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), CancellationToken.None);
 
         var streamResult = Assert.IsType<FileStreamHttpResult>(result);
         Assert.Equal("application/octet-stream", streamResult.ContentType);
@@ -212,7 +214,7 @@ public class SongMediaEndpointsTests : IDisposable
         var thumbs = new FakeThumbnailService(null);
         var http = new DefaultHttpContext();
 
-        var result = await SongsEndpoints.GetSongCover(999, db, resolver, thumbs, http, null);
+        var result = await SongsEndpoints.GetSongCover(999, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, null, CancellationToken.None);
 
         Assert.IsAssignableFrom<IStatusCodeHttpResult>(result);
         Assert.Equal(404, ((IStatusCodeHttpResult)result).StatusCode);
@@ -233,7 +235,7 @@ public class SongMediaEndpointsTests : IDisposable
         var thumbs = new FakeThumbnailService(null);
         var http = new DefaultHttpContext();
 
-        var result = await SongsEndpoints.GetSongCover(song.Id, db, resolver, thumbs, http, null);
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, null, CancellationToken.None);
 
         Assert.IsAssignableFrom<IStatusCodeHttpResult>(result);
         Assert.Equal(404, ((IStatusCodeHttpResult)result).StatusCode);
@@ -252,7 +254,7 @@ public class SongMediaEndpointsTests : IDisposable
         var thumbs = new FakeThumbnailService(null);
         var http = new DefaultHttpContext();
 
-        var result = await SongsEndpoints.GetSongCover(song.Id, db, resolver, thumbs, http, null);
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, null, CancellationToken.None);
 
         Assert.IsAssignableFrom<IStatusCodeHttpResult>(result);
         Assert.Equal(404, ((IStatusCodeHttpResult)result).StatusCode);
@@ -273,7 +275,7 @@ public class SongMediaEndpointsTests : IDisposable
         var thumbs = new FakeThumbnailService(null);
         var http = new DefaultHttpContext();
 
-        var result = await SongsEndpoints.GetSongCover(song.Id, db, resolver, thumbs, http, null);
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, null, CancellationToken.None);
 
         Assert.IsAssignableFrom<IStatusCodeHttpResult>(result);
         Assert.Equal(404, ((IStatusCodeHttpResult)result).StatusCode);
@@ -304,7 +306,7 @@ public class SongMediaEndpointsTests : IDisposable
         var thumbs = new FakeThumbnailService(null);
         var http = new DefaultHttpContext();
 
-        var result = await SongsEndpoints.GetSongCover(song.Id, db, resolver, thumbs, http, null);
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, null, CancellationToken.None);
 
         var file = Assert.IsType<PhysicalFileHttpResult>(result);
         Assert.Equal(thumbnailPath, file.FileName);
@@ -336,7 +338,7 @@ public class SongMediaEndpointsTests : IDisposable
         var thumbs = new FakeThumbnailService(null);
         var http = new DefaultHttpContext();
 
-        var result = await SongsEndpoints.GetSongCover(song.Id, db, resolver, thumbs, http, null);
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, null, CancellationToken.None);
 
         var file = Assert.IsType<PhysicalFileHttpResult>(result);
         Assert.Equal(coverPath, file.FileName);
@@ -358,7 +360,7 @@ public class SongMediaEndpointsTests : IDisposable
         var thumbs = new FakeThumbnailService(null);
         var http = new DefaultHttpContext();
 
-        var result = await SongsEndpoints.GetSongCover(song.Id, db, resolver, thumbs, http, null);
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, null, CancellationToken.None);
 
         var fileResult = Assert.IsType<PhysicalFileHttpResult>(result);
         Assert.Equal(coverPath, fileResult.FileName);
@@ -381,7 +383,7 @@ public class SongMediaEndpointsTests : IDisposable
         var thumbs = new FakeThumbnailService(null);
         var http = new DefaultHttpContext();
 
-        var result = await SongsEndpoints.GetSongCover(song.Id, db, resolver, thumbs, http, null);
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, null, CancellationToken.None);
 
         var bytesResult = Assert.IsType<FileContentHttpResult>(result);
         Assert.Equal(coverBytes, bytesResult.FileContents.ToArray());
@@ -405,7 +407,7 @@ public class SongMediaEndpointsTests : IDisposable
         var thumbs = new FakeThumbnailService(thumb);
         var http = new DefaultHttpContext();
 
-        var result = await SongsEndpoints.GetSongCover(song.Id, db, resolver, thumbs, http, 256);
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, 256, CancellationToken.None);
 
         var fileResult = Assert.IsType<PhysicalFileHttpResult>(result);
         Assert.Equal(thumbPath, fileResult.FileName);
@@ -429,7 +431,7 @@ public class SongMediaEndpointsTests : IDisposable
         var thumbs = new FakeThumbnailService(null); // thumbnailing fails
         var http = new DefaultHttpContext();
 
-        var result = await SongsEndpoints.GetSongCover(song.Id, db, resolver, thumbs, http, 256);
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, 256, CancellationToken.None);
 
         var fileResult = Assert.IsType<PhysicalFileHttpResult>(result);
         Assert.Equal(coverPath, fileResult.FileName);

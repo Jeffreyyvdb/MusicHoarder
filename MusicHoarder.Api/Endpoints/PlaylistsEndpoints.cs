@@ -11,7 +11,7 @@ public static class PlaylistsEndpoints
 {
     public static IEndpointRouteBuilder MapPlaylistsEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/playlists").WithTags("Playlists").RequireOwner();
+        var group = app.MapGroup("/api/playlists").WithTags("Playlists").RequireAdmin();
 
         group.MapGet("/", async (
                 ISpotifyApiService spotifyApi,

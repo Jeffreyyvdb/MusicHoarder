@@ -1,8 +1,9 @@
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Tests.Sharing;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
 
@@ -18,9 +19,11 @@ internal static class ListSongsCaller
         string? downloadDirectory = null,
         string? syncedSourceDirectory = null,
         bool includeDeleted = false,
-        string? enrichmentStatus = null) =>
+        string? enrichmentStatus = null,
+        CurrentUser? caller = null) =>
         SongsEndpoints.ListSongs(
             db,
+            TestLibraryScope.For(caller),
             Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
             {
                 SourceDirectory = "/source",
@@ -31,6 +34,7 @@ internal static class ListSongsCaller
             {
                 SyncedSourceDirectory = syncedSourceDirectory ?? string.Empty,
             }),
+            CancellationToken.None,
             includeDeleted,
             enrichmentStatus);
 }

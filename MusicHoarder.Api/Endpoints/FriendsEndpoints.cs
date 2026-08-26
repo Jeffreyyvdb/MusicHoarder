@@ -1,3 +1,4 @@
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
@@ -18,37 +19,181 @@ public static class FriendsEndpoints
 {
     public static IEndpointRouteBuilder MapFriendsEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/friends").WithTags("Friends").RequireOwner();
+        // "/api/people" is the name that matches the model — these are accounts, not a second-class
+        // "friend" construct. "/api/friends" stays mapped for one release so a browser holding
+        // cached JS does not start 404ing mid-session; delete it with the rest of the aliases.
+        MapPeopleGroup(app, "/api/people");
+        MapPeopleGroup(app, "/api/friends");
+        return app;
+    }
+
+    private static void MapPeopleGroup(IEndpointRouteBuilder app, string prefix)
+    {
+        var isAlias = prefix == "/api/friends";
+        var group = app.MapGroup(prefix).WithTags("People").RequireAdmin();
+        string Name(string name) => isAlias ? name + "Legacy" : name;
+
+        group.MapPatch("/{userId:guid}/capabilities", UpdateCapabilities)
+            .WithName(Name("UpdateMemberCapabilities"))
+            .WithSummary("Set what a member may do: download requests, listening state, re-sharing, admin.");
 
         group.MapPost("/invites", CreateInvite)
-            .WithName("CreateFriendInvite")
+            .WithName(Name("CreateFriendInvite"))
             .WithSummary("Create (or rotate) the invite link for an email; the previous link stops working.");
         group.MapGet("/invites", ListInvites)
-            .WithName("ListFriendInvites")
+            .WithName(Name("ListFriendInvites"))
             .WithSummary("List pending (unconsumed, unexpired) invites.");
         group.MapDelete("/invites/{id:guid}", RevokeInvite)
-            .WithName("RevokeFriendInvite")
+            .WithName(Name("RevokeFriendInvite"))
             .WithSummary("Revoke a pending invite; the link stops working immediately.");
 
         group.MapGet("", ListFriends)
-            .WithName("ListFriends")
+            .WithName(Name("ListFriends"))
             .WithSummary("List friend accounts with their active grants.");
         group.MapDelete("/{userId:guid}", RemoveFriend)
-            .WithName("RemoveFriend")
+            .WithName(Name("RemoveFriend"))
             .WithSummary("Remove a friend: disables the account, kills its sessions, revokes its grants.");
 
         group.MapPost("/{userId:guid}/grants", CreateGrant)
-            .WithName("CreateFriendGrant")
+            .WithName(Name("CreateFriendGrant"))
             .WithSummary("Grant a friend an album, an artist, or the whole library.");
         group.MapDelete("/{userId:guid}/grants/{grantId:int}", RevokeGrant)
-            .WithName("RevokeFriendGrant")
-            .WithSummary("Revoke a grant; the friend's view updates on their next fetch.");
-
-        return app;
+            .WithName(Name("RevokeFriendGrant"))
+            .WithSummary("Revoke a grant; the member's view updates on their next fetch.");
     }
 
     public sealed record CreateInviteRequest(string Email, bool? SendEmail);
     public sealed record CreateGrantRequest(string Scope, string? Artist, string? Album);
+
+    /// <param name="Capabilities">
+    /// The complete desired set, by name — not a delta. Sending the whole set makes the request
+    /// idempotent and means two admins toggling different switches cannot interleave into a state
+    /// neither asked for.
+    /// </param>
+    public sealed record UpdateCapabilitiesRequest(string[] Capabilities);
+
+    // ── Capabilities ────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Set what one account may do. Granting <see cref="Capability.Administer"/> promotes the
+    /// account to <see cref="UserRole.Admin"/>; withdrawing it demotes back to
+    /// <see cref="UserRole.Member"/>.
+    /// </summary>
+    internal static async Task<IResult> UpdateCapabilities(
+        Guid userId,
+        UpdateCapabilitiesRequest body,
+        MusicHoarderDbContext db,
+        ICurrentUserAccessor currentUser,
+        CancellationToken ct)
+    {
+        // Self-demotion is refused rather than handled: an admin who clears their own Administer
+        // bit would immediately 403 out of this very endpoint, with no way back short of the
+        // database. Refusing is kinder than a one-way door.
+        if (userId == currentUser.UserId)
+            return Results.BadRequest(new { error = "cannot_change_own_capabilities" });
+
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
+        if (user is null || user.Role == UserRole.Demo)
+            return Results.NotFound(new { message = "Account not found." });
+
+        if (!TryParseCapabilities(body.Capabilities, out var requested, out var unknown))
+            return Results.BadRequest(new { error = "unknown_capability", capability = unknown });
+
+        var shouldBeAdmin = (requested & Capability.Administer) == Capability.Administer;
+
+        // A disabled account cannot sign in, so making it an admin would manufacture an admin that
+        // can never act — and the last-admin guard below would then happily count it as cover for
+        // demoting the only real one.
+        if (shouldBeAdmin && user.IsDisabled)
+            return Results.BadRequest(new { error = "cannot_promote_disabled_account" });
+
+        // Demotion is the one path that can brick the instance, so it runs serializably.
+        //
+        // Under READ COMMITTED two admins demoting each other concurrently would each count the
+        // other, both commit, and leave zero admins — recoverable only through the database.
+        // Serializable makes one of them fail instead.
+        //
+        // It MUST go through CreateExecutionStrategy: this context is configured with Npgsql
+        // connection resiliency, and a retrying strategy refuses a user-initiated transaction
+        // outright (a 500, not a subtle bug). The strategy also re-runs the block on the
+        // serialization failure that isolation level is there to produce, which is exactly the
+        // behaviour we want. The change tracker is cleared per attempt so a retry re-reads rather
+        // than re-applying a half-mutated entity.
+        if (user.Role == UserRole.Admin && !shouldBeAdmin)
+        {
+            var strategy = db.Database.CreateExecutionStrategy();
+            var lastAdmin = await strategy.ExecuteAsync(async () =>
+            {
+                db.ChangeTracker.Clear();
+                await using var tx =
+                    await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+
+                var target = await db.Users.FirstAsync(u => u.Id == userId, ct);
+                var otherAdmins = await db.Users.CountAsync(
+                    u => u.Role == UserRole.Admin && !u.IsDisabled && u.Id != userId, ct);
+                if (otherAdmins == 0) return true;
+
+                target.Role = UserRole.Member;
+                target.Capabilities = requested;
+                await db.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+                return false;
+            });
+
+            if (lastAdmin)
+                return Results.BadRequest(new { error = "last_admin" });
+
+            // Re-read: the tracker was cleared inside the strategy, so `user` is detached.
+            var saved = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
+            return CapabilitiesResponse(saved);
+        }
+
+        user.Role = shouldBeAdmin ? UserRole.Admin : UserRole.Member;
+        user.Capabilities = requested;
+        await db.SaveChangesAsync(ct);
+
+        return CapabilitiesResponse(user);
+    }
+
+    private static IResult CapabilitiesResponse(User user) => Results.Ok(new
+    {
+        user.Id,
+        user.Email,
+        user.DisplayName,
+        Role = WireRole.ToWire(user.Role),
+        IsAdmin = user.Role == UserRole.Admin,
+        Capabilities = WireRole.ToWire(
+            user.Role == UserRole.Admin ? CapabilityDefaults.All : user.Capabilities),
+    });
+
+    /// <summary>
+    /// Parse capability names, rejecting anything unrecognized rather than ignoring it — a typo'd
+    /// name must not silently read as "revoke that one".
+    /// </summary>
+    private static bool TryParseCapabilities(
+        string[]? names, out Capability parsed, out string? unknown)
+    {
+        parsed = Capability.None;
+        unknown = null;
+
+        foreach (var name in names ?? [])
+        {
+            // Reject digits before parsing. Enum.TryParse happily reads "8" as Administer, so a
+            // client could grant admin without ever naming it — and a typo'd number would land on
+            // whatever flag happened to share that value. The wire contract is names only.
+            if (string.IsNullOrWhiteSpace(name)
+                || name.AsSpan().ContainsAnyInRange('0', '9')
+                || !Enum.TryParse<Capability>(name, ignoreCase: true, out var value)
+                || value == Capability.None
+                || !Enum.IsDefined(value))
+            {
+                unknown = name;
+                return false;
+            }
+            parsed |= value;
+        }
+        return true;
+    }
 
     // ── Invites ─────────────────────────────────────────────────────────────────────────────
 
@@ -137,8 +282,12 @@ public static class FriendsEndpoints
         ICurrentUserAccessor currentUser,
         CancellationToken ct)
     {
+        // Every real account except the caller's own and the shared demo login.
+        //
+        // Deliberately NOT filtered to Role == Member: promoting someone to admin would otherwise
+        // drop them out of this list, leaving no way to demote them again short of the database.
         var friends = await db.Users.AsNoTracking()
-            .Where(u => u.Role == UserRole.Friend)
+            .Where(u => u.Role != UserRole.Demo && u.Id != currentUser.UserId)
             .OrderBy(u => u.CreatedAtUtc)
             .ToListAsync(ct);
 
@@ -158,6 +307,12 @@ public static class FriendsEndpoints
             f.IsDisabled,
             f.CreatedAtUtc,
             f.LastLoginAtUtc,
+            Role = WireRole.ToWire(f.Role),
+            IsAdmin = f.Role == UserRole.Admin,
+            // Effective, not stored: an admin holds everything regardless of their column, and the
+            // toggles must show that rather than a misleading set of empty switches.
+            Capabilities = WireRole.ToWire(
+                f.Role == UserRole.Admin ? CapabilityDefaults.All : f.Capabilities),
             Grants = grants
                 .Where(g => g.GranteeUserId == f.Id)
                 .Select(g => new
@@ -179,7 +334,7 @@ public static class FriendsEndpoints
     {
         // Role check first: this endpoint must never be able to touch the Owner or Demo rows.
         var friend = await db.Users
-            .FirstOrDefaultAsync(u => u.Id == userId && u.Role == UserRole.Friend, ct);
+            .FirstOrDefaultAsync(u => u.Id == userId && u.Role == UserRole.Member, ct);
         if (friend is null)
             return Results.NotFound(new { message = $"Friend with id {userId} not found." });
 
@@ -229,7 +384,7 @@ public static class FriendsEndpoints
             return Results.BadRequest(new { error = "album_required" });
 
         var friend = await db.Users.AsNoTracking()
-            .FirstOrDefaultAsync(u => u.Id == userId && u.Role == UserRole.Friend && !u.IsDisabled, ct);
+            .FirstOrDefaultAsync(u => u.Id == userId && u.Role == UserRole.Member && !u.IsDisabled, ct);
         if (friend is null)
             return Results.NotFound(new { message = $"Friend with id {userId} not found." });
 

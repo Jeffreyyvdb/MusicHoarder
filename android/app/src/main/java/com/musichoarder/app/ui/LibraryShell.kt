@@ -55,6 +55,7 @@ import com.musichoarder.app.data.ArtistGroup
 import com.musichoarder.app.data.ArtistMode
 import com.musichoarder.app.data.ChipKey
 import com.musichoarder.app.data.LibraryContent
+import com.musichoarder.app.data.sharedByLabelFor
 import com.musichoarder.app.data.LibraryState
 import com.musichoarder.app.data.LibraryTab
 import com.musichoarder.app.data.LibraryUiState
@@ -217,6 +218,7 @@ fun LibraryShell(
                 onToggleLike = actions.onToggleLike,
                 onPlay = actions.onPlay,
                 contentPadding = contentPadding,
+                sharedByOf = content::sharedByLabelFor,
             )
         }
     }
@@ -407,14 +409,19 @@ private fun tabIcon(tab: LibraryTab): ImageVector = when (tab) {
 }
 
 /** The live summary under the title: what you are looking at, and how much of it. */
-private fun toolbarMeta(ui: LibraryUiState, content: LibraryContent): String = when (ui.tab) {
-    LibraryTab.Overview ->
-        "${content.trackCount.formatGrouped()} tracks · ${content.libraryAlbumCount.formatGrouped()} albums · " +
-            "${content.artistCount.formatGrouped()} artists"
+private fun toolbarMeta(ui: LibraryUiState, content: LibraryContent): String {
+    val base = when (ui.tab) {
+        LibraryTab.Overview ->
+            "${content.trackCount.formatGrouped()} tracks · ${content.libraryAlbumCount.formatGrouped()} albums · " +
+                "${content.artistCount.formatGrouped()} artists"
 
-    LibraryTab.Albums -> narrowed(content.albums.size, content.albumCount, "album")
-    LibraryTab.Artists -> narrowed(content.artists.size, content.artistCount, "artist")
-    LibraryTab.Tracks -> narrowed(content.tracks.size, content.trackListCount, "track")
+        LibraryTab.Albums -> narrowed(content.albums.size, content.albumCount, "album")
+        LibraryTab.Artists -> narrowed(content.artists.size, content.artistCount, "artist")
+        LibraryTab.Tracks -> narrowed(content.tracks.size, content.trackListCount, "track")
+    }
+    // Names whoever actually shared the rows on screen. Absent when it is all your own music, so
+    // an admin's header reads exactly as it did before.
+    return content.sharedByLabel?.let { "$base · $it" } ?: base
 }
 
 /**

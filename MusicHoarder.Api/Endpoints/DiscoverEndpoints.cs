@@ -14,7 +14,7 @@ namespace MusicHoarder.Api.Endpoints;
 
 /// <summary>
 /// Editorial "Discover" browse over Deezer's free public API (Spotify permanently 404s editorial playlists
-/// for personal API apps). Reads are authenticated but demo-allowed (no <c>RequireOwner</c>); only the
+/// for personal API apps). Reads are authenticated but demo-allowed (no <c>RequireAdmin</c>); only the
 /// subscribe-by-URL resolve is owner-only.
 /// </summary>
 public static class DiscoverEndpoints
@@ -155,7 +155,7 @@ public static class DiscoverEndpoints
             })
             .WithName("DiscoverResolve")
             .WithSummary("Resolve a pasted Spotify/Deezer playlist URL or id into subscribe-ready metadata.")
-            .RequireOwner();
+            .RequireAdmin();
 
         return app;
     }

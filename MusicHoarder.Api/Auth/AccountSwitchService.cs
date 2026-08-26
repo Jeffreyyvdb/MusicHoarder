@@ -153,5 +153,5 @@ public sealed class AccountSwitchService : IAccountSwitchService
     }
 
     private static AccountView ToView(User user, bool isActive) =>
-        new(user.Id, user.Email, user.Role.ToString(), user.DisplayName, isActive);
+        new(user.Id, user.Email, WireRole.ToWire(user.Role), user.DisplayName, isActive);
 }

@@ -15,7 +15,7 @@ public static class WishlistEndpoints
 {
     public static IEndpointRouteBuilder MapWishlistEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/wishlist").WithTags("Wishlist").RequireOwner();
+        var group = app.MapGroup("/api/wishlist").WithTags("Wishlist").RequireAdmin();
 
         group.MapGet("/", async (
                 string? status,
@@ -297,7 +297,7 @@ public static class WishlistEndpoints
             })
             .WithName("RunAlbumCompletion")
             .WithSummary("Run one album-completion pass now and report what it queued, skipped, or why it did nothing.")
-            .RequireOwner();
+            .RequireAdmin();
 
         group.MapPost("/download", (JobManager jobManager, IOptions<MusicEnricherOptions> options) =>
             {

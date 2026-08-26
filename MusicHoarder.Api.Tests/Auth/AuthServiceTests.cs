@@ -175,7 +175,7 @@ public class AuthServiceTests
                     Email = seedOwnerEmail ?? "owner@example.com",
                     EmailNormalized = User.Normalize(seedOwnerEmail ?? "owner@example.com"),
                     DisplayName = "Owner",
-                    Role = UserRole.Owner,
+                    Role = UserRole.Admin,
                     CreatedAtUtc = DateTime.UtcNow,
                 },
                 new User

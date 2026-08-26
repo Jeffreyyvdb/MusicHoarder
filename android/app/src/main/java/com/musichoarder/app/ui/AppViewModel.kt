@@ -226,10 +226,53 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun start() {
         player.connect()
         viewModelScope.launch { graph.library.refresh() }
+        refreshIdentity()
     }
 
     fun refresh() {
         viewModelScope.launch { graph.library.refresh(force = true) }
+        refreshIdentity()
+    }
+
+    /**
+     * What this account is currently allowed to do, by capability name.
+     *
+     * Re-read from the server rather than captured at pairing time. An admin turning a capability
+     * off would otherwise have no effect on an already-paired phone until it re-paired, which is
+     * not a thing anyone would think to do.
+     */
+    private val _capabilities = MutableStateFlow<Set<String>>(emptySet())
+    val capabilities: StateFlow<Set<String>> = _capabilities.asStateFlow()
+
+    fun can(capability: String): Boolean = _capabilities.value.contains(capability)
+
+    /** Server capability name. Must match `Capability.TrackListening` on the API. */
+    private val CAPABILITY_TRACK_LISTENING = "TrackListening"
+
+    /**
+     * Re-read identity and capabilities. Safe to call often — it is one small request.
+     *
+     * A failure deliberately leaves the last-known values in place: a flaky network must not make
+     * the like button vanish. Only a genuine 401 clears them, and that path already unpairs.
+     */
+    fun refreshIdentity() {
+        val issuedFor = graph.sessions.session.value ?: return
+        viewModelScope.launch {
+            val me = runCatching { graph.api.fetchMe() }.getOrNull() ?: return@launch
+
+            // Drop the answer if the active account changed while it was in flight. This runs in
+            // viewModelScope, which survives the account switch that restarted the caller, so a
+            // slow /auth/me issued for account A can land after a switch to B — and without this
+            // check it would write A's role, id and email onto B's stored account and hand B
+            // A's capabilities.
+            if (graph.sessions.session.value?.token != issuedFor.token) return@launch
+
+            _capabilities.value = me.capabilities.toSet()
+            val stored = graph.sessions.accounts.value.active
+            if (stored != null && stored.role != me.role) {
+                graph.sessions.updateActive(me.role, me.id, me.email, me.displayName)
+            }
+        }
     }
 
     // ---- Deep links --------------------------------------------------------------------------
@@ -430,11 +473,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 return@launch
             }
-            // Keep the probe's answer: the role decides which endpoints this pairing reads
-            // (a Friend session streams through /api/shared — see ApiRoutes), and the identity
-            // fields label the account switcher. Captured here, before start() fires the first
-            // library fetch. addAccount dedupes, so re-scanning a QR for a known account just
-            // renews its token; a new account is added alongside the current one and made active.
+            // Keep the probe's answer: the identity fields label the account switcher, and the
+            // role rides along for the same reason (it no longer selects endpoints — the server
+            // scopes them to the caller). Capabilities are NOT frozen here; refreshIdentity()
+            // re-reads them on every foreground, so an admin's change reaches the phone without a
+            // re-pair. addAccount dedupes, so re-scanning a QR for a known account just renews its
+            // token; a new account is added alongside the current one and made active.
             graph.sessions.addAccount(
                 StoredAccount(
                     baseUrl = newSession.baseUrl,
@@ -696,6 +740,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         graph.library.loadAlbumStatuses(albums, viewModelScope)
 
     fun toggleLike(track: Track) {
+        // The server enforces this; refusing here just avoids an optimistic heart that flips back
+        // a moment later with a 403. Capabilities are refreshed on foreground, so a revoke takes
+        // effect without re-pairing — and an empty set (a phone that has not refreshed yet) is
+        // treated as "allowed" so the button never dead-ends on a stale local blank.
+        if (_capabilities.value.isNotEmpty() && !can(CAPABILITY_TRACK_LISTENING)) {
+            _localMessages.tryEmit("Liking is turned off for your account.")
+            return
+        }
         viewModelScope.launch { graph.library.toggleLike(track) }
     }
 

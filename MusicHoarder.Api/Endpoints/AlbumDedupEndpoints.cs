@@ -25,17 +25,17 @@ public static class AlbumDedupEndpoints
         app.MapGet("/api/library/albums/duplicates", Detect)
             .WithName("GetAlbumDuplicates")
             .WithSummary("Near-duplicate album pairs under one artist that the exact grouping key misses (leading-\"the\", \"&\" vs \"and\", near-miss spellings).")
-            .WithTags("Library").RequireOwner();
+            .WithTags("Library").RequireAdmin();
 
         app.MapPost("/api/library/albums/merge", Merge)
             .WithName("MergeAlbums")
             .WithSummary("Rewrite one album spelling onto the other so both halves share a grouping key; built tracks re-queue for re-tag and the identity heal converges the rest.")
-            .WithTags("Library").RequireOwner();
+            .WithTags("Library").RequireAdmin();
 
         app.MapPost("/api/library/albums/dismiss", Dismiss)
             .WithName("DismissAlbumDuplicates")
             .WithSummary("Mark two album titles as NOT the same album; the decision persists across detections.")
-            .WithTags("Library").RequireOwner();
+            .WithTags("Library").RequireAdmin();
 
         return app;
     }

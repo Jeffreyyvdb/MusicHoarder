@@ -251,10 +251,10 @@ public class AccountSwitchServiceTests
             using (var seed = CreateCtx())
             {
                 seed.Users.AddRange(
-                    NewUser(TestUsers.OwnerId, "owner@example.com", UserRole.Owner, "Owner"),
+                    NewUser(TestUsers.OwnerId, "owner@example.com", UserRole.Admin, "Owner"),
                     NewUser(TestUsers.DemoId, "demo@example.com", UserRole.Demo, "Demo"),
-                    NewUser(TestUsers.FriendId, "friend@example.com", UserRole.Friend, "Friend"),
-                    NewUser(TestUsers.SecondFriendId, "friend2@example.com", UserRole.Friend, "Friend Two"));
+                    NewUser(TestUsers.FriendId, "friend@example.com", UserRole.Member, "Friend"),
+                    NewUser(TestUsers.SecondFriendId, "friend2@example.com", UserRole.Member, "Friend Two"));
                 seed.SaveChanges();
             }
 
@@ -297,7 +297,7 @@ public class AccountSwitchServiceTests
             {
                 var id = Guid.NewGuid();
                 ids.Add(id);
-                db.Users.Add(NewUser(id, $"extra{i}@example.com", UserRole.Friend, $"Extra {i}"));
+                db.Users.Add(NewUser(id, $"extra{i}@example.com", UserRole.Member, $"Extra {i}"));
             }
             db.SaveChanges();
             return ids;

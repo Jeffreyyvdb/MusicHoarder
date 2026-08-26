@@ -1,10 +1,10 @@
 /**
  * Switches the active account and hard-reloads into the app. A full page load (not `goto`) is
  * deliberate: the `(app)` group runs with SSR off, so its stores — `songsStore`, `playerStore`,
- * the `library-mode` singleton — are module state that survives soft navigations. Switching the
- * user identity in place is exactly the leak class documented in `sign-out.ts`; the reload
- * resets every singleton and re-runs the server guard, which re-derives the role (and bounces a
- * friend off any owner-only path).
+ * and the grantor lookup behind the "Shared by …" attribution — are module state that survives
+ * soft navigations. Switching the user identity in place is exactly the leak class documented in
+ * `sign-out.ts`; the reload resets every singleton and re-runs the server guard, which bounces a
+ * non-admin off any administration path.
  */
 
 import { switchAccount } from '$lib/api-client';

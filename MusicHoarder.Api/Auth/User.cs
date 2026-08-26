@@ -3,9 +3,9 @@ using System.ComponentModel.DataAnnotations;
 namespace MusicHoarder.Api.Auth;
 
 /// <summary>
-/// A login identity. Invite-only — the Owner and Demo rows are created by EF <c>HasData</c> at
-/// migration time; <see cref="UserRole.Friend"/> rows are the one runtime insert path, created
-/// when an owner-minted <see cref="Invite"/> is accepted. <see cref="EmailNormalized"/> is the
+/// A login identity. Invite-only — the Admin and Demo rows are created by EF <c>HasData</c> at
+/// migration time; <see cref="UserRole.Member"/> rows are the one runtime insert path, created
+/// when an admin-minted <see cref="Invite"/> is accepted. <see cref="EmailNormalized"/> is the
 /// unique lookup key; <see cref="Email"/> is preserved for display.
 /// </summary>
 public class User
@@ -24,6 +24,13 @@ public class User
     public string? DisplayName { get; set; }
 
     public UserRole Role { get; set; }
+
+    /// <summary>
+    /// What this account may do, as granted by an admin. Do not read this directly to authorize —
+    /// go through <see cref="CurrentUser.Can"/>, which folds in the rule that an
+    /// <see cref="UserRole.Admin"/> implicitly holds every flag.
+    /// </summary>
+    public Capability Capabilities { get; set; }
 
     public bool IsDisabled { get; set; }
 

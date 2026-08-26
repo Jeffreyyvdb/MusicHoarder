@@ -5,6 +5,8 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Tests.Auth;
+using MusicHoarder.Api.Tests.Sharing;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
 
@@ -49,7 +51,7 @@ public class MusicVideoEndpointsTests
         db.Songs.Add(Song(1));
         await db.SaveChangesAsync();
 
-        var result = await MusicVideoEndpoints.GetVideoInfo(1, db, default);
+        var result = await MusicVideoEndpoints.GetVideoInfo(1, db, TestLibraryScope.For(TestUsers.OwnerId), default);
         Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)result).StatusCode);
     }
 
@@ -61,7 +63,7 @@ public class MusicVideoEndpointsTests
         db.SongMusicVideos.Add(ReadyVideo(1, offsetMs: 2400));
         await db.SaveChangesAsync();
 
-        var result = await MusicVideoEndpoints.GetVideoInfo(1, db, default);
+        var result = await MusicVideoEndpoints.GetVideoInfo(1, db, TestLibraryScope.For(TestUsers.OwnerId), default);
         var ok = Assert.IsType<Ok<MusicVideoEndpoints.VideoInfoDto>>(result);
         Assert.Equal("Ready", ok.Value!.Status);
         Assert.Equal(2400, ok.Value.SyncOffsetMs);
@@ -77,7 +79,7 @@ public class MusicVideoEndpointsTests
         db.SongMusicVideos.Add(ReadyVideo(1)); // FilePath points nowhere on disk
         await db.SaveChangesAsync();
 
-        var result = await MusicVideoEndpoints.GetVideoInfo(1, db, default);
+        var result = await MusicVideoEndpoints.GetVideoInfo(1, db, TestLibraryScope.For(TestUsers.OwnerId), default);
         var ok = Assert.IsType<Ok<MusicVideoEndpoints.VideoInfoDto>>(result);
         Assert.Equal("Ready", ok.Value!.Status);
         Assert.True(ok.Value.FileMissing);
@@ -97,7 +99,7 @@ public class MusicVideoEndpointsTests
             db.SongMusicVideos.Add(video);
             await db.SaveChangesAsync();
 
-            var result = await MusicVideoEndpoints.GetVideoInfo(1, db, default);
+            var result = await MusicVideoEndpoints.GetVideoInfo(1, db, TestLibraryScope.For(TestUsers.OwnerId), default);
             var ok = Assert.IsType<Ok<MusicVideoEndpoints.VideoInfoDto>>(result);
             Assert.False(ok.Value!.FileMissing);
         }
@@ -117,7 +119,7 @@ public class MusicVideoEndpointsTests
         db.SongMusicVideos.Add(ReadyVideo(1));
         await db.SaveChangesAsync();
 
-        var result = await MusicVideoEndpoints.GetVideoInfo(1, db, default);
+        var result = await MusicVideoEndpoints.GetVideoInfo(1, db, TestLibraryScope.For(TestUsers.OwnerId), default);
         Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)result).StatusCode);
     }
 
@@ -129,7 +131,7 @@ public class MusicVideoEndpointsTests
         db.SongMusicVideos.Add(ReadyVideo(1)); // FilePath points nowhere on disk
         await db.SaveChangesAsync();
 
-        var result = await MusicVideoEndpoints.StreamVideo(1, db, default);
+        var result = await MusicVideoEndpoints.StreamVideo(1, db, TestLibraryScope.For(TestUsers.OwnerId), default);
         Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)result).StatusCode);
     }
 

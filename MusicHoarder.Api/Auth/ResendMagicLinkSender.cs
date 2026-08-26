@@ -64,7 +64,7 @@ public sealed class ResendMagicLinkSender : IMagicLinkSender
 
     public async Task SendInviteAsync(User inviter, string inviteeEmail, string inviteUrl, CancellationToken ct = default)
     {
-        // Only the owner can mint invites (RequireOwner on the endpoint), so no demo
+        // Only the owner can mint invites (RequireAdmin on the endpoint), so no demo
         // short-circuit is needed here — the inviter is never the demo account.
         var opts = _options.CurrentValue;
         var inviterName = string.IsNullOrWhiteSpace(inviter.DisplayName) ? "A MusicHoarder user" : inviter.DisplayName;

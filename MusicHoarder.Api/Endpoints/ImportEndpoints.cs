@@ -21,7 +21,7 @@ public static class ImportEndpoints
 {
     public static IEndpointRouteBuilder MapImportEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/import").WithTags("Import").RequireOwner();
+        var group = app.MapGroup("/api/import").WithTags("Import").RequireAdmin();
 
         group.MapPost("/resolve", async (
                 ImportResolveRequest body,

@@ -55,6 +55,17 @@ data class ApiSong(
     val hasPlainLyrics: Boolean = false,
     val lrclibId: String? = null,
     val hasMusicVideo: Boolean = false,
+    /**
+     * Who shared this track with you. Null means you own it. Pair with [SongsResponse.grantors]
+     * for the display name — never build a label from an id alone.
+     */
+    val sharedByUserId: String? = null,
+    /**
+     * Server-computed build state, present ONLY on rows shared with you. Those carry no
+     * [destinationPath] — the grantor's disk layout is not published — so the client has nothing
+     * to derive it from and must trust the server. See [isBuilt].
+     */
+    @SerialName("isBuilt") val isBuiltServer: Boolean? = null,
 ) {
     /**
      * A song is "built" once it reached the destination library: `LibraryBuildStatus == Done` and a
@@ -69,6 +80,7 @@ data class ApiSong(
 
     val isBuilt: Boolean
         get() {
+            isBuiltServer?.let { return it }
             if (destinationPath.isNullOrBlank()) return false
             val status = libraryBuildStatus?.content ?: return false
             return status.toIntOrNull()?.let { it == LIBRARY_BUILD_DONE }
@@ -80,13 +92,37 @@ data class ApiSong(
 private const val LIBRARY_BUILD_DONE = 3
 
 @Serializable
-data class SongsResponse(@SerialName("songs") val songs: List<ApiSong> = emptyList())
+data class SongsResponse(
+    @SerialName("songs") val songs: List<ApiSong> = emptyList(),
+    /** One entry per account sharing music with you. Empty when nothing was shared. */
+    @SerialName("grantors") val grantors: List<Grantor> = emptyList(),
+)
+
+/**
+ * An account whose music appears in your library, for the "Shared by …" attribution.
+ *
+ * [displayName] is null when they never set one; show neutral wording rather than falling back
+ * to anything else — the server deliberately does not send their email.
+ */
+@Serializable
+data class Grantor(
+    val userId: String,
+    val displayName: String? = null,
+    val songCount: Int = 0,
+)
 
 @Serializable
 data class AuthMe(
     val id: String? = null,
     val email: String? = null,
+    /**
+     * Legacy wire vocabulary ("Owner" | "Demo" | "Friend"). Carried only to label the account
+     * switcher — branch on [isAdmin] or [capabilities], never on this.
+     */
     val role: String? = null,
+    val isAdmin: Boolean = false,
+    /** EFFECTIVE capabilities: an admin lists every one, so a check needs no admin special case. */
+    val capabilities: List<String> = emptyList(),
     val displayName: String? = null,
 )
 
@@ -175,6 +211,11 @@ data class Track(
     val streamUrl: String? = null,
     /** Absolute artwork URL override, same purpose as [streamUrl]. */
     val artworkUrl: String? = null,
+    /**
+     * Who shared this track with you; null when this account owns it. Resolve the display name
+     * through `LibraryState.grantorOf` — an id on its own is not a label.
+     */
+    val sharedByUserId: String? = null,
 )
 
 const val UNKNOWN_ARTIST = "Unknown artist"
@@ -227,6 +268,7 @@ fun ApiSong.toTrack(): Track {
             releaseClassification.equals("LikelyUnreleased", ignoreCase = true),
         isAlbumFill = acquisitionIntent.equals("AlbumFill", ignoreCase = true),
         needsReview = mapEnrichmentState(enrichmentStatus?.content) == EnrichmentState.NeedsReview,
+        sharedByUserId = sharedByUserId,
     )
 }
 

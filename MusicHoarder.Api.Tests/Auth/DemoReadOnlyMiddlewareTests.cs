@@ -72,7 +72,7 @@ public class DemoReadOnlyMiddlewareTests
     [Fact]
     public async Task owner_unsafe_request_passes_through()
     {
-        var owner = new CurrentUser(WellKnownUsers.OwnerId, "owner@example.com", UserRole.Owner, "Owner");
+        var owner = new CurrentUser(WellKnownUsers.OwnerId, "owner@example.com", UserRole.Admin, "Owner");
 
         var (_, nextCalled) = await InvokeAsync(owner, "DELETE", "/songs/1");
 

@@ -235,7 +235,7 @@ public class FriendsEndpointsTests
                     Email = "owner@example.com",
                     EmailNormalized = User.Normalize("owner@example.com"),
                     DisplayName = "Owner",
-                    Role = UserRole.Owner,
+                    Role = UserRole.Admin,
                     CreatedAtUtc = DateTime.UtcNow,
                 },
                 new User
@@ -254,7 +254,7 @@ public class FriendsEndpointsTests
                     Id = TestUsers.FriendId,
                     Email = "friend@test.local",
                     EmailNormalized = User.Normalize("friend@test.local"),
-                    Role = UserRole.Friend,
+                    Role = UserRole.Member,
                     CreatedAtUtc = DateTime.UtcNow,
                 });
             }

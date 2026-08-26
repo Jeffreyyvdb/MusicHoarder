@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations;
 namespace MusicHoarder.Api.Auth;
 
 /// <summary>
-/// An owner-minted, email-bound, single-use invitation to create a <see cref="UserRole.Friend"/>
+/// An owner-minted, email-bound, single-use invitation to create a <see cref="UserRole.Member"/>
 /// account. Follows <see cref="MagicLinkToken"/>'s posture — we store SHA-256 of the secret only,
 /// never the raw token — because unlike a <see cref="Persistence.SongShare"/> link (one song's
 /// audio) an invite mints an account. Consequence: the URL can only be shown at creation; a

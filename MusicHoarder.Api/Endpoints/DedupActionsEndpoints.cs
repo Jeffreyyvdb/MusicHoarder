@@ -18,12 +18,12 @@ public static class DedupActionsEndpoints
         app.MapGet("/api/library/dedup/actions", List)
             .WithName("ListDedupActions")
             .WithSummary("Recent dedup actions (merges, credit splits, heals) with per-batch summaries and revert eligibility.")
-            .WithTags("Library").RequireOwner();
+            .WithTags("Library").RequireAdmin();
 
         app.MapPost("/api/library/dedup/actions/revert", Revert)
             .WithName("RevertDedupAction")
             .WithSummary("Revert one dedup action: restores the audited old values, re-queues built files for re-tag, and removes the aliases a merge stored.")
-            .WithTags("Library").RequireOwner();
+            .WithTags("Library").RequireAdmin();
 
         return app;
     }

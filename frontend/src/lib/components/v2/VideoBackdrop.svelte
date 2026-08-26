@@ -17,6 +17,7 @@
   import { playerStore } from '$lib/stores/player.svelte';
   import { videoBackdropPrefs } from '$lib/stores/video-backdrop-prefs.svelte';
   import { cn } from '$lib/utils';
+  import { isAdmin } from '$lib/auth/capabilities';
 
   // The full-screen player's backdrop: the song's muted music video when one is attached (and the
   // pref is on and this song is the one playing), else the blurred ambient artwork. The audio
@@ -30,7 +31,7 @@
   const DRIFT_TOLERANCE_S = 0.3;
 
   const isOwner = $derived(
-    (page.data.user as { role?: 'Owner' | 'Demo' } | undefined)?.role === 'Owner'
+    isAdmin(page.data.user)
   );
 
   let info = $state<SongVideoInfo | null>(null);

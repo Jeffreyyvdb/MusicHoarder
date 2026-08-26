@@ -246,7 +246,7 @@ public sealed class AuthService : IAuthService
         var existingUser = await db.Users
             .FirstOrDefaultAsync(u => u.EmailNormalized == normalized, ct)
             .ConfigureAwait(false);
-        if (existingUser is not null && existingUser.Role != UserRole.Friend)
+        if (existingUser is not null && existingUser.Role != UserRole.Member)
             return null;
 
         var rawToken = GenerateRawToken();
@@ -339,20 +339,23 @@ public sealed class AuthService : IAuthService
                     Id = Guid.NewGuid(),
                     Email = invite.Email,
                     EmailNormalized = invite.EmailNormalized,
-                    Role = UserRole.Friend,
+                    Role = UserRole.Member,
+                    Capabilities = CapabilityDefaults.NewMember,
                     CreatedAtUtc = nowUtc,
                 };
                 db.Users.Add(user);
             }
-            else if (user.Role == UserRole.Friend)
+            else if (user.Role == UserRole.Member)
             {
-                // Owner-authorized re-entry: a removed ("disabled") friend accepting a fresh
-                // invite comes back, instead of dead-ending at a disabled account.
+                // Admin-authorized re-entry: a removed ("disabled") member accepting a fresh
+                // invite comes back, instead of dead-ending at a disabled account. Capabilities
+                // are deliberately left as they were — re-inviting someone must not silently
+                // restore a capability the admin revoked.
                 user.IsDisabled = false;
             }
             else
             {
-                // The email meanwhile belongs to the owner/demo (CreateOrRotate already rejects
+                // The email meanwhile belongs to the admin/demo (CreateOrRotate already rejects
                 // this; here we guard the race). Uniform failure.
                 return null;
             }

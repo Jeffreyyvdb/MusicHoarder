@@ -68,23 +68,14 @@ class MusicHoarderApi(
 
     private fun url(path: String): String = "${baseUrl()}$API_PREFIX$path"
 
-    /**
-     * True for a Friend pairing: music is read through the grant-scoped /api/shared routes (see
-     * [ApiRoutes]), and the library repository relaxes owner-only predicates (build state, album
-     * status dots) that have no meaning for grant-scoped rows.
-     */
-    val isSharedLibrary: Boolean get() = sessions.session.value?.isFriend == true
-
-    private fun isFriend(): Boolean = isSharedLibrary
-
     /** Range-enabled audio stream; prefers the built destination copy server-side. */
-    fun streamUrl(songId: Int): String = url(ApiRoutes.stream(songId, isFriend()))
+    fun streamUrl(songId: Int): String = url(ApiRoutes.stream(songId))
 
     /**
      * Cover art, thumbnailed server-side. [size] is snapped up to the nearest bucket
      * (128/256/400/640), so passing the real display size costs nothing.
      */
-    fun coverUrl(songId: Int, size: Int): String = url(ApiRoutes.cover(songId, size, isFriend()))
+    fun coverUrl(songId: Int, size: Int): String = url(ApiRoutes.cover(songId, size))
 
     /**
      * Identity check. [candidate] lets the pairing flow probe a session that has not been persisted
@@ -166,26 +157,27 @@ class MusicHoarderApi(
             execute(request) { json.decodeFromString<AccessTokenResponse>(it).accessToken }
         }
 
-    suspend fun fetchSongs(): List<ApiSong> =
-        get(ApiRoutes.songs(isFriend())) { json.decodeFromString<SongsResponse>(it).songs }
+    /** The whole library: your own rows plus anything shared with you, and who shared it. */
+    suspend fun fetchSongs(): SongsResponse =
+        get(ApiRoutes.songs()) { json.decodeFromString<SongsResponse>(it) }
 
     /**
      * Lyrics are fetched per song rather than shipped with the library dump — the AI transcription
      * text in particular is large, and most songs never have their lyrics opened.
      */
     suspend fun fetchLyrics(songId: Int): Lyrics =
-        get(ApiRoutes.lyrics(songId, isFriend())) { json.decodeFromString<LyricsResponse>(it).toLyrics() }
+        get(ApiRoutes.lyrics(songId)) { json.decodeFromString<LyricsResponse>(it).toLyrics() }
 
     /** Null when the song has no music video attached (the endpoint 404s, which is the common case). */
     suspend fun fetchVideoInfo(songId: Int): VideoInfo? =
         try {
-            get(ApiRoutes.video(songId, isFriend())) { json.decodeFromString<VideoInfo>(it) }
+            get(ApiRoutes.video(songId)) { json.decodeFromString<VideoInfo>(it) }
         } catch (e: ApiException) {
             if (e.status == 404) null else throw e
         }
 
     /** Range-enabled mp4 of the music video, played muted behind the player. */
-    fun videoStreamUrl(songId: Int): String = url(ApiRoutes.videoStream(songId, isFriend()))
+    fun videoStreamUrl(songId: Int): String = url(ApiRoutes.videoStream(songId))
 
     /**
      * The artist's portrait, by name.
@@ -201,7 +193,7 @@ class MusicHoarderApi(
     /** Hearts or un-hearts a song. Returns the server's `likedAtUtc` — null once unliked. */
     suspend fun setLiked(songId: Int, liked: Boolean): String? = withContext(Dispatchers.IO) {
         val request = Request.Builder()
-            .url(url(ApiRoutes.like(songId, isFriend())))
+            .url(url(ApiRoutes.like(songId)))
             .apply { if (liked) post(EMPTY_BODY) else delete() }
             .build()
         execute(request) { json.decodeFromString<LikeResponse>(it).likedAtUtc }
@@ -229,7 +221,7 @@ class MusicHoarderApi(
 
     /** Bumps play count / last-played, same as the web player does on track start. */
     suspend fun reportPlayed(songId: Int) {
-        runCatching { post(ApiRoutes.played(songId, isFriend())) }
+        runCatching { post(ApiRoutes.played(songId)) }
     }
 
     // --- Anonymous share links (https://host/share/{token}) ---------------------------------

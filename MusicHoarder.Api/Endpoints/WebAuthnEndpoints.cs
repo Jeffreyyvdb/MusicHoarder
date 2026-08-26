@@ -9,7 +9,7 @@ namespace MusicHoarder.Api.Endpoints;
 /// WebAuthn (passkey) ceremonies. Nested under <c>/api/auth/webauthn</c> so the unauthenticated
 /// <c>authenticate/*</c> endpoints fall inside the <c>/api/auth/</c> allowlist; enrollment +
 /// management require a real (non-demo) account via
-/// <see cref="RouteHandlerBuilderExtensions.RequireRealAccount"/> — an invited friend enrols
+/// <see cref="RouteHandlerBuilderExtensions.RequireNonDemo"/> — an invited friend enrols
 /// passkeys for their own account too, which is what lets them sign in to the native client with
 /// one.
 /// The in-flight ceremony challenge round-trips through a short-lived, data-protected cookie.
@@ -42,7 +42,7 @@ public static class WebAuthnEndpoints
                 WriteChallengeCookie(ctx, dp, RegistrationCookie, options.ToJson());
                 return Results.Text(options.ToJson(), "application/json");
             })
-            .RequireRealAccount()
+            .RequireNonDemo()
             .WithName("WebAuthnRegisterBegin");
 
         group.MapPost("/register/complete", async (
@@ -70,7 +70,7 @@ public static class WebAuthnEndpoints
                     return Results.Json(new { error = "verification_failed", detail = ex.Message }, statusCode: 400);
                 }
             })
-            .RequireRealAccount()
+            .RequireNonDemo()
             .WithName("WebAuthnRegisterComplete");
 
         group.MapGet("/credentials", async (
@@ -81,7 +81,7 @@ public static class WebAuthnEndpoints
                 var creds = await webAuthn.ListCredentialsAsync(accessor.User!.Id, ct);
                 return Results.Ok(creds);
             })
-            .RequireRealAccount()
+            .RequireNonDemo()
             .WithName("WebAuthnListCredentials");
 
         group.MapDelete("/credentials/{id:guid}", async (
@@ -93,7 +93,7 @@ public static class WebAuthnEndpoints
                 var removed = await webAuthn.DeleteCredentialAsync(accessor.User!.Id, id, ct);
                 return removed ? Results.Ok(new { ok = true }) : Results.NotFound(new { error = "not_found" });
             })
-            .RequireRealAccount()
+            .RequireNonDemo()
             .WithName("WebAuthnDeleteCredential");
 
         // --- Authentication (anonymous — inside the /api/auth/ allowlist) ----------------------
