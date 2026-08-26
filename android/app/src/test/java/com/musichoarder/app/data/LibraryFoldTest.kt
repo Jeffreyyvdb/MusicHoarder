@@ -43,6 +43,18 @@ class LibraryFoldTest {
         foldLibrary(state, LibraryUiState(), likes, emptyMap())
 
     @Test
+    fun `a server too old to group albums still shows its tracks`() {
+        // A phone from the Play Store can be newer than the self-hosted server it talks to. Losing
+        // the album grid is no reason to refuse to show the library — /songs answered fine.
+        val old = state.copy(albums = emptyList(), albumsUnsupported = true)
+        val content = foldLibrary(old, LibraryUiState(), emptyMap(), emptyMap())
+
+        assertEquals(listOf(1, 3), content.tracks.map { it.id }.sorted())
+        assertEquals(true, content.albumsUnsupported)
+        assertEquals(0, content.albums.size)
+    }
+
+    @Test
     fun `the tracks list leaves out album fill, and keeps a filled track you liked`() {
         assertEquals(listOf(1, 3), fold().tracks.map { it.id }.sorted())
         assertEquals(2, fold().trackListCount)
