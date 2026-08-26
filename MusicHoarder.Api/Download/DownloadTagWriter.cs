@@ -54,7 +54,10 @@ public static class DownloadTagWriter
         }
         catch (Exception ex)
         {
-            logger?.LogDebug("Could not stamp download tags on {Path}: {Message}", path, ex.Message);
+            // Warning, not Debug: an unstamped download reaches the library carrying yt-dlp's own
+            // YouTube tags (or none at all, when the file itself is unreadable), which is what turns
+            // a known wishlist track into an "Unknown Artist" row that enrichment can never match.
+            logger?.LogWarning("Could not stamp download tags on {Path}: {Message}", path, ex.Message);
             return false;
         }
     }
