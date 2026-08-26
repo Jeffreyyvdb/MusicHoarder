@@ -11,16 +11,27 @@
 
 import {
   currentGrantors,
+  fetchAlbums,
   fetchSongs,
+  hydrateAlbums,
   likeSong,
   openProgressStream,
   unlikeSong,
+  type AlbumSummaryDto,
   type ApiSong,
   type Grantor,
   type ProgressSnapshot
 } from '$lib/api-client';
 
 let songs = $state<ApiSong[]>([]);
+/**
+ * The album cards the server grouped, still as it sent them. Kept apart from {@link albums} so a
+ * heart tap or a play can re-join against the mutated song rows without another request.
+ */
+let albumDtos = $state<AlbumSummaryDto[]>([]);
+/** Cards for the song-detail panel: every song, per folder, unmerged. Loaded on first use. */
+let detailAlbumDtos = $state<AlbumSummaryDto[]>([]);
+let detailAlbumsRequested = false;
 /**
  * Who shared the rows in {@link songs}. Lives HERE, as a rune, rather than in `api-client`:
  * that module is a plain `.ts` file, so its module-level copy cannot be reactive, and a
@@ -35,8 +46,12 @@ let hasLoaded = false;
 async function loadSongs(opts?: { silent?: boolean }): Promise<void> {
   try {
     if (!opts?.silent) isLoading = true;
-    const loaded = await fetchSongs();
+    // Both in one round trip. They are two views of the same library, so fetching them together
+    // keeps the album cards from describing a song list that has already moved on.
+    const [loaded, grouped] = await Promise.all([fetchSongs(), fetchAlbums()]);
     songs = loaded;
+    albumDtos = grouped;
+    if (detailAlbumsRequested) void loadDetailAlbums();
     // Read AFTER the await: fetchSongs populates the api-client's copy as it resolves.
     grantors = currentGrantors();
     hasLoaded = true;
@@ -45,6 +60,14 @@ async function loadSongs(opts?: { silent?: boolean }): Promise<void> {
     error = err instanceof Error ? err.message : 'Failed to load library';
   } finally {
     if (!opts?.silent) isLoading = false;
+  }
+}
+
+async function loadDetailAlbums(): Promise<void> {
+  try {
+    detailAlbumDtos = await fetchAlbums({ builtOnly: false, merge: false });
+  } catch {
+    // The panel degrades to no album context; the library grid is unaffected.
   }
 }
 
@@ -133,9 +156,23 @@ async function toggleLike(id: number): Promise<void> {
   try {
     const result = liking ? await likeSong(id) : await unlikeSong(id);
     song.likedAtUtc = result.likedAtUtc;
+    // Liking an album-fill track promotes it to "yours", which can move the album's added-date and
+    // so its place in "Recently added". That rule is the server's now, so ask it again rather than
+    // keeping a second copy here — it is one small request, and only on a real like.
+    if (song.acquisitionIntent === 'AlbumFill' || song.isAlbumFill) void refreshAlbums();
   } catch (err) {
     song.likedAtUtc = previous;
     throw err;
+  }
+}
+
+/** Re-fetch just the album cards, leaving the song rows (and their overlays) alone. */
+async function refreshAlbums(): Promise<void> {
+  try {
+    albumDtos = await fetchAlbums();
+    if (detailAlbumsRequested) await loadDetailAlbums();
+  } catch {
+    // Keep the cards we have; the next full refresh reconciles.
   }
 }
 
@@ -155,6 +192,9 @@ function notePlayed(id: number): void {
  */
 function reset(): void {
   songs = [];
+  albumDtos = [];
+  detailAlbumDtos = [];
+  detailAlbumsRequested = false;
   grantors = [];
   isLoading = false;
   error = null;
@@ -172,9 +212,46 @@ function reset(): void {
   }
 }
 
+/**
+ * Song rows by id, rebuilt whenever the dataset changes. The values are the store's own `$state`
+ * proxies, which is what lets an album view see a heart tap without a refetch.
+ */
+const songsById = $derived(new Map(songs.map((song) => [song.id, song])));
+
+const albums = $derived(hydrateAlbums(albumDtos, songsById));
+const detailAlbums = $derived(hydrateAlbums(detailAlbumDtos, songsById));
+
 export const songsStore = {
   get songs() {
     return songs;
+  },
+  /**
+   * The store's rows by id — the objects themselves, so anything joining against them keeps seeing
+   * the optimistic like/play overlays. Use with {@link hydrateAlbums}.
+   */
+  get songsById() {
+    return songsById;
+  },
+  /** The library's album cards: built songs only, folder-split albums folded together. */
+  get albums() {
+    return albums;
+  },
+  /**
+   * Cards for the song-detail panel — every song including unbuilt ones, one card per destination
+   * folder. Empty until {@link ensureDetailAlbums} has been called.
+   */
+  get detailAlbums() {
+    return detailAlbums;
+  },
+  /**
+   * Start loading the detail panel's cards. Only that panel needs them, so nothing else pays for
+   * them; called when the panel opens rather than from the getter, because a read that quietly
+   * starts a fetch is a side effect inside whatever `$derived` happens to touch it.
+   */
+  ensureDetailAlbums(): void {
+    if (detailAlbumsRequested) return;
+    detailAlbumsRequested = true;
+    void loadDetailAlbums();
   },
   get grantors() {
     return grantors;
@@ -191,6 +268,7 @@ export const songsStore = {
     return error;
   },
   loadSongs,
+  refreshAlbums,
   ensureLoaded,
   startLive,
   stopLive,

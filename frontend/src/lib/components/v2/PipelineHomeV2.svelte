@@ -15,8 +15,8 @@
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { Skeleton } from '$lib/components/ui/skeleton';
   import {
-    buildAlbumsFromSongs,
-    mergeAlbumsByName,
+    fetchAlbums,
+    hydrateAlbums,
     fetchDuplicates,
     fetchQualityOverview,
     fetchQualityProgress,
@@ -26,6 +26,7 @@
     sortAlbumsByRecency,
     triggerEnrichmentScan,
     type AlbumSummary,
+    type AlbumSummaryDto,
     type ApiOverviewActivity,
     type ApiSong,
     type ApiStats,
@@ -44,6 +45,7 @@
   // ── data layer (reuses the existing api-client + album-sections) ───────────
   let stats = $state<ApiStats | null>(null);
   let songs = $state<ApiSong[]>([]);
+  let albumDtos = $state<AlbumSummaryDto[]>([]);
   let quality = $state<QualityOverview | null>(null);
   let qualityProgress = $state<QualityProgress | null>(null);
   let duplicates = $state<DuplicatesResponse | null>(null);
@@ -63,15 +65,17 @@
     if (loadInFlight) return;
     loadInFlight = true;
     try {
-      const [stRes, songsRes, qRes, qpRes, dupRes] = await Promise.allSettled([
+      const [stRes, songsRes, albumsRes, qRes, qpRes, dupRes] = await Promise.allSettled([
         fetchStats(),
         fetchSongs(),
+        fetchAlbums(),
         fetchQualityOverview(),
         fetchQualityProgress(),
         fetchDuplicates()
       ]);
       if (stRes.status === 'fulfilled') stats = stRes.value;
       if (songsRes.status === 'fulfilled') songs = songsRes.value;
+      if (albumsRes.status === 'fulfilled') albumDtos = albumsRes.value;
       // Quality grading may be unconfigured — failure just leaves the KPI as "—".
       if (qRes.status === 'fulfilled') quality = qRes.value;
       if (qpRes.status === 'fulfilled') qualityProgress = qpRes.value;
@@ -333,12 +337,11 @@
     }
   }
 
-  // ── just landed (recently-added albums, reusing album-sections) ─────────────
+  // ── just landed (the newest albums the server grouped) ──────────────────────
   const justLanded = $derived.by<AlbumSummary[]>(() => {
-    if (!loaded) return [];
-    const built = songs.filter(isBuiltSong);
-    if (built.length === 0) return [];
-    return sortAlbumsByRecency(mergeAlbumsByName(buildAlbumsFromSongs(built))).slice(0, 6);
+    if (!loaded || albumDtos.length === 0) return [];
+    const byId = new Map(songs.map((song) => [song.id, song]));
+    return sortAlbumsByRecency(hydrateAlbums(albumDtos, byId)).slice(0, 6);
   });
 
   function albumInitials(title: string): string {

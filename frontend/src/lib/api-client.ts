@@ -547,75 +547,112 @@ export function mapEnrichmentStatus(status?: string | number | null): Normalized
 const UNKNOWN_ALBUM = "Unknown Album"
 const UNKNOWN_ARTIST = "Unknown Artist"
 
-/** Aggregated view of all songs sharing an `(albumArtist, album)` pair. */
-export interface AlbumSummary {
+/**
+ * One album card exactly as `GET /api/albums` groups it.
+ *
+ * The grouping rules live on the server now. They used to live here, in full, and in a second full
+ * copy in the Android client — which is how the same album added-date rule came to need fixing twice
+ * and two separate `each_key_duplicate` crashes came to ship. Anything below this line that looks
+ * like a grouping decision is a bug: the client's remaining job is to join the track ids against the
+ * songs it already holds.
+ */
+export interface AlbumSummaryDto {
   /**
-   * Stable key. For built songs this is the **destination folder directory** — the same unit
-   * Navidrome groups on (one reconciled MUSICBRAINZ_ALBUMID is written per folder), so a single
-   * album name that was split across releases/folders shows as the same separate cards the player
-   * does. Songs without a destination path fall back to `${artistLower}::${titleLower}`.
-   * Used as the `?album=` URL param and for client-side album lookup.
+   * Stable key, and the `?album=` URL parameter. For built songs this is the destination folder
+   * directory — the same unit Navidrome groups on — so one album name split across releases shows as
+   * the separate cards the player shows. Unbuilt songs fall back to {@link nameKey}.
    */
   key: string
   /**
    * Every destination folder this card covers — `[key]` for a plain card, and all of the merged
-   * folders (representative first) for one produced by {@link mergeAlbumsByName}. Lets callers
-   * resolve a `?album=<folder>` deep-link that points at a folder which lost the representative
-   * election, and tells AlbumPage whether it may pass a single-folder hint to the backend.
+   * folders (representative first) for a merged one. Lets callers resolve an `?album=<folder>`
+   * deep-link pointing at a folder that lost the representative election, and tells AlbumPage
+   * whether it may pass a single-folder hint to the backend.
    */
   folderKeys: string[]
+  /** `artistLower::titleLower` — the name-level identity, and the legacy deep-link shape. */
+  nameKey: string
   title: string
   artist: string
+  /** The earliest year the tracks agree on — a deluxe reissue's tracks carry the reissue year. */
   year: number | null
   trackCount: number
-  /** Sum of durationSeconds across known tracks. */
   durationSeconds: number
-  /** Sum of fileSizeBytes across known tracks. */
   byteSize: number
-  /** First non-null genre encountered; null otherwise. */
   genre: string | null
-  /** First non-null record label encountered. */
   label: string | null
-  /** First non-null catalog number encountered. */
   catalogNumber: string | null
-  /** First non-null barcode / UPC encountered. */
   upc: string | null
-  /** First non-null full release date (ISO string) encountered. */
   releaseDate: string | null
-  /** First non-null musicBrainzReleaseId encountered. */
   musicBrainzReleaseId: string | null
-  /** First non-null albumArt URL encountered. */
-  coverUrl: string | null
+  /** The first track with artwork; {@link AlbumSummary.coverUrl} is the resolved URL. */
+  coverSongId: number | null
   /**
-   * Most recent "added" time across the album's tracks (ISO string); null if none known.
-   *
-   * Measured over the tracks that are {@link isMyMusic} — album completion dropping a track into a
-   * record you have owned for years must not pull it back to the front of "Recently added". An album
-   * made *entirely* of album fill falls back to all of its tracks, so it still carries a date rather
-   * than sorting last with a null.
+   * Most recent added-date over the tracks that are yours rather than album fill, falling back to
+   * all of them for an album that is nothing but fill. What "Recently added" sorts on.
    */
   addedAtUtc: string | null
-  /** Sum of playCount across the album's tracks. */
   playCount: number
-  /** Songs ordered by track number then title. */
+  /** The album's tracks, ordered by track number then title. Join against the songs list. */
+  trackIds: number[]
+}
+
+/** An {@link AlbumSummaryDto} joined against the songs the client holds — see {@link hydrateAlbums}. */
+export interface AlbumSummary extends AlbumSummaryDto {
+  coverUrl: string | null
+  /** The album's songs in {@link AlbumSummaryDto.trackIds} order. */
   songs: ApiSong[]
+}
+
+/** Which albums to ask for. Every field narrows the SONGS before they are grouped. */
+export interface AlbumQuery {
+  /** Only songs that reached the destination library. Default true — what the grid shows. */
+  builtOnly?: boolean
+  /** Fold cards that are the same album under different destination folders. Default true. */
+  merge?: boolean
+  artist?: string | null
+  /** A year, or `"unknown"` for the no-year bucket. */
+  year?: string | null
+  unreleased?: boolean
+}
+
+export async function fetchAlbums(query: AlbumQuery = {}): Promise<AlbumSummaryDto[]> {
+  const params = new URLSearchParams()
+  if (query.builtOnly === false) params.set("builtOnly", "false")
+  if (query.merge === false) params.set("merge", "false")
+  if (query.artist) params.set("artist", query.artist)
+  if (query.year) params.set("year", query.year)
+  if (query.unreleased) params.set("unreleased", "true")
+  const suffix = params.size > 0 ? `?${params}` : ""
+  const result = await requestJson<{ albums: AlbumSummaryDto[] }>(`/api/albums${suffix}`)
+  return result.albums ?? []
+}
+
+/**
+ * Join album cards against the songs already in memory.
+ *
+ * The songs must be the very objects the songs store holds, not copies: the store mutates a row in
+ * place when you tap a heart or play a track, and the album views only see that because they hold
+ * the same object. Copying here would make a heart tap look like nothing happened.
+ */
+export function hydrateAlbums(
+  albums: AlbumSummaryDto[],
+  songsById: Map<number, ApiSong>,
+): AlbumSummary[] {
+  return albums.map((album) => ({
+    ...album,
+    coverUrl: album.coverSongId != null ? getSongCoverUrl(album.coverSongId) : null,
+    // A song can be missing when the two fetches straddle a library change; dropping it is the
+    // honest answer, and the next refresh reconciles.
+    songs: album.trackIds
+      .map((id) => songsById.get(id))
+      .filter((song): song is ApiSong => song !== undefined),
+  }))
 }
 
 function nonEmpty(value: string | null | undefined): string | null {
   const trimmed = (value ?? "").trim()
   return trimmed.length > 0 ? trimmed : null
-}
-
-/**
- * Destination folder directory of a built song — the album folder the music server reads, where
- * the library builder elects one reconciled release identity. Null when the song isn't built yet.
- * Mirrors the derivation in AlbumPage.svelte.
- */
-function destinationFolderOf(song: ApiSong): string | null {
-  const path = nonEmpty(song.destinationPath)
-  if (!path) return null
-  const idx = path.lastIndexOf("/")
-  return idx > 0 ? path.slice(0, idx) : path
 }
 
 /**
@@ -669,154 +706,9 @@ export function sortAlbumsByRecency(albums: AlbumSummary[]): AlbumSummary[] {
   return sortAlbums(albums, "recent")
 }
 
-/**
- * Group raw songs into album summaries used by Gallery / AlbumPage.
- * Built songs group by their destination folder (the unit the music server reads, so the app
- * mirrors how the player splits one album name across releases); unbuilt songs fall back to
- * `artistLower::titleLower` so search/command-palette call sites keep working.
- */
-export function buildAlbumsFromSongs(songs: ApiSong[]): AlbumSummary[] {
-  const map = new Map<string, AlbumSummary>()
-  // Most recent added-date over ALL tracks, kept aside as the fallback for an album that has none of
-  // your own — see AlbumSummary.addedAtUtc. Not a field on the summary: nothing outside this
-  // function needs it, and one exported meaning per field is what keeps the sorts honest.
-  const anyTrackAdded = new Map<string, string>()
-  for (const song of songs) {
-    const title = nonEmpty(song.album) ?? UNKNOWN_ALBUM
-    const artist = nonEmpty(song.albumArtist) ?? nonEmpty(song.artist) ?? UNKNOWN_ARTIST
-    const key = destinationFolderOf(song) ?? `${artist.toLowerCase()}::${title.toLowerCase()}`
-    let entry = map.get(key)
-    if (!entry) {
-      entry = {
-        key,
-        folderKeys: [key],
-        title,
-        artist,
-        year: song.year ?? null,
-        trackCount: 0,
-        durationSeconds: 0,
-        byteSize: 0,
-        genre: null,
-        label: null,
-        catalogNumber: null,
-        upc: null,
-        releaseDate: null,
-        musicBrainzReleaseId: null,
-        coverUrl: null,
-        addedAtUtc: null,
-        playCount: 0,
-        songs: [],
-      }
-      map.set(key, entry)
-    }
-    entry.trackCount += 1
-    const added = songAddedIso(song)
-    if (added) {
-      if (isLaterIso(added, anyTrackAdded.get(key) ?? null)) anyTrackAdded.set(key, added)
-      if (isMyMusic(song) && isLaterIso(added, entry.addedAtUtc)) entry.addedAtUtc = added
-    }
-    entry.playCount += song.playCount ?? 0
-    entry.durationSeconds += song.durationSeconds ?? 0
-    entry.byteSize += song.fileSizeBytes ?? 0
-    if (song.year && (!entry.year || song.year < entry.year)) entry.year = song.year
-    entry.genre ??= nonEmpty(song.genre)
-    entry.label ??= nonEmpty(song.label)
-    entry.catalogNumber ??= nonEmpty(song.catalogNumber)
-    entry.upc ??= nonEmpty(song.upc)
-    entry.releaseDate ??= nonEmpty(song.releaseDate)
-    if (!entry.musicBrainzReleaseId && song.musicBrainzReleaseId) {
-      entry.musicBrainzReleaseId = song.musicBrainzReleaseId
-    }
-    if (!entry.coverUrl) entry.coverUrl = coverUrlForSong(song)
-    entry.songs.push(song)
-  }
-  for (const album of map.values()) {
-    album.songs.sort(byTrackNumberThenTitle)
-    // Nothing of your own in this album — an album completion filled in whole, or one whose owned
-    // tracks were soft-deleted. Date it from what is there so it still sorts.
-    album.addedAtUtc ??= anyTrackAdded.get(album.key) ?? null
-  }
-  return Array.from(map.values()).sort(byArtistThenTitle)
-}
-
-/** True when `candidate` is a later instant than `current` (a null `current` always loses). */
-function isLaterIso(candidate: string, current: string | null): boolean {
-  return !current || Date.parse(candidate) > Date.parse(current)
-}
-
-function byTrackNumberThenTitle(a: ApiSong, b: ApiSong): number {
-  const na = a.trackNumber ?? Number.POSITIVE_INFINITY
-  const nb = b.trackNumber ?? Number.POSITIVE_INFINITY
-  if (na !== nb) return na - nb
-  const ta = (a.title ?? a.fileName).toLocaleLowerCase()
-  const tb = (b.title ?? b.fileName).toLocaleLowerCase()
-  return ta.localeCompare(tb)
-}
-
 function byArtistThenTitle(a: AlbumSummary, b: AlbumSummary): number {
   const artistCmp = a.artist.localeCompare(b.artist)
   return artistCmp !== 0 ? artistCmp : a.title.localeCompare(b.title)
-}
-
-/**
- * Fold cards that are the same album under a different destination folder into one.
- *
- * {@link buildAlbumsFromSongs} keys built songs on their destination folder, which mirrors what the
- * music server shows — but it also means one album whose tracks disagree about the year or the
- * artist spelling lands as two or three adjacent, near-identical cards. For *browsing* the library
- * that reads as noise, so the grid merges by `${artistLower}::${titleLower}`.
- *
- * The largest constituent folder becomes the representative (its `key` keeps existing `?album=`
- * links working, ties broken on the key so the choice is stable across refetches); `folderKeys`
- * carries all of them so a link to a folder that lost can still be resolved.
- */
-export function mergeAlbumsByName(albums: AlbumSummary[]): AlbumSummary[] {
-  const groups = new Map<string, AlbumSummary[]>()
-  for (const album of albums) {
-    const nameKey = `${album.artist.toLowerCase()}::${album.title.toLowerCase()}`
-    const group = groups.get(nameKey)
-    if (group) group.push(album)
-    else groups.set(nameKey, [album])
-  }
-
-  const merged: AlbumSummary[] = []
-  for (const group of groups.values()) {
-    if (group.length === 1) {
-      merged.push(group[0])
-      continue
-    }
-    const ordered = [...group].sort(
-      (a, b) => b.trackCount - a.trackCount || a.key.localeCompare(b.key),
-    )
-    const [lead, ...rest] = ordered
-    const combined: AlbumSummary = {
-      ...lead,
-      folderKeys: ordered.map((a) => a.key),
-      songs: ordered.flatMap((a) => a.songs).sort(byTrackNumberThenTitle),
-    }
-    for (const other of rest) {
-      combined.trackCount += other.trackCount
-      combined.durationSeconds += other.durationSeconds
-      combined.byteSize += other.byteSize
-      combined.playCount += other.playCount
-      if (other.year && (!combined.year || other.year < combined.year)) combined.year = other.year
-      combined.genre ??= other.genre
-      combined.label ??= other.label
-      combined.catalogNumber ??= other.catalogNumber
-      combined.upc ??= other.upc
-      combined.releaseDate ??= other.releaseDate
-      combined.musicBrainzReleaseId ??= other.musicBrainzReleaseId
-      combined.coverUrl ??= other.coverUrl
-      if (
-        other.addedAtUtc &&
-        (!combined.addedAtUtc || Date.parse(other.addedAtUtc) > Date.parse(combined.addedAtUtc))
-      ) {
-        combined.addedAtUtc = other.addedAtUtc
-      }
-    }
-    merged.push(combined)
-  }
-  return merged.sort(byArtistThenTitle)
 }
 
 /** How the album grid is ordered. */
@@ -877,9 +769,9 @@ export interface GroupSummary {
 }
 
 /**
- * Stable `(artist, album)` key for a song — `${artistLower}::${titleLower}`,
- * matching the keys produced by {@link buildAlbumsFromSongs}. Use it to build
- * `/library?album=<key>` deep-links from a single song.
+ * Stable `(artist, album)` key for a song — `${artistLower}::${titleLower}`, the same shape the
+ * server reports as {@link AlbumSummaryDto.nameKey}. Use it to build `/library?album=<key>`
+ * deep-links from a single song; the library resolves that shape as well as a folder key.
  */
 export function albumKeyForSong(song: ApiSong): string {
   const title = nonEmpty(song.album) ?? UNKNOWN_ALBUM

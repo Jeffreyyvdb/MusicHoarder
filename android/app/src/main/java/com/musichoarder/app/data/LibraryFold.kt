@@ -109,13 +109,24 @@ fun foldLibrary(
         if (filterUnreleased) state.builtTracks.filter { it.isUnreleased } else state.builtTracks
 
     // ---- Albums -------------------------------------------------------------------------------
-    val browseScoped = ui.artistFilter
-        ?.let { name -> releaseScoped.filter { matchesArtist(it, name) } }
-        ?: releaseScoped
-    val scopedAlbums = if (filterUnreleased || ui.artistFilter != null) {
-        mergeAlbumsByName(buildAlbums(browseScoped))
-    } else {
+    // Grouping is the server's; a filter narrows the cards it sent rather than re-grouping a narrowed
+    // track list. So a compilation under an artist drilldown keeps the album's own year and editions
+    // and reports only that artist's tracks — the count is the one thing the filter can change, and
+    // the grid does not draw it. The web asks the server again instead, because its cards do.
+    val albumScope: ((Track) -> Boolean)? = when {
+        ui.artistFilter != null -> { track ->
+            matchesArtist(track, ui.artistFilter) && (!filterUnreleased || track.isUnreleased)
+        }
+        filterUnreleased -> { track -> track.isUnreleased }
+        else -> null
+    }
+    val scopedAlbums = if (albumScope == null) {
         state.albums
+    } else {
+        state.albums.mapNotNull { album ->
+            val kept = album.tracks.filter(albumScope)
+            if (kept.isEmpty()) null else album.copy(tracks = kept, trackCount = kept.size)
+        }
     }
     val query = ui.query.trim()
     val matchingAlbums = if (query.isEmpty()) scopedAlbums else scopedAlbums.filter {

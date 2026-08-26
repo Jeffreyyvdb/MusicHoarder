@@ -15,10 +15,8 @@
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import {
-    buildAlbumsFromSongs,
     buildArtistGroups,
     coverUrlForSong,
-    mergeAlbumsByName,
     sortAlbumsByRecency,
     toPlayerSong,
     type AlbumSummary,
@@ -40,8 +38,10 @@
   });
 
   const builtSongs = $derived(songs.filter(isBuiltSong));
-  // Merged like the library grid, so a folder-split album isn't two near-identical shelf tiles.
-  const allAlbums = $derived(mergeAlbumsByName(buildAlbumsFromSongs(builtSongs)));
+  // The library grid's own cards, so a folder-split album isn't two near-identical shelf tiles.
+  // Their `songs` are the store's rows, which is what lets the shelves below read per-track play
+  // counts and likes and still see an optimistic heart tap.
+  const allAlbums = $derived(songsStore.albums);
   const artistGroups = $derived(buildArtistGroups(builtSongs, { primaryOnly: true }));
 
   // ── per-visit random order that stays stable across live refetches ──────────

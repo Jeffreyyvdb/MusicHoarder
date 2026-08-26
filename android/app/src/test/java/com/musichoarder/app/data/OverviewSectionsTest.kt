@@ -52,8 +52,8 @@ class OverviewSectionsTest {
 
     @Test
     fun `never-played shelves exclude an album with any play at all`() {
-        val untouched = albumOf("Untouched", song(id = 1, album = "Untouched", destinationPath = "/l/a/u/1.flac"))
-        val partly = albumOf(
+        val untouched = album("Untouched", song(id = 1, album = "Untouched", destinationPath = "/l/a/u/1.flac"))
+        val partly = album(
             "Partly",
             song(id = 2, album = "Partly", playCount = 1, destinationPath = "/l/a/p/2.flac"),
             song(id = 3, album = "Partly", destinationPath = "/l/a/p/3.flac"),
@@ -64,11 +64,11 @@ class OverviewSectionsTest {
 
     @Test
     fun `New to you needs an unliked album-fill track and no plays anywhere on the album`() {
-        val filled = albumOf(
+        val filled = album(
             "Filled",
             song(id = 1, album = "Filled", acquisitionIntent = "AlbumFill", destinationPath = "/l/a/f/1.flac"),
         )
-        val filledButLiked = albumOf(
+        val filledButLiked = album(
             "Liked",
             song(
                 id = 2,
@@ -78,7 +78,7 @@ class OverviewSectionsTest {
                 destinationPath = "/l/a/l/2.flac",
             ),
         )
-        val filledButPlayed = albumOf(
+        val filledButPlayed = album(
             "Played",
             song(
                 id = 3,
@@ -88,7 +88,7 @@ class OverviewSectionsTest {
                 destinationPath = "/l/a/pl/3.flac",
             ),
         )
-        val asked = albumOf(
+        val asked = album(
             "Asked",
             song(id = 4, album = "Asked", destinationPath = "/l/a/as/4.flac"),
         )
@@ -99,11 +99,11 @@ class OverviewSectionsTest {
 
     @Test
     fun `Last played excludes albums nothing has ever played`() {
-        val played = albumOf(
+        val played = album(
             "Played",
             song(id = 1, album = "Played", lastPlayedAtUtc = "2026-08-01T00:00:00Z", destinationPath = "/l/a/p/1.flac"),
         )
-        val never = albumOf("Never", song(id = 2, album = "Never", destinationPath = "/l/a/n/2.flac"))
+        val never = album("Never", song(id = 2, album = "Never", destinationPath = "/l/a/n/2.flac"))
         assertEquals(listOf("Played"), build(listOf(played, never)).lastPlayedAlbums.map { it.name })
     }
 
@@ -125,8 +125,8 @@ class OverviewSectionsTest {
         assertEquals(listOf(12, 11, 10), sections.favouriteTracks.take(3).map { it.id })
     }
 
-    private fun albumOf(name: String, vararg tracks: Track): Album =
-        buildAlbums(tracks.toList()).single().copy(name = name)
+    private fun album(name: String, vararg tracks: Track): Album =
+        albumOf(tracks.toList(), name = name)
 
     private fun build(albums: List<Album>): OverviewSections = buildOverviewSections(
         tracks = albums.flatMap { it.tracks },
