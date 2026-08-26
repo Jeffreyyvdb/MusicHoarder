@@ -208,13 +208,25 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
     /// <summary>
     /// The album-artist values providers use for genuine multi-artist releases. A track whose album
     /// artist is one of these is a true compilation and belongs under the Various Artists tree.
+    /// <para>
+    /// The localized spellings are here because a provider answers in whatever locale it feels like:
+    /// Spotify handed back "Verschiedene Interpreten" for a Top Boy compilation, which this did not
+    /// recognize, so the tracks got a top-level artist folder of their own next to Various Artists
+    /// instead of joining it. This is name recognition only — routing still needs the compilation
+    /// flag, so a single-artist release cannot be exiled by a name alone.
+    /// </para>
     /// </summary>
-    public static bool IsVariousArtistsSentinel(string albumArtist)
+    public static bool IsVariousArtistsSentinel(string albumArtist) =>
+        VariousArtistsSentinels.Contains(albumArtist.Trim());
+
+    private static readonly HashSet<string> VariousArtistsSentinels = new(StringComparer.OrdinalIgnoreCase)
     {
-        var trimmed = albumArtist.Trim();
-        return trimmed.Equals("Various Artists", StringComparison.OrdinalIgnoreCase)
-            || trimmed.Equals("Various", StringComparison.OrdinalIgnoreCase)
-            || trimmed.Equals("VA", StringComparison.OrdinalIgnoreCase)
-            || trimmed.Equals("V.A.", StringComparison.OrdinalIgnoreCase);
-    }
+        "Various Artists", "Various Artist", "Various", "VA", "V.A.",
+        "Verschiedene Interpreten",              // de
+        "Varios Artistas", "Vários Artistas",    // es / pt
+        "Artistes Divers", "Artistes Variés",    // fr
+        "Artisti Vari",                          // it
+        "Diverse Artiesten",                     // nl
+        "Blandade Artister",                     // sv
+    };
 }

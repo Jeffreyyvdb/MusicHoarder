@@ -1049,6 +1049,17 @@ public class MusicEnricherOptions
     [Range(0, 100)]
     public double ArtistMergeFuzzyThreshold { get; set; } = 92;
 
+    /// <summary>
+    /// Fuzzy ratio (0–100) two artist spellings must still reach before a shared MusicBrainz artist
+    /// id is accepted as evidence that they are the same artist. Identity evidence lowers the bar
+    /// ("Ms. Lauryn Hill" / "Lauryn Hill"); it does not remove it. Names carry ids that are not
+    /// theirs — an elected album artist keeps the previous row's id, a discrete artists list falls
+    /// out of step with its id list — and an unguarded id union once folded Lijpe, LouiVos, Kid Cudi
+    /// and "Various Artists" into one suggested merge.
+    /// </summary>
+    [Range(0, 100)]
+    public double ArtistMergeIdentityFuzzyThreshold { get; set; } = 70;
+
     /// <summary>Fuzzy ratio (0–100) above which two album titles under one artist are suggested as
     /// the same album in the album-duplicates view.</summary>
     [Range(0, 100)]
