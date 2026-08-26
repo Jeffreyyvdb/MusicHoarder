@@ -28,15 +28,27 @@ cd android && ./gradlew :app:installDebug
 
 Three ways in, none involving a password.
 
-**Email sign-in (no other device needed).** On the connect screen, enter the server address and the
-email address of your account — owner or invited friend — and press **Email me a sign-in link**.
+The sign-in screen is one screen serving two entrances, the way the web's `/login` does: first run,
+and **Add account** in the account switcher (see [More than one
+account](#more-than-one-account)). Both offer all three paths — the switcher used to open the QR
+scanner directly, which quietly made an already-signed-in phone the one place where email and
+passkey sign-in were unavailable, and a QR needs a second device that may not be to hand.
+
+The screen starts on `https://musichoarder.app` (the public instance) so nobody has to type a URL
+for the common case; **Change** opens the address for editing, prefilled, for a self-hosted
+instance. Adding a second account starts on the server this phone is already using instead, since
+that is nearly always where the other account lives.
+
+**Email sign-in (no other device needed).** On the sign-in screen, check the server address and
+enter the email address of your account — owner or invited friend — then press **Email me a
+sign-in link**.
 The server emails the usual one-time magic link, flavored with `client=app`, so tapping it on the
 phone lands on a small browser handoff page instead of signing the browser in. Its **Open the
 MusicHoarder app** button is a `musichoarder://auth?token=…&url=…` deep link; the app exchanges the
 one-time token at `POST /api/auth/token` for its own bearer session. The link stays consumable by
 the browser too ("Sign in in this browser instead"), and either use burns it.
 
-**Passkey (no inbox, no other device).** Enter the server address and press **Use a passkey**. The
+**Passkey (no inbox, no other device).** Check the server address and press **Use a passkey**. The
 app runs the WebAuthn ceremony through Android's Credential Manager against
 `POST /api/auth/webauthn/authenticate/native/{begin,complete}` — the cookie-free variant of the
 browser's ceremony: the in-flight challenge comes back as an opaque, time-limited, data-protected
@@ -62,19 +74,31 @@ Authorization header, so the phone needs exactly one reachable host — the same
 Nothing extra has to be exposed for mobile.
 
 The code also works from *outside* the app — the phone camera, Lens, any QR reader — because
-`musichoarder://pair` is registered as a deep link (`musichoarder://auth` likewise). That matters
-for re-pairing: the in-app scanner only lives on the connect screen, which only appears when the
-app is unpaired, so without the deep link a scanned code had nowhere to go and an already-paired
-app carried on showing its previous server. When a link would move a paired app to a different
-server the app asks first, since a link can be handed over by any web page or message.
+`musichoarder://pair` is registered as a deep link (`musichoarder://auth` likewise). When such a
+link arrives at an app that is already signed in, it asks first, since a link can be handed over by
+any web page or message. The one exception is the sign-in screen being open for **Add account**:
+the link is then the answer to a request made on that screen seconds earlier, and the QR button
+next to it already pairs without a prompt.
 
 If the phone has no camera, or Play services cannot supply the scanner module, **Enter an access
 token instead** takes the same server address and token — the pairing card has a "Can't scan?"
 section that shows both in copyable form.
 
 The token rides its own server-side session, so signing the browser out leaves the phone paired.
-**Sign out everywhere** in the web UI revokes it; so does **Unpair** (the sign-out icon in the app's
-toolbar). If the server rejects the token, the app returns to the pairing screen and says why.
+**Sign out everywhere** in the web UI revokes it; so does **Sign out of this account** in the
+account switcher. If the server rejects the token, the app drops that account and falls back to the
+next one it remembers — or, with none left, returns to the sign-in screen and says why.
+
+### More than one account
+
+The account icon in the library's top bar lists every account this phone remembers, marks the
+active one, and offers **Add account** and **Sign out of this account**. Each account is its own
+sign-in — its own bearer token, possibly its own server — so switching swaps the whole library, and
+a revoked session evicts only the account it belongs to.
+
+**Add account** opens the sign-in screen over the running app with a banner naming the account that
+stays signed in; **Cancel** (or Back) returns with nothing changed. The new account becomes active
+once it lands, and the switcher gets you back.
 
 ## Share and invite links (App Links)
 
