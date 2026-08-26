@@ -42,7 +42,7 @@ class NowPlayingLinksTest {
         // Wider than `builtTracks`, exactly as the repository builds it: the player resolves rows
         // from here, so an unbuilt track IS reachable and has to be turned away on its own merit.
         trackListBase = built + unbuilt,
-        albums = mergeAlbumsByName(buildAlbums(built)),
+        albums = built.map { albumOf(listOf(it), key = "/library/${it.albumArtist}/${it.album}") },
     )
 
     @Test
@@ -81,10 +81,19 @@ class NowPlayingLinksTest {
             destinationPath = "/library/Drake/Scorpion (2018)/4.flac",
         )
         val all = built + reissue
+        // One merged card spanning both folders, as the server sends it: the bigger folder is the
+        // representative and the loser survives only in `folderKeys`.
         val merged = LibraryState(
             builtTracks = all,
             trackListBase = all,
-            albums = mergeAlbumsByName(buildAlbums(all)),
+            albums = listOf(
+                albumOf(
+                    listOf(solo, reissue),
+                    key = "/library/Drake/Scorpion",
+                    folderKeys = listOf("/library/Drake/Scorpion", "/library/Drake/Scorpion (2018)"),
+                ),
+                albumOf(listOf(featured), key = "/library/Trippie Redd/Trip at Knight"),
+            ),
         )
         val links = resolveNowPlayingLinks(merged, reissue.id)
         assertEquals("/library/Drake/Scorpion", links?.albumKey)

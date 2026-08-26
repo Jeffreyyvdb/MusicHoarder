@@ -231,6 +231,9 @@ data class NowPlayingLinks(val artist: String, val albumKey: String)
 fun resolveNowPlayingLinks(state: LibraryState, trackId: Int?): NowPlayingLinks? {
     if (trackId == null) return null
     val track = state.trackListBase.firstOrNull { it.id == trackId } ?: return null
-    val album = resolveAlbum(state.albums, track.folderKey) ?: return null
+    // Which card holds this track, asked of the cards themselves. That answers the awkward cases for
+    // free: a track whose folder lost the name merge is still on the surviving card, and an unbuilt
+    // row is on no card at all.
+    val album = state.albums.firstOrNull { card -> card.tracks.any { it.id == trackId } } ?: return null
     return NowPlayingLinks(artist = track.albumArtist, albumKey = album.key)
 }
