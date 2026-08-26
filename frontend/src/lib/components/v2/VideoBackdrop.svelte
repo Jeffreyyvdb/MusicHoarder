@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { Film, Loader2, RotateCcw, Trash2, X } from '@lucide/svelte';
+  import { Check, Film, ImageOff, Loader2, RotateCcw, Search, Trash2, X } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import { Switch } from '$lib/components/ui/switch';
@@ -12,7 +12,12 @@
     setSongVideoOffset,
     resetSongVideoOffset,
     deleteSongVideo,
-    type SongVideoInfo
+    getSongVideoCandidates,
+    getSongVideoCandidateThumbnailUrl,
+    probeSongVideoCandidate,
+    type SongVideoCandidate,
+    type SongVideoInfo,
+    type VideoMotion
   } from '$lib/api-client';
   import { playerStore } from '$lib/stores/player.svelte';
   import { videoBackdropPrefs } from '$lib/stores/video-backdrop-prefs.svelte';
@@ -46,6 +51,13 @@
   let controlsEl = $state<HTMLElement | null>(null);
   let urlInput = $state('');
   let busy = $state(false);
+  // Candidate picker: what the search WOULD download, with each option's measured motion and size,
+  // so a static album cover can be recognised and skipped before it costs any disk.
+  let pickerOpen = $state(false);
+  let candidates = $state<SongVideoCandidate[] | null>(null);
+  let candidatesLoading = $state(false);
+  let candidatesError = $state<string | null>(null);
+  let probingId = $state<string | null>(null);
 
   // Hand-rolled popover dismissal: click/tap outside the cluster closes it, and Escape closes it
   // WITHOUT bubbling to the bits-ui Dialog (which would close the whole full-screen panel) —
@@ -199,6 +211,91 @@
     }, VIDEO_LOAD_RETRY_DELAYS_MS[attempt]);
   }
 
+  async function onBrowse() {
+    pickerOpen = true;
+    if (candidatesLoading) return;
+    candidatesLoading = true;
+    candidatesError = null;
+    try {
+      candidates = await getSongVideoCandidates(songId);
+    } catch {
+      candidatesError = 'Search failed — try again.';
+    } finally {
+      candidatesLoading = false;
+    }
+  }
+
+  async function onCheck(videoId: string) {
+    if (probingId) return;
+    probingId = videoId;
+    try {
+      const probed = await probeSongVideoCandidate(songId, videoId);
+      // Keep the list's own ranking and labels; only the measured fields are filled in.
+      candidates =
+        candidates?.map((c) =>
+          c.videoId === videoId
+            ? {
+                ...c,
+                motion: probed.motion,
+                estimatedBytes: probed.estimatedBytes,
+                squareSource: probed.squareSource
+              }
+            : c
+        ) ?? null;
+    } catch {
+      candidatesError = 'Could not check that video.';
+    } finally {
+      probingId = null;
+    }
+  }
+
+  async function onPick(videoId: string) {
+    busy = true;
+    try {
+      // An explicit pick is honored verbatim by the backend, motion verdict notwithstanding — the
+      // owner looked at the measurement and chose anyway.
+      info = await fetchSongVideo(songId, `https://www.youtube.com/watch?v=${videoId}`);
+      pickerOpen = false;
+    } catch {
+      candidatesError = 'Could not start the download.';
+    } finally {
+      busy = false;
+    }
+  }
+
+  function formatBytes(bytes: number | null): string {
+    if (bytes == null) return 'size unknown';
+    return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
+  }
+
+  function formatDuration(seconds: number | null): string {
+    if (seconds == null || seconds <= 0) return '';
+    return `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, '0')}`;
+  }
+
+  const MOTION_LABELS: Record<VideoMotion, { label: string; class: string; title: string }> = {
+    RealVideo: {
+      label: 'real video',
+      class: 'bg-emerald-500/15 text-emerald-500',
+      title: 'The picture moves throughout — an actual clip.'
+    },
+    LowMotion: {
+      label: 'low motion',
+      class: 'bg-amber-500/15 text-amber-500',
+      title: 'Mostly still: lyric cards, a slideshow, or a looping visualizer.'
+    },
+    Static: {
+      label: 'still image',
+      class: 'bg-destructive/15 text-destructive',
+      title: 'One image for the whole song — an album cover or an audio-only upload.'
+    },
+    Unknown: {
+      label: 'not checked',
+      class: 'bg-muted text-muted-foreground',
+      title: 'Not measured: only the top candidates are probed.'
+    }
+  };
+
   async function onFetch() {
     busy = true;
     try {
@@ -314,7 +411,10 @@
 <div bind:this={controlsEl} class="absolute right-4 bottom-4 z-20 flex flex-col items-end gap-2">
   {#if controlsOpen}
     <div
-      class="bg-popover/95 border-border w-72 rounded-xl border p-3 shadow-xl backdrop-blur-sm"
+      class={cn(
+        'bg-popover/95 border-border rounded-xl border p-3 shadow-xl backdrop-blur-sm',
+        pickerOpen ? 'w-96' : 'w-72'
+      )}
     >
       <div class="mb-2 flex items-center justify-between gap-2">
         <span class="text-sm font-medium">Music video</span>
@@ -405,6 +505,137 @@
         {/if}
 
         {#if info?.status !== 'Fetching'}
+          {#if pickerOpen}
+            <div class="mb-2">
+              <div class="mb-1.5 flex items-center justify-between gap-2">
+                <span class="text-muted-foreground text-xs">
+                  Checked before downloading — nothing is on disk yet.
+                </span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  class="text-muted-foreground h-6 px-1.5 text-xs"
+                  onclick={() => (pickerOpen = false)}
+                >
+                  Close
+                </Button>
+              </div>
+
+              {#if candidatesLoading}
+                <p class="text-muted-foreground flex items-center gap-1.5 py-4 text-xs">
+                  <Loader2 class="size-3.5 animate-spin" /> Searching and checking candidates…
+                </p>
+              {:else if candidatesError}
+                <p class="text-destructive py-2 text-xs">{candidatesError}</p>
+              {:else if candidates && candidates.length === 0}
+                <p class="text-muted-foreground py-2 text-xs">No candidates found for this song.</p>
+              {:else if candidates}
+                <ul class="-mr-1 max-h-72 space-y-1 overflow-y-auto pr-1">
+                  {#each candidates as candidate (candidate.videoId)}
+                    {@const motion = MOTION_LABELS[candidate.motion]}
+                    <li>
+                      <button
+                        type="button"
+                        class="hover:bg-accent/60 flex w-full items-start gap-2 rounded-lg p-1.5 text-left transition-colors disabled:opacity-50"
+                        disabled={busy}
+                        onclick={() => onPick(candidate.videoId)}
+                      >
+                        <span
+                          class="bg-muted relative flex aspect-video w-20 shrink-0 items-center justify-center overflow-hidden rounded"
+                        >
+                          {#if candidate.hasThumbnail}
+                            <img
+                              src={getSongVideoCandidateThumbnailUrl(songId, candidate.videoId)}
+                              alt=""
+                              loading="lazy"
+                              class="size-full object-cover"
+                            />
+                          {:else}
+                            <ImageOff class="text-muted-foreground size-4" />
+                          {/if}
+                        </span>
+                        <span class="min-w-0 flex-1">
+                          <span class="line-clamp-2 text-xs font-medium" title={candidate.title}>
+                            {candidate.title || candidate.videoId}
+                          </span>
+                          <span class="text-muted-foreground block truncate text-[11px]">
+                            {candidate.channel}{candidate.durationSeconds
+                              ? ` · ${formatDuration(candidate.durationSeconds)}`
+                              : ''}
+                          </span>
+                          <span class="mt-1 flex flex-wrap items-center gap-1">
+                            {#if candidate.motion === 'Unknown'}
+                              <!-- Not probed by the list. Rendered inside the row button, so it is a
+                                   span with a click handler rather than a nested <button>. -->
+                              <span
+                                role="button"
+                                tabindex="0"
+                                class="bg-muted text-muted-foreground hover:bg-accent inline-flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium"
+                                title="Measure this one: is it a real clip or a still image?"
+                                onclick={(e) => {
+                                  e.stopPropagation();
+                                  onCheck(candidate.videoId);
+                                }}
+                                onkeydown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    onCheck(candidate.videoId);
+                                  }
+                                }}
+                              >
+                                {#if probingId === candidate.videoId}
+                                  <Loader2 class="size-2.5 animate-spin" /> checking…
+                                {:else}
+                                  check
+                                {/if}
+                              </span>
+                            {:else}
+                              <span
+                                class={cn('rounded px-1.5 py-0.5 text-[10px] font-medium', motion.class)}
+                                title={motion.title}
+                              >
+                                {motion.label}
+                              </span>
+                            {/if}
+                            {#if candidate.squareSource}
+                              <span
+                                class="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[10px]"
+                                title="The upload is square — an album cover filling the frame."
+                              >
+                                square
+                              </span>
+                            {/if}
+                            <span class="text-muted-foreground text-[10px]">
+                              {formatBytes(candidate.estimatedBytes)}
+                            </span>
+                            {#if candidate.isCurrent}
+                              <span
+                                class="text-muted-foreground inline-flex items-center gap-0.5 text-[10px]"
+                              >
+                                <Check class="size-3" /> current
+                              </span>
+                            {/if}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+            </div>
+          {:else}
+            <Button
+              size="sm"
+              variant="outline"
+              class="mb-2 h-8 w-full justify-start text-xs"
+              disabled={busy}
+              onclick={onBrowse}
+            >
+              <Search class="mr-1.5 size-3.5" /> Choose video…
+            </Button>
+          {/if}
+
           <div class="mb-2 flex items-center gap-1">
             <Input
               bind:value={urlInput}

@@ -3,7 +3,9 @@ using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Import;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Sharing;
+using Microsoft.Extensions.Options;
 
 namespace MusicHoarder.Api.Endpoints;
 
@@ -24,9 +26,29 @@ public static class MusicVideoEndpoints
             .WithName("StreamSongVideo")
             .WithSummary("Range-enabled mp4 stream of the song's music video, played muted behind the player.")
             .WithTags("MusicVideos");
+        app.MapGet("/musicvideos/audit", AuditStoredVideos)
+            .WithName("AuditStoredMusicVideos")
+            .WithSummary("Measure the music videos already on disk and report which are static album covers, with the disk they occupy.")
+            .WithTags("MusicVideos")
+            .RequireAdmin();
         app.MapPost("/songs/{id:int}/video/fetch", FetchVideo)
             .WithName("FetchSongVideo")
             .WithSummary("Queue a background YouTube fetch of this song's music video (optional exact URL; otherwise searches by artist/title). Poll the info endpoint for progress.")
+            .WithTags("MusicVideos")
+            .RequireAdmin();
+        app.MapGet("/songs/{id:int}/video/candidates", GetVideoCandidates)
+            .WithName("GetSongVideoCandidates")
+            .WithSummary("Search YouTube for this song's music video and report each candidate's motion (real clip vs static album cover) and download size, WITHOUT downloading anything.")
+            .WithTags("MusicVideos")
+            .RequireAdmin();
+        app.MapGet("/songs/{id:int}/video/probe/{videoId}", ProbeVideoCandidate)
+            .WithName("ProbeSongVideoCandidate")
+            .WithSummary("Measure one candidate on demand — for a hit ranked past the automatic probe budget.")
+            .WithTags("MusicVideos")
+            .RequireAdmin();
+        app.MapGet("/songs/{id:int}/video/thumbnail/{videoId}", GetCandidateThumbnail)
+            .WithName("GetSongVideoCandidateThumbnail")
+            .WithSummary("Proxies a candidate's YouTube still, so the picker never makes the browser talk to YouTube directly.")
             .WithTags("MusicVideos")
             .RequireAdmin();
         app.MapPatch("/songs/{id:int}/video/offset", SetVideoOffset)
@@ -136,6 +158,214 @@ public static class MusicVideoEndpoints
             useAsync: true);
 
         return Results.Stream(stream, contentType: "video/mp4", enableRangeProcessing: true);
+    }
+
+    public record VideoCandidateDto(
+        string VideoId,
+        string Title,
+        string Channel,
+        int? DurationSeconds,
+        int Score,
+        string Motion,
+        long? EstimatedBytes,
+        bool SquareSource,
+        bool HasThumbnail,
+        bool IsCurrent);
+
+    /// <summary>
+    /// Ranked candidates with a verdict on each, so the owner can see that the top hit is a static
+    /// album cover costing 12 MB before spending the 12 MB. Nothing is downloaded here; only the
+    /// top few candidates are probed, because each probe costs a metadata call and a sprite sheet.
+    /// </summary>
+    internal static async Task<IResult> GetVideoCandidates(
+        int id,
+        MusicHoarderDbContext db,
+        IMusicVideoDownloader downloader,
+        IOptions<MusicEnricherOptions> options,
+        CancellationToken ct)
+    {
+        var song = await db.Songs.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == id && s.DeletedAtUtc == null, ct);
+        if (song is null)
+            return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+        // Offer the currently attached video alongside the alternatives — seeing that what you have
+        // is the static one is the whole point of the picker.
+        var current = await db.SongMusicVideos.AsNoTracking()
+            .Where(v => v.SongId == id)
+            .Select(v => v.YouTubeVideoId)
+            .FirstOrDefaultAsync(ct);
+
+        var candidates = await downloader.SuggestAsync(
+            new MusicVideoFetchRequest(
+                current, PinIsExplicit: false,
+                song.Artist ?? string.Empty, song.Title ?? string.Empty,
+                song.DurationMs ?? song.DurationSeconds * 1000),
+            options.Value.MusicVideoProbeCandidates,
+            ct);
+
+        return Results.Ok(candidates.Select(c => new VideoCandidateDto(
+            c.VideoId,
+            c.Title,
+            c.Channel,
+            c.DurationSeconds,
+            c.Score,
+            (c.Probe?.Motion ?? MusicVideoMotion.Unknown).ToString(),
+            c.Probe?.EstimatedBytes,
+            c.Probe?.SquareSource ?? false,
+            c.ThumbnailUrl is not null,
+            IsCurrent: c.VideoId == current)).ToList());
+    }
+
+    /// <summary>
+    /// Measures a single candidate the list did not probe. The picker probes only its top few
+    /// up-front (each costs a metadata call and a sprite sheet), so this backs the per-row check for
+    /// anything further down that the owner is actually considering.
+    /// </summary>
+    internal static async Task<IResult> ProbeVideoCandidate(
+        int id, string videoId, MusicHoarderDbContext db, IMusicVideoProbe probe, CancellationToken ct)
+    {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(videoId, "^[A-Za-z0-9_-]{5,24}$"))
+            return Results.BadRequest(new { message = "Not a YouTube video id." });
+
+        var exists = await db.Songs.AsNoTracking()
+            .AnyAsync(s => s.Id == id && s.DeletedAtUtc == null, ct);
+        if (!exists)
+            return Results.NotFound(new { message = $"Song with id {id} not found." });
+
+        var result = await probe.ProbeAsync(videoId, ct);
+        return Results.Ok(new VideoCandidateDto(
+            result.VideoId,
+            result.Title,
+            result.Channel,
+            result.DurationSeconds,
+            Score: 0, // this endpoint measures one video; ranking belongs to the list
+            result.Motion.ToString(),
+            result.EstimatedBytes,
+            result.SquareSource,
+            HasThumbnail: true,
+            IsCurrent: false));
+    }
+
+    /// <summary>
+    /// A candidate's YouTube still, fetched server-side. The id is matched against YouTube's own
+    /// alphabet before it reaches a URL, so this cannot be steered at another host.
+    /// </summary>
+    internal static async Task<IResult> GetCandidateThumbnail(
+        int id, string videoId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+    {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(videoId, "^[A-Za-z0-9_-]{5,24}$"))
+            return Results.BadRequest(new { message = "Not a YouTube video id." });
+
+        var client = httpClientFactory.CreateClient();
+        foreach (var variant in new[] { "hqdefault", "mqdefault" })
+        {
+            try
+            {
+                using var response = await client.GetAsync($"https://i.ytimg.com/vi/{videoId}/{variant}.jpg", ct);
+                if (!response.IsSuccessStatusCode)
+                    continue;
+                var bytes = await response.Content.ReadAsByteArrayAsync(ct);
+                if (bytes.Length < 1024)
+                    continue; // placeholder/soft-404
+                return Results.File(bytes, "image/jpeg");
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+            {
+                // Try the next variant, then give up — a missing still is cosmetic.
+            }
+        }
+        return Results.NotFound(new { message = "No thumbnail available." });
+    }
+
+    public record VideoAuditRowDto(
+        int SongId,
+        string? Artist,
+        string? Title,
+        string Motion,
+        double? MedianFrameDelta,
+        long FileBytes,
+        int? DurationSeconds,
+        string? YouTubeVideoId);
+
+    public record VideoAuditDto(
+        int Measured,
+        int StaticCount,
+        long StaticBytes,
+        long TotalBytes,
+        bool More,
+        List<VideoAuditRowDto> Rows);
+
+    /// <summary>
+    /// Measures the videos already downloaded, so covers acquired before anything checked them can
+    /// be found and removed. Read-only: it reports what each video is and what it costs, and leaves
+    /// deleting to the existing per-song endpoint.
+    /// </summary>
+    internal static async Task<IResult> AuditStoredVideos(
+        MusicHoarderDbContext db,
+        IMusicVideoFileAnalyzer analyzer,
+        int? limit,
+        CancellationToken ct)
+    {
+        var take = Math.Clamp(limit ?? 100, 1, 500);
+
+        // IgnoreQueryFilters is NOT used here: the audit is an owner tool over the caller's own
+        // library, so the ambient tenant filter is exactly the scope wanted.
+        var videos = await db.SongMusicVideos.AsNoTracking()
+            .Where(v => v.Status == MusicVideoStatus.Ready && v.FilePath != null && v.Song.DeletedAtUtc == null)
+            .OrderBy(v => v.SongId)
+            .Select(v => new
+            {
+                v.SongId,
+                v.FilePath,
+                v.DurationSeconds,
+                v.YouTubeVideoId,
+                v.Song.Artist,
+                v.Song.Title,
+            })
+            .Take(take + 1)
+            .ToListAsync(ct);
+
+        var more = videos.Count > take;
+        if (more)
+            videos.RemoveAt(videos.Count - 1);
+
+        // ffmpeg is the cost here, so bound the fan-out rather than starting one process per row.
+        var gate = new SemaphoreSlim(4);
+        var rows = await Task.WhenAll(videos.Select(async v =>
+        {
+            await gate.WaitAsync(ct);
+            try
+            {
+                var motion = await analyzer.AnalyzeAsync(v.FilePath!, ct);
+                long bytes = 0;
+                try { bytes = new FileInfo(v.FilePath!).Length; }
+                catch (IOException) { /* size is informational */ }
+                return new VideoAuditRowDto(
+                    v.SongId, v.Artist, v.Title,
+                    (motion?.Motion ?? MusicVideoMotion.Unknown).ToString(),
+                    motion?.MedianFrameDelta, bytes, v.DurationSeconds, v.YouTubeVideoId);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }));
+
+        var ordered = rows
+            // Static first, and within each group the biggest offenders first — that is the order
+            // someone reclaiming disk wants to work down.
+            .OrderByDescending(r => r.Motion == nameof(MusicVideoMotion.Static))
+            .ThenByDescending(r => r.FileBytes)
+            .ToList();
+
+        return Results.Ok(new VideoAuditDto(
+            Measured: ordered.Count(r => r.Motion != nameof(MusicVideoMotion.Unknown)),
+            StaticCount: ordered.Count(r => r.Motion == nameof(MusicVideoMotion.Static)),
+            StaticBytes: ordered.Where(r => r.Motion == nameof(MusicVideoMotion.Static)).Sum(r => r.FileBytes),
+            TotalBytes: ordered.Sum(r => r.FileBytes),
+            More: more,
+            Rows: ordered));
     }
 
     public record FetchVideoRequest(string? Url);

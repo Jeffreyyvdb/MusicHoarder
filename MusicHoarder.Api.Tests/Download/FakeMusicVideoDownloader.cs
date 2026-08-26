@@ -18,5 +18,16 @@ public sealed class FakeMusicVideoDownloader : IMusicVideoDownloader
         return Task.FromResult(OnDownload?.Invoke(request) ?? MusicVideoDownloadResult.Missing());
     }
 
+    public List<MusicVideoFetchRequest> SuggestCalls { get; } = [];
+
+    public Func<MusicVideoFetchRequest, IReadOnlyList<MusicVideoCandidate>>? OnSuggest { get; set; }
+
+    public Task<IReadOnlyList<MusicVideoCandidate>> SuggestAsync(
+        MusicVideoFetchRequest request, int probeLimit, CancellationToken ct)
+    {
+        SuggestCalls.Add(request);
+        return Task.FromResult(OnSuggest?.Invoke(request) ?? (IReadOnlyList<MusicVideoCandidate>)[]);
+    }
+
     public string ResolveVideoDirectory() => "/downloads/videos";
 }
