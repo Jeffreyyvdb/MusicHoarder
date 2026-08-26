@@ -7,7 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.QrCodeScanner
+import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -20,27 +20,28 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.musichoarder.app.data.AccountsState
 import com.musichoarder.app.ui.theme.MhTheme
 
 /**
  * The account switcher in the library top bar: every account remembered on this phone, plus
- * "Add account" (scans another pairing QR — each account is its own pairing) and signing the
- * active account out. Replaces the bare unpair button; with a single account signing out still
- * degrades to exactly that.
+ * "Add account" and signing the active account out. Replaces the bare unpair button; with a
+ * single account signing out still degrades to exactly that.
+ *
+ * "Add account" opens the full sign-in screen, the way the web's switcher goes to `/login?switch`.
+ * It used to launch the QR scanner directly, which quietly made a paired phone the one place
+ * where email and passkey sign-in were unavailable — and a QR needs a second device the phone
+ * cannot assume is nearby.
  */
 @Composable
 fun AccountMenu(
     accounts: AccountsState,
     onSwitchAccount: (Int) -> Unit,
-    onAddAccountScanned: (String) -> Unit,
-    onScanError: (String) -> Unit,
+    onAddAccount: () -> Unit,
     onUnpair: () -> Unit,
 ) {
     val colors = MhTheme.colors
-    val context = LocalContext.current
     var expanded by remember { mutableStateOf(false) }
 
     Box {
@@ -103,7 +104,7 @@ fun AccountMenu(
                 },
                 leadingIcon = {
                     Icon(
-                        Icons.Rounded.QrCodeScanner,
+                        Icons.Rounded.PersonAdd,
                         contentDescription = null,
                         tint = colors.mutedForeground,
                         modifier = Modifier.size(18.dp),
@@ -111,7 +112,7 @@ fun AccountMenu(
                 },
                 onClick = {
                     expanded = false
-                    launchPairingScan(context, onScanned = onAddAccountScanned, onError = onScanError)
+                    onAddAccount()
                 },
             )
             DropdownMenuItem(

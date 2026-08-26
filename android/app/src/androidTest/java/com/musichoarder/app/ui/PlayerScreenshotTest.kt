@@ -127,6 +127,8 @@ class PlayerScreenshotTest {
                 showVideoBackdrop = true,
                 onToggleVideoBackdrop = {},
                 onToggleLike = {},
+                onOpenArtist = {},
+                onOpenAlbum = {},
                 onCollapse = {},
                 onPlayPause = {},
                 onNext = {},
