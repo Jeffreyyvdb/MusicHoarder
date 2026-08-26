@@ -199,12 +199,14 @@ public class AlbumCompletionSweep(
         // pass are not visible to a query until the single SaveChanges below — so claims are tracked
         // across the whole sweep, not per album.
         var claimedSpotifyIds = new HashSet<string>(StringComparer.Ordinal);
+        var claimedTracks = await LoadInFlightTrackClaimsAsync(ownerId, ct);
         foreach (var (group, canonical) in candidates)
         {
             ct.ThrowIfCancellationRequested();
             var (queued, status) = await ProcessAlbumAsync(
                 ownerId, group.Select(x => x.Song).ToList(), canonical!,
-                markerByAlbumId.GetValueOrDefault(canonical!.Id), opts, now, claimedSpotifyIds, ct);
+                markerByAlbumId.GetValueOrDefault(canonical!.Id), opts, now, claimedSpotifyIds,
+                claimedTracks, ct);
 
             enqueued += queued;
             switch (status)
@@ -247,6 +249,53 @@ public class AlbumCompletionSweep(
         return marker.NextSweepAfterUtc is { } next && next <= now;
     }
 
+    /// <summary>
+    /// The (artist, title) of every album-fill track this owner already has an acquisition in flight
+    /// for — queued, downloading, downloaded, or found already owned. Everything except the two
+    /// terminal failures, which stay per-album tombstones so a sibling edition may still try.
+    /// <para>
+    /// The per-album tombstone in <see cref="ProcessAlbumAsync"/> cannot see this: a recording belongs
+    /// to as many <see cref="CanonicalAlbum"/> rows as it has editions ("DAMN." and "DAMN. COLLECTORS
+    /// EDITION" reconcile to two rows under two album keys), and each of those albums tombstones only
+    /// its own items. Without a claim spanning albums the shared tracks are queued once per edition and
+    /// the downloader fetches the same recording twice, minutes apart, into two files.
+    /// </para>
+    /// </summary>
+    private async Task<HashSet<(string Artist, string Title)>> LoadInFlightTrackClaimsAsync(
+        Guid ownerId, CancellationToken ct)
+    {
+        var rows = await db.WishlistItems
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(w => w.OwnerUserId == ownerId
+                && w.Origin == WishlistItemOrigin.AlbumCompletion
+                && w.Status != WishlistItemStatus.Failed
+                && w.Status != WishlistItemStatus.NotFound)
+            .Select(w => new { w.Artist, w.Title })
+            .ToListAsync(ct);
+
+        var claims = new HashSet<(string, string)>(rows.Count);
+        foreach (var row in rows)
+        {
+            if (TrackClaimKey(row.Artist, row.Title) is { } key)
+                claims.Add(key);
+        }
+
+        return claims;
+    }
+
+    /// <summary>
+    /// Identity of one acquisition across albums. Normalized on both halves so the two editions' takes
+    /// on the same recording collide — which is the entire point — and null when either half is blank,
+    /// since an empty key would fold every untitled track into one claim.
+    /// </summary>
+    private static (string Artist, string Title)? TrackClaimKey(string? artist, string? title)
+    {
+        var artistKey = TitleNormalizer.NormalizeForSearch(artist);
+        var titleKey = TitleNormalizer.NormalizeForSearch(title);
+        return artistKey.Length == 0 || titleKey.Length == 0 ? null : (artistKey, titleKey);
+    }
+
     private async Task<(int Queued, AlbumCompletionStatus Status)> ProcessAlbumAsync(
         Guid ownerId,
         IReadOnlyList<SongRow> owned,
@@ -255,6 +304,7 @@ public class AlbumCompletionSweep(
         MusicEnricherOptions opts,
         DateTime now,
         HashSet<string> claimedSpotifyIds,
+        HashSet<(string Artist, string Title)> claimedTracks,
         CancellationToken ct)
     {
         var candidateFacts = owned
@@ -291,6 +341,16 @@ public class AlbumCompletionSweep(
             .Where(k => k.Length > 0)
             .ToHashSet(StringComparer.Ordinal);
 
+        // A canonical track carries no artist of its own, so every filled track is searched under the
+        // album artist. That is correct on a real album and catastrophic on a compilation — which is
+        // exactly what AlbumCompletionEligibility refuses to let through.
+        var artist = !string.IsNullOrWhiteSpace(canonical.DisplayArtist)
+            ? canonical.DisplayArtist!
+            : owned.Select(s => s.AlbumArtist ?? s.Artist).FirstOrDefault(a => !string.IsNullOrWhiteSpace(a)) ?? string.Empty;
+        var album = !string.IsNullOrWhiteSpace(canonical.DisplayTitle)
+            ? canonical.DisplayTitle
+            : owned.Select(s => s.Album).FirstOrDefault(a => !string.IsNullOrWhiteSpace(a));
+
         var missing = new List<CanonicalAlbumTrack>();
         foreach (var track in orderedTracks)
         {
@@ -302,6 +362,12 @@ public class AlbumCompletionSweep(
 
             var key = TitleNormalizer.NormalizeForSearch(track.Title);
             if (key.Length > 0 && existingKeys.Contains(key)) continue;
+
+            // The same recording under a second edition's album key. `existingKeys` is scoped to this
+            // canonical album and cannot see the sibling's rows, so this is the only thing standing
+            // between an overlapping edition and a second download of a track already on its way.
+            if (TrackClaimKey(artist, track.Title) is { } claimed && claimedTracks.Contains(claimed))
+                continue;
 
             missing.Add(track);
         }
@@ -321,16 +387,6 @@ public class AlbumCompletionSweep(
             missing = missing.Take(take).ToList();
         }
 
-        // A canonical track carries no artist of its own, so every filled track is searched under the
-        // album artist. That is correct on a real album and catastrophic on a compilation — which is
-        // exactly what AlbumCompletionEligibility refuses to let through.
-        var artist = !string.IsNullOrWhiteSpace(canonical.DisplayArtist)
-            ? canonical.DisplayArtist!
-            : owned.Select(s => s.AlbumArtist ?? s.Artist).FirstOrDefault(a => !string.IsNullOrWhiteSpace(a)) ?? string.Empty;
-        var album = !string.IsNullOrWhiteSpace(canonical.DisplayTitle)
-            ? canonical.DisplayTitle
-            : owned.Select(s => s.Album).FirstOrDefault(a => !string.IsNullOrWhiteSpace(a));
-
         // The identity the download chain needs. Resolved here, once per album, rather than at download
         // time: the canonical tracklist and its Spotify counterpart are album-shaped, so one lookup
         // identifies every missing track — and a queued item that already carries the id survives a
@@ -339,6 +395,11 @@ public class AlbumCompletionSweep(
 
         foreach (var track in missing)
         {
+            // Claimed as the row is created, not after SaveChanges: the rest of this pass reads the set
+            // rather than the database, which has not seen any of these rows yet.
+            if (TrackClaimKey(artist, track.Title) is { } claim)
+                claimedTracks.Add(claim);
+
             db.WishlistItems.Add(new WishlistItem
             {
                 OwnerUserId = ownerId,
