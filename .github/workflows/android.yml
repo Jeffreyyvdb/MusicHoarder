@@ -45,7 +45,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup JDK
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           # Matches android/gradle/gradle-daemon-jvm.properties; without it Gradle would go and

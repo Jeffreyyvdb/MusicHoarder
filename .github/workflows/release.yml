@@ -52,7 +52,7 @@ jobs:
       # *before* semantic-release: a broken keystore config is then reported on every push to main,
       # release or not, instead of surfacing after a version has already been cut.
       - name: Setup JDK
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           # Matches android/gradle/gradle-daemon-jvm.properties.
           distribution: temurin
