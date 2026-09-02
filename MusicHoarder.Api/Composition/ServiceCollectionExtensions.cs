@@ -239,6 +239,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<History.IActivitySource, History.Sources.PipelineActivitySource>();
         services.AddSingleton<ICanonicalAlbumConsolidator, CanonicalAlbumConsolidator>();
         services.AddSingleton<IFingerprintSimilarityGate, FingerprintSimilarityGate>();
+        services.AddSingleton<DuplicateCandidateGenerator>();
+        services.AddSingleton<DuplicatePairConfirmer>();
         services.AddSingleton<IDuplicateDetectionService, DuplicateDetectionService>();
         services.AddSingleton<IEmbeddedPictureReader, TagLibEmbeddedPictureReader>();
         services.AddScoped<ICoverArtResolver, CoverArtResolver>();

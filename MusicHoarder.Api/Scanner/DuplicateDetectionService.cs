@@ -1,8 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Audio;
-using MusicHoarder.Api.Matching;
-using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -44,15 +42,18 @@ public interface IDuplicateDetectionService
 
 /// <summary>
 /// Finds duplicate songs per owner and persists the evidence as pairwise
-/// <see cref="SongDuplicateLink"/> rows. Candidates come from exact fingerprint equality, shared
-/// AcoustID/ISRC identifiers, and normalized artist+title blocking; non-exact candidates are
-/// confirmed (or rejected) by decoded Chromaprint similarity. Only <em>Confirmed</em> clusters are
-/// projected onto <see cref="SongMetadata.IsDuplicate"/> — Suspected pairs surface in the UI only,
-/// so a fuzzy metadata guess can never silently drop a file from the build.
+/// <see cref="SongDuplicateLink"/> rows. Candidates come from
+/// <see cref="DuplicateCandidateGenerator"/> (exact fingerprint equality, shared AcoustID/ISRC
+/// identifiers, normalized artist+title blocking) and are confirmed or rejected by
+/// <see cref="DuplicatePairConfirmer"/> (decoded Chromaprint similarity); this service owns the
+/// per-owner sweep, the link upserts, and the projection of <em>Confirmed</em> clusters onto
+/// <see cref="SongMetadata.IsDuplicate"/>. Suspected pairs surface in the UI only, so a fuzzy
+/// metadata guess can never silently drop a file from the build.
 /// </summary>
 public class DuplicateDetectionService(
     IServiceScopeFactory scopeFactory,
-    IFingerprintSimilarityGate fingerprintGate,
+    DuplicateCandidateGenerator candidateGenerator,
+    DuplicatePairConfirmer pairConfirmer,
     IOptionsMonitor<MusicEnricherOptions> options,
     ILogger<DuplicateDetectionService> logger) : IDuplicateDetectionService
 {
@@ -122,8 +123,6 @@ public class DuplicateDetectionService(
 
     private sealed record OwnerOutcome(int Groups, int Flagged, int Cleared, int Suspected);
 
-    private sealed record PairVerdict(DuplicateMatchReason Reasons, DuplicateConfidence Confidence, double? Similarity);
-
     private OwnerOutcome ProcessOwner(
         MusicHoarderDbContext db,
         Guid ownerId,
@@ -132,11 +131,11 @@ public class DuplicateDetectionService(
         MusicEnricherOptions opts)
     {
         var byId = ownerSongs.ToDictionary(s => s.Id);
-        var candidates = GenerateCandidates(ownerId, ownerSongs, opts);
-        var verdicts = ConfirmCandidates(candidates, byId, opts);
+        var candidates = candidateGenerator.Generate(ownerId, ownerSongs, opts);
+        var verdicts = pairConfirmer.Confirm(candidates, byId, opts);
 
         // --- Upsert links (never touch Dismissed rows; drop Active rows no longer detected) ---
-        var existingByPair = existingLinks.ToDictionary(l => (l.SongIdLow, l.SongIdHigh));
+        var existingByPair = existingLinks.ToDictionary(l => SongIdPair.Of(l));
 
         foreach (var (pair, verdict) in verdicts)
         {
@@ -166,7 +165,7 @@ public class DuplicateDetectionService(
 
         foreach (var link in existingLinks)
         {
-            if (link.Status == DuplicateLinkStatus.Active && !verdicts.ContainsKey((link.SongIdLow, link.SongIdHigh)))
+            if (link.Status == DuplicateLinkStatus.Active && !verdicts.ContainsKey(SongIdPair.Of(link)))
                 db.SongDuplicateLinks.Remove(link);
         }
 
@@ -222,169 +221,6 @@ public class DuplicateDetectionService(
 
         var suspected = verdicts.Count(v => v.Value.Confidence == DuplicateConfidence.Suspected);
         return new OwnerOutcome(clusters.Count, flagged, cleared, suspected);
-    }
-
-    private Dictionary<(int Low, int High), DuplicateMatchReason> GenerateCandidates(
-        Guid ownerId,
-        List<SongMetadata> ownerSongs,
-        MusicEnricherOptions opts)
-    {
-        var candidates = new Dictionary<(int Low, int High), DuplicateMatchReason>();
-
-        void AddPair(SongMetadata a, SongMetadata b, DuplicateMatchReason reason)
-        {
-            var key = a.Id < b.Id ? (a.Id, b.Id) : (b.Id, a.Id);
-            candidates[key] = candidates.GetValueOrDefault(key) | reason;
-        }
-
-        // Live/remix/acoustic/etc. never pairs with the studio recording, no matter how well the
-        // normalized text or identifiers agree (compilations reuse ISRCs across masters).
-        static bool QualifiersCompatible(SongMetadata a, SongMetadata b) =>
-            VersionQualifier.Compare(VersionQualifier.Detect(a.Title), VersionQualifier.Detect(b.Title));
-
-        static bool DurationsWithin(SongMetadata a, SongMetadata b, int toleranceSeconds, bool requireBoth)
-        {
-            if (a.DurationSeconds is not int da || b.DurationSeconds is not int db)
-                return !requireBoth;
-            return Math.Abs(da - db) <= toleranceSeconds;
-        }
-
-        void AddGroupPairs(
-            IEnumerable<IGrouping<string, SongMetadata>> groups,
-            DuplicateMatchReason reason,
-            string blockKind,
-            Func<SongMetadata, SongMetadata, bool> pairGuard)
-        {
-            foreach (var group in groups)
-            {
-                var members = group.ToList();
-                if (members.Count < 2)
-                    continue;
-
-                if (members.Count > opts.DuplicateMaxBlockSize)
-                {
-                    logger.LogWarning(
-                        "Skipping pathological duplicate-candidate block ({Kind}, {Count} songs, owner {OwnerUserId}): key {Key}",
-                        blockKind, members.Count, ownerId, group.Key);
-                    continue;
-                }
-
-                for (var i = 0; i < members.Count; i++)
-                    for (var j = i + 1; j < members.Count; j++)
-                        if (pairGuard(members[i], members[j]))
-                            AddPair(members[i], members[j], reason);
-            }
-        }
-
-        // Exact fingerprint equality — byte-identical audio; no further guards needed.
-        AddGroupPairs(
-            ownerSongs.Where(s => !string.IsNullOrEmpty(s.Fingerprint)).GroupBy(s => s.Fingerprint!),
-            DuplicateMatchReason.ExactFingerprint,
-            "fingerprint",
-            (_, _) => true);
-
-        // Shared AcoustID track id — strong identifier, but guard against tag drift with a loose
-        // duration check (when both known) and the strong-qualifier gate.
-        var identifierTolerance = opts.DuplicateDurationToleranceSeconds * 2;
-        AddGroupPairs(
-            ownerSongs.Where(s => !string.IsNullOrWhiteSpace(s.AcoustIdTrackId)).GroupBy(s => s.AcoustIdTrackId!),
-            DuplicateMatchReason.AcoustIdTrack,
-            "acoustid",
-            (a, b) => QualifiersCompatible(a, b) && DurationsWithin(a, b, identifierTolerance, requireBoth: false));
-
-        // Shared ISRC — candidate only (dirty tags share ISRCs); confirmation still requires audio.
-        AddGroupPairs(
-            ownerSongs
-                .Select(s => (Song: s, Isrc: ProviderIdentity.NormalizeIsrc(s.Isrc)))
-                .Where(x => x.Isrc.Length > 0)
-                .GroupBy(x => x.Isrc, x => x.Song),
-            DuplicateMatchReason.Isrc,
-            "isrc",
-            (a, b) => QualifiersCompatible(a, b) && DurationsWithin(a, b, identifierTolerance, requireBoth: false));
-
-        // Metadata blocking: normalized primary artist + title, durations required and within
-        // tolerance. This is what catches a FLAC and an MP3 of the same recording whose
-        // fingerprints differ as strings.
-        AddGroupPairs(
-            ownerSongs
-                .Select(s => (Song: s, Key: MetadataBlockKey(s)))
-                .Where(x => x.Key is not null)
-                .GroupBy(x => x.Key!, x => x.Song),
-            DuplicateMatchReason.Metadata,
-            "metadata",
-            (a, b) => QualifiersCompatible(a, b)
-                      && DurationsWithin(a, b, opts.DuplicateDurationToleranceSeconds, requireBoth: true));
-
-        return candidates;
-    }
-
-    private static string? MetadataBlockKey(SongMetadata song)
-    {
-        var artist = ArtistCreditNormalizer.GetPrimaryArtist(song.Artist) ?? song.Artist;
-        var artistKey = TitleNormalizer.NormalizeForSearch(artist);
-        var titleKey = TitleNormalizer.NormalizeForSearch(song.Title);
-        if (artistKey.Length == 0 || titleKey.Length == 0)
-            return null;
-        return $"{artistKey}\u0001{titleKey}";
-    }
-
-    private Dictionary<(int Low, int High), PairVerdict> ConfirmCandidates(
-        Dictionary<(int Low, int High), DuplicateMatchReason> candidates,
-        Dictionary<int, SongMetadata> byId,
-        MusicEnricherOptions opts)
-    {
-        // Decode each fingerprint at most once per run — the pairwise-compare cost control.
-        var decodeCache = new Dictionary<int, uint[]?>();
-        uint[]? Frames(SongMetadata song)
-        {
-            if (!decodeCache.TryGetValue(song.Id, out var frames))
-            {
-                frames = fingerprintGate.TryDecode(song.Fingerprint, out var decoded) ? decoded : null;
-                decodeCache[song.Id] = frames;
-            }
-            return frames;
-        }
-
-        var verdicts = new Dictionary<(int Low, int High), PairVerdict>();
-
-        foreach (var (pair, reasons) in candidates)
-        {
-            if (reasons.HasFlag(DuplicateMatchReason.ExactFingerprint))
-            {
-                verdicts[pair] = new PairVerdict(reasons, DuplicateConfidence.Confirmed, 1.0);
-                continue;
-            }
-
-            var framesA = Frames(byId[pair.Low]);
-            var framesB = Frames(byId[pair.High]);
-
-            if (framesA is not null && framesB is not null)
-            {
-                var similarity = fingerprintGate.Similarity(framesA, framesB);
-                if (similarity >= opts.DuplicateFingerprintMinSimilarity)
-                {
-                    verdicts[pair] = new PairVerdict(
-                        reasons | DuplicateMatchReason.FingerprintSimilarity, DuplicateConfidence.Confirmed, similarity);
-                }
-                else if (similarity < opts.DuplicateFingerprintRejectSimilarity)
-                {
-                    // Decodable fingerprints that strongly disagree are affirmative evidence of
-                    // different recordings — don't surface the pair at all.
-                }
-                else
-                {
-                    verdicts[pair] = new PairVerdict(reasons, DuplicateConfidence.Suspected, similarity);
-                }
-            }
-            else
-            {
-                // No audio evidence available: metadata/identifier agreement alone is never enough
-                // to auto-flag, but it's worth a human look.
-                verdicts[pair] = new PairVerdict(reasons, DuplicateConfidence.Suspected, null);
-            }
-        }
-
-        return verdicts;
     }
 
     private sealed class UnionFind

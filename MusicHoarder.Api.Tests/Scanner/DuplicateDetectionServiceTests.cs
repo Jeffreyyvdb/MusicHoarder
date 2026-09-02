@@ -767,7 +767,8 @@ public class DuplicateDetectionServiceTests
         var scopeFactory = new TestScopeFactory(db);
         return new DuplicateDetectionService(
             scopeFactory,
-            gate ?? new FingerprintSimilarityGate(),
+            new DuplicateCandidateGenerator(NullLogger<DuplicateCandidateGenerator>.Instance),
+            new DuplicatePairConfirmer(gate ?? new FingerprintSimilarityGate()),
             new TestOptionsMonitor(options ?? new MusicEnricherOptions()),
             NullLogger<DuplicateDetectionService>.Instance);
     }
