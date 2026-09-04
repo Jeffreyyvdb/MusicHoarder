@@ -975,7 +975,7 @@ public class LibraryBuilderService(
                         "Skipping copy for {Track} (SongId={SongId}): destination already exists with same size ({Bytes} bytes)",
                         song.TrackLabel, songId, existingSize);
                     return new LibraryBuildTrackResult(
-                        LibraryBuildOutcome.Done, song.SourcePath, song.IsUnreleased,
+                        LibraryBuildOutcome.Done, CoverSourcePath(song, destinationPath), song.IsUnreleased,
                         song.OwnerUserId, song.Id, identity.Album, EffectiveAlbumArtist(song, identity),
                         identity.MusicBrainzReleaseId, identity.MusicBrainzReleaseGroupId, song.SpotifyId);
                 }
@@ -986,7 +986,8 @@ public class LibraryBuilderService(
                 fileSystem.File.Delete(tempPath);
             }
 
-            await StreamCopyAsync(song.SourcePath, tempPath, ct);
+            var copySource = ResolveCopySource(song, songId);
+            await StreamCopyAsync(copySource, tempPath, ct);
             song.MarkCopied();
             await db.SaveChangesAsync(ct);
             logger.LogInformation("Copied {Track} (SongId={SongId}) to temp file {TempPath}",
@@ -998,12 +999,10 @@ public class LibraryBuilderService(
             logger.LogInformation("Tagged temp file for {Track} (SongId={SongId})",
                 song.TrackLabel, songId);
 
-            if (fileSystem.File.Exists(destinationPath))
-            {
-                fileSystem.File.Delete(destinationPath);
-            }
-
-            fileSystem.File.Move(tempPath, destinationPath);
+            // One overwrite-move rather than delete-then-move: for a released row re-tagged in place
+            // the destination is the only copy of the audio, and a crash between a delete and the
+            // move would lose it. Temp lives in the destination folder, so this is a plain rename.
+            fileSystem.File.Move(tempPath, destinationPath, overwrite: true);
             if (!string.IsNullOrWhiteSpace(song.PreviousDestinationPath)
                 && !PathsEqual(song.PreviousDestinationPath, destinationPath))
             {
@@ -1022,7 +1021,7 @@ public class LibraryBuilderService(
                 song.TrackLabel, songId, destinationPath);
 
             return new LibraryBuildTrackResult(
-                LibraryBuildOutcome.Done, song.SourcePath, song.IsUnreleased,
+                LibraryBuildOutcome.Done, CoverSourcePath(song, destinationPath), song.IsUnreleased,
                 song.OwnerUserId, song.Id, identity.Album, EffectiveAlbumArtist(song, identity),
                 identity.MusicBrainzReleaseId, identity.MusicBrainzReleaseGroupId, song.SpotifyId);
         }
@@ -1068,6 +1067,47 @@ public class LibraryBuilderService(
             return new LibraryBuildTrackResult(LibraryBuildOutcome.Failed);
         }
     }
+
+    /// <summary>
+    /// The file the build copies from. Normally the source; for a row whose staged source was
+    /// released, the existing destination copy (or the pre-rebuild one). A live source always wins
+    /// even when the row is marked released — a quality upgrade may have re-pointed
+    /// <see cref="SongMetadata.SourcePath"/> at a fresh staged file between the release's check and
+    /// its marker write — and the stale marker is cleared so the row reads true again.
+    /// </summary>
+    private string ResolveCopySource(SongMetadata song, int songId)
+    {
+        if (fileSystem.File.Exists(song.SourcePath))
+        {
+            if (song.IsSourceReleased)
+            {
+                logger.LogInformation(
+                    "Source file for {Track} (SongId={SongId}) exists again at {SourcePath}; clearing its released marker",
+                    song.TrackLabel, songId, song.SourcePath);
+                song.ClearSourceRelease();
+            }
+            return song.SourcePath;
+        }
+
+        // Not released: let the copy fail on the missing source exactly as it always has.
+        if (!song.IsSourceReleased)
+            return song.SourcePath;
+
+        var fallback = song.DestinationPath ?? song.PreviousDestinationPath;
+        if (!string.IsNullOrWhiteSpace(fallback) && fileSystem.File.Exists(fallback))
+            return fallback;
+
+        throw new FileNotFoundException(
+            "Staged source was released and no destination copy exists to rebuild from",
+            fallback ?? song.SourcePath);
+    }
+
+    /// <summary>
+    /// Where the post-batch cover pass reads embedded art from: the destination copy once the staged
+    /// source is gone (the tag writer carries pictures across), else the source as before.
+    /// </summary>
+    private static string CoverSourcePath(SongMetadata song, string destinationPath)
+        => song.IsSourceReleased ? destinationPath : song.SourcePath;
 
     // Writes a cover.<ext> into each freshly-built album folder that doesn't already have a
     // cover/folder/front.* image, lifting art from a representative source track (folder image first,

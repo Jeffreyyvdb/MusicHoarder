@@ -38,5 +38,13 @@ public class RuntimeSettings
     /// </summary>
     public bool? AlbumCompletionEnabled { get; set; }
 
+    /// <summary>
+    /// Overlays <see cref="Options.MusicEnricherOptions.ReleaseStagedSourcesAfterBuild"/> — when true
+    /// the hourly sweep deletes a download's staged copy once its library copy has been verified, so
+    /// downloads stop being stored twice. In the DB so the owner can opt in (and back out) from the
+    /// Settings UI without a redeploy; the hard gate is still a configured download directory.
+    /// </summary>
+    public bool? ReleaseStagedSourcesEnabled { get; set; }
+
     public DateTime? UpdatedAtUtc { get; set; }
 }

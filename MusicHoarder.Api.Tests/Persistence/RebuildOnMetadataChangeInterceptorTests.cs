@@ -114,6 +114,20 @@ public class RebuildOnMetadataChangeInterceptorTests
         Assert.Null(song.DestinationPath);
     }
 
+    [Fact]
+    public async Task ReleasingStagedSourceOnBuiltSong_DoesNotResetBuild()
+    {
+        await using var db = NewContext(autoStartPipeline: true);
+        var song = await SeedBuiltSongAsync(db);
+
+        song.MarkSourceReleased();
+        await db.SaveChangesAsync();
+
+        Assert.Equal(LibraryBuildStatus.Done, song.LibraryBuildStatus);
+        Assert.Equal(DestPath, song.DestinationPath);
+        Assert.Null(song.PreviousDestinationPath);
+    }
+
     private static async Task<SongMetadata> SeedBuiltSongAsync(MusicHoarderDbContext db)
     {
         var song = NewSong();

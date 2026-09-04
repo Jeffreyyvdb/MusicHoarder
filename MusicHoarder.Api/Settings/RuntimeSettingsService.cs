@@ -70,6 +70,7 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
             if (update.QualityGradingEnabled.HasValue) row.QualityGradingEnabled = update.QualityGradingEnabled;
             if (update.AutoDownloadWishlist.HasValue) row.AutoDownloadWishlist = update.AutoDownloadWishlist;
             if (update.AlbumCompletionEnabled.HasValue) row.AlbumCompletionEnabled = update.AlbumCompletionEnabled;
+            if (update.ReleaseStagedSourcesEnabled.HasValue) row.ReleaseStagedSourcesEnabled = update.ReleaseStagedSourcesEnabled;
 
             row.UpdatedAtUtc = DateTime.UtcNow;
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -97,6 +98,7 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
             QualityGradingEnabled: row?.QualityGradingEnabled ?? qualityDefaults.Enabled,
             AutoDownloadWishlist: row?.AutoDownloadWishlist ?? defaults.AutoDownloadWishlist,
             AlbumCompletionEnabled: row?.AlbumCompletionEnabled ?? defaults.EnableAlbumCompletion,
+            ReleaseStagedSourcesEnabled: row?.ReleaseStagedSourcesEnabled ?? defaults.ReleaseStagedSourcesAfterBuild,
             UpdatedAtUtc: row?.UpdatedAtUtc);
     }
 }

@@ -24,6 +24,7 @@ public sealed record EffectiveSettings(
     bool QualityGradingEnabled,
     bool AutoDownloadWishlist,
     bool AlbumCompletionEnabled,
+    bool ReleaseStagedSourcesEnabled,
     DateTime? UpdatedAtUtc);
 
 /// <summary>
@@ -41,4 +42,5 @@ public sealed record RuntimeSettingsUpdate
     public bool? QualityGradingEnabled { get; init; }
     public bool? AutoDownloadWishlist { get; init; }
     public bool? AlbumCompletionEnabled { get; init; }
+    public bool? ReleaseStagedSourcesEnabled { get; init; }
 }

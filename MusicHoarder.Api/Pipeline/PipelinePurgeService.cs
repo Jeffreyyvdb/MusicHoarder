@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Options;
@@ -25,6 +26,7 @@ public class PipelinePurgeService(
     ILibraryDestinationCleaner destinationCleaner,
     JobManager jobManager,
     PurgeStatusTracker tracker,
+    StagedSourceReleaseTracker releaseTracker,
     ILogger<PipelinePurgeService> logger) : IPipelinePurgeService
 {
     private const int FileDeleteConcurrency = 4;
@@ -36,6 +38,9 @@ public class PipelinePurgeService(
     {
         tracker.Start("post-fingerprint", jobId);
         PausePipelineSteps();
+        // A staged-source release verifies destination files right before deleting their sources;
+        // it must not be mid-row while this deletes those destinations.
+        await releaseTracker.CancelAndWaitAsync(ct);
         try
         {
             var destinationRoot = options.Value.DestinationDirectory;
@@ -48,7 +53,11 @@ public class PipelinePurgeService(
                 .Where(s => s.OwnerUserId == ownerUserId && s.DeletedAtUtc == null)
                 .ToListAsync(ct);
 
-            var songsWithFiles = songs.Where(s => !string.IsNullOrWhiteSpace(s.DestinationPath)).ToList();
+            // A released row's destination is its only copy: keep the file, and ResetPostFingerprint
+            // keeps PreviousDestinationPath on such rows so the next build re-copies from it.
+            var songsWithFiles = songs
+                .Where(s => !string.IsNullOrWhiteSpace(s.DestinationPath) && !s.IsSourceReleased)
+                .ToList();
             tracker.SetTotals(songs.Count, songsWithFiles.Count);
 
             var (filesDeleted, filesFailed) = await DeleteDestinationFilesAsync(songsWithFiles, destinationRoot, ct);
@@ -77,6 +86,7 @@ public class PipelinePurgeService(
     {
         tracker.Start("all", jobId);
         PausePipelineSteps();
+        await releaseTracker.CancelAndWaitAsync(ct);
         try
         {
             var destinationRoot = options.Value.DestinationDirectory;

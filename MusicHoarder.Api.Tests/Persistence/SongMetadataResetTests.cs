@@ -185,6 +185,47 @@ public class SongMetadataResetTests
         durationSeconds: 180,
         durationMs: 180_000);
 
+    [Fact]
+    public void ResetPostFingerprint_KeepsPreviousDestination_WhenSourceWasReleased()
+    {
+        var song = BuildFullyPopulatedSong();
+        song.MarkBuildDone("/dest/A/B/01.mp3");
+        song.MarkSourceReleased();
+
+        song.ResetPostFingerprint();
+
+        Assert.Null(song.DestinationPath);
+        Assert.Equal("/dest/A/B/01.mp3", song.PreviousDestinationPath);
+        Assert.Equal("/dest/A/B/01.mp3", song.ReadableAudioPath);
+        Assert.True(song.IsSourceReleased);
+    }
+
+    [Fact]
+    public void ResetPostFingerprint_ClearsPreviousDestination_WhenSourceStillExists()
+    {
+        var song = BuildFullyPopulatedSong();
+        song.MarkBuildDone("/dest/A/B/01.mp3");
+
+        song.ResetPostFingerprint();
+
+        Assert.Null(song.PreviousDestinationPath);
+        Assert.Equal("/src/track.mp3", song.ReadableAudioPath);
+    }
+
+    [Fact]
+    public void ApplySourceUpgrade_ClearsReleasedMarker()
+    {
+        var song = BuildFullyPopulatedSong();
+        song.MarkBuildDone("/dest/A/B/01.mp3");
+        song.MarkSourceReleased();
+
+        song.ApplySourceUpgrade("/downloads/better.flac", 9999, "better.flac", ".flac",
+            DateTime.UtcNow, 1000, "fp-new", 181, 181_000);
+
+        Assert.False(song.IsSourceReleased);
+        Assert.Equal("/downloads/better.flac", song.ReadableAudioPath);
+    }
+
     private static SongMetadata BuildFullyPopulatedSong()
     {
         var song = new SongMetadata

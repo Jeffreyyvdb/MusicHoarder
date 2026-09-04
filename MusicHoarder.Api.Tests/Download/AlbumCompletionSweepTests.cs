@@ -795,6 +795,7 @@ public class AlbumCompletionSweepTests
             QualityGradingEnabled: true,
             AutoDownloadWishlist: true,
             AlbumCompletionEnabled: albumCompletionEnabled,
+            ReleaseStagedSourcesEnabled: false,
             UpdatedAtUtc: null);
 
         public Task<EffectiveSettings> GetAsync(CancellationToken ct = default) => Task.FromResult(_effective);

@@ -9,6 +9,7 @@
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import PurgeStatusBanner from '$lib/components/settings/PurgeStatusBanner.svelte';
   import MusicVideoAuditCard from '$lib/components/settings/MusicVideoAuditCard.svelte';
+  import StagedSourceReleaseBanner from '$lib/components/settings/StagedSourceReleaseBanner.svelte';
   import PairDeviceCard from '$lib/components/settings/PairDeviceCard.svelte';
   import PeopleCard from '$lib/components/settings/PeopleCard.svelte';
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
@@ -24,6 +25,9 @@
     purgeAll,
     purgePostFingerprint,
     fetchPurgeStatus,
+    fetchStagedSourcePreview,
+    fetchStagedSourceStatus,
+    startStagedSourceRelease,
     registerPasskey,
     listPasskeys,
     listAccounts,
@@ -37,6 +41,8 @@
     type SoulseekStatus,
     type PurgeMode,
     type PurgeSnapshot,
+    type StagedSourceReleasePreview,
+    type StagedSourceReleaseSnapshot,
     type SettingsResponse,
     type SettingsProvidersView,
     type SettingsQualityGradingView,
@@ -46,6 +52,9 @@
   import { signOutAndReset } from '$lib/auth/sign-out';
   import { switchAccountAndReload } from '$lib/auth/switch-account';
   import { isAdmin, isDemo, roleLabel } from '$lib/auth/capabilities';
+  import { formatFileSize } from '$lib/formatters';
+
+  const formatBytes = (bytes: number) => (bytes > 0 ? formatFileSize(bytes) : '0 B');
   import {
     Loader2,
     CheckCircle2,
@@ -282,6 +291,57 @@
   let purgeStartError = $state<string | null>(null);
   const purgeRunning = $derived(purgeSnapshot?.status === 'running');
 
+  // Staged-source release: downloads are copied into the library; once verified, the staged copy is
+  // dead weight. Toggle = hourly sweep; "Release now" = one immediate run with progress.
+  let stagedPreview = $state<StagedSourceReleasePreview | null>(null);
+  let stagedSnapshot = $state<StagedSourceReleaseSnapshot | null>(null);
+  let stagedToggleBusy = $state(false);
+  let stagedStartError = $state<string | null>(null);
+  const stagedRunning = $derived(stagedSnapshot?.status === 'running');
+
+  async function refreshStagedPreview() {
+    try {
+      stagedPreview = await fetchStagedSourcePreview();
+    } catch {
+      // leave the last preview in place
+    }
+  }
+
+  async function onToggleReleaseStagedSources(next: boolean) {
+    if (!settings) return;
+    stagedToggleBusy = true;
+    try {
+      await updateSettings({ downloads: { releaseStagedSources: next } });
+      settings = { ...settings, downloads: { ...settings.downloads, releaseStagedSources: next } };
+    } finally {
+      stagedToggleBusy = false;
+    }
+  }
+
+  async function handleReleaseStagedSources() {
+    stagedStartError = null;
+    const response = await startStagedSourceRelease();
+    if (!response.ok) {
+      stagedStartError = response.message;
+      return;
+    }
+    stagedSnapshot = {
+      status: 'running',
+      mode: 'manual',
+      jobId: response.jobId,
+      startedAt: new Date().toISOString(),
+      completedAt: null,
+      candidates: 0,
+      released: 0,
+      alreadyMissing: 0,
+      skippedVerification: 0,
+      raced: 0,
+      failed: 0,
+      bytesReclaimed: 0,
+      error: null
+    };
+  }
+
   // "Purge all data" is the most destructive action in the app — it requires an explicit typed
   // acknowledgment (not just a click-through Cancel/Confirm) before the dialog's action enables.
   let purgeAllDialogOpen = $state(false);
@@ -310,7 +370,7 @@
     void (async () => {
       isLoading = true;
       try {
-        const [creds, status, purge, settingsResp] = await Promise.all([
+        const [creds, status, purge, settingsResp, staged] = await Promise.all([
           fetchSpotifyCredentials().catch(
             () => ({ clientId: null, hasClientSecret: false }) as SpotifyCredentialsResponse
           ),
@@ -323,17 +383,20 @@
               }) as SpotifyStatusResponse
           ),
           fetchPurgeStatus().catch(() => null),
-          fetchSettings().catch(() => null)
+          fetchSettings().catch(() => null),
+          fetchStagedSourceStatus().catch(() => null)
         ]);
         if (cancelled) return;
         savedCredentials = creds;
         spotifyStatus = status;
         if (creds.clientId) clientId = creds.clientId;
         if (purge) purgeSnapshot = purge;
+        if (staged) stagedSnapshot = staged;
         if (settingsResp) {
           settings = settingsResp;
           providers = { ...settingsResp.providers };
           qualityGrading = { ...settingsResp.qualityGrading };
+          if (settingsResp.downloads.enabled) void refreshStagedPreview();
         }
       } finally {
         if (!cancelled) isLoading = false;
@@ -352,6 +415,27 @@
       try {
         const snap = await fetchPurgeStatus();
         if (!cancelled) purgeSnapshot = snap;
+      } catch {
+        // keep polling on transient errors
+      }
+    };
+    const id = setInterval(tick, 1500);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  });
+
+  // Poll the staged-source release while running; refresh the preview once it settles.
+  $effect(() => {
+    if (stagedSnapshot?.status !== 'running') return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const snap = await fetchStagedSourceStatus();
+        if (cancelled) return;
+        stagedSnapshot = snap;
+        if (snap.status !== 'running') void refreshStagedPreview();
       } catch {
         // keep polling on transient errors
       }
@@ -868,6 +952,108 @@
                 </div>
               {/if}
             </div>
+          </div>
+        </section>
+      {/if}
+      <!-- Download staging (owner-only housekeeping) -->
+      {#if isAdmin(user) && settings?.downloads.enabled}
+        <section class="border-border bg-card rounded-lg border">
+          <header class="border-border border-b px-5 py-3.5">
+            <h2 class="text-[13px] font-semibold">Download staging</h2>
+            <p class="text-muted-foreground text-[11.5px]">
+              Every download is indexed from the staging folder and copied into your library, so it is
+              stored twice. Releasing deletes the staged copy once the library copy has been verified —
+              the library copy is then the only one.
+            </p>
+          </header>
+          <div class="divide-border divide-y">
+            <div class="flex items-center gap-4 px-5 py-3.5">
+              <div class="min-w-0 flex-1">
+                <div class="text-[12.5px] font-medium">Release staged copies automatically</div>
+                <div class="text-muted-foreground text-[11.5px]">
+                  An hourly sweep releases downloads built more than
+                  {stagedPreview?.graceMinutes ?? 15} minutes ago. Off by default.
+                </div>
+              </div>
+              <Switch
+                checked={settings.downloads.releaseStagedSources}
+                disabled={stagedToggleBusy}
+                onCheckedChange={(v) => void onToggleReleaseStagedSources(v)}
+                aria-label="Release staged copies automatically"
+              />
+            </div>
+            <div class="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+              <div class="min-w-0 flex-1">
+                <div class="text-[12.5px] font-medium">Staged copies waiting</div>
+                <div class="text-muted-foreground text-[11.5px]">
+                  {#if !stagedPreview}
+                    Loading…
+                  {:else if stagedPreview.unavailableReason}
+                    Not available on this deployment ({stagedPreview.unavailableReason}).
+                  {:else}
+                    <span class="tabular-nums">{stagedPreview.eligible.toLocaleString()}</span> files ·
+                    {formatBytes(stagedPreview.eligibleBytes)} reclaimable ·
+                    <span class="tabular-nums">{stagedPreview.released.toLocaleString()}</span> already
+                    released ({formatBytes(stagedPreview.releasedBytes)})
+                  {/if}
+                </div>
+              </div>
+              <AlertDialog.Root>
+                <AlertDialog.Trigger>
+                  {#snippet child({ props })}
+                    <Button
+                      {...props}
+                      variant="outline"
+                      class="shrink-0 gap-2"
+                      disabled={stagedRunning ||
+                        purgeRunning ||
+                        !stagedPreview ||
+                        !!stagedPreview.unavailableReason ||
+                        stagedPreview.eligible === 0}
+                    >
+                      {#if stagedRunning}
+                        <Loader2 class="size-4 animate-spin" />
+                      {:else}
+                        <FolderInput class="size-4" />
+                      {/if}
+                      Release now
+                    </Button>
+                  {/snippet}
+                </AlertDialog.Trigger>
+                <AlertDialog.Content>
+                  <AlertDialog.Header>
+                    <AlertDialog.Title>Release staged copies now?</AlertDialog.Title>
+                    <AlertDialog.Description>
+                      Each of the {stagedPreview?.eligible.toLocaleString() ?? 0} staged files is deleted
+                      only after its library copy is checked (present, readable, matching duration and
+                      size). The library copy becomes the only copy. This runs in the background — you can
+                      navigate away and the progress will be here when you come back.
+                    </AlertDialog.Description>
+                  </AlertDialog.Header>
+                  <AlertDialog.Footer>
+                    <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+                    <AlertDialog.Action onclick={() => void handleReleaseStagedSources()}>
+                      Release now
+                    </AlertDialog.Action>
+                  </AlertDialog.Footer>
+                </AlertDialog.Content>
+              </AlertDialog.Root>
+            </div>
+            {#if stagedStartError}
+              <div class="px-5 py-3">
+                <div
+                  class="border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+                >
+                  <AlertCircle class="mt-0.5 size-4 shrink-0" />
+                  <span>{stagedStartError}</span>
+                </div>
+              </div>
+            {/if}
+            {#if stagedSnapshot && stagedSnapshot.status !== 'idle'}
+              <div class="px-5 py-3">
+                <StagedSourceReleaseBanner snapshot={stagedSnapshot} />
+              </div>
+            {/if}
           </div>
         </section>
       {/if}
@@ -1452,7 +1638,8 @@
                 <p class="text-muted-foreground mt-1 text-xs">
                   Removes every song, provider attempt, and cached Spotify match from the database,
                   and deletes any files copied to the destination folder. Source files are not
-                  touched. The next run re-scans and re-fingerprints from source.
+                  touched — but a download whose staged copy was released has no other copy, so it is
+                  gone for good. The next run re-scans and re-fingerprints from source.
                 </p>
               </div>
               <AlertDialog.Root bind:open={purgeAllDialogOpen} onOpenChange={onPurgeAllDialogOpenChange}>
@@ -1474,7 +1661,8 @@
                     <AlertDialog.Description>
                       This deletes every song record, provider attempt, and cached Spotify match, and
                       removes files that were copied to the destination folder. Source files are not
-                      affected. If you're demoing this build or benchmarking match quality, this also
+                      affected; downloads whose staged copy was released are lost for good. If you're
+                      demoing this build or benchmarking match quality, this also
                       wipes any grading history you were comparing against. This runs in the
                       background — you can navigate away and the progress will be here when you come
                       back. This cannot be undone.

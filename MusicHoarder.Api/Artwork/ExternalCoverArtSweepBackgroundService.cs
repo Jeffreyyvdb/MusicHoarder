@@ -105,8 +105,8 @@ public sealed class ExternalCoverArtSweepBackgroundService(
                 && s.DestinationPath != null
                 && s.SourcePath != null)
             .Select(s => new SweepRow(
-                s.Id, s.OwnerUserId, s.SourcePath!, s.DestinationPath!, s.Album, s.AlbumArtist,
-                s.MusicBrainzReleaseId, s.MusicBrainzReleaseGroupId, s.SpotifyId))
+                s.Id, s.OwnerUserId, s.SourcePath!, s.DestinationPath!, s.SourceReleasedAtUtc != null,
+                s.Album, s.AlbumArtist, s.MusicBrainzReleaseId, s.MusicBrainzReleaseGroupId, s.SpotifyId))
             .ToListAsync(ct);
 
         if (rows.Count == 0)
@@ -149,7 +149,10 @@ public sealed class ExternalCoverArtSweepBackgroundService(
 
             var query = new ExternalCoverArtQuery(
                 rep.MusicBrainzReleaseId, rep.MusicBrainzReleaseGroupId, rep.AlbumArtist, rep.Album, rep.SpotifyId);
-            var result = await coverWriter.WriteIfMissingAsync(folder, rep.SourcePath, query, ct);
+            // A released row has no staged source left; its destination copy still carries the
+            // embedded art the tag writer copied across, so read from there instead.
+            var audioPath = rep.SourceReleased ? rep.DestinationPath : rep.SourcePath;
+            var result = await coverWriter.WriteIfMissingAsync(folder, audioPath, query, ct);
 
             if (result.Written)
             {
@@ -256,7 +259,7 @@ public sealed class ExternalCoverArtSweepBackgroundService(
     }
 
     private sealed record SweepRow(
-        int Id, Guid OwnerUserId, string SourcePath, string DestinationPath,
+        int Id, Guid OwnerUserId, string SourcePath, string DestinationPath, bool SourceReleased,
         string? Album, string? AlbumArtist, string? MusicBrainzReleaseId, string? MusicBrainzReleaseGroupId,
         string? SpotifyId);
 }
