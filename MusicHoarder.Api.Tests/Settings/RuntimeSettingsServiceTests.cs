@@ -34,6 +34,21 @@ public class RuntimeSettingsServiceTests
         Assert.False(await db.RuntimeSettings.Select(r => r.QualityGradingEnabled).SingleAsync());
     }
 
+    [Fact]
+    public async Task ReleaseStagedSourcesEnabled_DefaultsOff_AndRowOverridesIt()
+    {
+        var db = CreateDb();
+        var service = CreateService(db, qualityEnabledDefault: true);
+
+        Assert.False((await service.GetAsync()).ReleaseStagedSourcesEnabled);
+
+        var effective = await service.UpdateAsync(new RuntimeSettingsUpdate { ReleaseStagedSourcesEnabled = true });
+
+        Assert.True(effective.ReleaseStagedSourcesEnabled);
+        Assert.True((await service.GetAsync()).ReleaseStagedSourcesEnabled);
+        Assert.True(await db.RuntimeSettings.Select(r => r.ReleaseStagedSourcesEnabled).SingleAsync());
+    }
+
     // --- helpers ---
 
     private static MusicHoarderDbContext CreateDb() =>

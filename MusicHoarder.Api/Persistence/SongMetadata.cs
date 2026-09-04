@@ -267,6 +267,33 @@ public class SongMetadata
     public string? PreviousDestinationPath { get; set; }
 
     /// <summary>
+    /// When the staged copy under <c>MusicEnricher:DownloadDirectory</c> was deleted after the
+    /// destination copy had been verified (see <c>Download.StagedSourceReleaseService</c>). From then
+    /// on <see cref="DestinationPath"/> — or <see cref="PreviousDestinationPath"/> while a rebuild is
+    /// in flight — is the only copy of the audio. <see cref="SourcePath"/> is deliberately kept
+    /// verbatim: it is the unique key, the origin derivation (<see cref="Library.SongOriginResolver"/>)
+    /// and the wishlist link (<see cref="WishlistItem.DownloadedFilePath"/>) all depend on the string.
+    /// The scanner skips released rows in deletion reconciliation and the builder copies from
+    /// <see cref="ReadableAudioPath"/>. Cleared when a new source file arrives at the path
+    /// (<see cref="ApplySourceUpgrade"/>, or the scanner re-indexing a reappeared file).
+    /// </summary>
+    public DateTime? SourceReleasedAtUtc { get; set; }
+
+    public bool IsSourceReleased => SourceReleasedAtUtc.HasValue;
+
+    /// <summary>
+    /// The on-disk file that currently holds this track's audio: the source while it exists, else
+    /// the destination copy (or the pre-rebuild destination) once the staged source was released.
+    /// Null only for a released row that lost its destination too.
+    /// </summary>
+    public string? ReadableAudioPath =>
+        IsSourceReleased ? (DestinationPath ?? PreviousDestinationPath) : SourcePath;
+
+    public void MarkSourceReleased() => SourceReleasedAtUtc = DateTime.UtcNow;
+
+    public void ClearSourceRelease() => SourceReleasedAtUtc = null;
+
+    /// <summary>
     /// JSON snapshot of the tag set last physically written to the destination file (a serialized
     /// <see cref="Library.WrittenTagSet"/>). Each successful build diffs the about-to-be-written tags
     /// against this to emit <see cref="LibraryWriteEvent"/>s with accurate "since last time" old values,
@@ -1049,6 +1076,8 @@ public class SongMetadata
         DurationSeconds = durationSeconds ?? DurationSeconds;
         DurationMs = durationMs ?? DurationMs;
         IndexedAtUtc = DateTime.UtcNow;
+        // A new staged file exists at the new path, so the row is no longer source-less.
+        SourceReleasedAtUtc = null;
         // The old file's write snapshot no longer describes the new source; drop it so the next
         // build diffs from scratch instead of a stale baseline.
         LastWrittenTagsJson = null;
@@ -1059,7 +1088,10 @@ public class SongMetadata
     {
         ResetEnrichment(restoreOriginal: true);
         ResetLibraryBuild();
-        PreviousDestinationPath = null;
+        // A released row has no source to rebuild from — its previous destination is the only copy,
+        // so it must survive the reset for the builder to re-copy from it.
+        if (!IsSourceReleased)
+            PreviousDestinationPath = null;
         IsDuplicate = false;
         DuplicateOfId = null;
         DuplicateKeeperPinnedAtUtc = null;

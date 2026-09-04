@@ -474,7 +474,70 @@ public static class EnrichmentEndpoints
             .WithName("GetPurgeStatus")
             .WithSummary("Get the current purge status snapshot. Includes the last completed result until a new purge starts.");
 
+        group.MapGet("/staged-sources/preview", async (
+                StagedSourceReleaseService service,
+                ICurrentUserAccessor currentUser,
+                CancellationToken ct) =>
+                Results.Ok(await service.PreviewAsync(currentUser.UserId, ct)))
+            .WithName("PreviewStagedSourceRelease")
+            .WithSummary("Dry run of the staged-source release: how many built downloads still hold a staged copy, and how many bytes that is. Reads no files.")
+            .RequireAdmin();
+
+        group.MapPost("/staged-sources/release", (
+                JobManager jobManager,
+                IServiceScopeFactory scopeFactory,
+                StagedSourceReleaseTracker tracker,
+                ICurrentUserAccessor currentUser,
+                ILoggerFactory loggerFactory) =>
+                StartStagedSourceRelease(jobManager, scopeFactory, tracker, currentUser.UserId, loggerFactory))
+            .WithName("ReleaseStagedSources")
+            .WithSummary("Start a background release of every built download's staged copy (after verifying its library copy). Returns 202 Accepted with a jobId; poll /staged-sources/status for progress.")
+            .RequireAdmin();
+
+        group.MapGet("/staged-sources/status", (StagedSourceReleaseTracker tracker) => Results.Ok(tracker.Get()))
+            .WithName("GetStagedSourceReleaseStatus")
+            .WithSummary("Get the current staged-source release snapshot. Keeps the last completed result until a new run starts.")
+            .RequireAdmin();
+
         return app;
+    }
+
+    internal static IResult StartStagedSourceRelease(
+        JobManager jobManager,
+        IServiceScopeFactory scopeFactory,
+        StagedSourceReleaseTracker tracker,
+        Guid ownerUserId,
+        ILoggerFactory loggerFactory)
+    {
+        if (jobManager.GetStepSnapshot(JobType.Purge).Status == "Running")
+            return Results.Conflict(new { message = "A purge is running. Wait for it to finish before releasing staged sources." });
+
+        if (!tracker.TryStart("manual", out var jobId, out var cancellationToken))
+            return Results.Conflict(new { message = "A staged-source release is already running. Wait for it to finish." });
+
+        var logger = loggerFactory.CreateLogger("MusicHoarder.Api.Download.StagedSourceRelease");
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = scopeFactory.CreateScope();
+                var service = scope.ServiceProvider.GetRequiredService<StagedSourceReleaseService>();
+                await service.ReleaseAsync(ownerUserId, cancellationToken);
+                tracker.Complete();
+            }
+            catch (OperationCanceledException)
+            {
+                tracker.Cancelled();
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Staged-source release {JobId} failed", jobId);
+                tracker.Fail(ex.Message);
+            }
+        });
+
+        return Results.Accepted("/api/enrichment/staged-sources/status", new { jobId });
     }
 
     private static string? NullIfEmpty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;

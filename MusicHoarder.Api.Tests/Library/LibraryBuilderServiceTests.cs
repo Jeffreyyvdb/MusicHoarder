@@ -1267,6 +1267,130 @@ public class LibraryBuilderServiceTests
         Assert.Equal("BBBBBBBBBB", fileSystem.File.ReadAllText(occupantDestination));
     }
 
+    [Fact]
+    public async Task ProcessNextBatchAsync_RetagsReleasedRow_FromItsOwnDestinationCopy()
+    {
+        // Staged source is gone; the destination is the only copy. An in-place re-tag must copy from
+        // it and end with the same bytes at the same path.
+        var sourcePath = "/downloads/track.mp3";
+        var destinationPath = "/dest/Artist/2026 - Album/01 - Track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [destinationPath] = new("library-bytes")
+        });
+
+        await using var db = CreateDbContext();
+        var song = CreateMatchedSong(sourcePath, 13);
+        song.MarkBuildDone(destinationPath);
+        song.MarkSourceReleased();
+        song.RequeueForRetag();
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var tagWriter = new RecordingTagWriter();
+        var service = CreateService(db, fileSystem, tagWriter);
+
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        var reloaded = await db.Songs.SingleAsync();
+
+        Assert.Equal(1, result.Done);
+        Assert.Equal(0, result.Failed);
+        Assert.Equal(LibraryBuildStatus.Done, reloaded.LibraryBuildStatus);
+        Assert.Equal(destinationPath, reloaded.DestinationPath);
+        Assert.Null(reloaded.PreviousDestinationPath);
+        Assert.NotNull(reloaded.SourceReleasedAtUtc);
+        Assert.Equal("library-bytes", fileSystem.File.ReadAllText(destinationPath));
+        Assert.Contains(".tmp.", tagWriter.Paths.Single(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_RebuildsReleasedRow_FromPreviousDestination_WhenFolderMoves()
+    {
+        var sourcePath = "/downloads/track.mp3";
+        var oldDestination = "/dest/Old Artist/2020 - Old Album/01 - Track.mp3";
+        var newDestination = "/dest/Artist/2026 - Album/01 - Track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [oldDestination] = new("library-bytes")
+        });
+
+        await using var db = CreateDbContext();
+        var song = CreateMatchedSong(sourcePath, 13);
+        song.MarkBuildDone(oldDestination);
+        song.MarkSourceReleased();
+        song.ResetLibraryBuild();   // e.g. artist credit healed → new folder
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter());
+
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        var reloaded = await db.Songs.SingleAsync();
+
+        Assert.Equal(1, result.Done);
+        Assert.Equal(newDestination, reloaded.DestinationPath);
+        Assert.Equal("library-bytes", fileSystem.File.ReadAllText(newDestination));
+        Assert.False(fileSystem.File.Exists(oldDestination));
+        Assert.False(fileSystem.Directory.Exists("/dest/Old Artist"));
+        Assert.NotNull(reloaded.SourceReleasedAtUtc);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_FailsClearly_WhenReleasedRowHasNoCopyLeft()
+    {
+        var sourcePath = "/downloads/track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>());
+
+        await using var db = CreateDbContext();
+        var song = CreateMatchedSong(sourcePath, 13);
+        song.MarkBuildDone("/dest/Artist/2026 - Album/01 - Track.mp3");
+        song.MarkSourceReleased();
+        song.RequeueForRetag();
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter());
+
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        var reloaded = await db.Songs.SingleAsync();
+
+        Assert.Equal(1, result.Failed);
+        Assert.Equal(LibraryBuildStatus.Failed, reloaded.LibraryBuildStatus);
+        Assert.Equal(1, reloaded.LibraryBuildAttempts);
+        Assert.Contains("released", reloaded.LibraryBuildError, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_PrefersALiveSource_AndClearsAStaleReleasedMarker()
+    {
+        // A quality upgrade re-pointed SourcePath at a fresh staged file after the release stamped
+        // the row: the new source must win and the marker must go.
+        var sourcePath = "/downloads/track.mp3";
+        var destinationPath = "/dest/Artist/2026 - Album/01 - Track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("upgraded-bytes"),
+            [destinationPath] = new("library-bytes")
+        });
+
+        await using var db = CreateDbContext();
+        var song = CreateMatchedSong(sourcePath, 14);
+        song.MarkBuildDone(destinationPath);
+        song.MarkSourceReleased();
+        song.RequeueForRetag();
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter());
+
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        var reloaded = await db.Songs.SingleAsync();
+
+        Assert.Equal(1, result.Done);
+        Assert.Null(reloaded.SourceReleasedAtUtc);
+        Assert.Equal("upgraded-bytes", fileSystem.File.ReadAllText(destinationPath));
+    }
+
     private static LibraryBuilderService CreateService(
         MusicHoarderDbContext db,
         IFileSystem fileSystem,

@@ -146,6 +146,56 @@ public class IndexServiceTests : IDisposable
         Assert.NotNull(row.AcquiredAtUtc);
     }
 
+    [Fact]
+    public async Task Index_DoesNotSoftDeleteRow_WhoseStagedSourceWasReleased()
+    {
+        // A released row's file is *meant* to be gone (its library copy is the only one). The scan must
+        // still soft-delete an ordinary missing file next to it.
+        var root = Directory.CreateDirectory(Path.Combine(tempDir, "downloads")).FullName;
+        await File.WriteAllBytesAsync(Path.Combine(root, "present.mp3"), [1, 2, 3]);
+
+        await using var db = NewContext();
+        var released = Seed(Path.Combine(root, "released.mp3").Replace('\\', '/'));
+        released.MarkBuildDone("/dest/Artist/Album/01 - Released.mp3");
+        released.MarkSourceReleased();
+        db.Songs.Add(released);
+        db.Songs.Add(Seed(Path.Combine(root, "gone.mp3").Replace('\\', '/')));
+        await db.SaveChangesAsync();
+
+        var result = await CreateService(db).IndexAsync(Guid.NewGuid(), root);
+
+        var rows = await db.Songs.IgnoreQueryFilters().ToListAsync();
+        var releasedRow = rows.Single(r => r.SourcePath.EndsWith("released.mp3"));
+        var goneRow = rows.Single(r => r.SourcePath.EndsWith("gone.mp3"));
+        Assert.Null(releasedRow.DeletedAtUtc);
+        Assert.Equal(LibraryBuildStatus.Done, releasedRow.LibraryBuildStatus);
+        Assert.NotNull(goneRow.DeletedAtUtc);
+        Assert.Equal(1, result.DeletedFiles);
+        Assert.Equal(0, result.ChangedFiles);
+    }
+
+    [Fact]
+    public async Task Index_ClearsReleasedMarker_WhenAFileReappearsAtTheSamePath()
+    {
+        var path = Path.Combine(tempDir, "back.mp3").Replace('\\', '/');
+        await using var db = NewContext();
+        var row = Seed(path);
+        row.MarkBuildDone("/dest/Artist/Album/01 - Back.mp3");
+        row.MarkSourceReleased();
+        db.Songs.Add(row);
+        await db.SaveChangesAsync();
+
+        await File.WriteAllBytesAsync(path, [1, 2, 3]);
+        await CreateService(db).IndexAsync(Guid.NewGuid(), tempDir);
+
+        var reloaded = await db.Songs.IgnoreQueryFilters().SingleAsync();
+        Assert.Null(reloaded.SourceReleasedAtUtc);
+        Assert.Null(reloaded.DeletedAtUtc);
+        // Treated as a changed file: the builder re-copies from the fresh source next time.
+        Assert.Equal(LibraryBuildStatus.Pending, reloaded.LibraryBuildStatus);
+        Assert.Equal("/dest/Artist/Album/01 - Back.mp3", reloaded.PreviousDestinationPath);
+    }
+
     private static SongMetadata Seed(string sourcePath) => new()
     {
         OwnerUserId = WellKnownUsers.OwnerId,

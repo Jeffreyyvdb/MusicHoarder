@@ -1497,6 +1497,95 @@ export async function fetchPurgeStatus(): Promise<PurgeSnapshot> {
   return toPurgeSnapshot(body)
 }
 
+// ── Staged-source release ────────────────────────────────────────────────────
+// Downloads are indexed from the staging dir and copied into the library; the release deletes the
+// staged copy once the library copy is verified. Own status endpoint (not a pipeline job).
+
+export type StagedSourceReleaseStatus = "idle" | "running" | "completed" | "cancelled" | "failed"
+
+export interface StagedSourceReleasePreview {
+  /** Built downloads that still hold a staged copy and are past the grace window. */
+  eligible: number
+  eligibleBytes: number
+  /** Downloads whose staged copy is already gone. */
+  released: number
+  releasedBytes: number
+  graceMinutes: number
+  /** Why the feature cannot run at all on this deployment (null when it can). */
+  unavailableReason: string | null
+}
+
+export interface StagedSourceReleaseSnapshot {
+  status: StagedSourceReleaseStatus
+  mode: "sweep" | "manual" | null
+  jobId: string | null
+  startedAt: string | null
+  completedAt: string | null
+  candidates: number
+  released: number
+  alreadyMissing: number
+  skippedVerification: number
+  raced: number
+  failed: number
+  bytesReclaimed: number
+  error: string | null
+}
+
+export type StagedSourceReleaseStartResult =
+  | { ok: true; jobId: string }
+  | { ok: false; status: number; message: string }
+
+export async function fetchStagedSourcePreview(): Promise<StagedSourceReleasePreview> {
+  const body = await requestJson<Record<string, unknown>>("/api/enrichment/staged-sources/preview")
+  return {
+    eligible: Number(body.eligible ?? 0),
+    eligibleBytes: Number(body.eligibleBytes ?? 0),
+    released: Number(body.released ?? 0),
+    releasedBytes: Number(body.releasedBytes ?? 0),
+    graceMinutes: Number(body.graceMinutes ?? 0),
+    unavailableReason: (body.unavailableReason as string | null) ?? null,
+  }
+}
+
+export async function startStagedSourceRelease(): Promise<StagedSourceReleaseStartResult> {
+  const response = await fetch(`${API_PREFIX}/api/enrichment/staged-sources/release`, {
+    method: "POST",
+    cache: "no-store",
+  })
+  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>
+  if (response.status === 202) {
+    return { ok: true, jobId: String(body.jobId ?? "") }
+  }
+  return {
+    ok: false,
+    status: response.status,
+    message: (body.message as string) ?? `Request failed: ${response.status}`,
+  }
+}
+
+function toStagedSourceReleaseSnapshot(body: Record<string, unknown>): StagedSourceReleaseSnapshot {
+  return {
+    status: (body.status as StagedSourceReleaseStatus) ?? "idle",
+    mode: (body.mode as "sweep" | "manual" | null) ?? null,
+    jobId: (body.jobId as string | null) ?? null,
+    startedAt: (body.startedAt as string | null) ?? null,
+    completedAt: (body.completedAt as string | null) ?? null,
+    candidates: Number(body.candidates ?? 0),
+    released: Number(body.released ?? 0),
+    alreadyMissing: Number(body.alreadyMissing ?? 0),
+    skippedVerification: Number(body.skippedVerification ?? 0),
+    raced: Number(body.raced ?? 0),
+    failed: Number(body.failed ?? 0),
+    bytesReclaimed: Number(body.bytesReclaimed ?? 0),
+    error: (body.error as string | null) ?? null,
+  }
+}
+
+export async function fetchStagedSourceStatus(): Promise<StagedSourceReleaseSnapshot> {
+  const body = await requestJson<Record<string, unknown>>("/api/enrichment/staged-sources/status")
+  return toStagedSourceReleaseSnapshot(body)
+}
+
 export async function pauseStep(step: string): Promise<{ message: string }> {
   return requestJson<{ message: string }>(`/api/enrichment/pause?step=${step}`, { method: "POST" })
 }
@@ -3111,6 +3200,11 @@ export interface SettingsDownloadsView {
    * downloader, so it only means anything when {@link enabled} is true.
    */
   albumCompletion: boolean
+  /**
+   * Runtime toggle: once a download's library copy is verified, delete the staged copy so downloads
+   * stop being stored twice. Only means anything when {@link enabled} is true.
+   */
+  releaseStagedSources: boolean
 }
 
 export interface SettingsResponse {
@@ -3127,7 +3221,7 @@ export interface SettingsResponse {
 export interface SettingsUpdateRequest {
   providers?: Partial<SettingsProvidersView>
   qualityGrading?: { enabled?: boolean }
-  downloads?: { autoDownload?: boolean; albumCompletion?: boolean }
+  downloads?: { autoDownload?: boolean; albumCompletion?: boolean; releaseStagedSources?: boolean }
 }
 
 export async function fetchSettings(): Promise<SettingsResponse> {

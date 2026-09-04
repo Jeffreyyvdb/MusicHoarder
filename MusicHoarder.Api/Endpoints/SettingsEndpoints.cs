@@ -69,7 +69,8 @@ public static class SettingsEndpoints
                     Downloads: new DownloadsView(
                         Enabled: opts.EnableWishlistDownloads,
                         AutoDownload: effective.AutoDownloadWishlist,
-                        AlbumCompletion: effective.AlbumCompletionEnabled),
+                        AlbumCompletion: effective.AlbumCompletionEnabled,
+                        ReleaseStagedSources: effective.ReleaseStagedSourcesEnabled),
                     UpdatedAtUtc: effective.UpdatedAtUtc));
             })
             .WithName("GetSettings")
@@ -94,6 +95,7 @@ public static class SettingsEndpoints
                     QualityGradingEnabled = request.QualityGrading?.Enabled,
                     AutoDownloadWishlist = request.Downloads?.AutoDownload,
                     AlbumCompletionEnabled = request.Downloads?.AlbumCompletion,
+                    ReleaseStagedSourcesEnabled = request.Downloads?.ReleaseStagedSources,
                 };
 
                 var effective = await runtimeSettings.UpdateAsync(update, ct);
@@ -111,6 +113,7 @@ public static class SettingsEndpoints
                     {
                         autoDownload = effective.AutoDownloadWishlist,
                         albumCompletion = effective.AlbumCompletionEnabled,
+                        releaseStagedSources = effective.ReleaseStagedSourcesEnabled,
                     },
                     updatedAtUtc = effective.UpdatedAtUtc,
                 });
@@ -147,9 +150,9 @@ public sealed record SpotifyView(string OAuthRedirectBaseUrl, IReadOnlyList<stri
 public sealed record QualityGradingView(bool Enabled, bool Configured);
 public sealed record LyricsTranscriptionView(bool Enabled);
 public sealed record LyricsTranslationView(bool Enabled);
-public sealed record DownloadsView(bool Enabled, bool AutoDownload, bool AlbumCompletion);
+public sealed record DownloadsView(bool Enabled, bool AutoDownload, bool AlbumCompletion, bool ReleaseStagedSources);
 
 public sealed record SettingsUpdateRequest(ProvidersUpdate? Providers, QualityGradingUpdate? QualityGrading, DownloadsUpdate? Downloads);
 public sealed record QualityGradingUpdate(bool? Enabled);
-public sealed record DownloadsUpdate(bool? AutoDownload, bool? AlbumCompletion);
+public sealed record DownloadsUpdate(bool? AutoDownload, bool? AlbumCompletion, bool? ReleaseStagedSources = null);
 public sealed record ProvidersUpdate(bool? AcoustId, bool? MusicBrainzWeb, bool? SpotifyApi, bool? Tracker, bool? Deezer, bool? AppleMusic);

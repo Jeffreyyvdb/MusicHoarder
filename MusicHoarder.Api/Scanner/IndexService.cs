@@ -77,10 +77,13 @@ public class IndexService(
         //
         // Background-service queries bypass the per-user query filter via
         // IgnoreQueryFilters() and explicitly scope to the owner. Demo rows (IsSynthetic)
-        // are excluded — they don't exist on disk, so they can't be reconciled.
+        // are excluded — they don't exist on disk, so they can't be reconciled. Rows whose staged
+        // source was released on purpose (SourceReleasedAtUtc) are excluded too: their file is
+        // expected to be gone, and treating that as a deletion would hide a perfectly good library track.
         var existingSongs = await dbContext.Songs
             .IgnoreQueryFilters()
-            .Where(s => s.OwnerUserId == ownerId && !s.IsSynthetic && !s.DeletedAtUtc.HasValue)
+            .Where(s => s.OwnerUserId == ownerId && !s.IsSynthetic && !s.DeletedAtUtc.HasValue
+                && !s.SourceReleasedAtUtc.HasValue)
             .Where(s => s.SourcePath.StartsWith(rootPrefix))
             .Select(s => new { s.SourcePath, s.LastModifiedUtc, s.FileSizeBytes })
             .ToDictionaryAsync(s => s.SourcePath, cancellationToken);
@@ -303,10 +306,14 @@ public class IndexService(
         var deletedPaths = existingPaths.Where(p => !discoveredPaths.Contains(p)).ToList();
         if (deletedPaths.Count == 0) return 0;
 
+        // Re-checked here, not only in the phase-1 snapshot: a staged-source release that marks a row
+        // *after* that snapshot was taken but *before* discovery reached its file would otherwise be
+        // read as a deletion. The marker is written before the file is unlinked, so this query sees it.
         var ownerId = ownerLookup.OwnerUserId;
         var deletedSongs = await dbContext.Songs
             .IgnoreQueryFilters()
-            .Where(s => s.OwnerUserId == ownerId && !s.IsSynthetic && deletedPaths.Contains(s.SourcePath))
+            .Where(s => s.OwnerUserId == ownerId && !s.IsSynthetic && !s.SourceReleasedAtUtc.HasValue
+                && deletedPaths.Contains(s.SourcePath))
             .ToListAsync(ct);
 
         foreach (var song in deletedSongs)
@@ -374,6 +381,8 @@ public class IndexService(
                 // being refreshed, not a new acquisition. `??=` only fills rows predating the column.
                 existing.AcquiredAtUtc ??= metadata.AcquiredAtUtc;
                 existing.DeletedAtUtc = null;
+                // A file is back at a path whose staged copy had been released: it is a source again.
+                existing.ClearSourceRelease();
 
                 // File content changed — clear stale downstream state so fingerprint
                 // and enrichment re-run for this track.

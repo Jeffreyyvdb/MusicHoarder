@@ -985,6 +985,38 @@ public class MusicEnricherOptions
     /// </summary>
     public string[] AlbumCompletionSkipReleaseTypes { get; set; } = ["compilation"];
 
+    // ── Staged-source release (stop storing downloads twice) ────────────────
+    // Every download lands in DownloadDirectory, is indexed as a source and copied into the library.
+    // Nothing removed the staged copy, so downloads were stored twice forever — enough to fill a
+    // disk. The release sweep deletes the staged file once the destination copy has been verified
+    // and stamps SongMetadata.SourceReleasedAtUtc so the scanner and builder know the destination is
+    // now the only copy. It never touches files outside DownloadDirectory.
+
+    /// <summary>
+    /// Default for the release sweep, overlaid at runtime by
+    /// <see cref="Persistence.RuntimeSettings.ReleaseStagedSourcesEnabled"/> so the owner opts in
+    /// from the Settings UI. Default OFF (non-destructive by default): after a release the library
+    /// copy is the only copy. The hard gate is <see cref="EnableWishlistDownloads"/> plus a configured
+    /// <see cref="DownloadDirectory"/>; the on-demand endpoint honours the gate but not this default.
+    /// </summary>
+    public bool ReleaseStagedSourcesAfterBuild { get; set; } = false;
+
+    /// <summary>
+    /// Minutes a track must have been built (and un-touched by a re-tag) before its staged source is
+    /// released, so the builder's own post-batch cover pass and any immediate follow-up rebuild still
+    /// find the source where they expect it.
+    /// </summary>
+    [Range(1, 10080)]
+    public int StagedSourceReleaseGraceMinutes { get; set; } = 15;
+
+    /// <summary>Rows examined per DB page inside one release run. Bounds memory, not throughput.</summary>
+    [Range(1, 5000)]
+    public int StagedSourceReleaseBatchSize { get; set; } = 200;
+
+    /// <summary>Minutes between automatic release sweeps.</summary>
+    [Range(1, 1440)]
+    public int StagedSourceReleaseSweepIntervalMinutes { get; set; } = 60;
+
     // ── Automatic quality upgrades ──────────────────────────────────────────
     // A background sweep that re-acquires lossy library tracks as lossless via the configured
     // DownloadProviders chain (spotiflac/slskd), reusing the manual-upgrade request→merge pipeline.

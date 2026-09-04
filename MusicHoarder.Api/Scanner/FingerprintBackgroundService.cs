@@ -150,7 +150,9 @@ public class FingerprintBackgroundService(
     {
         var opts = options.Value;
 
-        List<(int Id, string SourcePath)> batch;
+        // AudioPath is the file fpcalc reads: the source, or the destination copy once the staged
+        // source was released. SourcePath stays alongside because the priority lanes key on it.
+        List<(int Id, string SourcePath, string? AudioPath)> batch;
         using (var scope = scopeFactory.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
@@ -175,9 +177,13 @@ public class FingerprintBackgroundService(
 
             batch = await ordered
                 .Take(opts.FingerprintBatchSize)
-                .Select(s => new { s.Id, s.SourcePath })
+                .Select(s => new { s.Id, s.SourcePath, s.DestinationPath, s.PreviousDestinationPath, s.SourceReleasedAtUtc })
                 .ToListAsync(ct)
-                .ContinueWith(t => t.Result.Select(s => (s.Id, s.SourcePath)).ToList(), ct);
+                .ContinueWith(t => t.Result
+                    .Select(s => (s.Id, s.SourcePath, s.SourceReleasedAtUtc != null
+                        ? s.DestinationPath ?? s.PreviousDestinationPath
+                        : s.SourcePath))
+                    .ToList(), ct);
         }
 
         if (batch.Count == 0) return 0;
@@ -196,7 +202,9 @@ public class FingerprintBackgroundService(
             },
             async (item, token) =>
             {
-                var outcome = await fpcalcService.GetFingerprintAsync(item.SourcePath, ct: token);
+                var outcome = item.AudioPath is null
+                    ? FpcalcOutcome.Failure("released source has no destination copy to fingerprint")
+                    : await fpcalcService.GetFingerprintAsync(item.AudioPath, ct: token);
                 lock (resultsLock)
                 {
                     results.Add((item.Id, outcome));

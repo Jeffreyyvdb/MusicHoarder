@@ -1557,6 +1557,7 @@ public class EnrichmentOrchestratorTests
                 QualityGradingEnabled: true,
                 AutoDownloadWishlist: opts.AutoDownloadWishlist,
                 AlbumCompletionEnabled: opts.EnableAlbumCompletion,
+                ReleaseStagedSourcesEnabled: opts.ReleaseStagedSourcesAfterBuild,
                 UpdatedAtUtc: null);
         }
 

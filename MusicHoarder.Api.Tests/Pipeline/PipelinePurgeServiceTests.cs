@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Jobs;
+using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -189,6 +190,7 @@ public class PipelinePurgeServiceTests
             new ThrowingCleaner(),
             new JobManager(),
             tracker,
+            new StagedSourceReleaseTracker(),
             NullLogger<PipelinePurgeService>.Instance);
 
         var result = await service.ResetPostFingerprintAsync(Guid.NewGuid(), MusicHoarder.Api.Auth.WellKnownUsers.OwnerId);
@@ -225,6 +227,7 @@ public class PipelinePurgeServiceTests
             new LibraryDestinationCleaner(fileSystem),
             jobManager,
             new PurgeStatusTracker(),
+            new StagedSourceReleaseTracker(),
             NullLogger<PipelinePurgeService>.Instance);
 
         await service.ResetPostFingerprintAsync(Guid.NewGuid(), MusicHoarder.Api.Auth.WellKnownUsers.OwnerId);
@@ -275,6 +278,7 @@ public class PipelinePurgeServiceTests
                 cleaner,
                 new JobManager(),
                 new PurgeStatusTracker(),
+                new StagedSourceReleaseTracker(),
                 NullLogger<PipelinePurgeService>.Instance);
 
             var result = await service.ResetPostFingerprintAsync(Guid.NewGuid(), MusicHoarder.Api.Auth.WellKnownUsers.OwnerId);
@@ -313,6 +317,37 @@ public class PipelinePurgeServiceTests
         Assert.Empty(await db.Songs.IgnoreQueryFilters().ToListAsync());
     }
 
+    [Fact]
+    public async Task ResetPostFingerprint_KeepsDestinationOfReleasedRow_AsItsOnlyCopy()
+    {
+        var destinationPath = "/dest/Artist/Album/01 - Track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [destinationPath] = new("audio-bytes"),
+        });
+
+        await using var db = CreateDbContext();
+        var song = CreateEnrichedSong("/downloads/track.mp3");
+        song.MarkBuildDone(destinationPath);
+        song.MarkSourceReleased();
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var (service, _) = CreateService(db, fileSystem);
+
+        var result = await service.ResetPostFingerprintAsync(Guid.NewGuid(), MusicHoarder.Api.Auth.WellKnownUsers.OwnerId);
+
+        Assert.Equal(1, result.SongsAffected);
+        Assert.Equal(0, result.FilesDeleted);
+        Assert.True(fileSystem.File.Exists(destinationPath));
+
+        var reloaded = await db.Songs.SingleAsync();
+        Assert.Equal(LibraryBuildStatus.Pending, reloaded.LibraryBuildStatus);
+        Assert.Null(reloaded.DestinationPath);
+        Assert.Equal(destinationPath, reloaded.PreviousDestinationPath);   // what the builder re-copies from
+        Assert.NotNull(reloaded.SourceReleasedAtUtc);
+    }
+
     private sealed class AnonymousUserAccessor : MusicHoarder.Api.Auth.ICurrentUserAccessor
     {
         public MusicHoarder.Api.Auth.CurrentUser? User => null;
@@ -342,6 +377,7 @@ public class PipelinePurgeServiceTests
             cleaner,
             new JobManager(),
             tracker,
+            new StagedSourceReleaseTracker(),
             NullLogger<PipelinePurgeService>.Instance);
         return (service, tracker);
     }

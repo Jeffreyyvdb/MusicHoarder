@@ -207,6 +207,7 @@ public class WishlistSyncBackgroundServiceTests
             QualityGradingEnabled: true,
             AutoDownloadWishlist: autoDownload,
             AlbumCompletionEnabled: false,
+            ReleaseStagedSourcesEnabled: false,
             UpdatedAtUtc: null);
 
         public Task<EffectiveSettings> GetAsync(CancellationToken ct = default) => Task.FromResult(_effective);

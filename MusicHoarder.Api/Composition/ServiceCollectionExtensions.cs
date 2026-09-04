@@ -325,6 +325,13 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAlbumCompletionIdentityResolver, SpotifyAlbumCompletionIdentityResolver>();
         services.AddScoped<AlbumCompletionSweep>();
         services.AddHostedService<AlbumCompletionBackgroundService>();
+        // Staged-source release: deletes a download's staged copy once its library copy is verified,
+        // so downloads stop being stored twice. Own tracker (not a JobType) so the hourly sweep never
+        // opens ingest runs; the purge service cancels it before deleting destination files.
+        services.AddSingleton<IAudioFileProbe, TagLibAudioFileProbe>();
+        services.AddSingleton<StagedSourceReleaseTracker>();
+        services.AddScoped<StagedSourceReleaseService>();
+        services.AddHostedService<StagedSourceReleaseBackgroundService>();
         // Single-track URL import: resolves a pasted YouTube video's metadata via a yt-dlp probe.
         services.AddSingleton<Import.IYouTubeMetadataResolver, Import.YouTubeMetadataResolver>();
 
