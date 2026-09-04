@@ -597,6 +597,135 @@ public class DuplicateDetectionServiceTests
         Assert.Equal(0, await db.SongDuplicateLinks.CountAsync());
     }
 
+    [Fact]
+    public async Task DetectDuplicates_ExactFingerprint_ConfirmsWithoutAudioComparison()
+    {
+        // Byte-identical compressed fingerprints are the strongest evidence there is: the pair is
+        // Confirmed at similarity 1.0 even when a decoded comparison would have rejected it.
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            CreateSong(1, "/a/track.flac", ".flac", "FP_SAME", bitrate: null, size: 50_000_000),
+            CreateSong(2, "/b/track.mp3", ".mp3", "FP_SAME", bitrate: 320, size: 10_000_000));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, gate: new FakeGate(["FP_SAME"], similarity: 0.10));
+        var result = await service.DetectDuplicatesAsync();
+
+        Assert.Equal(1, result.GroupsFound);
+        var link = Assert.Single(await db.SongDuplicateLinks.ToListAsync());
+        Assert.Equal(DuplicateConfidence.Confirmed, link.Confidence);
+        Assert.Equal(DuplicateMatchReason.ExactFingerprint, link.Reasons);
+        Assert.Equal(1.0, link.Similarity!.Value, precision: 3);
+    }
+
+    [Fact]
+    public async Task DetectDuplicates_OversizedBlock_IsSkippedWithoutPairingAnyMember()
+    {
+        // A block over DuplicateMaxBlockSize is pathological (one fingerprint on hundreds of files,
+        // say) and is dropped whole rather than exploding into n² comparisons; other blocks in the
+        // same run are unaffected.
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            CreateSong(1, "/a/1.mp3", ".mp3", "FP_BIG", bitrate: 320, size: 10_000_000, title: "Big One"),
+            CreateSong(2, "/a/2.mp3", ".mp3", "FP_BIG", bitrate: 320, size: 10_000_000, title: "Big Two"),
+            CreateSong(3, "/a/3.mp3", ".mp3", "FP_BIG", bitrate: 320, size: 10_000_000, title: "Big Three"),
+            CreateSong(4, "/b/4.mp3", ".mp3", "FP_PAIR", bitrate: 320, size: 10_000_000, title: "Pair A"),
+            CreateSong(5, "/b/5.mp3", ".mp3", "FP_PAIR", bitrate: 128, size: 4_000_000, title: "Pair B"));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, options: new MusicEnricherOptions { DuplicateMaxBlockSize = 2 });
+        var result = await service.DetectDuplicatesAsync();
+
+        Assert.Equal(1, result.GroupsFound);
+        var link = Assert.Single(await db.SongDuplicateLinks.ToListAsync());
+        Assert.Equal((4, 5), (link.SongIdLow, link.SongIdHigh));
+        var songs = await db.Songs.OrderBy(s => s.Id).ToListAsync();
+        Assert.All(songs.Take(3), s => Assert.False(s.IsDuplicate));
+        Assert.True(songs[4].IsDuplicate);
+    }
+
+    [Fact]
+    public async Task DetectDuplicates_MetadataBlock_KeysOnThePrimaryArtist()
+    {
+        // "Main Artist feat. Guest" and "Main Artist" are one recording's credit written two ways;
+        // the block key uses the primary artist so a featuring credit can't hide a duplicate.
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            CreateSong(1, "/a/track.mp3", ".mp3", null, bitrate: 320, size: 10_000_000,
+                artist: "Main Artist feat. Guest", title: "Same Song", durationSeconds: 200),
+            CreateSong(2, "/b/track.mp3", ".mp3", null, bitrate: 128, size: 4_000_000,
+                artist: "Main Artist", title: "Same Song", durationSeconds: 202));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var result = await service.DetectDuplicatesAsync();
+
+        Assert.Equal(1, result.SuspectedPairs);
+        var link = Assert.Single(await db.SongDuplicateLinks.ToListAsync());
+        Assert.Equal(DuplicateMatchReason.Metadata, link.Reasons);
+    }
+
+    [Fact]
+    public async Task DetectDuplicates_MetadataBlock_RequiresBothDurations()
+    {
+        // Metadata agreement is the weakest signal, so it only counts when both durations are known
+        // and agree — an unknown duration is not "close enough".
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            CreateSong(1, "/a/track.mp3", ".mp3", null, bitrate: 320, size: 10_000_000, durationSeconds: 200),
+            CreateSong(2, "/b/track.mp3", ".mp3", null, bitrate: 128, size: 4_000_000, durationSeconds: null));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var result = await service.DetectDuplicatesAsync();
+
+        Assert.Equal(0, result.SuspectedPairs);
+        Assert.Equal(0, await db.SongDuplicateLinks.CountAsync());
+    }
+
+    [Theory]
+    [InlineData(200, 205, true)]   // within twice the 3s metadata tolerance
+    [InlineData(200, 210, false)]  // outside it: a drifted tag or a different edit
+    [InlineData(200, null, true)]  // an unknown duration never blocks an identifier match
+    public async Task DetectDuplicates_SharedAcoustId_HonoursTheLooseDurationTolerance(
+        int durationA, int? durationB, bool expectPair)
+    {
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            CreateSong(1, "/a/a.mp3", ".mp3", null, bitrate: 320, size: 10_000_000,
+                title: "Title A", artist: "Artist A", durationSeconds: durationA, acoustIdTrackId: "acoustid-xyz"),
+            CreateSong(2, "/b/b.mp3", ".mp3", null, bitrate: 128, size: 4_000_000,
+                title: "Title B", artist: "Artist B", durationSeconds: durationB, acoustIdTrackId: "acoustid-xyz"));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var result = await service.DetectDuplicatesAsync();
+
+        Assert.Equal(expectPair ? 1 : 0, result.SuspectedPairs);
+        Assert.Equal(expectPair ? 1 : 0, await db.SongDuplicateLinks.CountAsync());
+    }
+
+    [Fact]
+    public async Task DetectDuplicates_AccumulatesReasons_AcrossBlockingStrategies()
+    {
+        // One pair found by two independent strategies carries both reasons on its single link.
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            CreateSong(1, "/a/track.mp3", ".mp3", null, bitrate: 320, size: 10_000_000,
+                durationSeconds: 200, isrc: "USABC1234567"),
+            CreateSong(2, "/b/track.mp3", ".mp3", null, bitrate: 128, size: 4_000_000,
+                durationSeconds: 200, isrc: "USABC1234567"));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var result = await service.DetectDuplicatesAsync();
+
+        Assert.Equal(1, result.SuspectedPairs);
+        var link = Assert.Single(await db.SongDuplicateLinks.ToListAsync());
+        Assert.Equal(DuplicateMatchReason.Isrc | DuplicateMatchReason.Metadata, link.Reasons);
+        Assert.Equal(DuplicateConfidence.Suspected, link.Confidence);
+    }
+
     private static SongMetadata CreateSong(
         int id,
         string sourcePath,
@@ -638,7 +767,8 @@ public class DuplicateDetectionServiceTests
         var scopeFactory = new TestScopeFactory(db);
         return new DuplicateDetectionService(
             scopeFactory,
-            gate ?? new FingerprintSimilarityGate(),
+            new DuplicateCandidateGenerator(NullLogger<DuplicateCandidateGenerator>.Instance),
+            new DuplicatePairConfirmer(gate ?? new FingerprintSimilarityGate()),
             new TestOptionsMonitor(options ?? new MusicEnricherOptions()),
             NullLogger<DuplicateDetectionService>.Instance);
     }
