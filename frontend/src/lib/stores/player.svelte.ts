@@ -2,6 +2,12 @@ import { untrack } from 'svelte';
 import { browser } from '$app/environment';
 import { toast } from 'svelte-sonner';
 import { coverThumbUrl, fetchRadio, reportSongPlayed, toPlayerSong } from '$lib/api-client';
+import {
+  canAutoResume,
+  readPlaybackSnapshot,
+  writePlaybackSnapshot,
+  type PlaybackSnapshot
+} from '$lib/player-snapshot';
 import { songsStore } from '$lib/stores/songs.svelte';
 import { artistOf } from '$lib/track-list-view.svelte';
 
@@ -85,6 +91,15 @@ let lastTimeWrite = 0;
  */
 const TIME_WRITE_INTERVAL_MS = 100;
 
+/**
+ * How often the playing position is written to the reload snapshot. The unload hook writes
+ * the exact second a reload happens at; this is the safety net for a tab that dies without
+ * one (a crash, a killed process), where losing a few seconds is fine and losing the queue
+ * is not.
+ */
+const POSITION_PERSIST_INTERVAL_MS = 5000;
+let lastPositionPersist = 0;
+
 function startRaf() {
   if (rafHandle !== null) return;
   lastTimeWrite = 0;
@@ -92,6 +107,10 @@ function startRaf() {
     if (audioEl && now - lastTimeWrite >= TIME_WRITE_INTERVAL_MS) {
       lastTimeWrite = now;
       currentTime = audioEl.currentTime;
+    }
+    if (now - lastPositionPersist >= POSITION_PERSIST_INTERVAL_MS) {
+      lastPositionPersist = now;
+      persistPlayback();
     }
     rafHandle = requestAnimationFrame(tick);
   };
@@ -392,7 +411,10 @@ async function topUpRadio(): Promise<boolean> {
       }
 
       if (additions.length === 0) {
-        radioExhausted = true;
+        // An empty library view means the rows have not arrived yet (a restored queue can run
+        // dry seconds after a reload), not that the station has nothing left — asking again
+        // later is right; calling it exhausted would silence it until the next deliberate pick.
+        if (rows.size > 0) radioExhausted = true;
         return false;
       }
 
@@ -440,6 +462,7 @@ function seek(time: number) {
     audioEl.currentTime = time;
     currentTime = time;
     updatePositionState();
+    persistPlayback(); // a seek while paused is the one position change the rAF loop never sees
   }
 }
 
@@ -516,13 +539,150 @@ function registerPanel(): () => void {
   };
 }
 
+// ── Surviving a reload ─────────────────────────────────────────────────────
+// A reload destroys the document and the audio element with it, so the store
+// keeps a per-tab snapshot (queue, index, position, volume, playing) in
+// sessionStorage and puts it back on boot. Two writers: a Svelte effect that
+// fires on any change to the state the snapshot carries (a new song, a queue
+// top-up, pause, volume, dismiss, stop) and a position writer — the rAF loop
+// every few seconds plus the unload hook for the exact second a reload hits.
+// Position is deliberately NOT tracked by the effect: `currentTime` commits at
+// ~10 Hz while playing and serialising the queue that often is pointless work.
+
+/** The account the snapshot is written for; null until the app layout opts in. */
+let persistUserId: string | null = null;
+let persistenceStarted = false;
+
+function playbackStorage(): Storage | null {
+  if (!browser) return null;
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null; // storage access itself can throw under strict privacy settings
+  }
+}
+
+/**
+ * Compose the snapshot from live state. Reads the reactive fields directly so
+ * the persistence effect below tracks exactly the set it should; the position
+ * comes off the element (a plain DOM read) rather than the reactive mirror.
+ */
+function composePlaybackSnapshot(): PlaybackSnapshot | null {
+  if (!persistUserId || !currentSong || queueIndex < 0) return null;
+  return {
+    v: 1,
+    userId: persistUserId,
+    queue: $state.snapshot(queue),
+    queueIndex,
+    position: audioEl?.currentTime ?? 0,
+    wasPlaying: isPlaying,
+    volume: volumeState,
+    radioSeedId,
+    radioExhausted,
+    miniPlayerDismissed,
+    savedAt: Date.now()
+  };
+}
+
+/** Write the snapshot now (or clear it when nothing is loaded). No-op until persistence is on. */
+function persistPlayback() {
+  if (!persistUserId) return;
+  writePlaybackSnapshot(playbackStorage(), untrack(composePlaybackSnapshot));
+}
+
+function startPersistence() {
+  if (persistenceStarted || !browser) return;
+  persistenceStarted = true;
+
+  $effect.root(() => {
+    $effect(() => {
+      const snapshot = composePlaybackSnapshot(); // tracked reads
+      untrack(() => writePlaybackSnapshot(playbackStorage(), snapshot));
+    });
+  });
+
+  // `pagehide` is the reload/close moment; `visibilitychange` covers mobile
+  // browsers that discard a background tab without ever firing it.
+  window.addEventListener('pagehide', persistPlayback);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') persistPlayback();
+  });
+}
+
+/**
+ * Put a snapshot written by this account back onto the store and, when the
+ * browser allows a fresh document to start audio, resume where it stopped.
+ * Live state wins: a song already loaded (a soft navigation into the app from
+ * the share page, say) is never replaced by a stored one.
+ */
+function restorePlayback(userId: string) {
+  const storage = playbackStorage();
+  const snapshot = readPlaybackSnapshot(storage);
+  if (!snapshot) return;
+  if (snapshot.userId !== userId) {
+    writePlaybackSnapshot(storage, null); // another account's queue — never inherit it
+    return;
+  }
+  if (untrack(() => currentSong) !== null) return;
+  const el = ensureAudioEl();
+  if (!el) return;
+
+  const song = snapshot.queue[snapshot.queueIndex];
+  queue = snapshot.queue;
+  queueIndex = snapshot.queueIndex;
+  radioSeedId = snapshot.radioSeedId;
+  radioExhausted = snapshot.radioExhausted;
+  miniPlayerDismissed = snapshot.miniPlayerDismissed;
+  setVolume(snapshot.volume);
+
+  loadGeneration += 1; // supersede any play that was somehow already in flight
+  currentSong = song;
+  currentTime = snapshot.position;
+  duration = 0;
+  updateMediaMetadata(song);
+  refreshActionHandlers();
+  el.src = song.streamUrl;
+  el.load();
+  // Before metadata arrives this sets the default playback start position, which the element
+  // seeks to as soon as it can — so the paused bar shows the right second and a later play
+  // starts there, without waiting on `loadedmetadata` ourselves.
+  el.currentTime = snapshot.position;
+  // No `reportPlay` here: coming back to a track is not another listen of it.
+
+  if (!canAutoResume(snapshot, Date.now())) return;
+  void el
+    .play()
+    .then(() => (isPlaying = true))
+    .catch((err: unknown) => {
+      isPlaying = false;
+      if (err instanceof DOMException && err.name === 'NotAllowedError') {
+        // The browser wants a click before a fresh document may make sound; the toast's
+        // action is exactly that click, so playback continues from the same second.
+        toast('Playback paused by the reload', {
+          description: 'Your browser needs a click before audio can continue.',
+          action: { label: 'Resume', onClick: () => resume() }
+        });
+      }
+    });
+}
+
 /**
  * Warm up the store-owned audio element for the session. Safe to call multiple
  * times and on the server (no-op until `browser`). Call once from the app
  * layout so `ended`/`error` are wired even before the first play.
+ *
+ * Passing the signed-in account's id turns on the reload snapshot for that
+ * account: the last one is restored (if it was written by the same account)
+ * and every change from here on is written back. Callers outside the app
+ * shell (the anonymous share page) leave it off — its stream URLs carry a
+ * share token and belong to nobody's library.
  */
-export function initPlayer(): void {
+export function initPlayer(userId?: string): void {
   ensureAudioEl();
+  if (!userId || !browser || persistUserId === userId) return;
+  persistUserId = userId;
+  restorePlayback(userId);
+  startPersistence();
 }
 
 export const playerStore = {
