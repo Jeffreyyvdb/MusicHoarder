@@ -38,6 +38,7 @@
     type ProgressSnapshot
   } from '$lib/api-client';
   import { songDetail } from '$lib/stores/song-detail.svelte';
+  import { formatRelativeFuture } from '$lib/formatters';
 
   type Filter = WishlistItemStatus | 'All';
 
@@ -618,10 +619,25 @@
               {item.artist}{item.album ? ` · ${item.album}` : ''}{item.downloadProvider &&
               (item.status === 'Downloaded' || item.downloadedSongId != null)
                 ? ` · via ${item.downloadProvider}`
+                : ''}{item.fallbackFromProvider && item.status === 'Downloaded'
+                ? ` · ${item.fallbackFromProvider} was unavailable${item.libraryBuildStatus === 'Done' ? ', upgrade pending' : ''}`
                 : ''}
             </div>
             {#if item.lastError && (item.status === 'Failed' || item.status === 'NotFound')}
               <div class="text-destructive mt-0.5 truncate text-xs" title={item.lastError}>{item.lastError}</div>
+            {/if}
+            {#if item.status === 'Failed'}
+              <div class="text-muted-foreground mt-0.5 truncate text-xs">
+                {#if item.nextAttemptAtUtc}
+                  Retries automatically {formatRelativeFuture(item.nextAttemptAtUtc)}{item.attemptCount > 0
+                    ? ` · ${item.attemptCount} attempt${item.attemptCount === 1 ? '' : 's'} so far`
+                    : ''}
+                {:else}
+                  No more automatic retries{item.attemptCount > 0
+                    ? ` after ${item.attemptCount} attempt${item.attemptCount === 1 ? '' : 's'}`
+                    : ''} — press Retry to try again
+                {/if}
+              </div>
             {/if}
           </div>
 

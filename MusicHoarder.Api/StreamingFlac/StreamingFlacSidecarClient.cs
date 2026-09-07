@@ -15,8 +15,12 @@ public enum AcquireStatus
     /// <summary>No lossless source exists upstream — the caller should fall through to the next provider.</summary>
     NotFound,
 
-    /// <summary>Sidecar/transport failure (unreachable, timeout, community-server 5xx) — a transient error.</summary>
+    /// <summary>The sidecar answered (or hung) but the acquisition failed — timeout, non-2xx, community-server 5xx. A transient error.</summary>
     Error,
+
+    /// <summary>The sidecar could not be reached at all (name resolution failed, connection refused) —
+    /// typically the container is down or mid-redeploy. Nothing was attempted against the track.</summary>
+    Unavailable,
 }
 
 /// <summary>Result of an <c>/acquire</c> call. <see cref="File"/> is set only when <see cref="Status"/> is Ok.</summary>
@@ -25,6 +29,7 @@ public record AcquireResult(AcquireStatus Status, string? File, string? Provider
     public static AcquireResult Ok(string file, string? provider) => new(AcquireStatus.Ok, file, provider, null);
     public static AcquireResult NotFound(string? error) => new(AcquireStatus.NotFound, null, null, error);
     public static AcquireResult Errored(string? error) => new(AcquireStatus.Error, null, null, error);
+    public static AcquireResult Unreachable(string? error) => new(AcquireStatus.Unavailable, null, null, error);
 }
 
 /// <summary>
@@ -137,6 +142,13 @@ public sealed class StreamingFlacSidecarClient(
             // Our own timeout fired: the sidecar didn't answer in time. Transient.
             logger.LogWarning("streaming-flac sidecar /acquire timed out after {Timeout}s", timeout + 30);
             return AcquireResult.Errored("sidecar timed out");
+        }
+        catch (HttpRequestException ex) when (ex.HttpRequestError is HttpRequestError.NameResolutionError or HttpRequestError.ConnectionError)
+        {
+            // Couldn't even open a connection: the sidecar container is down or being redeployed.
+            // Distinct from Error so the provider chain can skip us instead of failing the track.
+            logger.LogWarning(ex, "streaming-flac sidecar is unreachable");
+            return AcquireResult.Unreachable(ex.Message);
         }
         catch (Exception ex)
         {

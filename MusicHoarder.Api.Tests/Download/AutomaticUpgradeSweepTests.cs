@@ -62,6 +62,51 @@ public class AutomaticUpgradeSweepTests
     }
 
     [Fact]
+    public async Task Sweep_DeferredRequestBlocksOnlyForShortWindow()
+    {
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(Song(1, ".opus"), Song(2, ".opus"), Song(3, ".opus"));
+        db.UpgradeRequests.AddRange(
+            Request(1, songId: 1, UpgradeRequestStatus.Deferred, updatedHoursAgo: 2),   // provider was down; still inside the 6h window
+            Request(2, songId: 2, UpgradeRequestStatus.Deferred, updatedHoursAgo: 30),  // eligible again
+            Request(3, songId: 3, UpgradeRequestStatus.Failed, updatedHoursAgo: 5 * 24)); // a real failure keeps the 30-day cooldown
+        await db.SaveChangesAsync();
+
+        var queued = await CreateSweep(db, new QualityUpgradeChannel()).SweepAsync(default);
+
+        Assert.Equal(1, queued);
+        var newRequest = await db.UpgradeRequests.Where(r => r.Status == UpgradeRequestStatus.Queued).SingleAsync();
+        Assert.Equal(2, newRequest.SongId);
+    }
+
+    [Fact]
+    public async Task Sweep_PrioritisesSongsDeliveredByAFallbackProvider()
+    {
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(Song(1, ".opus"), Song(2, ".opus"), Song(50, ".opus"));
+        // Song 50 was fetched by yt-dlp because spotiflac was unreachable at the time.
+        db.WishlistItems.Add(new WishlistItem
+        {
+            OwnerUserId = Owner,
+            SpotifyTrackId = "t50",
+            Title = "Song",
+            Artist = "Artist",
+            Status = WishlistItemStatus.Downloaded,
+            DownloadProvider = "yt-dlp",
+            FallbackFromProvider = "spotiflac",
+            DownloadedSongId = 50,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var queued = await CreateSweep(db, new QualityUpgradeChannel(), batchSize: 1).SweepAsync(default);
+
+        Assert.Equal(1, queued);
+        Assert.Equal(50, (await db.UpgradeRequests.SingleAsync()).SongId); // ahead of the Id walk
+    }
+
+    [Fact]
     public async Task Sweep_NoOpWhenDisabled()
     {
         await using var db = CreateDbContext();
@@ -91,7 +136,7 @@ public class AutomaticUpgradeSweepTests
 
     private static AutomaticUpgradeSweep CreateSweep(
         MusicHoarderDbContext db, QualityUpgradeChannel channel,
-        bool enabled = true, bool providerConfigured = true)
+        bool enabled = true, bool providerConfigured = true, int batchSize = 50)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
@@ -100,7 +145,8 @@ public class AutomaticUpgradeSweepTests
             DownloadProviders = ["fake"],
             EnableAutomaticQualityUpgrades = enabled,
             QualityUpgradeCooldownDays = 30,
-            QualityUpgradeBatchSize = 50,
+            QualityUpgradeDeferredRetryHours = 6,
+            QualityUpgradeBatchSize = batchSize,
         });
         var providers = new IUpgradeProvider[] { new FakeUpgradeProvider("fake", providerConfigured) };
         return new AutomaticUpgradeSweep(
@@ -127,16 +173,20 @@ public class AutomaticUpgradeSweepTests
         Title = "Song",
     };
 
-    private static UpgradeRequest Request(int id, int songId, UpgradeRequestStatus status, int updatedDaysAgo) => new()
+    private static UpgradeRequest Request(int id, int songId, UpgradeRequestStatus status, int updatedDaysAgo = 0, int updatedHoursAgo = 0)
     {
-        Id = id,
-        SongId = songId,
-        OwnerUserId = Owner,
-        Status = status,
-        Trigger = UpgradeTrigger.Auto,
-        CreatedAtUtc = DateTime.UtcNow.AddDays(-updatedDaysAgo),
-        UpdatedAtUtc = DateTime.UtcNow.AddDays(-updatedDaysAgo),
-    };
+        var updated = DateTime.UtcNow.AddDays(-updatedDaysAgo).AddHours(-updatedHoursAgo);
+        return new()
+        {
+            Id = id,
+            SongId = songId,
+            OwnerUserId = Owner,
+            Status = status,
+            Trigger = UpgradeTrigger.Auto,
+            CreatedAtUtc = updated,
+            UpdatedAtUtc = updated,
+        };
+    }
 
     private static MusicHoarderDbContext CreateDbContext() =>
         new(new DbContextOptionsBuilder<MusicHoarderDbContext>()

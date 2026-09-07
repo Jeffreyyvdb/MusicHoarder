@@ -211,7 +211,7 @@ public class DownloadBackgroundService(
             .IgnoreQueryFilters()
             .Where(w => w.OwnerUserId == ownerId)
             .ExcludingDemoTenant()
-            .Where(w => w.Status == WishlistItemStatus.Pending)
+            .Where(WishlistDownloadProcessor.IsClaimableAt(DateTime.UtcNow))
             .CountAsync(ct);
     }
 

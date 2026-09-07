@@ -224,6 +224,10 @@
     if (u.status === 'NotFound')
       return u.error ? `No better copy found — ${u.error}` : 'No better copy found on Soulseek.';
     if (u.status === 'Failed') return u.error ? `Upgrade failed — ${u.error}` : 'Upgrade failed.';
+    if (u.status === 'Deferred')
+      return u.error
+        ? `Provider was unavailable — ${u.error}. Will retry automatically.`
+        : 'Provider was unavailable. Will retry automatically.';
     return null;
   });
 

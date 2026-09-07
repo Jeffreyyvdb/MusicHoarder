@@ -269,8 +269,9 @@ public class AlbumCompletionSweep(
             .AsNoTracking()
             .Where(w => w.OwnerUserId == ownerId
                 && w.Origin == WishlistItemOrigin.AlbumCompletion
-                && w.Status != WishlistItemStatus.Failed
-                && w.Status != WishlistItemStatus.NotFound)
+                && w.Status != WishlistItemStatus.NotFound
+                // A Failed row with a scheduled retry is still in flight, not a tombstone.
+                && (w.Status != WishlistItemStatus.Failed || w.NextAttemptAtUtc != null))
             .Select(w => new { w.Artist, w.Title })
             .ToListAsync(ct);
 

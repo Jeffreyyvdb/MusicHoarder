@@ -42,11 +42,14 @@ public class AutomaticUpgradeSweep(
         var ownerId = ownerLookup.OwnerUserId;
         var cooldown = TimeSpan.FromDays(Math.Max(0, opts.QualityUpgradeCooldownDays));
         var cutoff = DateTime.UtcNow - cooldown;
+        var deferredCutoff = DateTime.UtcNow - TimeSpan.FromHours(Math.Max(1, opts.QualityUpgradeDeferredRetryHours));
         var batchSize = Math.Clamp(opts.QualityUpgradeBatchSize, 1, 500);
         var lossyExtensions = AudioQuality.LossyExtensions;
 
         // Songs to skip: one with an in-flight request, or one whose most recent attempt (of any kind)
-        // is still inside the cooldown window — don't re-chase a track that just came up empty.
+        // is still inside the cooldown window — don't re-chase a track that just came up empty. A
+        // Deferred request (the provider was unreachable, nothing was searched) only blocks for the
+        // much shorter deferred window.
         var blockedSongIds = await db.UpgradeRequests
             .IgnoreQueryFilters()
             .Where(r => r.OwnerUserId == ownerId
@@ -54,8 +57,20 @@ public class AutomaticUpgradeSweep(
                     || r.Status == UpgradeRequestStatus.Searching
                     || r.Status == UpgradeRequestStatus.Downloading
                     || r.Status == UpgradeRequestStatus.AwaitingIngest
-                    || r.UpdatedAtUtc >= cutoff))
+                    || (r.Status == UpgradeRequestStatus.Deferred && r.UpdatedAtUtc >= deferredCutoff)
+                    || (r.Status != UpgradeRequestStatus.Deferred && r.UpdatedAtUtc >= cutoff)))
             .Select(r => r.SongId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        // Songs that were delivered by a fallback provider because the preferred one was down get the
+        // first slots: they are the ones a now-recovered provider is most likely to improve.
+        var prioritySongIds = await db.WishlistItems
+            .IgnoreQueryFilters()
+            .Where(w => w.OwnerUserId == ownerId
+                && w.FallbackFromProvider != null
+                && w.DownloadedSongId != null)
+            .Select(w => w.DownloadedSongId!.Value)
             .Distinct()
             .ToListAsync(ct);
 
@@ -69,7 +84,8 @@ public class AutomaticUpgradeSweep(
                 && s.Title != null && s.Title != ""
                 && s.Extension != null && lossyExtensions.Contains(s.Extension.ToLower())
                 && !blockedSongIds.Contains(s.Id))
-            .OrderBy(s => s.Id)
+            .OrderByDescending(s => prioritySongIds.Contains(s.Id))
+            .ThenBy(s => s.Id)
             .Select(s => s.Id)
             .Take(batchSize)
             .ToListAsync(ct);
