@@ -1,16 +1,18 @@
-using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.RateLimiting;
 using MusicHoarder.Api.Settings;
 
 namespace MusicHoarder.Api.Quality;
 
 /// <summary>
-/// Consumes <see cref="AlbumGradingChannel"/> with bounded concurrency + a shared request-rate gate,
-/// and (when enabled) periodically sweeps for reconciled-but-ungraded/stale albums and enqueues them.
-/// Mirrors <see cref="QualityGradingBackgroundService"/>; shares the same LLM settings + rate limit.
+/// Consumes <see cref="AlbumGradingChannel"/> with bounded concurrency + a request-rate gate shared by
+/// its workers, and (when enabled) periodically sweeps for reconciled-but-ungraded/stale albums and
+/// enqueues them. Mirrors <see cref="QualityGradingBackgroundService"/> and reads the same LLM
+/// settings, but holds its own rate gate, so the two graders' budgets add up rather than share.
 /// </summary>
 public class AlbumGradingBackgroundService(
     IServiceScopeFactory scopeFactory,
@@ -21,15 +23,13 @@ public class AlbumGradingBackgroundService(
     IOptionsMonitor<QualityGradingOptions> options,
     ILogger<AlbumGradingBackgroundService> logger) : BackgroundService
 {
-    private readonly SemaphoreSlim _rateLock = new(1, 1);
-    private DateTime _nextSlotUtc = DateTime.MinValue;
+    private readonly RequestRateGate _rateGate = new();
     private int _warnedNotConfigured;
 
-    // Albums that just failed to grade, with the UTC instant they become eligible again. A failure
-    // persists no grade row, so without this backoff the auto-sweep re-enqueues them every sweep —
-    // flooding logs and burning API credits on a reply that keeps failing (e.g. an OpenRouter 403).
-    // In-memory only (a restart retries); manual "grade now" (force) bypasses it. Mirrors the song sweep.
-    private readonly ConcurrentDictionary<int, DateTime> _failedUntil = new();
+    // Albums that just failed to grade. A failure persists no grade row, so without this backoff the
+    // auto-sweep re-enqueues them every sweep — flooding logs and burning API credits on a reply that
+    // keeps failing (e.g. an OpenRouter 403). Mirrors the song sweep.
+    private readonly FailureBackoffTracker _failureBackoff = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -45,42 +45,21 @@ public class AlbumGradingBackgroundService(
         await Task.WhenAll([RunAutoSweepLoopAsync(stoppingToken), .. workers]);
     }
 
-    private async Task RunAutoSweepLoopAsync(CancellationToken ct)
-    {
-        // Give the canonical-album fetch sweep a head start so there are albums to grade.
-        try { await Task.Delay(TimeSpan.FromSeconds(20), ct); }
-        catch (OperationCanceledException) { return; }
-
-        var currentIdle = 0;
-        while (!ct.IsCancellationRequested)
-        {
-            var opts = options.CurrentValue;
-            var baseIdle = Math.Max(1, opts.IdleDelaySeconds);
-            var maxIdle = Math.Max(baseIdle, 300);
-            var active = false;
-            try
+    private Task RunAutoSweepLoopAsync(CancellationToken ct) =>
+        IdleBackoffSweepLoop.RunAsync(
+            // Give the canonical-album fetch sweep a head start so there are albums to grade.
+            initialDelay: TimeSpan.FromSeconds(20),
+            baseIdleSeconds: () => options.CurrentValue.IdleDelaySeconds,
+            maxIdleSeconds: 300,
+            sweep: async token =>
             {
-                var enabled = (await runtimeSettings.GetAsync(ct).ConfigureAwait(false)).QualityGradingEnabled;
-                if (enabled && opts.IsConfigured && opts.AutoGradeAlbums)
-                    active = await EnqueueUngradedAsync(opts, ct) > 0;
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Album auto-grade sweep failed");
-            }
-
-            // Reset to the base cadence when there was work; otherwise back off (doubling, capped) so an
-            // idle/disabled grader doesn't re-scan every IdleDelaySeconds forever.
-            currentIdle = active ? baseIdle : Math.Min(maxIdle, Math.Max(baseIdle, currentIdle * 2));
-
-            try { await Task.Delay(TimeSpan.FromSeconds(currentIdle), ct); }
-            catch (OperationCanceledException) { break; }
-        }
-    }
+                var opts = options.CurrentValue;
+                var enabled = (await runtimeSettings.GetAsync(token).ConfigureAwait(false)).QualityGradingEnabled;
+                return enabled && opts.IsConfigured && opts.AutoGradeAlbums
+                    && await EnqueueUngradedAsync(opts, token) > 0;
+            },
+            onSweepFailed: ex => logger.LogWarning(ex, "Album auto-grade sweep failed"),
+            ct);
 
     /// <summary>Finds fetched albums whose latest grade is missing or stale and enqueues them. Returns the count enqueued.</summary>
     internal async Task<int> EnqueueUngradedAsync(QualityGradingOptions opts, CancellationToken ct)
@@ -109,13 +88,11 @@ public class AlbumGradingBackgroundService(
 
         // Drop albums still inside their post-failure backoff, and prune entries that have expired.
         var now = DateTime.UtcNow;
-        foreach (var kvp in _failedUntil)
-            if (kvp.Value <= now)
-                _failedUntil.TryRemove(kvp.Key, out _);
+        _failureBackoff.Prune(now);
 
         var needsGrading = candidates.Where(c =>
         {
-            if (_failedUntil.TryGetValue(c.Id, out var until) && until > now) return false; // backing off
+            if (_failureBackoff.IsBackingOff(c.Id, now)) return false;         // backing off
             if (!latest.TryGetValue(c.Id, out var g)) return true;          // never graded
             if (c.FetchedAtUtc is { } f && g.GradedAtUtc < f) return true; // re-fetched since
             // A prompt-version or model change is NOT auto-regraded here (it would re-grade every
@@ -141,14 +118,14 @@ public class AlbumGradingBackgroundService(
             {
                 if (ct.IsCancellationRequested) break;
 
-                await ThrottleAsync(ct);
+                await _rateGate.WaitAsync(options.CurrentValue.RequestsPerSecond, ct);
                 var result = await gradingService.GradeAlbumAsync(item.CanonicalAlbumId, item.Force, ct);
 
                 switch (result.Outcome)
                 {
                     case GradeOutcome.Graded:
                         Interlocked.Exchange(ref _warnedNotConfigured, 0);
-                        _failedUntil.TryRemove(item.CanonicalAlbumId, out _); // recovered — clear any backoff
+                        _failureBackoff.Clear(item.CanonicalAlbumId); // recovered — clear any backoff
                         progressTracker.IncrementGraded();
                         break;
                     case GradeOutcome.NotConfigured:
@@ -188,27 +165,5 @@ public class AlbumGradingBackgroundService(
 
     /// <summary>Marks an album as recently-failed so the auto-sweep skips it for the backoff window.</summary>
     private void BackOff(int albumId) =>
-        _failedUntil[albumId] = DateTime.UtcNow + TimeSpan.FromSeconds(options.CurrentValue.FailureBackoffSeconds);
-
-    /// <summary>Spaces out calls to honour <see cref="QualityGradingOptions.RequestsPerSecond"/> across all workers.</summary>
-    private async Task ThrottleAsync(CancellationToken ct)
-    {
-        var rps = Math.Max(1, options.CurrentValue.RequestsPerSecond);
-        var minInterval = TimeSpan.FromSeconds(1.0 / rps);
-
-        await _rateLock.WaitAsync(ct);
-        try
-        {
-            var now = DateTime.UtcNow;
-            var wait = _nextSlotUtc - now;
-            if (wait > TimeSpan.Zero)
-                await Task.Delay(wait, ct);
-            var baseTime = now > _nextSlotUtc ? now : _nextSlotUtc;
-            _nextSlotUtc = baseTime + minInterval;
-        }
-        finally
-        {
-            _rateLock.Release();
-        }
-    }
+        _failureBackoff.MarkFailed(albumId, TimeSpan.FromSeconds(options.CurrentValue.FailureBackoffSeconds));
 }

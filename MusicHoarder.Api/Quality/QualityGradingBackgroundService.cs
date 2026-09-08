@@ -1,9 +1,10 @@
-using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.RateLimiting;
 using MusicHoarder.Api.Settings;
 using MusicHoarder.Api.Snapshots;
 
@@ -28,13 +29,13 @@ public class QualityGradingBackgroundService(
     private static readonly EnrichmentStatus[] GradeableStatuses =
         [EnrichmentStatus.Matched, EnrichmentStatus.NeedsReview];
 
-    private readonly SemaphoreSlim _rateLock = new(1, 1);
-    private DateTime _nextSlotUtc = DateTime.MinValue;
+    // Own gate: the album grader holds its own too, so the two do not share one budget.
+    private readonly RequestRateGate _rateGate = new();
     private int _warnedNotConfigured;
 
-    // Songs that just failed to grade, with the UTC instant they become eligible again. A failure
-    // persists no grade row, so without this backoff the auto-sweep re-enqueues them every sweep.
-    private readonly ConcurrentDictionary<int, DateTime> _failedUntil = new();
+    // Songs that just failed to grade. A failure persists no grade row, so without this backoff the
+    // auto-sweep re-enqueues them every sweep.
+    private readonly FailureBackoffTracker _failureBackoff = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -52,42 +53,21 @@ public class QualityGradingBackgroundService(
         await Task.WhenAll([sweep, .. workers]);
     }
 
-    private async Task RunAutoSweepLoopAsync(CancellationToken ct)
-    {
-        // Small initial delay so the enrichment backfill has a head start before we sweep.
-        try { await Task.Delay(TimeSpan.FromSeconds(10), ct); }
-        catch (OperationCanceledException) { return; }
-
-        var currentIdle = 0;
-        while (!ct.IsCancellationRequested)
-        {
-            var opts = options.CurrentValue;
-            var baseIdle = Math.Max(1, opts.IdleDelaySeconds);
-            var maxIdle = Math.Max(baseIdle, 300);
-            var active = false;
-            try
+    private Task RunAutoSweepLoopAsync(CancellationToken ct) =>
+        IdleBackoffSweepLoop.RunAsync(
+            // Small initial delay so the enrichment backfill has a head start before we sweep.
+            initialDelay: TimeSpan.FromSeconds(10),
+            baseIdleSeconds: () => options.CurrentValue.IdleDelaySeconds,
+            maxIdleSeconds: 300,
+            sweep: async token =>
             {
-                var enabled = (await runtimeSettings.GetAsync(ct).ConfigureAwait(false)).QualityGradingEnabled;
-                if (enabled && opts.IsConfigured && opts.AutoGradeAfterEnrichment)
-                    active = await EnqueueUngradedAsync(opts, ct) > 0;
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Quality auto-grade sweep failed");
-            }
-
-            // Reset to the base cadence when there was work; otherwise back off (doubling, capped) so an
-            // idle/disabled grader doesn't re-scan the library every IdleDelaySeconds forever.
-            currentIdle = active ? baseIdle : Math.Min(maxIdle, Math.Max(baseIdle, currentIdle * 2));
-
-            try { await Task.Delay(TimeSpan.FromSeconds(currentIdle), ct); }
-            catch (OperationCanceledException) { break; }
-        }
-    }
+                var opts = options.CurrentValue;
+                var enabled = (await runtimeSettings.GetAsync(token).ConfigureAwait(false)).QualityGradingEnabled;
+                return enabled && opts.IsConfigured && opts.AutoGradeAfterEnrichment
+                    && await EnqueueUngradedAsync(opts, token) > 0;
+            },
+            onSweepFailed: ex => logger.LogWarning(ex, "Quality auto-grade sweep failed"),
+            ct);
 
     /// <summary>Finds gradeable songs whose latest grade is missing or stale and enqueues them. Returns the count enqueued.</summary>
     internal async Task<int> EnqueueUngradedAsync(QualityGradingOptions opts, CancellationToken ct)
@@ -123,13 +103,11 @@ public class QualityGradingBackgroundService(
 
         // Drop songs still inside their post-failure backoff, and prune entries that have expired.
         var now = DateTime.UtcNow;
-        foreach (var kvp in _failedUntil)
-            if (kvp.Value <= now)
-                _failedUntil.TryRemove(kvp.Key, out _);
+        _failureBackoff.Prune(now);
 
         var needsGrading = candidates.Where(c =>
         {
-            if (_failedUntil.TryGetValue(c.Id, out var until) && until > now) return false; // backing off
+            if (_failureBackoff.IsBackingOff(c.Id, now)) return false;           // backing off
             if (!latest.TryGetValue(c.Id, out var g)) return true;            // never graded
             if (c.EnrichedAtUtc is { } e && g.GradedAtUtc < e) return true;  // re-enriched since
             // A prompt-version or model change is NOT auto-regraded here: it would re-grade the whole
@@ -157,14 +135,14 @@ public class QualityGradingBackgroundService(
             {
                 if (ct.IsCancellationRequested) break;
 
-                await ThrottleAsync(ct);
+                await _rateGate.WaitAsync(options.CurrentValue.RequestsPerSecond, ct);
                 var result = await gradingService.GradeSongAsync(item.SongId, item.Force, ct);
 
                 switch (result.Outcome)
                 {
                     case GradeOutcome.Graded:
                         Interlocked.Exchange(ref _warnedNotConfigured, 0);
-                        _failedUntil.TryRemove(item.SongId, out _); // recovered — clear any backoff
+                        _failureBackoff.Clear(item.SongId); // recovered — clear any backoff
                         progressTracker.IncrementGraded();
                         break;
                     case GradeOutcome.NotConfigured:
@@ -229,27 +207,5 @@ public class QualityGradingBackgroundService(
 
     /// <summary>Marks a song as recently-failed so the auto-sweep skips it for the backoff window.</summary>
     private void BackOff(int songId) =>
-        _failedUntil[songId] = DateTime.UtcNow + TimeSpan.FromSeconds(options.CurrentValue.FailureBackoffSeconds);
-
-    /// <summary>Spaces out calls to honour <see cref="QualityGradingOptions.RequestsPerSecond"/> across all workers.</summary>
-    private async Task ThrottleAsync(CancellationToken ct)
-    {
-        var rps = Math.Max(1, options.CurrentValue.RequestsPerSecond);
-        var minInterval = TimeSpan.FromSeconds(1.0 / rps);
-
-        await _rateLock.WaitAsync(ct);
-        try
-        {
-            var now = DateTime.UtcNow;
-            var wait = _nextSlotUtc - now;
-            if (wait > TimeSpan.Zero)
-                await Task.Delay(wait, ct);
-            var baseTime = now > _nextSlotUtc ? now : _nextSlotUtc;
-            _nextSlotUtc = baseTime + minInterval;
-        }
-        finally
-        {
-            _rateLock.Release();
-        }
-    }
+        _failureBackoff.MarkFailed(songId, TimeSpan.FromSeconds(options.CurrentValue.FailureBackoffSeconds));
 }
