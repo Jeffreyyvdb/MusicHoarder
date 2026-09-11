@@ -23,6 +23,7 @@
 <ScrollAreaPrimitive.Root
 	bind:ref
 	data-slot="scroll-area"
+	data-orientation={orientation}
 	class={cn("relative", className)}
 	{...restProps}
 >
