@@ -37,6 +37,7 @@
   import { isBuiltSong } from '$lib/album-sections';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { cn } from '$lib/utils';
+  import { formatBytesShort } from '$lib/formatters';
 
   // The demo account is read-only — hide the mutating Rescan control (the backend rejects it
   // regardless, this just avoids a dead button). Defaults false so non-demo callers are unaffected.
@@ -360,12 +361,6 @@
   function fmtNum(n: number | null | undefined): string {
     return n == null ? '—' : n.toLocaleString();
   }
-  function fmtBytes(bytes: number | null): string {
-    if (bytes == null) return '';
-    const gib = bytes / 1024 ** 3;
-    if (gib >= 1) return `${gib.toFixed(0)} GB`;
-    return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
-  }
 
   async function handleRescan() {
     if (rescanning) return;
@@ -475,7 +470,7 @@
             </div>
           {/if}
           <div class="text-muted-foreground mt-1 text-[12.5px]">
-            Source files{sourceBytes != null ? ` · ${fmtBytes(sourceBytes)}` : ''}
+            Source files{sourceBytes != null ? ` · ${formatBytesShort(sourceBytes)}` : ''}
           </div>
         </div>
 

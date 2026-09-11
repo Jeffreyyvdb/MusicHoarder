@@ -31,7 +31,8 @@ public class CoverArtResolver(IFileSystem fileSystem, IEmbeddedPictureReader emb
     // Navidrome's default album cover-art priority: local image files first (these names, in order),
     // then the embedded picture. Matched case-insensitively.
     private static readonly string[] CoverBaseNames = ["cover", "folder", "front"];
-    private static readonly string[] ImageExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"];
+    // Internal so the storage breakdown classifies covers by the same set.
+    internal static readonly string[] ImageExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"];
 
     public ResolvedCover? Resolve(string audioFilePath)
     {

@@ -89,9 +89,11 @@ public class MusicVideoDownloader(
     /// <summary>Rows to ask yt-dlp for: the results page interleaves channels/mixes/playlists between the videos.</summary>
     private const int SearchFetchCount = SearchCandidateCount * 2;
 
-    public string ResolveVideoDirectory()
+    public string ResolveVideoDirectory() => ResolveVideoDirectory(options.Value);
+
+    /// <summary>The videos directory for a configuration: the explicit option, else <c>&lt;DownloadDirectory&gt;/videos</c>.</summary>
+    public static string ResolveVideoDirectory(MusicEnricherOptions opts)
     {
-        var opts = options.Value;
         if (!string.IsNullOrWhiteSpace(opts.MusicVideoDirectory))
             return opts.MusicVideoDirectory;
         return string.IsNullOrWhiteSpace(opts.DownloadDirectory)

@@ -31,12 +31,30 @@ export function formatTotalDuration(seconds: number | null | undefined): string 
 
 export function formatFileSize(bytes: number | null | undefined): string {
   if (!bytes || !Number.isFinite(bytes) || bytes <= 0) return '—';
+  const tib = bytes / 1024 ** 4;
+  if (tib >= 1) return `${tib.toFixed(2)} TB`;
   const gib = bytes / (1024 * 1024 * 1024);
   if (gib >= 1) return `${gib.toFixed(2)} GB`;
   const mib = bytes / (1024 * 1024);
   if (mib >= 1) return `${mib.toFixed(1)} MB`;
   const kib = bytes / 1024;
   return `${kib.toFixed(0)} KB`;
+}
+
+/**
+ * "303 GB" / "1.9 TB" / "512 MB" — for chrome (the sidebar's storage line, a page subtitle) where
+ * two decimals are noise. Nothing reads as "0 B", not a dash, because it sits next to a capacity.
+ * Binary units labelled the way the rest of the app labels them.
+ */
+export function formatBytesShort(bytes: number | null | undefined): string {
+  if (!bytes || !Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const tib = bytes / 1024 ** 4;
+  if (tib >= 1) return `${tib.toFixed(1)} TB`;
+  const gib = bytes / 1024 ** 3;
+  if (gib >= 1) return `${gib.toFixed(0)} GB`;
+  const mib = bytes / 1024 ** 2;
+  if (mib >= 1) return `${mib.toFixed(0)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
 // Strips Unicode "Other" code points (control, format, surrogate, private-use,

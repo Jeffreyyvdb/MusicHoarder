@@ -1017,6 +1017,16 @@ public class MusicEnricherOptions
     [Range(1, 1440)]
     public int StagedSourceReleaseSweepIntervalMinutes { get; set; } = 60;
 
+    // ── Storage usage ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Minutes between automatic re-measurements of on-disk storage usage (the sidebar's storage bar
+    /// and its breakdown). Each measurement walks every managed root, so it stays a slow background
+    /// job; the breakdown dialog's Refresh button re-measures on demand. 0 disables the periodic tick.
+    /// </summary>
+    [Range(0, 10080)]
+    public int StorageUsageRefreshIntervalMinutes { get; set; } = 120;
+
     // ── Automatic quality upgrades ──────────────────────────────────────────
     // A background sweep that re-acquires lossy library tracks as lossless via the configured
     // DownloadProviders chain (spotiflac/slskd), reusing the manual-upgrade request→merge pipeline.

@@ -9,19 +9,20 @@
   import { APP_HOME } from '$lib/app-home';
   import {
     fetchOverview,
-    fetchStats,
     isLocalFile,
     isMyMusic,
     listAccounts,
     mapEnrichmentStatus,
     type AccountView,
-    type ApiOverview,
-    type ApiStats
+    type ApiOverview
   } from '$lib/api-client';
   import { signOutAndReset } from '$lib/auth/sign-out';
   import { switchAccountAndReload } from '$lib/auth/switch-account';
   import { isBuiltSong } from '$lib/album-sections';
   import { songsStore } from '$lib/stores/songs.svelte';
+  import { storageUsage } from '$lib/stores/storage-usage.svelte';
+  import { categoryMeta } from '$lib/storage-usage-meta';
+  import { formatBytesShort } from '$lib/formatters';
   import { cn } from '$lib/utils';
   import { isAdmin, roleLabel } from '$lib/auth/capabilities';
 
@@ -33,7 +34,6 @@
   // (the shadcn "sidebar-04" docs style). The groups, their items and the active-route rules
   // all live in $lib/nav; this component only renders them and attaches the live counts.
   let overview = $state<ApiOverview | null>(null);
-  let stats = $state<ApiStats | null>(null);
 
   // The sidebar is mounted on every app page and only needs counts, so it reads
   // the shared songs store instead of pulling its own copy of the library. That
@@ -43,18 +43,21 @@
   const songs = $derived(songsStore.songs);
 
   $effect(() => {
-    // untrack: ensureLoaded reads the same isLoading flag its own fetch writes,
-    // and a tracked read would re-run this effect (and its overview/stats calls).
+    // untrack: ensureLoaded reads the same loading flags its own fetch writes,
+    // and a tracked read would re-run this effect (and its overview call).
     untrack(() => songsStore.ensureLoaded());
     // Pipeline/storage figures are owner chrome — a friend's footer just omits them.
     if (isFriend) return;
+    // The storage snapshot is shared with the breakdown dialog, so both show one number.
+    untrack(() => storageUsage.ensureLoaded());
     let cancelled = false;
-    void (async () => {
-      const [ovRes, stRes] = await Promise.allSettled([fetchOverview(), fetchStats()]);
-      if (cancelled) return;
-      if (ovRes.status === 'fulfilled') overview = ovRes.value;
-      if (stRes.status === 'fulfilled') stats = stRes.value;
-    })();
+    void fetchOverview()
+      .then((result) => {
+        if (!cancelled) overview = result;
+      })
+      .catch(() => {
+        /* the footer simply omits the pipeline line */
+      });
     return () => {
       cancelled = true;
     };
@@ -63,7 +66,7 @@
   // ── derived counts ────────────────────────────────────────────────────────
   // Albums and Artists reflect the clean output only, so their counts are over built
   // (LibraryBuildStatus.Done + destinationPath) songs — matching what those grids list.
-  // Storage/review figures stay over all songs/stats (those are pipeline, not library, numbers).
+  // Review figures stay over all songs (those are pipeline, not library, numbers).
   const builtSongs = $derived(songs.filter(isBuiltSong));
   // Must mirror LibraryV2's trackListBase exactly: wider than the grids by the scanned source files
   // still in review, and narrower by album completion's tracks. Kept in step by hand — a badge that
@@ -78,10 +81,23 @@
               (isLocalFile(s) && mapEnrichmentStatus(s.enrichmentStatus) === 'needsreview'))
         ).length
   );
-  const totalBytes = $derived(stats?.storage?.totalBytes ?? null);
-  const storagePct = $derived(
-    totalBytes != null ? Math.min(100, Math.round((totalBytes / (2 * 1024 ** 4)) * 100)) : null
-  );
+  // Storage is measured on disk by the API (every managed folder, not the DB's source-size sum)
+  // and shown against the real volume capacity. Segments share the dialog's palette.
+  const storage = $derived(storageUsage.snapshot);
+  const storageMeasuring = $derived(storageUsage.computing && !storage);
+  const storageLabel = $derived.by(() => {
+    if (!storage) return 'Measuring…';
+    const used = formatBytesShort(storage.managedBytes);
+    return storage.capacityBytes > 0 ? `${used} / ${formatBytesShort(storage.capacityBytes)}` : used;
+  });
+  const storageSegments = $derived.by(() => {
+    if (!storage) return [];
+    const total = storage.capacityBytes > 0 ? storage.capacityBytes : storage.managedBytes;
+    if (total <= 0) return [];
+    return storage.categories
+      .filter((c) => c.bytes > 0)
+      .map((c) => ({ key: c.key, pct: (c.bytes / total) * 100, color: categoryMeta(c.key).color }));
+  });
   const queueRemaining = $derived(
     overview?.job
       ? Math.max(0, (overview.job.tracksDiscovered ?? 0) - (overview.job.tracksProcessed ?? 0))
@@ -140,12 +156,6 @@
     return typeof n === 'number' ? n.toLocaleString() : n;
   }
 
-  function fmtSize(bytes: number): string {
-    const gib = bytes / 1024 ** 3;
-    if (gib >= 1) return `${gib.toFixed(0)} GB`;
-    return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
-  }
-
   const user = $derived(
     page.data.user as
       | { email: string; role: 'Owner' | 'Demo' | 'Friend'; displayName: string | null }
@@ -187,6 +197,14 @@
   afterNavigate(() => {
     if (sidebar.isMobile) sidebar.setOpenMobile(false);
   });
+
+  // The breakdown dialog is mounted by the shell, not here: on mobile this sidebar lives inside a
+  // Sheet that unmounts its children when it closes, so close the sheet first and let the dialog
+  // open over the page.
+  function openStorageBreakdown() {
+    if (sidebar.isMobile) sidebar.setOpenMobile(false);
+    storageUsage.dialogOpen = true;
+  }
 </script>
 
 <Sidebar.Root collapsible="offcanvas" variant="floating">
@@ -305,16 +323,24 @@
         </span>
       </div>
     {/if}
-    {#if totalBytes != null}
-      <div class="text-nav-xs flex items-center gap-2">
-        <span class="text-muted-foreground flex-1 whitespace-nowrap">Storage</span>
-        <span class="text-foreground/80 text-nav-count tabular-nums whitespace-nowrap">
-          {fmtSize(totalBytes)} / 2 TB
-        </span>
-      </div>
-      <div class="bg-sidebar-border h-[3px] overflow-hidden rounded-full">
-        <div class="bg-primary h-full transition-[width] duration-300" style="width: {storagePct ?? 0}%;"></div>
-      </div>
+    {#if storage || storageMeasuring}
+      <button
+        type="button"
+        class="hover:bg-sidebar-accent focus-visible:ring-sidebar-ring -mx-1.5 flex flex-col gap-2 rounded-sm px-1.5 py-1 text-left outline-none transition-colors focus-visible:ring-2"
+        aria-label="Storage breakdown"
+        title="Storage breakdown"
+        onclick={openStorageBreakdown}
+      >
+        <div class="text-nav-xs flex w-full items-center gap-2">
+          <span class="text-muted-foreground flex-1 whitespace-nowrap">Storage</span>
+          <span class="text-foreground/80 text-nav-count tabular-nums whitespace-nowrap">{storageLabel}</span>
+        </div>
+        <div class="bg-sidebar-border flex h-[3px] w-full overflow-hidden rounded-full">
+          {#each storageSegments as segment (segment.key)}
+            <div class="{segment.color} h-full transition-[width] duration-300" style="width: {segment.pct}%;"></div>
+          {/each}
+        </div>
+      </button>
     {/if}
     {#if watchedFolders > 0}
       <!-- Human status line — the raw source/destination paths live in Settings

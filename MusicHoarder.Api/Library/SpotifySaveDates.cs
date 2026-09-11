@@ -44,15 +44,28 @@ public sealed class SpotifySaveDates
     /// than songs. Items that were <c>SkippedOwned</c> link too: that is how a track already in the
     /// library still reports the date it was liked on Spotify.
     /// </summary>
-    public static async Task<SpotifySaveDates> LoadAsync(MusicHoarderDbContext db, CancellationToken ct)
+    /// <param name="allTenants">
+    /// Bypass the ambient owner filter and read every real tenant's rows (the demo tenant excluded).
+    /// For hosted-service scopes, where the current user is <see cref="Guid.Empty"/> and the filter
+    /// would otherwise resolve to no rows at all.
+    /// </param>
+    public static async Task<SpotifySaveDates> LoadAsync(MusicHoarderDbContext db, CancellationToken ct, bool allTenants = false)
     {
-        var sources = await db.WishlistSources
-            .AsNoTracking()
+        IQueryable<WishlistSource> sourceRows = db.WishlistSources.AsNoTracking();
+        IQueryable<WishlistItem> itemRows = db.WishlistItems.AsNoTracking();
+        IQueryable<SpotifyTrackLibraryMatch> matchRows = db.SpotifyTrackLibraryMatches.AsNoTracking();
+        if (allTenants)
+        {
+            sourceRows = sourceRows.IgnoreQueryFilters();
+            itemRows = itemRows.IgnoreQueryFilters().ExcludingDemoTenant();
+            matchRows = matchRows.IgnoreQueryFilters();
+        }
+
+        var sources = await sourceRows
             .Select(s => new { s.Id, s.SourceType, s.Name })
             .ToDictionaryAsync(s => s.Id, s => (s.SourceType, s.Name), ct);
 
-        var links = (await db.WishlistItems
-                .AsNoTracking()
+        var links = (await itemRows
                 .Where(w => w.DownloadedSongId != null)
                 .Select(w => new { SongId = w.DownloadedSongId!.Value, w.WishlistSourceId, w.SpotifyAddedAtUtc, w.SourceUrl, w.Origin, w.Album })
                 .ToListAsync(ct))
@@ -67,8 +80,7 @@ public sealed class SpotifySaveDates
                     return new WishlistLink(source.Item1, source.Item2, w.SourceUrl, w.SpotifyAddedAtUtc, w.Origin, w.Album);
                 })));
 
-        var likedRows = await db.SpotifyTrackLibraryMatches
-            .AsNoTracking()
+        var likedRows = await matchRows
             .Where(m => m.Source == SpotifyLibraryComparisonService.SourceLikedSync
                 && m.SpotifyAddedAtUtc != null)
             .Select(m => new { m.SpotifyTrackId, m.MatchedSongId, AddedAt = m.SpotifyAddedAtUtc!.Value })
