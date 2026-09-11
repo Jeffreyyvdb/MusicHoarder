@@ -105,12 +105,15 @@ public sealed class AcquisitionActivitySource(MusicHoarderDbContext db) : IActiv
             .AsNoTracking()
             .Where(w => (w.CreatedAtUtc >= window.FromUtc && w.CreatedAtUtc <= window.ToUtc)
                 || (w.UpdatedAtUtc >= window.FromUtc && w.UpdatedAtUtc <= window.ToUtc
-                    && (w.Status == WishlistItemStatus.Failed || w.Status == WishlistItemStatus.NotFound)))
+                    // Only final outcomes: a Failed row that is merely waiting for its next
+                    // automatic retry would otherwise headline "download failed" every round.
+                    && ((w.Status == WishlistItemStatus.Failed && w.NextAttemptAtUtc == null)
+                        || w.Status == WishlistItemStatus.NotFound)))
             .OrderByDescending(w => w.UpdatedAtUtc)
             .Take(window.MaxRowsPerSource)
             .Select(w => new
             {
-                w.Id, w.Title, w.Artist, w.Album, w.Status, w.Origin, w.CreatedAtUtc, w.UpdatedAtUtc, w.LastError,
+                w.Id, w.Title, w.Artist, w.Album, w.Status, w.Origin, w.CreatedAtUtc, w.UpdatedAtUtc, w.LastError, w.NextAttemptAtUtc,
                 SourceName = w.WishlistSource != null ? w.WishlistSource.Name : null,
                 SourceType = (WishlistSourceType?)(w.WishlistSource != null ? w.WishlistSource.SourceType : null),
             })
@@ -144,7 +147,8 @@ public sealed class AcquisitionActivitySource(MusicHoarderDbContext db) : IActiv
 
         var failed = items
             .Where(w => window.Covers(w.UpdatedAtUtc)
-                && w.Status is WishlistItemStatus.Failed or WishlistItemStatus.NotFound)
+                && (w.Status == WishlistItemStatus.NotFound
+                    || (w.Status == WishlistItemStatus.Failed && w.NextAttemptAtUtc == null)))
             .ToList();
         foreach (var group in failed.GroupBy(w => (w.Status, Day: w.UpdatedAtUtc.Date)))
         {

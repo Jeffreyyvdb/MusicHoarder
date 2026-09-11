@@ -2572,6 +2572,16 @@ export interface WishlistItem {
   downloadedSongId?: number | null
   attemptCount: number
   lastError?: string | null
+  /**
+   * For a Failed item: when the downloader will try again on its own. Null means it has given up
+   * (attempt cap reached, or an older failure) until you press Retry.
+   */
+  nextAttemptAtUtc?: string | null
+  /**
+   * Set when a lower-priority provider delivered the file because this preferred one was unreachable
+   * at the time (e.g. "spotiflac"). The quality-upgrade sweep offers the song to it again later.
+   */
+  fallbackFromProvider?: string | null
   libraryEnrichmentStatus?: string | null
   libraryBuildStatus?: string | null
   createdAtUtc: string
@@ -2910,6 +2920,8 @@ export type SoulseekUpgradeStatus =
   | "NotFound"
   | "Failed"
   | "Cancelled"
+  /** A provider was unreachable and nothing after it had a better copy; the sweep retries soon. */
+  | "Deferred"
 
 export interface SoulseekUpgrade {
   id: number

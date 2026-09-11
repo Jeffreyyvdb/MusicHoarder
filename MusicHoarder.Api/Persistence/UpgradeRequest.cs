@@ -14,6 +14,14 @@ public enum UpgradeRequestStatus
     NotFound = 5,
     Failed = 6,
     Cancelled = 7,
+
+    /// <summary>
+    /// Terminal, but only because a provider could not be reached (down / mid-redeploy) and nothing
+    /// after it had a better copy: nothing was actually searched, so the auto-sweep re-queues the song
+    /// after the short <c>MusicEnricher:QualityUpgradeDeferredRetryHours</c> instead of the long
+    /// NotFound/Failed cooldown. Appended after Cancelled — the numbers are the DB contract.
+    /// </summary>
+    Deferred = 8,
 }
 
 /// <summary>What created the request: a user clicking "find better quality" vs the background

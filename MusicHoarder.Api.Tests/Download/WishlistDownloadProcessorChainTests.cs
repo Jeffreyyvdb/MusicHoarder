@@ -76,6 +76,94 @@ public class WishlistDownloadProcessorChainTests
     }
 
     [Fact]
+    public async Task Chain_FirstProviderUnavailable_FallsThrough_RecordsFallbackFromProvider()
+    {
+        await using var db = CreateDbContext();
+        db.WishlistItems.Add(MakePending("t1"));
+        await db.SaveChangesAsync();
+
+        var spotiflac = new NamedFakeProvider("spotiflac", _ => DownloadResult.ProviderUnavailable("Name or service not known"));
+        var ytdlp = new NamedFakeProvider("yt-dlp", _ => DownloadResult.Ok("/downloads/x.opus"));
+        var processor = CreateProcessor([spotiflac, ytdlp], ["spotiflac", "yt-dlp"]);
+
+        var (_, downloaded) = await processor.ProcessBatchAsync(db, Owner, default);
+
+        Assert.Equal(1, downloaded);
+        Assert.Equal(1, ytdlp.Calls); // a down provider is skipped, not treated as an error
+        var item = await db.WishlistItems.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(WishlistItemStatus.Downloaded, item.Status);
+        Assert.Equal("yt-dlp", item.DownloadProvider);
+        Assert.Equal("spotiflac", item.FallbackFromProvider); // so the upgrade sweep comes back to it
+        Assert.Null(item.NextAttemptAtUtc);
+    }
+
+    [Fact]
+    public async Task Chain_AllUnavailable_DefersWithoutBumpingAttempts()
+    {
+        await using var db = CreateDbContext();
+        db.WishlistItems.Add(MakePending("t1"));
+        await db.SaveChangesAsync();
+
+        var spotiflac = new NamedFakeProvider("spotiflac", _ => DownloadResult.ProviderUnavailable("dns"));
+        var slskd = new NamedFakeProvider("slskd", _ => DownloadResult.ProviderUnavailable("refused"));
+        var processor = CreateProcessor([spotiflac, slskd], ["spotiflac", "slskd"]);
+
+        var before = DateTime.UtcNow;
+        await processor.ProcessBatchAsync(db, Owner, default);
+
+        var item = await db.WishlistItems.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(WishlistItemStatus.Failed, item.Status);
+        Assert.Equal(0, item.AttemptCount); // nothing was actually tried against the track
+        Assert.NotNull(item.NextAttemptAtUtc); // ...so it is scheduled, never parked
+        Assert.InRange(item.NextAttemptAtUtc!.Value, before.AddMinutes(29), DateTime.UtcNow.AddMinutes(31));
+        Assert.StartsWith("spotiflac unavailable", item.LastError);
+        Assert.Null(item.FallbackFromProvider);
+    }
+
+    [Fact]
+    public async Task Chain_UnavailableThenNotFound_Defers_NotNotFound()
+    {
+        // The down provider might well have had the track; "not found" from the fallback alone is not
+        // a verdict on it.
+        await using var db = CreateDbContext();
+        db.WishlistItems.Add(MakePending("t1"));
+        await db.SaveChangesAsync();
+
+        var spotiflac = new NamedFakeProvider("spotiflac", _ => DownloadResult.ProviderUnavailable("dns"));
+        var ytdlp = new NamedFakeProvider("yt-dlp", _ => DownloadResult.Missing("no results"));
+        var processor = CreateProcessor([spotiflac, ytdlp], ["spotiflac", "yt-dlp"]);
+
+        await processor.ProcessBatchAsync(db, Owner, default);
+
+        var item = await db.WishlistItems.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(WishlistItemStatus.Failed, item.Status);
+        Assert.NotNull(item.NextAttemptAtUtc);
+        Assert.Equal(0, item.AttemptCount);
+    }
+
+    [Fact]
+    public async Task Chain_UnavailableThenTransientError_FailsWithBackoff()
+    {
+        // The fallback was reached and genuinely failed: that is a counted attempt with backoff, and
+        // the chain stops there as before.
+        await using var db = CreateDbContext();
+        db.WishlistItems.Add(MakePending("t1"));
+        await db.SaveChangesAsync();
+
+        var spotiflac = new NamedFakeProvider("spotiflac", _ => DownloadResult.ProviderUnavailable("dns"));
+        var ytdlp = new NamedFakeProvider("yt-dlp", _ => DownloadResult.Failed("Sign in to confirm"));
+        var processor = CreateProcessor([spotiflac, ytdlp], ["spotiflac", "yt-dlp"]);
+
+        await processor.ProcessBatchAsync(db, Owner, default);
+
+        var item = await db.WishlistItems.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(WishlistItemStatus.Failed, item.Status);
+        Assert.Equal(1, item.AttemptCount);
+        Assert.Equal("Sign in to confirm", item.LastError);
+        Assert.NotNull(item.NextAttemptAtUtc);
+    }
+
+    [Fact]
     public async Task Chain_AllProvidersNotFound_ItemGoesNotFound()
     {
         await using var db = CreateDbContext();

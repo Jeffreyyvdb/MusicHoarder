@@ -63,6 +63,37 @@ public class QualityUpgradeServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Process_UnavailableFallsThrough_ThenOkWins()
+    {
+        await using var db = CreateDbContext();
+        await SeedSongWithQueuedRequest(db);
+        var downloaded = WriteStagingFile("better.flac");
+        var first = new FakeUpgradeProvider("spotiflac", DownloadResult.ProviderUnavailable("dns"));
+        var second = new FakeUpgradeProvider("slskd", DownloadResult.Ok(downloaded));
+
+        await CreateService(db, ["spotiflac", "slskd"], first, second).ProcessRequestAsync(1, default);
+
+        Assert.Equal(1, second.Calls); // a down provider is skipped, not a chain-stopping error
+        var request = await db.UpgradeRequests.SingleAsync();
+        Assert.Equal(UpgradeRequestStatus.AwaitingIngest, request.Status);
+    }
+
+    [Fact]
+    public async Task Process_UnavailableThenMissing_MarksDeferred()
+    {
+        await using var db = CreateDbContext();
+        await SeedSongWithQueuedRequest(db);
+        var first = new FakeUpgradeProvider("spotiflac", DownloadResult.ProviderUnavailable("dns"));
+        var second = new FakeUpgradeProvider("slskd", DownloadResult.Missing("nothing better"));
+
+        await CreateService(db, ["spotiflac", "slskd"], first, second).ProcessRequestAsync(1, default);
+
+        var request = await db.UpgradeRequests.SingleAsync();
+        Assert.Equal(UpgradeRequestStatus.Deferred, request.Status); // short cooldown, not the 30-day one
+        Assert.StartsWith("spotiflac unavailable", request.Error);
+    }
+
+    [Fact]
     public async Task Process_AllMissing_MarksNotFound()
     {
         await using var db = CreateDbContext();

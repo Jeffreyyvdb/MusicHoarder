@@ -6,6 +6,12 @@ namespace MusicHoarder.Api.Persistence;
 /// Lifecycle of a single wishlisted track.
 /// <c>Pending → Downloading → Downloaded | Failed | NotFound</c>, or <c>SkippedOwned</c> when the track
 /// is already in the local library (an exact <c>InLibrary</c> match in the Spotify match cache).
+/// <para>
+/// <see cref="Failed"/> is terminal only when <see cref="WishlistItem.NextAttemptAtUtc"/> is null. With a
+/// timestamp set the row is a scheduled retry: the download sweep claims it again once that time has
+/// passed (exponential backoff, capped by <c>MusicEnricher:WishlistDownloadMaxAttempts</c>; a
+/// provider that was merely unreachable never consumes an attempt). A manual retry always resets both.
+/// </para>
 /// </summary>
 public enum WishlistItemStatus
 {
@@ -63,7 +69,9 @@ public class WishlistItem
     /// <see cref="WishlistItemOrigin.AlbumCompletion"/> items, where it is both the provenance and the
     /// dedupe key: the sweep loads every item for an album — <em>any</em> status — and skips canonical
     /// tracks it already has a row for, so terminal <see cref="WishlistItemStatus.Failed"/> /
-    /// <see cref="WishlistItemStatus.NotFound"/> rows act as permanent tombstones.
+    /// <see cref="WishlistItemStatus.NotFound"/> rows act as permanent tombstones. (A Failed row with a
+    /// scheduled <see cref="NextAttemptAtUtc"/> is still in flight, not a tombstone — the cross-album
+    /// claim check treats it as such.)
     /// <para>
     /// Deliberately keyed to the album and not to a <see cref="CanonicalAlbumTrack"/>:
     /// <c>CanonicalAlbumFetchService.UpsertReconciled</c> deletes and recreates every track row on each
@@ -123,6 +131,22 @@ public class WishlistItem
     [MaxLength(64)]
     public string? DownloadProvider { get; set; }
 
+    /// <summary>
+    /// Set when the file came from a provider positioned <em>after</em> one that was unreachable at the
+    /// time (e.g. yt-dlp delivered because the spotiflac sidecar was mid-redeploy): the name of the
+    /// preferred provider that was skipped. Provenance only — it is never cleared. The automatic quality
+    /// upgrade sweep uses it to offer the song to that provider first once it is back.
+    /// </summary>
+    [MaxLength(64)]
+    public string? FallbackFromProvider { get; set; }
+
+    /// <summary>
+    /// Earliest time the download sweep may claim this <see cref="WishlistItemStatus.Failed"/> row again.
+    /// Null on a Failed row means parked (attempt cap reached, or a legacy failure) until a manual retry.
+    /// Ignored for every other status.
+    /// </summary>
+    public DateTime? NextAttemptAtUtc { get; set; }
+
     /// <summary>Absolute path of the downloaded file under the source directory, once fetched.</summary>
     [MaxLength(2048)]
     public string? DownloadedFilePath { get; set; }
@@ -166,4 +190,53 @@ public class WishlistItem
 
     public DateTime CreatedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
+
+    /// <summary>Longest backoff between two automatic attempts, whatever the attempt count.</summary>
+    public static readonly TimeSpan MaxRetryDelay = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// A provider was reached and the attempt genuinely failed: count it, and schedule the next attempt
+    /// with exponential backoff (<paramref name="retryBaseMinutes"/> · 2^(attempts-1), capped at
+    /// <see cref="MaxRetryDelay"/>). Once <paramref name="maxAttempts"/> is reached the row parks
+    /// (<see cref="NextAttemptAtUtc"/> null) until a manual <see cref="Requeue"/>.
+    /// </summary>
+    public void MarkFailed(string? error, int retryBaseMinutes, int maxAttempts, DateTime now)
+    {
+        Status = WishlistItemStatus.Failed;
+        LastError = error;
+        AttemptCount += 1;
+        NextAttemptAtUtc = AttemptCount >= maxAttempts
+            ? null
+            : now + Backoff(retryBaseMinutes, AttemptCount);
+        UpdatedAtUtc = now;
+    }
+
+    /// <summary>
+    /// No provider could be reached (the preferred one was down and nothing after it produced a file):
+    /// nothing was tried against the track, so the attempt count is untouched and the row simply waits
+    /// one base delay. An outage of any length can therefore never park an item.
+    /// </summary>
+    public void Defer(string provider, string? error, int retryBaseMinutes, DateTime now)
+    {
+        Status = WishlistItemStatus.Failed;
+        LastError = $"{provider} unavailable: {error ?? "unreachable"}";
+        NextAttemptAtUtc = now + TimeSpan.FromMinutes(retryBaseMinutes);
+        UpdatedAtUtc = now;
+    }
+
+    /// <summary>Manual retry: back to Pending with a clean slate, so the next sweep tries the whole chain.</summary>
+    public void Requeue(DateTime now)
+    {
+        Status = WishlistItemStatus.Pending;
+        AttemptCount = 0;
+        NextAttemptAtUtc = null;
+        LastError = null;
+        UpdatedAtUtc = now;
+    }
+
+    private static TimeSpan Backoff(int baseMinutes, int attempt)
+    {
+        var minutes = baseMinutes * Math.Pow(2, Math.Max(0, attempt - 1));
+        return TimeSpan.FromMinutes(Math.Min(MaxRetryDelay.TotalMinutes, minutes));
+    }
 }

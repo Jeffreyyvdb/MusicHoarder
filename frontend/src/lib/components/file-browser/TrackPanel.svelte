@@ -265,6 +265,7 @@
     if (!u || u.active) return null;
     if (u.status === 'NotFound') return 'No better copy found on Soulseek.';
     if (u.status === 'Failed') return u.error ? `Upgrade failed — ${u.error}` : 'Upgrade failed.';
+    if (u.status === 'Deferred') return 'Provider was unavailable. Will retry automatically.';
     if (u.status === 'Completed') return 'Upgraded to a better copy.';
     return null;
   });

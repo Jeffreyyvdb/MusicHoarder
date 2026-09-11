@@ -211,6 +211,92 @@ public class WishlistDownloadProcessorTests : IDisposable
         Assert.Equal(WishlistItemStatus.Failed, item.Status);
         Assert.Equal("boom", item.LastError);
         Assert.Equal(1, item.AttemptCount);
+        // First attempt: retry scheduled one base delay (30 min) out.
+        Assert.NotNull(item.NextAttemptAtUtc);
+        Assert.InRange(item.NextAttemptAtUtc!.Value, DateTime.UtcNow.AddMinutes(29), DateTime.UtcNow.AddMinutes(31));
+    }
+
+    [Fact]
+    public async Task ProcessBatch_PicksUpFailedItemWhoseRetryIsDue_AndBacksOffExponentially()
+    {
+        await using var db = CreateDbContext();
+        var item = MakePending("track-1");
+        item.Status = WishlistItemStatus.Failed;
+        item.AttemptCount = 2;
+        item.NextAttemptAtUtc = DateTime.UtcNow.AddMinutes(-1); // due
+        db.WishlistItems.Add(item);
+        await db.SaveChangesAsync();
+
+        var provider = new FakeDownloadProvider(_ => DownloadResult.Failed("still broken"));
+        var (processed, _) = await CreateProcessor(provider).ProcessBatchAsync(db, Owner, default);
+
+        Assert.Equal(1, processed);
+        Assert.Equal(1, provider.Calls);
+        var after = await db.WishlistItems.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(WishlistItemStatus.Failed, after.Status);
+        Assert.Equal(3, after.AttemptCount);
+        // Third attempt: 30m · 2^(3-1) = 2h.
+        Assert.InRange(after.NextAttemptAtUtc!.Value, DateTime.UtcNow.AddMinutes(119), DateTime.UtcNow.AddMinutes(121));
+    }
+
+    [Fact]
+    public async Task ProcessBatch_SkipsFailedItemWhoseRetryIsInFuture_AndParkedOnes()
+    {
+        await using var db = CreateDbContext();
+        var scheduled = MakePending("track-1");
+        scheduled.Status = WishlistItemStatus.Failed;
+        scheduled.NextAttemptAtUtc = DateTime.UtcNow.AddHours(1);
+        var parked = MakePending("track-2");
+        parked.Status = WishlistItemStatus.Failed;
+        parked.NextAttemptAtUtc = null; // legacy / attempt cap reached
+        db.WishlistItems.AddRange(scheduled, parked);
+        await db.SaveChangesAsync();
+
+        var provider = new FakeDownloadProvider(_ => DownloadResult.Ok("/downloads/x.opus"));
+        var (processed, _) = await CreateProcessor(provider).ProcessBatchAsync(db, Owner, default);
+
+        Assert.Equal(0, processed);
+        Assert.Equal(0, provider.Calls);
+    }
+
+    [Fact]
+    public async Task ProcessBatch_ParksAfterMaxAttempts()
+    {
+        await using var db = CreateDbContext();
+        var item = MakePending("track-1");
+        item.Status = WishlistItemStatus.Failed;
+        item.AttemptCount = 4;
+        item.NextAttemptAtUtc = DateTime.UtcNow.AddMinutes(-1);
+        db.WishlistItems.Add(item);
+        await db.SaveChangesAsync();
+
+        await CreateProcessor(new FakeDownloadProvider(_ => DownloadResult.Failed("nope")))
+            .ProcessBatchAsync(db, Owner, default);
+
+        var after = await db.WishlistItems.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(WishlistItemStatus.Failed, after.Status);
+        Assert.Equal(5, after.AttemptCount);
+        Assert.Null(after.NextAttemptAtUtc); // fifth attempt was the last automatic one
+    }
+
+    [Fact]
+    public async Task ProcessBatch_FreshPendingGoesBeforeScheduledRetry()
+    {
+        await using var db = CreateDbContext();
+        var retry = MakePending("track-retry");
+        retry.Status = WishlistItemStatus.Failed;
+        retry.NextAttemptAtUtc = DateTime.UtcNow.AddMinutes(-1);
+        retry.SpotifyAddedAtUtc = DateTime.UtcNow; // newer than the fresh one, but still second
+        var fresh = MakePending("track-fresh");
+        fresh.SpotifyAddedAtUtc = DateTime.UtcNow.AddDays(-1);
+        db.WishlistItems.AddRange(retry, fresh);
+        await db.SaveChangesAsync();
+
+        var provider = new FakeDownloadProvider(_ => DownloadResult.Ok("/downloads/x.opus"));
+        await CreateProcessor(provider, batchSize: 1).ProcessBatchAsync(db, Owner, default);
+
+        var done = await db.WishlistItems.IgnoreQueryFilters().SingleAsync(w => w.Status == WishlistItemStatus.Downloaded);
+        Assert.Equal("track-fresh", done.SpotifyTrackId);
     }
 
     [Fact]

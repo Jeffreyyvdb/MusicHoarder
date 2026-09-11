@@ -86,6 +86,7 @@ public class QualityUpgradeService(
                 stagingDir, song.SpotifyId);
 
             string? lastError = null;
+            string? unavailableProvider = null;
             foreach (var provider in providers)
             {
                 ct.ThrowIfCancellationRequested();
@@ -114,6 +115,13 @@ public class QualityUpgradeService(
                 }
 
                 lastError = result.Error;
+                // An unreachable provider (down / mid-redeploy) is skipped, not failed: the request
+                // ends Deferred so the auto-sweep offers the song to it again after a short wait.
+                if (result.Unavailable)
+                {
+                    unavailableProvider ??= provider.Name;
+                    continue;
+                }
                 // A transient Error (not "not found") stops the chain: a flaky provider shouldn't burn
                 // the next one's quota. The next sweep re-queues nothing automatically — the auto-sweep
                 // cooldown governs retries.
@@ -125,7 +133,10 @@ public class QualityUpgradeService(
                 }
             }
 
-            request.MarkTerminal(UpgradeRequestStatus.NotFound, lastError ?? "no better copy found in any provider");
+            if (unavailableProvider is not null)
+                request.MarkTerminal(UpgradeRequestStatus.Deferred, $"{unavailableProvider} unavailable: {lastError ?? "unreachable"}");
+            else
+                request.MarkTerminal(UpgradeRequestStatus.NotFound, lastError ?? "no better copy found in any provider");
             await db.SaveChangesAsync(ct);
         }
         catch (OperationCanceledException)

@@ -77,6 +77,8 @@ public static class WishlistEndpoints
                         w.DownloadedSongId,
                         w.AttemptCount,
                         w.LastError,
+                        w.NextAttemptAtUtc,
+                        w.FallbackFromProvider,
                         w.DownloadedSong != null ? w.DownloadedSong.EnrichmentStatus.ToString() : null,
                         w.DownloadedSong != null ? w.DownloadedSong.LibraryBuildStatus.ToString() : null,
                         w.CreatedAtUtc,
@@ -232,9 +234,7 @@ public static class WishlistEndpoints
                 if (item is null)
                     return Results.NotFound(new { message = $"Wishlist item {id} not found." });
 
-                item.Status = WishlistItemStatus.Pending;
-                item.LastError = null;
-                item.UpdatedAtUtc = DateTime.UtcNow;
+                item.Requeue(DateTime.UtcNow);
                 await db.SaveChangesAsync(ct);
                 return Results.Ok(new { item.Id, status = item.Status.ToString() });
             })
@@ -254,6 +254,8 @@ public static class WishlistEndpoints
                     .ExecuteUpdateAsync(s => s
                         .SetProperty(w => w.Status, WishlistItemStatus.Pending)
                         .SetProperty(w => w.LastError, (string?)null)
+                        .SetProperty(w => w.AttemptCount, 0)
+                        .SetProperty(w => w.NextAttemptAtUtc, (DateTime?)null)
                         .SetProperty(w => w.UpdatedAtUtc, now), ct);
 
                 return Results.Ok(new { reset });
@@ -336,6 +338,8 @@ public sealed record WishlistItemDto(
     int? DownloadedSongId,
     int AttemptCount,
     string? LastError,
+    DateTime? NextAttemptAtUtc,
+    string? FallbackFromProvider,
     string? LibraryEnrichmentStatus,
     string? LibraryBuildStatus,
     DateTime CreatedAtUtc,

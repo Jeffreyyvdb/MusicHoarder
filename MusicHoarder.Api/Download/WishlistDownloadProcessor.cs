@@ -32,19 +32,22 @@ public class WishlistDownloadProcessor(
         var opts = options.Value;
         var destinationDir = opts.DownloadDirectory;
         var batchSize = Math.Clamp(opts.WishlistDownloadBatchSize, 1, 500);
+        var claimTime = DateTime.UtcNow;
 
         var batch = await db.WishlistItems
             .IgnoreQueryFilters()
             .Where(w => w.OwnerUserId == ownerId)
             .ExcludingDemoTenant()
-            .Where(w => w.Status == WishlistItemStatus.Pending)
+            .Where(IsClaimableAt(claimTime))
             // Origin first: what the owner asked for is claimed strictly before album completion. This
             // has to be an explicit discriminator, not a timestamp — EF emits a plain ORDER BY DESC and
             // Postgres defaults to NULLS FIRST there, so a null SpotifyAddedAtUtc sorts to the *front*
             // (already true of Deezer-sourced rows). Relying on the timestamp would put background fill
             // ahead of the queue, and the EF in-memory provider orders nulls the other way, so a test
-            // written against it would happily agree.
+            // written against it would happily agree. Within an origin, fresh Pending rows go before
+            // scheduled retries (Pending sorts below Failed).
             .OrderBy(w => w.Origin)
+            .ThenBy(w => w.Status)
             .ThenByDescending(w => w.SpotifyAddedAtUtc)
             .ThenBy(w => w.Id)
             .Take(batchSize)
@@ -111,7 +114,7 @@ public class WishlistDownloadProcessor(
         // Downloads hit the network/disk only — no DB access — so the parallel section is EF-safe.
         // Parallel.ForEachAsync already bounds in-flight bodies to MaxDegreeOfParallelism, so no extra
         // semaphore is needed.
-        var results = new Dictionary<int, (DownloadResult Result, string ProviderName, MusicVideoDownloadResult? Video)>();
+        var results = new Dictionary<int, (DownloadResult Result, string ProviderName, string? UnavailableProvider, MusicVideoDownloadResult? Video)>();
         var resultsLock = new object();
         if (toDownload.Count > 0)
         {
@@ -121,16 +124,21 @@ public class WishlistDownloadProcessor(
                 async (item, token) =>
                 {
                     var req = new DownloadRequest(item.Artist, item.Title, item.Album, item.Isrc, item.DurationMs, destinationDir, item.SpotifyTrackId, item.SourceUrl);
-                    // Provider chain: fall through to the next provider only on NotFound. A transient
-                    // Error stops the chain — the item goes Failed and the next sweep retries from the
-                    // top, so a flaky first provider can't silently burn the fallback's quota.
+                    // Provider chain: fall through to the next provider on NotFound, and also when the
+                    // provider itself could not be reached (down / mid-redeploy) — remembering the
+                    // first such provider so the item can be offered to it again later. A transient
+                    // Error from a reachable provider stops the chain, so a flaky first provider can't
+                    // silently burn the fallback's quota; the item is retried with backoff instead.
                     var result = DownloadResult.Missing("no download provider configured");
                     var providerName = providers.Count > 0 ? providers[0].Name : "";
+                    string? unavailableProvider = null;
                     foreach (var candidate in providers)
                     {
                         providerName = candidate.Name;
                         result = await candidate.DownloadAsync(req, token);
-                        if (result.Success || !result.NotFound)
+                        if (result.Unavailable)
+                            unavailableProvider ??= candidate.Name;
+                        if (!result.FallsThrough)
                             break;
                     }
                     // Stamp the authoritative Spotify identity onto the file so the scanner reads it as
@@ -165,7 +173,7 @@ public class WishlistDownloadProcessor(
                                 result.SourceId ?? item.SourceUrl, PinIsExplicit: false,
                                 item.Artist, item.Title, item.DurationMs),
                             token);
-                    lock (resultsLock) results[item.Id] = (result, providerName, video);
+                    lock (resultsLock) results[item.Id] = (result, providerName, unavailableProvider, video);
                 });
         }
 
@@ -184,16 +192,21 @@ public class WishlistDownloadProcessor(
                 continue;
             }
 
-            var (result, providerName, video) = entry;
+            var (result, providerName, unavailableProvider, video) = entry;
             item.DownloadProvider = providerName;
-            item.AttemptCount += 1;
             item.UpdatedAtUtc = finishedAt;
 
             if (result.Success && result.FilePath is not null)
             {
                 item.Status = WishlistItemStatus.Downloaded;
+                item.AttemptCount += 1;
+                item.NextAttemptAtUtc = null;
                 item.DownloadedFilePath = NormalizePath(result.FilePath);
                 item.LastError = null;
+                // Delivered by a provider behind one that was down: remember which, so the upgrade
+                // sweep offers this song to the preferred provider once it is reachable again.
+                if (unavailableProvider is not null)
+                    item.FallbackFromProvider = unavailableProvider;
                 if (video is { Success: true, FilePath: not null })
                 {
                     item.DownloadedVideoFilePath = NormalizePath(video.FilePath);
@@ -205,23 +218,42 @@ public class WishlistDownloadProcessor(
                 downloadedCount++;
                 progressTracker.IncrementDownloaded();
             }
-            else if (result.NotFound)
+            else if (!result.FallsThrough)
             {
-                item.Status = WishlistItemStatus.NotFound;
-                item.LastError = result.Error;
-                progressTracker.IncrementNotFound();
+                // A reachable provider tried and failed: counts as an attempt, retried with backoff.
+                item.MarkFailed(result.Error, opts.WishlistDownloadRetryBaseMinutes, opts.WishlistDownloadMaxAttempts, finishedAt);
+                progressTracker.IncrementFailed();
+            }
+            else if (unavailableProvider is not null)
+            {
+                // The chain ran out, but a provider was never reached — the down one might well have
+                // had the track, so this is neither NotFound nor a real attempt. Wait and try again.
+                item.Defer(unavailableProvider, result.Unavailable ? result.Error : "not reached", opts.WishlistDownloadRetryBaseMinutes, finishedAt);
+                progressTracker.IncrementFailed();
             }
             else
             {
-                item.Status = WishlistItemStatus.Failed;
+                item.Status = WishlistItemStatus.NotFound;
+                item.AttemptCount += 1;
+                item.NextAttemptAtUtc = null;
                 item.LastError = result.Error;
-                progressTracker.IncrementFailed();
+                progressTracker.IncrementNotFound();
             }
         }
 
         await db.SaveChangesAsync(ct);
         return (batch.Count, downloadedCount);
     }
+
+    /// <summary>
+    /// The rows a download sweep may claim: everything Pending, plus Failed rows whose scheduled retry
+    /// is due. A Failed row without a schedule is parked (attempt cap, or a legacy failure) and waits
+    /// for a manual retry. Shared with <see cref="DownloadBackgroundService"/>'s pending count so the
+    /// idle loop and the batch agree on what "work" is.
+    /// </summary>
+    public static System.Linq.Expressions.Expression<Func<WishlistItem, bool>> IsClaimableAt(DateTime now) =>
+        w => w.Status == WishlistItemStatus.Pending
+            || (w.Status == WishlistItemStatus.Failed && w.NextAttemptAtUtc != null && w.NextAttemptAtUtc <= now);
 
     /// <summary>
     /// Links Downloaded items to the library song the scanner created for their file (matching

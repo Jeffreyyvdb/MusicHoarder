@@ -153,8 +153,7 @@ public static class ImportEndpoints
                 WishlistItem item;
                 if (existing is not null)
                 {
-                    existing.Status = WishlistItemStatus.Pending;
-                    existing.LastError = null;
+                    existing.Requeue(now);
                     existing.Title = title;
                     existing.Artist = artist;
                     existing.Album = album;
