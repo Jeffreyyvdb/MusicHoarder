@@ -59,6 +59,7 @@
   }
 
   const SHELF_SIZE = 12;
+  const SHELF_CLASS = '-mx-1 [&>[data-slot=scroll-area-viewport]]:snap-x';
 
   // ── sections ────────────────────────────────────────────────────────────────
   const favoriteTracks = $derived(
@@ -157,43 +158,48 @@
   </a>
 {/snippet}
 
+<!-- Shelves scroll inside a horizontal ScrollArea rather than a bare overflow-x-auto row: the
+     native bar sat permanently under every shelf, while this one overlays the row and shows
+     only on hover. Snapping has to go on the viewport, because that is the element that scrolls. -->
 {#snippet albumShelf(albums: AlbumSummary[])}
-  <div class="-mx-1 flex snap-x gap-4 overflow-x-auto px-1 pt-3 pb-2">
-    {#each albums as album (album.key)}
-      <a
-        href={albumHref(album)}
-        class="group focus-visible:ring-ring outline-hidden flex w-[136px] shrink-0 snap-start flex-col gap-2 sm:w-[160px]"
-        aria-label={`Open album ${album.title} by ${album.artist}`}
-      >
-        <div class="relative">
-          <Cover
-            artist={album.artist}
-            title={album.title}
-            coverUrl={album.coverUrl}
-            size={160}
-            corner={8}
-            caption={false}
-            interactive
-            class="!h-auto !w-full aspect-square shadow-[0_2px_10px_rgba(0,0,0,0.12)] dark:shadow-[0_4px_14px_rgba(0,0,0,0.5)]"
-          />
-          <button
-            type="button"
-            aria-label={`Play ${album.title}`}
-            onclick={(e) => playAlbum(album, e)}
-            class="bg-primary text-primary-foreground absolute right-2 bottom-2 grid size-9 translate-y-1 place-items-center rounded-full opacity-0 shadow-md transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 focus-visible:translate-y-0 focus-visible:opacity-100"
-          >
-            <Play class="size-4" fill="currentColor" />
-          </button>
-        </div>
-        <div class="min-w-0 px-0.5">
-          <p class="truncate text-[12.5px] font-medium">{album.title}</p>
-          <p class="text-muted-foreground truncate text-[11.5px]">
-            {album.artist}{album.year ? ` · ${album.year}` : ''}
-          </p>
-        </div>
-      </a>
-    {/each}
-  </div>
+  <ScrollArea orientation="horizontal" class={SHELF_CLASS}>
+    <div class="flex gap-4 px-1 pt-3 pb-3">
+      {#each albums as album (album.key)}
+        <a
+          href={albumHref(album)}
+          class="group focus-visible:ring-ring flex w-[136px] shrink-0 snap-start flex-col gap-2 outline-hidden sm:w-[160px]"
+          aria-label={`Open album ${album.title} by ${album.artist}`}
+        >
+          <div class="relative">
+            <Cover
+              artist={album.artist}
+              title={album.title}
+              coverUrl={album.coverUrl}
+              size={160}
+              corner={8}
+              caption={false}
+              interactive
+              class="aspect-square !h-auto !w-full shadow-[0_2px_10px_rgba(0,0,0,0.12)] dark:shadow-[0_4px_14px_rgba(0,0,0,0.5)]"
+            />
+            <button
+              type="button"
+              aria-label={`Play ${album.title}`}
+              onclick={(e) => playAlbum(album, e)}
+              class="bg-primary text-primary-foreground absolute right-2 bottom-2 grid size-9 translate-y-1 place-items-center rounded-full opacity-0 shadow-md transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 focus-visible:translate-y-0 focus-visible:opacity-100"
+            >
+              <Play class="size-4" fill="currentColor" />
+            </button>
+          </div>
+          <div class="min-w-0 px-0.5">
+            <p class="truncate text-[12.5px] font-medium">{album.title}</p>
+            <p class="text-muted-foreground truncate text-[11.5px]">
+              {album.artist}{album.year ? ` · ${album.year}` : ''}
+            </p>
+          </div>
+        </a>
+      {/each}
+    </div>
+  </ScrollArea>
 {/snippet}
 
 <!-- The greeting keeps its own line — it's the one bit of copy here that's for
@@ -206,13 +212,17 @@
 />
 
 <ScrollArea class="min-h-0 flex-1">
-  <div class="mx-auto flex max-w-[1400px] flex-col gap-5 px-4 py-4 pb-[var(--mh-content-pad)] sm:px-7 sm:py-5">
+  <div
+    class="mx-auto flex max-w-[1400px] flex-col gap-5 px-4 py-4 pb-[var(--mh-content-pad)] sm:px-7 sm:py-5"
+  >
     {#if isLoading && songs.length === 0}
       <div class="text-muted-foreground flex items-center justify-center py-24 text-sm">
         Loading your library…
       </div>
     {:else if builtSongs.length === 0}
-      <div class="text-muted-foreground flex flex-col items-center justify-center gap-3 py-24 text-center">
+      <div
+        class="text-muted-foreground flex flex-col items-center justify-center gap-3 py-24 text-center"
+      >
         <Disc3 class="size-10 opacity-40" />
         <p class="text-sm">Nothing in the library yet — run the pipeline to build it.</p>
       </div>
@@ -248,7 +258,9 @@
                 </div>
                 <div class="min-w-0 flex-1">
                   <p
-                    class="truncate text-[12.5px] font-medium {isCurrentlyPlaying ? 'text-primary' : ''}"
+                    class="truncate text-[12.5px] font-medium {isCurrentlyPlaying
+                      ? 'text-primary'
+                      : ''}"
                   >
                     {(song.title ?? song.fileName).trim() || song.fileName}
                   </p>
@@ -297,31 +309,33 @@
       {#if randomArtists.length > 0}
         <section>
           {@render sectionHeader('Artists to revisit', '/artists', Users)}
-          <div class="-mx-1 flex snap-x gap-4 overflow-x-auto px-1 pt-3 pb-2">
-            {#each randomArtists as group (group.key)}
-              <a
-                href={artistHref(group)}
-                class="group focus-visible:ring-ring outline-hidden flex w-[120px] shrink-0 snap-start flex-col items-center gap-2 sm:w-[136px]"
-                aria-label={`Browse ${group.label}`}
-              >
-                <Cover
-                  artist={group.coverArtist}
-                  title={group.coverTitle}
-                  coverUrl={group.coverUrl}
-                  size={136}
-                  caption={false}
-                  interactive
-                  class="!h-auto !w-full aspect-square !rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.15)]"
-                />
-                <div class="w-full min-w-0 text-center">
-                  <p class="truncate text-[12.5px] font-medium">{group.label}</p>
-                  <p class="text-muted-foreground truncate text-[11px]">
-                    {group.albumCount} album{group.albumCount === 1 ? '' : 's'}
-                  </p>
-                </div>
-              </a>
-            {/each}
-          </div>
+          <ScrollArea orientation="horizontal" class={SHELF_CLASS}>
+            <div class="flex gap-4 px-1 pt-3 pb-3">
+              {#each randomArtists as group (group.key)}
+                <a
+                  href={artistHref(group)}
+                  class="group focus-visible:ring-ring flex w-[120px] shrink-0 snap-start flex-col items-center gap-2 outline-hidden sm:w-[136px]"
+                  aria-label={`Browse ${group.label}`}
+                >
+                  <Cover
+                    artist={group.coverArtist}
+                    title={group.coverTitle}
+                    coverUrl={group.coverUrl}
+                    size={136}
+                    caption={false}
+                    interactive
+                    class="aspect-square !h-auto !w-full !rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.15)]"
+                  />
+                  <div class="w-full min-w-0 text-center">
+                    <p class="truncate text-[12.5px] font-medium">{group.label}</p>
+                    <p class="text-muted-foreground truncate text-[11px]">
+                      {group.albumCount} album{group.albumCount === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                </a>
+              {/each}
+            </div>
+          </ScrollArea>
         </section>
       {/if}
 

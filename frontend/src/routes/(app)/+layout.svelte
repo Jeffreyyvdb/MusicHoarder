@@ -61,8 +61,10 @@
   });
 
   // The player owns its audio element in JS (not the DOM), so warm it up once for
-  // the session — it then survives every re-render and navigation.
-  $effect(() => initPlayer());
+  // the session — it then survives every re-render and navigation. Handing it the
+  // account id also brings back the queue a reload interrupted; the store keys the
+  // snapshot on it so an account switch (always a hard reload) starts clean.
+  $effect(() => initPlayer(page.data.user?.id));
 
   const drawerOpen = $derived(pipelineOverlay.isOpen);
 </script>
