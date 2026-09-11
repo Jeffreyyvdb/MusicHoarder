@@ -544,8 +544,10 @@
           <div class={cn('font-sans leading-relaxed', !theater && 'text-sm')}>
             {#each parsedLines as line, i (i)}
               {@const isActive = isTracking && i === activeLineIndex}
-              {@const isPast = isTracking && activeLineIndex >= 0 && i < activeLineIndex}
-              {@const isFuture = isTracking && activeLineIndex >= 0 && i > activeLineIndex}
+              {@const isPast = isTracking && i < activeLineIndex}
+              <!-- Before the first timestamp (activeLineIndex = -1) every line is still to come, so
+                   the whole document dims rather than sitting at full weight and reading as unsynced. -->
+              {@const isFuture = isTracking && i > activeLineIndex}
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
               <div
                 data-lyric-line={i}
