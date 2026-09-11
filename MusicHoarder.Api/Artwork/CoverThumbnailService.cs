@@ -6,6 +6,9 @@ namespace MusicHoarder.Api.Artwork;
 
 public interface ICoverThumbnailService
 {
+    /// <summary>The on-disk cache root, so storage accounting can measure it.</summary>
+    string CacheDirectory { get; }
+
     /// <summary>Clamps an arbitrary requested size up to the nearest supported bucket.</summary>
     int ClampToBucket(int requestedSize);
 
@@ -27,6 +30,8 @@ public interface ICoverThumbnailService
 public sealed class CoverThumbnailService(string cacheDirectory, ILogger<CoverThumbnailService> logger) : ICoverThumbnailService
 {
     private static readonly int[] BucketSizes = [128, 256, 400, 640];
+
+    public string CacheDirectory => cacheDirectory;
 
     public int ClampToBucket(int requestedSize)
     {

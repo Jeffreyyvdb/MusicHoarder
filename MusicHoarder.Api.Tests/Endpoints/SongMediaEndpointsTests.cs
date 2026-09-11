@@ -64,6 +64,8 @@ public class SongMediaEndpointsTests : IDisposable
     {
         public int? LastRequestedSize { get; private set; }
 
+        public string CacheDirectory => "/cache";
+
         public int ClampToBucket(int requestedSize) => requestedSize;
 
         public Task<ResolvedCover?> GetThumbnailAsync(

@@ -911,6 +911,82 @@ export async function fetchOverview(): Promise<ApiOverview> {
   return requestJson<ApiOverview>("/overview")
 }
 
+// ── Storage usage (sidebar bar + breakdown dialog) ──────────────────────────
+// Measured on disk by the API's background walk of every managed folder; see
+// MusicHoarder.Api/Storage. Keys are strings so a new server-side bucket never breaks a client.
+export type StorageCategoryKey =
+  | "library"
+  | "source"
+  | "staging"
+  | "synced"
+  | "soulseekStaging"
+  | "videos"
+  | "covers"
+  | "thumbnailCache"
+  | "playlists"
+  | "untracked"
+  | "temp"
+  | "other"
+export type StorageOriginKey =
+  | "spotifyLiked"
+  | "spotifyPlaylist"
+  | "deezerPlaylist"
+  | "directUrl"
+  | "albumCompletion"
+  | "otherDownload"
+  | "synced"
+  | "local"
+export interface StorageBucket<K extends string = string> {
+  key: K
+  bytes: number
+  files: number
+}
+export interface StorageVolume {
+  samplePath: string
+  totalBytes: number
+  freeBytes: number
+}
+export interface StorageRoot {
+  key: string
+  path: string
+  exists: boolean
+  walked: boolean
+  skipped: string | null
+  bytes: number
+  files: number
+  untrackedAudioBytes: number
+  untrackedAudioFiles: number
+  durationMs: number
+}
+export interface StorageUsageSnapshot {
+  computedAtUtc: string
+  durationMs: number
+  managedBytes: number
+  capacityBytes: number
+  freeBytes: number
+  volumes: StorageVolume[]
+  roots: StorageRoot[]
+  categories: StorageBucket<StorageCategoryKey>[]
+  origins: StorageBucket<StorageOriginKey>[]
+  duplicates: { bytes: number; tracks: number }
+  lyrics: { approxTextBytes: number; tracksWithLyrics: number }
+  reclaimable: { stagedSourceBytes: number; stagedSourceTracks: number; unavailableReason: string | null }
+}
+export interface StorageUsageResponse {
+  computing: boolean
+  snapshot: StorageUsageSnapshot | null
+  lastError: string | null
+}
+
+export async function fetchStorageUsage(): Promise<StorageUsageResponse> {
+  return requestJson<StorageUsageResponse>("/storage")
+}
+
+/** Asks the API to measure again. 409 (already measuring) surfaces as an ApiError. */
+export async function refreshStorageUsage(): Promise<StorageUsageResponse> {
+  return requestJson<StorageUsageResponse>("/storage/refresh", { method: "POST" })
+}
+
 // ── Stats overview (the /stats page) ────────────────────────────────────────
 export interface InsightFunnelStage {
   stage: string

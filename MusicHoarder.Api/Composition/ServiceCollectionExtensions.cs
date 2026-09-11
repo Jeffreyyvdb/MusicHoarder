@@ -332,6 +332,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<StagedSourceReleaseTracker>();
         services.AddScoped<StagedSourceReleaseService>();
         services.AddHostedService<StagedSourceReleaseBackgroundService>();
+        // Storage usage: a background walk of every managed root, cached for the sidebar's storage bar
+        // and its breakdown. The endpoints only read the store or ask it to refresh.
+        services.AddScoped<Storage.StorageUsageCalculator>();
+        services.AddSingleton<Storage.IStorageVolumeProbe, Storage.DriveInfoVolumeProbe>();
+        services.AddSingleton<Storage.StorageUsageSnapshotStore>();
+        services.AddHostedService<Storage.StorageUsageBackgroundService>();
         // Single-track URL import: resolves a pasted YouTube video's metadata via a yt-dlp probe.
         services.AddSingleton<Import.IYouTubeMetadataResolver, Import.YouTubeMetadataResolver>();
 
