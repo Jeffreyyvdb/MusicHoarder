@@ -186,8 +186,10 @@
    ScrollArea viewport inside the main content area (marked `data-mh-content` in
    AppShellV2) reserves the floating-chrome clearance as trailing scroll padding so
    the last items still clear the bar. Scoped so portaled dialogs / command palette
-   / the sidebar are untouched; resolves to 0 wherever `--mh-content-pad` is unset. */
-[data-mh-content] .cn-scroll-area-viewport {
+   / the sidebar are untouched; resolves to 0 wherever `--mh-content-pad` is unset.
+   Horizontal-only ScrollAreas (the overview's shelves) are skipped: they never scroll
+   vertically, so the clearance would only open a gap under the row. */
+[data-mh-content] [data-slot='scroll-area']:not([data-orientation='horizontal']) > .cn-scroll-area-viewport {
   padding-bottom: var(--mh-content-pad, 0px);
 }
 

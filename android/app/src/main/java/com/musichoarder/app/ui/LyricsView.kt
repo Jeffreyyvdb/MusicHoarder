@@ -245,11 +245,6 @@ private fun SyncedLyrics(
         }
         active
     }
-    // Before the first timestamp there is nothing to highlight, so the whole document sits at one
-    // even weight rather than being dimmed as if it had all gone past. Same as the web's untracked
-    // state, which it reaches whenever the panel is open on a song that is not the loaded one.
-    val isTracking = activeIndex >= 0
-
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         // Centring the active line means offsetting by half the viewport; the list gets matching
         // padding so the first and last lines can reach the middle too.
@@ -279,12 +274,11 @@ private fun SyncedLyrics(
                 },
         ) {
             itemsIndexed(lyrics.lines) { index, line ->
-                val target = when {
-                    !isTracking -> colors.foreground.copy(alpha = 0.8f)
-                    index == activeIndex -> colors.foreground
-                    // Past and future dim to the same weight on the web — only "now" is bright.
-                    else -> colors.foreground.copy(alpha = 0.3f)
-                }
+                // Past and future dim to the same weight on the web — only "now" is bright. Before the
+                // first timestamp (activeIndex = -1) every line is still to come, so the whole document
+                // dims; at full weight it would read as lyrics that are not synced at all.
+                val target =
+                    if (index == activeIndex) colors.foreground else colors.foreground.copy(alpha = 0.3f)
                 val color by animateColorAsState(target, tween(300), label = "lyric-line")
                 Text(
                     text = line.text.ifBlank { "♪" },
