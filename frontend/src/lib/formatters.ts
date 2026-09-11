@@ -111,6 +111,28 @@ export function formatRelativeTime(iso: string, now: number = Date.now()): strin
   return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
+/**
+ * The forward-looking twin of {@link formatRelativeTime}: "in a moment" / "in 12 min" / "in 3h",
+ * falling back to a short date+time past a day. A timestamp already in the past reads "any moment now".
+ */
+export function formatRelativeFuture(iso: string, now: number = Date.now()): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '';
+  const secs = Math.round((then - now) / 1000);
+  if (secs < 0) return 'any moment now';
+  if (secs < 60) return 'in a moment';
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `in ${mins} min`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `in ${hours}h`;
+  return new Date(iso).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
 /** "Today" / "Yesterday" / "Tue 12 Aug" — the header a day-grouped list puts above its rows. */
 export function formatDayLabel(iso: string, now: Date = new Date()): string {
   const date = new Date(iso);

@@ -265,9 +265,7 @@ public static class AlbumsEndpoints
             if (match.Status is WishlistItemStatus.Failed or WishlistItemStatus.NotFound)
             {
                 var requeue = await db.WishlistItems.IgnoreQueryFilters().FirstAsync(w => w.Id == match.Id, ct);
-                requeue.Status = WishlistItemStatus.Pending;
-                requeue.LastError = null;
-                requeue.UpdatedAtUtc = now;
+                requeue.Requeue(now);
                 await db.SaveChangesAsync(ct);
                 var requeued = jobManager.TryStartJob(JobType.Download, out var requeueJobId, out _);
                 return Results.Accepted(value: new

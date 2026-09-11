@@ -765,11 +765,14 @@ public class MusicEnricherOptions
 
     /// <summary>
     /// Ordered download-provider chain, e.g. <c>["spotiflac", "slskd", "yt-dlp"]</c>. Each track tries
-    /// providers in order, falling through to the next only when the current one reports "not found"
-    /// (a real transient error stops the chain so a flaky provider doesn't silently burn the
-    /// fallback's quota; the item goes Failed and the next sweep retries the whole chain). Empty falls
-    /// back to the single <see cref="DownloadProvider"/>. Unconfigured providers report "not found",
-    /// so a chain containing "slskd"/"spotiflac" is harmless on instances without those settings.
+    /// providers in order, falling through to the next when the current one reports "not found" or is
+    /// unreachable (down / mid-redeploy — the item then remembers the skipped provider so the upgrade
+    /// sweep offers the song to it again later). A real transient error from a reachable provider stops
+    /// the chain so a flaky provider doesn't silently burn the fallback's quota; the item goes Failed
+    /// and is retried with backoff (<see cref="WishlistDownloadRetryBaseMinutes"/> /
+    /// <see cref="WishlistDownloadMaxAttempts"/>). Empty falls back to the single
+    /// <see cref="DownloadProvider"/>. Unconfigured providers report "not found", so a chain containing
+    /// "slskd"/"spotiflac" is harmless on instances without those settings.
     /// <para>
     /// The shipped quality-first order (spotiflac → slskd → yt-dlp) is a *deployment* default, set in
     /// <c>ComposeFileExtensions</c>/<c>.env.example</c> rather than here: the configuration binder
@@ -796,6 +799,21 @@ public class MusicEnricherOptions
     /// <summary>Delay in seconds before the download worker re-checks for pending wishlist items.</summary>
     [Range(1, 300)]
     public int DownloadIdleDelaySeconds { get; set; } = 20;
+
+    /// <summary>
+    /// How many genuine download attempts a wishlist item gets before it parks as a final Failed (a
+    /// provider that was merely unreachable doesn't count). A manual retry resets the count.
+    /// </summary>
+    [Range(1, 50)]
+    public int WishlistDownloadMaxAttempts { get; set; } = 5;
+
+    /// <summary>
+    /// Base delay in minutes before a Failed wishlist item is retried automatically. Doubles per
+    /// attempt (30m, 1h, 2h, 4h, …) and is capped at 24 hours; an item whose only problem was an
+    /// unreachable provider waits exactly one base delay.
+    /// </summary>
+    [Range(1, 1440)]
+    public int WishlistDownloadRetryBaseMinutes { get; set; } = 30;
 
     /// <summary>
     /// Absolute path to a writable staging directory that wishlist downloads are written into. Kept
@@ -1042,6 +1060,14 @@ public class MusicEnricherOptions
     /// failed), so a track with no better source isn't re-searched every sweep.</summary>
     [Range(0, 3650)]
     public int QualityUpgradeCooldownDays { get; set; } = 30;
+
+    /// <summary>
+    /// Hours to wait before re-attempting a song whose last upgrade request was <em>deferred</em>: the
+    /// chain ended only because a provider was unreachable, so nothing was actually searched. Kept far
+    /// shorter than <see cref="QualityUpgradeCooldownDays"/>, which governs "looked and found nothing".
+    /// </summary>
+    [Range(1, 720)]
+    public int QualityUpgradeDeferredRetryHours { get; set; } = 6;
 
     /// <summary>
     /// Minimum acoustic-fingerprint similarity (0..1) the merge requires between a downloaded upgrade

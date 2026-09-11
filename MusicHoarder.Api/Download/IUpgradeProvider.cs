@@ -34,8 +34,10 @@ public interface IUpgradeProvider
     /// Acquire a copy that beats <paramref name="floor"/> into <paramref name="req"/>'s destination.
     /// Same <see cref="DownloadResult"/> semantics as <see cref="IDownloadProvider.DownloadAsync"/>:
     /// <see cref="DownloadResult.Ok"/> → take it; <see cref="DownloadResult.Missing"/> → nothing
-    /// better here, try the next provider; <see cref="DownloadResult.Failed"/> → transient, stop the
-    /// chain (don't burn the next provider's quota on a flaky backend).
+    /// better here, try the next provider; <see cref="DownloadResult.ProviderUnavailable"/> → the
+    /// backend is down, try the next provider and let the request be deferred so this one gets another
+    /// go later; <see cref="DownloadResult.Failed"/> → transient, stop the chain (don't burn the next
+    /// provider's quota on a flaky backend).
     /// </summary>
     Task<DownloadResult> DownloadBetterAsync(DownloadRequest req, UpgradeFloor floor, CancellationToken ct);
 }

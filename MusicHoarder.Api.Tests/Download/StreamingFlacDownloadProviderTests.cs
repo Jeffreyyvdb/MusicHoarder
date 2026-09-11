@@ -87,6 +87,42 @@ public class StreamingFlacDownloadProviderTests : IDisposable
         Assert.False(result.NotFound); // Failed
     }
 
+    [Theory]
+    [InlineData(HttpRequestError.NameResolutionError)]
+    [InlineData(HttpRequestError.ConnectionError)]
+    public async Task Unreachable_ReturnsUnavailable_SoChainFallsThrough(HttpRequestError error)
+    {
+        // The container is down or mid-redeploy: "Name or service not known (spotiflac:8000)". Not a
+        // failed attempt against the track — the chain must move on and remember to come back.
+        var handler = new FakeSidecarHandler
+        {
+            AcquireThrows = new HttpRequestException(error, "Name or service not known (spotiflac:8000)"),
+        };
+        var provider = CreateProvider(handler);
+
+        var result = await provider.DownloadAsync(Request(trackId: "abc"), default);
+
+        Assert.False(result.Success);
+        Assert.True(result.Unavailable);
+        Assert.False(result.NotFound);
+        Assert.True(result.FallsThrough);
+        Assert.Contains("Name or service not known", result.Error);
+    }
+
+    [Fact]
+    public async Task OtherTransportException_StaysFailed_SoChainStops()
+    {
+        // A reachable-but-broken sidecar (e.g. a mid-body IO error) is still a real transient failure.
+        var handler = new FakeSidecarHandler { AcquireThrows = new IOException("connection reset mid-body") };
+        var provider = CreateProvider(handler);
+
+        var result = await provider.DownloadAsync(Request(trackId: "abc"), default);
+
+        Assert.False(result.Success);
+        Assert.False(result.Unavailable);
+        Assert.False(result.NotFound);
+    }
+
     [Fact]
     public async Task Http500_ReturnsFailed()
     {
@@ -197,12 +233,16 @@ public class StreamingFlacDownloadProviderTests : IDisposable
         public int AcquireCalls { get; private set; }
         public HttpStatusCode AcquireStatusCode { get; set; } = HttpStatusCode.OK;
         public Func<string, string>? AcquireResponder { get; set; }
+        /// <summary>Thrown from the transport instead of answering — models an unreachable sidecar.</summary>
+        public Exception? AcquireThrows { get; set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             if (request.RequestUri!.AbsolutePath.EndsWith("/acquire"))
             {
                 AcquireCalls++;
+                if (AcquireThrows is not null)
+                    throw AcquireThrows;
                 var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
                 if (AcquireStatusCode != HttpStatusCode.OK)
                     return new HttpResponseMessage(AcquireStatusCode) { Content = new StringContent("boom") };

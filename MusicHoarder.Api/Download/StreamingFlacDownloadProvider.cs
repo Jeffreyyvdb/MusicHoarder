@@ -17,8 +17,11 @@ namespace MusicHoarder.Api.Download;
 /// <para>
 /// Falls through (<see cref="DownloadResult.Missing"/>) when the sidecar is unconfigured, no Spotify id
 /// can be resolved, or the track has no lossless source upstream — so the wishlist chain drops to slskd
-/// / yt-dlp. Only a transport-level sidecar failure returns <see cref="DownloadResult.Failed"/>, which
-/// stops the chain (a downed sidecar shouldn't silently burn the fallback's quota on every track).
+/// / yt-dlp. A sidecar that cannot be reached at all (DNS / connection refused — down or mid-redeploy)
+/// returns <see cref="DownloadResult.ProviderUnavailable"/>, which also falls through but marks the
+/// item so it is offered to this provider again once it is back. Only a failure from a reachable
+/// sidecar (timeout, 5xx, empty file) returns <see cref="DownloadResult.Failed"/>, which stops the
+/// chain so a flaky sidecar doesn't silently burn the fallback's quota on every track.
 /// </para>
 /// </summary>
 public sealed class StreamingFlacDownloadProvider(
@@ -82,6 +85,9 @@ public sealed class StreamingFlacDownloadProvider(
                         LogSanitizer.ForLog(req.Artist), LogSanitizer.ForLog(req.Title),
                         LogSanitizer.ForLog(result.Error ?? ""));
                     return DownloadResult.Missing(result.Error ?? "no lossless source");
+
+                case AcquireStatus.Unavailable:
+                    return DownloadResult.ProviderUnavailable(result.Error ?? "sidecar unreachable");
 
                 default:
                     return DownloadResult.Failed(result.Error ?? "sidecar error");

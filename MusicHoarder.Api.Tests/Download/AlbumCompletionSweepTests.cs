@@ -504,6 +504,34 @@ public class AlbumCompletionSweepTests
     }
 
     [Fact]
+    public async Task Sweep_AnotherEditionsFailedRowWithScheduledRetry_StillClaimsTheSlot()
+    {
+        // A Failed row that is waiting for its automatic retry is still an acquisition in flight —
+        // the sibling edition must not queue a second copy of the same track underneath it.
+        await using var db = NewContext();
+        var other = AddCanonicalAlbum(db, Artist, "Discovery Collectors Edition", "One", "Two");
+        AddCanonicalAlbum(db, Artist, "Discovery", "One", "Two");
+        db.Songs.Add(Song("/a.mp3", Artist, "Discovery", title: "One", track: 1));
+        db.WishlistItems.Add(new WishlistItem
+        {
+            OwnerUserId = WellKnownUsers.OwnerId,
+            Origin = WishlistItemOrigin.AlbumCompletion,
+            CanonicalAlbumId = other.Id,
+            Status = WishlistItemStatus.Failed,
+            NextAttemptAtUtc = DateTime.UtcNow.AddMinutes(30),
+            Title = "Two",
+            Artist = Artist,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        await CreateSweep(db).SweepAsync(CancellationToken.None);
+
+        Assert.Equal(0, await db.WishlistItems.IgnoreQueryFilters().CountAsync(w => w.Status == WishlistItemStatus.Pending));
+    }
+
+    [Fact]
     public async Task Sweep_SameTitleByADifferentArtist_IsStillQueued()
     {
         // The claim is keyed on artist as well as title, so two artists' "Intro" stay separate tracks.
