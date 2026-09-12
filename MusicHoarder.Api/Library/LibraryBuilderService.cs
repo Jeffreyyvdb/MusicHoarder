@@ -904,22 +904,19 @@ public class LibraryBuilderService(
         // build state never changed, so the batch query re-selected it on the very next sweep and the
         // builder hot-looped (built frozen, failed climbing, CPU burned; the reject was LogDebug so it was
         // invisible at Info). Now those rows actually build; only a row that changed out from under the
-        // batch snapshot (a true race) falls through, and it is persisted as a bounded failure below so
-        // the #239 quarantine eventually stops re-selecting it — no state can loop the builder forever.
+        // batch snapshot (a true race) falls through — and it is deliberately NOT persisted as a build
+        // failure. Because the two predicates mirror each other, a rejected row is one enrichment just
+        // moved out of the query's set, so the next sweep can't re-select it until enrichment moves it
+        // back — at which point it IS buildable. Counting the skip as an attempt (the #330 stopgap) is
+        // what quarantined every NeedsReview row in the window before this alignment: the enrichment
+        // gate is not a file problem, and nothing on the way back to Matched resets the counter, so a
+        // later match could never reach the library. The row's build state is left exactly as the
+        // snapshot found it (a forced re-tag flag on a Done row survives for when it's Matched again).
         var buildable = !song.IsDeleted
             && (song.EnrichmentStatus == EnrichmentStatus.Matched
                 || (options.Value.EnableBuildNeedsReview && song.EnrichmentStatus == EnrichmentStatus.NeedsReview));
         if (!buildable)
         {
-            if (!song.IsDeleted)
-            {
-                // Selected by the batch snapshot but no longer buildable (enrichment status changed after
-                // selection). Persist a bounded failure so LibraryBuildAttempts advances toward the
-                // MaxLibraryBuildAttempts quarantine instead of the row being re-selected indefinitely.
-                song.MarkBuildFailed("Not buildable at build time (enrichment status changed after selection)");
-                await db.SaveChangesAsync(ct);
-            }
-
             logger.LogWarning(
                 "Skipping song {SongId}: not buildable at build time (deleted={Deleted}, status={Status})",
                 songId, song.IsDeleted, song.EnrichmentStatus);

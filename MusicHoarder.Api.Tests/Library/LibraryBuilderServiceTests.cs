@@ -313,6 +313,45 @@ public class LibraryBuilderServiceTests
     }
 
     [Fact]
+    public async Task ProcessNextBatchAsync_KeepsCorruptFileQuarantined_AfterReEnrichment()
+    {
+        // The counterpart to the enrichment-gate skip: a REAL file failure must keep its quarantine even
+        // when enrichment later re-runs and re-matches the row. Re-enrichment changes what the tags
+        // would say, not the broken bytes underneath, so a fresh match must not buy the same corrupt
+        // file another five copies. Only an explicit re-build (ResetLibraryBuild) reopens it.
+        var sourcePath = "/source/track.opus";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourcePath, 5));
+        await db.SaveChangesAsync();
+
+        var tagWriter = new UnreadableFileTagWriter();
+        var service = CreateService(db, fileSystem, tagWriter);
+
+        await service.ProcessNextBatchAsync(Guid.NewGuid());
+        var song = await db.Songs.SingleAsync();
+        Assert.Equal(LibraryBuildStatus.Failed, song.LibraryBuildStatus);
+        Assert.Equal(5, song.LibraryBuildAttempts);
+
+        // Re-enrich: reset (which deliberately leaves build state alone) and land a new match the way
+        // the orchestrator does — by flipping the status, not by resetting the build.
+        song.ResetEnrichment();
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        await db.SaveChangesAsync();
+
+        var after = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        Assert.Equal(0, after.TotalTracks);
+        Assert.Equal(LibraryBuildStatus.Failed, song.LibraryBuildStatus);
+        Assert.Equal(5, song.LibraryBuildAttempts);
+        Assert.Contains("Not a readable audio file", song.LibraryBuildError!, StringComparison.Ordinal);
+        Assert.Single(tagWriter.Paths);                                      // never copied it again
+    }
+
+    [Fact]
     public async Task ProcessNextBatchAsync_ProcessesSingleCandidate_WhenDestinationCollidesWithinBatch()
     {
         var sourcePath1 = "/source/track1.mp3";
@@ -1129,13 +1168,15 @@ public class LibraryBuilderServiceTests
     }
 
     [Fact]
-    public async Task ProcessNextBatchAsync_MarksFailedWithoutLooping_WhenCandidateFlipsToNonMatchedBeforeBuild()
+    public async Task ProcessNextBatchAsync_LeavesBuildStateUntouched_WhenCandidateFlipsToNonMatchedBeforeBuild()
     {
-        // Reproduces the builder hot-loop: a candidate is selected while Matched, but a concurrent
-        // enrichment change flips it before ProcessTrackAsync re-reads it. The build must PERSIST a
-        // Failed (incrementing attempts) so the #239 quarantine can bound it — instead of silently
-        // returning Failed and letting the builder re-select the same row every sweep forever. Here the
-        // flip is to NeedsReview with EnableBuildNeedsReview off (the default), so it is not buildable.
+        // A candidate is selected while Matched, but a concurrent enrichment change flips it before
+        // ProcessTrackAsync re-reads it. Here the flip is to NeedsReview with EnableBuildNeedsReview off
+        // (the default), so it is not buildable. The skip is an enrichment-gate outcome, not a file
+        // problem: it must NOT count as a build attempt (the #330 stopgap did, and quarantined 1,100+
+        // NeedsReview rows in production that then could never build once they were matched). The row's
+        // build state stays exactly as selected, the next sweep can't re-select it (enrichment moved it
+        // out of the query's set, so no hot-loop), and once it is Matched again it simply builds.
         var sourcePath = "/source/track.mp3";
         var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
         {
@@ -1154,17 +1195,32 @@ public class LibraryBuilderServiceTests
             mutate.Songs.IgnoreQueryFilters().First().EnrichmentStatus = EnrichmentStatus.NeedsReview;
             mutate.SaveChanges();
         });
-        var service = CreateService(db, fileSystem, tagWriter, scopeFactoryOverride: scopeFactory);
+        var flipping = CreateService(db, fileSystem, tagWriter, scopeFactoryOverride: scopeFactory);
 
-        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        var result = await flipping.ProcessNextBatchAsync(Guid.NewGuid());
 
         var song = await db.Songs.SingleAsync();
         Assert.Equal(0, result.Done);
-        Assert.Equal(1, result.Failed);
-        Assert.Equal(LibraryBuildStatus.Failed, song.LibraryBuildStatus);   // persisted, not a silent skip
-        Assert.Equal(1, song.LibraryBuildAttempts);                          // feeds the #239 quarantine
-        Assert.False(string.IsNullOrEmpty(song.LibraryBuildError));
+        Assert.Equal(1, result.Failed);                                      // the run reports the skip...
+        Assert.Equal(LibraryBuildStatus.Pending, song.LibraryBuildStatus);   // ...but the row is untouched
+        Assert.Equal(0, song.LibraryBuildAttempts);                          // no progress toward quarantine
+        Assert.Null(song.LibraryBuildError);
         Assert.Empty(tagWriter.Paths);                                       // never attempted a tag write
+
+        // Still NeedsReview: the batch query excludes it, so a plain sweep finds nothing (no loop).
+        var steady = CreateService(db, fileSystem, tagWriter);
+        var idle = await steady.ProcessNextBatchAsync(Guid.NewGuid());
+        Assert.Equal(0, idle.TotalTracks);
+
+        // Re-enrichment lands a match (the orchestrator flips the status without touching build state):
+        // the very next sweep builds it — nothing left over from the gate skip holds it back.
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        await db.SaveChangesAsync();
+
+        var built = await steady.ProcessNextBatchAsync(Guid.NewGuid());
+        Assert.Equal(1, built.Done);
+        Assert.Equal(LibraryBuildStatus.Done, song.LibraryBuildStatus);
+        Assert.Single(tagWriter.Paths);
     }
 
     [Fact]
