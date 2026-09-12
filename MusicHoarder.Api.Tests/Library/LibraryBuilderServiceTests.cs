@@ -1149,7 +1149,11 @@ public class LibraryBuilderServiceTests
         var tagWriter = new RecordingTagWriter();
         // Flip the song to NeedsReview from the per-track scope onward, modeling enrichment mutating the
         // row after the builder already selected it as a Matched candidate.
-        var scopeFactory = new FlipStatusScopeFactory(db, tagWriter, EnrichmentStatus.NeedsReview);
+        var scopeFactory = new MutateFromSecondScopeFactory(db, tagWriter, mutate =>
+        {
+            mutate.Songs.IgnoreQueryFilters().First().EnrichmentStatus = EnrichmentStatus.NeedsReview;
+            mutate.SaveChanges();
+        });
         var service = CreateService(db, fileSystem, tagWriter, scopeFactoryOverride: scopeFactory);
 
         var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
@@ -1265,6 +1269,98 @@ public class LibraryBuilderServiceTests
         Assert.True(storedOccupant.IsDuplicate);
         Assert.Equal(candidate.Id, storedOccupant.DuplicateOfId);
         Assert.Equal("BBBBBBBBBB", fileSystem.File.ReadAllText(occupantDestination));
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_RefusesToOverwrite_WhenAnotherLiveRowStillOwnsTheDestination()
+    {
+        // The cross-batch guard let the better candidate take the occupant's path and retired the
+        // occupant as its duplicate — then, before the track actually builds, something un-retires the
+        // occupant (in production the fingerprint dedup sweep clears any flag its own clusters didn't
+        // produce). The write must re-check ownership and fail bounded rather than overwrite that
+        // row's file, and it must not mark itself Done over the other song's bytes either.
+        var occupantDestination = "/dest/Artist/2026 - Album/Track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            ["/source/a/occupant.mp3"] = new("AAAAA"),
+            [occupantDestination] = new("AAAAA"),
+            ["/source/b/other.mp3"] = new("BBBBBBBBBB"),
+        });
+
+        await using var db = CreateDbContext();
+        var occupant = CreateMatchedSong("/source/a/occupant.mp3", 5, title: "Track", libraryBuildStatus: LibraryBuildStatus.Done);
+        occupant.TrackNumber = null;
+        occupant.DestinationPath = occupantDestination;
+        var candidate = CreateMatchedSong("/source/b/other.mp3", 10, title: "Track");
+        candidate.TrackNumber = null;
+        db.Songs.AddRange(occupant, candidate);
+        await db.SaveChangesAsync();
+
+        var tagWriter = new RecordingTagWriter();
+        var scopeFactory = new MutateFromSecondScopeFactory(db, tagWriter, mutate =>
+        {
+            mutate.Songs.IgnoreQueryFilters().Single(s => s.Id == occupant.Id).ClearDuplicate();
+            mutate.SaveChanges();
+        });
+        var service = CreateService(db, fileSystem, tagWriter, scopeFactoryOverride: scopeFactory);
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        var storedCandidate = await db.Songs.SingleAsync(s => s.Id == candidate.Id);
+        var storedOccupant = await db.Songs.SingleAsync(s => s.Id == occupant.Id);
+        Assert.Equal(0, result.Done);
+        Assert.Equal(1, result.Failed);
+        Assert.Equal(LibraryBuildStatus.Failed, storedCandidate.LibraryBuildStatus);
+        Assert.Contains("collision", storedCandidate.LibraryBuildError, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, storedCandidate.LibraryBuildAttempts);
+        Assert.Null(storedCandidate.DestinationPath);
+        Assert.False(storedOccupant.IsDuplicate);
+        Assert.Equal(LibraryBuildStatus.Done, storedOccupant.LibraryBuildStatus);
+        Assert.Equal("AAAAA", fileSystem.File.ReadAllText(occupantDestination));
+        Assert.Empty(tagWriter.Paths);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_HoldsUpgradeProvisional_WhileItsRequestAwaitsIngest()
+    {
+        // A quality upgrade's download is scanned as a transient provisional row carrying the target's
+        // tags, so it resolves to the SAME destination path as the target — and, being the bigger copy,
+        // would win that file and retire the target as its duplicate. It must not take part in the
+        // build at all while the upgrade request awaits ingest: the merge sweep decides its fate.
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            ["/source/track.mp3"] = new("abcde"),
+            ["/staging/upgrade.mp3"] = new("abcdefghij"),
+        });
+
+        await using var db = CreateDbContext();
+        var target = CreateMatchedSong("/source/track.mp3", 5);
+        var provisional = CreateMatchedSong("/staging/upgrade.mp3", 10);
+        db.Songs.AddRange(target, provisional);
+        await db.SaveChangesAsync();
+        db.UpgradeRequests.Add(new UpgradeRequest
+        {
+            SongId = target.Id,
+            OwnerUserId = target.OwnerUserId,
+            Status = UpgradeRequestStatus.AwaitingIngest,
+            DownloadedFilePath = "/staging/upgrade.mp3",
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, fileSystem, new RecordingTagWriter());
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        var storedTarget = await db.Songs.SingleAsync(s => s.Id == target.Id);
+        var storedProvisional = await db.Songs.SingleAsync(s => s.Id == provisional.Id);
+        Assert.Equal(1, result.TotalTracks);
+        Assert.Equal(1, result.Done);
+        Assert.Equal(LibraryBuildStatus.Done, storedTarget.LibraryBuildStatus);
+        Assert.False(storedTarget.IsDuplicate);
+        Assert.Equal("abcde", fileSystem.File.ReadAllText(storedTarget.DestinationPath!));
+        Assert.Equal(LibraryBuildStatus.Pending, storedProvisional.LibraryBuildStatus);
+        Assert.Null(storedProvisional.DestinationPath);
+        Assert.False(storedProvisional.IsDuplicate);
     }
 
     [Fact]
@@ -1597,11 +1693,11 @@ public class LibraryBuilderServiceTests
         public IServiceScope CreateScope() => new SingleScope(new SingleScopeProvider(db, tagWriter));
     }
 
-    // Hands out the shared context, but from the SECOND scope onward first flips the (single) song's
-    // enrichment status — modeling enrichment mutating a row after the builder selected it as a
-    // candidate (scope 1: candidate query) but before ProcessTrackAsync re-reads it (scope 2+).
-    private sealed class FlipStatusScopeFactory(
-        MusicHoarderDbContext db, ILibraryTagWriter tagWriter, EnrichmentStatus flipTo)
+    // Hands out the shared context, but from the SECOND scope onward first applies a mutation —
+    // modeling another actor changing rows after the builder selected its candidates and ran its
+    // guards (scope 1: candidate query) but before ProcessTrackAsync re-reads them (scope 2+).
+    private sealed class MutateFromSecondScopeFactory(
+        MusicHoarderDbContext db, ILibraryTagWriter tagWriter, Action<MusicHoarderDbContext> mutate)
         : IServiceScopeFactory
     {
         private int scopeCount;
@@ -1610,9 +1706,7 @@ public class LibraryBuilderServiceTests
         {
             if (Interlocked.Increment(ref scopeCount) >= 2)
             {
-                var song = db.Songs.IgnoreQueryFilters().First();
-                song.EnrichmentStatus = flipTo;
-                db.SaveChanges();
+                mutate(db);
             }
             return new SingleScope(new SingleScopeProvider(db, tagWriter));
         }

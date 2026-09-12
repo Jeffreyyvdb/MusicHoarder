@@ -21,11 +21,14 @@ public static class LibraryBuildQuery
     /// LRCLIB fetch returns, so without the wait the file is tagged with no lyrics. The wait is bounded by
     /// <see cref="SongMetadata.EnrichedAtUtc"/> against the cutoff so a track whose lyrics never arrive
     /// (e.g. a manual approval, which doesn't fetch lyrics) still builds; forced re-tags and tracks that
-    /// can't be searched (no title/artist) never wait.
+    /// can't be searched (no title/artist) never wait. When <paramref name="upgradeRequests"/> is given,
+    /// the transient provisional row a quality upgrade's download is scanned as (its
+    /// <see cref="SongMetadata.SourcePath"/> is an <see cref="UpgradeRequestStatus.AwaitingIngest"/>
+    /// request's <see cref="UpgradeRequest.DownloadedFilePath"/>) is held out of the build entirely.
     /// </summary>
     public static IQueryable<SongMetadata> BuildCandidates(
         IQueryable<SongMetadata> songs, DateTime? lyricsWaitCutoff, int maxBuildAttempts,
-        bool buildNeedsReview = false)
+        bool buildNeedsReview = false, IQueryable<UpgradeRequest>? upgradeRequests = null)
     {
         var query = songs
             .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
@@ -56,6 +59,20 @@ public static class LibraryBuildQuery
                 || string.IsNullOrEmpty(s.Artist)
                 || s.EnrichedAtUtc == null                  // no match timestamp — don't hold
                 || s.EnrichedAtUtc < cutoff);               // waited long enough; build with whatever lyrics exist
+        }
+
+        if (upgradeRequests is not null)
+        {
+            // A quality upgrade's download exists only for the merge sweep to verify against real file
+            // facts; it is never a library track in its own right. Built anyway, it resolves to the same
+            // destination as the recording it duplicates — often the exact path another live row already
+            // holds (an .opus target's FLAC sibling) — wins that file on quality, and its hard-delete on
+            // merge or abort then leaves that row pointing at nothing. Nothing is lost by waiting: a merge
+            // hands the file to the target row, an abort removes the provisional.
+            query = query.Where(s => !upgradeRequests.Any(r =>
+                r.Status == UpgradeRequestStatus.AwaitingIngest
+                && r.OwnerUserId == s.OwnerUserId
+                && r.DownloadedFilePath == s.SourcePath));
         }
 
         return query;

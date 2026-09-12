@@ -79,8 +79,8 @@ public static class EnrichmentEndpoints
                 var cutoff = LibraryBuildQuery.LyricsWaitCutoff(opts);
                 var lyricsHeld = cutoff is null
                     ? 0
-                    : await LibraryBuildQuery.BuildCandidates(db.Songs, lyricsWaitCutoff: null, max).CountAsync(ct)
-                      - await LibraryBuildQuery.BuildCandidates(db.Songs, cutoff, max).CountAsync(ct);
+                    : await LibraryBuildQuery.BuildCandidates(db.Songs, lyricsWaitCutoff: null, max, upgradeRequests: db.UpgradeRequests).CountAsync(ct)
+                      - await LibraryBuildQuery.BuildCandidates(db.Songs, cutoff, max, upgradeRequests: db.UpgradeRequests).CountAsync(ct);
 
                 return Results.Ok(new { quarantined, lyricsHeld });
             })

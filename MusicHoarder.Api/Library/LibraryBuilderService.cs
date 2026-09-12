@@ -418,7 +418,8 @@ public class LibraryBuilderService(
                     db.Songs.IgnoreQueryFilters().AsNoTracking(),
                     LibraryBuildQuery.LyricsWaitCutoff(opts),
                     opts.MaxLibraryBuildAttempts,
-                    opts.EnableBuildNeedsReview)
+                    opts.EnableBuildNeedsReview,
+                    db.UpgradeRequests.IgnoreQueryFilters())
                 .OrderBy(s => s.Id)
                 .Take(opts.LibraryBuilderBatchSize)
                 .ToListAsync(ct);
@@ -922,6 +923,29 @@ public class LibraryBuilderService(
             logger.LogWarning(
                 "Skipping song {SongId}: not buildable at build time (deleted={Deleted}, status={Status})",
                 songId, song.IsDeleted, song.EnrichmentStatus);
+            return new LibraryBuildTrackResult(LibraryBuildOutcome.Failed);
+        }
+
+        // Last check before anything touches the destination: the cross-batch path guard ran against a
+        // snapshot, so re-read at write time that no DIFFERENT live row still holds this path as its
+        // built destination — an occupant the guard retired that a dedup sweep has since un-retired, or
+        // a row that became Done here after the batch was selected. The overwrite-move below (or the
+        // same-size skip marking this row Done over that row's bytes) would silently destroy its file.
+        // Fail bounded, exactly as the guard's own collision does.
+        var occupantId = await db.Songs
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(s => s.Id != songId && s.DeletedAtUtc == null && !s.IsDuplicate
+                && s.DestinationPath == destinationPath)
+            .Select(s => (int?)s.Id)
+            .FirstOrDefaultAsync(ct);
+        if (occupantId is { } occupant)
+        {
+            logger.LogWarning(
+                "Refusing to build song {SongId} over {DestinationPath}: song {OccupantId} still holds that file",
+                songId, destinationPath, occupant);
+            song.MarkBuildFailed($"Destination path collision: song {occupant} already holds {destinationPath}");
+            await db.SaveChangesAsync(ct);
             return new LibraryBuildTrackResult(LibraryBuildOutcome.Failed);
         }
 
