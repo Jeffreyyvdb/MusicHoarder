@@ -5,6 +5,7 @@ using MusicHoarder.Api.Audio;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Jobs;
+using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Soulseek;
@@ -16,17 +17,21 @@ public class UpgradeMergeServiceTests : IDisposable
 {
     private static readonly Guid Owner = WellKnownUsers.OwnerId;
     private readonly string stagingDir;
+    private readonly string destinationDir;
     private readonly MusicVideoChannel musicVideoChannel = new();
 
     public UpgradeMergeServiceTests()
     {
         stagingDir = Path.Combine(Path.GetTempPath(), $"mh-upgrade-{Guid.NewGuid():N}");
         Directory.CreateDirectory(stagingDir);
+        destinationDir = Path.Combine(Path.GetTempPath(), $"mh-upgrade-dest-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(destinationDir);
     }
 
     public void Dispose()
     {
         try { Directory.Delete(stagingDir, recursive: true); } catch { /* best effort */ }
+        try { Directory.Delete(destinationDir, recursive: true); } catch { /* best effort */ }
     }
 
     [Fact]
@@ -264,6 +269,113 @@ public class UpgradeMergeServiceTests : IDisposable
         Assert.Null(song.DuplicateOfId);
     }
 
+    // ── Provisional row's destination copy ──────────────────────────────────
+
+    [Fact]
+    public async Task Abort_KeepsDestinationFile_AnotherLiveRowStillOwns()
+    {
+        // Production data loss: the pipeline raced ahead and built the provisional FLAC onto the exact
+        // path a DIFFERENT live FLAC row of the same track already held (the target is an .opus copy).
+        // The builder's path guard let the bigger copy take the file and retired the occupant as its
+        // duplicate; the merge then rejected the download and deleted "the provisional's" destination —
+        // the occupant's file. The occupant must keep its file, get its dangling duplicate flag cleared,
+        // and be re-copied from its own source (the file now holds the rejected download's bytes).
+        await using var db = CreateDbContext();
+        var sharedDestination = WriteDestinationFile("Artist/2026 - Album/01 - Song.flac");
+        var target = TargetSong(10, WriteStagingFile("old.opus"), extension: ".opus", bitrate: 128);
+        target.MarkBuildDone(Path.Combine(destinationDir, "Artist/2026 - Album/01 - Song.opus"));
+        var occupant = TargetSong(12, WriteStagingFile("occupant.flac"), extension: ".flac", bitrate: 900);
+        occupant.MarkBuildDone(sharedDestination);
+        occupant.MarkAsDuplicate(11);
+        var newFile = WriteStagingFile("wrong.flac", bytes: 4096);
+        var provisional = ProvisionalSong(11, newFile, extension: ".flac", bitrate: 900, fingerprint: "FP-new");
+        provisional.DurationSeconds = 95; // target is 200s → abort
+        provisional.MarkBuildDone(sharedDestination);
+        db.Songs.AddRange(target, occupant, provisional);
+        db.UpgradeRequests.Add(AwaitingIngest(1, songId: 10, downloadedPath: newFile));
+        await db.SaveChangesAsync();
+
+        await CreateService(db).SweepAsync(default);
+
+        Assert.Equal(UpgradeRequestStatus.Failed, (await db.UpgradeRequests.SingleAsync()).Status);
+        Assert.True(File.Exists(sharedDestination));
+        var songs = await db.Songs.IgnoreQueryFilters().OrderBy(s => s.Id).ToListAsync();
+        Assert.Equal(new[] { 10, 12 }, songs.Select(s => s.Id));
+        var storedOccupant = songs[1];
+        Assert.False(storedOccupant.IsDuplicate);
+        Assert.Null(storedOccupant.DuplicateOfId);
+        Assert.Equal(LibraryBuildStatus.Pending, storedOccupant.LibraryBuildStatus); // re-copy armed
+        Assert.Equal(sharedDestination, storedOccupant.DestinationPath);
+        Assert.Equal(sharedDestination, storedOccupant.PreviousDestinationPath);
+        Assert.False(File.Exists(newFile)); // rejected download still cleaned up
+    }
+
+    [Fact]
+    public async Task Merge_KeepsDestinationFile_TargetStillOwns()
+    {
+        // Same-extension upgrade: the provisional resolved to the target's OWN destination path. The
+        // successful merge must not delete that file either — the target's re-queued build swaps it.
+        await using var db = CreateDbContext();
+        var destination = WriteDestinationFile("Artist/2026 - Album/01 - Song.flac");
+        var target = TargetSong(10, WriteStagingFile("old.flac"), extension: ".flac", bitrate: 700);
+        target.MarkBuildDone(destination);
+        var newFile = WriteStagingFile("better.flac", bytes: 4096);
+        var provisional = ProvisionalSong(11, newFile, extension: ".flac", bitrate: 1400, fingerprint: "FP-new");
+        provisional.MarkBuildDone(destination);
+        db.Songs.AddRange(target, provisional);
+        db.UpgradeRequests.Add(AwaitingIngest(1, songId: 10, downloadedPath: newFile));
+        await db.SaveChangesAsync();
+
+        Assert.Equal(1, await CreateService(db).SweepAsync(default));
+
+        Assert.True(File.Exists(destination));
+        var song = Assert.Single(await db.Songs.IgnoreQueryFilters().ToListAsync());
+        Assert.Equal(LibraryBuildStatus.Pending, song.LibraryBuildStatus);
+        Assert.Equal(destination, song.PreviousDestinationPath); // the rebuild prunes/overwrites it
+    }
+
+    [Fact]
+    public async Task Abort_DeletesProvisionalDestination_WhenNoOtherRowReferencesIt()
+    {
+        // The genuinely orphaned copy (its own folder, nobody else's path) is removed and the empty
+        // folder pruned — through the managed-root cleaner, not a raw File.Delete.
+        await using var db = CreateDbContext();
+        var orphan = WriteDestinationFile("Wrong Artist/2026 - Wrong Album/01 - Song.flac");
+        var newFile = WriteStagingFile("wrong.flac", bytes: 4096);
+        var provisional = ProvisionalSong(11, newFile, extension: ".flac", bitrate: 900, fingerprint: "FP-new");
+        provisional.DurationSeconds = 95;
+        provisional.MarkBuildDone(orphan);
+        db.Songs.AddRange(TargetSong(10, WriteStagingFile("old.opus"), extension: ".opus", bitrate: 128), provisional);
+        db.UpgradeRequests.Add(AwaitingIngest(1, songId: 10, downloadedPath: newFile));
+        await db.SaveChangesAsync();
+
+        await CreateService(db).SweepAsync(default);
+
+        Assert.False(File.Exists(orphan));
+        Assert.False(Directory.Exists(Path.GetDirectoryName(orphan)));
+    }
+
+    [Fact]
+    public async Task Abort_RefusesToDeleteProvisionalDestination_OutsideDestinationRoot()
+    {
+        // A DestinationPath outside the managed root is not library-managed (a source file, or a bug
+        // upstream) — the cleaner's root guard must apply here too.
+        await using var db = CreateDbContext();
+        var outside = WriteStagingFile("not-managed.flac");
+        var newFile = WriteStagingFile("wrong.flac", bytes: 4096);
+        var provisional = ProvisionalSong(11, newFile, extension: ".flac", bitrate: 900, fingerprint: "FP-new");
+        provisional.DurationSeconds = 95;
+        provisional.MarkBuildDone(outside);
+        db.Songs.AddRange(TargetSong(10, WriteStagingFile("old.opus"), extension: ".opus", bitrate: 128), provisional);
+        db.UpgradeRequests.Add(AwaitingIngest(1, songId: 10, downloadedPath: newFile));
+        await db.SaveChangesAsync();
+
+        await CreateService(db).SweepAsync(default);
+
+        Assert.Equal(UpgradeRequestStatus.Failed, (await db.UpgradeRequests.SingleAsync()).Status);
+        Assert.True(File.Exists(outside));
+    }
+
     // ── Same-recording fingerprint gate ─────────────────────────────────────
 
     // Real fpcalc fingerprints: FpA128 and FpAFlac are the same recording (mp3 vs flac); FpBFlac differs.
@@ -402,6 +514,14 @@ public class UpgradeMergeServiceTests : IDisposable
         return path.Replace('\\', '/');
     }
 
+    private string WriteDestinationFile(string relativePath, int bytes = 1024)
+    {
+        var path = Path.Combine(destinationDir, relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, new byte[bytes]);
+        return path;
+    }
+
     private UpgradeMergeService CreateService(MusicHoarderDbContext db)
     {
         var slskd = new StaticOptionsMonitor<SlskdOptions>(new SlskdOptions
@@ -413,11 +533,12 @@ public class UpgradeMergeServiceTests : IDisposable
         var enricher = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
             SourceDirectory = "/src",
-            DestinationDirectory = "/dest",
+            DestinationDirectory = destinationDir, // the cleaner only ever deletes under this root
             DownloadDirectory = stagingDir, // staging files count as managed → old source deletable
         });
         return new UpgradeMergeService(
-            db, new JobManager(), new OwnerLookupService(), musicVideoChannel, slskd, enricher,
+            db, new JobManager(), new OwnerLookupService(), musicVideoChannel,
+            new LibraryDestinationCleaner(new System.IO.Abstractions.FileSystem()), slskd, enricher,
             NullLogger<UpgradeMergeService>.Instance);
     }
 

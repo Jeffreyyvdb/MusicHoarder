@@ -4,6 +4,7 @@ using MusicHoarder.Api.Audio;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Jobs;
+using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Logging;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -25,6 +26,7 @@ public class UpgradeMergeService(
     JobManager jobManager,
     IOwnerLookupService ownerLookup,
     MusicVideoChannel musicVideoChannel,
+    ILibraryDestinationCleaner destinationCleaner,
     IOptionsMonitor<SlskdOptions> slskdOptions,
     IOptions<MusicEnricherOptions> enricherOptions,
     ILogger<UpgradeMergeService> logger)
@@ -146,7 +148,7 @@ public class UpgradeMergeService(
         };
         // If the pipeline raced us and already built the provisional (fingerprint → enrich → build
         // can complete between sweeps), its destination copy would be orphaned by the row delete.
-        DeleteOrphanedDestination(provisional.DestinationPath);
+        await ReleaseProvisionalDestinationAsync(provisional, ct);
         db.Songs.Remove(provisional);
         await db.SaveChangesAsync(ct);
 
@@ -190,7 +192,7 @@ public class UpgradeMergeService(
     private async Task AbortMergeAsync(
         UpgradeRequest request, SongMetadata provisional, string downloadedPath, string reason, CancellationToken ct)
     {
-        DeleteOrphanedDestination(provisional.DestinationPath);
+        await ReleaseProvisionalDestinationAsync(provisional, ct);
         db.Songs.Remove(provisional);
         request.MarkTerminal(UpgradeRequestStatus.Failed, reason);
         await db.SaveChangesAsync(ct);
@@ -206,14 +208,51 @@ public class UpgradeMergeService(
         logger.LogInformation("Upgrade for song {SongId} aborted: {Reason}", request.SongId, reason);
     }
 
-    private void DeleteOrphanedDestination(string? destinationPath)
+    /// <summary>
+    /// Removes the provisional row's destination copy — but only when the file is really orphaned.
+    /// The build query holds a provisional out while its request awaits ingest, yet a copy that did
+    /// get built resolves to the same destination as the recording it duplicates, which is often the
+    /// exact path another live row already holds (an .opus target's FLAC sibling): the builder's path
+    /// guard lets the better copy take that file and retires the occupant as its duplicate. That row
+    /// still references the path, so deleting it here destroyed the occupant's file (the row stayed
+    /// Done, its flag dangling at a hard-deleted winner until the dedup sweep cleared it). Any live row
+    /// that references the path — as its destination, or as the previous one its rebuild is about to
+    /// prune — keeps the file; what the provisional did to it is undone instead. Deletion of a truly
+    /// orphaned copy goes through the destination cleaner so the managed-root guard applies.
+    /// </summary>
+    private async Task ReleaseProvisionalDestinationAsync(SongMetadata provisional, CancellationToken ct)
     {
+        var destinationPath = provisional.DestinationPath;
         if (string.IsNullOrEmpty(destinationPath))
             return;
+
+        var owners = await db.Songs
+            .IgnoreQueryFilters()
+            .Where(s => s.Id != provisional.Id && s.DeletedAtUtc == null
+                && (s.DestinationPath == destinationPath || s.PreviousDestinationPath == destinationPath))
+            .ToListAsync(ct);
+        if (owners.Count > 0)
+        {
+            foreach (var owner in owners)
+            {
+                // The provisional is about to be hard-deleted, so a duplicate flag pointing at it would
+                // dangle; and if it actually built, the file now holds the download's bytes — re-copy
+                // the owner from its own source so the row describes the file again.
+                if (owner.DuplicateOfId == provisional.Id)
+                    owner.ClearDuplicate();
+                if (provisional.LibraryBuildStatus == LibraryBuildStatus.Done
+                    && owner.DestinationPath == destinationPath)
+                    owner.RequeueForRetag();
+            }
+            logger.LogWarning(
+                "Keeping {Path}: provisional row {ProvisionalId} resolved to it, but song(s) {OwnerIds} still reference it",
+                LogSanitizer.ForLog(destinationPath), provisional.Id, string.Join(",", owners.Select(o => o.Id)));
+            return;
+        }
+
         try
         {
-            if (File.Exists(destinationPath))
-                File.Delete(destinationPath);
+            destinationCleaner.DeleteManagedPathAndPrune(destinationPath, enricherOptions.Value.DestinationDirectory);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

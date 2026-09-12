@@ -238,7 +238,8 @@ public class LibraryBuilderBackgroundService(
                 db.Songs.IgnoreQueryFilters().AsNoTracking(),
                 LibraryBuildQuery.LyricsWaitCutoff(options.Value),
                 options.Value.MaxLibraryBuildAttempts,
-                options.Value.EnableBuildNeedsReview)
+                options.Value.EnableBuildNeedsReview,
+                db.UpgradeRequests.IgnoreQueryFilters())
             .CountAsync(ct);
     }
 }

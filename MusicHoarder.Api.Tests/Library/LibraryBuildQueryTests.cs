@@ -125,6 +125,46 @@ public class LibraryBuildQueryTests
         Assert.Equal(new[] { 1, 2 }, withFlag);
     }
 
+    [Fact]
+    public async Task UpgradeProvisional_IsHeldOutWhileItsRequestAwaitsIngest()
+    {
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            // 1: the upgrade target — builds as normal.
+            Song(1, LyricsStatus.Fetched, enrichedAtUtc: Now),
+            // 2: the downloaded candidate, scanned as a provisional row at the request's path → held.
+            Song(2, LyricsStatus.Fetched, enrichedAtUtc: Now),
+            // 3: a finished (Completed) request no longer holds its row.
+            Song(3, LyricsStatus.Fetched, enrichedAtUtc: Now));
+        db.UpgradeRequests.AddRange(
+            Request(1, songId: 1, downloadedPath: "/source/2.flac", UpgradeRequestStatus.AwaitingIngest),
+            Request(2, songId: 1, downloadedPath: "/source/3.flac", UpgradeRequestStatus.Completed));
+        await db.SaveChangesAsync();
+
+        var withHold = await LibraryBuildQuery
+            .BuildCandidates(db.Songs.IgnoreQueryFilters(), Cutoff, MaxAttempts,
+                upgradeRequests: db.UpgradeRequests.IgnoreQueryFilters())
+            .Select(s => s.Id).OrderBy(id => id).ToListAsync();
+        Assert.Equal(new[] { 1, 3 }, withHold);
+
+        // Callers that don't pass the requests keep the old, unfiltered set.
+        var withoutHold = await LibraryBuildQuery
+            .BuildCandidates(db.Songs.IgnoreQueryFilters(), Cutoff, MaxAttempts)
+            .Select(s => s.Id).OrderBy(id => id).ToListAsync();
+        Assert.Equal(new[] { 1, 2, 3 }, withoutHold);
+    }
+
+    private static UpgradeRequest Request(int id, int songId, string downloadedPath, UpgradeRequestStatus status) => new()
+    {
+        Id = id,
+        SongId = songId,
+        OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
+        Status = status,
+        DownloadedFilePath = downloadedPath,
+        CreatedAtUtc = Now,
+        UpdatedAtUtc = Now,
+    };
+
     private static SongMetadata Song(
         int id,
         LyricsStatus lyricsStatus,
