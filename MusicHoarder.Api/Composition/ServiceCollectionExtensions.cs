@@ -519,14 +519,21 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<ISpotifyAppCredentialsProvider, SpotifyAppCredentialsProvider>();
 
-        services.AddSingleton<ISpotifyCatalogSearchService>(sp =>
+        // The app-token transport (client-credentials token cache, rate limit, 429/401 policy) is
+        // one singleton so every catalog lookup shares the token cache and the request budget.
+        services.AddSingleton<SpotifyClientCredentialsClient>(sp =>
         {
             var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
             var cache = sp.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>();
             var options = sp.GetRequiredService<IOptions<MusicEnricherOptions>>();
-            var logger = sp.GetRequiredService<ILogger<SpotifyCatalogSearchService>>();
-            return new SpotifyCatalogSearchService(httpClient, cache, options, logger);
+            var logger = sp.GetRequiredService<ILogger<SpotifyClientCredentialsClient>>();
+            return new SpotifyClientCredentialsClient(httpClient, cache, options, logger);
         });
+
+        services.AddSingleton<ISpotifyCatalogSearchService>(sp => new SpotifyCatalogSearchService(
+            sp.GetRequiredService<SpotifyClientCredentialsClient>(),
+            sp.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>(),
+            sp.GetRequiredService<IOptions<MusicEnricherOptions>>()));
 
         services.AddSingleton<IDeezerCatalogService>(sp =>
         {
