@@ -2,7 +2,7 @@
 // re-exports ~1600 .svelte files, and nav.test.ts imports this module — pulling all of them
 // through the Svelte compiler took the unit suite from 0.7s to 19s. These paths cost
 // nothing. The type import is erased, so it can stay on the barrel.
-import type { Icon as IconType } from '@lucide/svelte';
+import type { LucideIcon } from '@lucide/svelte';
 import ChartColumnBig from '@lucide/svelte/icons/chart-column-big';
 import Compass from '@lucide/svelte/icons/compass';
 import Copy from '@lucide/svelte/icons/copy';
@@ -94,7 +94,7 @@ export type NavItem = {
   id: string;
   label: string;
   href: string;
-  icon: typeof IconType;
+  icon: LucideIcon;
   /** Show a live pulse dot while a pipeline job is running. */
   live?: boolean;
   /** Extra lowercase search terms for the command palette. */
@@ -108,7 +108,7 @@ export type NavGroup = {
   label: string;
   /** The group's landing route. Must be one of its own items' hrefs. */
   href: string;
-  icon: typeof IconType;
+  icon: LucideIcon;
   live?: boolean;
   /**
    * Extra routes the group owns beyond its items' own paths — e.g. /track/[id] under Listen.

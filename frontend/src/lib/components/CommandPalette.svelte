@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { Disc3, Mic2, Music, Library, Loader2 } from '@lucide/svelte';
+  import { Disc3, Mic2, Music, Loader2, type LucideIcon } from '@lucide/svelte';
   import * as Command from '$lib/components/ui/command';
   import { navGroupsFor } from '$lib/nav';
   import {
@@ -22,7 +22,7 @@
   type NavCommand = {
     label: string;
     href: string;
-    icon: typeof Library;
+    icon: LucideIcon;
     keywords: string;
     group: string;
   };
