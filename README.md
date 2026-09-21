@@ -134,6 +134,14 @@ library, let it run, and review anything it isn't sure about.
   while every mutating action is denied.
 - **Self-hosted** — runs on your own hardware via .NET Aspire (dev) or Docker Compose (prod),
   pulling prebuilt GHCR images. Your music never leaves your machine.
+- **Installable web app** — add it to your iPhone or iPad home screen (Safari → Share → *Add to
+  Home Screen*) or install it from Chrome/Edge on Android and desktop. It launches full-screen
+  straight into your library with its own icon, lays out around the notch and home indicator, and
+  shows a MusicHoarder offline page instead of a browser error when there's no connection. Sign in
+  once inside the installed app: it keeps its own session, separate from Safari's, and an emailed
+  magic link opens in Safari rather than in the installed app — so on iPhone the smooth way in is a
+  passkey (enrol one under Settings → Account from Safari first) or the demo account. The native
+  [Android app](android/README.md) is still there for Android.
 
 ![The Stats dashboard — hero counts (in library, covers added, lyrics added, hours of music), a pipeline funnel, a Spotify wishlist journey, and metadata-coverage rings](docs/screenshots/stats.png)
 

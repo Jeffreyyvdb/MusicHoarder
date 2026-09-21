@@ -82,7 +82,9 @@
 
 /* ============ Login ============ */
 .mob-login {
-  padding: 24px 22px 40px;
+  /* The safe-area terms only bite in an installed (home-screen) app, where the page draws under
+     the status bar and home indicator. */
+  padding: calc(24px + env(safe-area-inset-top)) 22px calc(40px + env(safe-area-inset-bottom));
 }
 .mob-login-h {
   font-size: 28px;

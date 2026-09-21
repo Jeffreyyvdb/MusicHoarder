@@ -13,7 +13,9 @@
   });
 </script>
 
-<nav class="mx-auto flex max-w-[1280px] items-center justify-between px-4 py-6 md:px-14">
+<nav
+  class="mx-auto flex max-w-[1280px] items-center justify-between px-4 pt-[calc(1.5rem_+_env(safe-area-inset-top))] pb-6 md:px-14"
+>
   <a href="/" class="flex items-center gap-2.5 text-[15px] font-semibold tracking-tight">
     <span
       class="bg-card grid h-7 w-7 place-items-center rounded-[7px]"
