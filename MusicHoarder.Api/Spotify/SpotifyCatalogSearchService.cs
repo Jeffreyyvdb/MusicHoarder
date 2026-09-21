@@ -1,32 +1,25 @@
-using System.Collections.Concurrent;
-using System.Net;
-using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
-using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
-using MusicHoarder.Api.RateLimiting;
 
 namespace MusicHoarder.Api.Spotify;
 
+/// <summary>
+/// The Spotify Web API as a catalog: builds each lookup's URL, hands it to
+/// <see cref="SpotifyClientCredentialsClient"/> (which owns the app token, the rate limit and the
+/// retry policy), and maps the JSON that comes back into the catalog records the enrichment,
+/// artwork and tracklist consumers read. Track searches are additionally cached by query.
+/// </summary>
 public sealed class SpotifyCatalogSearchService(
-    HttpClient httpClient,
+    SpotifyClientCredentialsClient api,
     IMemoryCache cache,
-    IOptions<MusicEnricherOptions> options,
-    ILogger<SpotifyCatalogSearchService> logger) : ISpotifyCatalogSearchService
+    IOptions<MusicEnricherOptions> options) : ISpotifyCatalogSearchService
 {
-    private const string AccountsTokenUrl = "https://accounts.spotify.com/api/token";
     private const string ApiSearchUrl = "https://api.spotify.com/v1/search";
-    private static readonly TimeSpan RateLimitDefaultDelay = TimeSpan.FromSeconds(5);
-    private const int MaxRetries = 3;
-
-    private static readonly ReconfigurableRateLimiter RateLimiter = new();
-
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _tokenLocks = new(StringComparer.Ordinal);
 
     public async Task<IReadOnlyList<SpotifyCatalogTrack>> SearchTracksAsync(
         string clientId,
@@ -45,90 +38,30 @@ public sealed class SpotifyCatalogSearchService(
         if (cache.TryGetValue(cacheKey, out IReadOnlyList<SpotifyCatalogTrack>? cached) && cached is not null)
             return cached;
 
-        // QueueLimit must be > 0 so concurrent enrichment workers wait for tokens instead of
-        // failing immediately (matches AcoustIdService rate-limiter behavior).
-        using var lease = await RateLimiter.AcquireAsync(opts.SpotifyApiRequestsPerSecond, ct);
-        if (!lease.IsAcquired)
-        {
-            logger.LogWarning("Spotify catalog rate limiter could not grant a permit (disposed or canceled)");
-            return [];
-        }
-
-        var accessToken = await GetAccessTokenAsync(clientId, clientSecret, ct);
-        if (accessToken is null)
-            return [];
-
         var q = Uri.EscapeDataString(query);
         var url = $"{ApiSearchUrl}?q={q}&type=track&limit={limit}";
         if (market is not null)
             url += $"&market={Uri.EscapeDataString(market)}";
 
-        var refreshedTokenAfter401 = false;
-        for (var attempt = 0; attempt <= MaxRetries; attempt++)
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-            request.Headers.TryAddWithoutValidation("User-Agent", "MusicHoarder/1.0 (https://github.com/Jeffreyyvdb/MusicHoarder)");
+        var json = await api.GetJsonAsync(clientId, clientSecret, url, ct);
+        if (json is null)
+            return [];
 
-            var response = await httpClient.SendAsync(request, ct);
-
-            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        var tracks = ParseSearchResponse(json);
+        cache.Set(
+            cacheKey,
+            tracks,
+            new MemoryCacheEntryOptions
             {
-                var retryAfter = response.Headers.RetryAfter?.Delta ?? RateLimitDefaultDelay;
-                logger.LogWarning(
-                    "Spotify search rate limited. Retrying after {Delay}s (attempt {Attempt}/{Max})",
-                    retryAfter.TotalSeconds, attempt + 1, MaxRetries);
-                if (attempt < MaxRetries)
-                {
-                    await Task.Delay(retryAfter, ct);
-                    continue;
-                }
-
-                throw new ProviderRateLimitedException(retryAfter);
-            }
-
-            if (response.StatusCode == HttpStatusCode.Unauthorized && !refreshedTokenAfter401)
-            {
-                InvalidateTokenCache(clientId);
-                accessToken = await GetAccessTokenAsync(clientId, clientSecret, ct);
-                refreshedTokenAfter401 = true;
-                if (accessToken is null)
-                    return [];
-                continue;
-            }
-
-            if (response.StatusCode == HttpStatusCode.Unauthorized)
-            {
-                logger.LogWarning("Spotify search unauthorized after token refresh");
-                return [];
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var body = await response.Content.ReadAsStringAsync(ct);
-                logger.LogWarning("Spotify search failed: {Status} {Body}", (int)response.StatusCode, body);
-                return [];
-            }
-
-            var json = await response.Content.ReadAsStringAsync(ct);
-            var tracks = ParseSearchResponse(json);
-            cache.Set(
-                cacheKey,
-                tracks,
-                new MemoryCacheEntryOptions
-                {
-                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(Math.Max(1, opts.SpotifyApiSearchCacheMinutes))
-                });
-            return tracks;
-        }
-
-        return [];
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(Math.Max(1, opts.SpotifyApiSearchCacheMinutes))
+            });
+        return tracks;
     }
 
     public async Task<SpotifyCatalogTrack?> GetTrackAsync(string clientId, string clientSecret, string trackId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(trackId)) return null;
-        var json = await GetApiJsonAsync(clientId, clientSecret, $"https://api.spotify.com/v1/tracks/{Uri.EscapeDataString(trackId)}", ct);
+        var json = await api.GetJsonAsync(clientId, clientSecret, $"https://api.spotify.com/v1/tracks/{Uri.EscapeDataString(trackId)}", ct);
         if (json is null) return null;
         try
         {
@@ -145,7 +78,7 @@ public sealed class SpotifyCatalogSearchService(
     public async Task<string?> GetTrackAlbumIdAsync(string clientId, string clientSecret, string trackId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(trackId)) return null;
-        var json = await GetApiJsonAsync(clientId, clientSecret, $"https://api.spotify.com/v1/tracks/{Uri.EscapeDataString(trackId)}", ct);
+        var json = await api.GetJsonAsync(clientId, clientSecret, $"https://api.spotify.com/v1/tracks/{Uri.EscapeDataString(trackId)}", ct);
         if (json is null) return null;
         try
         {
@@ -162,7 +95,7 @@ public sealed class SpotifyCatalogSearchService(
     {
         if (string.IsNullOrWhiteSpace(album)) return null;
         var q = Uri.EscapeDataString($"album:{album} artist:{artist}".Trim());
-        var json = await GetApiJsonAsync(clientId, clientSecret, $"{ApiSearchUrl}?q={q}&type=album&limit=5", ct);
+        var json = await api.GetJsonAsync(clientId, clientSecret, $"{ApiSearchUrl}?q={q}&type=album&limit=5", ct);
         if (json is null) return null;
         try
         {
@@ -185,7 +118,7 @@ public sealed class SpotifyCatalogSearchService(
     {
         if (string.IsNullOrWhiteSpace(album)) return [];
         var q = Uri.EscapeDataString($"album:{album} artist:{artist}".Trim());
-        var json = await GetApiJsonAsync(clientId, clientSecret, $"{ApiSearchUrl}?q={q}&type=album&limit=5", ct);
+        var json = await api.GetJsonAsync(clientId, clientSecret, $"{ApiSearchUrl}?q={q}&type=album&limit=5", ct);
         if (json is null) return [];
         try
         {
@@ -229,7 +162,7 @@ public sealed class SpotifyCatalogSearchService(
     {
         if (string.IsNullOrWhiteSpace(name)) return [];
         var q = Uri.EscapeDataString($"artist:{name}".Trim());
-        var json = await GetApiJsonAsync(clientId, clientSecret, $"{ApiSearchUrl}?q={q}&type=artist&limit=5", ct);
+        var json = await api.GetJsonAsync(clientId, clientSecret, $"{ApiSearchUrl}?q={q}&type=artist&limit=5", ct);
         if (json is null) return [];
         try
         {
@@ -271,7 +204,7 @@ public sealed class SpotifyCatalogSearchService(
     public async Task<SpotifyAlbumDetail?> GetAlbumAsync(string clientId, string clientSecret, string albumId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(albumId)) return null;
-        var json = await GetApiJsonAsync(clientId, clientSecret, $"https://api.spotify.com/v1/albums/{Uri.EscapeDataString(albumId)}", ct);
+        var json = await api.GetJsonAsync(clientId, clientSecret, $"https://api.spotify.com/v1/albums/{Uri.EscapeDataString(albumId)}", ct);
         return json is null ? null : ParseAlbum(json);
     }
 
@@ -279,7 +212,7 @@ public sealed class SpotifyCatalogSearchService(
     {
         if (string.IsNullOrWhiteSpace(isrc)) return null;
         var q = Uri.EscapeDataString($"isrc:{isrc}");
-        var json = await GetApiJsonAsync(clientId, clientSecret, $"{ApiSearchUrl}?q={q}&type=track&limit=1", ct);
+        var json = await api.GetJsonAsync(clientId, clientSecret, $"{ApiSearchUrl}?q={q}&type=track&limit=1", ct);
         if (json is null) return null;
         try
         {
@@ -378,113 +311,12 @@ public sealed class SpotifyCatalogSearchService(
         }
     }
 
-    /// <summary>Authorized GET against the Spotify Web API: rate-limited, token-cached, 401-refresh + 429-retry.</summary>
-    private async Task<string?> GetApiJsonAsync(string clientId, string clientSecret, string url, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
-            return null;
-
-        using var lease = await RateLimiter.AcquireAsync(options.Value.SpotifyApiRequestsPerSecond, ct);
-        if (!lease.IsAcquired)
-            return null;
-
-        var accessToken = await GetAccessTokenAsync(clientId, clientSecret, ct);
-        if (accessToken is null) return null;
-
-        var refreshed = false;
-        for (var attempt = 0; attempt <= MaxRetries; attempt++)
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-            request.Headers.TryAddWithoutValidation("User-Agent", "MusicHoarder/1.0 (https://github.com/Jeffreyyvdb/MusicHoarder)");
-
-            var response = await httpClient.SendAsync(request, ct);
-
-            if (response.StatusCode == HttpStatusCode.TooManyRequests)
-            {
-                var retryAfter = response.Headers.RetryAfter?.Delta ?? RateLimitDefaultDelay;
-                if (attempt < MaxRetries) { await Task.Delay(retryAfter, ct); continue; }
-                throw new ProviderRateLimitedException(retryAfter);
-            }
-
-            if (response.StatusCode == HttpStatusCode.Unauthorized && !refreshed)
-            {
-                InvalidateTokenCache(clientId);
-                accessToken = await GetAccessTokenAsync(clientId, clientSecret, ct);
-                refreshed = true;
-                if (accessToken is null) return null;
-                continue;
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                logger.LogWarning("Spotify GET failed: {Status} {Url}", (int)response.StatusCode, url);
-                return null;
-            }
-
-            return await response.Content.ReadAsStringAsync(ct);
-        }
-
-        return null;
-    }
-
     private static string BuildSearchCacheKey(string query, int limit, string? market)
     {
         var raw = $"{limit}|{market ?? ""}|{query}";
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
         return $"spotify_catalog_search:{hash}";
     }
-
-    private async Task<string?> GetAccessTokenAsync(string clientId, string clientSecret, CancellationToken ct)
-    {
-        var cacheKey = $"spotify_cc_token:{clientId}";
-        if (cache.TryGetValue(cacheKey, out string? cached) && !string.IsNullOrEmpty(cached))
-            return cached;
-
-        var gate = _tokenLocks.GetOrAdd(clientId, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync(ct);
-        try
-        {
-            if (cache.TryGetValue(cacheKey, out cached) && !string.IsNullOrEmpty(cached))
-                return cached;
-
-            using var request = new HttpRequestMessage(HttpMethod.Post, AccountsTokenUrl);
-            var basic = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{clientId}:{clientSecret}"));
-            request.Headers.Authorization = new AuthenticationHeaderValue("Basic", basic);
-            request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["grant_type"] = "client_credentials"
-            });
-            request.Headers.TryAddWithoutValidation("User-Agent", "MusicHoarder/1.0 (https://github.com/Jeffreyyvdb/MusicHoarder)");
-
-            var response = await httpClient.SendAsync(request, ct);
-            var json = await response.Content.ReadAsStringAsync(ct);
-            if (!response.IsSuccessStatusCode)
-            {
-                logger.LogWarning("Spotify client-credentials token request failed: {Status} {Body}",
-                    (int)response.StatusCode, json);
-                return null;
-            }
-
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-            var accessToken = root.GetProperty("access_token").GetString();
-            var expiresIn = root.TryGetProperty("expires_in", out var exp) ? exp.GetInt32() : 3600;
-            if (string.IsNullOrEmpty(accessToken))
-                return null;
-
-            var ttl = TimeSpan.FromSeconds(Math.Max(120, expiresIn - 90));
-            cache.Set(cacheKey, accessToken, new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = ttl });
-            return accessToken;
-        }
-        finally
-        {
-            gate.Release();
-        }
-    }
-
-    private void InvalidateTokenCache(string clientId) =>
-        cache.Remove($"spotify_cc_token:{clientId}");
 
     private static IReadOnlyList<SpotifyCatalogTrack> ParseSearchResponse(string json)
     {

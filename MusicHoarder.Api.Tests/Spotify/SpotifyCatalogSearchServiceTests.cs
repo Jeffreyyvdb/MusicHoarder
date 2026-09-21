@@ -146,7 +146,8 @@ public class SpotifyCatalogSearchServiceTests
             SpotifyApiSearchLimit = 10,
             SpotifyApiSearchCacheMinutes = 60
         });
-        return new SpotifyCatalogSearchService(httpClient, cache, opts, NullLogger<SpotifyCatalogSearchService>.Instance);
+        var api = new SpotifyClientCredentialsClient(httpClient, cache, opts, NullLogger<SpotifyClientCredentialsClient>.Instance);
+        return new SpotifyCatalogSearchService(api, cache, opts);
     }
 
     private sealed class FakeHttpHandler : HttpMessageHandler
