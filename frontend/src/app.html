@@ -10,8 +10,8 @@
          tints Safari's tab bar; installed on an iOS home screen it is what the status bar is painted
          with (see the status-bar note below). The inline script picks the initial value the way
          mode-watcher does (its stored mode, else the system scheme) so the bar is right on the first
-         frame of the client-rendered (app) routes too; mode-watcher's `themeColors` keeps it in sync
-         with the theme toggle afterwards. -->
+         frame of the client-rendered (app) routes too; the root layout then follows mode-watcher's
+         `mode` so it tracks the theme toggle. -->
     <meta name="theme-color" content="#f8fafd" />
     <script>
       try {
