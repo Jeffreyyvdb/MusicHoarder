@@ -53,8 +53,14 @@
   The strip takes the slack (min-w-0 flex-1 and it scrolls internally) while the
   action cluster is shrink-0 — the only arrangement where the eight Manage tabs
   can't push the Search button off a phone screen.
+
+  Installed as a home-screen app the page draws under the iOS status bar
+  (`black-translucent` in app.html), so the bar grows by env(safe-area-inset-top)
+  and pads its content below it. That inset is 0 in a browser tab.
 -->
-<header class="border-border bg-background flex h-12 shrink-0 items-center gap-2 border-b px-3.5">
+<header
+  class="border-border bg-background flex h-[calc(3rem_+_env(safe-area-inset-top))] shrink-0 items-center gap-2 border-b px-3.5 pt-[env(safe-area-inset-top)]"
+>
   <Sidebar.Trigger class="-ml-1 size-9 shrink-0 md:size-7" />
   {#if nav}
     <SectionTabsV2

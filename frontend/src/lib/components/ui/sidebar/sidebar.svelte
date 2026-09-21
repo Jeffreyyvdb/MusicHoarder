@@ -44,7 +44,7 @@
 			data-slot="sidebar"
 			data-mobile="true"
 			class={cn(
-				"bg-sidebar/70 text-sidebar-foreground ring-sidebar-border w-(--sidebar-width) overflow-hidden p-0 ring-1 backdrop-blur-xl backdrop-saturate-150 [&>button]:hidden data-[side=left]:inset-y-3 data-[side=left]:left-3 data-[side=left]:h-auto data-[side=left]:rounded-2xl data-[side=left]:border-r-0 data-[side=left]:shadow-[0_4px_24px_oklch(0%_0_0/0.08)] dark:data-[side=left]:shadow-[0_4px_20px_rgba(0,0,0,0.35)]",
+				"bg-sidebar/70 text-sidebar-foreground ring-sidebar-border w-(--sidebar-width) overflow-hidden p-0 ring-1 backdrop-blur-xl backdrop-saturate-150 [&>button]:hidden data-[side=left]:top-[calc(0.75rem_+_env(safe-area-inset-top))] data-[side=left]:bottom-[calc(0.75rem_+_env(safe-area-inset-bottom))] data-[side=left]:left-3 data-[side=left]:h-auto data-[side=left]:rounded-2xl data-[side=left]:border-r-0 data-[side=left]:shadow-[0_4px_24px_oklch(0%_0_0/0.08)] dark:data-[side=left]:shadow-[0_4px_20px_rgba(0,0,0,0.35)]",
 				className
 			)}
 			style="--sidebar-width: {SIDEBAR_WIDTH_MOBILE};"

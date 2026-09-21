@@ -180,6 +180,15 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* Installed (home-screen) app only: the app shell never scrolls the document, and the login /
+     marketing pages have nothing past their edges, so stop iOS rubber-banding the whole app when a
+     scroll chains to the body. Browser tabs keep the platform default. */
+  @media (display-mode: standalone) {
+    html,
+    body {
+      overscroll-behavior-y: none;
+    }
+  }
 }
 
 /* Page content scrolls behind the floating MiniPlayer / mobile bottom nav. Every

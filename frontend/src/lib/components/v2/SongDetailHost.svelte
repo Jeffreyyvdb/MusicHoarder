@@ -69,8 +69,10 @@
     <DialogPrimitive.Overlay
       class="data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 fixed inset-0 z-[60] bg-black/40 duration-150"
     />
+    <!-- Safe-area padding is for the installed (home-screen) app, where this covers the status bar
+         and home indicator; the `absolute inset-0` backdrops below still span the padding box. -->
     <DialogPrimitive.Content
-      class="data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 fixed inset-0 z-[60] flex flex-col overflow-hidden outline-none duration-150"
+      class="data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 fixed inset-0 z-[60] flex flex-col overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] duration-150 outline-none"
     >
       <!-- Backdrop: the song's muted music video (synced to the audio clock) when attached and
            enabled, else the ambient blurred cover + theme-aware scrim. -->

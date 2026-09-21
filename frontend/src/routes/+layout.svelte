@@ -34,6 +34,14 @@
 
 <ModeWatcher defaultMode="system" />
 <Analytics />
-<Toaster position="top-center" richColors closeButton />
+<!-- Top offsets are the library defaults plus the status-bar inset an installed (home-screen) app
+     draws under; in a browser tab the inset is 0. -->
+<Toaster
+  position="top-center"
+  richColors
+  closeButton
+  offset={{ top: 'calc(24px + env(safe-area-inset-top))' }}
+  mobileOffset={{ top: 'calc(16px + env(safe-area-inset-top))' }}
+/>
 
 {@render children()}
