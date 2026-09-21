@@ -3,10 +3,9 @@ import { installBottomInsetTracker, isInstalledApp } from './viewport-insets.sve
 
 /**
  * The tracker exists for browser bottom chrome (Chrome Android's address bar). Installed as a
- * home-screen app there is none, and iOS reports a visual viewport short by the safe areas there —
- * which the tracker would publish as ~93px of phantom chrome and float the bottom nav a row up the
- * screen. These pin that the browser-tab path still measures, and that the installed-app path is a
- * no-op that leaves `env(safe-area-inset-bottom)` in charge.
+ * home-screen app there is none, so it must publish nothing and leave `env(safe-area-inset-bottom)`
+ * in charge — whatever the visual viewport happens to report. These pin that the browser-tab path
+ * still measures and that both installed-app signals make it a no-op.
  */
 function stubBrowser({
   innerHeight,
@@ -57,8 +56,8 @@ describe('installBottomInsetTracker', () => {
   });
 
   it('is a no-op in an installed app (display-mode: standalone)', () => {
-    // What iOS reports for a home-screen app on a Dynamic Island phone: the visual viewport is
-    // short by status bar (59) + home indicator (34), none of which is browser chrome.
+    // A visual viewport shorter than the layout viewport must still publish nothing here: an
+    // installed app has no browser chrome, whatever the difference is.
     const { vv, setProperty, removeProperty } = stubBrowser({
       innerHeight: 852,
       visualHeight: 759,

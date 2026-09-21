@@ -32,7 +32,9 @@
   onMount(() => installBottomInsetTracker());
 </script>
 
-<ModeWatcher defaultMode="system" />
+<!-- themeColors mirrors `--background` as hex so the theme-color meta (Safari's tab bar, the
+     installed app's status bar) follows the toggle, not just the system scheme. -->
+<ModeWatcher defaultMode="system" themeColors={{ light: '#f8fafd', dark: '#060709' }} />
 <Analytics />
 <!-- Top offsets are the library defaults plus the status-bar inset an installed (home-screen) app
      draws under; in a browser tab the inset is 0. -->

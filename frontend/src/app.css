@@ -28,6 +28,9 @@
  * design element genuinely has no analogue in shadcn's surface scale.
  */
 :root {
+  /* Mirrored as hex (#f8fafd / dark #060709) for the theme-color meta and the manifest — app.html,
+     routes/+layout.svelte (ModeWatcher themeColors), static/manifest.webmanifest, static/offline.html.
+     Update those when this changes. */
   --background: oklch(0.985 0.004 260);
   --foreground: oklch(0.2 0.02 260);
   --card: oklch(1 0 0);

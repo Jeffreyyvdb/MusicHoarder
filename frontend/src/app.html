@@ -6,15 +6,34 @@
     <link rel="apple-touch-icon" sizes="180x180" href="%sveltekit.assets%/apple-icon.png" />
     <link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
+    <!-- One theme-color, kept equal to `--background` (app.css) for the current mode. In a browser it
+         tints Safari's tab bar; installed on an iOS home screen it is what the status bar is painted
+         with (see the status-bar note below). The inline script picks the initial value the way
+         mode-watcher does (its stored mode, else the system scheme) so the bar is right on the first
+         frame of the client-rendered (app) routes too; mode-watcher's `themeColors` keeps it in sync
+         with the theme toggle afterwards. -->
+    <meta name="theme-color" content="#f8fafd" />
+    <script>
+      try {
+        var mode = localStorage.getItem('mode-watcher-mode');
+        if (
+          mode === 'dark' ||
+          (mode !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
+        ) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#060709');
+        }
+      } catch (_) {}
+    </script>
     <!-- Installed (home-screen) app. The manifest's `display: standalone` already launches without
-         browser chrome on iOS; these Apple-specific tags cover what the manifest cannot: a
-         translucent status bar (the page draws under it, so every top-anchored surface pads by
-         env(safe-area-inset-top), which is 0 in a browser tab) and the home-screen label. -->
+         browser chrome on iOS; these Apple-specific tags cover what the manifest cannot. The status
+         bar style is `default` on purpose: with `black-translucent` iOS moves the web view up under
+         the status bar without making it taller, so the viewport ends one status-bar height above
+         the screen edge and everything anchored to its bottom (the bottom nav, the mini player)
+         floats that much too high. `default` keeps the view below the bar and paints the bar with the
+         theme-color above. iOS reads these tags when the icon is added, not on each launch. -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="MusicHoarder" />
     <meta name="application-name" content="MusicHoarder" />
     <meta name="format-detection" content="telephone=no" />

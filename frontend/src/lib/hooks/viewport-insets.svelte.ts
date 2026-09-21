@@ -5,14 +5,10 @@
 // browser's bottom bar. `env(safe-area-inset-bottom)` does NOT cover the
 // browser bottom chrome, which is why we need the VisualViewport API here.
 //
-// An installed (home-screen) app is deliberately excluded. There is no browser
-// chrome to dodge there, and iOS reports a visual viewport that is shorter than
-// the layout viewport by the safe areas the page draws under (status bar + home
-// indicator, ~93px on a Dynamic Island phone) — so the subtraction below would
-// come out as phantom chrome and float the bottom nav and mini player a whole
-// row up the screen, with list rows visible underneath. In that mode
-// `env(safe-area-inset-bottom)` alone puts them where they belong, and the
-// keyboard covering the nav is what a native tab bar does too.
+// An installed (home-screen) app is deliberately excluded: there is no browser
+// chrome to dodge there, `env(safe-area-inset-bottom)` alone puts the floating
+// chrome where it belongs, and the on-screen keyboard covering the nav is what a
+// native tab bar does too — dodging it would slide the nav over the content.
 //
 // Returns a cleanup that removes the listeners and the published property. Until
 // this runs (SSR / before hydration) the variable is unset and consumers fall
