@@ -1169,7 +1169,7 @@ public static class SongsEndpoints
         return [.. names];
     }
 
-    private static async Task<IResult> ListDuplicates(MusicHoarderDbContext db)
+    internal static async Task<IResult> ListDuplicates(MusicHoarderDbContext db)
     {
         // The per-user query filter scopes links to the caller; groups are derived here by
         // union-find over Active links (there is no group entity).
