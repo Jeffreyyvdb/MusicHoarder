@@ -1,7 +1,7 @@
 <script lang="ts">
   import '../app.css';
   import type { Snippet } from 'svelte';
-  import { ModeWatcher } from 'mode-watcher';
+  import { ModeWatcher, mode } from 'mode-watcher';
   import { onMount } from 'svelte';
   import { afterNavigate, beforeNavigate } from '$app/navigation';
   import { updated } from '$app/state';
@@ -30,6 +30,20 @@
   // Track the browser's bottom chrome (e.g. Chrome Android's bottom address bar)
   // so the floating bottom nav / mini-player never hide behind it.
   onMount(() => installBottomInsetTracker());
+
+  // Hex mirrors of `--background` (app.css) for the theme-color meta: Safari's tab bar, and the
+  // status bar of the installed iOS app. app.html sets the initial value before hydration; this
+  // follows the theme toggle. Done by hand rather than via ModeWatcher's `themeColors`, which would
+  // render a second <meta name="theme-color"> on server-rendered pages next to the static one the
+  // client-rendered (app) routes need.
+  const THEME_COLOR = { light: '#f8fafd', dark: '#060709' } as const;
+  $effect(() => {
+    if (!mode.current) return; // not resolved yet — leave app.html's pre-hydration value alone
+    const color = mode.current === 'dark' ? THEME_COLOR.dark : THEME_COLOR.light;
+    for (const meta of document.querySelectorAll('meta[name="theme-color"]')) {
+      meta.setAttribute('content', color);
+    }
+  });
 </script>
 
 <ModeWatcher defaultMode="system" />
