@@ -1158,21 +1158,10 @@ public static class SongsEndpoints
             : Results.Bytes(cover.Bytes!, contentType: cover.ContentType);
     }
 
-    internal static string[] DescribeReasons(DuplicateMatchReason reasons)
-    {
-        var names = new List<string>(3);
-        if (reasons.HasFlag(DuplicateMatchReason.ExactFingerprint)) names.Add("exact-fingerprint");
-        if (reasons.HasFlag(DuplicateMatchReason.FingerprintSimilarity)) names.Add("fingerprint-similarity");
-        if (reasons.HasFlag(DuplicateMatchReason.AcoustIdTrack)) names.Add("acoustid");
-        if (reasons.HasFlag(DuplicateMatchReason.Isrc)) names.Add("isrc");
-        if (reasons.HasFlag(DuplicateMatchReason.Metadata)) names.Add("metadata");
-        return [.. names];
-    }
-
     internal static async Task<IResult> ListDuplicates(MusicHoarderDbContext db)
     {
-        // The per-user query filter scopes links to the caller; groups are derived here by
-        // union-find over Active links (there is no group entity).
+        // The per-user query filter scopes links to the caller. Groups are derived at read time by
+        // DuplicateGroupProjection (union-find over Active links — there is no group entity).
         var links = await db.SongDuplicateLinks
             .AsNoTracking()
             .Where(l => l.Status == DuplicateLinkStatus.Active)
@@ -1188,99 +1177,7 @@ public static class SongsEndpoints
             .Where(s => songIds.Contains(s.Id) && s.DeletedAtUtc == null)
             .ToDictionaryAsync(s => s.Id);
 
-        // Links referencing a soft-deleted song are stale until the next detection run; skip them.
-        links = links.Where(l => songs.ContainsKey(l.SongIdLow) && songs.ContainsKey(l.SongIdHigh)).ToList();
-
-        // Union-find over all active links: suspected pairs join the cluster too, so a group shows
-        // its confirmed core plus any lower-confidence hangers-on in one card.
-        var parent = new Dictionary<int, int>();
-        int Find(int x)
-        {
-            if (!parent.TryGetValue(x, out var p)) { parent[x] = x; return x; }
-            if (p == x) return x;
-            var root = Find(p);
-            parent[x] = root;
-            return root;
-        }
-        foreach (var link in links)
-        {
-            var (ra, rb) = (Find(link.SongIdLow), Find(link.SongIdHigh));
-            if (ra != rb) parent[Math.Max(ra, rb)] = Math.Min(ra, rb);
-        }
-
-        var linksByCluster = links.ToLookup(l => Find(l.SongIdLow));
-
-        var groups = new List<object>();
-        var totalDuplicates = 0;
-
-        foreach (var cluster in parent.Keys.ToList().GroupBy(Find).OrderBy(g => g.Key))
-        {
-            var members = cluster.Select(id => songs[id]).ToList();
-            if (members.Count < 2)
-                continue;
-
-            var clusterLinks = linksByCluster[cluster.Key].ToList();
-            var confirmedIds = clusterLinks
-                .Where(l => l.Confidence == DuplicateConfidence.Confirmed)
-                .SelectMany(l => new[] { l.SongIdLow, l.SongIdHigh })
-                .ToHashSet();
-
-            var ranked = IDuplicateDetectionService.RankKeeperFirst(members);
-            var keeper = ranked[0];
-            totalDuplicates += members.Count(m => m.IsDuplicate);
-
-            var memberDtos = ranked.Select(m =>
-            {
-                var memberLinks = clusterLinks
-                    .Where(l => l.SongIdLow == m.Id || l.SongIdHigh == m.Id)
-                    .ToList();
-                var reasons = memberLinks.Aggregate(DuplicateMatchReason.None, (acc, l) => acc | l.Reasons);
-                var similarity = memberLinks.Max(l => l.Similarity);
-                return new
-                {
-                    m.Id,
-                    m.SourcePath,
-                    m.FileName,
-                    m.Extension,
-                    m.FileSizeBytes,
-                    m.Artist,
-                    m.AlbumArtist,
-                    m.Album,
-                    m.Title,
-                    m.Year,
-                    m.TrackNumber,
-                    m.DurationSeconds,
-                    m.Bitrate,
-                    m.Fingerprint,
-                    m.IsDuplicate,
-                    m.DuplicateOfId,
-                    m.EnrichmentStatus,
-                    m.DestinationPath,
-                    IsBuilt = m.LibraryBuildStatus == LibraryBuildStatus.Done && m.DestinationPath != null,
-                    IsKeeper = m.Id == keeper.Id,
-                    IsPinned = m.DuplicateKeeperPinnedAtUtc != null,
-                    Confidence = confirmedIds.Contains(m.Id) ? "confirmed" : "suspected",
-                    Reasons = DescribeReasons(reasons),
-                    Similarity = similarity,
-                    QualityScore = IDuplicateDetectionService.QualityScore(m),
-                };
-            }).ToList();
-
-            groups.Add(new
-            {
-                GroupId = cluster.Key,
-                Confidence = confirmedIds.Count > 0 ? "confirmed" : "suspected",
-                Keeper = memberDtos[0],
-                Members = memberDtos,
-            });
-        }
-
-        return Results.Ok(new
-        {
-            TotalDuplicates = totalDuplicates,
-            Groups = groups.Count,
-            DuplicateGroups = groups
-        });
+        return Results.Ok(DuplicateGroupProjection.Build(links, songs));
     }
 
     private static async Task<IResult> ManualReviewTrack(int id, ManualReviewRequest request, MusicHoarderDbContext db)
