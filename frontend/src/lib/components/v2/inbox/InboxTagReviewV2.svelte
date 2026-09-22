@@ -364,10 +364,10 @@
   }
 
   // Keyboard: ⇧A accept · S skip · ⇧R reject · ←/→ nav. Ignore while typing.
-  // Accept and Reject write to the library and there is no undo for them (the reset endpoint
-  // re-runs matching from scratch and can't put back tags the approval overwrote), so they take a
-  // deliberate Shift chord instead of a bare letter a stray keypress can fire. Skip only moves the
-  // selection, so it stays a single key.
+  // Accept and Reject write to the library, so they take a deliberate Shift chord instead of a bare
+  // letter a stray keypress can fire. Accept's toast carries an Undo (undoAccept), but that restores
+  // the original tags and re-runs matching from scratch rather than putting the queue back as it was.
+  // Skip only moves the selection, so it stays a single key.
   function onKeydown(e: KeyboardEvent) {
     const el = e.target as HTMLElement | null;
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable))
