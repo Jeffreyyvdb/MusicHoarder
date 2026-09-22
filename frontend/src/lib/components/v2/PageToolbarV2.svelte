@@ -74,11 +74,11 @@
     <Icon class="text-muted-foreground size-4 shrink-0" aria-hidden="true" />
   {/if}
 
-  <!-- A floor, not a full lock: shrink-0 keeps the title at its content width so the (scrollable)
-       SectionTabsV2 strip gives way first instead of the two splitting the squeeze evenly and the
-       title clipping to a couple of characters (vis-06). min-w only backstops it if that ever
-       changes. -->
-  <div class="flex min-w-[7ch] shrink-0 items-baseline gap-2">
+  <!-- shrink-0 keeps the title at its content width, so the (scrollable) SectionTabsV2 strip and
+       the filters give way first instead of splitting the squeeze evenly and clipping "Settings"
+       to "Se…" (vis-06). The max-width is the other half: a long title on a phone still truncates
+       at half the bar rather than pushing the never-shrinking actions off the edge. -->
+  <div class="flex min-w-0 max-w-[50%] shrink-0 items-baseline gap-2">
     <h1 class="text-nav truncate font-semibold tracking-[-0.01em]">{title}</h1>
     {#if meta}
       <span

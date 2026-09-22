@@ -25,6 +25,8 @@
 	// AppSidebarV2 renders in its header, not a substitute for it. Only a touch/pen drag toward
 	// the closing (left) edge counts — mouse keeps its native click/Escape/scrim-tap paths, and a
 	// small dead zone keeps an incidental diagonal touch from hijacking a vertical nav scroll.
+	// `touch-pan-y` on the content leaves vertical scrolling to the browser but hands horizontal
+	// moves to these handlers, so iOS can't claim the drag and cancel the pointer stream midway.
 	let dragStartX = $state<number | null>(null);
 	let dragDeltaX = $state(0);
 	const DEAD_ZONE = 4;
@@ -71,7 +73,7 @@
 			data-slot="sidebar"
 			data-mobile="true"
 			class={cn(
-				"mh-glass [--mh-glass-solid:var(--sidebar)] bg-sidebar/70 text-sidebar-foreground ring-sidebar-border w-(--sidebar-width) overflow-hidden p-0 ring-1 backdrop-blur-xl backdrop-saturate-150 [&>button]:hidden data-[side=left]:top-[calc(0.75rem_+_env(safe-area-inset-top))] data-[side=left]:bottom-[calc(0.75rem_+_env(safe-area-inset-bottom))] data-[side=left]:left-3 data-[side=left]:h-auto data-[side=left]:rounded-2xl data-[side=left]:border-r-0 data-[side=left]:shadow-[0_4px_24px_oklch(0%_0_0/0.08)] dark:data-[side=left]:shadow-[0_4px_20px_rgba(0,0,0,0.35)]",
+				"mh-glass [--mh-glass-solid:var(--sidebar)] touch-pan-y bg-sidebar/70 text-sidebar-foreground ring-sidebar-border w-(--sidebar-width) overflow-hidden p-0 ring-1 backdrop-blur-xl backdrop-saturate-150 [&>button]:hidden data-[side=left]:top-[calc(0.75rem_+_env(safe-area-inset-top))] data-[side=left]:bottom-[calc(0.75rem_+_env(safe-area-inset-bottom))] data-[side=left]:left-3 data-[side=left]:h-auto data-[side=left]:rounded-2xl data-[side=left]:border-r-0 data-[side=left]:shadow-[0_4px_24px_oklch(0%_0_0/0.08)] dark:data-[side=left]:shadow-[0_4px_20px_rgba(0,0,0,0.35)]",
 				className
 			)}
 			style="--sidebar-width: {SIDEBAR_WIDTH_MOBILE};{dragDeltaX ? ` transform: translateX(${dragDeltaX}px); transition: none;` : ''}"
