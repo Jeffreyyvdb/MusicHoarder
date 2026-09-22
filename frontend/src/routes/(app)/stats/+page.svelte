@@ -483,8 +483,8 @@
           </div>
         </section>
 
-        <p class="text-muted-foreground/70 flex items-center gap-1.5 text-[11px]">
-          <Copy class="size-3" />
+        <p class="text-muted-foreground-dim flex items-center gap-1.5 text-[11px]">
+          <Copy class="size-3" aria-hidden="true" />
           Cover & lyrics counts reflect what MusicHoarder wrote to your destination library.
         </p>
       {/if}

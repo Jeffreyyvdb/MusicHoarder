@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Check, ChevronLeft, Loader2, RefreshCw, Sparkles, ChevronRight, Copy } from '@lucide/svelte';
+  import { Check, ChevronLeft, RefreshCw, Sparkles, ChevronRight, Copy } from '@lucide/svelte';
   import {
     fetchQualityOverview,
     copyQualitySongDossier,
@@ -9,6 +9,7 @@
   } from '$lib/api-client';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import { Button } from '$lib/components/ui/button';
+  import { Skeleton } from '$lib/components/ui/skeleton';
   import { toast } from 'svelte-sonner';
   import { cn } from '$lib/utils';
 
@@ -74,7 +75,7 @@
   async function onCopyDossier(songId: number) {
     try {
       await copyQualitySongDossier(songId);
-      toast.success('Copied dossier to clipboard — paste into Claude Code');
+      toast.success('Copied dossier to clipboard — paste into an AI assistant for a second opinion');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Copy failed');
     }
@@ -86,9 +87,25 @@
 </script>
 
 {#if loading}
-  <div class="flex flex-1 items-center justify-center p-8">
-    <div class="text-muted-foreground flex items-center gap-2 text-sm">
-      <Loader2 class="size-5 animate-spin" /> Loading AI grades…
+  <!-- Shaped like the queue it replaces, matching Tag review and Duplicates. -->
+  <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[320px_1fr]" role="status">
+    <span class="sr-only">Loading AI grades…</span>
+    <div class="border-border bg-surface-sunken flex min-h-0 flex-col border-r" aria-hidden="true">
+      <div class="border-border flex h-12 items-center border-b px-4">
+        <Skeleton class="h-3 w-24" />
+      </div>
+      <div class="p-1.5">
+        {#each Array(4) as _, i (i)}
+          <div class="mb-0.5 flex items-center gap-2.5 py-2 pr-2.5 pl-2.5">
+            <Skeleton class="size-10 shrink-0" />
+            <div class="min-w-0 flex-1 space-y-1.5">
+              <Skeleton class="h-3.5 w-3/4" />
+              <Skeleton class="h-3 w-1/2" />
+            </div>
+            <Skeleton class="h-3 w-8 shrink-0" />
+          </div>
+        {/each}
+      </div>
     </div>
   </div>
 {:else if error}
@@ -126,6 +143,7 @@
           type="button"
           onclick={load}
           title="Refresh"
+          aria-label="Refresh AI grades"
           class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-7 place-items-center rounded-md transition-colors"
         >
           <RefreshCw class="size-3.5" />
@@ -184,7 +202,7 @@
           </div>
         </div>
 
-        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 pb-[calc(1rem_+_var(--mh-content-pad))] sm:px-6">
+        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
           <!-- Verdict -->
           <div>
             <div class="flex items-baseline justify-between gap-2">
@@ -227,8 +245,11 @@
           </div>
         </div>
 
-        <!-- Action bar -->
-        <div class="border-border bg-background flex flex-wrap items-center gap-2 border-t px-4 py-3 sm:gap-3 sm:px-6">
+        <!-- Action bar — last item in a full-height column, so it carries the floating bottom
+             nav's clearance itself (same fix as the Tag review action bar). -->
+        <div
+          class="border-border bg-background flex flex-wrap items-center gap-2 border-t px-4 pt-3 pb-[calc(0.75rem_+_var(--mh-content-pad))] sm:gap-3 sm:px-6"
+        >
           <div class="flex-1"></div>
           <Button variant="outline" onclick={() => onCopyDossier(selected.songId)} class="gap-1.5">
             <Copy class="size-3.5" /> Copy dossier

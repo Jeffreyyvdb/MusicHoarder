@@ -17,6 +17,7 @@
   } from '$lib/review-helpers';
   import { verdictTone, toneText, toneBorder, verdictGlyph, classifyBucket } from '$lib/quality-ui';
   import Cover from '$lib/components/file-browser/Cover.svelte';
+  import { Button } from '$lib/components/ui/button';
   import CandidateGrid from '$lib/components/review/CandidateGrid.svelte';
   import BeforeAfterView from '$lib/components/review/BeforeAfterView.svelte';
   import OriginMatrixView from '$lib/components/review/OriginMatrixView.svelte';
@@ -157,7 +158,7 @@
     if (!row) return;
     try {
       await copyQualitySongDossier(row.songId);
-      toast.success('Copied to clipboard — paste into Claude Code');
+      toast.success('Copied dossier to clipboard — paste into an AI assistant for a second opinion');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Copy failed');
     }
@@ -184,7 +185,7 @@
     <div class="border-border flex shrink-0 items-center gap-3.5 border-b px-4 py-3.5 sm:px-[18px]">
       <Cover {artist} title={cleanDisplayName(title)} size={52} corner={4} caption={false} />
       <div class="min-w-0 flex-1">
-        <div class="text-muted-foreground font-mono text-[9.5px] font-bold tracking-[0.12em] uppercase">{eyebrow}</div>
+        <div class="text-muted-foreground font-mono text-[11px] font-bold tracking-[0.12em] uppercase">{eyebrow}</div>
         <div class="mt-0.5 truncate text-[17px] font-semibold tracking-tight">{cleanDisplayName(title)}</div>
         <div class="text-muted-foreground truncate text-[12px]">
           {artist || 'Unknown artist'}{#if album}<span class="text-muted-foreground/60"> · </span><em>{album}</em>{/if}
@@ -204,7 +205,7 @@
           )}
         >
           <div>
-            <div class="text-muted-foreground font-mono text-[9.5px] font-semibold tracking-[0.1em]">ALGORITHM SAID</div>
+            <div class="text-muted-foreground font-mono text-[11px] font-semibold tracking-[0.1em]">ALGORITHM SAID</div>
             <div class={cn('mt-1 text-[15px] font-semibold', toneText(algoTone))}>{algoGlyph} {algoLabel}</div>
             <div class="text-muted-foreground mt-1 text-[12px] leading-snug">{algoSub}</div>
           </div>
@@ -218,7 +219,7 @@
             {/if}
           </div>
           <div>
-            <div class="text-muted-foreground font-mono text-[9.5px] font-semibold tracking-[0.1em]">AI SAID</div>
+            <div class="text-muted-foreground font-mono text-[11px] font-semibold tracking-[0.1em]">AI SAID</div>
             <div class={cn('mt-1 flex items-baseline gap-2 text-[15px] font-semibold', toneText(aiTone))}>
               <span>{verdictGlyph(verdict)} {verdict}</span>
               {#if score != null}<span class="text-muted-foreground font-mono text-[12px]">{score}/100</span>{/if}
@@ -234,7 +235,7 @@
           <div class="flex flex-wrap items-center gap-2">
             <Sparkles class={cn('size-3', toneText(aiTone))} />
             <span class="text-[12px] font-semibold">Why the AI graded it this way</span>
-            <span class="text-muted-foreground ml-auto font-mono text-[10px]">
+            <span class="text-muted-foreground ml-auto font-mono text-[11px]">
               {#if grade?.model}{grade.model}{/if}{#if grade?.durationMs} · {grade.durationMs}ms{/if}{#if grade?.promptVersion} · prompt v{grade.promptVersion}{/if}
             </span>
           </div>
@@ -243,10 +244,10 @@
             <div class="mt-2.5 flex flex-wrap gap-1.5">
               {#each issues as issue (issue.code)}
                 <span
-                  class="bg-muted/60 inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px]"
+                  class="bg-muted/60 inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px]"
                   title={issue.detail ?? undefined}
                 >
-                  {issue.code}{#if issue.severity}<span class="text-muted-foreground/70">· {issue.severity}</span>{/if}
+                  {issue.code}{#if issue.severity}<span class="text-muted-foreground-dim">· {issue.severity}</span>{/if}
                 </span>
               {/each}
             </div>
@@ -262,7 +263,7 @@
       {:else if detail}
         <div class="space-y-3">
           <div class="border-border flex items-center justify-between border-b pb-2">
-            <span class="text-muted-foreground font-mono text-[9.5px] font-bold tracking-[0.12em]">PROVENANCE DOSSIER</span>
+            <span class="text-muted-foreground font-mono text-[11px] font-bold tracking-[0.12em]">PROVENANCE DOSSIER</span>
             <div class="bg-surface-sunken flex items-center gap-1 rounded-lg p-0.5">
               {#each [{ id: 'before' as const, label: 'Before → After' }, { id: 'matrix' as const, label: 'Origin matrix' }] as v (v.id)}
                 <button
@@ -301,36 +302,25 @@
       {/if}
     </div>
 
-    <!-- Action bar -->
+    <!-- Action bar — the app's own Button (as the Inbox action bars use), 28px to look at with a
+         44px hit area on touch. -->
     <div class="border-border bg-card flex shrink-0 flex-wrap items-center gap-3 border-t px-4 py-3 sm:px-[18px]">
       <div class="min-w-0 flex-1">
-        <div class="text-muted-foreground font-mono text-[9.5px] font-semibold tracking-[0.1em]">
+        <div class="text-muted-foreground font-mono text-[11px] font-semibold tracking-[0.1em]">
           {bucket === 'flagged' ? 'WILL WRITE TO' : 'CURRENT WRITE'}
         </div>
         <div class="text-muted-foreground truncate font-mono text-[11px]" title={destinationPath}>{destinationPath || '—'}</div>
       </div>
-      <button
-        type="button"
-        onclick={onCopy}
-        class="border-border hover:bg-accent inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] transition-colors active:translate-y-px"
-      >
+      <Button variant="outline" size="sm" class="relative shrink-0 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1.5 pointer-coarse:after:-inset-y-2" onclick={onCopy}>
         <Copy class="size-3.5" /> Copy dossier
-      </button>
-      <a
-        href={reviewHref}
-        class="border-border hover:bg-accent inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] transition-colors active:translate-y-px"
-      >
+      </Button>
+      <Button variant="outline" size="sm" class="relative shrink-0 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1.5 pointer-coarse:after:-inset-y-2" href={reviewHref}>
         <ExternalLink class="size-3.5" /> Open in review
-      </a>
-      <button
-        type="button"
-        disabled={regradeBusy}
-        onclick={onRegrade}
-        class="bg-primary text-primary-foreground inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-90 active:not-disabled:translate-y-px disabled:opacity-50"
-      >
+      </Button>
+      <Button size="sm" class="relative shrink-0 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1.5 pointer-coarse:after:-inset-y-2" disabled={regradeBusy} onclick={onRegrade}>
         {#if regradeBusy}<Loader2 class="size-3.5 animate-spin" />{:else}<Sparkles class="size-3.5" />{/if}
         Re-grade
-      </button>
+      </Button>
     </div>
   {/if}
 </div>

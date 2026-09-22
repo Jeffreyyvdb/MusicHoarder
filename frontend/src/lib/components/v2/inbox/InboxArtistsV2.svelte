@@ -100,7 +100,7 @@
       <div class="text-[15px] font-semibold">No artist duplicates found</div>
       <p class="text-muted-foreground max-w-sm text-[12.5px]">
         Variant spellings of one artist ("JAY-Z" / "JAYZ") and combined credits registered as a single
-        artist ("A &amp; B") show up here with a one-click fix.
+        artist ("A &amp; B") show up here with a one-step fix.
       </p>
     </div>
     <InboxDedupHistoryV2 />
@@ -116,6 +116,7 @@
         type="button"
         onclick={load}
         title="Refresh"
+        aria-label="Refresh artist duplicates"
         class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-7 place-items-center rounded-md transition-colors"
       >
         <RefreshCw class="size-3.5" />
@@ -149,7 +150,7 @@
           {#if cluster.evidence.length > 0}
             <div class="mb-2 flex flex-wrap gap-1">
               {#each cluster.evidence as why, whyIdx (whyIdx)}
-                <span class="bg-accent text-muted-foreground rounded-sm px-1.5 py-px text-[10px]">{why}</span>
+                <span class="bg-accent text-muted-foreground rounded-sm px-1.5 py-px text-[11px]">{why}</span>
               {/each}
             </div>
           {/if}
@@ -167,7 +168,11 @@
                   {variant.name}
                 </span>
                 {#if variant.musicBrainzIds.length > 0}
-                  <span class="bg-primary/10 text-primary rounded-sm px-1.5 py-px text-[10px]">MBID</span>
+                  <!-- The abbreviation is for the eye; assistive tech gets the words (a title alone
+                       never reaches a touch screen or VoiceOver), and the card footer spells it out. -->
+                  <span class="bg-primary/10 text-primary rounded-sm px-1.5 py-px text-[11px]" title="Has a MusicBrainz ID">
+                    <span aria-hidden="true">MBID</span><span class="sr-only">Has a MusicBrainz ID</span>
+                  </span>
                 {/if}
                 <span class="text-muted-foreground shrink-0 text-[11.5px] tabular-nums">
                   {variant.songCount} song{variant.songCount === 1 ? '' : 's'}
@@ -177,6 +182,9 @@
           </div>
           <p class="text-muted-foreground mt-2 text-[11px]">
             Merging rewrites the artist tags on every affected song and re-tags built files in place.
+            {#if cluster.variants.some((v) => v.musicBrainzIds.length > 0)}
+              MBID marks a spelling that has a MusicBrainz ID.
+            {/if}
           </p>
         </div>
       {/each}

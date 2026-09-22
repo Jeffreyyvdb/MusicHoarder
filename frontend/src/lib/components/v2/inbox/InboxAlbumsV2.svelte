@@ -98,7 +98,7 @@
       <div class="text-[15px] font-semibold">No album issues found</div>
       <p class="text-muted-foreground max-w-sm text-[12.5px]">
         Split albums (tracks disagreeing on identity) and near-duplicate titles
-        ("The Blueprint 3" vs "Blueprint 3") show up here with one-click fixes.
+        ("The Blueprint 3" vs "Blueprint 3") show up here with one-step fixes.
       </p>
       {#if healSummary}
         <p class="text-muted-foreground text-[12px]">{healSummary}</p>
@@ -116,6 +116,7 @@
         type="button"
         onclick={load}
         title="Refresh"
+        aria-label="Refresh album issues"
         class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-7 place-items-center rounded-md transition-colors"
       >
         <RefreshCw class="size-3.5" />
@@ -175,7 +176,7 @@
           <div class="border-border bg-card rounded-lg border p-4">
             <div class="mb-1 flex flex-wrap items-center gap-2">
               <span class="truncate text-[13.5px] font-medium">{p.artistDisplay || p.artistKey}</span>
-              <span class="bg-accent text-muted-foreground rounded-sm px-1.5 py-px text-[10px]">
+              <span class="bg-accent text-muted-foreground rounded-sm px-1.5 py-px text-[11px]">
                 {p.evidence}{p.fuzzyRatio != null ? ` · ${Math.round(p.fuzzyRatio)}%` : ''}
               </span>
             </div>

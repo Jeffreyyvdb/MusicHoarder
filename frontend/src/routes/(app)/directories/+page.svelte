@@ -343,13 +343,21 @@
       </div>
       <div class="flex items-center gap-1">
         <div
-          class="bg-muted/60 focus-within:bg-muted flex h-7 items-center gap-1.5 rounded-full px-2.5 transition-colors"
+          class="bg-muted/60 focus-within:bg-muted flex h-8 items-center gap-1.5 rounded-full px-2.5 transition-colors md:h-7"
         >
-          <Search class="text-muted-foreground size-3.5 shrink-0" />
+          <Search class="text-muted-foreground size-3.5 shrink-0" aria-hidden="true" />
+          <!-- 16px below md so iOS doesn't zoom the page on focus; the pill grows to fit. -->
           <input
+            type="search"
             placeholder="Filter folders"
+            aria-label="Filter folders"
             bind:value={query}
-            class="placeholder:text-muted-foreground w-28 bg-transparent text-xs outline-none transition-[width] duration-200 focus:w-44 motion-reduce:transition-none sm:w-32"
+            inputmode="search"
+            enterkeyhint="search"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck={false}
+            class="placeholder:text-muted-foreground w-28 bg-transparent text-base outline-none transition-[width] duration-200 focus:w-44 motion-reduce:transition-none sm:w-32 md:text-xs"
           />
         </div>
         <DropdownMenu.Root>
@@ -358,8 +366,9 @@
               <button
                 {...props}
                 type="button"
-                class="text-muted-foreground hover:bg-muted/60 hover:text-foreground inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs transition-colors"
+                class="text-muted-foreground hover:bg-muted/60 hover:text-foreground inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-xs transition-colors md:h-7"
                 title="Sort folders"
+                aria-label={`Sort folders: ${sortLabel}`}
               >
                 <ArrowUpDown class="size-3.5" />
                 <span class="hidden md:inline">{sortLabel}</span>
@@ -400,7 +409,7 @@
         <span class="hidden w-28 shrink-0 text-center sm:block">Status</span>
         <span class="hidden w-16 shrink-0 text-right sm:block">Count</span>
         <span class="w-10 shrink-0 text-right">Match</span>
-        <span class="w-[104px] shrink-0"></span>
+        <span class="w-[68px] shrink-0 sm:w-[104px]"></span>
       </div>
       {#if visibleChildren.length > 0}
         {#each visibleChildren as child (child.path)}

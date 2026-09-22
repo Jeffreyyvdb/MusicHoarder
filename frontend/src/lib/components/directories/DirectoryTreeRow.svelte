@@ -126,9 +126,12 @@
       onclick={toggle}
       class={cn(
         'flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left text-[13px]',
+        // Below sm the indent stops growing after three levels and steps 14px, not 18px: a
+        // folder four deep on a phone otherwise starts its name 80px in.
+        'pl-[calc(min(var(--depth),3)*14px_+_8px)] sm:pl-[calc(var(--depth)*18px_+_8px)]',
         expandable ? 'cursor-pointer' : 'cursor-default'
       )}
-      style="padding-left: {depth * 18 + 8}px"
+      style:--depth={depth}
       aria-expanded={expandable ? expanded : undefined}
     >
       <ChevronRight
@@ -185,13 +188,13 @@
       </span>
 
       <span class="text-muted-foreground hidden w-16 shrink-0 text-right text-xs tabular-nums sm:block">
-        <span class="text-foreground">{enriched.toLocaleString()}</span><span class="text-muted-foreground/50">/</span>{node.total.toLocaleString()}
+        <span class="text-foreground">{enriched.toLocaleString()}</span><span class="text-muted-foreground/50" aria-hidden="true">/</span><span class="sr-only"> of </span>{node.total.toLocaleString()}
       </span>
 
       <span
         class={cn(
           'w-10 shrink-0 text-right text-xs tabular-nums',
-          node.expectedLow ? 'text-muted-foreground/60' : 'text-muted-foreground'
+          node.expectedLow ? 'text-muted-foreground-dim' : 'text-muted-foreground'
         )}
       >
         {matchedPctLabel}%
@@ -200,8 +203,9 @@
 
     <!-- Row actions: mark expected-low + enrich (hover-revealed on desktop, always visible on
          touch; persistent when active). Fixed width matches the header's actions column so the
-         Match% column aligns across rows. -->
-    <div class="flex w-[104px] shrink-0 items-center justify-end gap-0.5">
+         Match% column aligns across rows — two icon buttons wide on a phone, where Enrich drops
+         its word so the folder name gets the room back. -->
+    <div class="flex w-[68px] shrink-0 items-center justify-end gap-0.5 sm:w-[104px]">
       {#if onToggleExpected}
         <button
           type="button"
@@ -231,24 +235,31 @@
           variant="ghost"
           size="sm"
           class={cn(
-            '-my-1 h-8 shrink-0 px-2 text-xs opacity-100 transition-opacity focus-visible:opacity-100 sm:opacity-40 sm:group-hover:opacity-100',
+            '-my-1 h-8 w-8 shrink-0 gap-0 px-0 text-xs opacity-100 transition-opacity focus-visible:opacity-100 sm:w-auto sm:px-2 sm:opacity-40 sm:group-hover:opacity-100',
             (isEnriching || enrichState === 'error') && 'sm:opacity-100',
             isEnriching && 'text-primary',
             enrichState === 'error' && 'text-destructive-text'
           )}
           disabled={isEnriching}
           title="Add every song under this folder to your library (enrich + build)"
+          aria-label={isEnriching
+            ? inLibrary
+              ? 'Updating…'
+              : 'Adding…'
+            : enrichState === 'error'
+              ? 'Enrich failed — try again'
+              : `Enrich ${cleanDisplayName(node.name)}`}
           onclick={handleEnrichFolder}
         >
           {#if isEnriching}
-            <Loader2 class="mr-1 size-3 animate-spin" />
-            {inLibrary ? 'Updating…' : 'Adding…'}
+            <Loader2 class="size-3 animate-spin sm:mr-1" />
+            <span class="hidden sm:inline">{inLibrary ? 'Updating…' : 'Adding…'}</span>
           {:else if enrichState === 'error'}
-            <AlertCircle class="mr-1 size-3" />
-            Failed
+            <AlertCircle class="size-3 sm:mr-1" />
+            <span class="hidden sm:inline">Failed</span>
           {:else}
-            <Sparkles class="mr-1 size-3" />
-            Enrich
+            <Sparkles class="size-3 sm:mr-1" />
+            <span class="hidden sm:inline">Enrich</span>
           {/if}
         </Button>
       {/if}
@@ -264,8 +275,8 @@
       {#if hasFiles}
         {#if filesState === 'loading'}
           <div
-            class="text-muted-foreground flex items-center gap-2 py-1.5 text-xs"
-            style="padding-left: {depth * 18 + 30}px"
+            class="text-muted-foreground flex items-center gap-2 py-1.5 text-xs pl-[calc(min(var(--depth),3)*14px_+_30px)] sm:pl-[calc(var(--depth)*18px_+_30px)]"
+            style:--depth={depth}
           >
             <Loader2 class="size-3 animate-spin" />
             Loading files…
@@ -274,8 +285,8 @@
           <button
             type="button"
             onclick={loadFiles}
-            class="text-muted-foreground hover:text-foreground flex items-center gap-2 py-1.5 text-xs"
-            style="padding-left: {depth * 18 + 30}px"
+            class="text-muted-foreground hover:text-foreground flex items-center gap-2 py-1.5 text-xs pl-[calc(min(var(--depth),3)*14px_+_30px)] sm:pl-[calc(var(--depth)*18px_+_30px)]"
+            style:--depth={depth}
           >
             <AlertCircle class="size-3 text-amber-500" />
             Couldn't load files — retry

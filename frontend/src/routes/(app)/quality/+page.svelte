@@ -194,6 +194,7 @@
         >
           {#if busy || polling}<Loader2 class="size-3.5 animate-spin" />{:else}<Sparkles class="size-3.5" />{/if}
           <span class="hidden lg:inline">Re-grade {overview.outdatedCount.toLocaleString()} outdated</span>
+          <span class="sr-only lg:hidden">Re-grade {overview.outdatedCount.toLocaleString()} outdated</span>
         </button>
       {/if}
       <button
@@ -204,7 +205,7 @@
         class="bg-primary text-primary-foreground hover:opacity-90 inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-nav-sm font-medium transition-colors active:not-disabled:translate-y-px disabled:opacity-50"
       >
         {#if busy || polling}<Loader2 class="size-3.5 animate-spin" />{:else}<Sparkles class="size-3.5" />{/if}
-        <span class="hidden sm:inline">Re-grade library</span>
+        <span class="sr-only sm:not-sr-only">Re-grade library</span>
       </button>
       <button
         type="button"
@@ -220,7 +221,11 @@
   <!-- The whole area scrolls at every breakpoint. On desktop it's a flex column so the
        master–detail split grows to fill the viewport when there's room, but it keeps a
        height floor (below) so the top blocks can never squeeze the detail pane into a sliver. -->
-  <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6 lg:flex lg:flex-col lg:gap-4 lg:space-y-0">
+  <!-- Trailing padding clears the floating bottom nav / mini player (--mh-content-pad), like
+       every other scroll region under the app shell. -->
+  <div
+    class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pt-4 pb-[calc(1rem_+_var(--mh-content-pad))] sm:px-6 lg:flex lg:flex-col lg:gap-4 lg:space-y-0"
+  >
     {#if !gradingConfigured}
       <div class="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[12.5px] text-amber-700 dark:text-amber-400">
         AI grading is not configured on the server, so grading does nothing. Set
@@ -278,7 +283,7 @@
 
       {#if lib.graded === 0}
         <div class="text-muted-foreground rounded-md border border-dashed px-4 py-10 text-center text-[13px]">
-          Nothing graded yet. Click <span class="text-foreground font-medium">Re-grade library</span> to start grading, or grade a
+          Nothing graded yet. Use <span class="text-foreground font-medium">Re-grade library</span> to start grading, or grade a
           single song from the Provenance &amp; review page.
         </div>
       {:else}
@@ -297,7 +302,7 @@
               >
                 {#if t.dot}<span class={cn('size-1.5 rounded-full', t.dot)}></span>{/if}
                 <span>{t.label}</span>
-                <span class={cn('rounded px-1.5 font-mono text-[10.5px] tabular-nums', active ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')}>
+                <span class={cn('rounded px-1.5 font-mono text-[11px] tabular-nums', active ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')}>
                   {(tabCounts[t.id as keyof typeof tabCounts] ?? 0).toLocaleString()}
                 </span>
               </button>

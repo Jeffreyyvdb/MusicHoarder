@@ -19,8 +19,8 @@
           <Table.Head
             class="border-border text-muted-foreground border-r border-b px-3 py-2.5 align-bottom"
           >
-            <div class="font-mono text-[10px] tracking-[0.06em]">FIELD ↓</div>
-            <div class="font-mono text-[10px] tracking-[0.06em]">PROVIDER →</div>
+            <div class="font-mono text-[11px] tracking-[0.06em]">FIELD ↓</div>
+            <div class="font-mono text-[11px] tracking-[0.06em]">PROVIDER →</div>
           </Table.Head>
           {#each matrix.columns as col (col.key)}
             <Table.Head class="border-border min-w-[140px] border-b px-3 py-2.5">
@@ -41,7 +41,7 @@
             >
               <span class="text-[13px]">{row.label}</span>
               {#if row.missing}
-                <span class="text-muted-foreground/60 ml-1.5 font-mono text-[10px] lowercase">missing</span>
+                <span class="text-muted-foreground-dim ml-1.5 font-mono text-[11px] lowercase">missing</span>
               {/if}
             </Table.Head>
             {#each row.cells as cell, ci (matrix.columns[ci].key)}
@@ -56,7 +56,7 @@
                     )}
                   >
                     {#if cell.pct != null}
-                      <span class="text-primary absolute top-1 right-1.5 font-mono text-[10px]">{cell.pct}%</span>
+                      <span class="text-primary absolute top-1 right-1.5 font-mono text-[11px]">{cell.pct}%</span>
                     {/if}
                     <span class={cn(cell.value.length > 18 && 'font-mono text-[11px]')}>{cell.value}</span>
                   </div>
