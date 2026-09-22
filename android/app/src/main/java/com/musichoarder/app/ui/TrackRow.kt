@@ -103,7 +103,7 @@ fun TrackRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                if (track.needsReview) MhMonoBadge("REVIEW", tint = colors.destructive)
+                if (track.needsReview) MhMonoBadge("REVIEW", tint = colors.destructiveText)
                 if (track.hasLyrics) MhMonoBadge("LRC")
                 // Absent for your own tracks, so an admin's list looks exactly as it did.
                 if (sharedBy != null) MhMonoBadge("SHARED")

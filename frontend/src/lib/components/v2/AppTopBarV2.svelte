@@ -71,11 +71,11 @@
       running={pipelineOverlay.isAnyRunning}
     />
   {/if}
-  <div class="ml-auto flex shrink-0 items-center gap-1.5">
+  <div class="ml-auto flex shrink-0 items-center gap-3 md:gap-1.5">
     <Button
       variant="outline"
       size="sm"
-      class="h-8 gap-1.5 px-2.5"
+      class="h-9 gap-1.5 px-2.5 md:h-8"
       onclick={() => commandPalette.setOpen(true)}
       onpointerenter={() => songsStore.ensureLoaded()}
       onfocus={() => songsStore.ensureLoaded()}
@@ -94,8 +94,9 @@
       <Button
         variant="outline"
         size="sm"
-        class="h-8 gap-1.5 px-2.5"
+        class="h-9 gap-1.5 px-2.5 md:h-8"
         onclick={() => (addOpen = true)}
+        aria-label="Add a track from a Spotify or YouTube URL"
         title="Add a track from a Spotify or YouTube URL"
       >
         <Plus class="size-4" />

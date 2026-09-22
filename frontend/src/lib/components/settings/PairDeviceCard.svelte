@@ -83,7 +83,7 @@
   <div class="space-y-4 p-5">
     {#if error}
       <div
-        class="border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+        class="border-destructive/50 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
       >
         <AlertCircle class="mt-0.5 size-4 shrink-0" />
         <span>{error}</span>

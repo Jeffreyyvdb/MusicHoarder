@@ -419,7 +419,7 @@
   </div>
 {:else if loadState === 'error'}
   <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 py-8 text-center">
-    <AlertCircle class="text-destructive size-8 opacity-70" />
+    <AlertCircle class="text-destructive-text size-8 opacity-70" />
     <p class="text-muted-foreground text-sm">Failed to load lyrics.</p>
     <Button variant="outline" size="sm" onclick={() => (loadState = 'idle')}>Retry</Button>
   </div>
@@ -559,7 +559,11 @@
                   // panel highlight
                   !theater && isActive && 'bg-primary/10 text-primary font-semibold',
                   !theater && isPast && 'text-muted-foreground',
-                  !theater && isFuture && 'text-muted-foreground/50',
+                  // Future lines are still real, readable lyrics (someone reads ahead), so this
+                  // uses the tertiary token rather than an opacity that drops below legibility —
+                  // the theater view's per-line dimming below is the deliberate karaoke effect,
+                  // large bold display type where a much lower contrast is the point.
+                  !theater && isFuture && 'text-muted-foreground-dim',
                   !theater && !isTracking && 'text-foreground',
                   // theater highlight: active bright, others dimmed
                   theater && isActive && 'text-foreground',
@@ -583,7 +587,7 @@
                   <span
                     class={cn(
                       'w-12 shrink-0 pt-0.5 font-mono text-xs',
-                      isActive ? 'text-primary/70' : 'text-muted-foreground/60'
+                      isActive ? 'text-primary/70' : 'text-muted-foreground-dim'
                     )}
                   >
                     {formatLrcTime(line.timeMs)}

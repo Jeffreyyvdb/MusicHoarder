@@ -4,7 +4,7 @@
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import { ArrowLeft, Search, Clock, AlertCircle, ListMusic, Play } from '@lucide/svelte';
+  import { ArrowLeft, Search, Clock, AlertCircle, ListMusic } from '@lucide/svelte';
   import { albumTint } from '$lib/album-tint';
   import { computeInitials, formatTotalDuration } from '$lib/formatters';
   import SpotifyTrackRow from './SpotifyTrackRow.svelte';
@@ -82,7 +82,7 @@
     <button
       type="button"
       onclick={onBack}
-      class="absolute top-3 left-3 z-10 inline-flex items-center gap-1 rounded-full bg-black/30 px-2.5 py-1 text-xs text-white/85 backdrop-blur transition-colors hover:bg-black/40 hover:text-white sm:left-6"
+      class="absolute top-3 left-3 z-10 inline-flex items-center gap-1 rounded-full bg-black/30 px-2.5 py-1.5 text-xs text-white/85 backdrop-blur transition-colors after:absolute after:-inset-2 hover:bg-black/40 hover:text-white sm:left-6"
     >
       <ArrowLeft class="size-3.5" />
       Back
@@ -164,16 +164,9 @@
     <div
       class="border-border flex items-center gap-3 border-b bg-gradient-to-b from-black/5 to-transparent px-6 py-5 sm:px-9 dark:from-white/5"
     >
-      <button
-        type="button"
-        aria-label="Play playlist"
-        disabled
-        title="Playback for Spotify playlists is not wired up yet"
-        class="bg-[#1DB954] text-white grid place-items-center rounded-full shadow-[0_6px_16px_rgba(29,185,84,0.4)] transition-transform hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
-        style="width: 52px; height: 52px;"
-      >
-        <Play class="size-5 fill-current" />
-      </button>
+      <!-- There is no playback for a Spotify playlist yet. This used to be a disabled Play button
+           explained only by a hover title, so a tap did nothing; say it in words instead. -->
+      <p class="text-muted-foreground text-[13px]">Playing Spotify playlists here is coming soon.</p>
 
       <div class="text-muted-foreground ml-auto flex items-center gap-3 text-xs">
         <span class="bg-[#1DB954]/15 text-[#1DB954] rounded px-2.5 py-1 font-mono">
@@ -187,7 +180,9 @@
       <div class="relative max-w-md flex-1">
         <Search class="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
         <Input
-          placeholder="Filter tracks..."
+          type="search"
+          placeholder="Filter tracks…"
+          aria-label="Filter tracks"
           bind:value={searchQuery}
           class="bg-secondary border-0 pl-9"
         />
@@ -197,7 +192,7 @@
 
     {#if error}
       <div class="flex flex-col items-center justify-center py-12 text-center">
-        <AlertCircle class="text-destructive mb-3 size-10" />
+        <AlertCircle class="text-destructive-text mb-3 size-10" />
         <p class="text-muted-foreground">{error}</p>
         <Button variant="outline" size="sm" class="mt-4" onclick={() => loadTracks(offset)}>
           Retry

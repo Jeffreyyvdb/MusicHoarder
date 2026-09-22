@@ -4,6 +4,7 @@
   // marketing landing page's PipelineConveyor.svelte. Its admin-console styling
   // is deliberately left untouched here; the landing redesign follow-up owns it.
   import type { Component } from 'svelte';
+  import { Loader2, Pause, Play } from '@lucide/svelte';
   import { Progress } from '$lib/components/ui/progress';
   import { cn } from '$lib/utils';
 
@@ -15,19 +16,31 @@
     count: number;
     total: number;
     perSec: number;
+    /** Renders a Pause/Resume control. Omitted on the landing page, which wraps the whole card
+     *  in a button (a nested button is invalid there). */
+    onTogglePause?: () => void;
+    /** A pause/resume request is in flight. */
+    pauseBusy?: boolean;
   };
 
-  const { icon: Icon, label, status, isPaused, count, total, perSec }: Props = $props();
+  const { icon: Icon, label, status, isPaused, count, total, perSec, onTogglePause, pauseBusy = false }: Props =
+    $props();
 
-  const active = $derived(status === 'Running');
+  // A paused Enrich step keeps reporting Running (its workers hold the queue), and a paused
+  // build is Running until its job winds down — neither is flowing, so neither lights up.
+  const active = $derived(status === 'Running' && !isPaused);
   const pct = $derived(total > 0 ? Math.min(100, (count / total) * 100) : 0);
   const rateLabel = $derived(perSec >= 10 ? Math.round(perSec).toString() : perSec.toFixed(1));
+  // Pause is offered while the step runs; Resume whenever it is paused, running or not (a paused
+  // idle step is one auto-triggers skip).
+  const showControl = $derived(onTogglePause != null && (status === 'Running' || isPaused));
 </script>
 
 <div
   class={cn(
     'rounded-md border bg-muted/30 p-2.5 transition-all',
-    active ? 'border-primary/30 bg-primary/[0.04] opacity-100' : 'opacity-70'
+    active ? 'border-primary/30 bg-primary/[0.04] opacity-100' : 'opacity-70',
+    isPaused && 'opacity-100'
   )}
 >
   <div class="mb-2 flex items-center gap-2">
@@ -45,13 +58,37 @@
     </div>
   </div>
   <Progress value={pct} class="h-[3px]" />
-  <div class="text-muted-foreground mt-1.5 flex justify-between font-mono text-[10px] tabular-nums">
+  <div class="text-muted-foreground mt-1.5 flex justify-between font-mono text-[11px] tabular-nums">
     <span>in: {count.toLocaleString()}</span>
     <span>out: {Math.max(0, count - Math.round(perSec * 2)).toLocaleString()}</span>
   </div>
-  {#if isPaused}
-    <div class="mt-1.5 text-[10px] font-semibold tracking-wide text-amber-400 uppercase">
-      Paused
+  {#if isPaused || showControl}
+    <div class="mt-1.5 flex min-h-7 items-center justify-between gap-2">
+      {#if isPaused}
+        <span class="text-[11px] font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-400">
+          Paused
+        </span>
+      {:else}
+        <span></span>
+      {/if}
+      {#if showControl}
+        <button
+          type="button"
+          onclick={onTogglePause}
+          disabled={pauseBusy}
+          aria-label={isPaused ? `Resume ${label.toLowerCase()}` : `Pause ${label.toLowerCase()}`}
+          class="border-border bg-background hover:bg-muted text-foreground inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-medium transition-colors disabled:opacity-60"
+        >
+          {#if pauseBusy}
+            <Loader2 class="size-3 animate-spin" />
+          {:else if isPaused}
+            <Play class="size-3" />
+          {:else}
+            <Pause class="size-3" />
+          {/if}
+          {isPaused ? 'Resume' : 'Pause'}
+        </button>
+      {/if}
     </div>
   {/if}
 </div>

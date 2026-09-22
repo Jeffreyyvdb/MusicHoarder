@@ -101,7 +101,8 @@
 
 {#snippet body(tab: Tab, isActive: boolean)}
   {#if tab.live && running}
-    <span class="bg-primary mh-v2-pulse size-1.5 shrink-0 rounded-full"></span>
+    <span class="bg-primary mh-v2-pulse size-1.5 shrink-0 rounded-full" aria-hidden="true"></span>
+    <span class="sr-only">Pipeline running</span>
   {/if}
   <span>{tab.label}</span>
   {#if tab.count != null}

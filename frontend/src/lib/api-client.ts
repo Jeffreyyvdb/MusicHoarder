@@ -427,6 +427,25 @@ export class ApiError extends Error {
   }
 }
 
+const PERMISSION_CODES = new Set([
+  "demo_read_only",
+  "member_write_denied",
+  "friend_read_only",
+  "capability_required",
+  "admin_required",
+  "owner_required",
+])
+
+/**
+ * True when the request failed because this account may not do it at all — a 403 or one of the
+ * API's permission codes. Retrying cannot succeed, so a screen should explain instead of offering
+ * a Retry. 401 (signed out) is deliberately not included: signing in again does fix that one.
+ */
+export function isPermissionError(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return false
+  return err.status === 403 || (err.code != null && PERMISSION_CODES.has(err.code))
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase()
   const isBodyMethod = method !== "GET" && method !== "HEAD"
@@ -1475,6 +1494,12 @@ export async function triggerBuild(): Promise<EnrichmentTriggerResult> {
   return triggerEnrichmentJob("/api/enrichment/build")
 }
 
+/**
+ * Stops EVERY running step (scan, fingerprint, enrich, build, download, purge) — the endpoint has no
+ * per-step form — and drains the enrichment queue. Nothing is paused afterwards: auto-scan and new
+ * downloads can start the steps again. A build stopped mid-copy can leave its temporary file in the
+ * destination folder.
+ */
 export async function cancelJob(): Promise<{ message: string }> {
   return requestJson<{ message: string }>("/api/enrichment/cancel", { method: "POST" })
 }
@@ -1662,11 +1687,19 @@ export async function fetchStagedSourceStatus(): Promise<StagedSourceReleaseSnap
   return toStagedSourceReleaseSnapshot(body)
 }
 
-export async function pauseStep(step: string): Promise<{ message: string }> {
+export type PipelineStep = "scan" | "fingerprint" | "enrich" | "build" | "download"
+
+/**
+ * Pause one step: sets its paused flag (auto-triggers skip it) and cancels its in-flight job. Scan,
+ * fingerprint and build jobs wind down and report Paused; enrichment workers instead hold their
+ * queue and wait, so a paused Enrich step keeps reporting Running with `isPaused` set.
+ */
+export async function pauseStep(step: PipelineStep): Promise<{ message: string }> {
   return requestJson<{ message: string }>(`/api/enrichment/pause?step=${step}`, { method: "POST" })
 }
 
-export async function resumeStep(step: string): Promise<{ message: string }> {
+/** Clear a step's paused flag. It does not start a job — the next auto-trigger does. */
+export async function resumeStep(step: PipelineStep): Promise<{ message: string }> {
   return requestJson<{ message: string }>(`/api/enrichment/resume?step=${step}`, { method: "POST" })
 }
 

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import { MediaQuery } from 'svelte/reactivity';
   import { Check, Film, ImageOff, Loader2, RotateCcw, Search, Trash2, X } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
@@ -83,11 +84,21 @@
     };
   });
 
+  // Apple asks that motion have a system-level off switch; a full-bleed autoplaying video behind
+  // the lyrics is exactly that motion, so Reduce Motion falls back to the static ambient artwork
+  // underneath (always mounted — see the layer stack below) rather than only slowing it down.
+  const reduceMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
+
   const isCurrentSong = $derived(playerStore.currentSong?.id === songId);
   // Ready and its file is actually on disk — fileMissing means the stream endpoint would 404.
   const playable = $derived(info?.status === 'Ready' && !info.fileMissing);
   const showVideo = $derived(
-    playable && videoBackdropPrefs.enabled && isCurrentSong && !videoEnded && !videoFailed
+    playable &&
+      videoBackdropPrefs.enabled &&
+      isCurrentSong &&
+      !videoEnded &&
+      !videoFailed &&
+      !reduceMotion.current
   );
 
   // Load (and reload on song change) the video info; reset per-song playback state. The load only
@@ -296,7 +307,7 @@
     },
     Static: {
       label: 'still image',
-      class: 'bg-destructive/15 text-destructive',
+      class: 'bg-destructive/15 text-destructive-text',
       title: 'One image for the whole song — an album cover or an audio-only upload.'
     },
     Unknown: {
@@ -382,13 +393,13 @@
     class="absolute inset-0 size-full scale-110 object-cover opacity-50 blur-3xl"
   />
 {/if}
-<div class="bg-background/80 absolute inset-0 backdrop-blur-2xl"></div>
+<div class="mh-glass bg-background/92 absolute inset-0 backdrop-blur-2xl"></div>
 {#if showVideo}
   <!-- Decorative, always-muted backdrop; the player's audio element is the actual sound.
        Cross-fades in over the ambient art once the first frame is decoded. -->
   <div
     class={cn(
-      'absolute inset-0 transition-opacity duration-500',
+      'mh-crossfade absolute inset-0 transition-opacity duration-500',
       videoReady ? 'opacity-100' : 'opacity-0'
     )}
   >
@@ -434,11 +445,11 @@
               <Loader2 class="size-3 animate-spin" /> fetching…
             </span>
           {:else if info?.status === 'Ready' && info.fileMissing}
-            <span class="text-destructive text-xs">file missing</span>
+            <span class="text-destructive-text text-xs">file missing</span>
           {:else if info?.status === 'Ready'}
             <span class="text-muted-foreground text-xs">{syncLabel}</span>
           {:else if info?.status === 'Failed'}
-            <span class="text-destructive text-xs">failed</span>
+            <span class="text-destructive-text text-xs">failed</span>
           {:else if infoUnavailable}
             <!-- The status request keeps failing — unknown is NOT "none"; a fetch here would
                  needlessly re-download a video that may well still exist. -->
@@ -461,13 +472,13 @@
       </div>
 
       {#if info?.status === 'Failed' && info.lastError}
-        <p class="text-destructive/90 mb-2 line-clamp-2 text-xs" title={info.lastError}>
+        <p class="text-destructive-text/90 mb-2 line-clamp-2 text-xs" title={info.lastError}>
           {info.lastError}
         </p>
       {/if}
 
       {#if info?.status === 'Ready' && info.fileMissing}
-        <p class="text-destructive/90 mb-2 text-xs">
+        <p class="text-destructive-text/90 mb-2 text-xs">
           The video file is gone from disk — refetch to restore it.
         </p>
       {/if}
@@ -506,6 +517,7 @@
                 variant="ghost"
                 class="h-7 px-2"
                 title="Reset to automatic alignment"
+                aria-label="Reset to automatic sync"
                 onclick={onResetAuto}
               >
                 <RotateCcw class="size-3.5" />
@@ -536,7 +548,7 @@
                   <Loader2 class="size-3.5 animate-spin" /> Searching and checking candidates…
                 </p>
               {:else if candidatesError}
-                <p class="text-destructive py-2 text-xs">{candidatesError}</p>
+                <p class="text-destructive-text py-2 text-xs">{candidatesError}</p>
               {:else if candidates && candidates.length === 0}
                 <p class="text-muted-foreground py-2 text-xs">No candidates found for this song.</p>
               {:else if candidates}
@@ -670,7 +682,7 @@
           <Button
             size="sm"
             variant="ghost"
-            class="text-destructive hover:text-destructive h-7 w-full justify-start px-2 text-xs"
+            class="text-destructive-text hover:text-destructive-text h-7 w-full justify-start px-2 text-xs"
             disabled={busy}
             onclick={onRemove}
           >

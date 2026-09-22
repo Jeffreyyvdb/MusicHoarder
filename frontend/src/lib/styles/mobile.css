@@ -19,12 +19,12 @@
   --bg-hover: var(--accent);
   --fg: var(--foreground);
   --fg-secondary: var(--muted-foreground);
-  --fg-tertiary: color-mix(in oklch, var(--muted-foreground) 82%, transparent);
-  --fg-quaternary: color-mix(in oklch, var(--muted-foreground) 55%, transparent);
+  /* Was muted-foreground at 82% opacity — an opacity step on an already-muted grey, which is how
+     the app's old text ladder fell under 4.5:1. The dim token is the contrast-checked tertiary. */
+  --fg-tertiary: var(--muted-foreground-dim);
   --accent-soft: color-mix(in oklch, var(--primary) 14%, transparent);
   --mono: var(--font-mono);
   --ui: var(--font-sans);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.1);
 
   background: var(--bg);
   color: var(--fg);
@@ -57,21 +57,12 @@
 }
 .mob-btn.primary {
   background: var(--primary);
-  color: #fff;
+  /* Token, not #fff: white on the dark theme's brighter --primary measured 2.99:1. */
+  color: var(--primary-foreground);
   border-color: var(--primary);
 }
 .mob-btn.primary:active {
   filter: brightness(0.94);
-}
-.mob-btn.danger {
-  background: #c23a3a;
-  border-color: #c23a3a;
-  color: #fff;
-}
-.mob-btn.warn {
-  background: oklch(0.97 0.04 65);
-  border-color: oklch(0.85 0.07 65);
-  color: oklch(0.4 0.1 50);
 }
 .mob-btn.ghost {
   background: transparent;
@@ -120,13 +111,17 @@
   background: var(--bg-sunken);
   border: 1px solid var(--border);
   border-radius: 10px;
-  font-size: 15px;
+  /* 16px is iOS Safari's threshold: anything smaller zooms the page when the field takes focus. */
+  font-size: 16px;
   outline: 0;
   color: var(--fg);
 }
 .mob-login-field input:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.mob-login-field input[aria-invalid='true'] {
+  border-color: var(--destructive);
 }
 .mob-login-link {
   color: var(--primary);
@@ -151,11 +146,4 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-}
-
-.mob-logo {
-  display: grid;
-  place-items: center;
-  border-radius: 7px;
-  box-shadow: var(--shadow-sm);
 }

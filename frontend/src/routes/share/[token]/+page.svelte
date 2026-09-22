@@ -1,13 +1,15 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { Loader2, Music, Pause, Play } from '@lucide/svelte';
+  import { Loader2, Music, Pause, Play, Video, VideoOff } from '@lucide/svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import SongTransport from '$lib/components/file-browser/SongTransport.svelte';
   import LyricsCard from '$lib/components/file-browser/LyricsCard.svelte';
   import LyricsFullscreen from '$lib/components/file-browser/LyricsFullscreen.svelte';
   import LyricsPanel from '$lib/components/file-browser/LyricsPanel.svelte';
+  import { Button } from '$lib/components/ui/button';
   import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
   import { playerStore, type PlayerSong } from '$lib/stores/player.svelte';
+  import { videoBackdropPrefs } from '$lib/stores/video-backdrop-prefs.svelte';
   import { formatDuration } from '$lib/formatters';
   import {
     fetchShareLyrics,
@@ -200,14 +202,16 @@
         class="hover:bg-foreground/5 group flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors"
       >
         <span
-          class="text-muted-foreground w-6 shrink-0 text-right text-xs tabular-nums group-hover:hidden {isRowLoaded
+          class="text-muted-foreground w-6 shrink-0 text-right text-xs tabular-nums pointer-coarse:hidden group-hover:hidden {isRowLoaded
             ? 'hidden'
             : ''}"
         >
           {track.trackNumber ?? i + 1}
         </span>
         <span
-          class="w-6 shrink-0 {isRowLoaded ? 'inline-flex' : 'hidden group-hover:inline-flex'} justify-end"
+          class="w-6 shrink-0 {isRowLoaded
+            ? 'inline-flex'
+            : 'hidden pointer-coarse:inline-flex group-hover:inline-flex'} justify-end"
         >
           {#if isRowPlaying}
             <Pause class="text-primary size-3.5" fill="currentColor" />
@@ -286,6 +290,23 @@
         durationSeconds={activeTrack.videoDurationSeconds ?? null}
       />
     {/key}
+    <!-- The owner gets this opt-out inside the app's controls cluster; an anonymous visitor here
+         has no such cluster, so it gets its own corner button instead — same store, same
+         localStorage entry, so the preference already carries over if this is the owner's browser. -->
+    <Button
+      size="icon"
+      variant="ghost"
+      class="bg-background/40 hover:bg-background/70 fixed top-[max(0.75rem,env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] z-20 size-9 rounded-full backdrop-blur-sm"
+      onclick={() => videoBackdropPrefs.toggle()}
+      aria-label={videoBackdropPrefs.enabled ? 'Turn off video background' : 'Turn on video background'}
+      title={videoBackdropPrefs.enabled ? 'Turn off video background' : 'Turn on video background'}
+    >
+      {#if videoBackdropPrefs.enabled}
+        <Video class="size-4" />
+      {:else}
+        <VideoOff class="size-4" />
+      {/if}
+    </Button>
   {/if}
 
   {#if !payload || !activeTrack}

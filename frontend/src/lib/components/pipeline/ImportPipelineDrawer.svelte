@@ -7,10 +7,18 @@
     Sparkles,
     PackageCheck,
     ArrowRight,
+    Loader2,
+    Square,
     X
   } from '@lucide/svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
+  import * as AlertDialog from '$lib/components/ui/alert-dialog';
+  import {
+    pipelineOverlay,
+    JOB_CONFIRM_COPY,
+    type JobConfirm,
+    type StageKey
+  } from '$lib/stores/pipeline-overlay.svelte';
   import PipelineStageCard from './PipelineStageCard.svelte';
   import PipelineLogRow from './PipelineLogRow.svelte';
 
@@ -39,6 +47,34 @@
   }
 
   const recent = $derived(overview?.recentActivity ?? []);
+
+  // Job control. Feedback is the stage itself changing (Paused badge, pulse stopping); the store
+  // toasts only on failure. Confirm state is local so the conveyor page, when it is open under
+  // this drawer, never pops a second dialog.
+  let confirmOpen = $state(false);
+  let confirmKind = $state<JobConfirm>('stop');
+  const confirmCopy = $derived(JOB_CONFIRM_COPY[confirmKind]);
+
+  function ask(kind: JobConfirm) {
+    confirmKind = kind;
+    confirmOpen = true;
+  }
+
+  function requestStop() {
+    if (pipelineOverlay.needsConfirm('stop')) ask('stop');
+    else void pipelineOverlay.cancelRunning();
+  }
+
+  function togglePause(key: StageKey) {
+    const paused = pipelineOverlay.isStagePaused(key);
+    if (!paused && key === 'build' && pipelineOverlay.needsConfirm('pause-build')) ask('pause-build');
+    else void pipelineOverlay.setStagePaused(key, !paused);
+  }
+
+  function confirmAction() {
+    if (confirmKind === 'stop') void pipelineOverlay.cancelRunning();
+    else void pipelineOverlay.setStagePaused('build', true);
+  }
 </script>
 
 <aside
@@ -64,7 +100,7 @@
 
     <div class="flex shrink-0 items-center gap-5">
       <div class="hidden text-right md:block">
-        <div class="text-muted-foreground text-[9.5px] font-semibold tracking-wider uppercase">
+        <div class="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
           Processed
         </div>
         <div class="font-mono text-base font-semibold tabular-nums">
@@ -72,7 +108,7 @@
         </div>
       </div>
       <div class="hidden text-right md:block">
-        <div class="text-muted-foreground text-[9.5px] font-semibold tracking-wider uppercase">
+        <div class="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
           Remaining
         </div>
         <div class="font-mono text-base font-semibold tabular-nums">
@@ -80,20 +116,36 @@
         </div>
       </div>
       <div class="text-right">
-        <div class="text-muted-foreground text-[9.5px] font-semibold tracking-wider uppercase">
+        <div class="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
           ETA
         </div>
         <div class="font-mono text-base font-semibold tabular-nums">
           {formatEta(etaSeconds)}
         </div>
       </div>
+      {#if pipelineOverlay.canStop}
+        <button
+          type="button"
+          onclick={requestStop}
+          disabled={pipelineOverlay.cancelling}
+          class="border-border bg-background hover:bg-muted text-foreground inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[12px] font-medium transition-colors disabled:opacity-60"
+        >
+          {#if pipelineOverlay.cancelling}
+            <Loader2 class="size-3.5 animate-spin" />
+            Stopping…
+          {:else}
+            <Square class="size-3 fill-current" />
+            Stop all
+          {/if}
+        </button>
+      {/if}
       <button
         type="button"
-        class="text-muted-foreground hover:bg-muted hover:text-foreground rounded p-1.5"
+        class="text-muted-foreground hover:bg-muted hover:text-foreground grid size-8 place-items-center rounded"
         aria-label="Close pipeline overlay"
         onclick={() => pipelineOverlay.setOpen(false)}
       >
-        <X class="size-3.5" />
+        <X class="size-4" />
       </button>
     </div>
   </header>
@@ -105,7 +157,9 @@
           icon={ScanLine}
           label="Scanning"
           status={snap?.scan?.status}
-          isPaused={snap?.scan?.isPaused ?? false}
+          isPaused={pipelineOverlay.isStagePaused('scan')}
+          onTogglePause={() => togglePause('scan')}
+          pauseBusy={pipelineOverlay.isStageBusy('scan')}
           count={snap?.scanned ?? 0}
           total={discovered}
           perSec={rates.scan}
@@ -114,7 +168,9 @@
           icon={Disc3}
           label="Fingerprinting"
           status={snap?.fingerprint?.status}
-          isPaused={snap?.fingerprint?.isPaused ?? false}
+          isPaused={pipelineOverlay.isStagePaused('fingerprint')}
+          onTogglePause={() => togglePause('fingerprint')}
+          pauseBusy={pipelineOverlay.isStageBusy('fingerprint')}
           count={snap?.fingerprinted ?? 0}
           total={discovered}
           perSec={rates.fingerprint}
@@ -123,7 +179,9 @@
           icon={Sparkles}
           label="Enrichment"
           status={snap?.enrich?.status}
-          isPaused={snap?.enrich?.isPaused ?? false}
+          isPaused={pipelineOverlay.isStagePaused('enrich')}
+          onTogglePause={() => togglePause('enrich')}
+          pauseBusy={pipelineOverlay.isStageBusy('enrich')}
           count={snap?.enriched ?? 0}
           total={discovered}
           perSec={rates.enrich}
@@ -132,7 +190,9 @@
           icon={PackageCheck}
           label="Writing"
           status={snap?.build?.status}
-          isPaused={snap?.build?.isPaused ?? false}
+          isPaused={pipelineOverlay.isStagePaused('build')}
+          onTogglePause={() => togglePause('build')}
+          pauseBusy={pipelineOverlay.isStageBusy('build')}
           count={snap?.built ?? 0}
           total={buildTarget}
           perSec={rates.build}
@@ -154,7 +214,7 @@
               <PipelineLogRow {activity} faded={i} />
             {/each}
           {:else}
-            <p class="text-muted-foreground/70 px-1 py-2 text-center font-mono text-[11px]">
+            <p class="text-muted-foreground-dim px-1 py-2 text-center font-mono text-[11px]">
               No recent activity yet
             </p>
           {/if}
@@ -163,6 +223,19 @@
     </div>
   </div>
 </aside>
+
+<AlertDialog.Root bind:open={confirmOpen}>
+  <AlertDialog.Content>
+    <AlertDialog.Header>
+      <AlertDialog.Title>{confirmCopy.title}</AlertDialog.Title>
+      <AlertDialog.Description>{confirmCopy.description}</AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel>Keep running</AlertDialog.Cancel>
+      <AlertDialog.Action variant="destructive" onclick={confirmAction}>{confirmCopy.action}</AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
 
 <style>
   /* Slightly softer top shadow than the default Tailwind shadow-lg —

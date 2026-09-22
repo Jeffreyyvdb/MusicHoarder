@@ -37,6 +37,9 @@
 
   let primaryFailed = $state(false);
   let fallbackFailed = $state(false);
+  // Whether the image currently on offer has actually finished loading, as opposed to merely being
+  // requested. Only used to gate the fallback attempt below — see `hasCover`.
+  let imgLoaded = $state(false);
 
   // The image currently on offer: the primary URL until it errors, then the fallback until it
   // errors too, then nothing (initials tile).
@@ -49,18 +52,21 @@
   const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
   const resolvedCoverUrl = $derived(coverThumbUrl(activeUrl, Math.round(size * dpr)));
 
-  // When a cover is expected we show only the tinted tile (no initials/caption) while it loads and
-  // fade the image in over it — so scrolling a virtualized grid doesn't flash the big letters before
-  // each cover paints. The initials/caption are the fallback only when there's no cover (or it errors).
-  // Driven off the URLs (known synchronously), not load events, so it's robust to recycled cards.
-  const hasCover = $derived(!!activeUrl);
+  // While the primary URL is still in flight we trust it and keep the initials tile hidden — the
+  // fast, common path, and what keeps a virtualized grid from flashing big letters before each cover
+  // paints on scroll. Once we've fallen back to the second-chance URL, only a confirmed load earns
+  // that trust: a fallback is far more likely to also fail, and without this the initials tile stayed
+  // hidden for the whole of that second failing request, showing the browser's broken-image glyph.
+  const hasCover = $derived((!primaryFailed && !!coverUrl) || imgLoaded);
 
-  // Clear the failure flags when the sources change so a reused card doesn't suppress the next image.
+  // Clear the failure/load flags when the sources change so a reused card doesn't suppress the next
+  // image or wrongly keep showing the previous one's.
   $effect(() => {
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- read to track the deps
     void coverUrl, void fallbackUrl;
     primaryFailed = false;
     fallbackFailed = false;
+    imgLoaded = false;
   });
 </script>
 
@@ -101,6 +107,9 @@
       height={size}
       loading="lazy"
       decoding="async"
+      onload={() => {
+        imgLoaded = true;
+      }}
       onerror={() => {
         // Attribute the error to whichever URL is currently showing (mirrors activeUrl).
         if (!primaryFailed && coverUrl) primaryFailed = true;

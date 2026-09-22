@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { afterNavigate } from '$app/navigation';
   import { page } from '$app/state';
-  import { Check, ChevronRight, Loader2, LogOut, Music, Settings, UserPlus } from '@lucide/svelte';
+  import { Check, ChevronRight, Loader2, LogOut, Music, Settings, UserPlus, X } from '@lucide/svelte';
   import * as Sidebar from '$lib/components/ui/sidebar';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import { navGroupsFor, resolveNav, type NavItem } from '$lib/nav';
@@ -20,6 +20,7 @@
   import { switchAccountAndReload } from '$lib/auth/switch-account';
   import { isBuiltSong } from '$lib/album-sections';
   import { songsStore } from '$lib/stores/songs.svelte';
+  import { inboxBadgeCount } from '$lib/stores/nav-badges.svelte';
   import { storageUsage } from '$lib/stores/storage-usage.svelte';
   import { categoryMeta } from '$lib/storage-usage-meta';
   import { formatBytesShort } from '$lib/formatters';
@@ -105,12 +106,9 @@
   );
   const indexing = $derived(overview?.job?.status === 'running');
 
-  const reviewCount = $derived.by(() => {
-    if (songs.length === 0) return null;
-    return songs
-      .map((s) => mapEnrichmentStatus(s.enrichmentStatus))
-      .filter((s) => s === 'needsreview' || s === 'failed').length;
-  });
+  // Shared with BottomNavV2's Inbox tab badge — see nav-badges.svelte.ts for why this isn't
+  // computed independently in each place.
+  const reviewCount = $derived.by(() => inboxBadgeCount());
   // The grid's own list, so this badge and its "N albums" footer cannot disagree.
   const albumCount = $derived.by(() => (songs.length === 0 ? null : songsStore.albums.length));
 
@@ -210,8 +208,15 @@
 <Sidebar.Root collapsible="offcanvas" variant="floating">
   <Sidebar.Header class="gap-0 px-2 pt-3 pb-2">
     <Sidebar.Menu>
-      <Sidebar.MenuItem>
-        <Sidebar.MenuButton size="lg" tooltipContent="MusicHoarder">
+      <!-- On mobile the sidebar is a Sheet with its default X suppressed (it would collide with
+           this header card — see sidebar.svelte), so this is the drawer's only visible close
+           control. Desktop never renders it: the floating panel closes via the top-bar trigger. -->
+      <Sidebar.MenuItem class={sidebar.isMobile ? 'flex items-center gap-1' : undefined}>
+        <Sidebar.MenuButton
+          size="lg"
+          tooltipContent="MusicHoarder"
+          class={sidebar.isMobile ? 'min-w-0 flex-1' : undefined}
+        >
           {#snippet child({ props })}
             <a {...props} href={isFriend ? APP_HOME : '/pipeline'}>
               <div
@@ -228,6 +233,16 @@
             </a>
           {/snippet}
         </Sidebar.MenuButton>
+        {#if sidebar.isMobile}
+          <button
+            type="button"
+            aria-label="Close"
+            onclick={() => sidebar.setOpenMobile(false)}
+            class="text-muted-foreground hover:bg-sidebar-accent hover:text-foreground focus-visible:ring-sidebar-ring grid size-8 shrink-0 place-items-center rounded-md outline-none transition-colors focus-visible:ring-2"
+          >
+            <X class="size-4" />
+          </button>
+        {/if}
       </Sidebar.MenuItem>
     </Sidebar.Menu>
   </Sidebar.Header>
@@ -291,7 +306,7 @@
                     ? 'text-primary'
                     : active
                       ? 'text-primary'
-                      : 'text-muted-foreground/70'
+                      : 'text-muted-foreground-dim'
                 )}
               />
               {#if item.live && indexing}
@@ -302,7 +317,7 @@
                 <span
                   class={cn(
                     'text-nav-count tabular-nums',
-                    active ? 'text-sidebar-foreground/70' : 'text-muted-foreground/70'
+                    active ? 'text-sidebar-foreground/70' : 'text-muted-foreground-dim'
                   )}
                 >{fmtCount(count)}</span>
               {/if}
@@ -365,13 +380,13 @@
             aria-label="Switch account"
           >
             <div
-              class="flex size-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-700/90 to-cyan-300/90 text-[10.5px] font-semibold text-white"
+              class="flex size-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-700/90 to-cyan-300/90 text-[11px] font-semibold text-white"
             >
               {(user.displayName ?? user.email).slice(0, 2).toUpperCase()}
             </div>
             <div class="min-w-0 flex-1 text-left">
               <div class="truncate text-[11.5px] font-medium">{user.displayName ?? user.email}</div>
-              <div class="text-muted-foreground truncate text-[10.5px]">{user.email}</div>
+              <div class="text-muted-foreground truncate text-[11px]">{user.email}</div>
             </div>
             <ChevronRight class="text-muted-foreground size-3.5 shrink-0" />
           </DropdownMenu.Trigger>
@@ -392,7 +407,7 @@
                   class="gap-2"
                 >
                   <div
-                    class="flex size-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-700/90 to-cyan-300/90 text-[10px] font-semibold text-white"
+                    class="flex size-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-700/90 to-cyan-300/90 text-[11px] font-semibold text-white"
                   >
                     {(account.displayName ?? account.email).slice(0, 2).toUpperCase()}
                   </div>
@@ -400,7 +415,7 @@
                     <div class="truncate text-xs font-medium">
                       {account.displayName ?? account.email}
                     </div>
-                    <div class="text-muted-foreground truncate text-[10.5px]">
+                    <div class="text-muted-foreground truncate text-[11px]">
                       {account.role === 'Owner' ? account.email : `${account.email} · ${roleLabel(account.role)}`}
                     </div>
                   </div>

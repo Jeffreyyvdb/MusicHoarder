@@ -27,14 +27,16 @@
       ? `${activity.artist} — ${activity.track}`
       : activity.track
   );
-  const opacity = $derived(Math.max(0.45, 1 - faded * 0.04));
+  // Older rows fade toward the tail, but they are still data someone reads: the floor keeps
+  // the dimmest row's text above the contrast minimum instead of sinking to ~2:1 at 0.45.
+  const opacity = $derived(Math.max(0.75, 1 - faded * 0.03));
 </script>
 
 <div
   class="grid grid-cols-[80px_60px_1fr] items-baseline gap-2 rounded px-1.5 py-0.5 hover:bg-muted/40"
   style:opacity={opacity}
 >
-  <span class="text-muted-foreground/70 font-mono text-[10px] tabular-nums">{activity.time}</span>
-  <span class={cn('font-mono text-[10px] font-semibold', t.tone)}>[{t.tag}]</span>
+  <span class="text-muted-foreground-dim font-mono text-[11px] tabular-nums">{activity.time}</span>
+  <span class={cn('font-mono text-[11px] font-semibold', t.tone)}>[{t.tag}]</span>
   <span class={cn('truncate font-mono text-[11px]', msgTone)}>{subject}</span>
 </div>

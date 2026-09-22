@@ -490,12 +490,14 @@ function toggleMute() {
 }
 
 /**
- * Dismiss the MiniPlayer bar: pause playback and hide the chrome, keeping the
- * current song and queue so play resumes exactly where the user left off. This
- * is what the bar's close (X) affordance calls — it must never destroy state.
+ * Dismiss the MiniPlayer bar: hide the chrome only. Playback is untouched —
+ * Media Session is already fully wired (see `refreshActionHandlers`), so lock
+ * screen / Control Center controls keep working with the bar out of the way.
+ * `attemptPlay()` clears the flag again on the next play intent (a new track,
+ * resume, queue advance), which is how the bar comes back. This is what the
+ * bar's close (X) affordance calls — it must never destroy state.
  */
 function dismissMiniPlayer() {
-  pause();
   miniPlayerDismissed = true;
 }
 

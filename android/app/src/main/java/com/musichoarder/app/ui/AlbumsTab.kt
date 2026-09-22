@@ -128,7 +128,7 @@ fun AlbumCard(album: Album, status: AlbumStatus?, coverUrl: String?, onClick: ()
             Text(
                 text = "${album.folderKeys.size} editions",
                 style = MaterialTheme.typography.labelSmall,
-                color = colors.mutedForeground.copy(alpha = 0.8f),
+                color = colors.mutedForegroundDim,
                 maxLines = 1,
             )
         }

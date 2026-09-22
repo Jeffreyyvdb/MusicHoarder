@@ -18,6 +18,18 @@
 		"data-slot": dataSlot = "input",
 		...restProps
 	}: Props = $props();
+
+	// iOS keyboard contract, derived from the type so hand-written call sites can't forget it:
+	// search fields get the search keyboard and a Search return key and are never capitalised or
+	// autocorrected ("jay-z" must not arrive as "Jay-z"); email fields likewise skip autocorrect.
+	// Anything the caller passes explicitly overrides these (restProps is spread after).
+	const keyboardDefaults = $derived(
+		type === "search"
+			? { inputmode: "search", enterkeyhint: "search", autocapitalize: "off", autocorrect: "off", spellcheck: false }
+			: type === "email"
+				? { inputmode: "email", autocapitalize: "off", autocorrect: "off", spellcheck: false }
+				: {}
+	) as Record<string, unknown>;
 </script>
 
 {#if type === "file"}
@@ -43,6 +55,7 @@
 		)}
 		{type}
 		bind:value
+		{...keyboardDefaults}
 		{...restProps}
 	/>
 {/if}

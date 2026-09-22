@@ -72,7 +72,7 @@
       <div class="text-muted-foreground flex flex-col items-center justify-center gap-2 py-10 text-center text-[12.5px]">
         <Loader2 class="size-4 animate-spin" />
         <span>Measuring your folders…</span>
-        <span class="text-muted-foreground/70 max-w-xs text-[11px]">
+        <span class="text-muted-foreground-dim max-w-xs text-[11px]">
           The first measurement walks every managed folder. A large library takes a few minutes.
         </span>
       </div>
@@ -110,7 +110,7 @@
               {/each}
             </div>
             {#if snap.capacityBytes > 0}
-              <p class="text-muted-foreground/70 mt-1.5 text-[11px]">
+              <p class="text-muted-foreground-dim mt-1.5 text-[11px]">
                 The unfilled part is the rest of the volume: free space and files MusicHoarder does not manage.
               </p>
             {/if}
@@ -156,7 +156,7 @@
                   </span>
                 </div>
               {/each}
-              <p class="text-muted-foreground/70 text-[11px]">
+              <p class="text-muted-foreground-dim text-[11px]">
                 Of the {formatFileSize(libraryBytes)} in your built library.
               </p>
             {/if}

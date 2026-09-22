@@ -13,5 +13,5 @@
 {:else if status === 'pending'}
   <Clock class="text-muted-foreground size-4" />
 {:else if status === 'failed'}
-  <AlertCircle class="text-destructive size-4" />
+  <AlertCircle class="text-destructive-text size-4" />
 {/if}

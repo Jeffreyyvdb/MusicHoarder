@@ -52,6 +52,7 @@ val MhTypography = Typography(
     labelLarge = mh(13, 16, FontWeight.Medium, -0.065),
     // `--text-nav-sm: 12.5px` — top-bar buttons, filter chips.
     labelMedium = mh(12, 15, FontWeight.Medium, -0.06),
-    // `--text-nav-count: 10.5px` — counts, mobile nav labels.
-    labelSmall = mh(10, 13, FontWeight.Medium),
+    // `--text-nav-count`/`--text-nav-badge` — counts, mono badges (REVIEW/LRC/SHARED). The web
+    // raised these from 10.5px/9px to Apple's 11pt custom-type floor; mirrored here.
+    labelSmall = mh(11, 14, FontWeight.Medium),
 )

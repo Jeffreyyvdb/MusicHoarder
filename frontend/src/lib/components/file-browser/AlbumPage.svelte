@@ -8,10 +8,8 @@
     Download,
     Eye,
     EyeOff,
-    Fingerprint,
     HardDrive,
     History,
-    Image as ImageIcon,
     Loader2,
     MoreHorizontal,
     Pause,
@@ -20,7 +18,6 @@
     Search,
     Share2,
     Shuffle,
-    Tag,
     TriangleAlert,
     UsersRound,
     Users
@@ -207,9 +204,20 @@
     if (!album) return;
     try {
       await copyAlbumDossier(album.artist, album.title);
-      toast.success('Copied album dossier to clipboard — paste into Claude Code');
+      toast.success('Copied album dossier to clipboard — paste into an AI assistant');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Copy failed');
+    }
+  }
+
+  /** Copies the destination folder path — the closest a web app gets to "reveal in Finder". */
+  async function revealInDestination() {
+    if (!destinationFolder) return;
+    try {
+      await navigator.clipboard.writeText(destinationFolder);
+      toast.success('Copied the destination folder path');
+    } catch {
+      toast.error('Could not copy the path');
     }
   }
 
@@ -410,10 +418,16 @@
     return Math.max(0, Math.min(1, s.matchConfidence));
   }
 
+  // The tint stays fully solid down to the hero's bottom padding (pb-5 = 1.25rem) and fades only
+  // inside it, so every line of white text sits on the full-strength tint. album-tint.ts's `from` is
+  // only clamped dark enough for white text at full opacity: fading from 0%, as this used to, washed
+  // the meta row out toward the page background in light mode (vis-01). A percentage stop is not
+  // enough either — the hero's height follows its content, and on a phone a wrapped title pushes the
+  // status pill into the last 15%.
   const heroBackground = $derived.by(() => {
     if (!tint) return '';
     return (
-      `linear-gradient(180deg, ${tint.from} 0%, color-mix(in oklch, ${tint.from} 60%, transparent) 60%, transparent 100%),` +
+      `linear-gradient(180deg, ${tint.from} 0%, ${tint.from} calc(100% - 1.25rem), transparent 100%),` +
       ` linear-gradient(135deg, color-mix(in oklch, ${tint.to} 40%, transparent), transparent)`
     );
   });
@@ -449,7 +463,7 @@
     >
       <a
         href="/library"
-        class="text-muted-foreground hover:text-foreground absolute top-3 left-6 z-10 inline-flex items-center gap-1 rounded-full bg-black/30 px-2.5 py-1 text-xs text-white/85 backdrop-blur transition-colors hover:bg-black/40 hover:text-white sm:left-9"
+        class="absolute top-3 left-6 z-10 inline-flex items-center gap-1 rounded-full bg-black/30 px-2.5 py-1 text-xs text-white/85 backdrop-blur transition-colors hover:bg-black/40 hover:text-white sm:left-9"
       >
         <ArrowLeft class="size-3.5" />
         All albums
@@ -635,7 +649,7 @@
               {/snippet}
             </Tooltip.Trigger>
             <Tooltip.Content>
-              Share — copy a public link that plays this album for anyone, no account needed.
+              Share a public link that plays this album for anyone, no account needed.
             </Tooltip.Content>
           </Tooltip.Root>
         </Tooltip.Provider>
@@ -664,7 +678,7 @@
         </Tooltip.Provider>
       {/if}
 
-      {#if destinationFolder}
+      {#if isOwner && destinationFolder}
         <Tooltip.Provider delayDuration={300}>
           <Tooltip.Root>
             <Tooltip.Trigger>
@@ -710,12 +724,17 @@
                 </button>
               {/snippet}
             </Tooltip.Trigger>
-            <Tooltip.Content>Copy dossier — paste into Claude Code</Tooltip.Content>
+            <Tooltip.Content>Copy dossier — paste into an AI assistant</Tooltip.Content>
           </Tooltip.Root>
         </Tooltip.Provider>
       {/if}
 
-      {#each isOwner ? [{ icon: Fingerprint, label: 'Re-fingerprint album' }, { icon: ImageIcon, label: 'Re-fetch artwork' }, { icon: Tag, label: 'Edit metadata' }, { icon: HardDrive, label: 'Reveal in destination' }] : [] as btn (btn.label)}
+      <!-- Re-fingerprint album, Re-fetch artwork and Edit metadata used to render here with no
+           onclick at all (F16) — removed until a scoped-to-this-album endpoint exists for each;
+           `triggerFingerprint()` in api-client.ts re-fingerprints the whole library, not one album,
+           so wiring it here would be misleading. Reveal in destination had an obvious action
+           (copy the path) and is wired below. -->
+      {#if isOwner && destinationFolder}
         <Tooltip.Provider delayDuration={300}>
           <Tooltip.Root>
             <Tooltip.Trigger>
@@ -723,17 +742,18 @@
                 <button
                   {...props}
                   type="button"
-                  aria-label={btn.label}
+                  onclick={revealInDestination}
+                  aria-label="Reveal in destination"
                   class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full transition-colors"
                 >
-                  <btn.icon class="size-4" />
+                  <HardDrive class="size-4" />
                 </button>
               {/snippet}
             </Tooltip.Trigger>
-            <Tooltip.Content>{btn.label}</Tooltip.Content>
+            <Tooltip.Content>Reveal in destination — copies the folder path</Tooltip.Content>
           </Tooltip.Root>
         </Tooltip.Provider>
-      {/each}
+      {/if}
 
       {#if isOwner}
         <DropdownMenu.Root>
@@ -791,7 +811,7 @@
       {/if}
       <div
         class={cn(
-          'border-border text-muted-foreground grid items-center gap-4 border-b px-3.5 py-2.5 text-[10px] font-semibold tracking-wider uppercase',
+          'border-border text-muted-foreground grid items-center gap-4 border-b px-3.5 py-2.5 text-[11px] font-semibold tracking-wider uppercase',
           'grid-cols-[44px_minmax(0,1fr)_60px_28px] sm:grid-cols-[44px_minmax(0,1fr)_110px_80px_140px_60px_28px]'
         )}
       >
@@ -838,7 +858,7 @@
                 onclick={(e) => playTrack(song, e)}
                 aria-label={isCurrentlyPlaying ? 'Pause track' : 'Play track'}
                 class={cn(
-                  'peer absolute inset-0 grid place-items-center opacity-0 transition-[opacity,scale] duration-100 ease-out group-hover:opacity-100 focus-visible:opacity-100 active:scale-[0.97]',
+                  'peer absolute inset-0 grid place-items-center opacity-0 transition-[opacity,scale] duration-100 ease-out group-hover:opacity-100 focus-visible:opacity-100 active:scale-[0.97] pointer-coarse:opacity-100',
                   isCurrentlyLoaded ? 'text-primary' : 'text-foreground'
                 )}
               >
@@ -851,7 +871,7 @@
               {#if isCurrentlyLoaded}
                 <span
                   class={cn(
-                    'mh-eq text-primary pointer-events-none group-hover:opacity-0 peer-focus-visible:opacity-0',
+                    'mh-eq text-primary pointer-events-none group-hover:opacity-0 peer-focus-visible:opacity-0 pointer-coarse:opacity-0',
                     isCurrentlyPlaying && 'is-playing'
                   )}
                   aria-hidden="true"
@@ -860,7 +880,7 @@
                 </span>
               {:else}
                 <span
-                  class="pointer-events-none font-mono text-sm tabular-nums transition-opacity group-hover:opacity-0 peer-focus-visible:opacity-0"
+                  class="pointer-events-none font-mono text-sm tabular-nums transition-opacity group-hover:opacity-0 peer-focus-visible:opacity-0 pointer-coarse:opacity-0"
                 >
                   {numLabel}
                 </span>
@@ -876,13 +896,13 @@
                 {#if mapEnrichmentStatus(song.enrichmentStatus) === 'needsreview'}
                   <span
                     title="Enrichment uncertain — needs review"
-                    class="rounded bg-amber-500/15 px-1 py-0.5 font-mono text-[9px] font-semibold tracking-wider text-amber-600 dark:text-amber-500"
+                    class="rounded bg-amber-500/15 px-1 py-0.5 font-mono text-[11px] font-semibold tracking-wider text-amber-600 dark:text-amber-500"
                   >
                     REVIEW
                   </span>
                 {/if}
                 {#if song.hasSyncedLyrics || song.lrclibId}
-                  <span class="bg-muted text-muted-foreground rounded px-1 py-0.5 font-mono text-[9px] font-semibold tracking-wider">
+                  <span class="bg-muted text-muted-foreground rounded px-1 py-0.5 font-mono text-[11px] font-semibold tracking-wider">
                     LRC
                   </span>
                 {/if}
@@ -929,7 +949,7 @@
                       (props.onclick as ((ev: MouseEvent) => void) | undefined)?.(e);
                     }}
                     aria-label="Track actions"
-                    class="text-muted-foreground hover:text-foreground grid size-7 place-items-center rounded-md opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+                    class="text-muted-foreground hover:text-foreground grid size-7 place-items-center rounded-md opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 pointer-coarse:opacity-100"
                   >
                     <MoreHorizontal class="size-4" />
                   </button>
@@ -955,18 +975,18 @@
               'grid-cols-[44px_minmax(0,1fr)_60px_28px] sm:grid-cols-[44px_minmax(0,1fr)_110px_80px_140px_60px_28px]'
             )}
           >
-            <span class="text-muted-foreground/50 text-right font-mono text-sm tabular-nums">
+            <span class="text-muted-foreground-dim text-right font-mono text-sm tabular-nums">
               {numLabel}
             </span>
             <div class="min-w-0">
-              <div class="text-muted-foreground/70 truncate text-sm font-medium">{row.title}</div>
+              <div class="text-muted-foreground-dim truncate text-sm font-medium">{row.title}</div>
               <div class="mt-0.5 flex items-center gap-3">
                 {#if row.canonicalTrackId != null}
                   <button
                     type="button"
                     disabled={acquiring.has(row.canonicalTrackId)}
                     onclick={() => onAcquire(row.canonicalTrackId!)}
-                    class="text-muted-foreground/60 hover:text-primary inline-flex items-center gap-1 text-[11px] transition-colors disabled:opacity-50"
+                    class="text-muted-foreground-dim hover:text-primary inline-flex items-center gap-1 text-[11px] transition-colors disabled:opacity-50"
                     title="Queue this track for download"
                   >
                     {#if acquiring.has(row.canonicalTrackId)}
@@ -982,17 +1002,17 @@
                   href={findUrl(row.title)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="text-muted-foreground/60 hover:text-primary inline-flex items-center gap-1 text-[11px] transition-colors"
+                  class="text-muted-foreground-dim hover:text-primary inline-flex items-center gap-1 text-[11px] transition-colors"
                 >
                   <Search class="size-3" /> Find this track
                 </a>
               </div>
             </div>
-            <span class="text-muted-foreground/40 hidden font-mono text-[11px] sm:inline">—</span>
-            <span class="text-muted-foreground/40 hidden font-mono text-[11px] sm:inline">—</span>
+            <span class="text-muted-foreground-dim hidden font-mono text-[11px] sm:inline">—</span>
+            <span class="text-muted-foreground-dim hidden font-mono text-[11px] sm:inline">—</span>
             <span class="hidden items-center sm:flex">
               <span
-                class="bg-muted text-muted-foreground/70 rounded px-1.5 py-0.5 text-[9px] font-semibold tracking-wider uppercase"
+                class="bg-muted text-muted-foreground-dim rounded px-1.5 py-0.5 text-[11px] font-semibold tracking-wider uppercase"
                 title={row.contested
                   ? 'Only some providers list this track — it may be a bonus/edition-specific track'
                   : 'Not in your library'}
@@ -1000,7 +1020,7 @@
                 {row.contested ? 'Bonus?' : 'Missing'}
               </span>
             </span>
-            <span class="text-muted-foreground/50 text-right font-mono text-[11px]">
+            <span class="text-muted-foreground-dim text-right font-mono text-[11px]">
               {formatDuration(row.durationSeconds)}
             </span>
             <span></span>
@@ -1014,7 +1034,7 @@
       class="border-border bg-surface-sunken grid grid-cols-2 gap-x-8 gap-y-5 border-t px-6 py-7 pb-16 sm:grid-cols-3 sm:px-9 md:grid-cols-4"
     >
       <div>
-        <div class="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
+        <div class="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
           Tracks
         </div>
         <div class="text-foreground mt-1 text-[13px]">
@@ -1026,20 +1046,20 @@
         </div>
       </div>
       <div>
-        <div class="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
+        <div class="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
           Release
         </div>
         <div class="text-foreground mt-1 text-[13px]">{album.releaseDate ?? album.year ?? '—'}</div>
       </div>
       <div>
-        <div class="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
+        <div class="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
           Genre
         </div>
         <div class="text-foreground mt-1 text-[13px]">{album.genre ?? '—'}</div>
       </div>
       {#if album.label}
         <div>
-          <div class="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
+          <div class="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
             Label
           </div>
           <div class="text-foreground mt-1 text-[13px]">{album.label}</div>
@@ -1047,7 +1067,7 @@
       {/if}
       {#if album.catalogNumber}
         <div>
-          <div class="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
+          <div class="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
             Catalog #
           </div>
           <div class="text-foreground mt-1 font-mono text-[12px]">{album.catalogNumber}</div>
@@ -1055,14 +1075,14 @@
       {/if}
       {#if album.upc}
         <div>
-          <div class="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
+          <div class="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
             Barcode
           </div>
           <div class="text-foreground mt-1 font-mono text-[12px]">{album.upc}</div>
         </div>
       {/if}
       <div class="col-span-2 min-w-0 sm:col-span-3 md:col-span-1">
-        <div class="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
+        <div class="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
           MusicBrainz ID
         </div>
         <div class="text-muted-foreground mt-1 truncate font-mono text-[11px]" title={album.musicBrainzReleaseId ?? ''}>

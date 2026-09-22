@@ -49,12 +49,12 @@
         {#if card.kind === 'ai'}
           <div class="mt-3 flex flex-wrap items-center gap-1.5">
             <span
-              class="rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-red-600 uppercase dark:text-red-400"
+              class="rounded bg-red-500/15 px-1.5 py-0.5 text-[11px] font-semibold tracking-wide text-red-600 uppercase dark:text-red-400"
             >
               Wrong
             </span>
             <span
-              class="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-amber-600 uppercase dark:text-amber-400"
+              class="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-semibold tracking-wide text-amber-600 uppercase dark:text-amber-400"
             >
               Questionable
             </span>

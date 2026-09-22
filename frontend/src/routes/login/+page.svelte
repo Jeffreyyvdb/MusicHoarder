@@ -1,11 +1,15 @@
 <script lang="ts">
+  import { page } from '$app/state';
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
+  import BrandMark from '$lib/components/BrandMark.svelte';
   import { requestMagicLink, signInAsDemo, loginWithPasskey } from '$lib/api-client';
   import { isPasskeySupported } from '$lib/webauthn-client';
+  import { isInstalledApp } from '$lib/hooks/viewport-insets.svelte';
+  import { isIosDevice } from '$lib/ios-safari';
   import { APP_HOME } from '$lib/app-home';
-  import { LogIn, Mail, Loader2, CheckCircle2, AlertCircle, ExternalLink, Sparkles, KeyRound, UserPlus } from '@lucide/svelte';
+  import { Mail, Loader2, CheckCircle2, AlertCircle, ExternalLink, Sparkles, KeyRound, UserPlus } from '@lucide/svelte';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
@@ -18,20 +22,47 @@
   // ?switch mode a soft nav would carry the previous account's data into the new session.
   const enterApp = () => location.assign(landingRoute());
 
+  // The magic-link callback bounces a dead link back here with a code. Codes, not free text: the
+  // page must not render whatever a crafted ?error= says.
+  const CALLBACK_ERRORS: Record<string, string> = {
+    link: 'That sign-in link has expired or was already used. Enter your email to get a new one.',
+    signin: "Sign-in didn't go through. Try again, or ask for a new link."
+  };
+
+  const callbackError = page.url.searchParams.get('error');
+
   let email = $state('');
+  let emailError = $state<string | null>(null);
   let isSending = $state(false);
   let result = $state<
     | null
     | { ok: true; sent: true; magicLinkUrl?: string | null; magicLinkInLogs?: boolean }
     | { ok: false; message: string }
-  >(null);
+  >(callbackError ? { ok: false, message: CALLBACK_ERRORS[callbackError] ?? CALLBACK_ERRORS.signin } : null);
   let isStartingDemo = $state(false);
   let isPasskeyLogin = $state(false);
   let passkeySupported = $state(false);
+  // An iOS Home Screen app has its own cookie jar and never receives links — an emailed sign-in
+  // link always opens in Safari — so inside it a passkey is the way in.
+  let inIosHomeScreenApp = $state(false);
 
   $effect(() => {
     passkeySupported = isPasskeySupported();
+    inIosHomeScreenApp = isInstalledApp() && isIosDevice();
   });
+
+  // The send button stays enabled at rest — a dimmed main action reads as broken — so an empty or
+  // mistyped address is caught here, with the reason next to the field.
+  function emailProblem(value: string): string | null {
+    if (!value) return 'Enter your email address to get a sign-in link.';
+    if (!/^[^\s@]+@[^\s@]+$/.test(value)) return "That doesn't look like an email address.";
+    return null;
+  }
+
+  function onEmailInput() {
+    result = null;
+    emailError = null;
+  }
 
   async function handlePasskeyLogin() {
     isPasskeyLogin = true;
@@ -49,23 +80,30 @@
     }
   }
 
-  async function handleSubmit(event: Event) {
+  async function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
-    if (!email.trim()) return;
+    const value = email.trim();
+    emailError = emailProblem(value);
+    if (emailError) {
+      (event.currentTarget as HTMLFormElement).querySelector('input')?.focus();
+      return;
+    }
     isSending = true;
     result = null;
     try {
-      const r = await requestMagicLink(email.trim());
+      const r = await requestMagicLink(value);
       if (r.ok) {
         result = { ok: true, sent: true, magicLinkUrl: r.magicLinkUrl, magicLinkInLogs: r.magicLinkInLogs };
       } else {
-        result = { ok: false, message: 'Could not send email. Check Resend configuration.' };
+        // The API logs why; the person signing in can't act on "check the mail provider".
+        result = {
+          ok: false,
+          message: "Couldn't send the sign-in email. Ask whoever runs this server to check its email settings."
+        };
       }
-    } catch (err) {
-      result = {
-        ok: false,
-        message: err instanceof Error ? err.message : 'Unknown error.'
-      };
+    } catch {
+      // requestMagicLink only throws when the request never got an answer.
+      result = { ok: false, message: "Couldn't reach the server. Check your connection and try again." };
     } finally {
       isSending = false;
     }
@@ -92,16 +130,9 @@
 </svelte:head>
 
 <!-- Mobile login -->
-<div class="mob-surface flex min-h-screen flex-col md:hidden">
+<div class="mob-surface flex min-h-dvh flex-col md:hidden">
   <div class="mob-login flex-1">
-    <div class="mob-logo size-11" style="background: var(--primary);">
-      <svg width="22" height="22" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-        <rect x="1" y="1" width="16" height="16" rx="3.5" fill="var(--primary)" />
-        <path d="M5.5 12.5V6l6-1.2V11" stroke="#fff" stroke-width="1.4" stroke-linecap="round" />
-        <circle cx="5" cy="12.5" r="1.3" fill="#fff" />
-        <circle cx="11" cy="11" r="1.3" fill="#fff" />
-      </svg>
-    </div>
+    <BrandMark class="size-11" />
     <h1 class="mob-login-h">{data.switching ? 'Add an account.' : 'Welcome back.'}</h1>
     <div class="mob-login-s">Magic-link sign-in to your library. It stays on this host.</div>
 
@@ -112,21 +143,39 @@
       </div>
     {/if}
 
-    <form class="mob-login-fields" onsubmit={handleSubmit}>
+    <form class="mob-login-fields" onsubmit={handleSubmit} novalidate>
       <label class="mob-login-field">
         <span>EMAIL</span>
         <input
           type="email"
+          inputmode="email"
           autocomplete="email"
+          autocapitalize="off"
+          autocorrect="off"
+          spellcheck={false}
+          enterkeyhint="go"
           placeholder="you@example.com"
           bind:value={email}
-          oninput={() => (result = null)}
+          oninput={onEmailInput}
+          aria-invalid={emailError ? 'true' : undefined}
+          aria-describedby={emailError ? 'login-email-error-mobile' : undefined}
           required
         />
       </label>
-      <button type="submit" class="mob-btn primary" disabled={isSending || !email.trim()}>
+      {#if emailError}
+        <p id="login-email-error-mobile" class="text-destructive-text -mt-1 text-[13px]" role="alert">
+          {emailError}
+        </p>
+      {/if}
+      <button type="submit" class="mob-btn primary" disabled={isSending}>
         {isSending ? 'Sending…' : 'Send me a magic link'}
       </button>
+      {#if inIosHomeScreenApp && passkeySupported}
+        <p class="text-muted-foreground text-center text-[12px] leading-snug">
+          Email links open in Safari, not in this app — sign in here with a passkey. You can add one
+          in Safari under Settings → Account.
+        </p>
+      {/if}
     </form>
 
     {#if result?.ok}
@@ -140,12 +189,12 @@
         {:else}
           Check your email — a sign-in link is on its way (expires in 15 min).
           {#if result.magicLinkUrl}
-            <a href={result.magicLinkUrl} class="mob-login-link mt-2 block">Dev mode: click here to sign in →</a>
+            <a href={result.magicLinkUrl} class="mob-login-link mt-2 block">Dev mode: sign in with this link →</a>
           {/if}
         {/if}
       </div>
     {:else if result && !result.ok}
-      <div class="text-destructive mt-4 text-[13px]">{result.message}</div>
+      <div class="text-destructive-text mt-4 text-[13px]" role="alert">{result.message}</div>
     {/if}
 
     <div class="mob-login-or"><span>or</span></div>
@@ -168,12 +217,10 @@
 </div>
 
 <!-- Desktop login -->
-<div class="bg-background hidden min-h-screen items-center justify-center p-6 md:flex">
+<div class="bg-background hidden min-h-dvh items-center justify-center p-6 md:flex">
   <div class="border-border bg-card w-full max-w-md rounded-2xl border p-8 shadow-sm">
     <div class="mb-6 flex items-center gap-3">
-      <div class="bg-secondary flex size-10 items-center justify-center rounded-lg">
-        <LogIn class="text-foreground size-5" />
-      </div>
+      <BrandMark class="size-10" />
       <div>
         <h1 class="text-2xl font-semibold tracking-tight">{data.switching ? 'Add an account' : 'Sign in'}</h1>
         <p class="text-muted-foreground text-sm">Magic-link sign-in to MusicHoarder.</p>
@@ -193,22 +240,28 @@
       </div>
     {/if}
 
-    <form onsubmit={handleSubmit} class="space-y-4">
+    <form onsubmit={handleSubmit} class="space-y-4" novalidate>
       <div class="space-y-2">
         <Label for="email">Email</Label>
         <Input
           id="email"
           type="email"
           autocomplete="email"
+          enterkeyhint="go"
           placeholder="you@example.com"
           bind:value={email}
-          oninput={() => (result = null)}
-          class="font-mono text-sm"
+          oninput={onEmailInput}
+          aria-invalid={emailError ? 'true' : undefined}
+          aria-describedby={emailError ? 'login-email-error' : undefined}
+          class="font-mono"
           required
         />
+        {#if emailError}
+          <p id="login-email-error" class="text-destructive-text text-sm" role="alert">{emailError}</p>
+        {/if}
       </div>
 
-      <Button type="submit" disabled={isSending || !email.trim()} class="w-full">
+      <Button type="submit" disabled={isSending} class="w-full">
         {#if isSending}
           <Loader2 class="mr-2 size-4 animate-spin" />
         {:else}
@@ -216,6 +269,12 @@
         {/if}
         Send me a magic link
       </Button>
+      {#if inIosHomeScreenApp && passkeySupported}
+        <p class="text-muted-foreground text-center text-xs">
+          Email links open in Safari, not in this app — sign in here with a passkey. You can add one
+          in Safari under Settings → Account.
+        </p>
+      {/if}
     </form>
 
     {#if result?.ok}
@@ -256,7 +315,7 @@
                   href={result.magicLinkUrl}
                   class="text-primary inline-flex items-center gap-1 hover:underline"
                 >
-                  Click here to sign in <ExternalLink class="size-3" />
+                  Sign in with this link <ExternalLink class="size-3" />
                 </a>
               </div>
             {/if}
@@ -265,7 +324,8 @@
       </div>
     {:else if result && !result.ok}
       <div
-        class="border-destructive/50 bg-destructive/10 text-destructive mt-4 flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+        class="border-destructive/50 bg-destructive/10 text-destructive-text mt-4 flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+        role="alert"
       >
         <AlertCircle class="mt-0.5 size-4 shrink-0" />
         <span>{result.message}</span>

@@ -173,7 +173,7 @@
     <div
       class="mx-4 mt-3 rounded-md border px-3 py-2 text-sm md:mx-6 {banner.type === 'success'
         ? 'border-primary/30 bg-primary/10 text-primary'
-        : 'border-destructive/30 bg-destructive/10 text-destructive'}"
+        : 'border-destructive/30 bg-destructive/10 text-destructive-text'}"
     >
       {banner.message}
     </div>
@@ -186,7 +186,7 @@
           <Loader2 class="size-4 animate-spin" /> Loading playlists…
         </div>
       {:else if error}
-        <div class="border-destructive/30 bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-sm">
+        <div class="border-destructive/30 bg-destructive/10 text-destructive-text rounded-md border px-3 py-2 text-sm">
           {error}
         </div>
       {:else}
@@ -261,7 +261,7 @@
                       {/if}
                     </div>
                     {#if c.subscribed && c.filePath}
-                      <div class="text-muted-foreground/70 truncate font-mono text-[11px]" title={c.filePath}>
+                      <div class="text-muted-foreground-dim truncate font-mono text-[11px]" title={c.filePath}>
                         {c.filePath}
                       </div>
                     {/if}

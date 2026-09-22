@@ -69,7 +69,7 @@
       {/if}
     </div>
     {#if error}
-      <p class="text-destructive mb-2 text-[12px]">{error}</p>
+      <p class="text-destructive-text mb-2 text-[12px]">{error}</p>
     {/if}
     <div class="divide-border divide-y">
       {#each actions as action (action.source + action.batchTicks)}
@@ -82,11 +82,11 @@
                 {action.songCount} song{action.songCount === 1 ? '' : 's'}
               </span>
               {#if action.reverted}
-                <span class="bg-accent text-muted-foreground rounded-sm px-1.5 py-px text-[10px]">reverted</span>
+                <span class="bg-accent text-muted-foreground rounded-sm px-1.5 py-px text-[11px]">Reverted</span>
               {/if}
             </div>
             {#if action.highlights.length > 0}
-              <div class={cn('text-muted-foreground mt-0.5 truncate text-[11.5px]', action.reverted && 'line-through opacity-60')}>
+              <div class={cn('text-muted-foreground mt-0.5 truncate text-[11.5px]', action.reverted && 'text-muted-foreground-dim line-through')}>
                 {action.highlights.join(' · ')}
               </div>
             {/if}
@@ -95,7 +95,7 @@
             <Button
               variant="outline"
               size="sm"
-              class="h-6 shrink-0 px-2 text-[11px]"
+              class="h-7 shrink-0 px-2.5 text-[12px]"
               disabled={reverting != null}
               onclick={() => revert(action)}
             >
@@ -107,8 +107,8 @@
               Revert
             </Button>
           {:else if !action.reverted}
-            <span class="text-muted-foreground/70 shrink-0 text-[10.5px]" title="Heals converge automatically — reverting one would just be re-applied by the next pass.">
-              auto-heal
+            <span class="text-muted-foreground-dim shrink-0 text-[11px]" title="Heals converge automatically — reverting one would just be re-applied by the next pass.">
+              Auto-heal
             </span>
           {/if}
         </div>

@@ -330,7 +330,7 @@
       <button
         type="button"
         onclick={closeDetail}
-        class="absolute top-3 left-3 z-10 inline-flex items-center gap-1 rounded-full bg-black/30 px-2.5 py-1 text-xs text-white/85 backdrop-blur transition-colors hover:bg-black/40 hover:text-white sm:left-6"
+        class="absolute top-3 left-3 z-10 inline-flex items-center gap-1 rounded-full bg-black/30 px-2.5 py-1.5 text-xs text-white/85 backdrop-blur transition-colors after:absolute after:-inset-2 hover:bg-black/40 hover:text-white sm:left-6"
       >
         <ArrowLeft class="size-3.5" />
         Back
@@ -444,7 +444,7 @@
         <div
           class="mx-6 mt-3 rounded-md border px-3 py-2 text-sm sm:mx-9 {banner.type === 'success'
             ? 'border-primary/30 bg-primary/10 text-primary'
-            : 'border-destructive/30 bg-destructive/10 text-destructive'}"
+            : 'border-destructive/30 bg-destructive/10 text-destructive-text'}"
         >
           {banner.message}
         </div>
@@ -453,7 +453,7 @@
       <!-- Tracks -->
       {#if detailError}
         <div class="flex flex-col items-center justify-center py-12 text-center">
-          <AlertCircle class="text-destructive mb-3 size-10" />
+          <AlertCircle class="text-destructive-text mb-3 size-10" />
           <p class="text-muted-foreground">{detailError}</p>
           <Button variant="outline" size="sm" class="mt-4" onclick={() => loadDetail(p.id)}>
             Retry
@@ -515,11 +515,18 @@
       {#snippet filters()}
         <div class="relative w-[10rem] shrink-0 sm:w-[clamp(160px,22vw,260px)]">
           <Search class="text-muted-foreground absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
+          <!-- 16px below md: iOS zooms the page into any field smaller than that on focus. -->
           <input
             type="search"
             placeholder="Search playlists…"
+            aria-label="Search playlists"
             bind:value={searchQuery}
-            class="border-border bg-card focus-visible:ring-ring text-nav-sm h-8 w-full rounded-full border pr-2.5 pl-8 outline-none focus-visible:ring-2"
+            inputmode="search"
+            enterkeyhint="search"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck={false}
+            class="border-border bg-card focus-visible:ring-ring h-8 w-full rounded-full border pr-2.5 pl-8 text-base outline-none focus-visible:ring-2 md:text-nav-sm"
           />
         </div>
       {/snippet}
@@ -529,17 +536,24 @@
           <input
             type="url"
             placeholder="Paste a playlist link…"
+            aria-label="Playlist link"
             bind:value={linkUrl}
             onkeydown={(e) => {
               if (e.key === 'Enter') onResolve();
             }}
-            class="border-border bg-card focus-visible:ring-ring text-nav-sm h-8 w-full rounded-full border pr-2.5 pl-8 outline-none focus-visible:ring-2"
+            enterkeyhint="go"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck={false}
+            class="border-border bg-card focus-visible:ring-ring h-8 w-full rounded-full border pr-2.5 pl-8 text-base outline-none focus-visible:ring-2 md:text-nav-sm"
           />
         </div>
+        <!-- Goes with the link field, which has no room below sm; alone it would be a button
+             that is always disabled on a phone. -->
         <Button
           variant="outline"
           size="sm"
-          class="h-8 gap-1.5 px-2.5"
+          class="hidden h-8 gap-1.5 px-2.5 sm:inline-flex"
           onclick={onResolve}
           disabled={resolving || !linkUrl.trim()}
         >
@@ -548,7 +562,7 @@
           {:else}
             <Link2 class="size-4" />
           {/if}
-          <span class="text-nav-sm hidden sm:inline">Add link</span>
+          <span class="text-nav-sm">Add link</span>
         </Button>
       {/snippet}
     </PageToolbarV2>
@@ -559,7 +573,7 @@
       <div class="border-border flex shrink-0 flex-col gap-2 border-b px-4 py-2 sm:px-7">
     {#if resolveError}
       <div
-        class="border-destructive/30 bg-destructive/10 text-destructive flex items-start gap-2 rounded-md border px-3 py-2 text-sm"
+        class="border-destructive/30 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-md border px-3 py-2 text-sm"
       >
         <AlertCircle class="mt-0.5 size-4 shrink-0" />
         <div class="flex-1">
@@ -599,7 +613,7 @@
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2">
             <span class="truncate text-sm font-medium">{r.title}</span>
-            <Badge variant="outline" class="shrink-0 text-[10px]">
+            <Badge variant="outline" class="shrink-0 text-[11px]">
               {r.provider === 'deezer' ? 'Deezer' : 'Spotify'}
             </Badge>
           </div>
@@ -628,7 +642,7 @@
           type="button"
           aria-label="Dismiss"
           onclick={clearLink}
-          class="text-muted-foreground hover:text-foreground shrink-0"
+          class="text-muted-foreground hover:text-foreground hover:bg-muted -m-1 grid size-8 shrink-0 place-items-center rounded-md"
         >
           <X class="size-4" />
         </button>
@@ -669,7 +683,7 @@
       <div
         class="mx-4 mt-3 rounded-md border px-3 py-2 text-sm md:mx-6 {banner.type === 'success'
           ? 'border-primary/30 bg-primary/10 text-primary'
-          : 'border-destructive/30 bg-destructive/10 text-destructive'}"
+          : 'border-destructive/30 bg-destructive/10 text-destructive-text'}"
       >
         {banner.message}
       </div>
@@ -678,7 +692,7 @@
     <!-- Grid -->
     {#if playlistsError}
       <div class="flex flex-col items-center justify-center py-12 text-center">
-        <AlertCircle class="text-destructive mb-3 size-10" />
+        <AlertCircle class="text-destructive-text mb-3 size-10" />
         <p class="text-muted-foreground">{playlistsError}</p>
         <Button variant="outline" size="sm" class="mt-4" onclick={() => loadPlaylists()}>Retry</Button>
       </div>

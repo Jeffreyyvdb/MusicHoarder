@@ -570,9 +570,14 @@
         <Search class="text-muted-foreground absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
         <input
           type="search"
+          inputmode="search"
+          enterkeyhint="search"
+          autocapitalize="off"
+          autocorrect="off"
+          spellcheck={false}
           placeholder="Search artists, albums, tracks…"
           bind:value={query}
-          class="border-border bg-card focus-visible:ring-ring text-nav-sm h-8 w-full rounded-full border pr-2.5 pl-8 outline-none focus-visible:ring-2"
+          class="border-border bg-card focus-visible:ring-ring text-base md:text-nav-sm h-8 w-full rounded-full border pr-2.5 pl-8 outline-none focus-visible:ring-2"
         />
       </div>
       {#if !isListTab && canFilterUnreleased}
@@ -637,7 +642,7 @@
 
   {#if loadError && songs.length === 0 && !isLoading}
     <div class="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-16 text-center">
-      <p class="text-destructive text-sm">{loadError}</p>
+      <p class="text-destructive-text text-sm">{loadError}</p>
       <Button onclick={() => void songsStore.loadSongs()}>Retry</Button>
     </div>
   {:else if isListTab}

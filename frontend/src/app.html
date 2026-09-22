@@ -16,12 +16,15 @@
     <script>
       try {
         var mode = localStorage.getItem('mode-watcher-mode');
-        if (
+        var dark =
           mode === 'dark' ||
-          (mode !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
-        ) {
+          (mode !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) {
           document.querySelector('meta[name="theme-color"]').setAttribute('content', '#060709');
         }
+        // Native controls (inputs, scrollbars, <select> popups) follow color-scheme; claim it at
+        // first paint too, so they don't render light inside a dark shell until mode-watcher runs.
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
       } catch (_) {}
     </script>
     <!-- Installed (home-screen) app. The manifest's `display: standalone` already launches without
