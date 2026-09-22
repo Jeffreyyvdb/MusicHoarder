@@ -76,7 +76,7 @@
     Every track remembers how it got here.
   </h2>
   <p class="text-muted-foreground max-w-[640px] text-[14.5px] leading-[1.6] text-pretty">
-    Click any track and see the whole story — where the raw file came from, every provider that
+    Open any track and see the whole story — where the raw file came from, every provider that
     touched it, what the AI graded it, and exactly where it lives now.
     <strong class="text-foreground">Nothing is a black box.</strong>
   </p>
@@ -86,7 +86,7 @@
     <div class="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-5">
       <Cover artist="Radiohead" title="In Rainbows" coverUrl={null} size={96} corner={10} caption={false} />
       <div class="min-w-0 flex-1">
-        <div class="text-muted-foreground font-mono text-[10px] tracking-[0.1em] uppercase">Track</div>
+        <div class="text-muted-foreground font-mono text-[11px] tracking-[0.1em] uppercase">Track</div>
         <h3 class="mt-0.5 truncate text-2xl font-semibold tracking-tight">Nude</h3>
         <div class="text-muted-foreground mt-0.5 truncate text-[13px]">
           Radiohead · In Rainbows · 2007
@@ -113,7 +113,7 @@
     <!-- Source → Destination paths -->
     <div class="mt-6 grid grid-cols-1 items-stretch gap-3 sm:grid-cols-[1fr_auto_1fr]">
       <div class="border-border bg-surface-sunken rounded-lg border p-3.5">
-        <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">
+        <div class="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">
           Source · raw
         </div>
         <div class="text-muted-foreground mt-1.5 font-mono text-[11.5px] break-all">
@@ -127,7 +127,7 @@
         class="rounded-lg border p-3.5"
         style="background: oklch(0.62 0.13 145 / 0.08); border-color: oklch(0.62 0.13 145 / 0.3)"
       >
-        <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">
+        <div class="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">
           Destination · clean
         </div>
         <div class="text-primary mt-1.5 font-mono text-[11.5px] break-all">
@@ -187,16 +187,16 @@
                 <span class="text-muted-foreground font-mono text-[11px]">{clock(ev.time)}</span>
                 <span
                   class={cn(
-                    'rounded px-1.5 py-0.5 text-[9.5px] font-bold tracking-[0.06em] uppercase',
+                    'rounded px-1.5 py-0.5 text-[11px] font-bold tracking-[0.06em] uppercase',
                     STAGE[ev.tint]
                   )}>{ev.stage}</span
                 >
                 {#if ev.provider}
                   <span class="border-border inline-flex items-center gap-1.5 rounded-md border px-1.5 py-0.5">
                     <span class="size-1.5 rounded-full" style="background: {ev.provider.color}"></span>
-                    <span class="text-[10.5px]">{ev.provider.label}</span>
+                    <span class="text-[11px]">{ev.provider.label}</span>
                     {#if ev.provider.pct != null}
-                      <span class="text-muted-foreground border-border ml-0.5 border-l pl-1.5 font-mono text-[10.5px]"
+                      <span class="text-muted-foreground border-border ml-0.5 border-l pl-1.5 font-mono text-[11px]"
                         >{ev.provider.pct}</span
                       >
                     {/if}

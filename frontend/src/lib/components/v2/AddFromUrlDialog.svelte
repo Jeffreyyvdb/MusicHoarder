@@ -1,6 +1,8 @@
 <script lang="ts">
   import { AlertTriangle, Check, Clapperboard, Film, Loader2, Music } from '@lucide/svelte';
   import * as Dialog from '$lib/components/ui/dialog';
+  import * as Sheet from '$lib/components/ui/sheet';
+  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
@@ -8,6 +10,14 @@
   import { importTrack, resolveImportUrl, type ImportResolveResult } from '$lib/api-client';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
+
+  // Below sm this is a bottom sheet, not a centred dialog: four stacked fields in a fixed,
+  // vertically-centred box end up under the iOS keyboard with nowhere to scroll. One form (the
+  // snippets below) serves both, and 640 matches Tailwind's sm, which the form's h-11/sm:h-8
+  // touch sizing keys off.
+  const isPhone = new IsMobile(640);
+  const heading = 'Add from URL';
+  const blurb = 'Paste a Spotify track or YouTube link to download it and add it to your library.';
 
   let url = $state('');
   let resolving = $state(false);
@@ -116,136 +126,169 @@
   const duration = $derived(resolved ? formatDuration(resolved.durationMs) : null);
 </script>
 
-<Dialog.Root bind:open>
-  <Dialog.Content class="sm:max-w-md">
-    <Dialog.Header>
-      <Dialog.Title>Add from URL</Dialog.Title>
-      <Dialog.Description>
-        Paste a Spotify track or YouTube link to download it and add it to your library.
-      </Dialog.Description>
-    </Dialog.Header>
-
-    <div class="flex flex-col gap-3">
-      <div class="flex items-center gap-2">
-        <Input
-          bind:value={url}
-          placeholder="https://open.spotify.com/track/… or youtu.be/…"
-          onkeydown={onKeydown}
-          disabled={resolving}
-          aria-label="Track URL"
-        />
-        <Button variant="outline" onclick={onResolve} disabled={resolving || !url.trim()}>
-          {#if resolving}
-            <Loader2 class="size-4 animate-spin" />
-          {:else}
-            Resolve
-          {/if}
-        </Button>
-      </div>
-
-      {#if error}
-        <div
-          class="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12.5px] text-amber-700 dark:text-amber-300"
-        >
-          <AlertTriangle class="mt-0.5 size-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      {/if}
-
-      {#if done}
-        <div
-          class="flex items-start gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-[12.5px] text-emerald-700 dark:text-emerald-300"
-        >
-          <Check class="mt-0.5 size-4 shrink-0" />
-          <span>{done}</span>
-        </div>
-      {/if}
-
-      {#if resolved}
-        <div class="border-border bg-card flex gap-3 rounded-lg border p-3">
-          {#if resolved.coverUrl}
-            <img
-              src={resolved.coverUrl}
-              alt=""
-              class="size-16 shrink-0 rounded-md object-cover"
-              referrerpolicy="no-referrer"
-            />
-          {:else}
-            <div class="bg-muted flex size-16 shrink-0 items-center justify-center rounded-md">
-              <Music class="text-muted-foreground size-6" />
-            </div>
-          {/if}
-          <div class="flex min-w-0 flex-1 flex-col gap-2">
-            <span
-              class="text-muted-foreground inline-flex w-fit items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium"
-            >
-              {#if resolved.source === 'youtube'}
-                <Clapperboard class="size-3" /> YouTube
-              {:else}
-                <Music class="size-3" /> Spotify
-              {/if}
-              {#if duration}<span class="text-muted-foreground/70">· {duration}</span>{/if}
-            </span>
-            <div class="flex flex-col gap-1.5">
-              <Label for="import-title" class="text-[11px]">Title</Label>
-              <Input id="import-title" bind:value={title} disabled={submitting} />
-            </div>
-            <div class="flex flex-col gap-1.5">
-              <Label for="import-artist" class="text-[11px]">Artist</Label>
-              <Input id="import-artist" bind:value={artist} disabled={submitting} />
-            </div>
-            <div class="flex flex-col gap-1.5">
-              <Label for="import-album" class="text-[11px]">Album</Label>
-              <Input
-                id="import-album"
-                bind:value={album}
-                placeholder={title || 'Album'}
-                disabled={submitting}
-              />
-              <span class="text-muted-foreground text-[11px]">
-                Names the album folder and its cover. Left blank, the track is filed as a single
-                named after itself.
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <label
-          class="border-border bg-card flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5"
-        >
-          <span class="flex items-center gap-2 text-[13px]">
-            <Film class="text-muted-foreground size-4" />
-            <span class="flex flex-col">
-              <span>Also download the music video</span>
-              <span class="text-muted-foreground text-[11px]">
-                Plays muted behind the full-screen player, synced to the song.
-              </span>
-            </span>
-          </span>
-          <Switch
-            checked={downloadVideo}
-            onCheckedChange={(v: boolean) => (downloadVideo = v)}
-            disabled={submitting}
-            aria-label="Also download the music video"
-          />
-        </label>
-      {/if}
+{#snippet form()}
+  <div class="flex flex-col gap-3">
+    <div class="flex items-center gap-2">
+      <Input
+        type="url"
+        autocapitalize="off"
+        autocorrect="off"
+        spellcheck={false}
+        enterkeyhint="go"
+        class="h-11 sm:h-8"
+        bind:value={url}
+        placeholder="https://open.spotify.com/track/… or youtu.be/…"
+        onkeydown={onKeydown}
+        disabled={resolving}
+        aria-label="Track URL"
+      />
+      <Button
+        variant="outline"
+        class="h-11 sm:h-8"
+        onclick={onResolve}
+        disabled={resolving || !url.trim()}
+      >
+        {#if resolving}
+          <Loader2 class="size-4 animate-spin" />
+        {:else}
+          Resolve
+        {/if}
+      </Button>
     </div>
 
-    <Dialog.Footer>
-      {#if resolved}
-        <Button variant="ghost" onclick={() => (resolved = null)} disabled={submitting}>Back</Button
-        >
-        <Button onclick={onConfirm} disabled={submitting || !title.trim()}>
-          {#if submitting}
-            <Loader2 class="size-4 animate-spin" /> Adding…
-          {:else}
-            Add &amp; download
-          {/if}
-        </Button>
+    {#if error}
+      <div
+        class="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12.5px] text-amber-700 dark:text-amber-300"
+      >
+        <AlertTriangle class="mt-0.5 size-4 shrink-0" />
+        <span>{error}</span>
+      </div>
+    {/if}
+
+    {#if done}
+      <div
+        class="flex items-start gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-[12.5px] text-emerald-700 dark:text-emerald-300"
+      >
+        <Check class="mt-0.5 size-4 shrink-0" />
+        <span>{done}</span>
+      </div>
+    {/if}
+
+    {#if resolved}
+      <div class="border-border bg-card flex gap-3 rounded-lg border p-3">
+        {#if resolved.coverUrl}
+          <img
+            src={resolved.coverUrl}
+            alt=""
+            class="size-16 shrink-0 rounded-md object-cover"
+            referrerpolicy="no-referrer"
+          />
+        {:else}
+          <div class="bg-muted flex size-16 shrink-0 items-center justify-center rounded-md">
+            <Music class="text-muted-foreground size-6" />
+          </div>
+        {/if}
+        <div class="flex min-w-0 flex-1 flex-col gap-2">
+          <span
+            class="text-muted-foreground inline-flex w-fit items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium"
+          >
+            {#if resolved.source === 'youtube'}
+              <Clapperboard class="size-3" /> YouTube
+            {:else}
+              <Music class="size-3" /> Spotify
+            {/if}
+            {#if duration}<span class="text-muted-foreground-dim">· {duration}</span>{/if}
+          </span>
+          <div class="flex flex-col gap-1.5">
+            <Label for="import-title" class="text-[11px]">Title</Label>
+            <Input id="import-title" bind:value={title} disabled={submitting} />
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <Label for="import-artist" class="text-[11px]">Artist</Label>
+            <Input id="import-artist" bind:value={artist} disabled={submitting} />
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <Label for="import-album" class="text-[11px]">Album</Label>
+            <Input
+              id="import-album"
+              bind:value={album}
+              placeholder={title || 'Album'}
+              disabled={submitting}
+            />
+            <span class="text-muted-foreground text-[11px]">
+              Names the album folder and its cover. Left blank, the track is filed as a single named
+              after itself.
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <label
+        class="border-border bg-card flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5"
+      >
+        <span class="flex items-center gap-2 text-[13px]">
+          <Film class="text-muted-foreground size-4" />
+          <span class="flex flex-col">
+            <span>Also download the music video</span>
+            <span class="text-muted-foreground text-[11px]">
+              Plays muted behind the full-screen player, synced to the song.
+            </span>
+          </span>
+        </span>
+        <Switch
+          checked={downloadVideo}
+          onCheckedChange={(v: boolean) => (downloadVideo = v)}
+          disabled={submitting}
+          aria-label="Also download the music video"
+        />
+      </label>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet actions()}
+  {#if resolved}
+    <Button
+      variant="ghost"
+      class="h-11 sm:h-8"
+      onclick={() => (resolved = null)}
+      disabled={submitting}>Back</Button
+    >
+    <Button class="h-11 sm:h-8" onclick={onConfirm} disabled={submitting || !title.trim()}>
+      {#if submitting}
+        <Loader2 class="size-4 animate-spin" /> Adding…
       {:else}
-        <Button variant="outline" onclick={() => (open = false)}>Close</Button>
+        Add &amp; download
       {/if}
-    </Dialog.Footer>
-  </Dialog.Content>
-</Dialog.Root>
+    </Button>
+  {:else}
+    <Button variant="outline" class="h-11 sm:h-8" onclick={() => (open = false)}>Close</Button>
+  {/if}
+{/snippet}
+
+{#if isPhone.current}
+  <Sheet.Root bind:open>
+    <Sheet.Content
+      side="bottom"
+      class="max-h-[85svh] gap-0 overflow-y-auto overscroll-contain rounded-t-2xl pb-[env(safe-area-inset-bottom)]"
+    >
+      <Sheet.Header class="pr-12">
+        <Sheet.Title>{heading}</Sheet.Title>
+        <Sheet.Description>{blurb}</Sheet.Description>
+      </Sheet.Header>
+      <div class="px-4">{@render form()}</div>
+      <div class="flex flex-col-reverse gap-2 p-4">{@render actions()}</div>
+    </Sheet.Content>
+  </Sheet.Root>
+{:else}
+  <Dialog.Root bind:open>
+    <Dialog.Content class="sm:max-w-md">
+      <Dialog.Header>
+        <Dialog.Title>{heading}</Dialog.Title>
+        <Dialog.Description>{blurb}</Dialog.Description>
+      </Dialog.Header>
+      {@render form()}
+      <Dialog.Footer>{@render actions()}</Dialog.Footer>
+    </Dialog.Content>
+  </Dialog.Root>
+{/if}
