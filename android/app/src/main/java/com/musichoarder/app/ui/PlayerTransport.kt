@@ -49,6 +49,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -106,6 +113,8 @@ fun PlayerTransport(
     Column(modifier = modifier.fillMaxWidth()) {
         MhScrubber(
             fraction = playedFraction,
+            positionMs = shownPositionMs,
+            durationMs = state.durationMs,
             enabled = hasDuration,
             onScrub = { fraction ->
                 isScrubbing = true
@@ -189,6 +198,9 @@ fun PlayerTransport(
 @Composable
 private fun MhScrubber(
     fraction: Float,
+    /** For [stateDescription] only — `onScrub`/`onScrubEnd` already work in [fraction]. */
+    positionMs: Long,
+    durationMs: Long,
     enabled: Boolean,
     onScrub: (Float) -> Unit,
     onScrubEnd: () -> Unit,
@@ -215,6 +227,24 @@ private fun MhScrubber(
             // Visually a 3-7dp hairline, but the drag target itself must clear Material's 48dp
             // touch minimum — the web's equivalent shipped at 16px and that was a Critical finding.
             .heightIn(min = 48.dp)
+            // TalkBack gets no semantics at all without this — worse than the web's own gap (F09:
+            // its hand-rolled sliders announce a bare percentage). Read a time, not a fraction, to
+            // match the web's aria-valuetext fix; `setProgress` lets a two-finger swipe seek too.
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Seek"
+                if (enabled) {
+                    progressBarRangeInfo = ProgressBarRangeInfo(current = fraction, range = 0f..1f)
+                    stateDescription = "${formatDuration(positionMs)} of ${formatDuration(durationMs)}"
+                    setProgress { target ->
+                        val clamped = target.coerceIn(0f, 1f)
+                        onScrub(clamped)
+                        onScrubEnd()
+                        true
+                    }
+                } else {
+                    disabled()
+                }
+            }
             .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
                 awaitEachGesture {
