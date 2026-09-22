@@ -28,6 +28,7 @@
   import CandidateGrid from '$lib/components/review/CandidateGrid.svelte';
   import BeforeAfterView from '$lib/components/review/BeforeAfterView.svelte';
   import { Button } from '$lib/components/ui/button';
+  import { Skeleton } from '$lib/components/ui/skeleton';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import * as Tooltip from '$lib/components/ui/tooltip';
   import { toast } from 'svelte-sonner';
@@ -305,7 +306,7 @@
   async function onCopyDossier(songId: number) {
     try {
       await copyQualitySongDossier(songId);
-      toast.success('Copied dossier to clipboard — paste into Claude Code');
+      toast.success('Copied dossier to clipboard — paste into an AI assistant for a second opinion');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Copy failed');
     }
@@ -341,21 +342,29 @@
     selectedId = pool[next].id;
   }
 
-  // Keyboard: A accept · S skip · R reject · ←/→ nav. Ignore while typing.
+  // Keyboard: ⇧A accept · S skip · ⇧R reject · ←/→ nav. Ignore while typing.
+  // Accept and Reject write to the library and there is no undo for them (the reset endpoint
+  // re-runs matching from scratch and can't put back tags the approval overwrote), so they take a
+  // deliberate Shift chord instead of a bare letter a stray keypress can fire. Skip only moves the
+  // selection, so it stays a single key.
   function onKeydown(e: KeyboardEvent) {
     const el = e.target as HTMLElement | null;
-    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable))
+      return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     switch (e.key.toLowerCase()) {
       case 'a':
+        if (!e.shiftKey) return;
         e.preventDefault();
         void handleAccept();
         break;
       case 's':
+        if (e.shiftKey) return;
         e.preventDefault();
         handleSkip();
         break;
       case 'r':
+        if (!e.shiftKey) return;
         e.preventDefault();
         void handleReject();
         break;
@@ -376,9 +385,25 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if loading}
-  <div class="flex flex-1 items-center justify-center p-8">
-    <div class="text-muted-foreground flex items-center gap-2 text-sm">
-      <Loader2 class="size-5 animate-spin" /> Loading review queue…
+  <!-- Shaped like the queue it replaces: the list pane's header and four rows. -->
+  <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[320px_1fr]" role="status">
+    <span class="sr-only">Loading review queue…</span>
+    <div class="border-border bg-surface-sunken flex min-h-0 flex-col border-r" aria-hidden="true">
+      <div class="border-border flex h-12 items-center border-b px-4">
+        <Skeleton class="h-3 w-28" />
+      </div>
+      <div class="p-1.5">
+        {#each Array(4) as _, i (i)}
+          <div class="mb-0.5 flex items-center gap-2.5 py-2 pr-2.5 pl-2.5">
+            <Skeleton class="size-10 shrink-0" />
+            <div class="min-w-0 flex-1 space-y-1.5">
+              <Skeleton class="h-3.5 w-3/4" />
+              <Skeleton class="h-3 w-1/2" />
+            </div>
+            <Skeleton class="h-3 w-14 shrink-0" />
+          </div>
+        {/each}
+      </div>
     </div>
   </div>
 {:else if error && tracks.length === 0}
@@ -424,6 +449,7 @@
             type="button"
             onclick={loadQueue}
             title="Refresh"
+            aria-label="Refresh review queue"
             class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-7 place-items-center rounded-md transition-colors"
           >
             <RefreshCw class="size-3.5" />
@@ -545,7 +571,7 @@
               </span>
             </div>
             {#if original.subtitle}<div class="text-muted-foreground truncate text-[12.5px]">{original.subtitle}</div>{/if}
-            <div class="text-muted-foreground/70 truncate font-mono text-[11px]">{original.fileName}</div>
+            <div class="text-muted-foreground-dim truncate font-mono text-[11px]">{original.fileName}</div>
             {#if guess.title && guess.title !== original.title}
               <div class="text-muted-foreground mt-1.5 truncate text-[12px]">
                 Best guess: <span class="text-foreground/80">{guess.title}</span>{guess.subtitle ? ' · ' + guess.subtitle : ''}
@@ -577,7 +603,7 @@
         {/if}
 
         <!-- Scrollable body: candidates + before/after diff -->
-        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 pb-[calc(1rem_+_var(--mh-content-pad))] sm:px-6">
+        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
           <div class="flex items-baseline gap-2">
             <span class="text-foreground text-[13px] font-semibold">Candidates</span>
             <span class="text-muted-foreground text-[11.5px]">Pick a provider's answer, or override fields below.</span>
@@ -601,17 +627,22 @@
           />
         </div>
 
-        <!-- Action bar — keyboard shortcuts live in a "?" tooltip so they stay discoverable at any width. -->
-        <div class="border-border bg-background flex flex-wrap items-center gap-2 border-t px-4 py-3 sm:gap-3 sm:px-6">
+        <!-- Action bar — keyboard shortcuts live in a "?" tooltip so they stay discoverable at any width.
+             It is the last thing in a full-height column, so on a phone it sits where the floating
+             bottom nav (and the mini player, when it shows) float: it carries their clearance as
+             its own bottom padding, the same --mh-content-pad every scroll region here consumes. -->
+        <div
+          class="border-border bg-background flex flex-wrap items-center gap-2 border-t px-4 pt-3 pb-[calc(0.75rem_+_var(--mh-content-pad))] sm:gap-3 sm:px-6"
+        >
           <div class="flex flex-1 items-center">
             <Tooltip.Provider delayDuration={150}>
               <Tooltip.Root>
                 <Tooltip.Trigger
-                  class="border-border text-muted-foreground hover:bg-accent hover:text-foreground grid size-7 place-items-center rounded-full border text-[12px] font-medium transition-colors"
+                  class="border-border text-muted-foreground hover:bg-accent hover:text-foreground grid size-7 place-items-center rounded-full border text-[12px] font-medium transition-colors max-md:pointer-coarse:hidden"
                   aria-label="Keyboard shortcuts"
                 >?</Tooltip.Trigger>
                 <Tooltip.Content side="top" align="start">
-                  A accept · S skip · R reject · ← → navigate
+                  ⇧A accept · S skip · ⇧R reject · ← → navigate
                 </Tooltip.Content>
               </Tooltip.Root>
             </Tooltip.Provider>

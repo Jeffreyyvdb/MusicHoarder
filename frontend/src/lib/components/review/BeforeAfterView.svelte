@@ -68,14 +68,16 @@
           <Table.Cell class="w-20 px-4 py-2.5 text-[13px] font-medium">{row.label}</Table.Cell>
           <Table.Cell class="px-4 py-2.5">
             <div class="flex min-w-0 items-center gap-1.5">
-              <span class={cn('truncate text-[13px]', !row.embedded && 'text-muted-foreground/60 italic')}>
+              <span class={cn('truncate text-[13px]', !row.embedded && 'text-muted-foreground-dim italic')}>
                 {row.embedded || '(empty)'}
               </span>
               {#if !readonly && row.embedded && row.embedded !== (values[row.key] ?? '')}
+                <!-- 20px glyph in a dense table row; the hit area grows to 44px on touch. -->
                 <button
                   type="button"
                   title="Copy embedded value into final"
-                  class="text-muted-foreground hover:text-primary border-border hover:border-primary grid size-5 shrink-0 place-items-center rounded border"
+                  aria-label={`Use the embedded ${row.label.toLowerCase()}`}
+                  class="text-muted-foreground hover:text-primary border-border hover:border-primary relative grid size-5 shrink-0 place-items-center rounded border pointer-coarse:after:absolute pointer-coarse:after:-inset-3"
                   onclick={() => oncopy(row.key, row.embedded)}
                 >
                   <Plus class="size-3" />

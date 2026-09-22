@@ -11,6 +11,7 @@
   import { formatFileSize, formatDuration, formatBitrate } from '$lib/formatters';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import { Button } from '$lib/components/ui/button';
+  import { Skeleton } from '$lib/components/ui/skeleton';
   import { cn } from '$lib/utils';
 
   type Props = { oncount?: (n: number | null) => void };
@@ -109,9 +110,25 @@
 </script>
 
 {#if loading}
-  <div class="flex flex-1 items-center justify-center p-8">
-    <div class="text-muted-foreground flex items-center gap-2 text-sm">
-      <Loader2 class="size-5 animate-spin" /> Loading duplicates…
+  <!-- Shaped like the queue it replaces: the list pane's header and four group rows. -->
+  <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[320px_1fr]" role="status">
+    <span class="sr-only">Loading duplicates…</span>
+    <div class="border-border bg-surface-sunken flex min-h-0 flex-col border-r" aria-hidden="true">
+      <div class="border-border flex h-12 items-center border-b px-4">
+        <Skeleton class="h-3 w-32" />
+      </div>
+      <div class="p-1.5">
+        {#each Array(4) as _, i (i)}
+          <div class="mb-0.5 flex items-center gap-2.5 py-2 pr-2.5 pl-2.5">
+            <Skeleton class="size-10 shrink-0" />
+            <div class="min-w-0 flex-1 space-y-1.5">
+              <Skeleton class="h-3.5 w-2/3" />
+              <Skeleton class="h-3 w-2/5" />
+            </div>
+            <Skeleton class="h-3 w-12 shrink-0" />
+          </div>
+        {/each}
+      </div>
     </div>
   </div>
 {:else if error}
@@ -144,6 +161,7 @@
           type="button"
           onclick={load}
           title="Refresh"
+          aria-label="Refresh duplicates"
           class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-7 place-items-center rounded-md transition-colors"
         >
           <RefreshCw class="size-3.5" />
@@ -168,7 +186,7 @@
             <div class="flex shrink-0 flex-col items-end gap-0.5">
               <span class="text-muted-foreground text-[11px] tabular-nums">{g.members.length} copies</span>
               {#if g.confidence === 'suspected'}
-                <span class="rounded-sm bg-amber-500/15 px-1 py-px text-[9.5px] font-medium text-amber-600 dark:text-amber-400">suspected</span>
+                <span class="rounded-sm bg-amber-500/15 px-1 py-px text-[11px] font-medium text-amber-700 dark:text-amber-400">Suspected</span>
               {/if}
             </div>
           </button>
@@ -198,10 +216,10 @@
               <span class="text-[14px] font-semibold">Duplicate group</span>
               <span
                 class={cn(
-                  'rounded-sm px-1.5 py-px text-[10px] font-medium',
+                  'rounded-sm px-1.5 py-px text-[11px] font-medium',
                   selectedGroup.confidence === 'confirmed'
                     ? 'bg-primary/10 text-primary'
-                    : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                    : 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
                 )}
               >
                 {selectedGroup.confidence === 'confirmed' ? 'Confirmed' : 'Suspected'}
@@ -213,7 +231,7 @@
           </div>
         </div>
 
-        <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 pb-[calc(1rem_+_var(--mh-content-pad))] sm:px-6">
+        <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 sm:px-6">
           {#each selectedGroup.members as m (m.id)}
             {@const keeper = m.isKeeper}
             <div class={cn('rounded-lg border p-4', keeper ? 'border-primary bg-primary/5' : 'border-border bg-card')}>
@@ -229,7 +247,7 @@
                   <Button
                     variant="outline"
                     size="sm"
-                    class="h-6 px-2 text-[11px]"
+                    class="h-7 px-2.5 text-[12px]"
                     disabled={acting}
                     onclick={() => keep(selectedGroup, m.id)}
                   >
@@ -242,7 +260,7 @@
               {#if reasonChips(m).length > 0}
                 <div class="mt-2 flex flex-wrap gap-1">
                   {#each reasonChips(m) as chip, chipIdx (chipIdx)}
-                    <span class="bg-accent text-muted-foreground rounded-sm px-1.5 py-px text-[10px]">{chip}</span>
+                    <span class="bg-accent text-muted-foreground rounded-sm px-1.5 py-px text-[11px]">{chip}</span>
                   {/each}
                 </div>
               {/if}
@@ -254,7 +272,7 @@
                   </div>
                 {/each}
               </div>
-              <div class="text-muted-foreground mt-3 font-mono text-[10.5px] leading-relaxed break-all">{m.sourcePath}</div>
+              <div class="text-muted-foreground mt-3 font-mono text-[11px] leading-relaxed break-all">{m.sourcePath}</div>
               {#if !keeper && m.isBuilt}
                 <p class="text-muted-foreground mt-2 text-[11px]">
                   Already built — its destination file is left in place (nothing is deleted).
@@ -264,7 +282,11 @@
           {/each}
         </div>
 
-        <div class="border-border bg-background flex flex-wrap items-center gap-2 border-t px-4 py-3 sm:px-6">
+        <!-- Last item in a full-height column: carries the floating bottom nav's clearance itself
+             (same fix as the Tag review action bar), so the actions never sit under the nav. -->
+        <div
+          class="border-border bg-background flex flex-wrap items-center gap-2 border-t px-4 pt-3 pb-[calc(0.75rem_+_var(--mh-content-pad))] sm:px-6"
+        >
           <Button size="sm" disabled={acting} onclick={() => keep(selectedGroup, selectedGroup.keeper.id)}>
             {#if acting}<Loader2 class="mr-1 size-3.5 animate-spin" />{/if}
             Keep recommended

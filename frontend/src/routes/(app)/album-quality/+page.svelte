@@ -107,7 +107,11 @@
     {/snippet}
   </PageToolbarV2>
 
-  <div class="flex min-h-0 flex-1 flex-col gap-5 px-4 py-4 sm:px-7 sm:py-5">
+  <!-- The offenders list is the last flex child and scrolls itself, so the column's trailing
+       padding is what keeps its bottom rows clear of the floating bottom nav / mini player. -->
+  <div
+    class="flex min-h-0 flex-1 flex-col gap-5 px-4 pt-4 pb-[calc(1rem_+_var(--mh-content-pad))] sm:px-7 sm:pt-5 sm:pb-[calc(1.25rem_+_var(--mh-content-pad))]"
+  >
 
   {#if error}
     <div class="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-[13px] text-red-600 dark:text-red-400">{error}</div>
@@ -150,7 +154,7 @@
                     {#if row.isOutdated}
                       <span
                         title="Graded with an older prompt or model — re-grade to refresh."
-                        class="inline-flex shrink-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-px text-[9.5px] font-semibold tracking-wide text-amber-600 uppercase dark:text-amber-400"
+                        class="inline-flex shrink-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-px text-[11px] font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-400"
                       >
                         <History class="size-2.5" /> outdated
                       </span>

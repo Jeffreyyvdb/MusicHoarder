@@ -52,8 +52,8 @@
 </script>
 
 <div
-  class="border-border/50 hover:bg-muted/40 flex items-center gap-3 border-b py-1.5 pr-2 text-xs last:border-b-0"
-  style="padding-left: {depth * 18 + 30}px"
+  class="border-border/50 hover:bg-muted/40 flex items-center gap-3 border-b py-1.5 pr-2 text-xs last:border-b-0 pl-[calc(min(var(--depth),3)*14px_+_30px)] sm:pl-[calc(var(--depth)*18px_+_30px)]"
+  style:--depth={depth}
 >
   <!-- filename with a muted extension prefix -->
   <span class="flex min-w-0 flex-1 items-baseline gap-1.5">
@@ -66,7 +66,7 @@
     <span class={cn('size-1.5 shrink-0 rounded-full', meta.dot)} aria-hidden="true"></span>
     <span>{meta.label}</span>
     {#if file.matchConfidence != null}
-      <span class="text-muted-foreground/70 tabular-nums">{file.matchConfidence.toFixed(2)}</span>
+      <span class="text-muted-foreground-dim tabular-nums">{file.matchConfidence.toFixed(2)}</span>
     {/if}
   </span>
 
@@ -78,10 +78,10 @@
   <!-- destination -->
   <span class="hidden min-w-0 flex-1 truncate md:block">
     {#if file.destinationPath}
-      <span class="text-muted-foreground/60 mr-1">→</span>
+      <span class="text-muted-foreground/60 mr-1" aria-hidden="true">→</span>
       <span class="text-muted-foreground">{file.destinationPath}</span>
     {:else}
-      <span class="text-muted-foreground/50 italic">— {meta.pendingHint} —</span>
+      <span class="text-muted-foreground-dim italic">— {meta.pendingHint} —</span>
     {/if}
   </span>
 </div>

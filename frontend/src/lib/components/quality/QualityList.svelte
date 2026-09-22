@@ -25,7 +25,7 @@
 <aside class="bg-surface-sunken border-border flex h-full min-h-0 flex-col rounded-lg border">
   <div class="border-border text-muted-foreground flex shrink-0 items-center justify-between border-b px-3.5 py-2.5 font-mono text-[11px]">
     <span>
-      {songs.length.toLocaleString()}{#if capped}<span class="text-muted-foreground/60"> of {total!.toLocaleString()}</span>{/if}
+      {songs.length.toLocaleString()}{#if capped}<span class="text-muted-foreground-dim"> of {total!.toLocaleString()}</span>{/if}
       {songs.length === 1 && !capped ? 'track' : 'tracks'}
     </span>
     <span>worst first</span>
@@ -64,32 +64,32 @@
           </div>
           <div class="mt-1 flex flex-wrap items-center gap-1.5">
             {#if s.bucket === 'flagged'}
-              <span class="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-px text-[9.5px] font-semibold tracking-wide text-amber-600 uppercase dark:text-amber-400">
+              <span class="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-px text-[11px] font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-400">
                 <TriangleAlert class="size-2.5" /> flagged
               </span>
             {:else if s.bucket === 'silent'}
-              <span class="inline-flex items-center gap-1 rounded bg-red-500/15 px-1.5 py-px text-[9.5px] font-semibold tracking-wide text-red-600 uppercase dark:text-red-400">
+              <span class="inline-flex items-center gap-1 rounded bg-red-500/15 px-1.5 py-px text-[11px] font-semibold tracking-wide text-red-700 uppercase dark:text-red-400">
                 <EarOff class="size-2.5" /> silent failure
               </span>
             {:else if s.bucket === 'verified'}
-              <span class="border-border text-muted-foreground inline-flex items-center rounded border px-1.5 py-px text-[9.5px] font-semibold tracking-wide uppercase">
+              <span class="border-border text-muted-foreground inline-flex items-center rounded border px-1.5 py-px text-[11px] font-semibold tracking-wide uppercase">
                 algo + AI agree
               </span>
             {/if}
 
-            <span class={cn('inline-flex items-center gap-1 rounded-full border px-1.5 py-px text-[10.5px] font-semibold', verdictBadge(s.verdict))}>
+            <span class={cn('inline-flex items-center gap-1 rounded-full border px-1.5 py-px text-[11px] font-semibold', verdictBadge(s.verdict))}>
               <span class={cn('size-[5px] rounded-full', VERDICT_DOT[s.verdict])}></span>
               <span class="font-mono tabular-nums">{s.score}</span>
             </span>
 
             {#if s.issues.length > 0}
-              <span class="bg-background text-muted-foreground border-border rounded border px-1 py-px font-mono text-[9.5px]">{s.issues[0].code}</span>
+              <span class="bg-background text-muted-foreground border-border rounded border px-1 py-px font-mono text-[11px]">{s.issues[0].code}</span>
             {/if}
 
             {#if s.isOutdated}
               <span
                 title="Graded with an older prompt or model — re-grade to refresh."
-                class="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-px text-[9.5px] font-semibold tracking-wide text-amber-600 uppercase dark:text-amber-400"
+                class="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-px text-[11px] font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-400"
               >
                 <History class="size-2.5" /> outdated
               </span>
