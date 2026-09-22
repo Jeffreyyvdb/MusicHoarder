@@ -261,7 +261,7 @@
                       {/if}
                     </div>
                     {#if c.subscribed && c.filePath}
-                      <div class="text-muted-foreground/70 truncate font-mono text-[11px]" title={c.filePath}>
+                      <div class="text-muted-foreground-dim truncate font-mono text-[11px]" title={c.filePath}>
                         {c.filePath}
                       </div>
                     {/if}

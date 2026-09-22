@@ -66,16 +66,16 @@
           <span class="text-muted-foreground font-mono text-[11px]">{clock(ev.time)}</span>
           <span
             class={cn(
-              'rounded px-1.5 py-0.5 text-[9.5px] font-bold tracking-[0.06em] uppercase',
+              'rounded px-1.5 py-0.5 text-[11px] font-bold tracking-[0.06em] uppercase',
               STAGE[ev.tint]
             )}>{ev.stage}</span
           >
           {#if ev.provider}
             <span class="border-border inline-flex items-center gap-1.5 rounded-md border px-1.5 py-0.5">
               <span class="size-1.5 rounded-full" style="background: {ev.provider.color}"></span>
-              <span class="text-[10.5px]">{ev.provider.label}</span>
+              <span class="text-[11px]">{ev.provider.label}</span>
               {#if ev.provider.pct != null}
-                <span class="text-muted-foreground border-border ml-0.5 border-l pl-1.5 font-mono text-[10.5px]"
+                <span class="text-muted-foreground border-border ml-0.5 border-l pl-1.5 font-mono text-[11px]"
                   >{ev.provider.pct}</span
                 >
               {/if}
