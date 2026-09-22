@@ -74,7 +74,11 @@
     <Icon class="text-muted-foreground size-4 shrink-0" aria-hidden="true" />
   {/if}
 
-  <div class="flex min-w-0 shrink items-baseline gap-2">
+  <!-- A floor, not a full lock: shrink-0 keeps the title at its content width so the (scrollable)
+       SectionTabsV2 strip gives way first instead of the two splitting the squeeze evenly and the
+       title clipping to a couple of characters (vis-06). min-w only backstops it if that ever
+       changes. -->
+  <div class="flex min-w-[7ch] shrink-0 items-baseline gap-2">
     <h1 class="text-nav truncate font-semibold tracking-[-0.01em]">{title}</h1>
     {#if meta}
       <span

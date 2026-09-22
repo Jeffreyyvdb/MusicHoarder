@@ -72,7 +72,7 @@
     <!-- Safe-area padding is for the installed (home-screen) app, where this covers the status bar
          and home indicator; the `absolute inset-0` backdrops below still span the padding box. -->
     <DialogPrimitive.Content
-      class="data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 fixed inset-0 z-[60] flex flex-col overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] duration-150 outline-none"
+      class="mh-detail-content fixed inset-0 z-[60] flex flex-col overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] outline-none"
     >
       <!-- Backdrop: the song's muted music video (synced to the audio clock) when attached and
            enabled, else the ambient blurred cover + theme-aware scrim. -->
@@ -87,7 +87,11 @@
             class="absolute inset-0 size-full scale-110 object-cover opacity-50 blur-3xl"
           />
         {/if}
-        <div class="bg-background/80 absolute inset-0 backdrop-blur-2xl"></div>
+        <!-- The app's own top bar / bottom nav stay mounted underneath this overlay (never
+             hidden), so the scrim has to be opaque enough that their text doesn't ghost through
+             behind the overlay's tabs and transport — /80 wasn't (vis-07). .mh-glass keeps this
+             fully solid under Reduce Transparency / Increase Contrast on top of that. -->
+        <div class="mh-glass bg-background/92 absolute inset-0 backdrop-blur-2xl"></div>
       {/if}
 
       <DialogPrimitive.Title class="sr-only">Track details</DialogPrimitive.Title>
@@ -118,3 +122,30 @@
     </DialogPrimitive.Content>
   </DialogPrimitive.Portal>
 </DialogPrimitive.Root>
+
+<style>
+  /* Opening/closing gets a small rise on the same ease-out curve the mini player's own entrance
+     uses (mh-mini-rise in MiniPlayer.svelte), so this reads as the bar expanding into the
+     full-screen view rather than an unrelated fade (F38) — replaces the old fade-only Tailwind
+     animate-in/out utilities, which can't drive a translateY alongside the opacity fade without
+     fighting Dialog's own enter/exit attribute toggling. The global prefers-reduced-motion clamp
+     in app.css already flattens this to an instant cut, so no separate override is needed here. */
+  /* bits-ui sets data-open/data-closed after mount, so it never appears in the static template —
+     :global() keeps Svelte from pruning the attribute half as an "unused" selector. */
+  :global(.mh-detail-content[data-open]) {
+    animation: mh-detail-rise 220ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  }
+  :global(.mh-detail-content[data-closed]) {
+    animation: mh-detail-rise 220ms cubic-bezier(0.23, 1, 0.32, 1) reverse both;
+  }
+  @keyframes mh-detail-rise {
+    from {
+      transform: translateY(20px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+</style>
