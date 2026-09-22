@@ -111,29 +111,33 @@
           {@const covered = hasLibraryGrant(friend)}
           {@const viaArtist = !covered && Boolean(artistGrantOf(friend))}
           {@const shared = Boolean(albumGrantOf(friend))}
-          <li class="flex items-center gap-3 px-4 py-2.5">
-            <div class="min-w-0 flex-1">
-              <div class="truncate text-sm">{friend.displayName ?? friend.email}</div>
-              {#if covered}
-                <div class="text-muted-foreground flex items-center gap-1 text-xs">
-                  <Library class="size-3" /> Already has your entire library
-                </div>
-              {:else if viaArtist}
-                <div class="text-muted-foreground text-xs">Already has this artist</div>
+          <li>
+            <!-- The whole row is the label, not just the 16px box, so the ~44px row is the
+                 touch target rather than a sliver of it. -->
+            <label class="flex items-center gap-3 px-4 py-2.5">
+              <div class="min-w-0 flex-1">
+                <div class="truncate text-sm">{friend.displayName ?? friend.email}</div>
+                {#if covered}
+                  <div class="text-muted-foreground flex items-center gap-1 text-xs">
+                    <Library class="size-3" /> Already has your entire library
+                  </div>
+                {:else if viaArtist}
+                  <div class="text-muted-foreground text-xs">Already has this artist</div>
+                {/if}
+              </div>
+              {#if busyId === friend.id}
+                <Loader2 class="text-muted-foreground size-4 animate-spin" />
+              {:else}
+                <input
+                  type="checkbox"
+                  class="accent-primary size-4"
+                  checked={covered || viaArtist || shared}
+                  disabled={covered || viaArtist}
+                  aria-label={`Share ${album} with ${friend.email}`}
+                  onchange={() => toggle(friend)}
+                />
               {/if}
-            </div>
-            {#if busyId === friend.id}
-              <Loader2 class="text-muted-foreground size-4 animate-spin" />
-            {:else}
-              <input
-                type="checkbox"
-                class="accent-primary size-4"
-                checked={covered || viaArtist || shared}
-                disabled={covered || viaArtist}
-                aria-label={`Share ${album} with ${friend.email}`}
-                onchange={() => toggle(friend)}
-              />
-            {/if}
+            </label>
           </li>
         {/each}
       </ul>
