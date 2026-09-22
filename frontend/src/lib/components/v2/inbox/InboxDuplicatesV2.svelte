@@ -117,7 +117,7 @@
 {:else if error}
   <div class="flex flex-1 items-center justify-center p-8">
     <div class="max-w-md text-center">
-      <p class="text-destructive mb-3 text-sm">{error}</p>
+      <p class="text-destructive-text mb-3 text-sm">{error}</p>
       <Button onclick={load}>Retry</Button>
     </div>
   </div>
@@ -273,7 +273,7 @@
             Not duplicates
           </Button>
           {#if actionError}
-            <span class="text-destructive text-[12px]">{actionError}</span>
+            <span class="text-destructive-text text-[12px]">{actionError}</span>
           {:else}
             <span class="text-muted-foreground text-[11.5px]">
               Keeping a copy excludes the others from the library build — source files are never touched.

@@ -69,7 +69,7 @@
       {/if}
     </div>
     {#if error}
-      <p class="text-destructive mb-2 text-[12px]">{error}</p>
+      <p class="text-destructive-text mb-2 text-[12px]">{error}</p>
     {/if}
     <div class="divide-border divide-y">
       {#each actions as action (action.source + action.batchTicks)}

@@ -197,7 +197,7 @@
 
     {#if error}
       <div class="flex flex-col items-center justify-center py-12 text-center">
-        <AlertCircle class="text-destructive mb-3 size-10" />
+        <AlertCircle class="text-destructive-text mb-3 size-10" />
         <p class="text-muted-foreground">{error}</p>
         <Button variant="outline" size="sm" class="mt-4" onclick={() => loadTracks(offset)}>
           Retry

@@ -419,7 +419,7 @@
   </div>
 {:else if loadState === 'error'}
   <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 py-8 text-center">
-    <AlertCircle class="text-destructive size-8 opacity-70" />
+    <AlertCircle class="text-destructive-text size-8 opacity-70" />
     <p class="text-muted-foreground text-sm">Failed to load lyrics.</p>
     <Button variant="outline" size="sm" onclick={() => (loadState = 'idle')}>Retry</Button>
   </div>

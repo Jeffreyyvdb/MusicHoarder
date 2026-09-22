@@ -384,7 +384,7 @@
 {:else if error && tracks.length === 0}
   <div class="flex flex-1 items-center justify-center p-8">
     <div class="max-w-md text-center">
-      <p class="text-destructive mb-3 text-sm">{error}</p>
+      <p class="text-destructive-text mb-3 text-sm">{error}</p>
       <Button onclick={loadQueue}>Retry</Button>
     </div>
   </div>
@@ -570,7 +570,7 @@
         </div>
 
         {#if error}
-          <div class="border-destructive/50 bg-destructive/10 text-destructive mx-4 mt-3 rounded-lg border p-3 text-sm sm:mx-6">
+          <div class="border-destructive/50 bg-destructive/10 text-destructive-text mx-4 mt-3 rounded-lg border p-3 text-sm sm:mx-6">
             {error}
             <Button variant="ghost" size="sm" class="ml-2" onclick={() => (error = null)}>Dismiss</Button>
           </div>

@@ -637,7 +637,7 @@
 
   {#if loadError && songs.length === 0 && !isLoading}
     <div class="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-16 text-center">
-      <p class="text-destructive text-sm">{loadError}</p>
+      <p class="text-destructive-text text-sm">{loadError}</p>
       <Button onclick={() => void songsStore.loadSongs()}>Retry</Button>
     </div>
   {:else if isListTab}

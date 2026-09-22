@@ -87,7 +87,7 @@
 {:else if error}
   <div class="flex flex-1 items-center justify-center p-8">
     <div class="max-w-md text-center">
-      <p class="text-destructive mb-3 text-sm">{error}</p>
+      <p class="text-destructive-text mb-3 text-sm">{error}</p>
       <Button onclick={load}>Retry</Button>
     </div>
   </div>
@@ -123,7 +123,7 @@
     </div>
 
     {#if actionError}
-      <p class="text-destructive mb-3 text-[12px]">{actionError}</p>
+      <p class="text-destructive-text mb-3 text-[12px]">{actionError}</p>
     {/if}
 
     <div class="space-y-3">

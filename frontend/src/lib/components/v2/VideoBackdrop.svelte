@@ -296,7 +296,7 @@
     },
     Static: {
       label: 'still image',
-      class: 'bg-destructive/15 text-destructive',
+      class: 'bg-destructive/15 text-destructive-text',
       title: 'One image for the whole song — an album cover or an audio-only upload.'
     },
     Unknown: {
@@ -434,11 +434,11 @@
               <Loader2 class="size-3 animate-spin" /> fetching…
             </span>
           {:else if info?.status === 'Ready' && info.fileMissing}
-            <span class="text-destructive text-xs">file missing</span>
+            <span class="text-destructive-text text-xs">file missing</span>
           {:else if info?.status === 'Ready'}
             <span class="text-muted-foreground text-xs">{syncLabel}</span>
           {:else if info?.status === 'Failed'}
-            <span class="text-destructive text-xs">failed</span>
+            <span class="text-destructive-text text-xs">failed</span>
           {:else if infoUnavailable}
             <!-- The status request keeps failing — unknown is NOT "none"; a fetch here would
                  needlessly re-download a video that may well still exist. -->
@@ -461,13 +461,13 @@
       </div>
 
       {#if info?.status === 'Failed' && info.lastError}
-        <p class="text-destructive/90 mb-2 line-clamp-2 text-xs" title={info.lastError}>
+        <p class="text-destructive-text/90 mb-2 line-clamp-2 text-xs" title={info.lastError}>
           {info.lastError}
         </p>
       {/if}
 
       {#if info?.status === 'Ready' && info.fileMissing}
-        <p class="text-destructive/90 mb-2 text-xs">
+        <p class="text-destructive-text/90 mb-2 text-xs">
           The video file is gone from disk — refetch to restore it.
         </p>
       {/if}
@@ -536,7 +536,7 @@
                   <Loader2 class="size-3.5 animate-spin" /> Searching and checking candidates…
                 </p>
               {:else if candidatesError}
-                <p class="text-destructive py-2 text-xs">{candidatesError}</p>
+                <p class="text-destructive-text py-2 text-xs">{candidatesError}</p>
               {:else if candidates && candidates.length === 0}
                 <p class="text-muted-foreground py-2 text-xs">No candidates found for this song.</p>
               {:else if candidates}
@@ -670,7 +670,7 @@
           <Button
             size="sm"
             variant="ghost"
-            class="text-destructive hover:text-destructive h-7 w-full justify-start px-2 text-xs"
+            class="text-destructive-text hover:text-destructive-text h-7 w-full justify-start px-2 text-xs"
             disabled={busy}
             onclick={onRemove}
           >

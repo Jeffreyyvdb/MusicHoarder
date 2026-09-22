@@ -444,7 +444,7 @@
         <div
           class="mx-6 mt-3 rounded-md border px-3 py-2 text-sm sm:mx-9 {banner.type === 'success'
             ? 'border-primary/30 bg-primary/10 text-primary'
-            : 'border-destructive/30 bg-destructive/10 text-destructive'}"
+            : 'border-destructive/30 bg-destructive/10 text-destructive-text'}"
         >
           {banner.message}
         </div>
@@ -453,7 +453,7 @@
       <!-- Tracks -->
       {#if detailError}
         <div class="flex flex-col items-center justify-center py-12 text-center">
-          <AlertCircle class="text-destructive mb-3 size-10" />
+          <AlertCircle class="text-destructive-text mb-3 size-10" />
           <p class="text-muted-foreground">{detailError}</p>
           <Button variant="outline" size="sm" class="mt-4" onclick={() => loadDetail(p.id)}>
             Retry
@@ -559,7 +559,7 @@
       <div class="border-border flex shrink-0 flex-col gap-2 border-b px-4 py-2 sm:px-7">
     {#if resolveError}
       <div
-        class="border-destructive/30 bg-destructive/10 text-destructive flex items-start gap-2 rounded-md border px-3 py-2 text-sm"
+        class="border-destructive/30 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-md border px-3 py-2 text-sm"
       >
         <AlertCircle class="mt-0.5 size-4 shrink-0" />
         <div class="flex-1">
@@ -669,7 +669,7 @@
       <div
         class="mx-4 mt-3 rounded-md border px-3 py-2 text-sm md:mx-6 {banner.type === 'success'
           ? 'border-primary/30 bg-primary/10 text-primary'
-          : 'border-destructive/30 bg-destructive/10 text-destructive'}"
+          : 'border-destructive/30 bg-destructive/10 text-destructive-text'}"
       >
         {banner.message}
       </div>
@@ -678,7 +678,7 @@
     <!-- Grid -->
     {#if playlistsError}
       <div class="flex flex-col items-center justify-center py-12 text-center">
-        <AlertCircle class="text-destructive mb-3 size-10" />
+        <AlertCircle class="text-destructive-text mb-3 size-10" />
         <p class="text-muted-foreground">{playlistsError}</p>
         <Button variant="outline" size="sm" class="mt-4" onclick={() => loadPlaylists()}>Retry</Button>
       </div>

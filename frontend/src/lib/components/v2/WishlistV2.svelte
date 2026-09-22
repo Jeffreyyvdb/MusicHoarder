@@ -333,7 +333,7 @@
         return 'border-0 bg-primary/15 text-primary';
       case 'Failed':
       case 'NotFound':
-        return 'border-0 bg-destructive/15 text-destructive';
+        return 'border-0 bg-destructive/15 text-destructive-text';
       default:
         return 'border-0 bg-muted text-muted-foreground';
     }
@@ -446,7 +446,7 @@
     <div
       class="mx-4 mt-3 rounded-md border px-3 py-2 text-sm md:mx-6 {banner.type === 'success'
         ? 'border-primary/30 bg-primary/10 text-primary'
-        : 'border-destructive/30 bg-destructive/10 text-destructive'}"
+        : 'border-destructive/30 bg-destructive/10 text-destructive-text'}"
     >
       {banner.message}
     </div>
@@ -547,7 +547,7 @@
 
     {#if error}
       <div class="flex flex-col items-center justify-center py-12 text-center">
-        <AlertCircle class="text-destructive mb-3 size-10" />
+        <AlertCircle class="text-destructive-text mb-3 size-10" />
         <p class="text-muted-foreground">{error}</p>
         <Button variant="outline" size="sm" class="mt-4" onclick={() => loadItems()}>Retry</Button>
       </div>
@@ -624,7 +624,7 @@
                 : ''}
             </div>
             {#if item.lastError && (item.status === 'Failed' || item.status === 'NotFound')}
-              <div class="text-destructive mt-0.5 truncate text-xs" title={item.lastError}>{item.lastError}</div>
+              <div class="text-destructive-text mt-0.5 truncate text-xs" title={item.lastError}>{item.lastError}</div>
             {/if}
             {#if item.status === 'Failed'}
               <div class="text-muted-foreground mt-0.5 truncate text-xs">

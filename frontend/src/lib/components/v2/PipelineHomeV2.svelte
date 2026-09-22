@@ -533,7 +533,7 @@
           {#if errorCount == null}
             <Skeleton class="h-9 w-10" />
           {:else}
-            <div class={cn('text-xl leading-tight font-semibold tracking-tight tabular-nums', errorCount > 0 && 'text-destructive')}>
+            <div class={cn('text-xl leading-tight font-semibold tracking-tight tabular-nums', errorCount > 0 && 'text-destructive-text')}>
               {fmtNum(errorCount)}
             </div>
           {/if}
@@ -566,7 +566,7 @@
             </a>
             <span>·</span>
             <span
-              ><span class={cn('text-foreground font-semibold tabular-nums', (errorCount ?? 0) > 0 && 'text-destructive')}
+              ><span class={cn('text-foreground font-semibold tabular-nums', (errorCount ?? 0) > 0 && 'text-destructive-text')}
                 >{fmtNum(errorCount)}</span
               > errors</span
             >

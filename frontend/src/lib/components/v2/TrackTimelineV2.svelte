@@ -259,7 +259,7 @@
       case 'Failed':
         return {
           label: 'Sync failed',
-          cls: 'border-destructive/40 bg-destructive/10 text-destructive'
+          cls: 'border-destructive/40 bg-destructive/10 text-destructive-text'
         };
       default:
         return { label: 'Sync pending', cls: 'border-border bg-card text-foreground' };

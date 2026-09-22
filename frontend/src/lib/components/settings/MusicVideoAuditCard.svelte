@@ -91,7 +91,7 @@
     </div>
 
     {#if error}
-      <p class="text-destructive flex items-center gap-1.5 text-xs">
+      <p class="text-destructive-text flex items-center gap-1.5 text-xs">
         <AlertCircle class="size-3.5" />
         {error}
       </p>
@@ -127,7 +127,7 @@
               <Button
                 size="sm"
                 variant="ghost"
-                class="text-destructive hover:text-destructive h-7 px-2 text-xs"
+                class="text-destructive-text hover:text-destructive-text h-7 px-2 text-xs"
                 disabled={removing === row.songId}
                 onclick={() => remove(row)}
               >

@@ -234,7 +234,7 @@
             '-my-1 h-8 shrink-0 px-2 text-xs opacity-100 transition-opacity focus-visible:opacity-100 sm:opacity-40 sm:group-hover:opacity-100',
             (isEnriching || enrichState === 'error') && 'sm:opacity-100',
             isEnriching && 'text-primary',
-            enrichState === 'error' && 'text-destructive'
+            enrichState === 'error' && 'text-destructive-text'
           )}
           disabled={isEnriching}
           title="Add every song under this folder to your library (enrich + build)"

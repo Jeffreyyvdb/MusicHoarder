@@ -145,7 +145,7 @@
         {/if}
       </div>
     {:else if result && !result.ok}
-      <div class="text-destructive mt-4 text-[13px]">{result.message}</div>
+      <div class="text-destructive-text mt-4 text-[13px]">{result.message}</div>
     {/if}
 
     <div class="mob-login-or"><span>or</span></div>
@@ -265,7 +265,7 @@
       </div>
     {:else if result && !result.ok}
       <div
-        class="border-destructive/50 bg-destructive/10 text-destructive mt-4 flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+        class="border-destructive/50 bg-destructive/10 text-destructive-text mt-4 flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
       >
         <AlertCircle class="mt-0.5 size-4 shrink-0" />
         <span>{result.message}</span>

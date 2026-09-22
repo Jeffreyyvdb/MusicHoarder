@@ -155,7 +155,7 @@
   <ScrollArea class="min-h-0 flex-1">
     <div class="flex flex-col gap-5 px-4 py-4 sm:px-7 sm:py-5">
       {#if error}
-        <div class="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+        <div class="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive-text">
           {error}
         </div>
       {/if}

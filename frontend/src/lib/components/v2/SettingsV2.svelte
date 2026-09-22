@@ -805,7 +805,7 @@
             <div
               class="flex items-center gap-2 rounded-lg border px-4 py-3 text-sm {saveResult.success
                 ? 'border-primary/50 bg-primary/10 text-primary'
-                : 'border-destructive/50 bg-destructive/10 text-destructive'}"
+                : 'border-destructive/50 bg-destructive/10 text-destructive-text'}"
             >
               {#if saveResult.success}
                 <CheckCircle2 class="size-4 shrink-0" />
@@ -818,7 +818,7 @@
 
           {#if spotifyError}
             <div
-              class="border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+              class="border-destructive/50 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
             >
               <AlertCircle class="mt-0.5 size-4 shrink-0" />
               <span>{spotifyError}</span>
@@ -1042,7 +1042,7 @@
             {#if stagedStartError}
               <div class="px-5 py-3">
                 <div
-                  class="border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+                  class="border-destructive/50 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
                 >
                   <AlertCircle class="mt-0.5 size-4 shrink-0" />
                   <span>{stagedStartError}</span>
@@ -1094,7 +1094,7 @@
           <div
             class="mx-5 mb-4 flex items-center gap-2 rounded-lg border px-4 py-2 text-sm {providersResult.success
               ? 'border-primary/50 bg-primary/10 text-primary'
-              : 'border-destructive/50 bg-destructive/10 text-destructive'}"
+              : 'border-destructive/50 bg-destructive/10 text-destructive-text'}"
           >
             {#if providersResult.success}
               <CheckCircle2 class="size-4 shrink-0" />
@@ -1155,7 +1155,7 @@
           <div
             class="mx-5 mb-4 flex items-center gap-2 rounded-lg border px-4 py-2 text-sm {qualityGradingResult.success
               ? 'border-primary/50 bg-primary/10 text-primary'
-              : 'border-destructive/50 bg-destructive/10 text-destructive'}"
+              : 'border-destructive/50 bg-destructive/10 text-destructive-text'}"
           >
             {#if qualityGradingResult.success}
               <CheckCircle2 class="size-4 shrink-0" />
@@ -1361,7 +1361,7 @@
 
           {#if nameError}
             <div
-              class="border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+              class="border-destructive/50 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
             >
               <AlertCircle class="mt-0.5 size-4 shrink-0" />
               <span>{nameError}</span>
@@ -1502,7 +1502,7 @@
 
               {#if passkeyError}
                 <div
-                  class="border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+                  class="border-destructive/50 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
                 >
                   <AlertCircle class="mt-0.5 size-4 shrink-0" />
                   <span>{passkeyError}</span>
@@ -1573,7 +1573,7 @@
         <section class="border-destructive/40 bg-card rounded-lg border">
           <div class="border-destructive/40 flex items-center gap-3 border-b px-5 py-3.5">
             <div class="bg-destructive/10 flex size-8 items-center justify-center rounded-lg">
-              <AlertTriangle class="text-destructive size-4" />
+              <AlertTriangle class="text-destructive-text size-4" />
             </div>
             <div class="min-w-0 flex-1">
               <h2 class="text-sm font-semibold">Danger zone</h2>
@@ -1599,7 +1599,7 @@
                     <Button
                       {...props}
                       variant="outline"
-                      class="text-destructive hover:text-destructive shrink-0 gap-2"
+                      class="text-destructive-text hover:text-destructive-text shrink-0 gap-2"
                       disabled={purgeRunning}
                     >
                       {#if purgeRunning && purgeSnapshot?.mode === 'post-fingerprint'}
@@ -1697,7 +1697,7 @@
             {#if purgeStartError}
               <div class="px-5 pt-4 pb-5">
                 <div
-                  class="border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+                  class="border-destructive/50 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
                 >
                   <AlertCircle class="mt-0.5 size-4 shrink-0" />
                   <p>{purgeStartError}</p>

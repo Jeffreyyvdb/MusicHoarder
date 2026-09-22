@@ -608,7 +608,7 @@
     size="sm"
     class={cn(
       ai.enhanceState === 'success' && 'text-primary',
-      ai.enhanceState === 'error' && 'text-destructive'
+      ai.enhanceState === 'error' && 'text-destructive-text'
     )}
     disabled={ai.enhanceBusy}
     onclick={() => ai.enhance()}
@@ -886,7 +886,7 @@
                 {/if}
               </div>
               {#if ai.enhanceError}
-                <p class="text-destructive mb-3 text-center text-[11px]">{ai.enhanceError}</p>
+                <p class="text-destructive-text mb-3 text-center text-[11px]">{ai.enhanceError}</p>
               {:else if ai.enhanceNote}
                 <p class="text-muted-foreground mb-3 text-center text-[11px]">{ai.enhanceNote}</p>
               {/if}
@@ -981,7 +981,7 @@
           </div>
         </div>
         {#if ai.enhanceError}
-          <p class="text-destructive mx-auto w-full max-w-3xl px-1 text-[11px]">{ai.enhanceError}</p>
+          <p class="text-destructive-text mx-auto w-full max-w-3xl px-1 text-[11px]">{ai.enhanceError}</p>
         {:else if ai.enhanceNote}
           <p class="text-muted-foreground mx-auto w-full max-w-3xl px-1 text-[11px]">{ai.enhanceNote}</p>
         {/if}
@@ -1174,7 +1174,7 @@
                   <Loader2 class="size-3.5 animate-spin" /> Loading provider attempts…
                 </div>
               {:else if detailError}
-                <div class="text-destructive flex items-center gap-2 px-1 py-3 text-[12px]">
+                <div class="text-destructive-text flex items-center gap-2 px-1 py-3 text-[12px]">
                   <AlertCircle class="size-3.5" /> {detailError}
                 </div>
               {:else if !attemptRows.length}
@@ -1300,7 +1300,7 @@
             class={cn(
               'mt-2 w-full',
               resetState === 'success' && 'border-primary/50 text-primary',
-              resetState === 'error' && 'border-destructive/50 text-destructive'
+              resetState === 'error' && 'border-destructive/50 text-destructive-text'
             )}
             size="sm"
             disabled={resetState === 'loading'}
@@ -1321,7 +1321,7 @@
             {/if}
           </Button>
           {#if resetError}
-            <p class="text-destructive text-[11px]">{resetError}</p>
+            <p class="text-destructive-text text-[11px]">{resetError}</p>
           {:else if resetState === 'idle'}
             <p class="text-muted-foreground/70 text-[10.5px]">Clears matches and lyrics; re-enrichment runs automatically.</p>
           {/if}
@@ -1331,7 +1331,7 @@
             class={cn(
               'mt-2 w-full',
               enrichState === 'success' && 'text-primary',
-              enrichState === 'error' && 'text-destructive'
+              enrichState === 'error' && 'text-destructive-text'
             )}
             size="sm"
             disabled={enrichState === 'loading'}
@@ -1352,7 +1352,7 @@
             {/if}
           </Button>
           {#if enrichError}
-            <p class="text-destructive text-[11px]">{enrichError}</p>
+            <p class="text-destructive-text text-[11px]">{enrichError}</p>
           {/if}
 
           {#if soulseekConfigured}
@@ -1371,7 +1371,7 @@
               {upgradeActiveLabel ?? 'Find better quality'}
             </Button>
             {#if upgradeError}
-              <p class="text-destructive text-[11px]">{upgradeError}</p>
+              <p class="text-destructive-text text-[11px]">{upgradeError}</p>
             {:else if upgradeTerminalNote}
               <p class="text-muted-foreground/70 text-[10.5px]">{upgradeTerminalNote}</p>
             {:else}
