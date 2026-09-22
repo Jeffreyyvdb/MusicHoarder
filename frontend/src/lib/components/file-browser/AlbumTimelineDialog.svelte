@@ -98,7 +98,7 @@
         <ScrollArea class="min-h-0 flex-1">
           <TimelineList {events} showDate />
         </ScrollArea>
-        <p class="text-muted-foreground/70 mt-2 shrink-0 text-[11px]">
+        <p class="text-muted-foreground-dim mt-2 shrink-0 text-[11px]">
           Per-track enrichment is rolled up per provider — open a track’s own timeline for the full detail.
         </p>
       {/if}

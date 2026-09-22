@@ -9,7 +9,7 @@
 {#if status === 'Fetched'}
   <Badge class="bg-primary/10 text-primary hover:bg-primary/20 text-xs">
     <CheckCircle2 class="mr-1 size-3" />
-    Lyrics Found
+    Lyrics found
   </Badge>
 {:else if status === 'Instrumental'}
   <Badge class="bg-blue-500/10 text-xs text-blue-600 hover:bg-blue-500/20 dark:text-blue-400">
@@ -19,16 +19,16 @@
 {:else if status === 'NotFound'}
   <Badge variant="secondary" class="text-xs">
     <FileText class="mr-1 size-3" />
-    No Lyrics Found
+    No lyrics found
   </Badge>
 {:else if status === 'Failed'}
   <Badge variant="destructive" class="text-xs">
     <AlertCircle class="mr-1 size-3" />
-    Fetch Failed
+    Fetch failed
   </Badge>
 {:else}
   <Badge variant="outline" class="text-muted-foreground text-xs">
     <Clock class="mr-1 size-3" />
-    Not Fetched
+    Not fetched yet
   </Badge>
 {/if}
