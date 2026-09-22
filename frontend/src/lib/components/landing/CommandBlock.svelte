@@ -45,7 +45,7 @@
       <span class="block size-[9px] rounded-full" style="background:#febc2e"></span>
       <span class="block size-[9px] rounded-full" style="background:#28c840"></span>
     </span>
-    <span class="text-muted-foreground ml-1 font-mono text-[10.5px]">{label}</span>
+    <span class="text-muted-foreground ml-1 font-mono text-[11px]">{label}</span>
     <button
       type="button"
       onclick={copy}

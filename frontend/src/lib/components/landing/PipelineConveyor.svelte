@@ -18,7 +18,7 @@
   </h2>
   <p class="text-muted-foreground max-w-[640px] text-[14.5px] leading-[1.6] text-pretty">
     Files flow left to right — scanned, fingerprinted, matched against providers, graded by an LLM,
-    deduped, then written to your library. <strong class="text-foreground">Click any stage</strong> to
+    deduped, then written to your library. <strong class="text-foreground">Select any stage</strong> to
     see what's flowing through it right now.
   </p>
 

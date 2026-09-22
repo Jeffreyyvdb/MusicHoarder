@@ -32,7 +32,7 @@
 <JsonLd data={organizationSchema} />
 <JsonLd data={faqPageSchema} />
 
-<main class="bg-background text-foreground min-h-screen overflow-x-hidden pb-4">
+<main class="bg-background text-foreground min-h-dvh overflow-x-hidden pb-4">
   <LandingNav />
   <HeroSection />
   <PipelineConveyor />

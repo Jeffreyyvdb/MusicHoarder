@@ -1,7 +1,8 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { Music, UserRoundPlus } from '@lucide/svelte';
+  import { UserRoundPlus } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button';
+  import BrandMark from '$lib/components/BrandMark.svelte';
   import type { PageData } from './$types';
 
   const { data }: { data: PageData } = $props();
@@ -19,11 +20,9 @@
   <meta name="robots" content="noindex" />
 </svelte:head>
 
-<div class="bg-background text-foreground flex min-h-screen items-center justify-center px-4">
+<div class="bg-background text-foreground flex min-h-dvh items-center justify-center px-4">
   <div class="border-border bg-card w-full max-w-md rounded-xl border p-8 text-center shadow-sm">
-    <div class="bg-primary/10 text-primary mx-auto flex size-12 items-center justify-center rounded-xl">
-      <Music class="size-6" />
-    </div>
+    <BrandMark class="mx-auto size-12" />
 
     {#if invite && !acceptFailed}
       <h1 class="mt-5 text-xl font-semibold">You're invited</h1>
@@ -41,7 +40,8 @@
         onsubmit={() => (submitting = true)}
         class="mt-6"
       >
-        <Button type="submit" class="w-full" disabled={submitting}>
+        <!-- A one-shot tap from an emailed link: full width, and 44px on touch screens. -->
+        <Button type="submit" size="lg" class="w-full pointer-coarse:h-11" disabled={submitting}>
           <UserRoundPlus class="size-4" />
           {submitting ? 'Setting up your account…' : 'Accept invite'}
         </Button>

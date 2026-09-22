@@ -13,7 +13,7 @@
 
 <SeoHead title={`${page.title} · MusicHoarder`} description={page.description} path={page.path} />
 
-<main class="bg-background text-foreground min-h-screen overflow-x-hidden pb-4">
+<main class="bg-background text-foreground min-h-dvh overflow-x-hidden pb-4">
   <LandingNav />
 
   <article class="mx-auto max-w-[760px] px-6 py-10 md:px-14 md:py-14">
