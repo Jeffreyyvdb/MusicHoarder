@@ -1180,7 +1180,7 @@ public static class SongsEndpoints
         return Results.Ok(DuplicateGroupProjection.Build(links, songs));
     }
 
-    private static async Task<IResult> ManualReviewTrack(int id, ManualReviewRequest request, MusicHoarderDbContext db)
+    internal static async Task<IResult> ManualReviewTrack(int id, ManualReviewRequest request, MusicHoarderDbContext db)
     {
         var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id);
         if (song is null)
@@ -1202,6 +1202,11 @@ public static class SongsEndpoints
 
         if (decision == "approve")
         {
+            // Snapshot the tags before the reviewer's values overwrite them, so ResetEnrichment with
+            // restoreOriginal (the Inbox's Undo) can put them back. A no-op when an earlier match
+            // already captured the file's originals.
+            song.CaptureOriginalMetadata();
+
             if (request.Artist is not null) song.Artist = request.Artist;
             if (request.Album is not null) song.Album = request.Album;
             if (request.Title is not null) song.Title = request.Title;

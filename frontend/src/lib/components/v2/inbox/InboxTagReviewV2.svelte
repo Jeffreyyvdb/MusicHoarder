@@ -8,6 +8,7 @@
     fetchReviewQueue,
     fetchEnrichmentDetail,
     submitManualReview,
+    resetSongEnrichment,
     copyQualitySongDossier,
     bulkApprove
   } from '$lib/api-client';
@@ -271,10 +272,30 @@
       const next = tracks.find((t) => t.id !== track.id && !decisions[t.id]);
       tracks = tracks.filter((t) => t.id !== track.id);
       selectedId = next?.id ?? tracks[0]?.id ?? null;
+      const title = editedMetadata[track.id]?.title || track.title || track.fileName;
+      toast.success(`Accepted “${title}”`, {
+        duration: 8000,
+        action: { label: 'Undo', onClick: () => void undoAccept(track.id, title) }
+      });
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to accept track';
     } finally {
       actionLoading = false;
+    }
+  }
+
+  // Undo is a forced reset with restore: it puts back the tags the approval overwrote (the approve
+  // path snapshots them first), lifts the approval lock and re-queues matching. The track isn't put
+  // back in the list here — its old candidates are gone — it returns once re-matching lands it in
+  // NeedsReview again.
+  async function undoAccept(songId: number, title: string) {
+    try {
+      await resetSongEnrichment(songId, true, true);
+      toast.success(`Restored the original tags of “${title}”`, {
+        description: 'Re-matching it now. It comes back here if it still needs review.'
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Undo failed');
     }
   }
 

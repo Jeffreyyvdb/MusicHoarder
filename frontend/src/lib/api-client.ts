@@ -1764,12 +1764,14 @@ export interface ResetEnrichmentResponse {
   message: string
 }
 
+/** Reset a song's enrichment and re-queue it. `force` also lifts a manual-approval lock, which the API otherwise refuses (422) to reset. */
 export async function resetSongEnrichment(
   songId: number,
-  restoreOriginalMetadata = true
+  restoreOriginalMetadata = true,
+  force = false
 ): Promise<ResetEnrichmentResponse> {
   return requestJson<ResetEnrichmentResponse>(
-    `/songs/${songId}/reset-enrichment?restoreOriginalMetadata=${restoreOriginalMetadata}`,
+    `/songs/${songId}/reset-enrichment?restoreOriginalMetadata=${restoreOriginalMetadata}&force=${force}`,
     { method: "POST" }
   )
 }
