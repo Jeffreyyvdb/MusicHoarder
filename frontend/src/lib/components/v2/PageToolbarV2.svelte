@@ -78,7 +78,7 @@
        the filters give way first instead of splitting the squeeze evenly and clipping "Settings"
        to "Se…" (vis-06). The max-width is the other half: a long title on a phone still truncates
        at half the bar rather than pushing the never-shrinking actions off the edge. -->
-  <div class="flex min-w-0 max-w-[50%] shrink-0 items-baseline gap-2">
+  <div class="flex max-w-[50%] min-w-0 shrink-0 items-baseline gap-2">
     <h1 class="text-nav truncate font-semibold tracking-[-0.01em]">{title}</h1>
     {#if meta}
       <span

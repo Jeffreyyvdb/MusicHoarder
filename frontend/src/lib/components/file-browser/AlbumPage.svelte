@@ -418,15 +418,16 @@
     return Math.max(0, Math.min(1, s.matchConfidence));
   }
 
-  // The tint stays fully solid through 85% of the hero's own (content-driven) height and only fades
-  // in the last 15% — the meta row and status pill sit well inside that solid zone. Fading from 0%,
-  // as this used to, put white text on a band that had already washed out toward the page background
-  // in light mode (album-tint.ts's `from` is only clamped dark enough for white text at full
-  // opacity), which is exactly what vis-01 flagged.
+  // The tint stays fully solid down to the hero's bottom padding (pb-5 = 1.25rem) and fades only
+  // inside it, so every line of white text sits on the full-strength tint. album-tint.ts's `from` is
+  // only clamped dark enough for white text at full opacity: fading from 0%, as this used to, washed
+  // the meta row out toward the page background in light mode (vis-01). A percentage stop is not
+  // enough either — the hero's height follows its content, and on a phone a wrapped title pushes the
+  // status pill into the last 15%.
   const heroBackground = $derived.by(() => {
     if (!tint) return '';
     return (
-      `linear-gradient(180deg, ${tint.from} 0%, ${tint.from} 85%, transparent 100%),` +
+      `linear-gradient(180deg, ${tint.from} 0%, ${tint.from} calc(100% - 1.25rem), transparent 100%),` +
       ` linear-gradient(135deg, color-mix(in oklch, ${tint.to} 40%, transparent), transparent)`
     );
   });
