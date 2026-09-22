@@ -164,7 +164,7 @@ private fun ShareTracklist(
                 Text(
                     "Shared from ${state.link.origin.substringAfter("://")}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = colors.mutedForeground.copy(alpha = 0.8f),
+                    color = colors.mutedForegroundDim,
                     textAlign = TextAlign.Center,
                 )
 
