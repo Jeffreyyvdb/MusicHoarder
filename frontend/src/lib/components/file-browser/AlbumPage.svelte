@@ -648,7 +648,7 @@
               {/snippet}
             </Tooltip.Trigger>
             <Tooltip.Content>
-              Share — copy a public link that plays this album for anyone, no account needed.
+              Share a public link that plays this album for anyone, no account needed.
             </Tooltip.Content>
           </Tooltip.Root>
         </Tooltip.Provider>
