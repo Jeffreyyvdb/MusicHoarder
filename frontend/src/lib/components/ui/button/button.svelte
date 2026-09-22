@@ -16,7 +16,7 @@
 				// onto it. Use for in-content actions (lyrics tooling, media controls).
 				subtle:
 					"rounded-full bg-foreground/[0.06] text-foreground/80 hover:bg-foreground/[0.1] hover:text-foreground dark:bg-white/[0.1] dark:text-white/80 dark:hover:bg-white/[0.16] dark:hover:text-white aria-expanded:bg-foreground/[0.1] aria-expanded:text-foreground",
-				destructive: "bg-destructive/10 hover:bg-destructive/20 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/20 text-destructive focus-visible:border-destructive/40 dark:hover:bg-destructive/30",
+				destructive: "bg-destructive/10 hover:bg-destructive/20 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/20 text-destructive-text focus-visible:border-destructive/40 dark:hover:bg-destructive/30",
 				link: "text-primary underline-offset-4 hover:underline",
 			},
 			size: {

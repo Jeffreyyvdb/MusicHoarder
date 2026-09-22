@@ -1,7 +1,8 @@
 <script lang="ts">
   // Lightweight hand-rolled SVG line chart (no chart dependency). Plots a sequence of values at
-  // evenly-spaced x positions (one per snapshot). Nulls break the line into gaps. Hovering a point
-  // shows its label + formatted value.
+  // evenly-spaced x positions (one per snapshot). Nulls break the line into gaps. Pointing at the
+  // chart shows the nearest point's label + formatted value; a tap or click pins it, so the values
+  // are reachable on a touch screen too. Each point carries its own accessible name.
   interface Props {
     values: (number | null)[];
     labels: string[];
@@ -12,6 +13,8 @@
     /** Force the y-axis upper bound (e.g. 100 for percentages). Defaults to the data max. */
     yMax?: number;
     height?: number;
+    /** What the series measures (the card title) — names the chart for assistive tech. */
+    name?: string;
   }
 
   let {
@@ -21,7 +24,8 @@
     format = (v: number) => String(Math.round(v * 100) / 100),
     yMin,
     yMax,
-    height = 56
+    height = 56,
+    name
   }: Props = $props();
 
   const W = 100; // viewBox width units; svg stretches to container width
@@ -58,10 +62,63 @@
     return segs;
   });
 
+  // `hover` follows a mouse; `pinned` is set by a tap or click and survives the pointer leaving,
+  // which is the only way a finger (which never hovers) gets to read a value.
   let hover = $state<number | null>(null);
+  let pinned = $state<number | null>(null);
+  const active = $derived(hover ?? pinned);
+
+  let root = $state<HTMLDivElement | null>(null);
+
+  /** Nearest non-null point to a pointer x — the whole chart is the target, not a 2px dot. */
+  function nearestIndex(clientX: number): number | null {
+    if (!root) return null;
+    const rect = root.getBoundingClientRect();
+    if (rect.width === 0) return null;
+    const vx = ((clientX - rect.left) / rect.width) * W;
+    let best: number | null = null;
+    let bestD = Infinity;
+    values.forEach((v, i) => {
+      if (v == null) return;
+      const d = Math.abs(x(i) - vx);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    });
+    return best;
+  }
+
+  function onPointerMove(e: PointerEvent) {
+    if (e.pointerType !== 'mouse') return;
+    hover = nearestIndex(e.clientX);
+  }
+
+  function onPointerLeave(e: PointerEvent) {
+    if (e.pointerType === 'mouse') hover = null;
+  }
+
+  function onPointerUp(e: PointerEvent) {
+    const i = nearestIndex(e.clientX);
+    if (i == null) return;
+    pinned = pinned === i ? null : i;
+  }
+
+  function pointLabel(i: number, v: number): string {
+    return `${labels[i] ?? `Point ${i + 1}`}: ${format(v)}`;
+  }
 </script>
 
-<div class="relative w-full" style="height: {height}px">
+<div
+  bind:this={root}
+  class="relative w-full cursor-crosshair touch-pan-y"
+  style="height: {height}px"
+  role="group"
+  aria-label={name ? `${name} over time` : 'Trend over time'}
+  onpointermove={onPointerMove}
+  onpointerleave={onPointerLeave}
+  onpointerup={onPointerUp}
+>
   <svg viewBox="0 0 {W} {H}" preserveAspectRatio="none" class="h-full w-full overflow-visible">
     {#each segments as seg, si (si)}
       <polyline
@@ -72,6 +129,7 @@
         stroke-linecap="round"
         stroke-linejoin="round"
         vector-effect="non-scaling-stroke"
+        aria-hidden="true"
       />
     {/each}
     {#each values as v, i (i)}
@@ -79,23 +137,23 @@
         <circle
           cx={x(i)}
           cy={y(v)}
-          r={hover === i ? 1.8 : 1.1}
+          r={active === i ? 1.8 : 1.1}
           fill={color}
           vector-effect="non-scaling-stroke"
-          role="presentation"
-          onmouseenter={() => (hover = i)}
-          onmouseleave={() => (hover = null)}
+          role="img"
+          aria-label={pointLabel(i, v)}
         />
       {/if}
     {/each}
   </svg>
-  {#if hover != null && values[hover] != null}
+  {#if active != null && values[active] != null}
     <div
       class="pointer-events-none absolute -top-1 z-10 -translate-x-1/2 -translate-y-full rounded-md border border-border bg-popover px-2 py-1 text-xs whitespace-nowrap text-popover-foreground shadow-md"
-      style="left: {x(hover)}%"
+      style="left: {x(active)}%"
+      aria-hidden="true"
     >
-      <div class="font-medium">{format(values[hover] as number)}</div>
-      <div class="text-muted-foreground">{labels[hover] ?? ''}</div>
+      <div class="font-medium">{format(values[active] as number)}</div>
+      <div class="text-muted-foreground">{labels[active] ?? ''}</div>
     </div>
   {/if}
 </div>

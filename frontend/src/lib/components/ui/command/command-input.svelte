@@ -17,8 +17,13 @@
 		<CommandPrimitive.Input
 			{value}
 			data-slot="command-input"
+			inputmode="search"
+			enterkeyhint="search"
+			autocapitalize="off"
+			autocorrect="off"
+			spellcheck={false}
 			class={cn(
-				"w-full text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50",
+				"w-full text-base md:text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50",
 				className
 			)}
 			{...restProps}

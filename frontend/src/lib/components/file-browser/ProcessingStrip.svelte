@@ -107,7 +107,7 @@
             <div class="mt-1 flex items-center gap-2">
               <span
                 class={cn(
-                  'rounded px-1.5 py-0.5 text-[9.5px] font-semibold tracking-wider uppercase',
+                  'rounded px-1.5 py-0.5 text-[11px] font-semibold tracking-wider uppercase',
                   card.stage === 'fingerprinting' && 'bg-primary/15 text-primary',
                   card.stage === 'lookup' && 'bg-violet-500/15 text-violet-600 dark:text-violet-400',
                   card.stage === 'artwork' && 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
@@ -115,7 +115,7 @@
               >
                 {card.stage}
               </span>
-              <span class="text-muted-foreground ml-auto font-mono text-[10.5px]">
+              <span class="text-muted-foreground ml-auto font-mono text-[11px]">
                 {Math.round(card.progress * 100)}%
               </span>
             </div>

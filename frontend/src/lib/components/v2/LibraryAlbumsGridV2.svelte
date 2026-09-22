@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { Disc3, Play } from '@lucide/svelte';
+  import { Check, Disc3, Play } from '@lucide/svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
+  import { Skeleton } from '$lib/components/ui/skeleton';
   import { prettyProvider, toPlayerSong, type AlbumStatusInfo, type AlbumSummary } from '$lib/api-client';
   import { playerStore } from '$lib/stores/player.svelte';
+  import { cn } from '$lib/utils';
 
   type Props = {
     albums: AlbumSummary[];
@@ -15,24 +17,32 @@
   };
   const { albums, hrefFor, isLoading = false, statuses }: Props = $props();
 
-  /** Corner-badge appearance for an album's link status, or null to show nothing. */
-  function badgeFor(album: AlbumSummary): { dotClass: string; label: string } | null {
+  const GRID_CLASS = 'grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 sm:gap-x-5 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6';
+
+  /**
+   * Corner-badge appearance for an album's link status, or null to show nothing. Kept as a `kind`
+   * rather than a colour class so the template can differentiate every state by shape too, not just
+   * hue — a `title` alone never reaches a touch tap, and colour alone doesn't survive Increase
+   * Contrast or colour-blindness (F23).
+   */
+  type Badge = { kind: 'wrong' | 'linked' | 'localOnly' | 'checking'; label: string };
+  function badgeFor(album: AlbumSummary): Badge | null {
     // Canonical link-status is keyed by album name (artist+title), not the folder-based album.key —
     // cards split across releases share the same name-based status badge.
     const info = statuses?.get(`${album.artist.toLowerCase()}::${album.title.toLowerCase()}`);
     if (!info) return null;
     // A confirmed mis-match dominates the badge regardless of link state.
     if (info.verdict === 'Wrong') {
-      return { dotClass: 'bg-red-500', label: 'Likely wrong album — AI flagged the match' };
+      return { kind: 'wrong', label: 'Likely wrong album — AI flagged the match' };
     }
     if (info.status === 'linked') {
       const names = info.providers.map(prettyProvider).join(', ');
-      return { dotClass: 'bg-emerald-400', label: names ? `Linked · ${names}` : 'Linked to a provider' };
+      return { kind: 'linked', label: names ? `Linked · ${names}` : 'Linked to a provider' };
     }
     if (info.status === 'localOnly') {
-      return { dotClass: 'bg-white/70 dark:bg-white/60', label: 'Local only — not on any provider' };
+      return { kind: 'localOnly', label: 'Local only — not on any provider' };
     }
-    return { dotClass: 'bg-amber-300/80 animate-pulse', label: 'Checking providers…' };
+    return { kind: 'checking', label: 'Checking providers…' };
   }
 
   function playFirst(album: AlbumSummary, e: MouseEvent) {
@@ -44,15 +54,27 @@
   }
 </script>
 
-{#if albums.length === 0}
+{#if isLoading && albums.length === 0}
+  <!-- Skeleton tiles in the real grid, not a spinner or a sentence — a first-run visitor should see
+       an incoming grid, not what reads as an empty page (F26). -->
+  <div class={GRID_CLASS}>
+    {#each Array(12) as _, i (i)}
+      <div class="flex flex-col gap-2 p-1">
+        <Skeleton class="aspect-square w-full rounded-lg" />
+        <div class="min-w-0 space-y-1.5 px-0.5">
+          <Skeleton class="h-3 w-4/5" />
+          <Skeleton class="h-3 w-3/5" />
+        </div>
+      </div>
+    {/each}
+  </div>
+{:else if albums.length === 0}
   <div class="text-muted-foreground flex flex-col items-center justify-center gap-3 py-16 text-center">
     <Disc3 class="size-10 opacity-40" />
-    <p class="text-sm">{isLoading ? 'Loading albums…' : 'No albums match.'}</p>
+    <p class="text-sm">No albums match.</p>
   </div>
 {:else}
-  <div
-    class="grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 sm:gap-x-5 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
-  >
+  <div class={GRID_CLASS}>
     {#each albums as album (album.key)}
       <a
         href={hrefFor(album)}
@@ -71,15 +93,27 @@
           {#if badgeFor(album)}
             {@const badge = badgeFor(album)}
             <span
-              class="absolute top-1.5 left-1.5 size-2.5 rounded-full ring-2 ring-black/35 {badge!.dotClass}"
+              role="img"
+              aria-label={badge!.label}
               title={badge!.label}
-            ></span>
+              class={cn(
+                'absolute top-1.5 left-1.5 grid size-2.5 place-items-center rounded-full ring-2 ring-black/35',
+                badge!.kind === 'wrong' && 'border-2 border-red-500 bg-red-500/30',
+                badge!.kind === 'linked' && 'bg-emerald-400',
+                badge!.kind === 'localOnly' && 'border-2 border-white/80 bg-transparent',
+                badge!.kind === 'checking' && 'animate-pulse bg-amber-300/80'
+              )}
+            >
+              {#if badge!.kind === 'linked'}
+                <Check class="size-[7px] text-black/70" strokeWidth={3.5} />
+              {/if}
+            </span>
           {/if}
           <button
             type="button"
             aria-label={`Play ${album.title}`}
             onclick={(e) => playFirst(album, e)}
-            class="bg-primary text-primary-foreground absolute right-2 bottom-2 grid size-9 translate-y-1 place-items-center rounded-full opacity-0 shadow-md transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 focus-visible:translate-y-0 focus-visible:opacity-100 group-focus-within:opacity-100"
+            class="bg-primary text-primary-foreground absolute right-2 bottom-2 grid size-9 translate-y-1 place-items-center rounded-full opacity-0 shadow-md transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 focus-visible:translate-y-0 focus-visible:opacity-100 group-focus-within:opacity-100 pointer-coarse:translate-y-0 pointer-coarse:opacity-100"
           >
             <Play class="size-4" />
           </button>
@@ -93,7 +127,7 @@
             <!-- The card folds together several destination folders — say so rather than silently
                  hiding that this album is split on disk. -->
             <p
-              class="text-muted-foreground/80 truncate text-[10.5px]"
+              class="text-muted-foreground-dim text-[11px]"
               title={album.folderKeys.join('\n')}
             >
               {album.folderKeys.length} editions

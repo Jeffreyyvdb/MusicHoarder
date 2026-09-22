@@ -149,7 +149,7 @@ private fun LetterButton(label: String, selected: Boolean, enabled: Boolean, onC
             color = when {
                 selected -> colors.foreground
                 enabled -> colors.mutedForeground
-                else -> colors.mutedForeground.copy(alpha = 0.4f)
+                else -> colors.mutedForegroundDim
             },
         )
     }
@@ -173,10 +173,12 @@ fun MhSegmented(
         options.forEachIndexed { index, (label, selected) ->
             Box(
                 modifier = Modifier
+                    .heightIn(min = 28.dp)
                     .clip(RoundedCornerShape(4.dp))
                     .background(if (selected) colors.muted else Color.Transparent)
                     .clickable { onSelect(index) }
                     .padding(horizontal = 10.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center,
             ) {
                 Text(
                     label,

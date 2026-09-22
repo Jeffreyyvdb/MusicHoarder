@@ -270,6 +270,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val CAPABILITY_TRACK_LISTENING = "TrackListening"
 
     /**
+     * Mirrors `/auth/me`'s `isAdmin`, for copy that differs between an admin (who can run the
+     * pipeline) and a member (who can only wait on what is shared with them) — never branch this
+     * kind of thing on [ServerSession]'s legacy `role` word. Defaults to true so a screen rendered
+     * before the first identity refresh keeps today's admin-oriented copy rather than flashing the
+     * member one.
+     */
+    private val _isAdmin = MutableStateFlow(true)
+    val isAdmin: StateFlow<Boolean> = _isAdmin.asStateFlow()
+
+    /**
      * Re-read identity and capabilities. Safe to call often — it is one small request.
      *
      * A failure deliberately leaves the last-known values in place: a flaky network must not make
@@ -288,6 +298,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (graph.sessions.session.value?.token != issuedFor.token) return@launch
 
             _capabilities.value = me.capabilities.toSet()
+            _isAdmin.value = me.isAdmin
             val stored = graph.sessions.accounts.value.active
             if (stored != null && stored.role != me.role) {
                 graph.sessions.updateActive(me.role, me.id, me.email, me.displayName)

@@ -11,6 +11,7 @@
   import MusicVideoAuditCard from '$lib/components/settings/MusicVideoAuditCard.svelte';
   import StagedSourceReleaseBanner from '$lib/components/settings/StagedSourceReleaseBanner.svelte';
   import PairDeviceCard from '$lib/components/settings/PairDeviceCard.svelte';
+  import InstallAppCard from '$lib/components/settings/InstallAppCard.svelte';
   import PeopleCard from '$lib/components/settings/PeopleCard.svelte';
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import { isPasskeySupported } from '$lib/webauthn-client';
@@ -53,6 +54,7 @@
   import { switchAccountAndReload } from '$lib/auth/switch-account';
   import { isAdmin, isDemo, roleLabel } from '$lib/auth/capabilities';
   import { formatFileSize } from '$lib/formatters';
+  import { toast } from 'svelte-sonner';
 
   const formatBytes = (bytes: number) => (bytes > 0 ? formatFileSize(bytes) : '0 B');
   import {
@@ -75,12 +77,15 @@
 
   // ── tabs ─────────────────────────────────────────────────────────────────────
   type TabId = 'sources' | 'providers' | 'rules' | 'output' | 'account' | 'people' | 'updates';
+  // Account sits second, not fifth: passkeys and phone pairing are what a person reaches for on a
+  // phone, where the strip shows about two tabs before a swipe. Order is presentation only —
+  // ?tab= deep links resolve by id.
   const TABS: { id: TabId; label: string }[] = [
     { id: 'sources', label: 'Sources' },
+    { id: 'account', label: 'Account' },
     { id: 'providers', label: 'Providers' },
     { id: 'rules', label: 'Filename rules' },
     { id: 'output', label: 'Library output' },
-    { id: 'account', label: 'Account' },
     { id: 'people', label: 'People' },
     { id: 'updates', label: 'Updates' }
   ];
@@ -237,6 +242,8 @@
     try {
       await deletePasskey(id);
       passkeys = passkeys.filter((p) => p.id !== id);
+      // The row just vanishes otherwise — say it was the removal, not a glitch.
+      toast.success('Passkey removed');
     } catch (err) {
       passkeyError = err instanceof Error ? err.message : 'Could not remove passkey.';
     }
@@ -652,23 +659,42 @@
         <header class="border-border border-b px-5 py-3.5">
           <h2 class="text-sm font-semibold">Source directories</h2>
           <p class="text-muted-foreground text-xs">
-            Where MusicHoarder reads raw files. Configured via Aspire AppHost parameters
-            (<code class="bg-secondary rounded px-1 py-0.5">source-directory</code> /
-            <code class="bg-secondary rounded px-1 py-0.5">destination-directory</code>) — edit
-            user-secrets and restart to change. Files here are never modified, only copied.
+            Where MusicHoarder reads raw files. Files here are never modified, only copied. Set by
+            whoever runs this server; changing it needs a restart.
           </p>
+          <!-- The how-to is for the one reader who runs the server; everyone else can stop above. -->
+          <details class="text-muted-foreground mt-1 text-xs">
+            <summary class="w-fit cursor-pointer py-1 select-none pointer-coarse:py-2">How to change these</summary>
+            <p class="mt-1">
+              They are the server's
+              <code class="bg-secondary rounded px-1 py-0.5">source-directory</code> and
+              <code class="bg-secondary rounded px-1 py-0.5">destination-directory</code> parameters
+              (AppHost user-secrets in development, environment variables in a compose deployment).
+              Edit them and restart the server.
+            </p>
+          </details>
         </header>
         <div class="divide-border divide-y">
           <div class="flex flex-col gap-2 px-5 py-4">
-            <div class="text-sm font-medium">Primary source</div>
-            <Input readonly value={settings?.paths.sourceDirectory ?? ''} class="font-mono text-sm" />
+            <Label for="settings-source-directory">Primary source</Label>
+            <Input
+              id="settings-source-directory"
+              readonly
+              value={settings?.paths.sourceDirectory ?? ''}
+              class="font-mono text-sm"
+            />
             <p class="text-muted-foreground text-xs">
               Files under this folder are scanned, fingerprinted, and enriched.
             </p>
           </div>
           <div class="flex flex-col gap-2 px-5 py-4">
-            <div class="text-sm font-medium">fpcalc binary</div>
-            <Input readonly value={settings?.paths.fpcalcPath ?? ''} class="font-mono text-sm" />
+            <Label for="settings-fpcalc-path">fpcalc binary</Label>
+            <Input
+              id="settings-fpcalc-path"
+              readonly
+              value={settings?.paths.fpcalcPath ?? ''}
+              class="font-mono text-sm"
+            />
             <p class="text-muted-foreground text-xs">
               Chromaprint CLI used for fingerprinting. Must be on
               <code class="bg-secondary rounded px-1 py-0.5">$PATH</code> or an absolute path.
@@ -734,6 +760,9 @@
             <Input
               id="client-id"
               type="text"
+              autocapitalize="off"
+              autocorrect="off"
+              spellcheck={false}
               placeholder="Enter your Spotify Client ID"
               bind:value={clientId}
               oninput={() => (saveResult = null)}
@@ -773,9 +802,14 @@
           </div>
 
           <div class="space-y-2">
-            <Label>Redirect URI</Label>
+            <Label for="spotify-redirect-uri">Redirect URI</Label>
             <div class="flex flex-col gap-2 sm:flex-row">
-              <Input readonly value={redirectUri} class="min-w-0 font-mono text-sm" />
+              <Input
+                id="spotify-redirect-uri"
+                readonly
+                value={redirectUri}
+                class="min-w-0 font-mono text-sm"
+              />
               <Button
                 type="button"
                 variant="outline"
@@ -805,7 +839,7 @@
             <div
               class="flex items-center gap-2 rounded-lg border px-4 py-3 text-sm {saveResult.success
                 ? 'border-primary/50 bg-primary/10 text-primary'
-                : 'border-destructive/50 bg-destructive/10 text-destructive'}"
+                : 'border-destructive/50 bg-destructive/10 text-destructive-text'}"
             >
               {#if saveResult.success}
                 <CheckCircle2 class="size-4 shrink-0" />
@@ -818,7 +852,7 @@
 
           {#if spotifyError}
             <div
-              class="border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+              class="border-destructive/50 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
             >
               <AlertCircle class="mt-0.5 size-4 shrink-0" />
               <span>{spotifyError}</span>
@@ -931,23 +965,23 @@
                 <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   <div class="border-border bg-secondary/30 rounded-md border px-3 py-2">
                     <div class="font-mono text-sm font-semibold tabular-nums">{syncStatus.outbox.synced}</div>
-                    <div class="text-muted-foreground text-[10.5px]">Synced</div>
+                    <div class="text-muted-foreground text-[11px]">Synced</div>
                   </div>
                   <div class="border-border bg-secondary/30 rounded-md border px-3 py-2">
                     <div class="font-mono text-sm font-semibold tabular-nums">
                       {syncStatus.outbox.pending + syncStatus.outbox.uploading}
                     </div>
-                    <div class="text-muted-foreground text-[10.5px]">Pending</div>
+                    <div class="text-muted-foreground text-[11px]">Pending</div>
                   </div>
                   <div class="border-border bg-secondary/30 rounded-md border px-3 py-2">
                     <div class="font-mono text-sm font-semibold tabular-nums">{syncStatus.outbox.failed}</div>
-                    <div class="text-muted-foreground text-[10.5px]">Failed</div>
+                    <div class="text-muted-foreground text-[11px]">Failed</div>
                   </div>
                   <div class="border-border bg-secondary/30 rounded-md border px-3 py-2">
                     <div class="font-mono text-sm font-semibold tabular-nums">
                       {syncStatus.outbox.skippedRemoteBetter}
                     </div>
-                    <div class="text-muted-foreground text-[10.5px]">Remote better</div>
+                    <div class="text-muted-foreground text-[11px]">Remote better</div>
                   </div>
                 </div>
               {/if}
@@ -967,21 +1001,23 @@
             </p>
           </header>
           <div class="divide-border divide-y">
-            <div class="flex items-center gap-4 px-5 py-3.5">
-              <div class="min-w-0 flex-1">
-                <div class="text-[12.5px] font-medium">Release staged copies automatically</div>
-                <div class="text-muted-foreground text-[11.5px]">
+            <!-- Toggle rows are <label>s, so the whole row flips the switch (as PeopleCard's
+                 capability rows do); keep any second control out of them. -->
+            <label class="flex items-center gap-4 px-5 py-3.5">
+              <span class="min-w-0 flex-1">
+                <span class="block text-[12.5px] font-medium">Release staged copies automatically</span>
+                <span class="text-muted-foreground block text-[11.5px]">
                   An hourly sweep releases downloads built more than
                   {stagedPreview?.graceMinutes ?? 15} minutes ago. Off by default.
-                </div>
-              </div>
+                </span>
+              </span>
               <Switch
                 checked={settings.downloads.releaseStagedSources}
                 disabled={stagedToggleBusy}
                 onCheckedChange={(v) => void onToggleReleaseStagedSources(v)}
                 aria-label="Release staged copies automatically"
               />
-            </div>
+            </label>
             <div class="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between">
               <div class="min-w-0 flex-1">
                 <div class="text-[12.5px] font-medium">Staged copies waiting</div>
@@ -1042,7 +1078,7 @@
             {#if stagedStartError}
               <div class="px-5 py-3">
                 <div
-                  class="border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+                  class="border-destructive/50 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
                 >
                   <AlertCircle class="mt-0.5 size-4 shrink-0" />
                   <span>{stagedStartError}</span>
@@ -1069,15 +1105,15 @@
         </header>
         <div class="divide-border divide-y">
           {#each PROVIDER_CATALOG as p (p.key)}
-            <div class="flex items-center gap-4 px-5 py-3.5">
+            <label class="flex items-center gap-4 px-5 py-3.5">
               <span
                 class="inline-block size-2.5 shrink-0 rounded-full {p.dot ? '' : 'bg-muted-foreground/50'}"
                 style={p.dot ? `background: ${p.dot}` : undefined}
               ></span>
-              <div class="min-w-0 flex-1">
-                <div class="text-sm font-medium">{p.name}</div>
-                <div class="text-muted-foreground text-xs">{p.desc}</div>
-              </div>
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-medium">{p.name}</span>
+                <span class="text-muted-foreground block text-xs">{p.desc}</span>
+              </span>
               <Badge variant="outline" class="text-muted-foreground hidden shrink-0 sm:inline-flex">
                 {p.auth}
               </Badge>
@@ -1086,7 +1122,7 @@
                 onCheckedChange={(v) => toggleProvider(p.key, v)}
                 aria-label="Toggle {p.name}"
               />
-            </div>
+            </label>
           {/each}
         </div>
 
@@ -1094,7 +1130,7 @@
           <div
             class="mx-5 mb-4 flex items-center gap-2 rounded-lg border px-4 py-2 text-sm {providersResult.success
               ? 'border-primary/50 bg-primary/10 text-primary'
-              : 'border-destructive/50 bg-destructive/10 text-destructive'}"
+              : 'border-destructive/50 bg-destructive/10 text-destructive-text'}"
           >
             {#if providersResult.success}
               <CheckCircle2 class="size-4 shrink-0" />
@@ -1129,10 +1165,10 @@
           </p>
         </header>
 
-        <div class="flex items-center gap-4 px-5 py-3.5">
-          <div class="min-w-0 flex-1">
-            <div class="text-sm font-medium">Enable AI quality grading</div>
-            <div class="text-muted-foreground text-xs">
+        <label class="flex items-center gap-4 px-5 py-3.5">
+          <span class="min-w-0 flex-1">
+            <span class="block text-sm font-medium">Enable AI quality grading</span>
+            <span class="text-muted-foreground block text-xs">
               {#if qualityGrading && !qualityGrading.configured}
                 No API key set on the server — also set
                 <code class="bg-secondary rounded px-1 py-0.5">QUALITY_GRADING_API_KEY</code>
@@ -1140,8 +1176,8 @@
               {:else}
                 Grades enriched songs in the background and powers the AI quality page.
               {/if}
-            </div>
-          </div>
+            </span>
+          </span>
           <Switch
             checked={qualityGrading?.enabled ?? false}
             onCheckedChange={(v) => {
@@ -1149,13 +1185,13 @@
             }}
             aria-label="Enable AI quality grading"
           />
-        </div>
+        </label>
 
         {#if qualityGradingResult}
           <div
             class="mx-5 mb-4 flex items-center gap-2 rounded-lg border px-4 py-2 text-sm {qualityGradingResult.success
               ? 'border-primary/50 bg-primary/10 text-primary'
-              : 'border-destructive/50 bg-destructive/10 text-destructive'}"
+              : 'border-destructive/50 bg-destructive/10 text-destructive-text'}"
           >
             {#if qualityGradingResult.success}
               <CheckCircle2 class="size-4 shrink-0" />
@@ -1190,7 +1226,8 @@
         <div class="px-5 py-4">
           <p class="text-muted-foreground text-xs leading-relaxed">
             Auto-accept threshold, single-source minimum, and the per-provider confidence weights
-            are tuned server-side today (in <code class="bg-secondary rounded px-1 py-0.5">MusicEnricherOptions</code>).
+            are tuned in the server's configuration today (the
+            <code class="bg-secondary rounded px-1 py-0.5">MusicEnricher</code> section).
             An in-app editor for these consensus rules — including hit-rate and latency stats per
             provider — is coming soon.
           </p>
@@ -1224,15 +1261,24 @@
         <header class="border-border border-b px-5 py-3.5">
           <h2 class="text-sm font-semibold">Library output</h2>
           <p class="text-muted-foreground text-xs">
-            Where the organised library is written after enrichment + tag-write. Destination is set
-            via the <code class="bg-secondary rounded px-1 py-0.5">destination-directory</code>
-            AppHost parameter.
+            Where the organised library is written after enrichment and tagging. Set by whoever runs
+            this server; changing it needs a restart.
           </p>
+          <details class="text-muted-foreground mt-1 text-xs">
+            <summary class="w-fit cursor-pointer py-1 select-none pointer-coarse:py-2">How to change it</summary>
+            <p class="mt-1">
+              It is the server's
+              <code class="bg-secondary rounded px-1 py-0.5">destination-directory</code> parameter
+              (AppHost user-secrets in development, an environment variable in a compose deployment).
+              Edit it and restart the server.
+            </p>
+          </details>
         </header>
         <div class="divide-border divide-y">
           <div class="flex flex-col gap-2 px-5 py-4">
-            <div class="text-sm font-medium">Destination</div>
+            <Label for="settings-destination-directory">Destination</Label>
             <Input
+              id="settings-destination-directory"
               readonly
               value={settings?.paths.destinationDirectory ?? ''}
               class="font-mono text-sm"
@@ -1290,8 +1336,8 @@
         <header class="border-border border-b px-5 py-3.5">
           <h2 class="text-sm font-semibold">Account</h2>
           <p class="text-muted-foreground text-xs">
-            Signed-in user. Sign in by magic link or passkey — no passwords. Roles control who can
-            mutate pipeline state.
+            The account you're signed in with. You sign in with an emailed link or a passkey — there
+            are no passwords.
           </p>
         </header>
 
@@ -1341,7 +1387,7 @@
                     <Button
                       variant="ghost"
                       size="icon"
-                      class="size-6 shrink-0"
+                      class="shrink-0"
                       onclick={startEditName}
                       aria-label="Edit account name"
                     >
@@ -1361,7 +1407,7 @@
 
           {#if nameError}
             <div
-              class="border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+              class="border-destructive/50 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
             >
               <AlertCircle class="mt-0.5 size-4 shrink-0" />
               <span>{nameError}</span>
@@ -1372,10 +1418,9 @@
             <div
               class="border-border bg-secondary/40 text-foreground/80 rounded-lg border px-4 py-3 text-xs"
             >
-              You're signed in as the demo account. It's strictly read-only: you can browse and play
-              the seeded library, but every mutating action (scan, enrich, build, approve, edit,
-              delete, settings, purge…) returns
-              <span class="bg-secondary rounded px-1 font-mono">403 demo_read_only</span>.
+              You're signed in as the demo account. You can browse and play the seeded library, but the
+              demo account can't change settings — scanning, editing, approving, deleting and the rest
+              are turned off.
             </div>
           {/if}
 
@@ -1401,8 +1446,8 @@
             <UserPlus class="size-4" /> Accounts on this browser
           </h2>
           <p class="text-muted-foreground text-xs">
-            Sign in to each account once and switch between them without logging out — handy for
-            hopping between an owner and a friend account.
+            Sign in to each account once and switch between them without signing out — handy if you
+            use more than one.
           </p>
         </header>
 
@@ -1502,7 +1547,7 @@
 
               {#if passkeyError}
                 <div
-                  class="border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+                  class="border-destructive/50 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
                 >
                   <AlertCircle class="mt-0.5 size-4 shrink-0" />
                   <span>{passkeyError}</span>
@@ -1527,14 +1572,42 @@
                           {/if}
                         </div>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onclick={() => handleRemovePasskey(passkey.id)}
-                        aria-label="Remove passkey"
-                      >
-                        <Trash2 class="size-4" />
-                      </Button>
+                      <!-- A credential, not a list row: removing the last one can lock a passkey-only
+                           person out, so it gets the same confirm as the purges below. -->
+                      <AlertDialog.Root>
+                        <AlertDialog.Trigger>
+                          {#snippet child({ props })}
+                            <Button
+                              {...props}
+                              variant="ghost"
+                              size="icon"
+                              aria-label={`Remove passkey ${passkey.displayName}`}
+                            >
+                              <Trash2 class="size-4" />
+                            </Button>
+                          {/snippet}
+                        </AlertDialog.Trigger>
+                        <AlertDialog.Content>
+                          <AlertDialog.Header>
+                            <AlertDialog.Title>Remove this passkey?</AlertDialog.Title>
+                            <AlertDialog.Description>
+                              “{passkey.displayName}” will no longer sign you in to this account.
+                              {#if passkeys.length === 1}
+                                It's your only passkey: after this you sign in with an emailed link.
+                              {/if}
+                            </AlertDialog.Description>
+                          </AlertDialog.Header>
+                          <AlertDialog.Footer>
+                            <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+                            <AlertDialog.Action
+                              variant="destructive"
+                              onclick={() => handleRemovePasskey(passkey.id)}
+                            >
+                              Remove passkey
+                            </AlertDialog.Action>
+                          </AlertDialog.Footer>
+                        </AlertDialog.Content>
+                      </AlertDialog.Root>
                     </div>
                   {/each}
                 {/if}
@@ -1545,6 +1618,8 @@
       {/if}
 
       {#if !isDemo(user)}
+        <!-- Renders only in Safari on iPhone/iPad: the iOS counterpart of the pairing card. -->
+        <InstallAppCard />
         <!-- Friends pair phones too: the token rides their own session, and the server's
              friend allowlist deliberately permits POST /api/auth/device-token. -->
         <PairDeviceCard />
@@ -1573,7 +1648,7 @@
         <section class="border-destructive/40 bg-card rounded-lg border">
           <div class="border-destructive/40 flex items-center gap-3 border-b px-5 py-3.5">
             <div class="bg-destructive/10 flex size-8 items-center justify-center rounded-lg">
-              <AlertTriangle class="text-destructive size-4" />
+              <AlertTriangle class="text-destructive-text size-4" />
             </div>
             <div class="min-w-0 flex-1">
               <h2 class="text-sm font-semibold">Danger zone</h2>
@@ -1599,7 +1674,7 @@
                     <Button
                       {...props}
                       variant="outline"
-                      class="text-destructive hover:text-destructive shrink-0 gap-2"
+                      class="text-destructive-text hover:text-destructive-text shrink-0 gap-2 font-semibold"
                       disabled={purgeRunning}
                     >
                       {#if purgeRunning && purgeSnapshot?.mode === 'post-fingerprint'}
@@ -1624,7 +1699,10 @@
                   </AlertDialog.Header>
                   <AlertDialog.Footer>
                     <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
-                    <AlertDialog.Action onclick={() => handlePurge('post-fingerprint')}>
+                    <AlertDialog.Action
+                      variant="destructive"
+                      onclick={() => handlePurge('post-fingerprint')}
+                    >
                       Reset enrichment data
                     </AlertDialog.Action>
                   </AlertDialog.Footer>
@@ -1645,7 +1723,7 @@
               <AlertDialog.Root bind:open={purgeAllDialogOpen} onOpenChange={onPurgeAllDialogOpenChange}>
                 <AlertDialog.Trigger>
                   {#snippet child({ props })}
-                    <Button {...props} variant="destructive" class="shrink-0 gap-2" disabled={purgeRunning}>
+                    <Button {...props} variant="destructive" class="shrink-0 gap-2 font-semibold" disabled={purgeRunning}>
                       {#if purgeRunning && purgeSnapshot?.mode === 'all'}
                         <Loader2 class="size-4 animate-spin" />
                       {:else}
@@ -1697,7 +1775,7 @@
             {#if purgeStartError}
               <div class="px-5 pt-4 pb-5">
                 <div
-                  class="border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+                  class="border-destructive/50 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
                 >
                   <AlertCircle class="mt-0.5 size-4 shrink-0" />
                   <p>{purgeStartError}</p>

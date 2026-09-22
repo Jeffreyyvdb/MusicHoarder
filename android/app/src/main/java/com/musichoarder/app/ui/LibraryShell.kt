@@ -103,6 +103,8 @@ fun LibraryShell(
     ui: LibraryUiState,
     content: LibraryContent,
     accounts: AccountsState,
+    /** `/auth/me`'s `isAdmin` — picks which empty-library copy applies; see the message below. */
+    isAdmin: Boolean,
     albumStatuses: Map<String, AlbumStatus>,
     likes: Map<Int, String?>,
     playingTrackId: Int?,
@@ -160,8 +162,12 @@ fun LibraryShell(
             state.error != null && isEmptyLibrary -> ErrorPane(state.error, actions.onRefresh)
 
             isEmptyLibrary -> MessagePane(
-                "No built tracks yet.\nThe pipeline lists songs here once it has copied them into " +
-                    "the destination library."
+                if (isAdmin) {
+                    "No built tracks yet.\nThe pipeline lists songs here once it has copied them " +
+                        "into the destination library."
+                } else {
+                    "Nothing has been shared with you yet."
+                },
             )
 
             ui.tab == LibraryTab.Overview -> OverviewTab(

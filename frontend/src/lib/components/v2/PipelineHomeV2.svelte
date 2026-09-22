@@ -7,13 +7,17 @@
     Copy,
     Loader2,
     History,
-    Workflow
+    Workflow,
+    Pause,
+    Play,
+    Square
   } from '@lucide/svelte';
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import type { Component } from 'svelte';
   import { goto } from '$app/navigation';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { Skeleton } from '$lib/components/ui/skeleton';
+  import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import {
     fetchAlbums,
     hydrateAlbums,
@@ -35,12 +39,18 @@
     type QualityProgress
   } from '$lib/api-client';
   import { isBuiltSong } from '$lib/album-sections';
-  import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
+  import {
+    pipelineOverlay,
+    JOB_CONFIRM_COPY,
+    type JobConfirm,
+    type StageKey
+  } from '$lib/stores/pipeline-overlay.svelte';
   import { cn } from '$lib/utils';
   import { formatBytesShort } from '$lib/formatters';
 
-  // The demo account is read-only — hide the mutating Rescan control (the backend rejects it
-  // regardless, this just avoids a dead button). Defaults false so non-demo callers are unaffected.
+  // The demo account is read-only — hide the mutating controls (Rescan, Pause/Resume, Stop; the
+  // backend rejects them regardless, this just avoids dead buttons). Defaults false so non-demo
+  // callers are unaffected.
   let { isDemo = false }: { isDemo?: boolean } = $props();
 
   // ── data layer (reuses the existing api-client + album-sections) ───────────
@@ -185,8 +195,10 @@
     label: string;
     /** Cumulative count processed by this stage. */
     count: number | null;
-    /** Stage is actively processing right now. */
+    /** Stage is actively processing right now (not paused). */
     live: boolean;
+    /** The JobManager step behind this stage is paused (automatic runs skip it). */
+    paused: boolean;
     /** Live throughput while running (files/s), null when idle. */
     rate: number | null;
   };
@@ -207,16 +219,24 @@
     return total ?? live ?? null;
   }
 
+  /** Running and not paused. A paused Enrich step keeps reporting Running (its workers hold the
+   *  queue), and a paused build reports Running until its job winds down; neither is flowing. */
+  function flowing(key: StageKey): boolean {
+    return pipelineOverlay.isStageRunning(key) && !pipelineOverlay.isStagePaused(key);
+  }
+
   const stages = $derived.by<Stage[]>(() => {
     const s = snap;
     const running = anyRunning;
     const job = overview?.job;
+    const paused = (key: StageKey) => pipelineOverlay.isStagePaused(key);
     return [
       {
         id: 'scan',
         label: 'Scan',
         count: stageCount(s?.scanned, job?.tracksProcessed, running && s?.scan?.status === 'Running'),
-        live: running && s?.scan?.status === 'Running',
+        live: running && flowing('scan'),
+        paused: paused('scan'),
         rate: running && rates.scan > 0 ? rates.scan : null
       },
       {
@@ -227,21 +247,24 @@
           job?.tracksFingerprinted,
           running && s?.fingerprint?.status === 'Running'
         ),
-        live: running && s?.fingerprint?.status === 'Running',
+        live: running && flowing('fingerprint'),
+        paused: paused('fingerprint'),
         rate: running && rates.fingerprint > 0 ? rates.fingerprint : null
       },
       {
         id: 'match',
         label: 'Match',
         count: stageCount(s?.enriched, job?.tracksBuildEligible, running && s?.enrich?.status === 'Running'),
-        live: running && s?.enrich?.status === 'Running',
+        live: running && flowing('enrich'),
+        paused: paused('enrich'),
         rate: running && rates.enrich > 0 ? rates.enrich : null
       },
       {
         id: 'decide',
         label: 'Decide',
         count: decidedCount,
-        live: running && s?.enrich?.status === 'Running',
+        live: running && flowing('enrich'),
+        paused: false,
         rate: null
       },
       {
@@ -249,20 +272,23 @@
         label: 'AI grade',
         count: qualityGraded,
         live: qualityProgress?.active === true,
+        paused: false,
         rate: null
       },
       {
         id: 'dedupe',
         label: 'Dedupe',
         count: duplicateCount,
-        live: running && s?.fingerprint?.status === 'Running',
+        live: running && flowing('fingerprint'),
+        paused: false,
         rate: null
       },
       {
         id: 'library',
         label: 'Library',
         count: stageCount(s?.built, job?.tracksCopied ?? inLibrary, running && s?.build?.status === 'Running'),
-        live: running && s?.build?.status === 'Running',
+        live: running && flowing('build'),
+        paused: paused('build'),
         rate: running && rates.build > 0 ? rates.build : null
       }
     ];
@@ -373,6 +399,86 @@
     }
   }
 
+  // ── job control (pause / resume / stop) ─────────────────────────────────────
+  // One row per JobManager step that is running or paused, so the phone — which never gets the
+  // desktop import drawer — can see how long is left and hold or stop it. Feedback is the row
+  // itself changing; the store toasts only on failure.
+  const JOB_STEPS: { key: StageKey; label: string }[] = [
+    { key: 'scan', label: 'Scan' },
+    { key: 'fingerprint', label: 'Fingerprint' },
+    { key: 'enrich', label: 'Match' },
+    { key: 'build', label: 'Library build' }
+  ];
+
+  type JobRow = {
+    key: StageKey;
+    label: string;
+    running: boolean;
+    paused: boolean;
+    busy: boolean;
+    rate: number;
+  };
+
+  const jobRows = $derived<JobRow[]>(
+    JOB_STEPS.map((j) => ({
+      ...j,
+      running: pipelineOverlay.isStageRunning(j.key),
+      paused: pipelineOverlay.isStagePaused(j.key),
+      busy: pipelineOverlay.isStageBusy(j.key),
+      rate: rates[j.key]
+    })).filter((j) => j.running || j.paused)
+  );
+  const anyFlowing = $derived(jobRows.some((j) => j.running && !j.paused));
+  const anyPaused = $derived(jobRows.some((j) => j.paused));
+  const etaSeconds = $derived(pipelineOverlay.etaSeconds);
+
+  function etaPhrase(sec: number): string {
+    if (sec < 60) return 'under a minute left';
+    const min = Math.round(sec / 60);
+    if (min < 60) return `about ${min} min left`;
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    return m === 0 ? `about ${h} h left` : `about ${h} h ${m} min left`;
+  }
+
+  function jobStatus(j: JobRow): string {
+    if (j.paused) {
+      // Paused enrichment workers park on their queue rather than dropping it.
+      if (j.running && j.key === 'enrich') return 'paused, queue kept';
+      if (j.running) return 'pausing…';
+      return 'paused';
+    }
+    return j.rate > 0 ? `${j.rate >= 10 ? Math.round(j.rate) : j.rate.toFixed(1)} files/s` : 'running';
+  }
+
+  let confirmOpen = $state(false);
+  let confirmKind = $state<JobConfirm>('stop');
+  const confirmCopy = $derived(JOB_CONFIRM_COPY[confirmKind]);
+
+  function ask(kind: JobConfirm) {
+    confirmKind = kind;
+    confirmOpen = true;
+  }
+
+  function requestStop() {
+    if (pipelineOverlay.needsConfirm('stop')) ask('stop');
+    else void pipelineOverlay.cancelRunning();
+  }
+
+  function togglePause(j: JobRow) {
+    if (!j.paused && j.key === 'build' && pipelineOverlay.needsConfirm('pause-build')) ask('pause-build');
+    else void pipelineOverlay.setStagePaused(j.key, !j.paused);
+  }
+
+  function confirmAction() {
+    if (confirmKind === 'stop') void pipelineOverlay.cancelRunning();
+    else void pipelineOverlay.setStagePaused('build', true);
+  }
+
+  // 32px visual, 44px hit area on touch — these are the controls a phone admin reaches for.
+  const CONTROL_BTN =
+    'border-border bg-card hover:bg-muted text-foreground relative inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[12px] font-medium transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] disabled:opacity-60 pointer-coarse:after:absolute pointer-coarse:after:-inset-1.5';
+
   type NeedRow = {
     id: 'review' | 'dupes' | 'ai';
     icon: Component;
@@ -415,10 +521,14 @@
 <PageToolbarV2
   icon={Workflow}
   title="Pipeline"
-  meta={anyRunning ? 'Running — files are flowing through scan, match, grade, and build' : 'Idle — watching your source folder'}
+  meta={anyFlowing
+    ? 'Running — files are flowing through scan, match, grade, and build'
+    : anyPaused
+      ? 'Paused — automatic runs skip a paused step until you resume it'
+      : 'Idle — watching your source folder'}
 >
   {#snippet actions()}
-    {#if anyRunning}
+    {#if anyFlowing}
       <span class="bg-primary mh-v2-pulse size-2 shrink-0 rounded-full" aria-hidden="true"></span>
       <span class="sr-only">running</span>
     {/if}
@@ -533,7 +643,7 @@
           {#if errorCount == null}
             <Skeleton class="h-9 w-10" />
           {:else}
-            <div class={cn('text-xl leading-tight font-semibold tracking-tight tabular-nums', errorCount > 0 && 'text-destructive')}>
+            <div class={cn('text-xl leading-tight font-semibold tracking-tight tabular-nums', errorCount > 0 && 'text-destructive-text')}>
               {fmtNum(errorCount)}
             </div>
           {/if}
@@ -566,7 +676,7 @@
             </a>
             <span>·</span>
             <span
-              ><span class={cn('text-foreground font-semibold tabular-nums', (errorCount ?? 0) > 0 && 'text-destructive')}
+              ><span class={cn('text-foreground font-semibold tabular-nums', (errorCount ?? 0) > 0 && 'text-destructive-text')}
                 >{fmtNum(errorCount)}</span
               > errors</span
             >
@@ -581,6 +691,66 @@
         <h2 class="text-[13px] font-semibold">Conveyor</h2>
         <span class="text-muted-foreground text-[12px]">Select a stage for detail.</span>
       </div>
+
+      <!-- Running now — what is moving, how long is left, and the controls to hold or stop it. -->
+      {#if jobRows.length > 0}
+        <div class="mb-5">
+          <div class="mb-1 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1">
+            <span class="text-[12.5px] font-medium">{anyFlowing ? 'Running now' : 'Paused'}</span>
+            {#if anyFlowing && etaSeconds != null}
+              <span class="text-muted-foreground text-[12.5px]">· {etaPhrase(etaSeconds)}</span>
+            {/if}
+            {#if !isDemo && pipelineOverlay.canStop}
+              <button
+                type="button"
+                onclick={requestStop}
+                disabled={pipelineOverlay.cancelling}
+                class={cn(CONTROL_BTN, 'ml-auto')}
+              >
+                {#if pipelineOverlay.cancelling}
+                  <Loader2 class="size-3.5 animate-spin" />
+                  Stopping…
+                {:else}
+                  <Square class="size-3 fill-current" />
+                  Stop all
+                {/if}
+              </button>
+            {/if}
+          </div>
+          <div class="divide-border/60 divide-y">
+            {#each jobRows as j (j.key)}
+              <div class="flex min-h-11 items-center gap-3 py-1.5">
+                <span
+                  class={cn('size-2 shrink-0 rounded-full', j.paused ? 'bg-amber-500' : 'bg-primary mh-v2-pulse')}
+                  aria-hidden="true"
+                ></span>
+                <span class="min-w-0 flex-1 truncate text-[13px]">
+                  <span class="font-medium">{j.label}</span>
+                  <span class="text-muted-foreground tabular-nums"> — {jobStatus(j)}</span>
+                </span>
+                {#if !isDemo}
+                  <button
+                    type="button"
+                    onclick={() => togglePause(j)}
+                    disabled={j.busy}
+                    aria-label={j.paused ? `Resume ${j.label.toLowerCase()}` : `Pause ${j.label.toLowerCase()}`}
+                    class={CONTROL_BTN}
+                  >
+                    {#if j.busy}
+                      <Loader2 class="size-3.5 animate-spin" />
+                    {:else if j.paused}
+                      <Play class="size-3.5" />
+                    {:else}
+                      <Pause class="size-3.5" />
+                    {/if}
+                    {j.paused ? 'Resume' : 'Pause'}
+                  </button>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
 
       <!-- Desktop: horizontal flow, nodes joined by a continuous line. -->
       <div class="relative hidden sm:block">
@@ -617,7 +787,9 @@
                   {st.count == null ? '—' : st.count.toLocaleString()}
                 </span>
               </span>
-              {#if st.live && st.rate != null}
+              {#if st.paused}
+                <span class="-mt-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">Paused</span>
+              {:else if st.live && st.rate != null}
                 <span class="text-muted-foreground -mt-1.5 text-[11px] tabular-nums">{st.rate.toFixed(0)}/s</span>
               {/if}
             </button>
@@ -653,7 +825,9 @@
               >
                 {st.label}
               </span>
-              {#if st.live && st.rate != null}
+              {#if st.paused}
+                <span class="text-[11px] font-medium text-amber-700 dark:text-amber-400">Paused</span>
+              {:else if st.live && st.rate != null}
                 <span class="text-muted-foreground text-[11px] tabular-nums">{st.rate.toFixed(0)}/s</span>
               {/if}
               <span class="text-muted-foreground text-[13px] tabular-nums">
@@ -726,7 +900,7 @@
                 {row.count.toLocaleString()}
               </span>
             {/if}
-            <ChevronRight class="text-muted-foreground/50 group-hover:text-muted-foreground size-3.5 shrink-0 transition-colors" />
+            <ChevronRight class="text-muted-foreground-dim group-hover:text-muted-foreground size-3.5 shrink-0 transition-colors" />
           </a>
         {/each}
       </div>
@@ -749,12 +923,12 @@
                     <span class="font-medium">{ACTIVITY_VERB[a.type] ?? a.type}</span>
                     <span class="text-muted-foreground"> — {a.track}{a.artist ? ` · ${a.artist}` : ''}</span>
                   </span>
-                  <span class="text-muted-foreground/70 shrink-0 text-[11.5px]">{a.time}</span>
+                  <span class="text-muted-foreground-dim shrink-0 text-[11.5px]">{a.time}</span>
                 </div>
               {/each}
             </div>
           {:else}
-            <p class="text-muted-foreground/70 py-8 text-center text-[12.5px]">No recent activity yet.</p>
+            <p class="text-muted-foreground-dim py-8 text-center text-[12.5px]">No recent activity yet.</p>
           {/if}
         </div>
       </section>
@@ -788,7 +962,7 @@
                     {#if album.coverUrl}
                       <img src={album.coverUrl} alt="" class="size-9 shrink-0 rounded object-cover" />
                     {:else}
-                      <span class="bg-muted text-muted-foreground grid size-9 shrink-0 place-items-center rounded text-[10px] font-semibold">
+                      <span class="bg-muted text-muted-foreground grid size-9 shrink-0 place-items-center rounded text-[11px] font-semibold">
                         {albumInitials(album.title)}
                       </span>
                     {/if}
@@ -803,20 +977,33 @@
                     <a
                       href={`/track/${firstSong.id}`}
                       title="View enrichment timeline"
-                      class="text-muted-foreground/60 hover:text-foreground inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11.5px] font-medium opacity-100 transition-colors group-hover/row:opacity-100 focus-visible:opacity-100 sm:opacity-0"
+                      class="text-muted-foreground-dim hover:text-foreground inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11.5px] font-medium opacity-100 transition-colors group-hover/row:opacity-100 focus-visible:opacity-100 sm:pointer-fine:opacity-0"
                     >
                       <History class="size-3" /> Timeline
                     </a>
                   {/if}
-                  <ChevronRight class="text-muted-foreground/50 hidden size-3.5 shrink-0 sm:inline-flex" />
+                  <ChevronRight class="text-muted-foreground-dim hidden size-3.5 shrink-0 sm:inline-flex" />
                 </div>
               {/each}
             </div>
           {:else}
-            <p class="text-muted-foreground/70 py-8 text-center text-[12.5px]">Nothing in the library yet.</p>
+            <p class="text-muted-foreground-dim py-8 text-center text-[12.5px]">Nothing in the library yet.</p>
           {/if}
         </div>
       </section>
     </div>
   </div>
 </ScrollArea>
+
+<AlertDialog.Root bind:open={confirmOpen}>
+  <AlertDialog.Content>
+    <AlertDialog.Header>
+      <AlertDialog.Title>{confirmCopy.title}</AlertDialog.Title>
+      <AlertDialog.Description>{confirmCopy.description}</AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel>Keep running</AlertDialog.Cancel>
+      <AlertDialog.Action variant="destructive" onclick={confirmAction}>{confirmCopy.action}</AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>

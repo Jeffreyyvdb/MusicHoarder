@@ -307,7 +307,7 @@
         <div
           class="mb-6 rounded-lg border px-4 py-3 text-left text-sm {oauthBanner.type === 'success'
             ? 'border-primary/40 bg-primary/10 text-primary'
-            : 'border-destructive/50 bg-destructive/10 text-destructive'}"
+            : 'border-destructive/50 bg-destructive/10 text-destructive-text'}"
         >
           <div class="flex items-start gap-2">
             {#if oauthBanner.type === 'success'}
@@ -329,7 +329,7 @@
 
       {#if error}
         <div
-          class="border-destructive/50 bg-destructive/10 text-destructive mb-6 rounded-lg border px-4 py-3 text-sm"
+          class="border-destructive/50 bg-destructive/10 text-destructive-text mb-6 rounded-lg border px-4 py-3 text-sm"
         >
           {error}
         </div>
@@ -380,7 +380,7 @@
         class="mx-4 mt-4 rounded-lg border px-4 py-3 text-sm md:mx-6 {oauthBanner.type ===
         'success'
           ? 'border-primary/40 bg-primary/10 text-primary'
-          : 'border-destructive/50 bg-destructive/10 text-destructive'}"
+          : 'border-destructive/50 bg-destructive/10 text-destructive-text'}"
       >
         <div class="flex items-start gap-2">
           {#if oauthBanner.type === 'success'}
@@ -516,7 +516,7 @@
               class="mx-6 mt-3 rounded-md border px-3 py-2 text-sm sm:mx-9 {wishlistBanner.type ===
               'success'
                 ? 'border-[#1DB954]/30 bg-[#1DB954]/10 text-[#1DB954]'
-                : 'border-destructive/30 bg-destructive/10 text-destructive'}"
+                : 'border-destructive/30 bg-destructive/10 text-destructive-text'}"
             >
               {wishlistBanner.message}
             </div>
@@ -539,7 +539,7 @@
 
           {#if likedError}
             <div class="flex flex-col items-center justify-center py-12 text-center">
-              <AlertCircle class="text-destructive mb-3 size-10" />
+              <AlertCircle class="text-destructive-text mb-3 size-10" />
               <p class="text-muted-foreground">{likedError}</p>
               <Button
                 variant="outline"
@@ -609,7 +609,7 @@
 
         {#if playlistsError}
           <div class="flex flex-col items-center justify-center py-12 text-center">
-            <AlertCircle class="text-destructive mb-3 size-10" />
+            <AlertCircle class="text-destructive-text mb-3 size-10" />
             <p class="text-muted-foreground">{playlistsError}</p>
             <Button variant="outline" size="sm" class="mt-4" onclick={loadPlaylists}>
               Retry

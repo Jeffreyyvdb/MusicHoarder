@@ -259,7 +259,7 @@
       case 'Failed':
         return {
           label: 'Sync failed',
-          cls: 'border-destructive/40 bg-destructive/10 text-destructive'
+          cls: 'border-destructive/40 bg-destructive/10 text-destructive-text'
         };
       default:
         return { label: 'Sync pending', cls: 'border-border bg-card text-foreground' };
@@ -271,7 +271,12 @@
      same thing the active row and the track name below already say. -->
 <PageToolbarV2 icon={History} title="Provenance" meta={song ? `${song.artist ?? ''} — ${song.title ?? song.fileName}` : undefined}>
   {#snippet actions()}
-    <button type="button" onclick={goBack} class="border-border bg-card hover:bg-muted text-foreground text-nav-sm inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 font-medium transition-colors">
+    <button
+      type="button"
+      onclick={goBack}
+      aria-label="Back"
+      class="border-border bg-card hover:bg-muted text-foreground text-nav-sm inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 font-medium transition-colors"
+    >
       <ArrowLeft class="size-3.5" />
       <span class="hidden sm:inline">Back</span>
     </button>
@@ -279,6 +284,7 @@
       type="button"
       onclick={handleReenrich}
       disabled={reenriching || !song}
+      aria-label="Re-enrich"
       class="border-border bg-card hover:bg-muted text-foreground text-nav-sm inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
     >
       {#if reenriching}
@@ -293,6 +299,7 @@
         type="button"
         onclick={handleFindBetterQuality}
         disabled={requestingUpgrade || !song || detail?.upgrade?.active === true}
+        aria-label={upgradeActiveLabel ?? 'Find better quality'}
         class="border-border bg-card hover:bg-muted text-foreground text-nav-sm inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
       >
         {#if requestingUpgrade || detail?.upgrade?.active}
@@ -303,7 +310,11 @@
         <span class="hidden lg:inline">{upgradeActiveLabel ?? 'Find better quality'}</span>
       </button>
     {/if}
-    <a href={libraryHref} class="border-border bg-card hover:bg-muted text-foreground text-nav-sm inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 font-medium transition-colors">
+    <a
+      href={libraryHref}
+      aria-label="Open in library"
+      class="border-border bg-card hover:bg-muted text-foreground text-nav-sm inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 font-medium transition-colors"
+    >
       <ExternalLink class="size-3.5" />
       <span class="hidden lg:inline">Open in library</span>
     </a>
@@ -361,7 +372,7 @@
           caption={false}
         />
         <div class="min-w-0 flex-1">
-          <div class="text-muted-foreground font-mono text-[10px] tracking-[0.1em] uppercase">Track</div>
+          <div class="text-muted-foreground font-mono text-[11px] tracking-[0.1em] uppercase">Track</div>
           <h2 class="mt-0.5 truncate text-2xl font-semibold tracking-tight">{heroTitle}</h2>
           <div class="text-muted-foreground mt-0.5 truncate text-[13px]">
             {[heroArtist, heroAlbum, heroYear != null ? String(heroYear) : null]
@@ -411,17 +422,17 @@
       <!-- KPI strip -->
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div class="border-border bg-card rounded-lg border p-3.5">
-          <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">Decision</div>
+          <div class="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">Decision</div>
           <div class="text-primary mt-0.5 font-mono text-base font-semibold">{decision}</div>
           <div class="text-muted-foreground mt-0.5 text-[11px]">{statusLabel}</div>
         </div>
         <div class="border-border bg-card rounded-lg border p-3.5">
-          <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">Providers</div>
+          <div class="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">Providers</div>
           <div class="mt-0.5 font-mono text-base font-semibold tabular-nums">{providerAttemptCount}</div>
           <div class="text-muted-foreground mt-0.5 text-[11px]">{contributingCount} contributed data</div>
         </div>
         <div class="border-border bg-card rounded-lg border p-3.5">
-          <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">Match conf.</div>
+          <div class="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">Match conf.</div>
           <div class="mt-0.5 font-mono text-base font-semibold tabular-nums">
             {song.matchConfidence != null
               ? song.matchConfidence.toFixed(2)
@@ -434,7 +445,7 @@
           </div>
         </div>
         <div class="border-border bg-card rounded-lg border p-3.5">
-          <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">Wall clock</div>
+          <div class="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">Wall clock</div>
           <div class="mt-0.5 font-mono text-base font-semibold tabular-nums">{wallClock}</div>
           <div class="text-muted-foreground mt-0.5 text-[11px]">scan → now</div>
         </div>
@@ -447,7 +458,7 @@
         </div>
         <div class="grid grid-cols-1 items-stretch gap-3 sm:grid-cols-[1fr_auto_1fr]">
           <div class="border-border bg-muted/30 rounded-lg border p-3.5">
-            <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">
+            <div class="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">
               Source · raw
             </div>
             <div class="mt-1.5 font-mono text-[11.5px] break-all">{sourcePath || '—'}</div>
@@ -460,14 +471,14 @@
               class="rounded-lg border p-3.5"
               style="background: oklch(0.62 0.13 145 / 0.08); border-color: oklch(0.62 0.13 145 / 0.3)"
             >
-              <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">
+              <div class="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">
                 Destination · clean
               </div>
               <div class="text-primary mt-1.5 font-mono text-[11.5px] break-all">{destinationPath}</div>
             </div>
           {:else}
             <div class="border-border bg-card rounded-lg border border-dashed p-3.5">
-              <div class="text-muted-foreground flex items-center gap-1.5 text-[10px] font-semibold tracking-wide uppercase">
+              <div class="text-muted-foreground flex items-center gap-1.5 text-[11px] font-semibold tracking-wide uppercase">
                 <FolderOpen class="size-3.5" /> Destination
               </div>
               <div class="text-muted-foreground mt-1.5 text-[11.5px]">
@@ -523,9 +534,9 @@
           </div>
         {:else}
           <TimelineList events={timeline} />
-          <p class="text-muted-foreground/70 mt-2 text-[11px]">
+          <p class="text-muted-foreground-dim mt-2 text-[11px]">
             Timestamps are real. Per-event processing latency isn't captured by the pipeline yet —
-            <span class="bg-muted text-muted-foreground rounded px-1 py-px font-mono text-[9px] tracking-wide uppercase">soon</span>.
+            <span class="bg-muted text-muted-foreground rounded px-1 py-px font-mono text-[11px] tracking-wide uppercase">soon</span>.
           </p>
         {/if}
       </section>

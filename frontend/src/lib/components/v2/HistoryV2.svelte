@@ -279,7 +279,7 @@
         </div>
       {:else if error}
         <div
-          class="border-destructive/40 bg-destructive/10 text-destructive flex flex-wrap items-center gap-3 rounded-md border px-4 py-3 text-sm"
+          class="border-destructive/40 bg-destructive/10 text-destructive-text flex flex-wrap items-center gap-3 rounded-md border px-4 py-3 text-sm"
         >
           <span class="min-w-0 flex-1">{error}</span>
           <Button variant="outline" size="sm" onclick={() => void load()}>Retry</Button>

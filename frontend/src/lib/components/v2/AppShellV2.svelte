@@ -15,6 +15,7 @@
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { cn } from '$lib/utils';
   import { isAdmin } from '$lib/auth/capabilities';
+  import { navGroupsFor } from '$lib/nav';
 
   type Props = { children: Snippet };
   const { children }: Props = $props();
@@ -28,6 +29,11 @@
   // versions.
   const drawerOpen = $derived(pipelineOverlay.isOpen);
   const playerPad = $derived(playerStore.currentSong && !playerStore.isPanelMounted);
+  // BottomNavV2 hides itself for a single-group audience (a member) — mirror that here so the
+  // 80px bar reservation isn't left dangling over blank background when there's no bar to clear.
+  // MiniPlayer's own fixed offset doesn't change with the bar's presence, so its clearance (the
+  // 140px "player showing" case below) stays as-is either way.
+  const showBottomNav = $derived(navGroupsFor(page.data.user).length > 1);
 
   // Banner policy: at most ONE banner renders at a time — offline (pipeline is
   // actually paused) outranks the grading error, which outranks the update
@@ -51,14 +57,18 @@
          space on the inset (which left the bar over blank background), we publish
          the clearance as `--mh-content-pad`; each scroll viewport consumes it as
          trailing padding so the last items still clear the chrome. The mobile nav
-         is always present (80px); the player adds ~60px on top when showing. -->
+         reserves 80px when it's actually showing (a member's single-group audience
+         gets none — see `showBottomNav` above); the player adds ~60px on top of
+         that when showing. -->
     <div
       data-mh-content
       class={cn(
         'flex min-h-0 flex-1 flex-col overflow-hidden',
         playerPad
           ? '[--mh-content-pad:calc(140px_+_max(env(safe-area-inset-bottom),var(--mh-vv-bottom,0px)))]'
-          : '[--mh-content-pad:calc(80px_+_max(env(safe-area-inset-bottom),var(--mh-vv-bottom,0px)))]',
+          : showBottomNav
+            ? '[--mh-content-pad:calc(80px_+_max(env(safe-area-inset-bottom),var(--mh-vv-bottom,0px)))]'
+            : '[--mh-content-pad:max(env(safe-area-inset-bottom),var(--mh-vv-bottom,0px))]',
         playerPad && !drawerOpen ? 'md:[--mh-content-pad:88px]' : 'md:[--mh-content-pad:0px]'
       )}
     >

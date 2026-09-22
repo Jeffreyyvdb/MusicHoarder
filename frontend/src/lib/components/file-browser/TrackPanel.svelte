@@ -47,7 +47,8 @@
     type ProviderAttempt,
     type SongQualityGradeView,
     type QualityVerdict,
-    type SongVideoInfo
+    type SongVideoInfo,
+    type NormalizedEnrichmentStatus
   } from '$lib/api-client';
   import { fingerprintBars, fingerprintHash, providerAttemptRows } from '$lib/review-helpers';
   import { formatDuration, formatFileSize } from '$lib/formatters';
@@ -447,6 +448,17 @@
 
   const enrichmentNormalized = $derived(mapEnrichmentStatus(song.enrichmentStatus));
 
+  // The Metadata tab's "Status" row reads its value straight off the domain vocabulary
+  // (Pending/Matched/NeedsReview/Failed — see CLAUDE.md's pipeline architecture), not the
+  // raw normalized code, which a viewer would otherwise see verbatim as e.g. "needsreview".
+  const ENRICHMENT_STATUS_LABELS: Record<NormalizedEnrichmentStatus, string> = {
+    pending: 'Pending',
+    processing: 'Processing',
+    complete: 'Matched',
+    needsreview: 'Needs review',
+    failed: 'Failed'
+  };
+
   // The enrich action also builds the track into the library, so the label reflects the outcome:
   // "Add to library" for a track not yet built, "Update in library" once it has a destination.
   const inLibrary = $derived(!!song.destinationPath);
@@ -581,7 +593,7 @@
     ['Format', bitrateLabel()],
     ['Sample rate', song.sampleRate ? `${(song.sampleRate / 1000).toFixed(1)} kHz` : '—'],
     ['File size', formatFileSize(song.fileSizeBytes)],
-    ['Status', enrichmentNormalized]
+    ['Status', ENRICHMENT_STATUS_LABELS[enrichmentNormalized]]
   ]);
 
 </script>
@@ -608,7 +620,7 @@
     size="sm"
     class={cn(
       ai.enhanceState === 'success' && 'text-primary',
-      ai.enhanceState === 'error' && 'text-destructive'
+      ai.enhanceState === 'error' && 'text-destructive-text'
     )}
     disabled={ai.enhanceBusy}
     onclick={() => ai.enhance()}
@@ -682,8 +694,8 @@
           onclick={shareSong}
           disabled={shareState === 'loading'}
           class="bg-foreground/5 hover:bg-foreground/10 size-9 shrink-0 rounded-full"
-          aria-label="Share song — copy a public link"
-          title="Share — copy a public link that plays this song for anyone, no account needed."
+          aria-label="Share song"
+          title="Share a public link that plays this song for anyone, no account needed."
         >
           {#if shareState === 'loading'}
             <Loader2 class="size-4 animate-spin" />
@@ -721,7 +733,7 @@
             <a
               href={albumHref}
               onclick={onClose}
-              class="text-muted-foreground/70 hover:text-foreground hover:underline"
+              class="text-muted-foreground-dim hover:text-foreground hover:underline"
             >
               {album.title}
             </a>
@@ -731,13 +743,13 @@
           >
             <!-- Renders nothing for a track this account owns. -->
             <SharedByBadge {song} />
-            <span class="bg-primary/15 text-primary rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wider">
+            <span class="bg-primary/15 text-primary rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold tracking-wider">
               {bitrateLabel().split(' ')[0] || 'FILE'}
             </span>
             <span class="font-mono">{formatDuration(song.durationSeconds)}</span>
             <span class="font-mono">{formatFileSize(song.fileSizeBytes)}</span>
             {#if song.hasSyncedLyrics || song.lrclibId}
-              <span class="bg-primary/15 text-primary rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wider">
+              <span class="bg-primary/15 text-primary rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold tracking-wider">
                 LRC
               </span>
             {/if}
@@ -776,7 +788,7 @@
             <a
               href={albumHref}
               onclick={onClose}
-              class="text-muted-foreground/70 hover:text-foreground hover:underline"
+              class="text-muted-foreground-dim hover:text-foreground hover:underline"
             >
               {album.title}
             </a>
@@ -847,7 +859,7 @@
               <a
                 href={albumHref}
                 onclick={onClose}
-                class="text-muted-foreground/70 hover:text-foreground hover:underline"
+                class="text-muted-foreground-dim hover:text-foreground hover:underline"
               >
                 {album.title}
               </a>
@@ -886,7 +898,7 @@
                 {/if}
               </div>
               {#if ai.enhanceError}
-                <p class="text-destructive mb-3 text-center text-[11px]">{ai.enhanceError}</p>
+                <p class="text-destructive-text mb-3 text-center text-[11px]">{ai.enhanceError}</p>
               {:else if ai.enhanceNote}
                 <p class="text-muted-foreground mb-3 text-center text-[11px]">{ai.enhanceNote}</p>
               {/if}
@@ -981,7 +993,7 @@
           </div>
         </div>
         {#if ai.enhanceError}
-          <p class="text-destructive mx-auto w-full max-w-3xl px-1 text-[11px]">{ai.enhanceError}</p>
+          <p class="text-destructive-text mx-auto w-full max-w-3xl px-1 text-[11px]">{ai.enhanceError}</p>
         {:else if ai.enhanceNote}
           <p class="text-muted-foreground mx-auto w-full max-w-3xl px-1 text-[11px]">{ai.enhanceNote}</p>
         {/if}
@@ -1132,13 +1144,13 @@
         <div class="mx-auto w-full max-w-2xl py-2">
           <div class="border-border flex items-end justify-between border-b pb-3">
             <div>
-              <div class="text-muted-foreground font-mono text-[10px] tracking-wider">
+              <div class="text-muted-foreground font-mono text-[11px] tracking-wider">
                 AcoustID · Chromaprint v1.5
               </div>
               <div class="mt-1 text-sm font-semibold">{trackTitle}</div>
             </div>
             <div class="text-right">
-              <div class="text-muted-foreground text-[9.5px] font-semibold tracking-[0.08em] uppercase">
+              <div class="text-muted-foreground text-[11px] font-semibold tracking-[0.08em] uppercase">
                 Match Confidence
               </div>
               <div class="text-primary mt-0.5 font-mono text-[22px] font-semibold tracking-[-0.02em]">
@@ -1156,12 +1168,12 @@
             {/each}
           </div>
 
-          <div class="bg-surface-sunken text-muted-foreground mt-2.5 rounded px-2.5 py-2 font-mono text-[10px] leading-relaxed break-all">
+          <div class="bg-surface-sunken text-muted-foreground mt-2.5 rounded px-2.5 py-2 font-mono text-[11px] leading-relaxed break-all">
             {song.fingerprint ? fingerprintHash(song.fingerprint) : '— no fingerprint —'}
           </div>
 
           <div class="mt-5">
-            <div class="text-muted-foreground text-[10px] font-semibold tracking-[0.08em] uppercase">
+            <div class="text-muted-foreground text-[11px] font-semibold tracking-[0.08em] uppercase">
               {#if attemptRows.length}
                 {attemptRows.length} provider {attemptRows.length === 1 ? 'attempt' : 'attempts'}
               {:else}
@@ -1174,7 +1186,7 @@
                   <Loader2 class="size-3.5 animate-spin" /> Loading provider attempts…
                 </div>
               {:else if detailError}
-                <div class="text-destructive flex items-center gap-2 px-1 py-3 text-[12px]">
+                <div class="text-destructive-text flex items-center gap-2 px-1 py-3 text-[12px]">
                   <AlertCircle class="size-3.5" /> {detailError}
                 </div>
               {:else if !attemptRows.length}
@@ -1202,14 +1214,14 @@
                       <div class="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-[11px]">
                         <span>{row.source}</span>
                         {#if !row.matched}
-                          <span class="bg-muted text-muted-foreground rounded px-1 py-px font-mono text-[9px] tracking-wide uppercase">
+                          <span class="bg-muted text-muted-foreground rounded px-1 py-px font-mono text-[11px] tracking-wide uppercase">
                             {row.status}
                           </span>
                         {/if}
                       </div>
                     </div>
                     {#if row.chosen}
-                      <span class="bg-primary/15 text-primary rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wider">
+                      <span class="bg-primary/15 text-primary rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold tracking-wider">
                         CHOSEN
                       </span>
                     {/if}
@@ -1234,7 +1246,7 @@
 
           {#if song.matchedBy}
             <div class="bg-muted/50 rounded-lg px-3 py-2">
-              <p class="text-muted-foreground mb-0.5 text-[10px] tracking-wider uppercase">Matched via</p>
+              <p class="text-muted-foreground mb-0.5 text-[11px] tracking-wider uppercase">Matched via</p>
               <p class="text-[12.5px] font-medium">{song.matchedBy}</p>
             </div>
           {/if}
@@ -1242,9 +1254,9 @@
           <!-- AI quality grade -->
           <div class="border-border rounded-lg border px-3 py-2.5">
             <div class="mb-1.5 flex items-center justify-between gap-2">
-              <p class="text-muted-foreground text-[10px] tracking-wider uppercase">AI quality</p>
+              <p class="text-muted-foreground text-[11px] tracking-wider uppercase">AI quality</p>
               {#if quality?.graded}
-                <span class={cn('rounded-md border px-1.5 py-0.5 text-[10px] font-semibold', verdictTint(quality.verdict))}>
+                <span class={cn('rounded-md border px-1.5 py-0.5 text-[11px] font-semibold', verdictTint(quality.verdict))}>
                   {quality.verdict} · {quality.score}
                 </span>
               {/if}
@@ -1256,17 +1268,17 @@
               {#if quality.issues && quality.issues.length > 0}
                 <div class="mb-1.5 flex flex-wrap gap-1">
                   {#each quality.issues as issue, i (i)}
-                    <code class="bg-muted/60 rounded px-1 py-px font-mono text-[10px]">{issue.code}</code>
+                    <code class="bg-muted/60 rounded px-1 py-px font-mono text-[11px]">{issue.code}</code>
                   {/each}
                 </div>
               {/if}
               {#if quality.model || quality.gradedAtUtc}
-                <p class="text-muted-foreground/70 text-[10px]">
+                <p class="text-muted-foreground-dim text-[11px]">
                   {quality.model ?? ''}{#if quality.model && quality.gradedAtUtc} · {/if}{#if quality.gradedAtUtc}{new Date(quality.gradedAtUtc).toLocaleString()}{/if}
                 </p>
               {/if}
             {:else}
-              <p class="text-muted-foreground/70 text-[11.5px]">Not graded yet.</p>
+              <p class="text-muted-foreground-dim text-[11.5px]">Not graded yet.</p>
             {/if}
             <div class="mt-2 flex gap-1.5">
               <Button variant="outline" size="sm" class="h-7 flex-1 text-[11px]" disabled={gradeBusy} onclick={handleGradeNow}>
@@ -1300,7 +1312,7 @@
             class={cn(
               'mt-2 w-full',
               resetState === 'success' && 'border-primary/50 text-primary',
-              resetState === 'error' && 'border-destructive/50 text-destructive'
+              resetState === 'error' && 'border-destructive/50 text-destructive-text'
             )}
             size="sm"
             disabled={resetState === 'loading'}
@@ -1321,9 +1333,9 @@
             {/if}
           </Button>
           {#if resetError}
-            <p class="text-destructive text-[11px]">{resetError}</p>
+            <p class="text-destructive-text text-[11px]">{resetError}</p>
           {:else if resetState === 'idle'}
-            <p class="text-muted-foreground/70 text-[10.5px]">Clears matches and lyrics; re-enrichment runs automatically.</p>
+            <p class="text-muted-foreground-dim text-[11px]">Clears matches and lyrics; re-enrichment runs automatically.</p>
           {/if}
 
           <Button
@@ -1331,7 +1343,7 @@
             class={cn(
               'mt-2 w-full',
               enrichState === 'success' && 'text-primary',
-              enrichState === 'error' && 'text-destructive'
+              enrichState === 'error' && 'text-destructive-text'
             )}
             size="sm"
             disabled={enrichState === 'loading'}
@@ -1352,7 +1364,7 @@
             {/if}
           </Button>
           {#if enrichError}
-            <p class="text-destructive text-[11px]">{enrichError}</p>
+            <p class="text-destructive-text text-[11px]">{enrichError}</p>
           {/if}
 
           {#if soulseekConfigured}
@@ -1371,11 +1383,11 @@
               {upgradeActiveLabel ?? 'Find better quality'}
             </Button>
             {#if upgradeError}
-              <p class="text-destructive text-[11px]">{upgradeError}</p>
+              <p class="text-destructive-text text-[11px]">{upgradeError}</p>
             {:else if upgradeTerminalNote}
-              <p class="text-muted-foreground/70 text-[10.5px]">{upgradeTerminalNote}</p>
+              <p class="text-muted-foreground-dim text-[11px]">{upgradeTerminalNote}</p>
             {:else}
-              <p class="text-muted-foreground/70 text-[10.5px]">
+              <p class="text-muted-foreground-dim text-[11px]">
                 Searches Soulseek for a higher-quality copy and swaps it in place.
               </p>
             {/if}

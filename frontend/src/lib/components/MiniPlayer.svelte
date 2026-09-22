@@ -14,13 +14,20 @@
   import { toast } from 'svelte-sonner';
   import { fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
+  import { page } from '$app/state';
   import { playerStore } from '$lib/stores/player.svelte';
   import { songsStore } from '$lib/stores/songs.svelte';
   import { seekTargetForKey } from '$lib/player-seek';
   import { songDetail } from '$lib/stores/song-detail.svelte';
+  import { navGroupsFor } from '$lib/nav';
   import { Button } from '$lib/components/ui/button';
   import Cover from '$lib/components/file-browser/Cover.svelte';
+  import { formatDuration } from '$lib/formatters';
   import { blurAfterPointerClick, cn, transportGlyphClass } from '$lib/utils';
+
+  // BottomNavV2 hides itself for a single-group audience (a member account); when it's not
+  // there, the MiniPlayer's phone offset shouldn't reserve space for it either.
+  const hasBottomNav = $derived(navGroupsFor(page.data.user).length > 1);
 
   function miniExit() {
     const reduced =
@@ -69,6 +76,9 @@
   }
 
   let seekEl: HTMLDivElement | null = $state(null);
+  // Drives the thumb + thickened track on a touch drag, which produces no `:hover` at all
+  // (Tailwind gates `hover:` behind `@media (hover: hover)`).
+  let seekDragging = $state(false);
 
   function seekToClientX(clientX: number) {
     if (!seekEl || !canSeek) return;
@@ -82,6 +92,7 @@
     // Capture unconditionally so a drag begun while metadata is still loading
     // keeps tracking and starts seeking the moment duration becomes known.
     (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+    seekDragging = true;
     seekToClientX(e.clientX);
   }
 
@@ -89,6 +100,10 @@
     const el = e.currentTarget as HTMLDivElement;
     if (!el.hasPointerCapture(e.pointerId)) return;
     seekToClientX(e.clientX);
+  }
+
+  function onSeekPointerUp() {
+    seekDragging = false;
   }
 
   function onSeekKeyDown(e: KeyboardEvent) {
@@ -151,7 +166,15 @@
 {#if playerStore.currentSong && !playerStore.isPanelMounted && !playerStore.isMiniPlayerDismissed}
   {@const song = playerStore.currentSong}
   <div
-    class="mh-mini-enter border-border bg-background/70 fixed inset-x-3 z-50 overflow-hidden rounded-2xl border shadow-[0_-4px_24px_oklch(0%_0_0/0.08)] backdrop-blur-xl backdrop-saturate-150 bottom-[calc(84px_+_max(env(safe-area-inset-bottom),var(--mh-vv-bottom,0px)))] md:right-auto md:bottom-3 md:left-1/2 md:w-full md:max-w-3xl md:-translate-x-1/2 dark:shadow-[0_-4px_20px_rgba(0,0,0,0.35)]"
+    class={cn(
+      'mh-mini-enter mh-glass border-border bg-background/70 fixed z-50 overflow-hidden rounded-2xl border shadow-[0_-4px_24px_oklch(0%_0_0/0.08)] backdrop-blur-xl backdrop-saturate-150 left-[max(0.75rem,env(safe-area-inset-left))] right-[max(0.75rem,env(safe-area-inset-right))] md:right-auto md:bottom-3 md:left-1/2 md:w-full md:max-w-3xl md:-translate-x-1/2 dark:shadow-[0_-4px_20px_rgba(0,0,0,0.35)]',
+      // Below md the bar floats above the bottom nav when it's there, or just the safe area
+      // when it's not (a single-nav-group audience, e.g. a member account) — AppShellV2
+      // reserves scroll-content padding the same way.
+      hasBottomNav
+        ? 'bottom-[calc(84px_+_max(env(safe-area-inset-bottom),var(--mh-vv-bottom,0px)))]'
+        : 'bottom-[calc(0.75rem_+_max(env(safe-area-inset-bottom),var(--mh-vv-bottom,0px)))]'
+    )}
     out:fly={miniExit()}
   >
     <div class="bg-foreground/15 block h-0.5 w-full overflow-hidden sm:hidden" aria-hidden="true">
@@ -250,9 +273,11 @@
           </div>
         </button>
 
-        <!-- Slim seek line under the now-playing block; thickens on hover/focus so
+        <!-- Slim seek line under the now-playing block; thickens on hover/focus/drag so
              it's easy to grab and drag. Desktop only — mobile uses the top-edge
-             progress line. -->
+             progress line. The visible line stays 12px tall; an invisible `after:`
+             pseudo-element (the same expanded-hit-region pattern as ui/switch) grows
+             the real hit target to 28px without widening the row it sits in. -->
         <div
           bind:this={seekEl}
           role="slider"
@@ -260,14 +285,21 @@
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(progress * 100)}
+          aria-valuetext={`${formatDuration(playerStore.currentTime)} of ${formatDuration(playerStore.duration)}`}
           aria-label="Seek"
-          class="group/seek relative hidden h-3 w-full max-w-[440px] cursor-pointer touch-none items-center select-none rounded-full outline-none sm:flex"
+          class="group/seek relative hidden h-3 w-full max-w-[440px] cursor-pointer touch-none items-center select-none rounded-full outline-none after:absolute after:-inset-y-2 after:content-[''] sm:flex"
           onpointerdown={onSeekPointerDown}
           onpointermove={onSeekPointerMove}
+          onpointerup={onSeekPointerUp}
+          onpointercancel={onSeekPointerUp}
+          onlostpointercapture={onSeekPointerUp}
           onkeydown={onSeekKeyDown}
         >
           <div
-            class="bg-foreground/20 relative h-[3px] w-full overflow-hidden rounded-full transition-[height] duration-150 ease-out group-hover/seek:h-[7px] group-focus-visible/seek:h-[7px] motion-reduce:transition-none"
+            class={cn(
+              'bg-foreground/20 relative h-[3px] w-full overflow-hidden rounded-full transition-[height] duration-150 ease-out group-hover/seek:h-[7px] group-focus-visible/seek:h-[7px] motion-reduce:transition-none',
+              seekDragging && 'h-[7px]'
+            )}
           >
             <div
               class="bg-foreground/45 group-hover/seek:bg-primary group-focus-visible/seek:bg-primary absolute inset-0 origin-left rounded-full transition-colors"
@@ -275,7 +307,10 @@
             ></div>
           </div>
           <div
-            class="border-ring pointer-events-none absolute size-3 -translate-x-1/2 rounded-full border bg-white opacity-0 shadow-sm transition-opacity group-hover/seek:opacity-100 group-focus-visible/seek:opacity-100"
+            class={cn(
+              'border-ring pointer-events-none absolute size-3 -translate-x-1/2 rounded-full border bg-white opacity-0 shadow-sm transition-opacity group-hover/seek:opacity-100 group-focus-visible/seek:opacity-100 pointer-coarse:opacity-100',
+              seekDragging && 'opacity-100'
+            )}
             style="left: {progress * 100}%"
           ></div>
         </div>
@@ -307,7 +342,11 @@
           <Quote class="size-4" />
         </Button>
 
-        <div class="hidden items-center gap-1.5 sm:flex">
+        <!-- Mouse/trackpad only: a plain in-app slider is not the platform's volume control on
+             touch, where the hardware buttons already do that job (Apple discourages an
+             in-app volume slider on mobile). Gated on pointer precision, not viewport width, so
+             a touch-first iPad in this width range hides it too. -->
+        <div class="hidden items-center gap-1.5 pointer-fine:flex">
           <Button
             variant="ghost"
             size="icon"
@@ -328,6 +367,7 @@
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={Math.round(playerStore.volume * 100)}
+            aria-valuetext={`Volume ${Math.round(playerStore.volume * 100)}%`}
             aria-label="Volume"
             class="group relative flex h-3 w-16 shrink-0 cursor-pointer touch-none items-center select-none"
             onpointerdown={onVolumePointerDown}

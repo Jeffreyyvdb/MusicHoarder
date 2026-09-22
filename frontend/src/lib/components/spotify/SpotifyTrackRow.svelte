@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { SpotifyApiTrack, SpotifyLibraryMatchStatus } from '$lib/api-client';
   import { Button } from '$lib/components/ui/button';
-  import * as Tooltip from '$lib/components/ui/tooltip';
   import { songDetail } from '$lib/stores/song-detail.svelte';
   import {
     Music,
@@ -10,7 +9,6 @@
     ChevronDown,
     ChevronUp,
     Columns2,
-    Download,
     Heart
   } from '@lucide/svelte';
 
@@ -119,10 +117,10 @@
     {/if}
     {#if !hasMatchInfo && !inWishlist}
       <span
-        class="text-muted-foreground hidden text-[10px] whitespace-nowrap sm:inline"
+        class="text-muted-foreground hidden text-[11px] whitespace-nowrap sm:inline"
         title="Match pending"
       >
-        —
+        <span aria-hidden="true">—</span><span class="sr-only">Match pending</span>
       </span>
     {/if}
     {#if status === 'InLibrary' && songId != null}
@@ -157,30 +155,9 @@
       </div>
     {/if}
     {#if status === 'NotInLibrary' && !inWishlist}
-      <Tooltip.Root>
-        <Tooltip.Trigger>
-          {#snippet child({ props })}
-            <span {...props} class="inline-flex">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled
-                class="h-8 border-rose-500/35 bg-rose-500/10 px-2.5 text-xs font-medium text-rose-900 dark:text-rose-200"
-              >
-                <Download class="size-3.5 shrink-0" />
-                Download
-              </Button>
-            </span>
-          {/snippet}
-        </Tooltip.Trigger>
-        <Tooltip.Content side="left" class="max-w-[220px]">
-          <span class="font-medium">Coming soon</span>
-          <span class="mt-1 block text-[11px] leading-snug opacity-90">
-            Track acquisition will be wired here later.
-          </span>
-        </Tooltip.Content>
-      </Tooltip.Root>
+      <!-- Was a permanently disabled Download button explained only by a hover tooltip — a tap on
+           a phone did nothing at all. Until per-track download exists, state the fact instead. -->
+      <span class="text-muted-foreground text-[11px] whitespace-nowrap">Not in library</span>
     {/if}
   </div>
 {/snippet}
@@ -210,14 +187,14 @@
       </p>
       <div class="grid gap-3 md:grid-cols-2">
         <div class="border-border bg-card/50 space-y-1 rounded-lg border p-2.5">
-          <p class="text-muted-foreground text-[10px] tracking-wide uppercase">Spotify</p>
+          <p class="text-muted-foreground text-[11px] tracking-wide uppercase">Spotify</p>
           <p class="text-sm font-medium">{track.title}</p>
           <p class="text-muted-foreground text-xs">{track.artist}</p>
           <p class="text-muted-foreground text-xs">{track.album}</p>
         </div>
         <div class="border-border bg-card/50 space-y-1 rounded-lg border p-2.5">
           <div class="flex items-center justify-between gap-2">
-            <p class="text-muted-foreground text-[10px] tracking-wide uppercase">MusicHoarder</p>
+            <p class="text-muted-foreground text-[11px] tracking-wide uppercase">MusicHoarder</p>
             <button
               type="button"
               onclick={openInLibrary}

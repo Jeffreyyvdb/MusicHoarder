@@ -69,6 +69,7 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     val isShareQueue by viewModel.isShareQueue.collectAsStateWithLifecycle()
     val addingAccount by viewModel.addingAccount.collectAsStateWithLifecycle()
     val nowPlayingLinks by viewModel.nowPlayingLinks.collectAsStateWithLifecycle()
+    val isAdmin by viewModel.isAdmin.collectAsStateWithLifecycle()
 
     // Saveable, not remembered: a rotation or a trip through process death used to drop the open
     // player. The open album moved into the ViewModel with the rest of the library's view state.
@@ -262,6 +263,7 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                         ui = ui,
                         content = content,
                         accounts = accounts,
+                        isAdmin = isAdmin,
                         albumStatuses = albumStatuses,
                         likes = likes,
                         playingTrackId = playerState.trackId,

@@ -56,9 +56,9 @@
           {...props}
           type="button"
           class={cn(
-            'focus-visible:ring-ring/50 w-8 shrink-0 rounded text-right text-[10px] font-medium tabular-nums outline-none focus-visible:ring-2',
+            'focus-visible:ring-ring/50 w-9 shrink-0 rounded text-right text-[11px] font-medium tabular-nums outline-none focus-visible:ring-2',
             playerStore.playbackRate === 1
-              ? 'text-muted-foreground/50 hover:text-foreground'
+              ? 'text-muted-foreground-dim hover:text-foreground'
               : 'text-primary'
           )}
           aria-label="Playback speed"
@@ -89,9 +89,9 @@
 <Scrubber {isActive} {fallbackDuration} />
 {#if minimal}
   <div class="mt-1 flex items-center justify-between">
-    <!-- w-8 ghost mirrors the speed control so the play glyph stays centered. -->
+    <!-- w-9 ghost mirrors the speed control (now 11px, F12) so the play glyph stays centered. -->
     <span class="flex items-center gap-1">
-      <span class="w-8 shrink-0" aria-hidden="true"></span>
+      <span class="w-9 shrink-0" aria-hidden="true"></span>
       <span class="text-muted-foreground w-10 text-xs tabular-nums">
         {isActive ? formatTime(playerStore.currentTime) : '0:00'}
       </span>
@@ -121,8 +121,8 @@
   </div>
 {:else}
   <div class="mt-1.5 flex items-center gap-3">
-    <!-- w-8 ghost mirrors the speed control so the transport stays centered. -->
-    <span class="w-8 shrink-0" aria-hidden="true"></span>
+    <!-- w-9 ghost mirrors the speed control (now 11px, F12) so the transport stays centered. -->
+    <span class="w-9 shrink-0" aria-hidden="true"></span>
     <span class="text-muted-foreground w-10 shrink-0 text-right text-xs tabular-nums">
       {isActive ? formatTime(playerStore.currentTime) : '0:00'}
     </span>

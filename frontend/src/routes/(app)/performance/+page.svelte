@@ -111,7 +111,9 @@
   const charts = $derived([
     { title: 'Match rate', series: matchRateSeries, color: 'var(--color-primary)', format: pct, yMin: 0, yMax: 100 },
     { title: 'Avg AI score', series: avgAiSeries, color: 'var(--chart-3)', format: score, yMin: 0, yMax: 100 },
-    { title: 'Needs review', series: needsReviewSeries, color: 'var(--chart-4)', format: count, yMin: 0 },
+    // Not --chart-4: that amber is 3.22:1 on the light page, under the 3:1-plus-margin a thin
+    // 0.8-unit line needs. --chart-5 is 5.07:1 light and unused by the other four series.
+    { title: 'Needs review', series: needsReviewSeries, color: 'var(--chart-5)', format: count, yMin: 0 },
     { title: 'Failed', series: failedSeries, color: 'var(--color-destructive)', format: count, yMin: 0 },
     { title: 'Avg match confidence', series: confidenceSeries, color: 'var(--chart-2)', format: pct, yMin: 0, yMax: 100 }
   ]);
@@ -155,7 +157,7 @@
   <ScrollArea class="min-h-0 flex-1">
     <div class="flex flex-col gap-5 px-4 py-4 sm:px-7 sm:py-5">
       {#if error}
-        <div class="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+        <div class="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive-text">
           {error}
         </div>
       {/if}
@@ -218,6 +220,7 @@
                   </div>
                 {/if}
                 <Sparkline
+                  name={c.title}
                   values={c.series}
                   {labels}
                   color={c.color}
@@ -352,7 +355,7 @@
                       {#if s.avgAiScore != null}<span>AI {Math.round(s.avgAiScore)}</span>{/if}
                     </div>
                   </div>
-                  <span class="font-mono text-[10px] text-muted-foreground">{s.configHash.slice(0, 8)}</span>
+                  <span class="font-mono text-[11px] text-muted-foreground">{s.configHash.slice(0, 8)}</span>
                 </button>
 
                 {#if detailId === s.id && detail}

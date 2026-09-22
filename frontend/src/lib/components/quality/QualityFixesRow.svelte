@@ -39,7 +39,7 @@
               {ins.count === 1 ? 'track' : 'tracks'} affected
             </div>
           </div>
-          <code class="bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[10px]">{ins.code}</code>
+          <code class="bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[11px]">{ins.code}</code>
         </button>
       {/each}
     </div>

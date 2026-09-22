@@ -216,8 +216,9 @@
     try {
       const updated = await updatePersonCapabilities(friend.id, [...next]);
       // Patch in place so the switches do not flicker through a full reload.
+      // No success toast: the switch's own position already says it, and flipping several in a
+      // row would stack identical toasts. Failures still speak up below.
       friends = friends.map((f) => (f.id === updated.id ? { ...f, ...updated } : f));
-      toast.success(enabled ? 'Turned on.' : 'Turned off.');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not change that.';
       toast.error(
@@ -404,7 +405,7 @@
                   </AlertDialog.Header>
                   <AlertDialog.Footer>
                     <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
-                    <AlertDialog.Action onclick={() => handleRemoveFriend(friend)}>
+                    <AlertDialog.Action variant="destructive" onclick={() => handleRemoveFriend(friend)}>
                       Remove friend
                     </AlertDialog.Action>
                   </AlertDialog.Footer>
@@ -440,51 +441,70 @@
               <div class="mt-3 flex flex-wrap gap-1.5">
                 {#each friend.grants as grant (grant.id)}
                   <span
-                    class="border-border bg-secondary/40 inline-flex items-center gap-1 rounded-full border py-1 pr-1 pl-2.5 text-xs"
+                    class="border-border bg-secondary/40 inline-flex items-center gap-1 rounded-full border py-px pr-px pl-2.5 text-xs"
                   >
                     {grantLabel(grant)}
-                    <button
-                      type="button"
-                      class="hover:bg-secondary text-muted-foreground hover:text-foreground rounded-full p-0.5"
-                      aria-label={`Stop sharing ${grantLabel(grant)}`}
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      class="text-muted-foreground rounded-full"
+                      aria-label={`Stop sharing ${grantLabel(grant)} with ${friend.email}`}
                       onclick={() => handleRevokeGrant(friend, grant)}
                     >
-                      <X class="size-3" />
-                    </button>
+                      <X class="size-3.5" />
+                    </Button>
                   </span>
                 {:else}
                   <span class="text-muted-foreground text-xs">Nothing shared yet.</span>
                 {/each}
               </div>
 
-              <div class="mt-3 flex flex-wrap items-center gap-2">
-                <select
-                  class="border-input bg-background h-8 rounded-md border px-2 text-xs"
-                  value={scopeOf(friend.id)}
-                  onchange={(e) =>
-                    (grantScope = { ...grantScope, [friend.id]: e.currentTarget.value as GrantScope })}
-                >
-                  <option value="album">Share an album</option>
-                  <option value="artist">Share an artist</option>
-                  <option value="library">Share entire library</option>
-                </select>
+              <!-- Labels above the fields rather than placeholders, which vanish on the first
+                   keystroke. Fields are 16px below md so iOS doesn't zoom the page on focus. -->
+              <div class="mt-3 flex flex-wrap items-end gap-2">
+                <div class="space-y-1">
+                  <Label for="grant-scope-{friend.id}" class="text-muted-foreground text-xs font-normal">
+                    Share
+                  </Label>
+                  <select
+                    id="grant-scope-{friend.id}"
+                    class="border-input bg-background h-8 rounded-md border px-2 text-base md:text-xs"
+                    value={scopeOf(friend.id)}
+                    onchange={(e) =>
+                      (grantScope = { ...grantScope, [friend.id]: e.currentTarget.value as GrantScope })}
+                  >
+                    <option value="album">An album</option>
+                    <option value="artist">An artist</option>
+                    <option value="library">The entire library</option>
+                  </select>
+                </div>
                 {#if scopeOf(friend.id) !== 'library'}
-                  <Input
-                    class="h-8 w-40 text-xs"
-                    placeholder="Artist"
-                    value={grantArtist[friend.id] ?? ''}
-                    oninput={(e) =>
-                      (grantArtist = { ...grantArtist, [friend.id]: e.currentTarget.value })}
-                  />
+                  <div class="space-y-1">
+                    <Label for="grant-artist-{friend.id}" class="text-muted-foreground text-xs font-normal">
+                      Artist
+                    </Label>
+                    <Input
+                      id="grant-artist-{friend.id}"
+                      class="h-8 w-40 md:text-xs"
+                      value={grantArtist[friend.id] ?? ''}
+                      oninput={(e) =>
+                        (grantArtist = { ...grantArtist, [friend.id]: e.currentTarget.value })}
+                    />
+                  </div>
                 {/if}
                 {#if scopeOf(friend.id) === 'album'}
-                  <Input
-                    class="h-8 w-44 text-xs"
-                    placeholder="Album"
-                    value={grantAlbum[friend.id] ?? ''}
-                    oninput={(e) =>
-                      (grantAlbum = { ...grantAlbum, [friend.id]: e.currentTarget.value })}
-                  />
+                  <div class="space-y-1">
+                    <Label for="grant-album-{friend.id}" class="text-muted-foreground text-xs font-normal">
+                      Album
+                    </Label>
+                    <Input
+                      id="grant-album-{friend.id}"
+                      class="h-8 w-44 md:text-xs"
+                      value={grantAlbum[friend.id] ?? ''}
+                      oninput={(e) =>
+                        (grantAlbum = { ...grantAlbum, [friend.id]: e.currentTarget.value })}
+                    />
+                  </div>
                 {/if}
                 <Button
                   size="sm"
