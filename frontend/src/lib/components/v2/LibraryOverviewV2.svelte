@@ -11,6 +11,7 @@
     Users,
     Wand2
   } from '@lucide/svelte';
+  import { page } from '$app/state';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
@@ -24,6 +25,7 @@
     type GroupSummary
   } from '$lib/api-client';
   import { isBuiltSong } from '$lib/album-sections';
+  import { isAdmin } from '$lib/auth/capabilities';
   import { playerStore } from '$lib/stores/player.svelte';
   import { songsStore } from '$lib/stores/songs.svelte';
 
@@ -185,7 +187,7 @@
               type="button"
               aria-label={`Play ${album.title}`}
               onclick={(e) => playAlbum(album, e)}
-              class="bg-primary text-primary-foreground absolute right-2 bottom-2 grid size-9 translate-y-1 place-items-center rounded-full opacity-0 shadow-md transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 focus-visible:translate-y-0 focus-visible:opacity-100"
+              class="bg-primary text-primary-foreground absolute right-2 bottom-2 grid size-9 translate-y-1 place-items-center rounded-full opacity-0 shadow-md transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 focus-visible:translate-y-0 focus-visible:opacity-100 pointer-coarse:translate-y-0 pointer-coarse:opacity-100"
             >
               <Play class="size-4" fill="currentColor" />
             </button>
@@ -224,7 +226,11 @@
         class="text-muted-foreground flex flex-col items-center justify-center gap-3 py-24 text-center"
       >
         <Disc3 class="size-10 opacity-40" />
-        <p class="text-sm">Nothing in the library yet — run the pipeline to build it.</p>
+        <p class="text-sm">
+          {isAdmin(page.data.user)
+            ? 'Nothing in the library yet — run the pipeline to build it.'
+            : 'Nothing has been shared with you yet.'}
+        </p>
       </div>
     {:else}
       <!-- Favourite tracks -->
@@ -251,7 +257,7 @@
                     caption={false}
                   />
                   <span
-                    class="bg-background/70 absolute inset-0 grid place-items-center rounded-[6px] opacity-0 backdrop-blur-[1px] transition-opacity group-hover:opacity-100"
+                    class="bg-background/70 absolute inset-0 grid place-items-center rounded-[6px] opacity-0 backdrop-blur-[1px] transition-opacity group-hover:opacity-100 pointer-coarse:opacity-100"
                   >
                     <Play class="text-foreground size-4" fill="currentColor" />
                   </span>

@@ -127,7 +127,12 @@
     type="button"
     onclick={() => view.toggleSort(k)}
     class={cn(
-      'flex items-center gap-1 text-[11px] font-medium transition-colors',
+      'relative flex items-center gap-1 text-[11px] font-medium transition-colors',
+      // The header row is short (~35px) and these are text-hugging buttons, well under the mobile
+      // tap floor. There's no toolbar sort control to fall back on for Tracks (unlike Albums' sort
+      // select), so instead of hiding the row on phones, grow the tap height invisibly on touch
+      // rather than the visible row — a taller header would cost every viewport, not just phones.
+      "pointer-coarse:after:absolute pointer-coarse:after:inset-x-0 pointer-coarse:after:-inset-y-[14px] pointer-coarse:after:content-['']",
       view.sortKey === k ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
     )}
   >
@@ -171,7 +176,8 @@
       type="button"
       onclick={() => view.toggleSort('dur')}
       class={cn(
-        'flex items-center justify-end gap-1 transition-colors',
+        'relative flex items-center justify-end gap-1 transition-colors',
+        "pointer-coarse:after:absolute pointer-coarse:after:inset-x-0 pointer-coarse:after:-inset-y-[14px] pointer-coarse:after:content-['']",
         view.sortKey === 'dur' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
       )}
       aria-label="Sort by duration"
@@ -244,7 +250,7 @@
                   playFrom(song);
                 }}
                 aria-label={isCurrentlyPlaying ? 'Pause track' : 'Play track'}
-                class="peer text-primary absolute inset-0 grid place-items-center opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                class="peer text-primary absolute inset-0 grid place-items-center opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
               >
                 {#if isCurrentlyPlaying}
                   <Pause class="size-3.5" fill="currentColor" />
@@ -255,7 +261,7 @@
               {#if isLoaded}
                 <span
                   class={cn(
-                    'mh-eq text-primary pointer-events-none group-hover:opacity-0 peer-focus-visible:opacity-0',
+                    'mh-eq text-primary pointer-events-none group-hover:opacity-0 peer-focus-visible:opacity-0 pointer-coarse:opacity-0',
                     isCurrentlyPlaying && 'is-playing'
                   )}
                   aria-hidden="true"
@@ -264,7 +270,7 @@
                 </span>
               {:else}
                 <span
-                  class="pointer-events-none font-mono text-[11px] tabular-nums transition-opacity group-hover:opacity-0 peer-focus-visible:opacity-0"
+                  class="pointer-events-none font-mono text-[11px] tabular-nums transition-opacity group-hover:opacity-0 peer-focus-visible:opacity-0 pointer-coarse:opacity-0"
                 >
                   {String(i + 1).padStart(3, '0')}
                 </span>
@@ -290,13 +296,13 @@
                 {#if mapEnrichmentStatus(song.enrichmentStatus) === 'needsreview'}
                   <span
                     title="Enrichment uncertain — needs review"
-                    class="rounded bg-amber-500/15 px-1 py-0.5 font-mono text-[9px] font-semibold tracking-wider text-amber-600 dark:text-amber-500"
+                    class="rounded bg-amber-500/15 px-1 py-0.5 font-mono text-[11px] font-semibold tracking-wider text-amber-600 dark:text-amber-500"
                   >
                     REVIEW
                   </span>
                 {/if}
                 {#if hasLyrics(song)}
-                  <span class="bg-muted text-muted-foreground rounded px-1 py-0.5 font-mono text-[9px] font-semibold tracking-wider">
+                  <span class="bg-muted text-muted-foreground rounded px-1 py-0.5 font-mono text-[11px] font-semibold tracking-wider">
                     LRC
                   </span>
                 {/if}
@@ -338,14 +344,14 @@
               {song.year ?? '—'}
             </span>
             <!-- format -->
-            <span class="text-muted-foreground hidden items-center gap-1.5 font-mono text-[10px] @xl:flex">
+            <span class="text-muted-foreground hidden items-center gap-1.5 font-mono text-[11px] @xl:flex">
               {#if family === 'OTHER'}
                 <span>{(song.extension ?? '').replace(/^\./, '').toUpperCase() || '—'}</span>
               {:else}
                 <span class="text-foreground/70 font-medium">{family}</span>
               {/if}
               {#if song.bitRate && song.bitRate > 0}
-                <span class="text-muted-foreground hidden font-mono text-[9.5px] @5xl:inline">{song.bitRate}kbps</span>
+                <span class="text-muted-foreground hidden font-mono text-[11px] @5xl:inline">{song.bitRate}kbps</span>
               {/if}
             </span>
             <!-- size -->
@@ -358,10 +364,10 @@
                 <span class="bg-foreground/10 h-1 flex-1 overflow-hidden rounded-full">
                   <span class="bg-foreground/35 block h-full rounded-full" style="width: {mv * 100}%;"></span>
                 </span>
-                <span class="text-muted-foreground min-w-[28px] text-right font-mono text-[10.5px]">{mv.toFixed(2)}</span>
+                <span class="text-muted-foreground min-w-[28px] text-right font-mono text-[11px]">{mv.toFixed(2)}</span>
               {:else}
                 <span
-                  class="text-muted-foreground flex-1 text-right font-mono text-[10.5px]"
+                  class="text-muted-foreground flex-1 text-right font-mono text-[11px]"
                   title="No match confidence recorded for this track"
                 >
                   —
@@ -374,7 +380,7 @@
                 <span
                   title={origin.title}
                   class={cn(
-                    'inline-block max-w-full truncate rounded px-1.5 py-0.5 text-[10px] font-medium',
+                    'inline-block max-w-full truncate rounded px-1.5 py-0.5 text-[11px] font-medium',
                     isFromSpotify
                       ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-400'
                       : 'bg-muted text-muted-foreground'
@@ -396,13 +402,19 @@
               aria-label={isLiked ? 'Remove from liked songs' : 'Add to liked songs'}
               aria-pressed={isLiked}
               class={cn(
-                'grid place-items-center transition-all active:scale-90',
+                'relative grid place-items-center transition-all active:scale-90',
+                // The column itself is only 28px wide and the icon is 14px — nowhere near the 44px
+                // floor, and there's no hover to reveal a wider affordance on touch. Grow the hit
+                // region with an invisible pseudo-element rather than the visible column width; the
+                // 12px it adds each side eats into the row's own padding and the gap to the duration
+                // column, neither of which carries another control.
+                "pointer-coarse:after:absolute pointer-coarse:after:-inset-3 pointer-coarse:after:content-['']",
                 isLiked
                   ? 'text-primary'
-                  : 'text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-foreground'
+                  : 'text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-foreground pointer-coarse:opacity-100'
               )}
             >
-              <Heart class="size-3.5" fill={isLiked ? 'currentColor' : 'none'} />
+              <Heart class="size-3.5 pointer-coarse:size-5" fill={isLiked ? 'currentColor' : 'none'} />
             </button>
             <!-- duration -->
             <span class="text-muted-foreground text-right font-mono text-[11px]">
