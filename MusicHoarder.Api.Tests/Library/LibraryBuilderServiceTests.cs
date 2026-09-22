@@ -277,6 +277,180 @@ public class LibraryBuilderServiceTests
     }
 
     [Fact]
+    public async Task ProcessNextBatchAsync_CancelledMidCopy_DeletesTempFile_AndNextBuildRetries()
+    {
+        // Stop all, or pausing the Build step, cancels the job token while a track is being copied. The
+        // half-written temp must not stay in the album folder, where a media server would index it. The
+        // source must be untouched, and the row must not count the cancel as a failed attempt: the next
+        // run builds it.
+        var sourcePath = "/source/track.mp3";
+        var destinationDirectory = "/dest/Artist/2026 - Album";
+        var destinationPath = $"{destinationDirectory}/01 - Track.mp3";
+        using var cts = new CancellationTokenSource();
+        var fileSystem = new CancelMidCopyFileSystem(
+            new MockFileSystem(new Dictionary<string, MockFileData> { [sourcePath] = new("abcde") }),
+            cts);
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourcePath, 5));
+        await db.SaveChangesAsync();
+
+        var tagWriter = new RecordingTagWriter();
+        var service = CreateService(db, fileSystem, tagWriter);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => service.ProcessNextBatchAsync(Guid.NewGuid(), cts.Token));
+
+        var tempPath = Assert.IsType<string>(fileSystem.CancelledTempPath);
+        Assert.True(fileSystem.TempExistedAtCancel);
+        Assert.False(fileSystem.File.Exists(tempPath));
+        Assert.Empty(fileSystem.Directory.GetFiles(destinationDirectory));
+        Assert.Empty(tagWriter.Paths);
+        Assert.Equal("abcde", fileSystem.File.ReadAllText(sourcePath));
+
+        // The scope is gone in production, so read back only what was committed.
+        db.ChangeTracker.Clear();
+        var song = await db.Songs.SingleAsync();
+        Assert.Equal(LibraryBuildStatus.Pending, song.LibraryBuildStatus);
+        Assert.Equal(0, song.LibraryBuildAttempts);
+        Assert.Null(song.LibraryBuildError);
+        Assert.Null(song.DestinationPath);
+
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Equal(1, result.Done);
+        db.ChangeTracker.Clear();
+        song = await db.Songs.SingleAsync();
+        Assert.Equal(LibraryBuildStatus.Done, song.LibraryBuildStatus);
+        Assert.Equal(destinationPath, song.DestinationPath);
+        Assert.Equal("abcde", fileSystem.File.ReadAllText(destinationPath));
+        Assert.Single(fileSystem.Directory.GetFiles(destinationDirectory));
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_CancelledMidTag_DeletesTempFile_AndNextBuildRetries()
+    {
+        // Cancelled after the copy committed Copied: the full-size temp still has to go, and Copied is a
+        // non-Done status the build query re-selects.
+        var sourcePath = "/source/track.mp3";
+        var destinationDirectory = "/dest/Artist/2026 - Album";
+        var destinationPath = $"{destinationDirectory}/01 - Track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(sourcePath, 5));
+        await db.SaveChangesAsync();
+
+        using var cts = new CancellationTokenSource();
+        var tagWriter = new CancellingTagWriter(cts);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => CreateService(db, fileSystem, tagWriter).ProcessNextBatchAsync(Guid.NewGuid(), cts.Token));
+
+        var tempPath = Assert.Single(tagWriter.Paths);
+        Assert.False(fileSystem.File.Exists(tempPath));
+        Assert.Empty(fileSystem.Directory.GetFiles(destinationDirectory));
+
+        db.ChangeTracker.Clear();
+        var song = await db.Songs.SingleAsync();
+        Assert.Equal(LibraryBuildStatus.Copied, song.LibraryBuildStatus);
+        Assert.Equal(0, song.LibraryBuildAttempts);
+
+        var result = await CreateService(db, fileSystem, new RecordingTagWriter())
+            .ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Equal(1, result.Done);
+        db.ChangeTracker.Clear();
+        song = await db.Songs.SingleAsync();
+        Assert.Equal(LibraryBuildStatus.Done, song.LibraryBuildStatus);
+        Assert.Equal("abcde", fileSystem.File.ReadAllText(destinationPath));
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_CancelledDuringInPlaceRetag_KeepsTheBuiltFile()
+    {
+        // A re-tag writes its temp beside a destination that is already the library's copy. The cancel
+        // cleanup must remove only the temp and leave that file alone.
+        var sourcePath = "/source/track.mp3";
+        var destinationDirectory = "/dest/Artist/2026 - Album";
+        var destinationPath = $"{destinationDirectory}/01 - Track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde"),
+            [destinationPath] = new("built")
+        });
+
+        await using var db = CreateDbContext();
+        var song = CreateMatchedSong(sourcePath, 5, libraryBuildStatus: LibraryBuildStatus.Done);
+        song.DestinationPath = destinationPath;
+        song.RequeueForRetag();
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        using var cts = new CancellationTokenSource();
+        var tagWriter = new CancellingTagWriter(cts);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => CreateService(db, fileSystem, tagWriter).ProcessNextBatchAsync(Guid.NewGuid(), cts.Token));
+
+        Assert.False(fileSystem.File.Exists(Assert.Single(tagWriter.Paths)));
+        Assert.Equal("built", fileSystem.File.ReadAllText(destinationPath));
+        Assert.Single(fileSystem.Directory.GetFiles(destinationDirectory));
+
+        db.ChangeTracker.Clear();
+        var reloaded = await db.Songs.SingleAsync();
+        Assert.Equal(destinationPath, reloaded.DestinationPath);
+        Assert.Equal(destinationPath, reloaded.PreviousDestinationPath);
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_RemovesOnlyThisSongsStaleTempFiles()
+    {
+        // A process killed mid-copy never reaches the cancel cleanup, and the sequence number in a temp's
+        // name restarts with the process. So the rebuild sweeps the song's own leftovers, and nothing
+        // that only looks like one.
+        var sourcePath = "/source/track.mp3";
+        var destinationDirectory = "/dest/Artist/2026 - Album";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [sourcePath] = new("abcde")
+        });
+
+        await using var db = CreateDbContext();
+        var song = CreateMatchedSong(sourcePath, 5);
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        string[] stale =
+        [
+            $"{destinationDirectory}/01 - Track.tmp.{song.Id}.7.mp3",
+            $"{destinationDirectory}/01 - Track.tmp.{song.Id}.123.mp3",
+        ];
+        string[] kept =
+        [
+            $"{destinationDirectory}/01 - Track.tmp.{song.Id + 1}.7.mp3", // another song's temp
+            $"{destinationDirectory}/01 - Track.tmp.{song.Id}.7b.mp3",    // not a builder sequence
+            $"{destinationDirectory}/01 - Track.tmp.{song.Id}.7.flac",    // another extension
+            $"{destinationDirectory}/02 - Other.tmp.{song.Id}.7.mp3",     // another file name
+        ];
+        foreach (var path in stale.Concat(kept))
+        {
+            fileSystem.AddFile(path, new MockFileData("partial"));
+        }
+
+        var result = await CreateService(db, fileSystem, new RecordingTagWriter())
+            .ProcessNextBatchAsync(Guid.NewGuid());
+
+        Assert.Equal(1, result.Done);
+        Assert.All(stale, path => Assert.False(fileSystem.File.Exists(path)));
+        Assert.All(kept, path => Assert.True(fileSystem.File.Exists(path)));
+        Assert.Equal("abcde", fileSystem.File.ReadAllText(sourcePath));
+    }
+
+    [Fact]
     public async Task ProcessNextBatchAsync_QuarantinesImmediately_WhenSourceFileIsUnreadable()
     {
         // A file the tagger can't open at all (a corrupt/incomplete download — the Ogg Opus with no
@@ -1671,6 +1845,109 @@ public class LibraryBuilderServiceTests
             ct.ThrowIfCancellationRequested();
             Paths.Add(path);
             throw new IOException("tag writer exploded");
+        }
+    }
+
+    // Models Stop / Pause landing while the builder tags the temp file (after the copy committed).
+    private sealed class CancellingTagWriter(CancellationTokenSource cts) : ILibraryTagWriter
+    {
+        public List<string> Paths { get; } = [];
+
+        public Task WriteTagsAsync(string path, SongMetadata song, AlbumIdentity albumIdentity, CancellationToken ct = default)
+        {
+            Paths.Add(path);
+            cts.Cancel();
+            ct.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        }
+    }
+
+    // Models Stop / Pause landing mid-copy: the first write into a builder temp file lands its bytes on
+    // disk, then cancels the job token and surfaces it from that write, as a real copy observes the
+    // token between chunks. It fires once, so a follow-up build runs clean.
+    private sealed class CancelMidCopyFileSystem : IFileSystem
+    {
+        private readonly IFileSystem inner;
+
+        public CancelMidCopyFileSystem(IFileSystem inner, CancellationTokenSource cts)
+        {
+            this.inner = inner;
+            var proxy = DispatchProxy.Create<IFile, CancelMidCopyFileProxy>();
+            var typedProxy = (CancelMidCopyFileProxy)(object)proxy;
+            typedProxy.Inner = inner.File;
+            typedProxy.OnTempWritten = path =>
+            {
+                CancelledTempPath = path;
+                TempExistedAtCancel = inner.File.Exists(path);
+                cts.Cancel();
+            };
+            File = proxy;
+        }
+
+        public string? CancelledTempPath { get; private set; }
+        public bool TempExistedAtCancel { get; private set; }
+
+        public IDirectory Directory => inner.Directory;
+        public IFile File { get; }
+        public IFileInfoFactory FileInfo => inner.FileInfo;
+        public IFileVersionInfoFactory FileVersionInfo => inner.FileVersionInfo;
+        public IPath Path => inner.Path;
+        public IDirectoryInfoFactory DirectoryInfo => inner.DirectoryInfo;
+        public IDriveInfoFactory DriveInfo => inner.DriveInfo;
+        public IFileStreamFactory FileStream => inner.FileStream;
+        public IFileSystemWatcherFactory FileSystemWatcher => inner.FileSystemWatcher;
+    }
+
+    private class CancelMidCopyFileProxy : DispatchProxy
+    {
+        private bool fired;
+
+        public IFile Inner { get; set; } = default!;
+        public Action<string> OnTempWritten { get; set; } = _ => { };
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod is null)
+            {
+                throw new InvalidOperationException("Proxy method metadata is missing.");
+            }
+
+            object? result;
+            try
+            {
+                result = targetMethod.Invoke(Inner, args);
+            }
+            catch (TargetInvocationException ex) when (ex.InnerException is not null)
+            {
+                throw ex.InnerException;
+            }
+
+            if (!fired
+                && targetMethod.Name == nameof(IFile.Open)
+                && args is [string path, ..]
+                && path.Contains(".tmp.", StringComparison.Ordinal)
+                && result is FileSystemStream stream)
+            {
+                fired = true;
+                return new CancelOnWriteStream(stream, path, () => OnTempWritten(path));
+            }
+
+            return result;
+        }
+    }
+
+    private sealed class CancelOnWriteStream(FileSystemStream inner, string path, Action cancel)
+        : FileSystemStream(inner, path, isAsync: true)
+    {
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            => WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await base.WriteAsync(buffer, cancellationToken);
+            await base.FlushAsync(cancellationToken);
+            cancel();
+            cancellationToken.ThrowIfCancellationRequested();
         }
     }
 

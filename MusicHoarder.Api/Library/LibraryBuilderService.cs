@@ -1002,10 +1002,7 @@ public class LibraryBuilderService(
                 }
             }
 
-            if (fileSystem.File.Exists(tempPath))
-            {
-                fileSystem.File.Delete(tempPath);
-            }
+            DeleteStaleTempFiles(destinationPath, songId);
 
             var copySource = ResolveCopySource(song, songId);
             await StreamCopyAsync(copySource, tempPath, ct);
@@ -1048,6 +1045,13 @@ public class LibraryBuilderService(
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            // Stop / Pause / shutdown landed mid-copy or mid-tag. The half-written temp sits in the
+            // album folder, where a media server would index it, so remove it. Only the temp: once the
+            // rename has happened tempPath no longer exists and the destination is the finished file.
+            // A cancel is not a failure: nothing is persisted, so the row keeps its last committed
+            // non-Done status (Pending, or Copied/Tagged) with no attempt counted, and the next run
+            // re-selects it.
+            TryDeleteFileBestEffort(tempPath, songId);
             throw;
         }
         catch (Exception ex)
@@ -1292,14 +1296,80 @@ public class LibraryBuilderService(
         var extension = fileSystem.Path.GetExtension(destinationPath);
         var uniqueToken = Interlocked.Increment(ref tempFileSequence);
 
-        var tempSuffix = $".tmp.{songId}.{uniqueToken}";
-        var tempFileName = string.IsNullOrWhiteSpace(extension)
-            ? $"{fileNameWithoutExtension}{tempSuffix}"
-            : $"{fileNameWithoutExtension}{tempSuffix}{extension}";
+        var tempFileName = $"{TempFilePrefix(fileNameWithoutExtension, songId)}{uniqueToken}{extension}";
 
         return string.IsNullOrWhiteSpace(directory)
             ? tempFileName
             : fileSystem.Path.Combine(directory, tempFileName);
+    }
+
+    // Temp files are "<name>.tmp.<songId>.<n><ext>" beside the destination. BuildTempPath writes that
+    // name and DeleteStaleTempFiles matches it, so both go through this prefix.
+    private static string TempFilePrefix(string fileNameWithoutExtension, int songId)
+        => $"{fileNameWithoutExtension}.tmp.{songId}.";
+
+    /// <summary>
+    /// Removes temp files an earlier attempt at THIS song's build left beside its destination. The
+    /// cancel path deletes its own temp, but a process killed mid-copy (container stop past the
+    /// shutdown timeout, OOM, power loss) never gets there, and the sequence number in the name
+    /// restarts with the process, so checking only the path about to be written would miss it.
+    /// Matching is deliberately narrow: this folder, this destination's base name and extension, this
+    /// song's id and a numeric sequence, which is the builder's own naming and never a user's file.
+    /// Runs under this destination's lock and only one Build job runs at a time, so no in-flight copy
+    /// can match. Best-effort: the new temp gets a fresh name, so a leftover that won't delete (say,
+    /// held open by a media server's scan) costs a warning rather than failing the build.
+    /// </summary>
+    private void DeleteStaleTempFiles(string destinationPath, int songId)
+    {
+        var directory = fileSystem.Path.GetDirectoryName(destinationPath);
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return;
+        }
+
+        var prefix = TempFilePrefix(fileSystem.Path.GetFileNameWithoutExtension(destinationPath), songId);
+        var extension = fileSystem.Path.GetExtension(destinationPath);
+
+        List<string> stale;
+        try
+        {
+            stale = fileSystem.Directory.EnumerateFiles(directory)
+                .Where(path => IsTempFileName(fileSystem.Path.GetFileName(path), prefix, extension))
+                .ToList();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning(ex,
+                "Could not list {Directory} for stale temp files of SongId={SongId}", directory, songId);
+            return;
+        }
+
+        foreach (var path in stale)
+        {
+            logger.LogInformation("Removing stale build temp file for SongId={SongId}: {Path}", songId, path);
+            TryDeleteFileBestEffort(path, songId);
+        }
+    }
+
+    private static bool IsTempFileName(string fileName, string prefix, string extension)
+    {
+        if (fileName.Length <= prefix.Length + extension.Length
+            || !fileName.StartsWith(prefix, StringComparison.Ordinal)
+            || !fileName.EndsWith(extension, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var sequence = fileName.AsSpan(prefix.Length, fileName.Length - prefix.Length - extension.Length);
+        foreach (var c in sequence)
+        {
+            if (c is < '0' or > '9')
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private async Task<IDisposable> AcquireDestinationLockAsync(string destinationPath, CancellationToken ct)
