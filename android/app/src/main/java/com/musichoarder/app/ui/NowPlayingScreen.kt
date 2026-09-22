@@ -257,7 +257,7 @@ fun NowPlayingScreen(
                     Text(
                         it,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MhTheme.colors.destructive,
+                        color = MhTheme.colors.destructiveText,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
                     )
@@ -567,7 +567,7 @@ private fun TrackSubtitle(
             withStyle(SpanStyle(color = colors.mutedForeground)) { append(" · ") }
             appendNavigable(
                 album,
-                colors.mutedForeground.copy(alpha = 0.7f),
+                colors.mutedForegroundDim,
                 colors.foreground,
                 onOpenAlbum,
             )

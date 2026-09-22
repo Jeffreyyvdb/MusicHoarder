@@ -217,7 +217,7 @@ fun PairScreen(
                     icon = Icons.Rounded.ErrorOutline,
                     tint = colors.destructive,
                     text = error,
-                    textColor = colors.destructive,
+                    textColor = colors.destructiveText,
                 )
             }
 

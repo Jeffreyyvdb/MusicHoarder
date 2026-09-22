@@ -117,7 +117,7 @@ fun AlbumScreen(
                         Text(
                             label,
                             style = MaterialTheme.typography.labelSmall,
-                            color = colors.mutedForeground.copy(alpha = 0.9f),
+                            color = colors.mutedForegroundDim,
                             textAlign = TextAlign.Center,
                         )
                     }
@@ -127,7 +127,7 @@ fun AlbumScreen(
                         Text(
                             "${album.folderKeys.size} editions",
                             style = MaterialTheme.typography.labelSmall,
-                            color = colors.mutedForeground.copy(alpha = 0.8f),
+                            color = colors.mutedForegroundDim,
                             textAlign = TextAlign.Center,
                         )
                     }

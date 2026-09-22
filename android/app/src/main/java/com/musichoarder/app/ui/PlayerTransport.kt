@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -211,7 +212,9 @@ private fun MhScrubber(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(16.dp)
+            // Visually a 3-7dp hairline, but the drag target itself must clear Material's 48dp
+            // touch minimum — the web's equivalent shipped at 16px and that was a Critical finding.
+            .heightIn(min = 48.dp)
             .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
                 awaitEachGesture {
@@ -259,7 +262,7 @@ private fun PlayerSpeedControl(rate: Float, onSetSpeed: (Float) -> Unit) {
             text = "${formatRate(rate)}×",
             style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TABULAR_FIGURES),
             fontWeight = FontWeight.Medium,
-            color = if (isNormalRate(rate)) colors.mutedForeground.copy(alpha = 0.5f) else colors.primary,
+            color = if (isNormalRate(rate)) colors.mutedForegroundDim else colors.primary,
             textAlign = TextAlign.End,
             modifier = Modifier
                 .width(SPEED_WIDTH)
