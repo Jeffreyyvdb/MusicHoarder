@@ -63,4 +63,4 @@ jobs:
           validate-wrappers: true
 
       - name: Test and build
-        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease :app:bundleRelease
+        run: ./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:assembleDebug :app:assembleRelease :app:bundleRelease
