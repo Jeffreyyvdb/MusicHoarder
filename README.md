@@ -18,7 +18,7 @@ library, let it run, and review anything it isn't sure about.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/hero-dark.webp">
-  <img alt="MusicHoarder on the desktop and on an iPhone — the Albums grid of a real library next to Now Playing with time-synced lyrics over the album's artwork" src="docs/screenshots/hero.webp">
+  <img alt="MusicHoarder on the desktop and on an iPhone — the Albums grid of a real library next to Now Playing, with Sade's Kiss of Life showing time-synced lyrics over its own music video" src="docs/screenshots/hero.webp">
 </picture>
 
 <sub>Every screenshot in this README is of a real, self-hosted library of about 20,000 files — not
@@ -28,7 +28,7 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
 
 ### Listen — an Apple Music-style player for the library you own
 
-![On an iPhone: the Listen tab's overview with its library shortcuts and favourite tracks, an album page with Play and Shuffle and its canonical-tracklist status, and Now Playing showing synced lyrics](docs/screenshots/phone-listen.webp)
+![The installed app on an iPhone in dark mode: the Tracks list filtered to Spotify liked songs, Frank Ocean's Blond album page, and Now Playing over the song's music video — with the mini player and the floating tab bar](docs/screenshots/phone-listen.webp)
 
 - **Built like a native iOS app** — on a phone, a floating glass tab bar (Listen · Inbox · Add ·
   Manage) with its own search button, large titles that collapse as you scroll, grouped lists,
@@ -39,9 +39,10 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
   iOS text styles that follow the iPhone's Text Size (Dynamic Type), touch targets sized to
   Apple's guidelines, and support for Reduce Motion, Reduce Transparency and Increase Contrast.
   Every text colour is contrast-checked.
-- **Now Playing** — a full-screen, always-dark player over a dimmed, blurred copy of the cover, with
-  karaoke-style **synced lyrics** that follow the song (tap a line to jump to it), **music videos**
-  that play in sync with the audio, and an Info view with the track's tags, match confidence,
+- **Now Playing** — a full-screen, always-dark player over a dimmed, blurred copy of the cover — or,
+  when the song has a **music video**, the video itself, playing muted and in sync with the audio —
+  with karaoke-style **synced lyrics** that follow the song (tap a line to jump to it), a video
+  mode, and an Info view with the track's tags, match confidence,
   fingerprint and every provider's answer. Drag it down to dismiss; the mini player keeps playing
   as you move around the app.
 - **Keeps playing** — when a queue runs out, a server-side radio continues with similar songs from
@@ -58,7 +59,7 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
   launches full-screen with its own icon and shows an offline page instead of a browser error. The
   native [Android app](android/README.md) mirrors the same design and behaviour.
 
-![Now Playing on the desktop: the album cover and transport controls on the left, and the song's time-synced lyrics on the right with the current line highlighted](docs/screenshots/now-playing.webp)
+![Now Playing on the desktop: Sade's Kiss of Life with its time-synced lyrics over the song's muted music video, the current line highlighted, and the cover and transport controls on the left](docs/screenshots/now-playing.webp)
 
 ### Identify, enrich & organize
 
@@ -113,7 +114,7 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
 
 ![Tag review on the desktop: a file named "63 (Dagger) (feat. MadeInTYO).mp3" identified by its fingerprint as "Lean Wit Me" at 100%, next to the other providers' candidates and a From → Will-write-to diff of the file's path](docs/screenshots/inbox-review.webp)
 
-![On an iPhone: the Inbox hub with a count per queue, a Tag review decision with provider candidates and a bottom Accept toolbar, and the Pipeline summary with its stage-by-stage counts](docs/screenshots/phone-manage.webp)
+![The installed app on an iPhone in dark mode: the Inbox hub with a count per queue, a Tag review decision with provider candidates and a bottom Accept toolbar, and the Pipeline summary with its stage-by-stage counts](docs/screenshots/phone-manage.webp)
 
 ### Grow your library
 
