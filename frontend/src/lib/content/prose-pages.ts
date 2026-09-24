@@ -181,7 +181,7 @@ export const privacyPage: ProsePage = {
         {
           kind: 'list',
           items: [
-            'Analytics: a self-hosted Umami instance (umami.jeffreyyvdb.com), operated by the maintainer rather than by an advertising company. It records page views and basic performance timings, and it includes a session recorder with moderate input masking and a five-minute cap so UI problems can be diagnosed. Umami does not use tracking cookies and does not build cross-site profiles.',
+            'Analytics: a self-hosted Umami instance (umami.jeffreyyvdb.com), operated by the maintainer rather than by an advertising company. It records page views and basic performance timings — on a shared-song page, also which shared song or album was opened and played — and it includes a session recorder with moderate input masking and a five-minute cap so UI problems can be diagnosed. Umami does not use tracking cookies and does not build cross-site profiles.',
             'Session cookie: starting the demo sets a single first-party cookie named mh_session, which identifies your demo session and nothing else. It is removed when you sign out and expires on its own.',
             'Server and edge logs: the site is served through Cloudflare, so requests carry the usual technical data — IP address, user agent, requested path — which is used for delivery, abuse prevention and debugging.',
             'Email: an address is only ever processed if you enter one to request a magic sign-in link, in which case it is passed to Resend to deliver that one email. The demo does not require an email address.'

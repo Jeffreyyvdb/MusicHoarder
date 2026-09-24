@@ -126,3 +126,42 @@ export function reportSharePlay(token: string, songId: number): void {
     cache: "no-store",
   }).catch(() => {})
 }
+
+// ── Umami events (named, in the self-hosted analytics; see $lib/analytics/umami) ─────────────
+
+/** Umami caps event-data strings at 500 characters. */
+const UMAMI_TEXT_MAX = 500
+
+function eventData(fields: Record<string, string | null | undefined>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(fields)) {
+    const text = value?.trim()
+    if (text) out[key] = text.slice(0, UMAMI_TEXT_MAX)
+  }
+  return out
+}
+
+/**
+ * `share-open`'s properties: what the link shares, by name — the page-view Umami records on its
+ * own only carries the link's opaque token in its URL.
+ */
+export function shareOpenEventData(payload: SharePayload): Record<string, string> {
+  const shared = payload.tracks.find((t) => t.id === payload.sharedSongId) ?? payload.tracks[0]
+  const isAlbum = payload.scope === "Album"
+  return eventData({
+    scope: isAlbum ? "album" : "song",
+    title: isAlbum ? (payload.album.title ?? shared?.title) : shared?.title,
+    artist: isAlbum ? (payload.album.artist ?? shared?.artist) : (shared?.artist ?? payload.album.artist),
+  })
+}
+
+/** `share-play`'s properties: the track that started, and the album when the link shares one. */
+export function sharePlayEventData(payload: SharePayload, track: ShareTrack): Record<string, string> {
+  const isAlbum = payload.scope === "Album"
+  return eventData({
+    scope: isAlbum ? "album" : "song",
+    title: track.title,
+    artist: track.artist ?? payload.album.artist,
+    album: isAlbum ? payload.album.title : null,
+  })
+}
