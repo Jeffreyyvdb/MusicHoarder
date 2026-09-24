@@ -9,7 +9,6 @@
   import TrackRowText from '$lib/components/v2/TrackRowText.svelte';
   import { longpress, type LongPressPoint } from '$lib/actions/long-press';
   import {
-    buildArtistGroups,
     coverUrlForSong,
     isSpotifyLiked,
     sortAlbumsByRecency,
@@ -18,13 +17,12 @@
     type ApiSong,
     type GroupSummary
   } from '$lib/api-client';
-  import { isBuiltSong } from '$lib/album-sections';
   import { isAdmin } from '$lib/auth/capabilities';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import { navGroupsFor } from '$lib/nav';
   import { playerStore } from '$lib/stores/player.svelte';
   import { songsStore } from '$lib/stores/songs.svelte';
-  import { isTrackListSong, titleOf } from '$lib/track-list-view.svelte';
+  import { titleOf } from '$lib/track-list-view.svelte';
   import { cn } from '$lib/utils';
 
   // The Listen tab's root on a phone, and a member's Overview tab — Apple Music's Library page:
@@ -41,19 +39,19 @@
   const isLoading = $derived(songsStore.isLoading);
 
   $effect(() => {
-    void songsStore.loadSongs();
+    songsStore.revalidate();
     songsStore.startLive();
     return () => songsStore.stopLive();
   });
 
-  const builtSongs = $derived(songs.filter(isBuiltSong));
+  const builtSongs = $derived(songsStore.builtSongs);
   // The library grid's own cards, so a folder-split album isn't two near-identical shelf tiles.
   // Their `songs` are the store's rows, which is what lets the shelves below read per-track play
   // counts and likes and still see an optimistic heart tap.
   const allAlbums = $derived(songsStore.albums);
-  const artistGroups = $derived(buildArtistGroups(builtSongs, { primaryOnly: true }));
+  const artistGroups = $derived(songsStore.leadArtistGroups);
   // The Tracks list's own base, so the Library rows count exactly what they open.
-  const trackListSongs = $derived(songs.filter(isTrackListSong));
+  const trackListSongs = $derived(songsStore.trackListSongs);
 
   // ── per-visit random order that stays stable across live refetches ──────────
   // A real shuffle inside $derived would reorder the shelves every time the

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { afterNavigate, beforeNavigate } from '$app/navigation';
+  import { afterNavigate, beforeNavigate, invalidate } from '$app/navigation';
   import { page } from '$app/state';
   import ImportPipelineDrawer from '$lib/components/pipeline/ImportPipelineDrawer.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
@@ -14,6 +14,8 @@
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import { isInboxHub, resolveNav } from '$lib/nav';
   import { isAdmin } from '$lib/auth/capabilities';
+  import { createSessionWatch, SESSION_DEPENDENCY } from '$lib/auth/session-watch';
+  import { fetchCurrentUser } from '$lib/api-client';
 
   type Props = { children: Snippet };
   const { children }: Props = $props();
@@ -72,7 +74,22 @@
   beforeNavigate(({ from }) => {
     if (from) tabMemory.captureScroll(from.url);
   });
-  afterNavigate((nav) => tabMemory.record(nav, page.data.user));
+
+  // The session is checked once when the document loads, not on every navigation (that made each
+  // tap wait on a server round trip — see +layout.server.ts). Navigations still prompt a check, in
+  // the background and at most once a minute: a 401 re-runs the server gate, which clears the
+  // cookie and sends you to /login; a session that now belongs to another account (switched in
+  // another tab) hard-reloads, because the module singletons must not outlive an identity change.
+  const sessionWatch = createSessionWatch({
+    userId: () => page.data.user?.id,
+    check: fetchCurrentUser,
+    onSignedOut: () => void invalidate(SESSION_DEPENDENCY),
+    onSwitched: () => location.reload()
+  });
+  afterNavigate((nav) => {
+    tabMemory.record(nav, page.data.user);
+    sessionWatch.poke();
+  });
 
   // Space plays and pauses, as it does in every media app — but only when nothing else claims the
   // key: a focused control activates on Space (a button, a lyric line, a switch), a field types a

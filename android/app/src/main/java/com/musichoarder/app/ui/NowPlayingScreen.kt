@@ -518,6 +518,8 @@ private fun PlayerBackdrop(
     PlayerVideoLayer(
         aspectRatio = videoState.aspectRatio,
         crop = !watching,
+        letterbox = videoState.info?.letterbox?.toFloat() ?: 0f,
+        pillarbox = videoState.info?.pillarbox?.toFloat() ?: 0f,
         onAttach = onAttachVideoSurface,
         onDetach = onDetachVideoSurface,
         modifier = if (fitted == null) {

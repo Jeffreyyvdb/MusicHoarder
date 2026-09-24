@@ -183,6 +183,9 @@ public static class SharesEndpoints
                     HasVideo = video is not null,
                     VideoOffsetMs = video?.SyncOffsetMs,
                     VideoDurationSeconds = video?.DurationSeconds,
+                    // The bars baked into the frame, which the page's backdrop crops (see VideoInfoDto).
+                    VideoLetterbox = video?.LetterboxFraction,
+                    VideoPillarbox = video?.PillarboxFraction,
                 };
             }),
         });

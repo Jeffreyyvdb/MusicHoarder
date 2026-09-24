@@ -8,18 +8,21 @@ namespace MusicHoarder.Api.Download;
 /// Consumes <see cref="MusicVideoChannel"/>: downloads music videos (manual per-song fetches) and
 /// (re-)estimates audio↔video sync offsets. A plain hosted service, never a JobManager step — video
 /// fetches are slow network side-work that must not hold the pipeline's one-job lock. The queue is
-/// in-memory, so startup re-enqueues rows left <see cref="MusicVideoStatus.Fetching"/> by a restart.
+/// in-memory, so startup re-enqueues rows left <see cref="MusicVideoStatus.Fetching"/> by a restart,
+/// and queues a measurement for every downloaded video whose baked-in bars were never measured.
 /// </summary>
 public class MusicVideoBackgroundService(
     IServiceScopeFactory scopeFactory,
     MusicVideoChannel channel,
     IMusicVideoDownloader downloader,
+    IMusicVideoFileAnalyzer fileAnalyzer,
     IHttpClientFactory httpClientFactory,
     ILogger<MusicVideoBackgroundService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await ResetStaleFetchingAsync(stoppingToken);
+        await EnqueueUnmeasuredAsync(stoppingToken);
 
         await foreach (var work in channel.Reader.ReadAllAsync(stoppingToken))
         {
@@ -77,6 +80,39 @@ public class MusicVideoBackgroundService(
         }
     }
 
+    /// <summary>
+    /// Queues a matte measurement for every Ready video that has none: those downloaded before the
+    /// measurement existed, and any whose measurement failed last time (an unreadable file, ffmpeg
+    /// missing). One keyframe decode each, run one at a time behind whatever else is queued.
+    /// </summary>
+    private async Task EnqueueUnmeasuredAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+            // IgnoreQueryFilters: background scope (see ResetStaleFetchingAsync).
+            var unmeasured = await db.SongMusicVideos
+                .IgnoreQueryFilters()
+                .Where(v => v.Status == MusicVideoStatus.Ready && v.FilePath != null && v.LetterboxFraction == null)
+                .Select(v => v.SongId)
+                .ToListAsync(ct);
+            if (unmeasured.Count == 0)
+                return;
+
+            logger.LogInformation("Queued {Count} music video(s) for a letterbox measurement", unmeasured.Count);
+            foreach (var songId in unmeasured)
+                channel.Enqueue(new MusicVideoWorkItem(songId, MusicVideoWorkKind.Measure));
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to queue music video letterbox measurements");
+        }
+    }
+
     private async Task ProcessAsync(
         MusicHoarderDbContext db, MusicVideoAlignmentService alignment, MusicVideoWorkItem work, CancellationToken ct)
     {
@@ -108,6 +144,17 @@ public class MusicVideoBackgroundService(
                     // work item is effectively just the thumbnail ensure above.
                     if (video.SyncSource is MusicVideoSyncSource.Unaligned or MusicVideoSyncSource.AutoAligned)
                         await alignment.AlignAsync(song, video, ct);
+                    if (video.LetterboxFraction is null)
+                        await MeasureMatteAsync(video, ct);
+                    await db.SaveChangesAsync(ct);
+                }
+                break;
+
+            case MusicVideoWorkKind.Measure:
+                // Only a still-unmeasured row: a refetch since the enqueue has measured its new file.
+                if (video is { Status: MusicVideoStatus.Ready, LetterboxFraction: null })
+                {
+                    await MeasureMatteAsync(video, ct);
                     await db.SaveChangesAsync(ct);
                 }
                 break;
@@ -161,6 +208,10 @@ public class MusicVideoBackgroundService(
             video.SyncConfidence = null;
             await alignment.AlignAsync(song, video, ct);
             await EnsureThumbnailAsync(song, video, ct);
+            // A new file, whatever its path: the old measurement described the old picture.
+            video.LetterboxFraction = null;
+            video.PillarboxFraction = null;
+            await MeasureMatteAsync(video, ct);
         }
         else if (previousPath is not null && File.Exists(previousPath))
         {
@@ -176,6 +227,27 @@ public class MusicVideoBackgroundService(
         }
 
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Records the black bars baked into the video's frame, which the players crop when they fill
+    /// the screen with it. A failed measurement leaves the row unmeasured for the next startup to
+    /// retry; the players treat unmeasured as "no bars".
+    /// </summary>
+    private async Task MeasureMatteAsync(SongMusicVideo video, CancellationToken ct)
+    {
+        if (video.FilePath is null)
+            return;
+
+        var matte = await fileAnalyzer.MeasureMatteAsync(video.FilePath, ct);
+        video.LetterboxFraction = matte?.Letterbox;
+        video.PillarboxFraction = matte?.Pillarbox;
+        if (matte is { Letterbox: > 0 } or { Pillarbox: > 0 })
+        {
+            logger.LogInformation(
+                "Music video for song {SongId} has baked-in bars (letterbox {Letterbox:P1}, pillarbox {Pillarbox:P1})",
+                video.SongId, matte.Letterbox, matte.Pillarbox);
+        }
     }
 
     /// <summary>

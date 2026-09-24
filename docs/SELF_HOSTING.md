@@ -185,7 +185,11 @@ web form:
   no lossless source upstream falls through to slskd/yt-dlp; a downed sidecar fails the item and
   retries next sweep. You can point it at self-hosted Tidal/Qobuz backends
   (`SPOTIFLAC_TIDAL_CUSTOM_API` / `SPOTIFLAC_QOBUZ_LOCAL_API_URL`) instead of its built-in community
-  relay — see [`sidecars/spotiflac/README.md`](../sidecars/spotiflac/README.md).
+  relay — see [`sidecars/spotiflac/README.md`](../sidecars/spotiflac/README.md). The sidecar fetches
+  exactly the Spotify edition it's given, so when a track is a clean edit (words muted) and Spotify
+  also carries its explicit edition (same title, artists and length), MusicHoarder hands the sidecar
+  the explicit one. This needs Spotify app credentials; set `StreamingFlac__PreferExplicit=false` on
+  the API to keep the edition as requested.
 - **Instance sync** — one MusicHoarder (e.g. your homelab) can push every finished track to
   another (e.g. a public VPS) over plain HTTPS: after a track's library build completes, the
   pusher asks the receiver "do you have this track, at what quality?" (by audio fingerprint /

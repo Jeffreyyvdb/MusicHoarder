@@ -22,7 +22,6 @@
     type AlbumSummary,
     type GroupSummary
   } from '$lib/api-client';
-  import { isBuiltSong } from '$lib/album-sections';
   import { commandPalette } from '$lib/stores/command-palette.svelte';
   import { holdAppInert } from '$lib/actions/inert-app';
   import { songDetail } from '$lib/stores/song-detail.svelte';
@@ -112,7 +111,7 @@
   // Only built songs can be opened/browsed from here, so scope every index to
   // them once instead of filtering per keystroke. Everything below is `$derived`
   // and therefore lazy — none of it runs while the dialog is closed.
-  const builtSongs = $derived(songs.filter(isBuiltSong));
+  const builtSongs = $derived(songsStore.builtSongs);
 
   // The same cards the Library page shows — one result per album even when it is split across
   // destination folders on disk, and the same `?album=` keys, because it is literally the same list.

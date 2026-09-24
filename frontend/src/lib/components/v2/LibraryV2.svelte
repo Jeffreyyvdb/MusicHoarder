@@ -41,7 +41,6 @@
     countSummary,
     createTrackListView,
     FRIEND_CHIP_KEYS,
-    isTrackListSong,
     parseChips,
     serializeChips,
     SORT_KEYS,
@@ -68,7 +67,6 @@
     type ApiSong,
     type GroupSummary
   } from '$lib/api-client';
-  import { isBuiltSong } from '$lib/album-sections';
   import { isAnyUnreleasedSong, isUnreleasedSong } from '$lib/release-status';
   import { parseBrowseFilter, applyBrowseFilter, browseFilterLabel } from '$lib/browse-filter';
   import { formatDuration, formatFileSize, formatTotalDuration } from '$lib/formatters';
@@ -122,7 +120,7 @@
   const isFriend = $derived(!isAdmin(page.data.user));
 
   $effect(() => {
-    void songsStore.loadSongs();
+    songsStore.revalidate();
     songsStore.startLive();
     return () => songsStore.stopLive();
   });
@@ -188,10 +186,10 @@
   });
 
   // ── derivations (only clean/built songs make up the library) ────────────────
-  const builtSongs = $derived(songs.filter(isBuiltSong));
+  const builtSongs = $derived(songsStore.builtSongs);
 
   // What the Tracks list covers — see isTrackListSong for the (deliberate) shape of it.
-  const trackListBase = $derived(songs.filter(isTrackListSong));
+  const trackListBase = $derived(songsStore.trackListSongs);
 
   // "Unreleased only": leaks/snippets/stems, as classified by the API. Grid-only — the Tracks list
   // reaches the same songs through its `unreleased` chip, which composes with the others. A toggle
@@ -342,8 +340,11 @@
     sessionSet('mh-lib-artist-mode', artistMode);
   });
 
+  // The default (every built song, by lead artist) is the store's shared copy.
   const artistGroups = $derived(
-    buildArtistGroups(releaseScoped, { primaryOnly: artistMode === 'primary' })
+    !unreleasedActive && artistMode === 'primary'
+      ? songsStore.leadArtistGroups
+      : buildArtistGroups(releaseScoped, { primaryOnly: artistMode === 'primary' })
   );
   const filteredArtists = $derived.by(() => {
     const q = query.trim().toLowerCase();
