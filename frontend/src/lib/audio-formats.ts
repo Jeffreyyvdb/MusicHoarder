@@ -1,15 +1,15 @@
 /**
- * Whether this browser can play a song's file as it is, or needs the server's AAC rendition of it
- * (`?format=aac` on any stream URL, converted once and cached by the API).
+ * Whether this browser can play a song's file as it is, or needs the server to decode it
+ * (`?format=wav` on any stream URL: PCM, decoded while it streams, so it starts at once).
  *
- * Only a browser that cannot play a file ever asks for the rendition, so a song is streamed as the
- * original bytes everywhere else — no re-encode, no wait. Two signals decide it:
+ * Only a browser that cannot play a file ever asks for the decoded stream, so a song is streamed as
+ * the original bytes everywhere else. Two signals decide it:
  *
  *  • `canPlayType`, asked before loading: '' is the browser saying it certainly cannot play that
  *    type (Safari before iOS 18.4 about Ogg Opus, every browser about WMA);
  *  • a real failure, remembered: a browser can claim a type and still refuse the file, so the
- *    player falls back to the rendition when the original fails to load and records the format
- *    here, sending the rest of the queue straight to the rendition.
+ *    player falls back to the decoded stream when the original fails to load and records the
+ *    format here, sending the rest of the queue straight to decoded streams.
  *
  * The record is kept per browser build (the user agent), so an OS update that learns the format
  * gets to try the original again.
@@ -37,13 +37,13 @@ export function formatOf(extension: string | null | undefined): string | null {
   return format || null;
 }
 
-/** The AAC rendition of a stream URL. */
+/** The decoded (WAV) version of a stream URL. */
 export function convertedStreamUrl(streamUrl: string): string {
-  return `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}format=aac`;
+  return `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}format=wav`;
 }
 
 /**
- * True when this browser needs the rendition for `format`. An unknown format, or a browser that
+ * True when this browser needs the decoded stream for `format`. An unknown format, or a browser that
  * cannot be asked, gets the original: the player's fallback covers the case where that was wrong.
  */
 export function needsConversion(

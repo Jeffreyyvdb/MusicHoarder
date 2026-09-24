@@ -29,7 +29,7 @@ export interface PlayerSong {
   album?: string | null;
   /**
    * The file's format ('opus', see `formatOf`), when known. Decides whether this browser gets the
-   * file as it is or the server's AAC rendition of it; unknown means the original is tried first.
+   * file as it is or the server's decoded stream of it; unknown means the original is tried first.
    */
   format?: string | null;
 }
@@ -96,16 +96,14 @@ let miniPlayerDismissed = $state(false);
 let airPlayAvailable = $state(false);
 
 let audioEl: HTMLAudioElement | null = null;
-/** Whether the loaded source is the server's AAC rendition rather than the file as it is. */
+/** Whether the loaded source is the server's decoded stream rather than the file as it is. */
 let sourceIsConverted = false;
 /**
  * Whether the listener wants sound: set by every play intent, cleared by pause. A fallback to the
- * rendition keeps it, so a paused song stays paused and a playing one carries on.
+ * decoded stream keeps it, so a paused song stays paused and a playing one carries on.
  */
 let wantsPlayback = false;
-/** The last rendition converted ahead of time, so one track is not asked for twice. */
-let lastWarmedUrl: string | null = null;
-/** A format that looks unplayable here, until its rendition loads (see `fallBackToConverted`). */
+/** A format that looks unplayable here, until its decoded stream loads (see `fallBackToConverted`). */
 let suspectedFormat: {
   songId: number;
   format: string;
@@ -251,8 +249,8 @@ function claimPlaybackAudioSession() {
 }
 
 // ── Formats this browser cannot play ───────────────────────────────────────
-// A song whose file this browser cannot play as it is (Ogg Opus in Safari) streams as the server's
-// AAC rendition instead; see `$lib/audio-formats`. Every other song, and every song in a browser
+// A song whose file this browser cannot play as it is (Ogg Opus in Safari) streams decoded by the
+// server instead; see `$lib/audio-formats`. Every other song, and every song in a browser
 // that can play it, streams as the original file.
 
 /** `MediaError` codes, spelled out because the global is absent outside a browser. */
@@ -292,16 +290,16 @@ function loadSource(el: HTMLAudioElement, song: PlayerSong) {
 }
 
 /**
- * After the original file failed to load or decode, load the rendition instead, from the same
+ * After the original file failed to load or decode, load the decoded stream instead, from the same
  * second and in the same play state. Returns false when there is nothing to fall back to, which
  * leaves the failure to be reported.
  *
  * A failure before any metadata arrived may be the format rather than this file, and a format
- * this browser cannot play should send the rest of the queue straight to renditions. But the same
+ * this browser cannot play should send the rest of the queue straight to decoded streams. The same
  * error code reports an HTTP failure of the original (a 404, a proxy timeout), which says nothing
  * about the format, and remembering a format wrongly would convert every song in it from then on.
  * So the format is only suspected here, and remembered once the original proves reachable and the
- * rendition loads (`confirmSuspectedFormat`).
+ * decoded stream loads (`confirmSuspectedFormat`).
  */
 function fallBackToConverted(): boolean {
   const el = audioEl;
@@ -331,30 +329,13 @@ function fallBackToConverted(): boolean {
   return true;
 }
 
-/** The rendition of a suspected format loaded: remember the format if its original was reachable. */
+/** The decoded stream of a suspected format loaded: remember the format if its original was reachable. */
 function confirmSuspectedFormat() {
   const suspect = suspectedFormat;
   if (!suspect || !sourceIsConverted || currentSong?.id !== suspect.songId) return;
   suspectedFormat = null;
   void suspect.originalReachable.then((reachable) => {
-    if (!reachable) return;
-    unplayableFormats().add(suspect.format);
-    warmUpNext(); // the next track may be in this format too, and was not known to need it
-  });
-}
-
-/**
- * Have the server convert the next track now if it will need converting, so a queue that moves on
- * by itself (in the background, where nothing may wait) finds its rendition ready.
- */
-function warmUpNext() {
-  const next = queue[queueIndex + 1];
-  if (!next) return;
-  const source = streamSourceFor(next);
-  if (!source.converted || source.url === lastWarmedUrl) return;
-  lastWarmedUrl = source.url;
-  void fetch(source.url, { headers: { Range: 'bytes=0-0' } }).catch(() => {
-    if (lastWarmedUrl === source.url) lastWarmedUrl = null;
+    if (reachable) unplayableFormats().add(suspect.format);
   });
 }
 
@@ -390,7 +371,6 @@ function ensureAudioEl(): HTMLAudioElement | null {
     duration = el.duration;
     updatePositionState();
     confirmSuspectedFormat();
-    warmUpNext();
   });
   el.addEventListener('ended', () => {
     stopRaf();
@@ -468,10 +448,6 @@ async function loadAndPlay(song: PlayerSong) {
   // server lets iOS stop treating the app as a player before the next song starts. So while the
   // page is hidden (Home Screen, another app, the lock screen) the swap is synchronous, and a
   // missing file is reported by the element's own `error` event instead.
-  //
-  // It checks the original file even when the element will load the AAC rendition: the original
-  // answers at once, where the rendition's first byte waits for the server to convert it. The
-  // song swaps in straight away and starts when the rendition is ready.
   if (!document.hidden) {
     try {
       const res = await fetch(song.streamUrl, { headers: { Range: 'bytes=0-0' } });
@@ -649,7 +625,6 @@ async function topUpRadio(): Promise<boolean> {
 
       queue = [...queue, ...additions];
       refreshActionHandlers(); // a next track exists now, so the OS control lights up
-      if (duration > 0) warmUpNext(); // the current track loaded before this one was queued
       return true;
     } catch {
       // A failed top-up is not worth a toast: the user asked to play a song, not to run a radio.

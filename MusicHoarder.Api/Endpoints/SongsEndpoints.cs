@@ -992,14 +992,14 @@ public static class SongsEndpoints
         string? format,
         MusicHoarderDbContext db,
         ILibraryScopeResolver scopeResolver,
-        IStreamTranscoder transcoder,
+        IPcmDecoder decoder,
         CancellationToken ct)
     {
         var found = await scopeResolver.ResolveSongAsync(db, id, ct);
         // Paths only for a song the caller owns — for a granted row they are the grantor's.
         return found is null
             ? SongNotFound()
-            : await StreamSongFileAsync(found.Value.Song, format, transcoder, ct, includePaths: found.Value.Slice.IsSelf);
+            : await StreamSongFileAsync(found.Value.Song, format, decoder, ct, includePaths: found.Value.Slice.IsSelf);
     }
 
     /// <summary>
@@ -1017,9 +1017,9 @@ public static class SongsEndpoints
     /// (also used by the anonymous share endpoints, which do their own token-based scoping).
     /// </summary>
     /// <param name="format">
-    /// The <c>?format=</c> query value. Absent streams the file exactly as it is on disk;
-    /// <c>aac</c> streams a cached AAC rendition (see <see cref="FfmpegStreamTranscoder"/>), which a
-    /// client asks for only when it cannot play the original.
+    /// The <c>?format=</c> query value. Absent streams the file exactly as it is on disk; <c>wav</c>
+    /// streams it decoded as it goes (see <see cref="WavStreamResult"/>), which a client asks for only
+    /// when it cannot play the original.
     /// </param>
     /// <param name="includePaths">
     /// Whether the "file missing" body may name the paths. Defaults to FALSE so every caller is
@@ -1037,7 +1037,7 @@ public static class SongsEndpoints
     internal static async Task<IResult> StreamSongFileAsync(
         SongMetadata song,
         string? format,
-        IStreamTranscoder transcoder,
+        IPcmDecoder decoder,
         CancellationToken ct,
         bool includePaths = false)
     {
@@ -1056,22 +1056,19 @@ public static class SongsEndpoints
                 })
                 : Results.NotFound(new { message = "Audio file not found on disk." });
 
-        if (streamFormat == StreamFormat.Aac)
+        if (streamFormat == StreamFormat.Wav)
         {
-            string rendition;
-            try
-            {
-                rendition = await transcoder.GetAacRenditionAsync(filePath, ct);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                // The transcoder has logged the cause; the body stays generic, because the share
-                // endpoints serve this to anonymous callers and ffmpeg's message names the path.
+            // A body that stays generic: the share endpoints serve this to anonymous callers.
+            var frames = await decoder.CountFramesAsync(filePath, ct);
+            if (frames is not > 0)
                 return Results.Problem(
-                    detail: "The server could not convert this track for playback.",
+                    detail: "The server could not read this track to convert it.",
                     statusCode: StatusCodes.Status500InternalServerError);
-            }
-            return Results.File(rendition, StreamFormats.AacContentType, enableRangeProcessing: true);
+            if (!WavStreamResult.Fits(frames.Value))
+                return Results.Problem(
+                    detail: "This track is too long to convert for playback.",
+                    statusCode: StatusCodes.Status422UnprocessableEntity);
+            return new WavStreamResult(filePath, frames.Value, decoder);
         }
 
         var mimeType = Path.GetExtension(filePath)?.ToLowerInvariant() switch

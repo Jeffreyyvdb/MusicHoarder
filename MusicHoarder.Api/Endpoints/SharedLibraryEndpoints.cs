@@ -141,11 +141,11 @@ public static class SharedLibraryEndpoints
         MusicHoarderDbContext db,
         ICurrentUserAccessor currentUser,
         ISharedLibraryGrantResolver resolver,
-        IStreamTranscoder transcoder,
+        IPcmDecoder decoder,
         CancellationToken ct)
     {
         var song = await ResolveSongAsync(db, currentUser, resolver, id, ct);
-        return song is null ? SharedSongNotFound() : await SongsEndpoints.StreamSongFileAsync(song, format, transcoder, ct);
+        return song is null ? SharedSongNotFound() : await SongsEndpoints.StreamSongFileAsync(song, format, decoder, ct);
     }
 
     internal static async Task<IResult> GetSharedLibrarySongCover(

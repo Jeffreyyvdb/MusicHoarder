@@ -155,8 +155,8 @@ public class UnifiedSongsEndpointTests
         await using var db = Context(options, Member(TestUsers.FriendId));
         var scope = TestLibraryScope.For(Member(TestUsers.FriendId));
 
-        var unshared = await SongsEndpoints.StreamSong(2, null, db, scope, new FakeStreamTranscoder(), CancellationToken.None);
-        var missing = await SongsEndpoints.StreamSong(9999, null, db, scope, new FakeStreamTranscoder(), CancellationToken.None);
+        var unshared = await SongsEndpoints.StreamSong(2, null, db, scope, new FakePcmDecoder(), CancellationToken.None);
+        var missing = await SongsEndpoints.StreamSong(9999, null, db, scope, new FakePcmDecoder(), CancellationToken.None);
 
         Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)unshared).StatusCode);
         Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)missing).StatusCode);
@@ -175,7 +175,7 @@ public class UnifiedSongsEndpointTests
 
         await using var db = Context(options, Member(TestUsers.FriendId));
         var result = await SongsEndpoints.StreamSong(
-            1, null, db, TestLibraryScope.For(Member(TestUsers.FriendId)), new FakeStreamTranscoder(), CancellationToken.None);
+            1, null, db, TestLibraryScope.For(Member(TestUsers.FriendId)), new FakePcmDecoder(), CancellationToken.None);
 
         Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)result).StatusCode);
         var body = Body(result);
@@ -193,7 +193,7 @@ public class UnifiedSongsEndpointTests
 
         await using var db = Context(options, Admin(TestUsers.OwnerId));
         var result = await SongsEndpoints.StreamSong(
-            1, null, db, TestLibraryScope.For(Admin(TestUsers.OwnerId)), new FakeStreamTranscoder(), CancellationToken.None);
+            1, null, db, TestLibraryScope.For(Admin(TestUsers.OwnerId)), new FakePcmDecoder(), CancellationToken.None);
 
         Assert.Contains("/music/1.mp3", Body(result));
     }

@@ -38,9 +38,9 @@ describe('formatOf', () => {
 });
 
 describe('convertedStreamUrl', () => {
-  it('asks the stream endpoint for its AAC rendition', () => {
-    expect(convertedStreamUrl('/api/mh/songs/7/stream')).toBe('/api/mh/songs/7/stream?format=aac');
-    expect(convertedStreamUrl('/x/stream?t=1')).toBe('/x/stream?t=1&format=aac');
+  it('asks the stream endpoint to decode the file', () => {
+    expect(convertedStreamUrl('/api/mh/songs/7/stream')).toBe('/api/mh/songs/7/stream?format=wav');
+    expect(convertedStreamUrl('/x/stream?t=1')).toBe('/x/stream?t=1&format=wav');
   });
 });
 
