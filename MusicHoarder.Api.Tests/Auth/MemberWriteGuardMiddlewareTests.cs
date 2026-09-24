@@ -158,6 +158,34 @@ public class MemberWriteGuardMiddlewareTests
         Assert.False(rejected());
     }
 
+    // --- Public share-link beacons --------------------------------------------------------------
+
+    [Theory]
+    [InlineData("/api/share/AbC-123_x/visit")]
+    [InlineData("/api/share/AbC-123_x/songs/42/play")]
+    public async Task Member_may_send_a_share_links_open_and_play_beacons(string path)
+    {
+        // Anyone holding the link may send these; a member who is signed in when they open one
+        // must not be the one visitor who goes uncounted.
+        var (_, nextCalled) = await InvokeAsync(NoCapabilities, "POST", path);
+
+        Assert.True(nextCalled());
+    }
+
+    [Theory]
+    [InlineData("POST", "/api/shares")]                        // minting a link stays admin work
+    [InlineData("DELETE", "/api/shares/1")]
+    [InlineData("POST", "/api/share/tok/songs/abc/play")]
+    [InlineData("POST", "/api/share/tok/extra/visit")]
+    [InlineData("DELETE", "/api/share/tok/visit")]
+    public async Task Allowing_the_beacons_did_not_open_up_share_management(string method, string path)
+    {
+        var (ctx, nextCalled) = await InvokeAsync(Listener, method, path);
+
+        Assert.False(nextCalled());
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+    }
+
     // --- Other account kinds are none of this middleware's business ---------------------------
 
     [Fact]

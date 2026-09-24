@@ -60,6 +60,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<EnrichmentSnapshot> EnrichmentSnapshots { get; set; } = null!;
     public DbSet<EnrichmentSnapshotSong> EnrichmentSnapshotSongs { get; set; } = null!;
     public DbSet<SongShare> SongShares { get; set; } = null!;
+    public DbSet<ShareVisit> ShareVisits { get; set; } = null!;
     public DbSet<LibraryShareGrant> LibraryShareGrants { get; set; } = null!;
     public DbSet<UserSongState> UserSongStates { get; set; } = null!;
     public DbSet<TrackSyncState> TrackSyncStates { get; set; } = null!;
@@ -483,6 +484,24 @@ public class MusicHoarderDbContext : DbContext
 
             // Owner-scoped for the management endpoints; the anonymous share endpoints resolve
             // tokens via .IgnoreQueryFilters() and re-scope by the share's own OwnerUserId.
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<ShareVisit>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // The stats reads: one share's rows by kind, and a window of them by time.
+            entity.HasIndex(e => new { e.ShareId, e.Kind, e.OccurredAtUtc });
+            // The beacon's repeat check: has this visitor done this to this share recently.
+            entity.HasIndex(e => new { e.ShareId, e.VisitorKey, e.OccurredAtUtc });
+
+            entity.HasOne(e => e.Share)
+                .WithMany()
+                .HasForeignKey(e => e.ShareId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Owner-scoped like its share (OwnerUserId is copied from it at write time); the
+            // anonymous beacons write — and de-duplicate — via .IgnoreQueryFilters().
             entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
         });
 

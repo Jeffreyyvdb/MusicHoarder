@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace MusicHoarder.Api.Auth.Middleware;
 
 /// <summary>
@@ -29,6 +31,16 @@ public sealed class DemoReadOnlyMiddleware
         "/api/auth/switch",
         "/api/auth/webauthn/authenticate",
         "/api/invite/accept",
+    ];
+
+    // A public share link's open/play beacons: someone who tried the demo on this instance and later
+    // opens a share link carries the demo cookie along. The token-scoped /api/share/ surface is
+    // anonymous (RequireAuthMiddleware), so allowing it here grants the demo nothing a stranger lacks.
+    // Anchored per shape, never a prefix: it must not also cover the owner-only /api/shares.
+    private static readonly Regex[] AllowlistedWritePatterns =
+    [
+        new(@"^/api/share/[^/]+/visit/?$", RegexOptions.IgnoreCase),
+        new(@"^/api/share/[^/]+/songs/\d+/play/?$", RegexOptions.IgnoreCase),
     ];
 
     private readonly RequestDelegate _next;
@@ -67,6 +79,11 @@ public sealed class DemoReadOnlyMiddleware
         foreach (var allowed in AllowlistedWritePaths)
         {
             if (path.StartsWith(allowed, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        foreach (var pattern in AllowlistedWritePatterns)
+        {
+            if (pattern.IsMatch(path))
                 return true;
         }
         return false;
