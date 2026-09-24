@@ -1,19 +1,20 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PlayerSong } from './player.svelte';
 
 /**
- * The player store owns a real `new Audio()` and the OS Media Session, neither of which exists
- * under node. Both are faked here with just enough surface for the transport rules: the element
- * keeps `currentTime` and answers play/pause, and the Media Session records the handlers the store
- * registers so a test can see which OS buttons are live. SvelteKit and the app modules the store
- * imports are mocked; each test gets a fresh store (vi.resetModules + a dynamic import).
+ * Background playback in the installed iOS app hangs on two things this store does, neither of
+ * which a desktop browser would ever notice going wrong:
+ *
+ *  • it declares the `playback` audio session on a play intent (and not before one), so WebKit
+ *    cannot let the category lapse between two tracks;
+ *  • while the page is hidden, the hand-off from `ended` to the next track is synchronous — no
+ *    pre-flight round trip to the server sits between the old song ending and the new one playing.
  */
 
 vi.mock('$app/environment', () => ({ browser: true }));
-vi.mock('svelte-sonner', () => ({
-  toast: Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn(), info: vi.fn() })
-}));
+vi.mock('svelte-sonner', () => ({ toast: Object.assign(vi.fn(), { error: vi.fn() }) }));
 vi.mock('$lib/api-client', () => ({
-  coverThumbUrl: (url: string | null | undefined) => url ?? null,
+  coverThumbUrl: () => null,
   fetchRadio: vi.fn(async () => []),
   reportSongPlayed: vi.fn(async () => {}),
   toPlayerSong: vi.fn()
@@ -21,214 +22,118 @@ vi.mock('$lib/api-client', () => ({
 vi.mock('$lib/stores/songs.svelte', () => ({
   songsStore: { notePlayed: vi.fn(), songsById: new Map() }
 }));
-vi.mock('$lib/track-list-view.svelte', () => ({ artistOf: () => '' }));
+vi.mock('$lib/track-list-view.svelte', () => ({ artistOf: vi.fn() }));
 
-class FakeAudio {
+class FakeAudio extends EventTarget {
+  static instances: FakeAudio[] = [];
   src = '';
-  currentTime = 0;
-  duration = 200;
-  paused = true;
-  volume = 1;
-  playbackRate = 1;
-  defaultPlaybackRate = 1;
-  preservesPitch = true;
   preload = '';
-  private listeners = new Map<string, ((e: Event) => void)[]>();
-  addEventListener(type: string, fn: (e: Event) => void) {
-    this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn]);
-  }
-  setAttribute() {}
-  removeAttribute() {}
-  load() {}
-  play() {
+  volume = 1;
+  defaultPlaybackRate = 1;
+  playbackRate = 1;
+  preservesPitch = true;
+  currentTime = 0;
+  duration = NaN;
+  paused = true;
+  play = vi.fn(async () => {
     this.paused = false;
-    return Promise.resolve();
-  }
-  pause() {
+  });
+  pause = vi.fn(() => {
     this.paused = true;
+  });
+  load = vi.fn();
+  removeAttribute = vi.fn();
+
+  constructor() {
+    super();
+    FakeAudio.instances.push(this);
   }
 }
 
-let audio: FakeAudio;
-let handlers: Map<string, unknown>;
+const song = (id: number): PlayerSong => ({
+  id,
+  title: `Track ${id}`,
+  artist: 'Artist',
+  streamUrl: `/api/mh/songs/${id}/stream`
+});
+
+let doc: { hidden: boolean };
+let audioSession: { type: string };
+let fetchMock: ReturnType<typeof vi.fn>;
+
+async function loadPlayer() {
+  const { playerStore, initPlayer } = await import('./player.svelte');
+  initPlayer();
+  return { playerStore, initPlayer, audio: FakeAudio.instances.at(-1)! };
+}
 
 beforeEach(() => {
   vi.resetModules();
-  handlers = new Map();
-  vi.stubGlobal(
-    'Audio',
-    class extends FakeAudio {
-      constructor() {
-        super();
-        audio = this; // eslint-disable-line @typescript-eslint/no-this-alias
-      }
-    }
-  );
-  vi.stubGlobal('MediaMetadata', class {});
-  vi.stubGlobal('navigator', {
-    mediaSession: {
-      metadata: null,
-      playbackState: 'none',
-      setActionHandler: (action: string, handler: unknown) => handlers.set(action, handler),
-      setPositionState: () => {}
-    }
-  });
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => ({ ok: true }))
-  );
-  vi.stubGlobal('requestAnimationFrame', () => 0);
-  vi.stubGlobal('cancelAnimationFrame', () => {});
+  FakeAudio.instances = [];
+  doc = { hidden: false };
+  audioSession = { type: 'auto' };
+  fetchMock = vi.fn(async () => ({ ok: true }));
+  vi.stubGlobal('Audio', FakeAudio);
+  vi.stubGlobal('document', doc);
+  vi.stubGlobal('navigator', { audioSession });
+  vi.stubGlobal('fetch', fetchMock);
 });
 
-const song = (id: number) => ({
-  id,
-  title: `Song ${id}`,
-  artist: 'Artist',
-  streamUrl: `/stream/${id}`
-});
-const QUEUE = [song(1), song(2), song(3)];
+afterEach(() => vi.unstubAllGlobals());
 
-async function freshStore() {
-  const { playerStore } = await import('./player.svelte');
-  return playerStore;
-}
+describe('audio session', () => {
+  it('is left alone at boot and declared as playback on the first play intent', async () => {
+    const { playerStore } = await loadPlayer();
+    expect(audioSession.type).toBe('auto');
 
-/** Let loadAndPlay's awaited range probe settle. */
-const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
-
-describe('playPrevious', () => {
-  it('restarts the current track once it is more than 3s in', async () => {
-    const player = await freshStore();
-    await player.playSong(QUEUE[1], QUEUE, 1);
-    audio.currentTime = 42;
-    player.playPrevious();
-    await settle();
-    expect(player.currentSong?.id).toBe(2);
-    expect(audio.currentTime).toBe(0);
-    expect(player.currentTime).toBe(0);
+    await playerStore.playSong(song(1));
+    expect(audioSession.type).toBe('playback');
   });
 
-  it('goes back one item near the start of a track', async () => {
-    const player = await freshStore();
-    await player.playSong(QUEUE[1], QUEUE, 1);
-    audio.currentTime = 1.2;
-    player.playPrevious();
-    await settle();
-    expect(player.currentSong?.id).toBe(1);
-  });
+  it('is skipped where the browser has no Audio Session API', async () => {
+    vi.stubGlobal('navigator', {});
+    const { playerStore, audio } = await loadPlayer();
 
-  it('restarts the first item instead of going dark', async () => {
-    const player = await freshStore();
-    await player.playSong(QUEUE[0], QUEUE, 0);
-    audio.currentTime = 2;
-    expect(player.hasPrevious).toBe(true);
-    player.playPrevious();
-    await settle();
-    expect(player.currentSong?.id).toBe(1);
-    expect(audio.currentTime).toBe(0);
-  });
-
-  it('keeps a paused track paused when it restarts', async () => {
-    const player = await freshStore();
-    await player.playSong(QUEUE[1], QUEUE, 1);
-    player.pause();
-    audio.currentTime = 30;
-    player.playPrevious();
-    expect(audio.paused).toBe(true);
-    expect(audio.currentTime).toBe(0);
-  });
-
-  it('is unavailable only while nothing is loaded', async () => {
-    const player = await freshStore();
-    expect(player.hasPrevious).toBe(false);
-    await player.playSong(QUEUE[0], QUEUE, 0);
-    expect(player.hasPrevious).toBe(true);
+    await playerStore.playSong(song(1));
+    expect(audio.play).toHaveBeenCalled();
   });
 });
 
-describe('Media Session previoustrack', () => {
-  it('stays registered at the head of the queue, where it restarts the track', async () => {
-    const player = await freshStore();
-    await player.playSong(QUEUE[0], QUEUE, 0);
-    const previous = handlers.get('previoustrack');
-    expect(typeof previous).toBe('function');
-    audio.currentTime = 10;
-    (previous as () => void)();
-    expect(audio.currentTime).toBe(0);
-    expect(player.currentSong?.id).toBe(1);
+describe('track hand-off', () => {
+  it('checks a visible pick with the server before swapping the source', async () => {
+    const { playerStore, audio } = await loadPlayer();
+
+    await playerStore.playSong(song(1), [song(1), song(2)]);
+    expect(fetchMock).toHaveBeenCalledWith('/api/mh/songs/1/stream', {
+      headers: { Range: 'bytes=0-0' }
+    });
+    expect(audio.src).toBe('/api/mh/songs/1/stream');
   });
 
-  it('steps back from a later item near its start', async () => {
-    const player = await freshStore();
-    await player.playSong(QUEUE[2], QUEUE, 2);
-    audio.currentTime = 0.5;
-    (handlers.get('previoustrack') as () => void)();
-    await settle();
-    expect(player.currentSong?.id).toBe(2);
-  });
-});
+  it('keeps the old song when the visible pre-flight finds no file', async () => {
+    const { playerStore, audio } = await loadPlayer();
+    await playerStore.playSong(song(1), [song(1), song(2)]);
 
-describe('startQueue', () => {
-  it('plays the queue from the given index', async () => {
-    const player = await freshStore();
-    await player.startQueue(QUEUE, 1);
-    expect(player.currentSong?.id).toBe(2);
-    expect(audio.paused).toBe(false);
-    expect(player.hasNext).toBe(true);
+    fetchMock.mockResolvedValueOnce({ ok: false });
+    playerStore.playNext();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(audio.src).toBe('/api/mh/songs/1/stream');
+    expect(playerStore.currentSong?.id).toBe(1);
   });
 
-  it('never pauses the song that is already playing', async () => {
-    const player = await freshStore();
-    await player.startQueue(QUEUE, 0);
-    audio.currentTime = 42;
-    await player.startQueue(QUEUE, 0);
-    expect(audio.paused).toBe(false);
-    // Kept playing where it was rather than restarting.
-    expect(audio.currentTime).toBe(42);
-    expect(player.currentSong?.id).toBe(1);
-  });
+  it('starts the next track inside the `ended` event while the app is in the background', async () => {
+    const { playerStore, audio } = await loadPlayer();
+    await playerStore.playSong(song(1), [song(1), song(2)]);
+    fetchMock.mockClear();
+    audio.play.mockClear();
 
-  it('resumes the loaded song when it is paused', async () => {
-    const player = await freshStore();
-    await player.startQueue(QUEUE, 2);
-    player.pause();
-    audio.currentTime = 17;
-    await player.startQueue(QUEUE, 2);
-    expect(audio.paused).toBe(false);
-    expect(audio.currentTime).toBe(17);
-  });
+    doc.hidden = true;
+    audio.dispatchEvent(new Event('ended'));
 
-  it('re-seeds the queue even when the target is already loaded', async () => {
-    const player = await freshStore();
-    await player.startQueue([QUEUE[0]], 0);
-    expect(player.hasNext).toBe(true); // the station, not a queued track
-    await player.startQueue(QUEUE, 0);
-    player.playNext();
-    await settle();
-    expect(player.currentSong?.id).toBe(2);
-  });
-
-  it('brings a hidden mini player back even when the song is already playing', async () => {
-    const player = await freshStore();
-    await player.startQueue(QUEUE, 0);
-    player.dismissMiniPlayer();
-    expect(player.isMiniPlayerDismissed).toBe(true);
-    await player.startQueue(QUEUE, 0);
-    expect(audio.paused).toBe(false);
-    expect(player.isMiniPlayerDismissed).toBe(false);
-  });
-
-  it('does nothing for an index outside the queue', async () => {
-    const player = await freshStore();
-    await player.startQueue(QUEUE, 5);
-    expect(player.currentSong).toBeNull();
-  });
-
-  it('differs from playSong, which toggles the loaded song', async () => {
-    const player = await freshStore();
-    await player.playSong(QUEUE[0], QUEUE, 0);
-    await player.playSong(QUEUE[0], QUEUE, 0);
-    expect(audio.paused).toBe(true);
+    // Synchronously — no await between the old song ending and the new one starting.
+    expect(audio.src).toBe('/api/mh/songs/2/stream');
+    expect(audio.play).toHaveBeenCalledTimes(1);
+    expect(playerStore.currentSong?.id).toBe(2);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
