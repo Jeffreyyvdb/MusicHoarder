@@ -97,7 +97,7 @@ public class QualityUpgradeService(
                     // Stamp the KNOWN identity so scan+enrichment read the authoritative tags — the
                     // source file may carry anything.
                     DownloadTagWriter.Stamp(
-                        result.FilePath, song.Artist!, song.Title!, song.Album, song.Isrc, logger);
+                        result.FilePath, song.Artist!, song.Title!, song.Album, result.Isrc ?? song.Isrc, logger);
                     request.CandidateInfoJson = JsonSerializer.Serialize(new
                     {
                         provider = provider.Name,
