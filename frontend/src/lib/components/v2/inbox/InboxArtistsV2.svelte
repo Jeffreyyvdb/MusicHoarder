@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Check, Loader2, RefreshCw, Users, Merge, Split } from '@lucide/svelte';
+  import { Check, Loader2, RefreshCw, Merge, Split } from '@lucide/svelte';
   import {
     fetchArtistDuplicates,
     mergeArtists,
@@ -9,9 +9,16 @@
     type ArtistDuplicateReport,
     type ArtistDuplicateCluster
   } from '$lib/api-client';
+  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
+  import { Badge } from '$lib/components/ui/badge';
   import { Button } from '$lib/components/ui/button';
+  import * as GroupedList from '$lib/components/ui/grouped-list';
+  import { toast } from 'svelte-sonner';
   import { cn } from '$lib/utils';
   import InboxDedupHistoryV2 from './InboxDedupHistoryV2.svelte';
+  import InboxQueueStates from './InboxQueueStates.svelte';
+  import { snapshotDedupKeys, toastWithUndo } from './dedup-undo';
+  import { radioGroup, radioTabIndex } from '$lib/components/review/radio-group';
 
   type Props = { oncount?: (n: number | null) => void };
   const { oncount }: Props = $props();
@@ -19,8 +26,11 @@
   let report = $state<ArtistDuplicateReport | null>(null);
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let acting = $state(false);
-  let actionError = $state<string | null>(null);
+  // Which card is acting, and the error it got: shown in that card, next to the button pressed,
+  // rather than at the top of a long scroll where a phone would never see it.
+  let actingKey = $state<string | null>(null);
+  let actionError = $state<{ key: string; message: string } | null>(null);
+  let historyVersion = $state(0);
   // Per-cluster canonical pick, keyed by the cluster's suggested canonical (stable per load).
   let canonicalPick = $state<Record<string, string>>({});
 
@@ -32,14 +42,15 @@
     untrack(() => oncount?.(n));
   });
 
-  async function load() {
+  async function load(quiet = false) {
     try {
-      loading = true;
+      if (!quiet) loading = true;
       error = null;
       report = await fetchArtistDuplicates();
       canonicalPick = {};
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to load artist duplicates';
+      if (quiet) toast.error(err instanceof Error ? err.message : 'Failed to reload artists');
+      else error = err instanceof Error ? err.message : 'Failed to load artist duplicates';
     } finally {
       loading = false;
     }
@@ -49,171 +60,230 @@
     void load();
   });
 
+  function reloadAll() {
+    historyVersion += 1;
+    void load(true);
+  }
+
   function pickedCanonical(cluster: ArtistDuplicateCluster): string {
     return canonicalPick[cluster.suggestedCanonical] ?? cluster.suggestedCanonical;
   }
 
-  async function run(action: () => Promise<unknown>) {
-    if (acting) return;
+  // One decision at a time. The queue reloads in place (no skeleton flash) and the history below
+  // picks up the new batch.
+  async function run(key: string, action: () => Promise<void>) {
+    if (actingKey) return;
     try {
-      acting = true;
+      actingKey = key;
       actionError = null;
       await action();
-      await load();
+      reloadAll();
     } catch (err) {
-      actionError = err instanceof Error ? err.message : 'Action failed';
+      actionError = { key, message: err instanceof Error ? err.message : 'Action failed' };
     } finally {
-      acting = false;
+      actingKey = null;
     }
   }
 
   function merge(cluster: ArtistDuplicateCluster) {
     const canonical = pickedCanonical(cluster);
     const variants = cluster.variants.map((v) => v.name).filter((n) => n !== canonical);
-    return run(() => mergeArtists(canonical, variants));
+    return run(cluster.suggestedCanonical, async () => {
+      const before = await snapshotDedupKeys();
+      await mergeArtists(canonical, variants);
+      await toastWithUndo(`Merged into “${canonical}”`, 'artist-merge', before, reloadAll);
+    });
   }
 
   function dismiss(cluster: ArtistDuplicateCluster) {
-    return run(() => dismissArtistDuplicates(cluster.variants.map((v) => v.name)));
+    return run(cluster.suggestedCanonical, async () => {
+      await dismissArtistDuplicates(cluster.variants.map((v) => v.name));
+      toast.success('Marked as different artists');
+    });
   }
+
+  function split(credit: string) {
+    return run(`credit:${credit}`, async () => {
+      const before = await snapshotDedupKeys();
+      await splitArtistCredit(credit);
+      await toastWithUndo(`Split “${credit}”`, 'artist-credit-split', before, reloadAll);
+    });
+  }
+
+  function clusterHeader(cluster: ArtistDuplicateCluster): string {
+    const tracks = cluster.variants.reduce((s, v) => s + v.songCount, 0);
+    return `${cluster.suggestedCanonical} · ${cluster.variants.length} spellings · ${tracks} track${tracks === 1 ? '' : 's'}`;
+  }
+
+  const meta = $derived(
+    report && !loading
+      ? `${report.clusters.length} spelling cluster${report.clusters.length === 1 ? '' : 's'} · ${
+          report.combinedCredits.length
+        } combined credit${report.combinedCredits.length === 1 ? '' : 's'}`
+      : undefined
+  );
 </script>
 
-{#if loading}
-  <div class="flex flex-1 items-center justify-center p-8">
-    <div class="text-muted-foreground flex items-center gap-2 text-sm">
-      <Loader2 class="size-5 animate-spin" /> Scanning artists…
-    </div>
-  </div>
-{:else if error}
-  <div class="flex flex-1 items-center justify-center p-8">
-    <div class="max-w-md text-center">
-      <p class="text-destructive-text mb-3 text-sm">{error}</p>
-      <Button onclick={load}>Retry</Button>
-    </div>
-  </div>
-{:else if total === 0}
-  <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[calc(1rem_+_var(--mh-content-pad))] sm:px-6">
-    <div class="flex flex-col items-center gap-3 p-8 text-center">
-      <span class="bg-primary/10 text-primary grid size-12 place-items-center rounded-full">
-        <Check class="size-6" />
-      </span>
-      <div class="text-[15px] font-semibold">No artist duplicates found</div>
-      <p class="text-muted-foreground max-w-sm text-[12.5px]">
-        Variant spellings of one artist ("JAY-Z" / "JAYZ") and combined credits registered as a single
-        artist ("A &amp; B") show up here with a one-step fix.
-      </p>
-    </div>
-    <InboxDedupHistoryV2 />
-  </div>
-{:else}
-  <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[calc(1rem_+_var(--mh-content-pad))] sm:px-6">
-    <div class="mb-3 flex items-center justify-between gap-2">
-      <span class="text-muted-foreground text-[11px]">
-        {report!.clusters.length} spelling cluster{report!.clusters.length === 1 ? '' : 's'}
-        · {report!.combinedCredits.length} combined credit{report!.combinedCredits.length === 1 ? '' : 's'}
-      </span>
-      <button
-        type="button"
-        onclick={load}
-        title="Refresh"
-        aria-label="Refresh artist duplicates"
-        class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-7 place-items-center rounded-md transition-colors"
-      >
-        <RefreshCw class="size-3.5" />
-      </button>
-    </div>
+{#snippet refreshAction()}
+  <Button
+    variant="ghost"
+    size="icon"
+    aria-label="Refresh artist duplicates"
+    title="Refresh"
+    onclick={() => void load()}
+  >
+    <RefreshCw />
+  </Button>
+{/snippet}
 
-    {#if actionError}
-      <p class="text-destructive-text mb-3 text-[12px]">{actionError}</p>
-    {/if}
+{#snippet cardError(key: string)}
+  {#if actionError?.key === key}
+    <span role="alert" class="text-destructive-text mt-1 block">{actionError.message}</span>
+  {/if}
+{/snippet}
 
-    <div class="space-y-3">
-      {#each report!.clusters as cluster (cluster.suggestedCanonical)}
-        <div class="border-border bg-card rounded-lg border p-4">
-          <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <div class="flex min-w-0 items-center gap-2">
-              <Users class="text-muted-foreground size-4 shrink-0" />
-              <span class="truncate text-[14px] font-semibold">{cluster.suggestedCanonical}</span>
-              <span class="text-muted-foreground text-[11px]">
-                {cluster.variants.length} spellings · {cluster.variants.reduce((s, v) => s + v.songCount, 0)} songs
-              </span>
-            </div>
-            <div class="flex shrink-0 items-center gap-2">
-              <Button size="sm" class="h-7 px-2.5 text-[12px]" disabled={acting} onclick={() => merge(cluster)}>
-                <Merge class="mr-1 size-3.5" /> Merge into “{pickedCanonical(cluster)}”
-              </Button>
-              <Button variant="outline" size="sm" class="h-7 px-2.5 text-[12px]" disabled={acting} onclick={() => dismiss(cluster)}>
-                Not the same
-              </Button>
-            </div>
-          </div>
-          {#if cluster.evidence.length > 0}
-            <div class="mb-2 flex flex-wrap gap-1">
-              {#each cluster.evidence as why, whyIdx (whyIdx)}
-                <span class="bg-accent text-muted-foreground rounded-sm px-1.5 py-px text-[11px]">{why}</span>
+<!-- A single-level list of decision cards at every width (no push): each card holds its own
+     choice and its actions, so there is nothing for a detail page to add. -->
+<div class="bg-background-grouped flex min-h-0 flex-1 flex-col">
+  <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)">
+    <PageToolbarV2 title="Artist names" {meta} grouped actions={refreshAction} />
+
+    <div class="mx-auto flex w-full max-w-3xl flex-col gap-7 pt-2 pb-8 md:px-6 md:pt-6">
+      {#if loading}
+        <div
+          role="status"
+          class="text-body text-muted-foreground flex items-center justify-center gap-2 py-16 md:text-sm"
+        >
+          <Loader2 class="size-5 animate-spin" /> Scanning artists…
+        </div>
+      {:else if error}
+        <InboxQueueStates state="error" message={error} onretry={load} />
+      {:else if total === 0}
+        <InboxQueueStates state="empty" icon={Check} title="No artist duplicates found">
+          Variant spellings of one artist ("JAY-Z" / "JAYZ") and combined credits registered as a
+          single artist ("A &amp; B") show up here with a one-step fix.
+        </InboxQueueStates>
+      {:else if report}
+        {#each report.clusters as cluster (cluster.suggestedCanonical)}
+          {@const canonical = pickedCanonical(cluster)}
+          {@const busy = actingKey === cluster.suggestedCanonical}
+          <GroupedList.Section header={clusterHeader(cluster)}>
+            <!-- Pick the spelling to keep: a single-choice list, the choice a trailing check — a
+                 radio group (one Tab stop, arrows move and pick, "2 of 3, checked"), as the
+                 native radios it replaced were. The last spelling keeps its hairline: the Merge
+                 row follows it in the same card. -->
+            {@const chosenIndex = cluster.variants.findIndex((v) => v.name === canonical)}
+            <div
+              role="radiogroup"
+              aria-label="Spelling to keep for {cluster.suggestedCanonical}"
+              use:radioGroup
+              class="[&>[data-slot=grouped-list-row]:last-child]:after:block"
+            >
+              {#each cluster.variants as variant, vi (variant.name)}
+                {@const chosen = canonical === variant.name}
+                <GroupedList.Row
+                  onclick={() =>
+                    (canonicalPick = {
+                      ...canonicalPick,
+                      [cluster.suggestedCanonical]: variant.name
+                    })}
+                  role="radio"
+                  aria-checked={chosen}
+                  tabindex={radioTabIndex(vi, chosenIndex)}
+                  disabled={actingKey != null}
+                >
+                  <span class={cn('text-body md:text-sm', chosen && 'font-semibold')}>
+                    {variant.name}
+                  </span>
+                  <span class="text-footnote text-muted-foreground tabular-nums md:text-xs">
+                    {variant.songCount} track{variant.songCount === 1 ? '' : 's'}
+                  </span>
+                  {#snippet trailing()}
+                    <span class="flex items-center gap-2">
+                      {#if variant.musicBrainzIds.length > 0}
+                        <!-- The abbreviation is for the eye; assistive tech gets the words, and the
+                           footer spells it out. Grey, not tinted: it is a fact about the spelling,
+                           not something to tap. -->
+                        <Badge variant="secondary">
+                          <span aria-hidden="true">MBID</span><span class="sr-only"
+                            >Has a MusicBrainz ID</span
+                          >
+                        </Badge>
+                      {/if}
+                      <Check
+                        class={cn('text-primary size-5 md:size-4', !chosen && 'invisible')}
+                        strokeWidth={2.5}
+                        aria-hidden="true"
+                      />
+                    </span>
+                  {/snippet}
+                </GroupedList.Row>
               {/each}
             </div>
-          {/if}
-          <div class="divide-border divide-y">
-            {#each cluster.variants as variant (variant.name)}
-              <label class="flex cursor-pointer items-center gap-3 py-1.5">
-                <input
-                  type="radio"
-                  name={`canonical-${cluster.suggestedCanonical}`}
-                  checked={pickedCanonical(cluster) === variant.name}
-                  onchange={() => (canonicalPick = { ...canonicalPick, [cluster.suggestedCanonical]: variant.name })}
-                  class="accent-primary size-3.5"
-                />
-                <span class={cn('min-w-0 flex-1 truncate text-[13px]', pickedCanonical(cluster) === variant.name && 'font-medium')}>
-                  {variant.name}
-                </span>
-                {#if variant.musicBrainzIds.length > 0}
-                  <!-- The abbreviation is for the eye; assistive tech gets the words (a title alone
-                       never reaches a touch screen or VoiceOver), and the card footer spells it out. -->
-                  <span class="bg-primary/10 text-primary rounded-sm px-1.5 py-px text-[11px]" title="Has a MusicBrainz ID">
-                    <span aria-hidden="true">MBID</span><span class="sr-only">Has a MusicBrainz ID</span>
-                  </span>
+            <GroupedList.Row disabled={actingKey != null} onclick={() => merge(cluster)}>
+              <span class="text-body text-primary flex min-w-0 items-center gap-2 md:text-sm">
+                {#if busy}<Loader2 class="size-4 shrink-0 animate-spin" />{:else}<Merge
+                    class="size-4 shrink-0"
+                    aria-hidden="true"
+                  />{/if}
+                <span class="min-w-0 break-words">Merge into “{canonical}”</span>
+              </span>
+            </GroupedList.Row>
+            <GroupedList.Row
+              label="Not the same"
+              disabled={actingKey != null}
+              onclick={() => dismiss(cluster)}
+            />
+            {#snippet footer()}
+              {#if cluster.evidence.length > 0}
+                <p>{cluster.evidence.join(' · ')}</p>
+              {/if}
+              <p class={cn(cluster.evidence.length > 0 && 'mt-1')}>
+                Merging rewrites the artist tags on every affected track and re-tags built files in
+                place.
+                {#if cluster.variants.some((v) => v.musicBrainzIds.length > 0)}
+                  MBID marks a spelling that has a MusicBrainz ID.
                 {/if}
-                <span class="text-muted-foreground shrink-0 text-[11.5px] tabular-nums">
-                  {variant.songCount} song{variant.songCount === 1 ? '' : 's'}
-                </span>
-              </label>
-            {/each}
-          </div>
-          <p class="text-muted-foreground mt-2 text-[11px]">
-            Merging rewrites the artist tags on every affected song and re-tags built files in place.
-            {#if cluster.variants.some((v) => v.musicBrainzIds.length > 0)}
-              MBID marks a spelling that has a MusicBrainz ID.
-            {/if}
-          </p>
-        </div>
-      {/each}
-
-      {#if report!.combinedCredits.length > 0}
-        <div class="text-muted-foreground mt-5 mb-1.5 text-[12px] font-medium">
-          Combined credits registered as one artist
-        </div>
-        {#each report!.combinedCredits as credit (credit.credit)}
-          <div class="border-border bg-card flex flex-wrap items-center justify-between gap-2 rounded-lg border p-4">
-            <div class="min-w-0">
-              <div class="truncate text-[13.5px] font-medium">{credit.credit}</div>
-              <div class="text-muted-foreground text-[11.5px]">
-                Splits into {credit.parts.join(' · ')} — {credit.songCount} song{credit.songCount === 1 ? '' : 's'}
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              class="h-7 shrink-0 px-2.5 text-[12px]"
-              disabled={acting}
-              onclick={() => run(() => splitArtistCredit(credit.credit))}
-            >
-              <Split class="mr-1 size-3.5" /> Split credit
-            </Button>
-          </div>
+              </p>
+              {@render cardError(cluster.suggestedCanonical)}
+            {/snippet}
+          </GroupedList.Section>
         {/each}
+
+        {#if report.combinedCredits.length > 0}
+          <GroupedList.Section header="Combined credits registered as one artist">
+            {#each report.combinedCredits as credit (credit.credit)}
+              {@const key = `credit:${credit.credit}`}
+              <GroupedList.Row
+                label={credit.credit}
+                sublabel="Splits into {credit.parts.join(
+                  ' · '
+                )} — {credit.songCount} track{credit.songCount === 1 ? '' : 's'}"
+              >
+                {@render cardError(key)}
+                {#snippet trailing()}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    class="h-11 gap-1.5 rounded-full px-4 text-[15px] md:h-7 md:rounded-lg md:px-2.5 md:text-[12px]"
+                    disabled={actingKey != null}
+                    onclick={() => split(credit.credit)}
+                  >
+                    {#if actingKey === key}<Loader2
+                        class="size-4 animate-spin md:size-3.5"
+                      />{:else}<Split class="size-4 md:size-3.5" aria-hidden="true" />{/if}
+                    Split credit
+                  </Button>
+                {/snippet}
+              </GroupedList.Row>
+            {/each}
+          </GroupedList.Section>
+        {/if}
+      {/if}
+
+      {#if !loading}
+        <InboxDedupHistoryV2 refresh={historyVersion} onreverted={() => void load(true)} />
       {/if}
     </div>
-    <InboxDedupHistoryV2 />
   </div>
-{/if}
+</div>

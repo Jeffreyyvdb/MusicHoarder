@@ -35,8 +35,10 @@
   }
 </script>
 
+<!-- min-w-0: in a grid or flex parent the <pre>'s max-content would otherwise size this block
+     (and the column around it) to the longest command line; the <pre> scrolls sideways instead. -->
 <div
-  class="bg-surface-sunken border-border overflow-hidden rounded-[10px] border {className}"
+  class="bg-surface-sunken border-border min-w-0 overflow-hidden rounded-[10px] border {className}"
   style="box-shadow: 0 8px 24px rgba(0,0,0,0.08), 0 0 0 0.5px rgba(0,0,0,0.06);"
 >
   <div class="bg-card border-border flex items-center gap-2 border-b px-3 py-2.5">
@@ -49,7 +51,7 @@
     <button
       type="button"
       onclick={copy}
-      class="text-primary hover:bg-accent ml-auto inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] font-medium transition-colors"
+      class="text-primary hover:bg-accent relative ml-auto inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium transition-colors after:absolute after:-inset-x-1 after:-inset-y-2.5"
     >
       {#if copied}
         <Check class="size-3" /> Copied
@@ -61,5 +63,6 @@
     </button>
   </div>
   <pre
+    data-scroll-x
     class="text-muted-foreground overflow-x-auto px-4 py-3.5 font-mono text-[12.5px] leading-[1.7]">{text}</pre>
 </div>

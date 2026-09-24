@@ -1,7 +1,7 @@
 /**
  * Shared songs store — owns the full `ApiSong[]` dataset plus the live
  * SSE-driven refresh, lifted out of LibraryV2 so any route can resolve a song
- * (e.g. the global song-detail sidebar opened from the MiniPlayer off-Library).
+ * (e.g. the global Now Playing overlay opened from the MiniPlayer off-Library).
  *
  * `startLive`/`stopLive` are ref-counted: LibraryV2 and the detail host can both
  * keep the progress stream alive, and it only tears down once the last consumer
@@ -32,6 +32,14 @@ let albumDtos = $state<AlbumSummaryDto[]>([]);
 /** Cards for the song-detail panel: every song, per folder, unmerged. Loaded on first use. */
 let detailAlbumDtos = $state<AlbumSummaryDto[]>([]);
 let detailAlbumsRequested = false;
+/**
+ * Where the detail cards stand. 'loaded' sticks through a background refresh (and a failed one:
+ * the cards already held are still right enough), so the panel's "not in your library view" can
+ * trust it; 'error' is only a first load that failed, which the panel offers to retry.
+ */
+export type DetailAlbumsState = 'idle' | 'loading' | 'loaded' | 'error';
+let detailAlbumsState = $state<DetailAlbumsState>('idle');
+let detailAlbumsGen = 0;
 /**
  * Who shared the rows in {@link songs}. Lives HERE, as a rune, rather than in `api-client`:
  * that module is a plain `.ts` file, so its module-level copy cannot be reactive, and a
@@ -64,10 +72,17 @@ async function loadSongs(opts?: { silent?: boolean }): Promise<void> {
 }
 
 async function loadDetailAlbums(): Promise<void> {
+  const gen = ++detailAlbumsGen;
+  if (detailAlbumsState !== 'loaded') detailAlbumsState = 'loading';
   try {
-    detailAlbumDtos = await fetchAlbums({ builtOnly: false, merge: false });
+    const loaded = await fetchAlbums({ builtOnly: false, merge: false });
+    if (gen !== detailAlbumsGen) return; // a newer request (or a sign-out) superseded this one
+    detailAlbumDtos = loaded;
+    detailAlbumsState = 'loaded';
   } catch {
-    // The panel degrades to no album context; the library grid is unaffected.
+    if (gen !== detailAlbumsGen) return;
+    // The library grid is unaffected either way; the panel says so and offers a retry.
+    if (detailAlbumsState !== 'loaded') detailAlbumsState = 'error';
   }
 }
 
@@ -195,6 +210,8 @@ function reset(): void {
   albumDtos = [];
   detailAlbumDtos = [];
   detailAlbumsRequested = false;
+  detailAlbumsState = 'idle';
+  detailAlbumsGen += 1;
   grantors = [];
   isLoading = false;
   error = null;
@@ -220,6 +237,13 @@ const songsById = $derived(new Map(songs.map((song) => [song.id, song])));
 
 const albums = $derived(hydrateAlbums(albumDtos, songsById));
 const detailAlbums = $derived(hydrateAlbums(detailAlbumDtos, songsById));
+
+// Whether the rows on screen come from more than one library: two grantors, or a grant beside the
+// account's own music (an admin someone shared with). Only then does a per-row "shared" mark tell
+// a row apart; with one source the list subtitle's "Shared by X" already says it for every row.
+const mixedSources = $derived(
+  grantors.length > 1 || (grantors.length > 0 && songs.some((s) => !s.sharedByUserId))
+);
 
 export const songsStore = {
   get songs() {
@@ -253,8 +277,21 @@ export const songsStore = {
     detailAlbumsRequested = true;
     void loadDetailAlbums();
   },
+  /** {@link DetailAlbumsState}: whether an unresolved song means "missing" or "not loaded yet". */
+  get detailAlbumsState() {
+    return detailAlbumsState;
+  },
+  /** Fetch the detail cards again now — the panel's Retry after a failed first load. */
+  reloadDetailAlbums(): Promise<void> {
+    detailAlbumsRequested = true;
+    return loadDetailAlbums();
+  },
   get grantors() {
     return grantors;
+  },
+  /** More than one library is in the list — see `mixedSources` above. */
+  get hasMixedSources() {
+    return mixedSources;
   },
   /** The grantor of one song, or null when this account owns it. */
   grantorOf(song: Pick<ApiSong, 'sharedByUserId'>): Grantor | null {

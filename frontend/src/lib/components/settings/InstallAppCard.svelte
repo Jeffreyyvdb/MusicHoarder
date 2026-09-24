@@ -1,6 +1,7 @@
 <script lang="ts">
   import { HousePlus, Share, X } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button';
+  import * as GroupedList from '$lib/components/ui/grouped-list';
   import { isInstalledApp } from '$lib/hooks/viewport-insets.svelte';
   import { isIosSafari } from '$lib/ios-safari';
 
@@ -38,50 +39,43 @@
 </script>
 
 {#if visible}
-  <section class="border-border bg-card rounded-lg border">
-    <header class="border-border flex items-start gap-3 border-b px-5 py-3.5">
-      <div class="min-w-0 flex-1">
-        <h2 class="flex items-center gap-2 text-sm font-semibold">
-          <HousePlus class="size-4 shrink-0" /> Add MusicHoarder to your Home Screen
-        </h2>
-        <p class="text-muted-foreground text-xs">
-          It opens full screen with its own icon, like an app — no Safari toolbar.
-        </p>
-      </div>
-      <!-- 28px visual, 44px target: the pseudo-element grows the hit area, not the glyph. -->
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        class="relative -mr-1.5 shrink-0 after:absolute after:-inset-2"
-        aria-label="Dismiss the Home Screen tip"
-        onclick={dismiss}
-      >
-        <X />
-      </Button>
-    </header>
-
-    <div class="space-y-4 p-5">
-      <ol class="list-inside list-decimal space-y-1.5 text-sm">
+  <!-- The one thing iOS will not tell them, in the footer: a Home Screen web app has its own
+       cookie jar. -->
+  <GroupedList.Section
+    headingLevel={2}
+    header="Home Screen app"
+    footer="The Home Screen app keeps its own sign-in, separate from Safari’s, so you sign in once more inside it. Email sign-in links always open in Safari, so a passkey is the quickest way in: add one under Passkeys above, then choose Sign in with a passkey in the app."
+  >
+    <!-- A tip cell with its own close button (TipKit's shape): the glyph stays 20px, the button
+         is a 44pt target in the corner. -->
+    <div class="relative px-4 py-3 pr-12">
+      <p class="text-headline flex items-center gap-2 md:text-sm md:font-semibold">
+        <HousePlus class="size-5 shrink-0" aria-hidden="true" /> Add MusicHoarder to your Home Screen
+      </p>
+      <p class="text-subheadline text-muted-foreground mt-0.5 md:text-xs">
+        It opens full screen with its own icon, like an app — no Safari toolbar.
+      </p>
+      <ol class="text-subheadline mt-3 list-decimal space-y-1.5 pl-5 md:text-sm">
         <li>
           In Safari, tap
           <Share class="inline size-4 align-text-bottom" aria-hidden="true" />
-          <span class="font-medium">Share</span> — in the toolbar, or under ••• when the toolbar is compact.
+          <span class="font-semibold">Share</span> — in the toolbar, or under ••• when the toolbar is
+          compact.
         </li>
         <li>
-          Choose <span class="font-medium">Add to Home Screen</span>, then tap
-          <span class="font-medium">Add</span>.
+          Choose <span class="font-semibold">Add to Home Screen</span>, then tap
+          <span class="font-semibold">Add</span>.
         </li>
       </ol>
-
-      <!-- The one thing iOS will not tell them: a Home Screen web app has its own cookie jar. -->
-      <div
-        class="border-border bg-secondary/40 rounded-lg border px-4 py-3 text-xs leading-relaxed"
+      <Button
+        variant="ghost"
+        size="icon"
+        class="text-muted-foreground absolute top-0.5 right-0.5 size-11 rounded-full"
+        aria-label="Dismiss the Home Screen tip"
+        onclick={dismiss}
       >
-        The Home Screen app keeps its own sign-in, separate from Safari's, so you sign in once more
-        inside it. Email sign-in links always open in Safari, so a passkey is the quickest way in:
-        add one under Passkeys above, then choose
-        <span class="font-medium">Sign in with a passkey</span> in the app.
-      </div>
+        <X class="size-5" />
+      </Button>
     </div>
-  </section>
+  </GroupedList.Section>
 {/if}

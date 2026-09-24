@@ -82,11 +82,11 @@
           {#each inFlight as item, i (i)}
             <span
               class="inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[12px] {item.warn
-                ? 'border-amber-500/40 bg-amber-500/10 text-amber-500'
+                ? 'border-warning/40 bg-warning/10 text-warning-text'
                 : 'border-border'}"
             >
               <span>{item.name}</span>
-              <span class="font-mono text-[11px] {item.warn ? 'text-amber-500/80' : 'text-muted-foreground'}">{item.meta}</span>
+              <span class="font-mono text-[11px] {item.warn ? 'text-warning-text' : 'text-muted-foreground'}">{item.meta}</span>
             </span>
           {/each}
         </div>
@@ -107,7 +107,7 @@
       live throughput
     </span>
     <span class="flex items-center gap-1.5">
-      <span class="size-2.5 rounded-full bg-amber-500"></span>
+      <span class="bg-warning size-2.5 rounded-full"></span>
       needs a human
     </span>
   </div>

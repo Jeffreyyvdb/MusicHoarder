@@ -39,3 +39,25 @@ export function seekTargetForKey(
   if (next === null) return null;
   return Math.max(0, Math.min(duration, next));
 }
+
+/**
+ * How far into a track Previous still means "the track before this one". Past it, Previous
+ * restarts the current track — the rule iOS, Android's Media3 and every hardware remote share, so
+ * the web player and the Android client agree about what the button does.
+ */
+export const PREVIOUS_RESTART_AFTER_S = 3;
+
+/**
+ * What Previous does right now: `restart` the current track, or step back to the `previous` queue
+ * item. Past {@link PREVIOUS_RESTART_AFTER_S} it always restarts; before that it steps back, except
+ * on the first item, which has nothing behind it and restarts too. So Previous is never a dead
+ * button while a track is loaded — `none` only when nothing is.
+ */
+export function previousAction(
+  position: number,
+  queueIndex: number
+): 'restart' | 'previous' | 'none' {
+  if (queueIndex < 0) return 'none';
+  if (position > PREVIOUS_RESTART_AFTER_S) return 'restart';
+  return queueIndex > 0 ? 'previous' : 'restart';
+}

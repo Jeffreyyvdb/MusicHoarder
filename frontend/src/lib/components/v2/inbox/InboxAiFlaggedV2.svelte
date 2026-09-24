@@ -1,23 +1,50 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Check, ChevronLeft, RefreshCw, Sparkles, ChevronRight, Copy } from '@lucide/svelte';
+  import { goto } from '$app/navigation';
+  import {
+    Check,
+    ChevronUp,
+    ChevronDown,
+    RefreshCw,
+    Sparkles,
+    ChevronRight,
+    Copy,
+    TriangleAlert,
+    Info,
+    History,
+    Loader2
+  } from '@lucide/svelte';
   import {
     fetchQualityOverview,
+    fetchEnrichmentDetail,
     copyQualitySongDossier,
+    enrichSong,
     type QualityWorstOffender,
     type QualityVerdict
   } from '$lib/api-client';
+  import { issueLabel } from '$lib/quality-ui';
+  import { formatDate } from '$lib/formatters';
+  import { coverUrlForSongId } from './song-cover';
+  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
+  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import { Button } from '$lib/components/ui/button';
-  import { Skeleton } from '$lib/components/ui/skeleton';
+  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
+  import * as GroupedList from '$lib/components/ui/grouped-list';
   import { toast } from 'svelte-sonner';
   import { cn } from '$lib/utils';
+  import InboxDecisionBar from './InboxDecisionBar.svelte';
+  import InboxQueueRow from './InboxQueueRow.svelte';
+  import InboxQueueStates from './InboxQueueStates.svelte';
+  import { QueueSelection } from './queue-selection.svelte';
 
   type Props = { oncount?: (n: number | null) => void };
   const { oncount }: Props = $props();
 
+  const isMobile = new IsMobile();
+  const compact = $derived(isMobile.current);
+
   let offenders = $state<QualityWorstOffender[]>([]);
-  let selectedId = $state<number | null>(null);
   let loading = $state(true);
   let error = $state<string | null>(null);
   let configured = $state(true);
@@ -40,7 +67,6 @@
         (o) => o.verdict === 'Wrong' || o.verdict === 'Questionable'
       );
       configured = (ov.library?.graded ?? 0) > 0 || offenders.length > 0;
-      selectedId = offenders[0]?.songId ?? null;
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to load AI grades';
     } finally {
@@ -52,30 +78,63 @@
     void load();
   });
 
-  const selected = $derived(offenders.find((o) => o.songId === selectedId) ?? null);
+  const offenderIds = $derived(offenders.map((o) => o.songId));
+  const selection = new QueueSelection({
+    tab: 'ai',
+    param: 'song',
+    ids: () => offenderIds,
+    compact: () => compact,
+    ready: () => !loading
+  });
+  const position = $derived(selection.position);
+  const selected = $derived(offenders.find((o) => o.songId === selection.selectedId) ?? null);
 
-  // One status signal: a small colored dot + sentence-case label (no tinted pill).
+  // One status signal: a small coloured dot AND the verdict word — colour never carries it alone.
   function verdictDot(v: QualityVerdict | undefined): string {
     switch (v) {
       case 'Wrong':
-        return 'bg-red-500';
+        return 'bg-destructive';
       case 'Questionable':
-        return 'bg-amber-500';
+        return 'bg-warning';
       default:
-        return 'bg-muted-foreground/50';
+        return 'bg-muted-foreground-dim';
     }
   }
 
-  /** "artist_changed" → "Artist changed" — raw codes stay behind a tooltip. */
-  function humanizeIssue(code: string): string {
-    const s = code.replace(/_/g, ' ').trim();
-    return s.charAt(0).toUpperCase() + s.slice(1);
+  // The grader rates each issue low / medium / high (older grades said minor / major). Each level
+  // is a word and a glyph, never a dot colour alone.
+  type Severity = 'high' | 'medium' | 'low';
+  function severityOf(severity: string | null | undefined): Severity {
+    const v = severity?.toLowerCase();
+    if (v === 'high' || v === 'major') return 'high';
+    if (v === 'low' || v === 'minor') return 'low';
+    return 'medium';
   }
+  const SEVERITY: Record<
+    Severity,
+    { word: string; icon: typeof Info; tile?: string; text: string }
+  > = {
+    high: {
+      word: 'High',
+      icon: TriangleAlert,
+      tile: 'bg-destructive/12 text-destructive-text',
+      text: 'text-destructive-text'
+    },
+    medium: {
+      word: 'Medium',
+      icon: TriangleAlert,
+      tile: 'bg-warning/15 text-warning-text',
+      text: 'text-warning-text'
+    },
+    low: { word: 'Low', icon: Info, text: 'text-muted-foreground' }
+  };
 
   async function onCopyDossier(songId: number) {
     try {
       await copyQualitySongDossier(songId);
-      toast.success('Copied dossier to clipboard — paste into an AI assistant for a second opinion');
+      toast.success(
+        'Copied dossier to clipboard — paste into an AI assistant for a second opinion'
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Copy failed');
     }
@@ -84,180 +143,459 @@
   function reviewHref(songId: number): string {
     return `/inbox?tab=review&song=${songId}`;
   }
+  function timelineHref(songId: number): string {
+    return `/track/${songId}`;
+  }
+
+  // "Open in review" only leads somewhere while the track is waiting in Tag review — and an
+  // AI-graded track is usually built (Matched), so most of the time it is not. The status at
+  // grade time is history; the live one comes from the track's enrichment detail, fetched for
+  // the item on screen. Unknown yet: the timeline, which always exists. Unreadable: offer
+  // review anyway (Tag review says so if the track is not there).
+  let liveStatus = $state<Record<number, string | null>>({});
+  $effect(() => {
+    const id = selection.selectedId;
+    if (id == null) return;
+    untrack(() => {
+      if (id in liveStatus) return;
+      fetchEnrichmentDetail(id)
+        .then((d) => (liveStatus = { ...liveStatus, [id]: d.enrichmentStatus ?? '' }))
+        .catch(() => (liveStatus = { ...liveStatus, [id]: null }));
+    });
+  });
+  function reviewable(songId: number): boolean {
+    if (!(songId in liveStatus)) return false;
+    const status = liveStatus[songId];
+    return status === null || status.toLowerCase() === 'needsreview';
+  }
+
+  // The item's resolving action. A track waiting in Tag review is fixed there (Open in review);
+  // a built one the grader calls wrong is fixed by matching it again from its original tags
+  // (Re-enrich — the timeline's own action), which lands it in Tag review if the providers still
+  // disagree. The grade itself stays until the next grading pass.
+  let reenriching = $state<number | null>(null);
+  async function reenrich(songId: number) {
+    if (reenriching != null) return;
+    reenriching = songId;
+    try {
+      const r = await enrichSong(songId, true);
+      const d = await fetchEnrichmentDetail(songId).catch(() => null);
+      liveStatus = { ...liveStatus, [songId]: d ? (d.enrichmentStatus ?? '') : null };
+      const said: Record<string, string> = {
+        Matched: 'Re-enriched — matched again',
+        NeedsReview: 'Re-enriched — it’s waiting in Tag review',
+        Failed: 'Re-enriched — no provider found a match',
+        Skipped: 'Re-enrich skipped this track'
+      };
+      toast.success(said[r.outcome] ?? `Re-enriched: ${r.outcome}`);
+    } catch (err) {
+      toast.error('Could not re-enrich this track', {
+        description: err instanceof Error ? err.message : undefined
+      });
+    } finally {
+      reenriching = null;
+    }
+  }
+
+  function algorithmRows(o: QualityWorstOffender): { l: string; v: string; mono?: boolean }[] {
+    return [
+      { l: 'Title', v: o.title ?? '—' },
+      { l: 'Artist', v: o.artist ?? '—' },
+      { l: 'Album', v: o.album ?? '—' },
+      { l: 'Source', v: o.sourcePath, mono: true },
+      { l: 'Destination', v: o.destinationPathPreview ?? '(not written)', mono: true },
+      { l: 'Status at grade', v: o.enrichmentStatusAtGrade ?? '—' }
+    ];
+  }
+
+  // The phone's list unmounts while an item is pushed; put it back where it was on return.
+  let listScroller = $state<HTMLElement | null>(null);
+  let listScrollTop = 0;
+  $effect(() => {
+    const el = listScroller;
+    if (el && listScrollTop > 0) requestAnimationFrame(() => (el.scrollTop = listScrollTop));
+  });
+  let detailScroller = $state<HTMLElement | null>(null);
+  $effect(() => {
+    void selection.selectedId;
+    untrack(() => detailScroller?.scrollTo({ top: 0 }));
+  });
+  function openRow(event: MouseEvent, id: number) {
+    if (compact && listScroller) listScrollTop = listScroller.scrollTop;
+    selection.onRowClick(event, id);
+  }
+
+  const meta = $derived(loading ? undefined : `${offenders.length} flagged by AI`);
 </script>
 
-{#if loading}
-  <!-- Shaped like the queue it replaces, matching Tag review and Duplicates. -->
-  <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[320px_1fr]" role="status">
-    <span class="sr-only">Loading AI grades…</span>
-    <div class="border-border bg-surface-sunken flex min-h-0 flex-col border-r" aria-hidden="true">
-      <div class="border-border flex h-12 items-center border-b px-4">
-        <Skeleton class="h-3 w-24" />
-      </div>
-      <div class="p-1.5">
-        {#each Array(4) as _, i (i)}
-          <div class="mb-0.5 flex items-center gap-2.5 py-2 pr-2.5 pl-2.5">
-            <Skeleton class="size-10 shrink-0" />
-            <div class="min-w-0 flex-1 space-y-1.5">
-              <Skeleton class="h-3.5 w-3/4" />
-              <Skeleton class="h-3 w-1/2" />
-            </div>
-            <Skeleton class="h-3 w-8 shrink-0" />
-          </div>
-        {/each}
-      </div>
-    </div>
-  </div>
-{:else if error}
-  <div class="flex flex-1 items-center justify-center p-8">
-    <div class="max-w-md text-center">
-      <p class="text-destructive-text mb-3 text-sm">{error}</p>
-      <Button onclick={load}>Retry</Button>
-    </div>
-  </div>
-{:else if offenders.length === 0}
-  <div class="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-    <span class="bg-primary/10 text-primary grid size-12 place-items-center rounded-full">
-      {#if configured}<Check class="size-6" />{:else}<Sparkles class="size-6" />{/if}
-    </span>
-    <div class="text-[15px] font-semibold">{configured ? 'Nothing flagged by AI' : 'AI grading not run yet'}</div>
-    <p class="text-muted-foreground max-w-sm text-[12.5px]">
+<!-- One line of text after the dot, so the separators are evenly spaced (a second flex item
+     would sit a gap away from the score instead of a space). -->
+{#snippet verdictLine(o: QualityWorstOffender, outOf = false, after = '')}
+  <span
+    class={cn('size-2 shrink-0 rounded-full md:size-1.5', verdictDot(o.verdict))}
+    aria-hidden="true"
+  ></span>
+  <span class="min-w-0 truncate tabular-nums"
+    >{o.verdict} · {o.score}{outOf ? '/100' : ''}{after ? ` · ${after}` : ''}</span
+  >
+{/snippet}
+
+{#snippet queueList()}
+  {#each offenders as o (o.songId)}
+    <InboxQueueRow
+      href={selection.href(o.songId)}
+      onclick={(e) => openRow(e, o.songId)}
+      selected={selection.selectedId === o.songId}
+      {compact}
+      cover={{
+        artist: o.artist ?? 'Unknown',
+        title: o.title ?? o.fileName,
+        url: coverUrlForSongId(o.songId)
+      }}
+      title={o.title ?? o.fileName}
+    >
+      {#snippet detail()}
+        {@render verdictLine(o, true, o.artist ?? '—')}
+      {/snippet}
+    </InboxQueueRow>
+  {/each}
+{/snippet}
+
+{#snippet refreshItem()}
+  <DropdownMenu.Item onSelect={() => void load()}><RefreshCw /> Refresh</DropdownMenu.Item>
+{/snippet}
+
+{#snippet refreshAction()}
+  <Button
+    variant="ghost"
+    size="icon"
+    aria-label="Refresh AI grades"
+    title="Refresh"
+    onclick={() => void load()}
+  >
+    <RefreshCw />
+  </Button>
+{/snippet}
+
+<!-- The secondary actions, as Tag review has them: the bottom bar keeps the one that resolves
+     the item. -->
+{#snippet detailMore()}
+  {#if selected}
+    {@const id = selected.songId}
+    <DropdownMenu.Item onSelect={() => void onCopyDossier(id)}>
+      <Copy /> Copy dossier
+    </DropdownMenu.Item>
+    <DropdownMenu.Item onSelect={() => void goto(timelineHref(id))}>
+      <History /> View timeline
+    </DropdownMenu.Item>
+  {/if}
+{/snippet}
+
+<!-- The resolving action (see reenrich). Until the track's live status is known it waits,
+     disabled, rather than offering one action and swapping it for the other. -->
+{#snippet resolveAction(songId: number, cls: string, iconCls: string)}
+  {#if reviewable(songId)}
+    <Button href={reviewHref(songId)} class={cls}>
+      <span class="truncate">Open in review</span>
+      <ChevronRight class={iconCls} />
+    </Button>
+  {:else}
+    <Button
+      class={cls}
+      disabled={!(songId in liveStatus) || reenriching != null}
+      onclick={() => void reenrich(songId)}
+    >
+      {#if reenriching === songId}<Loader2 class="{iconCls} animate-spin" />{:else}<RefreshCw
+          class={iconCls}
+        />{/if}
+      <span class="truncate">Re-enrich</span>
+    </Button>
+  {/if}
+{/snippet}
+
+{#snippet chevrons()}
+  <Button
+    variant="ghost"
+    size="icon"
+    aria-label="Previous flagged track"
+    disabled={position.prev == null}
+    onclick={() => selection.select(position.prev)}
+  >
+    <ChevronUp />
+  </Button>
+  <Button
+    variant="ghost"
+    size="icon"
+    aria-label="Next flagged track"
+    disabled={position.next == null}
+    onclick={() => selection.select(position.next)}
+  >
+    <ChevronDown />
+  </Button>
+{/snippet}
+
+{#snippet queueStates()}
+  {#if loading}
+    <InboxQueueStates state="loading" label="Loading AI grades…" {compact} />
+  {:else if error}
+    <InboxQueueStates state="error" message={error} onretry={load} />
+  {:else}
+    <InboxQueueStates
+      state="empty"
+      icon={configured ? Check : Sparkles}
+      title={configured ? 'Nothing flagged by AI' : 'AI grading not run yet'}
+    >
       {#if configured}
         The quality grader hasn't marked any built tracks Wrong or Questionable.
       {:else}
         Run AI quality grading from the
-        <a href="/quality" class="text-primary hover:underline">AI quality</a> tab to surface enrichments that look wrong.
+        <a href="/quality" class="text-primary hover:underline">AI quality</a> page to surface enrichments
+        that look wrong.
       {/if}
-    </p>
-  </div>
-{:else}
-  <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[320px_1fr]">
-    <!-- List — single-pane on mobile: hidden once an offender is selected. -->
-    <aside
-      class="border-border bg-surface-sunken flex min-h-0 flex-col border-r md:flex"
-      class:hidden={selectedId != null}
-    >
-      <div class="border-border flex items-center justify-between gap-2 border-b px-4 py-2.5">
-        <span class="text-muted-foreground text-[11px]">{offenders.length} flagged by AI</span>
-        <button
-          type="button"
-          onclick={load}
-          title="Refresh"
-          aria-label="Refresh AI grades"
-          class="text-muted-foreground hover:bg-accent hover:text-foreground grid size-7 place-items-center rounded-md transition-colors"
-        >
-          <RefreshCw class="size-3.5" />
-        </button>
-      </div>
-      <div class="min-h-0 flex-1 overflow-y-auto p-1.5 pb-[calc(0.375rem_+_var(--mh-content-pad))]">
-        {#each offenders as o (o.songId)}
-          <button
-            type="button"
-            onclick={() => (selectedId = o.songId)}
-            class={cn(
-              'mb-0.5 flex w-full items-center gap-2.5 rounded-md border-l-2 border-transparent py-2 pr-2.5 pl-2 text-left transition-[background-color,transform] duration-100 ease-out active:scale-[0.99]',
-              selectedId === o.songId ? 'border-l-primary bg-card' : 'hover:bg-accent'
-            )}
-          >
-            <Cover artist={o.artist ?? 'Unknown'} title={o.title ?? o.fileName} size={40} corner={6} caption={false} />
-            <div class="min-w-0 flex-1">
-              <div class="truncate text-[13px] font-medium">{o.title ?? o.fileName}</div>
-              <div class="text-muted-foreground truncate text-[11.5px]">{o.artist ?? '—'}</div>
-            </div>
-            <span class="text-muted-foreground flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums">
-              <span class={cn('size-1.5 rounded-full', verdictDot(o.verdict))}></span>
-              {o.score}
-            </span>
-          </button>
-        {/each}
-      </div>
-    </aside>
+    </InboxQueueStates>
+  {/if}
+{/snippet}
 
-    <!-- Detail: LLM verdict — single-pane on mobile: hidden until selected. -->
-    {#if selected}
+{#if compact}
+  {#if selected}
+    <!-- ── Phone: the pushed verdict, a grouped page ─────────────────────────────── -->
+    <div class="bg-background-grouped flex min-h-0 flex-1 flex-col">
       <div
-        class="flex min-h-0 min-w-0 flex-col overflow-hidden md:flex"
-        class:hidden={selectedId == null}
+        bind:this={detailScroller}
+        class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)"
       >
-        <div class="border-border flex items-start gap-3 border-b px-4 py-3 sm:px-6">
-          <button
-            type="button"
-            onclick={() => (selectedId = null)}
-            class="text-muted-foreground hover:bg-accent hover:text-foreground -ml-1 grid size-8 shrink-0 place-items-center rounded-md transition-colors md:hidden"
-            title="Back to list"
-            aria-label="Back to list"
-          >
-            <ChevronLeft class="size-5" />
-          </button>
-          <Sparkles class="text-muted-foreground mt-0.5 size-5 shrink-0" />
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2.5">
-              <span class="text-[14px] font-semibold">AI flagged</span>
-              <span class="text-muted-foreground flex shrink-0 items-center gap-1.5 text-[12px] tabular-nums">
-                <span class={cn('size-1.5 rounded-full', verdictDot(selected.verdict))}></span>
-                {selected.verdict} · {selected.score}/100
-              </span>
+        <PageToolbarV2
+          title="{position.position} of {position.total}"
+          titleLabel="AI flagged"
+          meta="AI flagged"
+          largeTitle={false}
+          grouped
+          actions={chevrons}
+          more={detailMore}
+        />
+        <div class="flex flex-col gap-7 pt-3 pb-6">
+          <GroupedList.Section footer="Graded {formatDate(selected.gradedAtUtc)}">
+            <div class="flex items-center gap-3 px-4 py-3">
+              <Cover
+                artist={selected.artist ?? 'Unknown'}
+                title={selected.title ?? selected.fileName}
+                coverUrl={coverUrlForSongId(selected.songId)}
+                size={60}
+                corner={6}
+                caption={false}
+                dprCap={3}
+              />
+              <div class="min-w-0 flex-1">
+                <h2 class="text-headline line-clamp-2 break-words">
+                  {selected.title ?? selected.fileName}
+                </h2>
+                {#if selected.artist}
+                  <p class="text-subheadline text-muted-foreground truncate">{selected.artist}</p>
+                {/if}
+                <p class="text-subheadline mt-0.5 flex items-center gap-1.5 tabular-nums">
+                  {@render verdictLine(selected, true)}
+                </p>
+              </div>
             </div>
-            <div class="text-muted-foreground truncate text-[12px]">{selected.title ?? selected.fileName}{selected.artist ? ` — ${selected.artist}` : ''}</div>
-          </div>
-        </div>
+          </GroupedList.Section>
 
-        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
-          <!-- Verdict -->
-          <div>
-            <div class="flex items-baseline justify-between gap-2">
-              <span class="text-foreground text-[13px] font-semibold">Quality LLM verdict</span>
-              <span class="text-muted-foreground text-[11.5px]">Graded {selected.gradedAtUtc.slice(0, 10)}</span>
-            </div>
-            <div class="mt-2">
-              {#if selected.summary}
-                <p class="text-foreground/80 text-[13px] leading-relaxed">{selected.summary}</p>
-              {:else}
-                <p class="text-muted-foreground text-[13px]">No summary provided by the grader.</p>
-              {/if}
-              {#if selected.issues.length > 0}
-                <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
-                  {#each selected.issues as issue (issue.code)}
-                    <span
-                      class="text-muted-foreground flex items-center gap-1.5 text-[12px]"
-                      title={[issue.code, issue.detail].filter(Boolean).join(' — ')}
-                    >
-                      <span class={cn('size-1.5 rounded-full', issue.severity?.toLowerCase() === 'major' ? 'bg-red-500' : 'bg-amber-500')}></span>
-                      {humanizeIssue(issue.code)}
-                    </span>
-                  {/each}
+          <GroupedList.Section header="AI grader’s verdict">
+            <p
+              class={cn(
+                'text-body after:bg-separator relative px-4 py-3 after:absolute after:right-0 after:bottom-0 after:left-4 after:h-(--hairline) last:after:hidden',
+                !selected.summary && 'text-muted-foreground'
+              )}
+            >
+              {selected.summary || 'No summary provided by the grader.'}
+            </p>
+            {#each selected.issues as issue (issue.code)}
+              <!-- Severity is a word and a glyph, not a dot colour alone; the detail (a hover
+                   title on desktop) is simply shown. The raw code stays in the dossier. -->
+              {@const sev = SEVERITY[severityOf(issue.severity)]}
+              <GroupedList.Row
+                label={issueLabel(issue.code)}
+                sublabel={issue.detail || undefined}
+                value={sev.word}
+                icon={sev.icon}
+                iconClass={sev.tile}
+              />
+            {/each}
+          </GroupedList.Section>
+
+          <GroupedList.Section header="What the algorithm did">
+            {#each algorithmRows(selected) as row (row.l)}
+              <div
+                class="after:bg-separator relative px-4 py-2.5 after:absolute after:right-0 after:bottom-0 after:left-4 after:h-(--hairline) last:after:hidden"
+              >
+                <div class="text-footnote text-muted-foreground">{row.l}</div>
+                <div
+                  class={cn(
+                    'min-w-0 break-words',
+                    row.mono ? 'text-footnote font-mono break-all' : 'text-body'
+                  )}
+                >
+                  {row.v}
                 </div>
-              {/if}
-            </div>
-          </div>
-
-          <!-- What the algorithm did — plain definition list, spacing not borders. -->
-          <div class="border-border border-t pt-4">
-            <div class="text-foreground text-[13px] font-semibold">What the algorithm did</div>
-            <dl class="mt-3 space-y-3">
-              {#each [{ l: 'Title', v: selected.title ?? '—' }, { l: 'Artist', v: selected.artist ?? '—' }, { l: 'Album', v: selected.album ?? '—' }, { l: 'Source', v: selected.sourcePath, mono: true }, { l: 'Destination', v: selected.destinationPathPreview ?? '(not written)', mono: true }, { l: 'Status at grade', v: selected.enrichmentStatusAtGrade ?? '—' }] as row (row.l)}
-                <div>
-                  <dt class="text-muted-foreground text-[11px]">{row.l}</dt>
-                  <dd class={cn('min-w-0 break-words text-[13px]', row.mono && 'font-mono text-[11.5px]')}>{row.v}</dd>
-                </div>
-              {/each}
-            </dl>
-          </div>
+              </div>
+            {/each}
+          </GroupedList.Section>
         </div>
+      </div>
 
-        <!-- Action bar — last item in a full-height column, so it carries the floating bottom
-             nav's clearance itself (same fix as the Tag review action bar). -->
-        <div
-          class="border-border bg-background flex flex-wrap items-center gap-2 border-t px-4 pt-3 pb-[calc(0.75rem_+_var(--mh-content-pad))] sm:gap-3 sm:px-6"
+      <!-- One action: the one that resolves the item. Copy dossier and View timeline are in the
+           nav bar's More, as on Tag review. Larger text sizes truncate its label (see
+           InboxDecisionBar). -->
+      <InboxDecisionBar label="Flagged track actions">
+        {@render resolveAction(
+          selected.songId,
+          'text-headline ml-auto h-11 gap-1.5 rounded-full pr-4 pl-5 in-data-tight:min-w-0 in-data-tight:shrink',
+          'size-5'
+        )}
+      </InboxDecisionBar>
+    </div>
+  {:else}
+    <!-- ── Phone: the list ───────────────────────────────────────────────────────── -->
+    <div class="flex min-h-0 flex-1 flex-col">
+      <div
+        bind:this={listScroller}
+        class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)"
+      >
+        <PageToolbarV2 title="AI flagged" {meta} more={refreshItem} />
+        {#if loading || error || offenders.length === 0}
+          {@render queueStates()}
+        {:else}
+          {@render queueList()}
+        {/if}
+      </div>
+    </div>
+  {/if}
+{:else}
+  <!-- ── Desktop: list pane + detail pane ──────────────────────────────────────────── -->
+  <div class="flex min-h-0 flex-1 flex-col">
+    <PageToolbarV2 title="AI flagged" {meta} actions={refreshAction} />
+    {#if !loading && (error || offenders.length === 0)}
+      <div class="min-h-0 flex-1 overflow-y-auto pb-(--mh-content-pad)">
+        {@render queueStates()}
+      </div>
+    {:else}
+      <!-- The list pane gives up width first (down to 240px); see InboxTagReviewV2. -->
+      <div
+        class="grid min-h-0 flex-1 grid-cols-[clamp(240px,30%,320px)_minmax(0,1fr)] overflow-hidden"
+      >
+        <aside
+          aria-label="Flagged tracks"
+          class="border-separator bg-surface-sunken flex min-h-0 flex-col border-r"
         >
-          <div class="flex-1"></div>
-          <Button variant="outline" onclick={() => onCopyDossier(selected.songId)} class="gap-1.5">
-            <Copy class="size-3.5" /> Copy dossier
-          </Button>
-          <Button href={reviewHref(selected.songId)} class="gap-1.5">
-            Open in review <ChevronRight class="size-3.5" />
-          </Button>
-        </div>
+          <div
+            class="min-h-0 flex-1 overflow-y-auto p-1.5 pb-[calc(0.375rem_+_var(--mh-content-pad))]"
+          >
+            {#if loading}
+              {@render queueStates()}
+            {:else}
+              {@render queueList()}
+            {/if}
+          </div>
+        </aside>
+
+        {#if selected}
+          <!-- Laid out by the pane's own width (a container): under 36rem the actions wrap
+               rather than being cut off by the pane's overflow. -->
+          <div class="@container flex min-h-0 min-w-0 flex-col overflow-hidden">
+            <div
+              class="border-separator flex items-start gap-3 border-b px-4 py-3 @min-[36rem]:px-6"
+            >
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
+                  <h2 class="text-[14px] font-semibold">AI flagged</h2>
+                  <span
+                    class="text-muted-foreground flex shrink-0 items-center gap-1.5 text-[12px] tabular-nums"
+                  >
+                    {@render verdictLine(selected, true)}
+                  </span>
+                </div>
+                <div class="text-muted-foreground truncate text-[12px]">
+                  {selected.title ?? selected.fileName}{selected.artist
+                    ? ` — ${selected.artist}`
+                    : ''}
+                </div>
+              </div>
+            </div>
+
+            <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 @min-[36rem]:px-6">
+              <!-- Verdict -->
+              <div>
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="text-foreground text-[13px] font-semibold">AI grader’s verdict</span>
+                  <span class="text-muted-foreground text-[11.5px]"
+                    >Graded {formatDate(selected.gradedAtUtc)}</span
+                  >
+                </div>
+                <div class="mt-2">
+                  {#if selected.summary}
+                    <p class="text-foreground text-[13px] leading-relaxed">{selected.summary}</p>
+                  {:else}
+                    <p class="text-muted-foreground text-[13px]">
+                      No summary provided by the grader.
+                    </p>
+                  {/if}
+                  {#if selected.issues.length > 0}
+                    <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
+                      {#each selected.issues as issue (issue.code)}
+                        {@const sev = SEVERITY[severityOf(issue.severity)]}
+                        <span
+                          class="text-muted-foreground flex items-center gap-1.5 text-[12px]"
+                          title={[issue.code, issue.detail].filter(Boolean).join(' — ')}
+                        >
+                          <sev.icon class="{sev.text} size-3.5" aria-hidden="true" />
+                          {issueLabel(issue.code)}
+                          <span class="text-muted-foreground-dim">{sev.word.toLowerCase()}</span>
+                        </span>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              </div>
+
+              <!-- What the algorithm did — plain definition list, spacing not borders. -->
+              <div class="border-separator border-t pt-4">
+                <div class="text-foreground text-[13px] font-semibold">What the algorithm did</div>
+                <dl class="mt-3 space-y-3">
+                  {#each algorithmRows(selected) as row (row.l)}
+                    <div>
+                      <dt class="text-muted-foreground text-[11px]">{row.l}</dt>
+                      <dd
+                        class={cn(
+                          'min-w-0 text-[13px] break-words',
+                          row.mono && 'font-mono text-[11.5px]'
+                        )}
+                      >
+                        {row.v}
+                      </dd>
+                    </div>
+                  {/each}
+                </dl>
+              </div>
+            </div>
+
+            <!-- Action bar — last item in a full-height column, so it carries the mini player's
+                 clearance itself. -->
+            <div
+              class="border-separator bg-background flex flex-wrap items-center justify-end gap-2 border-t px-4 pt-3 pb-[calc(0.75rem_+_var(--mh-content-pad))] @min-[36rem]:px-6"
+            >
+              <Button
+                variant="outline"
+                onclick={() => onCopyDossier(selected.songId)}
+                class="gap-1.5"
+              >
+                <Copy class="size-3.5" /> Copy dossier
+              </Button>
+              <Button variant="outline" href={timelineHref(selected.songId)} class="gap-1.5">
+                <History class="size-3.5" /> View timeline
+              </Button>
+              {@render resolveAction(selected.songId, 'gap-1.5', 'size-3.5')}
+            </div>
+          </div>
+        {/if}
       </div>
     {/if}
   </div>

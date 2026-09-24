@@ -1,23 +1,25 @@
 <script lang="ts">
   import {
-    RefreshCw,
     ChevronRight,
     Sparkles,
     Tag,
     Copy,
     Loader2,
     History,
-    Workflow,
     Pause,
     Play,
-    Square
+    ScanLine,
+    AudioLines,
+    PackageCheck,
+    TriangleAlert
   } from '@lucide/svelte';
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import type { Component } from 'svelte';
-  import { goto } from '$app/navigation';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { Skeleton } from '$lib/components/ui/skeleton';
+  import { Button } from '$lib/components/ui/button';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
+  import * as GroupedList from '$lib/components/ui/grouped-list';
   import {
     fetchAlbums,
     hydrateAlbums,
@@ -39,6 +41,7 @@
     type QualityProgress
   } from '$lib/api-client';
   import { isBuiltSong } from '$lib/album-sections';
+  import { activityDot } from '$lib/activity-tone';
   import {
     pipelineOverlay,
     JOB_CONFIRM_COPY,
@@ -47,7 +50,16 @@
   } from '$lib/stores/pipeline-overlay.svelte';
   import { cn } from '$lib/utils';
   import { formatBytesShort } from '$lib/formatters';
+  import { aiFlaggedOf, inboxCounts, publishInboxQueueCount } from '$lib/stores/nav-badges.svelte';
 
+  // The pipeline's home: what is running and how to hold it, what the library looks like, where
+  // each stage stands, what is waiting for a decision, and what just happened. On a phone it is
+  // one inset-grouped scroll (Settings-style sections, no scroller inside a scroller — Recent
+  // activity shows a handful of rows and expands in place, Just landed has a "See all"). From lg
+  // the same sections carry the six-figure strip and the horizontal conveyor; below lg (a phone,
+  // or an iPad in portrait beside the sidebar, where seven nodes and six figures truncate) they
+  // stay value rows and a vertical timeline.
+  //
   // The demo account is read-only — hide the mutating controls (Rescan, Pause/Resume, Stop; the
   // backend rejects them regardless, this just avoids dead buttons). Defaults false so non-demo
   // callers are unaffected.
@@ -91,6 +103,12 @@
       if (qRes.status === 'fulfilled') quality = qRes.value;
       if (qpRes.status === 'fulfilled') qualityProgress = qpRes.value;
       if (dupRes.status === 'fulfilled') duplicates = dupRes.value;
+      // This page already holds the two responses the Inbox badge counts from, and polls them
+      // more often than the badge refreshes; handing them over keeps the badge, the Inbox hub and
+      // this page's "Awaiting you" on the same, freshest figures.
+      if (dupRes.status === 'fulfilled')
+        publishInboxQueueCount('dupes', (dupRes.value.duplicateGroups ?? []).length);
+      if (qRes.status === 'fulfilled') publishInboxQueueCount('ai', aiFlaggedOf(qRes.value.worstOffenders));
       // Quality failures stay silent (may be legitimately unconfigured); the core
       // fetches failing means the KPIs below are stale/missing, so say so.
       loadError =
@@ -151,26 +169,21 @@
     return Math.max(0, discovered - done);
   });
 
-  // Awaiting-you breakdown — real counts. Tags = needsreview; AI = quality
-  // "wrong" verdicts; Duplicates = fingerprint-flagged tracks (read-only count,
-  // no resolve endpoint yet — see duplicateCount below).
-  const tagReviewCount = $derived.by(() => {
-    if (!loaded) return null;
-    return songs.filter((s) => {
-      const n = mapEnrichmentStatus(s.enrichmentStatus);
-      return n === 'needsreview' || n === 'failed';
-    }).length;
-  });
-  const aiFlaggedCount = $derived(quality?.library?.verdicts?.wrong ?? null);
-  const awaitingYou = $derived.by(() => {
-    if (tagReviewCount == null && aiFlaggedCount == null) return null;
-    return (tagReviewCount ?? 0) + (aiFlaggedCount ?? 0);
-  });
+  // Awaiting-you and its breakdown are the Inbox's own counts (nav-badges.svelte.ts), the ones
+  // the tab badge and the Inbox hub show, so the three can never disagree: Tag review is
+  // needs-review only, Duplicate tracks counts groups, AI flagged is Wrong + Questionable — each
+  // exactly what its queue lists — and "Awaiting you" is their sum, the badge. Failed matches have
+  // no queue; they are the Errors figure.
+  const inbox = $derived(inboxCounts());
+  const tagReviewCount = $derived(inbox.review);
+  const aiFlaggedCount = $derived(inbox.ai);
+  const awaitingYou = $derived(inbox.total);
 
   const avgQuality = $derived(quality?.library?.averageScore ?? null);
   const qualityGraded = $derived(quality?.library?.graded ?? null);
 
-  // Duplicate tracks flagged by fingerprint dedupe (DB-backed; read-only count).
+  // Duplicate tracks flagged by fingerprint dedupe (DB-backed; read-only count). The Dedupe stage's
+  // figure — tracks, not the groups the Inbox queue decides on.
   const duplicateCount = $derived(duplicates?.totalDuplicates ?? null);
 
   // Consensus "Decide" count — files that reached a terminal enrichment verdict
@@ -298,28 +311,33 @@
 
   // Detail figures for the selected stage. The SSE stream is count-only, so the
   // detail reflects cumulative counts honestly rather than inventing file names.
-  type StageDetail = { lines: { label: string; value: string }[] };
+  type DetailLine = { label: string; value: string; attention?: boolean };
 
-  const activeStageDetail = $derived.by<StageDetail>(() => {
+  const activeStageDetail = $derived.by<DetailLine[]>(() => {
     const st = activeStageDef;
-    const lines: { label: string; value: string }[] = [];
+    const lines: DetailLine[] = [];
 
     if (st.id === 'decide') {
       if (decidedCount != null) lines.push({ label: 'Decided', value: decidedCount.toLocaleString() });
       if (matchedCount != null) lines.push({ label: 'Matched', value: matchedCount.toLocaleString() });
-      if (tagReviewCount != null) lines.push({ label: 'To review', value: tagReviewCount.toLocaleString() });
-      return { lines };
+      if (tagReviewCount != null)
+        lines.push({
+          label: 'To review',
+          value: tagReviewCount.toLocaleString(),
+          attention: tagReviewCount > 0
+        });
+      return lines;
     }
     if (st.id === 'grade') {
       if (qualityGraded != null) lines.push({ label: 'Graded', value: qualityGraded.toLocaleString() });
       if (avgQuality != null) lines.push({ label: 'Avg score', value: avgQuality.toFixed(0) });
       if (aiFlaggedCount != null) lines.push({ label: 'Flagged', value: aiFlaggedCount.toLocaleString() });
-      return { lines };
+      return lines;
     }
     if (st.id === 'dedupe') {
       if (duplicateCount != null) lines.push({ label: 'Duplicates', value: duplicateCount.toLocaleString() });
       if (duplicates?.groups != null) lines.push({ label: 'Clusters', value: duplicates.groups.toLocaleString() });
-      return { lines };
+      return lines;
     }
 
     if (st.count != null) lines.push({ label: 'Processed', value: st.count.toLocaleString() });
@@ -334,14 +352,20 @@
     if (anyRunning && rate > 0) lines.push({ label: 'Throughput', value: `${rate.toFixed(1)}/s` });
     if (st.id === 'library' && inLibrary != null)
       lines.push({ label: 'In library', value: inLibrary.toLocaleString() });
-    return { lines };
+    return lines;
   });
 
   // ── recent activity (real RecentActivity from the overview poll) ────────────
-  const recent = $derived<ApiOverviewActivity[]>(overview?.recentActivity ?? []);
+  // A handful of rows that expand in place, rather than a scroller inside the page's scroller.
+  // The per-file list lives nowhere else a phone can reach (History is an aggregated feed and the
+  // drawer's live log is desktop-only), so every row stays one tap away.
+  const RECENT_ROWS = 6;
+  let showAllActivity = $state(false);
+  const allRecent = $derived<ApiOverviewActivity[]>(overview?.recentActivity ?? []);
+  const recent = $derived(showAllActivity ? allRecent : allRecent.slice(0, RECENT_ROWS));
 
-  // Sentence-case verbs + one small dot per event type. Green for progress,
-  // amber only for the actionable review state, red only for failures.
+  // Sentence-case verbs + one small dot per event type (activityDot: the tint for progress, the
+  // warning tone only for the actionable review state, red only for failures).
   const ACTIVITY_VERB: Record<ApiOverviewActivity['type'], string> = {
     discovered: 'Discovered',
     copied: 'Added to library',
@@ -349,20 +373,6 @@
     review: 'Needs review',
     failed: 'Failed'
   };
-
-  function activityDot(type: ApiOverviewActivity['type']): string {
-    switch (type) {
-      case 'failed':
-        return 'bg-destructive';
-      case 'review':
-        return 'bg-amber-500';
-      case 'enriched':
-      case 'copied':
-        return 'bg-primary';
-      default:
-        return 'bg-muted-foreground/40';
-    }
-  }
 
   // ── just landed (the newest albums the server grouped) ──────────────────────
   const justLanded = $derived.by<AlbumSummary[]>(() => {
@@ -403,21 +413,42 @@
   // One row per JobManager step that is running or paused, so the phone — which never gets the
   // desktop import drawer — can see how long is left and hold or stop it. Feedback is the row
   // itself changing; the store toasts only on failure.
-  const JOB_STEPS: { key: StageKey; label: string }[] = [
-    { key: 'scan', label: 'Scan' },
-    { key: 'fingerprint', label: 'Fingerprint' },
-    { key: 'enrich', label: 'Match' },
-    { key: 'build', label: 'Library build' }
+  const JOB_STEPS: { key: StageKey; label: string; icon: Component }[] = [
+    { key: 'scan', label: 'Scan', icon: ScanLine },
+    { key: 'fingerprint', label: 'Fingerprint', icon: AudioLines },
+    { key: 'enrich', label: 'Match', icon: Sparkles },
+    { key: 'build', label: 'Library build', icon: PackageCheck }
   ];
 
   type JobRow = {
     key: StageKey;
     label: string;
+    icon: Component;
     running: boolean;
     paused: boolean;
     busy: boolean;
     rate: number;
+    /** Share of this step's work done, 0–1 — null when there is nothing to measure against. */
+    progress: number | null;
   };
+
+  // Each step's own done/target, the same figures the desktop drawer's stage cards draw, so a
+  // phone gets a determinate bar per step instead of a rate alone.
+  function stepProgress(key: StageKey): number | null {
+    const s = snap;
+    if (!s) return null;
+    const discovered = s.discovered ?? 0;
+    const [done, target] =
+      key === 'scan'
+        ? [s.scanned, discovered]
+        : key === 'fingerprint'
+          ? [s.fingerprinted, discovered]
+          : key === 'enrich'
+            ? [s.enriched, discovered]
+            : [s.built, overview?.job?.tracksBuildEligible || s.enriched || discovered];
+    if (!target || target <= 0) return null;
+    return Math.max(0, Math.min(1, (done ?? 0) / target));
+  }
 
   const jobRows = $derived<JobRow[]>(
     JOB_STEPS.map((j) => ({
@@ -425,7 +456,8 @@
       running: pipelineOverlay.isStageRunning(j.key),
       paused: pipelineOverlay.isStagePaused(j.key),
       busy: pipelineOverlay.isStageBusy(j.key),
-      rate: rates[j.key]
+      rate: rates[j.key],
+      progress: stepProgress(j.key)
     })).filter((j) => j.running || j.paused)
   );
   const anyFlowing = $derived(jobRows.some((j) => j.running && !j.paused));
@@ -444,12 +476,22 @@
   function jobStatus(j: JobRow): string {
     if (j.paused) {
       // Paused enrichment workers park on their queue rather than dropping it.
-      if (j.running && j.key === 'enrich') return 'paused, queue kept';
-      if (j.running) return 'pausing…';
-      return 'paused';
+      if (j.running && j.key === 'enrich') return 'Paused, queue kept';
+      if (j.running) return 'Pausing…';
+      return 'Paused';
     }
-    return j.rate > 0 ? `${j.rate >= 10 ? Math.round(j.rate) : j.rate.toFixed(1)} files/s` : 'running';
+    return j.rate > 0 ? `${j.rate >= 10 ? Math.round(j.rate) : j.rate.toFixed(1)} files/s` : 'Running';
   }
+
+  // The status line is the page's subtitle — on a phone it is the first thing under the title,
+  // so it stays a few words; the sections below carry the detail.
+  const statusMeta = $derived(
+    anyFlowing
+      ? `Running${etaSeconds != null ? ` · ${etaPhrase(etaSeconds)}` : ''}`
+      : anyPaused
+        ? 'Paused · automatic runs skip a paused step'
+        : 'Idle · watching your source folder'
+  );
 
   let confirmOpen = $state(false);
   let confirmKind = $state<JobConfirm>('stop');
@@ -471,13 +513,11 @@
   }
 
   function confirmAction() {
+    // Closed before the request starts rather than after the Action's own close.
+    confirmOpen = false;
     if (confirmKind === 'stop') void pipelineOverlay.cancelRunning();
     else void pipelineOverlay.setStagePaused('build', true);
   }
-
-  // 32px visual, 44px hit area on touch — these are the controls a phone admin reaches for.
-  const CONTROL_BTN =
-    'border-border bg-card hover:bg-muted text-foreground relative inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[12px] font-medium transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] disabled:opacity-60 pointer-coarse:after:absolute pointer-coarse:after:-inset-1.5';
 
   type NeedRow = {
     id: 'review' | 'dupes' | 'ai';
@@ -488,6 +528,8 @@
     href: string;
   };
 
+  // Each row opens its own queue (?tab=): the bare /inbox is the phone's Inbox hub, so a row that
+  // linked there would land one level short of what it promised.
   const needRows = $derived<NeedRow[]>([
     {
       id: 'review',
@@ -495,505 +537,571 @@
       count: tagReviewCount,
       label: 'Tag reviews',
       body: "Providers couldn't agree — pick the right candidate or fix the fields yourself.",
-      href: '/inbox'
+      href: '/inbox?tab=review'
     },
     {
       id: 'dupes',
       icon: Copy,
-      count: duplicateCount,
+      count: inbox.dupes,
       label: 'Ambiguous duplicates',
       body: "Same fingerprint, can't auto-pick which copy to keep.",
-      href: '/inbox'
+      href: '/inbox?tab=dupes'
     },
     {
       id: 'ai',
       icon: Sparkles,
       count: aiFlaggedCount,
       label: 'AI flagged',
-      body: 'The quality grader thinks these matches look wrong — worth a second look.',
-      href: '/inbox'
+      body: 'The quality grader thinks these matches look wrong or questionable — worth a second look.',
+      href: '/inbox?tab=ai'
     }
   ]);
+
+  // A trailing text link in a section header ("See all", "Open Inbox"): tint text at the header's
+  // size, with a 44pt hit area on touch grown by a pseudo-element rather than the visual. It grows
+  // mostly upward, into the gap between sections: the card starts 6px below the line (the
+  // header's padding), and an even 13px down let the card's first row take 7px of the target.
+  // 20 up + the 18px line + 6 down = 44.
+  const HEADER_LINK =
+    'text-primary relative inline-flex items-center gap-0.5 font-medium outline-none hover:underline focus-visible:underline pointer-coarse:after:absolute pointer-coarse:after:-inset-x-2 pointer-coarse:after:-top-5 pointer-coarse:after:-bottom-1.5';
 </script>
 
-<!-- The live pulse and the running/idle state carry what the two-line
-     description used to; the conveyor below is the real explanation. -->
-<PageToolbarV2
-  icon={Workflow}
-  title="Pipeline"
-  meta={anyFlowing
-    ? 'Running — files are flowing through scan, match, grade, and build'
-    : anyPaused
-      ? 'Paused — automatic runs skip a paused step until you resume it'
-      : 'Idle — watching your source folder'}
->
-  {#snippet actions()}
-    {#if anyFlowing}
-      <span class="bg-primary mh-v2-pulse size-2 shrink-0 rounded-full" aria-hidden="true"></span>
-      <span class="sr-only">running</span>
+{#snippet sectionHeader(title: string, link?: { href: string; label: string })}
+  <!-- A span, not a div: it sits inside the section's <h2>. -->
+  <span class="flex items-baseline justify-between gap-3">
+    <span>{title}</span>
+    {#if link}
+      <a href={link.href} class={HEADER_LINK}>{link.label}</a>
     {/if}
-    {#if !isDemo}
-      <button
-        type="button"
-        onclick={handleRescan}
-        disabled={rescanning || anyRunning}
-        class="border-border bg-card hover:bg-muted text-foreground text-nav-sm inline-flex h-8 items-center gap-1.5 rounded-full border px-3 font-medium transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {#if rescanning}
-          <Loader2 class="size-3.5 animate-spin" />
-        {:else}
-          <RefreshCw class="size-3.5" />
-        {/if}
-        Rescan
-      </button>
-    {/if}
-  {/snippet}
-</PageToolbarV2>
+  </span>
+{/snippet}
 
-<ScrollArea class="min-h-0 flex-1">
-  <div class="flex flex-col gap-5 px-4 py-4 sm:px-7 sm:py-5">
-    {#if loadError}
-      <div class="flex items-center gap-2 text-[12.5px]">
-        <span class="bg-destructive size-1.5 shrink-0 rounded-full" aria-hidden="true"></span>
-        <span class="text-muted-foreground flex-1">
-          Some pipeline data failed to load — figures below may be missing or stale.
+<!-- A status dot beside a figure that is waiting on you: the warning colour marks it without
+     turning the number itself red (red is for Errors alone). Decorative — the label already says
+     "Awaiting you". -->
+{#snippet attentionDot()}
+  <span class="bg-warning size-2 shrink-0 rounded-full" aria-hidden="true"></span>
+{/snippet}
+
+<!-- One figure of the lg+ strip. The label and its detail take a line each, wrapping rather than
+     truncating: a sixth of the column is too narrow for "In library · 78% matched" on one line. -->
+{#snippet kpi(label: string, value: string, sub: string | null, opts?: { tone?: string; loading?: boolean })}
+  <div class="min-w-0 flex-1 px-4 py-4 xl:px-5">
+    {#if opts?.loading}
+      <Skeleton class="h-7 w-14" />
+    {:else}
+      <div class={cn('text-xl leading-tight font-semibold tabular-nums', opts?.tone)}>{value}</div>
+    {/if}
+    <div class="text-muted-foreground mt-1 text-[12.5px] leading-snug">{label}</div>
+    {#if sub}
+      <div class="text-muted-foreground text-[12.5px] leading-snug tabular-nums">{sub}</div>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet valueRow(
+  label: string,
+  value: string,
+  opts?: { tone?: string; loading?: boolean; href?: string; attention?: boolean }
+)}
+  <GroupedList.Row {label} href={opts?.href} chevron={!!opts?.href}>
+    {#snippet trailing()}
+      {#if opts?.loading}
+        <Skeleton class="h-4 w-12" />
+      {:else}
+        <span
+          class={cn(
+            'text-body inline-flex items-center gap-2 tabular-nums md:text-sm',
+            opts?.tone ?? 'text-muted-foreground'
+          )}
+        >
+          {#if opts?.attention}{@render attentionDot()}{/if}
+          {value}
         </span>
-        <button
-          type="button"
-          onclick={() => void loadAll()}
-          class="text-foreground shrink-0 font-medium hover:underline"
-        >
-          Retry
-        </button>
-      </div>
-    {/if}
+      {/if}
+    {/snippet}
+  </GroupedList.Row>
+{/snippet}
 
-    <!-- Stat strip — typographic, unboxed. Desktop: hairline-divided row. -->
-    <section aria-label="Pipeline stats">
-      <div class="divide-border hidden items-stretch divide-x sm:flex">
-        <div class="min-w-0 flex-1 pr-6">
-          {#if sourceTotal == null && !loaded}
-            <Skeleton class="h-9 w-16" />
-          {:else}
-            <div class={cn('text-xl leading-tight font-semibold tracking-tight tabular-nums', sourceTotal == null && 'text-muted-foreground')}>
-              {fmtNum(sourceTotal)}
-            </div>
-          {/if}
-          <div class="text-muted-foreground mt-1 text-[12.5px]">
-            Source files{sourceBytes != null ? ` · ${formatBytesShort(sourceBytes)}` : ''}
-          </div>
-        </div>
+{#snippet stageNode(st: Stage)}
+  <span
+    class={cn(
+      'relative z-10 block size-[11px] shrink-0 rounded-full transition-colors',
+      st.count != null && st.count > 0 ? 'bg-primary' : 'bg-muted-foreground-dim',
+      st.live && 'ring-primary/25 ring-4'
+    )}
+    aria-hidden="true"
+  ></span>
+{/snippet}
 
-        <div class="min-w-0 flex-1 px-6">
-          {#if inLibrary == null}
-            <Skeleton class="h-9 w-16" />
-          {:else}
-            <div class="text-xl leading-tight font-semibold tracking-tight tabular-nums">{fmtNum(inLibrary)}</div>
-          {/if}
-          <div class="text-muted-foreground mt-1 truncate text-[12.5px]">
-            In library{enrichedPct != null ? ` · ${enrichedPct.toFixed(0)}% enriched` : ''}
-          </div>
-        </div>
+{#snippet stageState(st: Stage)}
+  {#if st.paused}
+    <span class="text-warning-text inline-flex items-center gap-1 font-medium">
+      <Pause class="size-3" aria-hidden="true" /> Paused
+    </span>
+  {:else if st.live && st.rate != null}
+    <span class="text-muted-foreground tabular-nums">{st.rate.toFixed(0)}/s</span>
+  {/if}
+{/snippet}
 
-        <div class="min-w-0 flex-1 px-6">
-          {#if !loaded}
-            <Skeleton class="h-9 w-12" />
-          {:else}
-            <div class="text-xl leading-tight font-semibold tracking-tight tabular-nums">{inFlight.toLocaleString()}</div>
-          {/if}
-          <div class="text-muted-foreground mt-1 text-[12.5px]">In flight</div>
-        </div>
+{#snippet stageDetailLine()}
+  {#if activeStageDetail.length === 0}
+    <span>Nothing in this stage right now.</span>
+  {:else}
+    {#each activeStageDetail as line, i (line.label)}
+      <span aria-hidden="true">{i === 0 ? '' : ' · '}</span>{line.label}
+      <span
+        class={cn(
+          'font-medium tabular-nums',
+          line.attention ? 'text-warning-text' : 'text-foreground'
+        )}>{line.value}</span
+      >
+    {/each}
+  {/if}
+{/snippet}
 
-        <!-- The only interactive stat: explicit chevron affordance, links to Inbox. -->
-        <a
-          href="/inbox"
-          class="group focus-visible:ring-ring min-w-0 flex-1 rounded-sm px-6 focus-visible:ring-2 focus-visible:outline-none"
-        >
-          {#if awaitingYou == null}
-            <Skeleton class="h-9 w-12" />
-          {:else}
-            <div
-              class={cn(
-                'text-xl leading-tight font-semibold tracking-tight tabular-nums',
-                awaitingYou > 0 && 'text-amber-600 dark:text-amber-500'
-              )}
-            >
-              {fmtNum(awaitingYou)}
-            </div>
-          {/if}
-          <div class="text-muted-foreground group-hover:text-foreground mt-1 flex items-center gap-0.5 text-[12.5px] transition-colors">
-            Awaiting you <ChevronRight class="size-3" />
-          </div>
-        </a>
-
-        <div class="min-w-0 flex-1 px-6">
-          {#if avgQuality == null && !loaded}
-            <Skeleton class="h-9 w-14" />
-          {:else}
-            <div class={cn('text-xl leading-tight font-semibold tracking-tight tabular-nums', avgQuality == null && 'text-muted-foreground')}>
-              {avgQuality == null ? '—' : avgQuality.toFixed(1)}
-            </div>
-          {/if}
-          <div class="text-muted-foreground mt-1 text-[12.5px]">
-            Avg quality{qualityGraded != null && qualityGraded > 0 ? ` · ${qualityGraded.toLocaleString()} graded` : ''}
-          </div>
-        </div>
-
-        <div class="min-w-0 flex-1 pl-6">
-          {#if errorCount == null}
-            <Skeleton class="h-9 w-10" />
-          {:else}
-            <div class={cn('text-xl leading-tight font-semibold tracking-tight tabular-nums', errorCount > 0 && 'text-destructive-text')}>
-              {fmtNum(errorCount)}
-            </div>
-          {/if}
-          <div class="text-muted-foreground mt-1 text-[12.5px]">Errors</div>
-        </div>
-      </div>
-
-      <!-- Mobile: compact two-line summary instead of stacked boxes. -->
-      <div class="text-muted-foreground space-y-1 text-[13px] leading-6 sm:hidden">
-        {#if !loaded}
-          <Skeleton class="h-5 w-56" />
-          <Skeleton class="h-5 w-40" />
-        {:else}
-          <p>
-            <span class="text-foreground font-semibold tabular-nums">{fmtNum(sourceTotal)}</span> files ·
-            <span class="text-foreground font-semibold tabular-nums">{fmtNum(inLibrary)}</span> in library{enrichedPct != null
-              ? ` · ${enrichedPct.toFixed(0)}% enriched`
-              : ''}
-          </p>
-          <p class="flex items-center gap-1">
-            <a href="/inbox" class="inline-flex items-center gap-0.5 font-medium">
-              <span
-                class={cn(
-                  'font-semibold tabular-nums',
-                  (awaitingYou ?? 0) > 0 ? 'text-amber-600 dark:text-amber-500' : 'text-foreground'
-                )}>{fmtNum(awaitingYou)}</span
-              >
-              <span class="text-muted-foreground font-normal">awaiting you</span>
-              <ChevronRight class="size-3" />
-            </a>
-            <span>·</span>
-            <span
-              ><span class={cn('text-foreground font-semibold tabular-nums', (errorCount ?? 0) > 0 && 'text-destructive-text')}
-                >{fmtNum(errorCount)}</span
-              > errors</span
-            >
-          </p>
+<!-- One scroller for the whole page; the nav bar is its first child so the large title scrolls
+     away under the sticky bar. The grouped background is what the inset sections sit on. -->
+<div class="bg-background-grouped flex min-h-0 flex-1 flex-col">
+  <ScrollArea class="min-h-0 flex-1">
+    <PageToolbarV2 title="Pipeline" meta={statusMeta} grouped>
+      {#snippet actions()}
+        {#if anyFlowing}
+          <!-- The live pulse beside the desktop title; on a phone the subtitle already says
+               "Running" and the Running now rows pulse below it. -->
+          <span class="hidden items-center md:inline-flex">
+            <span class="bg-primary mh-v2-pulse size-2 shrink-0 rounded-full" aria-hidden="true"></span>
+            <span class="sr-only">running</span>
+          </span>
         {/if}
-      </div>
-    </section>
+        {#if !isDemo}
+          <Button
+            variant="gray"
+            class="rounded-full"
+            onclick={handleRescan}
+            disabled={rescanning || anyRunning}
+          >
+            <!-- The Scan stage's own glyph: Rescan runs that step. A circular arrow would read as
+                 "refresh this page", which is what it means everywhere else. -->
+            {#if rescanning}
+              <Loader2 class="animate-spin" aria-hidden="true" />
+            {:else}
+              <ScanLine aria-hidden="true" />
+            {/if}
+            <!-- The phone bar shows the glyph alone; the word stays its accessible name. -->
+            <span class="max-md:sr-only">Rescan</span>
+          </Button>
+        {/if}
+      {/snippet}
+    </PageToolbarV2>
 
-    <!-- Conveyor — one connected flow on the page background. -->
-    <section aria-label="Conveyor">
-      <div class="mb-5 flex items-baseline gap-2">
-        <h2 class="text-[13px] font-semibold">Conveyor</h2>
-        <span class="text-muted-foreground text-[12px]">Select a stage for detail.</span>
-      </div>
+    <div class="mx-auto flex w-full max-w-6xl flex-col gap-7 pt-2 pb-8 md:gap-6 md:px-7 md:pt-6">
+      {#if loadError}
+        <GroupedList.Section>
+          <GroupedList.Row
+            icon={TriangleAlert}
+            iconClass="bg-destructive/12 text-destructive-text"
+            label="Some figures failed to load"
+            sublabel="What's below may be missing or out of date."
+          >
+            {#snippet trailing()}
+              <Button variant="ghost" class="text-primary hover:text-primary h-11 md:h-8" onclick={() => void loadAll()}>
+                Retry
+              </Button>
+            {/snippet}
+          </GroupedList.Row>
+        </GroupedList.Section>
+      {/if}
 
-      <!-- Running now — what is moving, how long is left, and the controls to hold or stop it. -->
+      <!-- Running now — what is moving, how long is left, and the controls to hold or stop it.
+           On a phone these rows are the ONLY job controls (the drawer is desktop-only). -->
       {#if jobRows.length > 0}
-        <div class="mb-5">
-          <div class="mb-1 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1">
-            <span class="text-[12.5px] font-medium">{anyFlowing ? 'Running now' : 'Paused'}</span>
-            {#if anyFlowing && etaSeconds != null}
-              <span class="text-muted-foreground text-[12.5px]">· {etaPhrase(etaSeconds)}</span>
-            {/if}
-            {#if !isDemo && pipelineOverlay.canStop}
-              <button
-                type="button"
-                onclick={requestStop}
-                disabled={pipelineOverlay.cancelling}
-                class={cn(CONTROL_BTN, 'ml-auto')}
-              >
-                {#if pipelineOverlay.cancelling}
-                  <Loader2 class="size-3.5 animate-spin" />
-                  Stopping…
-                {:else}
-                  <Square class="size-3 fill-current" />
-                  Stop all
-                {/if}
-              </button>
-            {/if}
-          </div>
-          <div class="divide-border/60 divide-y">
-            {#each jobRows as j (j.key)}
-              <div class="flex min-h-11 items-center gap-3 py-1.5">
+        <GroupedList.Section headingLevel={2}
+          header={anyFlowing ? 'Running now' : 'Paused'}
+          footer={anyFlowing && etaSeconds != null
+            ? `${etaPhrase(etaSeconds).replace(/^./, (c) => c.toUpperCase())} for everything in flight.`
+            : anyPaused
+              ? 'Automatic runs skip a paused step until you resume it.'
+              : undefined}
+        >
+          {#each jobRows as j (j.key)}
+            <GroupedList.Row
+              icon={j.icon}
+              iconClass={j.paused
+                ? 'bg-warning/15 text-warning-text'
+                : 'bg-primary text-primary-foreground'}
+              label={j.label}
+              sublabel={jobStatus(j)}
+            >
+              {#if j.progress != null}
                 <span
-                  class={cn('size-2 shrink-0 rounded-full', j.paused ? 'bg-amber-500' : 'bg-primary mh-v2-pulse')}
-                  aria-hidden="true"
-                ></span>
-                <span class="min-w-0 flex-1 truncate text-[13px]">
-                  <span class="font-medium">{j.label}</span>
-                  <span class="text-muted-foreground tabular-nums"> — {jobStatus(j)}</span>
+                  role="progressbar"
+                  aria-label="{j.label} progress"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(j.progress * 100)}
+                  class="bg-muted mt-1.5 mb-0.5 block h-1 w-full overflow-hidden rounded-full"
+                >
+                  <span
+                    class={cn(
+                      'block h-full w-full origin-left transition-transform duration-300 ease-out',
+                      j.paused ? 'bg-warning' : 'bg-primary'
+                    )}
+                    style="transform: scaleX({j.progress})"
+                  ></span>
                 </span>
+              {/if}
+              {#snippet trailing()}
                 {#if !isDemo}
-                  <button
-                    type="button"
+                  <Button
+                    variant="gray"
+                    size="sm"
+                    class="relative h-8 rounded-full px-3 text-[13px] pointer-coarse:after:absolute pointer-coarse:after:-inset-1.5"
                     onclick={() => togglePause(j)}
                     disabled={j.busy}
                     aria-label={j.paused ? `Resume ${j.label.toLowerCase()}` : `Pause ${j.label.toLowerCase()}`}
-                    class={CONTROL_BTN}
                   >
                     {#if j.busy}
-                      <Loader2 class="size-3.5 animate-spin" />
+                      <Loader2 class="animate-spin" aria-hidden="true" />
                     {:else if j.paused}
-                      <Play class="size-3.5" />
+                      <Play aria-hidden="true" />
                     {:else}
-                      <Pause class="size-3.5" />
+                      <Pause aria-hidden="true" />
                     {/if}
                     {j.paused ? 'Resume' : 'Pause'}
-                  </button>
+                  </Button>
                 {/if}
-              </div>
-            {/each}
-          </div>
-        </div>
+              {/snippet}
+            </GroupedList.Row>
+          {/each}
+          {#if !isDemo && pipelineOverlay.canStop}
+            <!-- Destructive, last in its group; confirms while the build runs (needsConfirm). -->
+            <GroupedList.Row
+              onclick={requestStop}
+              disabled={pipelineOverlay.cancelling}
+              destructive
+              label={pipelineOverlay.cancelling ? 'Stopping…' : 'Stop all'}
+            />
+          {/if}
+        </GroupedList.Section>
       {/if}
 
-      <!-- Desktop: horizontal flow, nodes joined by a continuous line. -->
-      <div class="relative hidden sm:block">
-        <div
-          class="bg-border absolute top-[5px] h-px"
-          style="left: calc(100% / 14); right: calc(100% / 14);"
-          aria-hidden="true"
-        ></div>
-        <div class="grid grid-cols-7">
-          {#each stages as st (st.id)}
-            {@const isActive = activeStage === st.id}
-            <button
-              type="button"
-              onclick={() => (activeStage = st.id)}
-              aria-pressed={isActive}
-              class="group focus-visible:ring-ring flex flex-col items-center gap-2.5 rounded-md pb-1 text-center transition-transform duration-100 ease-out focus-visible:ring-2 focus-visible:outline-none active:scale-[0.97]"
-            >
-              <span
-                class={cn(
-                  'relative z-10 size-[11px] rounded-full transition-colors',
-                  st.count != null && st.count > 0 ? 'bg-primary' : 'bg-muted-foreground/30',
-                  st.live && 'ring-primary/20 ring-4'
-                )}
-                aria-hidden="true"
-              ></span>
-              <span
-                class={cn(
-                  'max-w-full truncate px-1 text-[13px] leading-tight transition-colors',
-                  isActive ? 'text-foreground font-semibold' : 'text-muted-foreground group-hover:text-foreground font-medium'
-                )}
-              >
-                {st.label}
-                <span class="text-muted-foreground font-normal tabular-nums">
-                  {st.count == null ? '—' : st.count.toLocaleString()}
-                </span>
-              </span>
-              {#if st.paused}
-                <span class="-mt-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">Paused</span>
-              {:else if st.live && st.rate != null}
-                <span class="text-muted-foreground -mt-1.5 text-[11px] tabular-nums">{st.rate.toFixed(0)}/s</span>
-              {/if}
-            </button>
-          {/each}
-        </div>
-      </div>
-
-      <!-- Mobile: same flow, vertical timeline. -->
-      <div class="relative sm:hidden">
-        <div class="bg-border absolute top-3 bottom-3 left-[5px] w-px" aria-hidden="true"></div>
-        <div class="flex flex-col">
-          {#each stages as st (st.id)}
-            {@const isActive = activeStage === st.id}
-            <button
-              type="button"
-              onclick={() => (activeStage = st.id)}
-              aria-pressed={isActive}
-              class="group focus-visible:ring-ring flex items-center gap-3 rounded-md py-2 text-left focus-visible:ring-2 focus-visible:outline-none"
-            >
-              <span
-                class={cn(
-                  'relative z-10 size-[11px] shrink-0 rounded-full transition-colors',
-                  st.count != null && st.count > 0 ? 'bg-primary' : 'bg-muted-foreground/30',
-                  st.live && 'ring-primary/20 ring-4'
-                )}
-                aria-hidden="true"
-              ></span>
-              <span
-                class={cn(
-                  'flex-1 truncate text-[13px]',
-                  isActive ? 'text-foreground font-semibold' : 'text-muted-foreground font-medium'
-                )}
-              >
-                {st.label}
-              </span>
-              {#if st.paused}
-                <span class="text-[11px] font-medium text-amber-700 dark:text-amber-400">Paused</span>
-              {:else if st.live && st.rate != null}
-                <span class="text-muted-foreground text-[11px] tabular-nums">{st.rate.toFixed(0)}/s</span>
-              {/if}
-              <span class="text-muted-foreground text-[13px] tabular-nums">
-                {st.count == null ? '—' : st.count.toLocaleString()}
-              </span>
-            </button>
-          {/each}
-        </div>
-      </div>
-
-      <!-- Selected-stage detail — plain inline figures, no box. -->
-      <div class="border-border mt-5 border-t pt-3">
-        {#if activeStageDetail.lines.length === 0}
-          <p class="text-muted-foreground text-[12.5px]">
-            <span class="text-foreground font-medium">{activeStageDef.label}</span>
-            — nothing in this stage right now.
-          </p>
-        {:else}
-          <p class="text-muted-foreground text-[12.5px]">
-            <span class="text-foreground font-medium">{activeStageDef.label}</span>
-            {#each activeStageDetail.lines as line, i (line.label)}
-              <span class="text-muted-foreground/60" aria-hidden="true">{i === 0 ? ' — ' : ' · '}</span
-              >{line.label}
-              <span
-                class={cn(
-                  'font-medium tabular-nums',
-                  line.label === 'To review' && line.value !== '0'
-                    ? 'text-amber-600 dark:text-amber-500'
-                    : 'text-foreground'
-                )}>{line.value}</span
-              >
-            {/each}
-          </p>
-        {/if}
-      </div>
-    </section>
-
-    <!-- Needs you — a divided list, not widget boxes. -->
-    <section aria-label="Needs you">
-      <div class="mb-1.5 flex flex-wrap items-baseline gap-2">
-        <h2 class="text-[13px] font-semibold">Needs you</h2>
-        <span class="text-muted-foreground text-[12px]">When the pipeline can't decide, items pile up here.</span>
-        <a
-          href="/inbox"
-          class="text-primary ml-auto inline-flex items-center gap-0.5 text-[12px] font-medium hover:underline"
-        >
-          Open Inbox <ChevronRight class="size-3" />
-        </a>
-      </div>
-      <div class="divide-border divide-y">
-        {#each needRows as row (row.id)}
-          {@const Icon = row.icon}
+      <!-- Summary. Below lg it reads as a list of values; from lg it is the six-figure strip. -->
+      <GroupedList.Section headingLevel={2} header="Summary">
+        <!-- lg+: the strip -->
+        <div class="divide-separator hidden divide-x lg:flex">
+          {@render kpi(
+            'Source files',
+            fmtNum(sourceTotal),
+            sourceBytes != null ? formatBytesShort(sourceBytes) : null,
+            { loading: sourceTotal == null && !loaded, tone: sourceTotal == null ? 'text-muted-foreground' : undefined }
+          )}
+          {@render kpi(
+            'In library',
+            fmtNum(inLibrary),
+            enrichedPct != null ? `${enrichedPct.toFixed(0)}% matched` : null,
+            { loading: inLibrary == null }
+          )}
+          {@render kpi('In flight', inFlight.toLocaleString(), null, { loading: !loaded })}
+          <!-- The only interactive figure: it opens the Inbox. -->
           <a
-            href={row.href}
-            class="group hover:bg-muted/50 focus-visible:ring-ring -mx-3 flex items-center gap-3.5 rounded-lg px-3 py-3 transition-colors focus-visible:ring-2 focus-visible:outline-none"
+            href="/inbox"
+            class="group hover:bg-accent focus-visible:ring-ring min-w-0 flex-1 px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-inset xl:px-5"
           >
-            <Icon class="text-muted-foreground size-4 shrink-0" />
-            <div class="min-w-0 flex-1">
-              <div class="text-[13px] font-medium">{row.label}</div>
-              <div class="text-muted-foreground truncate text-[12px]">{row.body}</div>
-            </div>
-            {#if row.count == null}
-              {#if loaded}
-                <span class="text-muted-foreground text-sm tabular-nums">—</span>
-              {:else}
-                <Skeleton class="h-4 w-6" />
-              {/if}
+            {#if awaitingYou == null && !loaded}
+              <Skeleton class="h-7 w-12" />
+            {:else if awaitingYou == null}
+              <div class="text-muted-foreground text-xl leading-tight font-semibold">—</div>
             {:else}
-              <span class={cn('text-sm font-semibold tabular-nums', row.count === 0 && 'text-muted-foreground font-normal')}>
-                {row.count.toLocaleString()}
-              </span>
+              <!-- The figure stays foreground with a warning dot: in light mode the warning and
+                   destructive text tones are near twins, and waiting is not an error. -->
+              <div class="flex items-center gap-2 text-xl leading-tight font-semibold tabular-nums">
+                {#if awaitingYou > 0}{@render attentionDot()}{/if}
+                {fmtNum(awaitingYou)}
+              </div>
             {/if}
-            <ChevronRight class="text-muted-foreground-dim group-hover:text-muted-foreground size-3.5 shrink-0 transition-colors" />
-          </a>
-        {/each}
-      </div>
-    </section>
-
-    <!-- Recent activity + Just landed -->
-    <div class="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-6">
-      <!-- Recent activity — plain sentence-case rows, one dot per event type. -->
-      <section aria-label="Recent activity" class="min-w-0">
-        <div class="mb-1.5 flex items-baseline gap-2">
-          <h2 class="text-[13px] font-semibold">Recent activity</h2>
-        </div>
-        <div class="max-h-72 min-h-0 overflow-y-auto">
-          {#if recent.length > 0}
-            <div class="divide-border/60 divide-y">
-              {#each recent as a (a.id)}
-                <div class="flex items-center gap-2.5 py-[7px] text-[12.5px]">
-                  <span class={cn('size-1.5 shrink-0 rounded-full', activityDot(a.type))} aria-hidden="true"></span>
-                  <span class="min-w-0 flex-1 truncate">
-                    <span class="font-medium">{ACTIVITY_VERB[a.type] ?? a.type}</span>
-                    <span class="text-muted-foreground"> — {a.track}{a.artist ? ` · ${a.artist}` : ''}</span>
-                  </span>
-                  <span class="text-muted-foreground-dim shrink-0 text-[11.5px]">{a.time}</span>
-                </div>
-              {/each}
+            <div class="text-muted-foreground group-hover:text-foreground mt-1 flex items-center gap-0.5 text-[12.5px]">
+              Awaiting you <ChevronRight class="size-3" aria-hidden="true" />
             </div>
-          {:else}
-            <p class="text-muted-foreground-dim py-8 text-center text-[12.5px]">No recent activity yet.</p>
-          {/if}
-        </div>
-      </section>
-
-      <!-- Just landed -->
-      <section aria-label="Just landed" class="min-w-0">
-        <div class="mb-1.5 flex items-baseline gap-2">
-          <h2 class="text-[13px] font-semibold">Just landed</h2>
-          <a href="/library" class="text-primary ml-auto inline-flex items-center gap-0.5 text-[12px] font-medium hover:underline">
-            All <ChevronRight class="size-3" />
           </a>
+          {@render kpi(
+            'Avg quality',
+            avgQuality == null ? '—' : avgQuality.toFixed(1),
+            qualityGraded != null && qualityGraded > 0 ? `${qualityGraded.toLocaleString()} graded` : null,
+            { loading: avgQuality == null && !loaded, tone: avgQuality == null ? 'text-muted-foreground' : undefined }
+          )}
+          {@render kpi('Errors', fmtNum(errorCount), null, {
+            loading: errorCount == null,
+            tone: (errorCount ?? 0) > 0 ? 'text-destructive-text' : undefined
+          })}
         </div>
-        <div class="max-h-72 min-h-0 overflow-y-auto">
-          {#if !loaded}
-            <div class="space-y-1.5">
-              {#each Array(4) as _, i (i)}
-                <Skeleton class="h-12 w-full" />
-              {/each}
-            </div>
-          {:else if justLanded.length > 0}
-            <div class="divide-border/60 divide-y">
-              {#each justLanded as album (album.key)}
-                {@const firstSong = album.songs[0]}
-                <div class="hover:bg-muted/50 group/row -mx-2 flex items-center gap-2.5 rounded-md px-2 py-2 transition-colors">
-                  <button
-                    type="button"
-                    onclick={() => goto(`/library?album=${encodeURIComponent(album.key)}`)}
-                    class="focus-visible:ring-ring flex min-w-0 flex-1 items-center gap-2.5 rounded-sm text-left focus-visible:ring-2 focus-visible:outline-none"
-                    title="Open album"
-                  >
-                    {#if album.coverUrl}
-                      <img src={album.coverUrl} alt="" class="size-9 shrink-0 rounded object-cover" />
-                    {:else}
-                      <span class="bg-muted text-muted-foreground grid size-9 shrink-0 place-items-center rounded text-[11px] font-semibold">
-                        {albumInitials(album.title)}
-                      </span>
-                    {/if}
-                    <div class="min-w-0 flex-1">
-                      <div class="truncate text-[12.5px] font-medium">{album.title}</div>
-                      <div class="text-muted-foreground truncate text-[11.5px]">
-                        {album.artist}{album.year ? ` · ${album.year}` : ''}
-                      </div>
-                    </div>
-                  </button>
-                  {#if firstSong}
-                    <a
-                      href={`/track/${firstSong.id}`}
-                      title="View enrichment timeline"
-                      class="text-muted-foreground-dim hover:text-foreground inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11.5px] font-medium opacity-100 transition-colors group-hover/row:opacity-100 focus-visible:opacity-100 sm:pointer-fine:opacity-0"
+
+        <!-- Below lg: value rows. -->
+        <div class="lg:hidden">
+          {@render valueRow(
+            'Source files',
+            `${fmtNum(sourceTotal)}${sourceBytes != null ? ` · ${formatBytesShort(sourceBytes)}` : ''}`,
+            { loading: sourceTotal == null && !loaded }
+          )}
+          {@render valueRow(
+            'In library',
+            `${fmtNum(inLibrary)}${enrichedPct != null ? ` · ${enrichedPct.toFixed(0)}% matched` : ''}`,
+            { loading: inLibrary == null }
+          )}
+          {@render valueRow('In flight', inFlight.toLocaleString(), { loading: !loaded })}
+          {@render valueRow('Awaiting you', fmtNum(awaitingYou), {
+            loading: awaitingYou == null && !loaded,
+            href: '/inbox',
+            attention: (awaitingYou ?? 0) > 0,
+            tone: (awaitingYou ?? 0) > 0 ? 'text-foreground font-medium' : undefined
+          })}
+          {@render valueRow(
+            'Avg quality',
+            `${avgQuality == null ? '—' : avgQuality.toFixed(1)}${qualityGraded ? ` · ${qualityGraded.toLocaleString()} graded` : ''}`,
+            { loading: avgQuality == null && !loaded }
+          )}
+          {@render valueRow('Errors', fmtNum(errorCount), {
+            loading: errorCount == null,
+            tone: (errorCount ?? 0) > 0 ? 'text-destructive-text font-medium' : undefined
+          })}
+        </div>
+      </GroupedList.Section>
+
+      <!-- Stages: the seven-step conveyor. Selecting a stage shows its figures — inline under the
+           row below lg, under the flow from lg. -->
+      <GroupedList.Section headingLevel={2}
+        header="Stages"
+        footer="Select a stage to see its figures."
+      >
+        <!-- lg+: horizontal flow, nodes joined by a continuous line. -->
+        <div class="hidden px-2 pt-5 pb-4 lg:block">
+          <div class="relative">
+            <div
+              class="bg-separator absolute top-[5px] h-(--hairline)"
+              style="left: calc(100% / 14); right: calc(100% / 14);"
+              aria-hidden="true"
+            ></div>
+            <div class="grid grid-cols-7">
+              {#each stages as st (st.id)}
+                {@const isActive = activeStage === st.id}
+                <button
+                  type="button"
+                  onclick={() => (activeStage = st.id)}
+                  aria-pressed={isActive}
+                  class="group focus-visible:ring-ring flex flex-col items-center gap-2.5 rounded-md pb-1 text-center transition-transform duration-100 ease-out outline-none focus-visible:ring-2 active:scale-[0.97]"
+                >
+                  {@render stageNode(st)}
+                  <!-- Label and count on their own lines: seven nodes share the column, and "Fingerprint
+                       75" on one line truncated before 1280px. -->
+                  <span class="flex max-w-full flex-col items-center px-1 text-[13px] leading-tight">
+                    <span
+                      class={cn(
+                        'max-w-full truncate transition-colors',
+                        isActive
+                          ? 'text-foreground font-semibold'
+                          : 'text-muted-foreground group-hover:text-foreground font-medium'
+                      )}
                     >
-                      <History class="size-3" /> Timeline
-                    </a>
-                  {/if}
-                  <ChevronRight class="text-muted-foreground-dim hidden size-3.5 shrink-0 sm:inline-flex" />
-                </div>
+                      {st.label}
+                    </span>
+                    <span class="text-muted-foreground mt-0.5 tabular-nums">
+                      {st.count == null ? '—' : st.count.toLocaleString()}
+                    </span>
+                  </span>
+                  <span class="-mt-1.5 min-h-4 text-[11px]">{@render stageState(st)}</span>
+                </button>
               {/each}
             </div>
-          {:else}
-            <p class="text-muted-foreground-dim py-8 text-center text-[12.5px]">Nothing in the library yet.</p>
-          {/if}
+          </div>
+          <p class="border-separator text-muted-foreground mx-3 mt-4 border-t pt-3 text-[12.5px]">
+            <span class="text-foreground font-medium">{activeStageDef.label}</span>
+            <span aria-hidden="true" class="mx-1">—</span>{@render stageDetailLine()}
+          </p>
         </div>
-      </section>
+
+        <!-- Below lg: the same flow as a vertical timeline of rows. The line runs through the
+             leading column; the selected row opens its figures under its label. The rows are a
+             selection (one is always chosen, like the flow's nodes), so they announce pressed
+             rather than a disclosure that a second tap would not close. -->
+        <div class="lg:hidden">
+          {#each stages as st, i (st.id)}
+            {@const isActive = activeStage === st.id}
+            <GroupedList.Row
+              onclick={() => (activeStage = st.id)}
+              aria-pressed={isActive}
+            >
+              {#snippet leading()}
+                <!-- The connecting line is positioned against the row itself (the nearest
+                     positioned box), so it spans the whole row however tall the open one grows:
+                     16px row inset + half the 29px column. -->
+                <span class="flex w-[29px] justify-center">
+                  <span
+                    aria-hidden="true"
+                    class={cn(
+                      'bg-separator absolute left-[calc(1rem+14px)] w-(--hairline)',
+                      i === 0 ? 'top-1/2' : 'top-0',
+                      i === stages.length - 1 ? 'bottom-1/2' : 'bottom-0'
+                    )}
+                  ></span>
+                  <span class="relative flex items-center">{@render stageNode(st)}</span>
+                </span>
+              {/snippet}
+              <span class={cn('text-body md:text-sm', isActive && 'font-semibold')}>{st.label}</span>
+              {#if isActive}
+                <span class="text-subheadline text-muted-foreground mt-0.5 md:text-xs">{@render stageDetailLine()}</span>
+              {/if}
+              {#snippet trailing()}
+                <span class="text-subheadline flex items-center gap-3 md:text-xs">
+                  {@render stageState(st)}
+                  <span class="text-body text-muted-foreground tabular-nums md:text-sm">
+                    {st.count == null ? '—' : st.count.toLocaleString()}
+                  </span>
+                </span>
+              {/snippet}
+            </GroupedList.Row>
+          {/each}
+        </div>
+      </GroupedList.Section>
+
+      <!-- Needs you — each row opens its queue. -->
+      <GroupedList.Section headingLevel={2} footer="When the pipeline can't decide, items pile up here.">
+        {#snippet header()}
+          {@render sectionHeader('Needs you', { href: '/inbox', label: 'Open Inbox' })}
+        {/snippet}
+        {#each needRows as row (row.id)}
+          <GroupedList.Row href={row.href} icon={row.icon} label={row.label} sublabel={row.body} chevron>
+            {#snippet trailing()}
+              {#if row.count == null}
+                {#if loaded}
+                  <span class="text-body text-muted-foreground tabular-nums md:text-sm">—</span>
+                {:else}
+                  <Skeleton class="h-4 w-6" />
+                {/if}
+              {:else}
+                <span
+                  class={cn(
+                    'text-body tabular-nums md:text-sm',
+                    row.count === 0 ? 'text-muted-foreground' : 'text-foreground font-semibold'
+                  )}
+                >
+                  {row.count.toLocaleString()}
+                </span>
+              {/if}
+            {/snippet}
+          </GroupedList.Row>
+        {/each}
+      </GroupedList.Section>
+
+      <!-- Recent activity + Just landed: side by side from lg. -->
+      <div class="grid grid-cols-1 items-start gap-7 lg:grid-cols-2 lg:gap-6">
+        <GroupedList.Section headingLevel={2} class="min-w-0">
+          {#snippet header()}
+            {@render sectionHeader('Recent activity', { href: '/history', label: 'Open History' })}
+          {/snippet}
+          {#if recent.length > 0}
+            {#each recent as a (a.id)}
+              <GroupedList.Row
+                label={ACTIVITY_VERB[a.type] ?? a.type}
+                sublabel={`${a.track}${a.artist ? ` · ${a.artist}` : ''}`}
+                value={a.time}
+              >
+                {#snippet leading()}
+                  <span class="flex w-3 justify-center" aria-hidden="true">
+                    <span class={cn('size-2 rounded-full', activityDot(a.type))}></span>
+                  </span>
+                {/snippet}
+              </GroupedList.Row>
+            {/each}
+            {#if allRecent.length > RECENT_ROWS}
+              <!-- Expands in place, in the page's own scroller. -->
+              <GroupedList.Row
+                onclick={() => (showAllActivity = !showAllActivity)}
+                aria-expanded={showAllActivity}
+              >
+                <span class="text-body text-primary md:text-sm">
+                  {showAllActivity ? 'Show fewer' : `Show all ${allRecent.length.toLocaleString()}`}
+                </span>
+              </GroupedList.Row>
+            {/if}
+          {:else}
+            <p class="text-body text-muted-foreground px-4 py-6 text-center md:text-sm">
+              No recent activity yet.
+            </p>
+          {/if}
+        </GroupedList.Section>
+
+        <GroupedList.Section headingLevel={2} class="min-w-0">
+          {#snippet header()}
+            {@render sectionHeader('Just landed', { href: '/library', label: 'See all' })}
+          {/snippet}
+          {#if !loaded}
+            {#each Array(4) as _, i (i)}
+              <div class="flex items-center gap-3 px-4 py-2.5">
+                <Skeleton class="size-10 shrink-0 rounded-sm" />
+                <div class="min-w-0 flex-1 space-y-1.5">
+                  <Skeleton class="h-4 w-2/3" />
+                  <Skeleton class="h-3 w-1/3" />
+                </div>
+              </div>
+            {/each}
+          {:else if justLanded.length > 0}
+            {#each justLanded as album (album.key)}
+              {@const firstSong = album.songs[0]}
+              <!-- The whole row opens the album (a stretched link), and the Timeline button sits
+                   above it — two targets without nesting one link inside another. -->
+              <GroupedList.Row chevron class="group/row hover:bg-accent active:bg-accent">
+                {#snippet leading()}
+                  {#if album.coverUrl}
+                    <img
+                      src={album.coverUrl}
+                      alt=""
+                      draggable="false"
+                      class="size-10 shrink-0 rounded-sm object-cover"
+                    />
+                  {:else}
+                    <span
+                      class="bg-muted text-muted-foreground grid size-10 shrink-0 place-items-center rounded-sm text-[11px] font-semibold"
+                      aria-hidden="true"
+                    >
+                      {albumInitials(album.title)}
+                    </span>
+                  {/if}
+                {/snippet}
+                <a
+                  href={`/library?album=${encodeURIComponent(album.key)}`}
+                  class="text-body md:text-sm truncate outline-none after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
+                >
+                  {album.title}
+                </a>
+                <span class="text-subheadline text-muted-foreground truncate md:text-xs">
+                  {album.artist}{album.year ? ` · ${album.year}` : ''}
+                </span>
+                {#snippet trailing()}
+                  {#if firstSong}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      href={`/track/${firstSong.id}`}
+                      aria-label="Enrichment timeline for {album.title}"
+                      title="View enrichment timeline"
+                      class="text-muted-foreground hover:text-foreground relative z-10 -my-1 rounded-full pointer-coarse:size-11 pointer-fine:opacity-0 pointer-fine:group-hover/row:opacity-100 pointer-fine:focus-visible:opacity-100"
+                    >
+                      <History aria-hidden="true" />
+                    </Button>
+                  {/if}
+                {/snippet}
+              </GroupedList.Row>
+            {/each}
+          {:else}
+            <p class="text-body text-muted-foreground px-4 py-6 text-center md:text-sm">
+              Nothing in the library yet.
+            </p>
+          {/if}
+        </GroupedList.Section>
+      </div>
     </div>
-  </div>
-</ScrollArea>
+  </ScrollArea>
+</div>
 
 <AlertDialog.Root bind:open={confirmOpen}>
   <AlertDialog.Content>
@@ -1002,7 +1110,7 @@
       <AlertDialog.Description>{confirmCopy.description}</AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
-      <AlertDialog.Cancel>Keep running</AlertDialog.Cancel>
+      <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
       <AlertDialog.Action variant="destructive" onclick={confirmAction}>{confirmCopy.action}</AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>

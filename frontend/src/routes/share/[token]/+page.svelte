@@ -7,7 +7,7 @@
   import LyricsFullscreen from '$lib/components/file-browser/LyricsFullscreen.svelte';
   import LyricsPanel from '$lib/components/file-browser/LyricsPanel.svelte';
   import { Button } from '$lib/components/ui/button';
-  import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
+  import { SegmentedControl } from '$lib/components/ui/segmented-control';
   import { playerStore, type PlayerSong } from '$lib/stores/player.svelte';
   import { videoBackdropPrefs } from '$lib/stores/video-backdrop-prefs.svelte';
   import { formatDuration } from '$lib/formatters';
@@ -132,6 +132,11 @@
   // Owner-generated pronunciation (romanization) + English translation, when present on the share.
   // The API only sends FRESH documents (never stale ones), so stacking is always line-aligned.
   let lyricsView = $state<'original' | 'pronunciation' | 'translation'>('original');
+  const lyricsViewItems: { value: typeof lyricsView; label: string }[] = [
+    { value: 'original', label: 'Original' },
+    { value: 'pronunciation', label: 'Pronunciation' },
+    { value: 'translation', label: 'Translation' }
+  ];
   $effect(() => {
     void activeTrack?.id;
     lyricsView = 'original'; // reset the view when the presented track changes
@@ -199,10 +204,10 @@
       <button
         type="button"
         onclick={() => playTrack(track)}
-        class="hover:bg-foreground/5 group flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors"
+        class="group active:bg-accent flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left transition-colors pointer-fine:hover:bg-accent"
       >
         <span
-          class="text-muted-foreground w-6 shrink-0 text-right text-xs tabular-nums pointer-coarse:hidden group-hover:hidden {isRowLoaded
+          class="text-footnote text-muted-foreground w-6 shrink-0 text-right tabular-nums pointer-coarse:hidden group-hover:hidden {isRowLoaded
             ? 'hidden'
             : ''}"
         >
@@ -220,11 +225,11 @@
           {/if}
         </span>
         <span
-          class="min-w-0 flex-1 truncate text-sm {isRowLoaded ? 'text-primary font-medium' : ''}"
+          class="text-body min-w-0 flex-1 truncate md:text-sm {isRowLoaded ? 'text-primary font-medium' : ''}"
         >
           {track.title}
         </span>
-        <span class="text-muted-foreground shrink-0 text-xs tabular-nums">
+        <span class="text-footnote text-muted-foreground shrink-0 tabular-nums">
           {formatDuration(track.durationMs ? track.durationMs / 1000 : null)}
         </span>
       </button>
@@ -232,33 +237,26 @@
   {/each}
 {/snippet}
 
+<!-- The link's 44pt target on touch comes from a pseudo-element, so the footer keeps its line
+     height: an inline link's box is the font's 15px content area, and 16px each way makes 47. -->
 {#snippet sharedVia()}
   Shared via
-  <a href="/" class="text-foreground/70 hover:text-foreground font-medium hover:underline">
-    MusicHoarder
-  </a>
+  <a
+    href="/"
+    class="text-foreground relative font-medium hover:underline pointer-coarse:after:absolute pointer-coarse:after:-inset-x-2 pointer-coarse:after:-inset-y-4"
+    >MusicHoarder</a
+  >
 {/snippet}
 
 {#snippet lyricsViewToggle()}
   {#if hasShareTranslation}
     <div class="mb-3 flex w-full items-center justify-center">
-      <ToggleGroup.Root
-        type="single"
-        size="sm"
-        variant="segmented"
-        value={lyricsView}
-        onValueChange={(v) => {
-          if (v) lyricsView = v as typeof lyricsView;
-        }}
-      >
-        <ToggleGroup.Item value="original" aria-label="Original lyrics">Original</ToggleGroup.Item>
-        <ToggleGroup.Item value="pronunciation" aria-label="Pronunciation guide">
-          Pronunciation
-        </ToggleGroup.Item>
-        <ToggleGroup.Item value="translation" aria-label="English translation">
-          Translation
-        </ToggleGroup.Item>
-      </ToggleGroup.Root>
+      <SegmentedControl
+        items={lyricsViewItems}
+        bind:value={lyricsView}
+        label="Lyrics view"
+        class="max-w-sm"
+      />
     </div>
   {/if}
 {/snippet}
@@ -296,24 +294,24 @@
     <Button
       size="icon"
       variant="ghost"
-      class="bg-background/40 hover:bg-background/70 fixed top-[max(0.75rem,env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] z-20 size-9 rounded-full backdrop-blur-sm"
+      class="mh-glass mh-chrome fixed top-[max(0.75rem,env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] z-20 size-11 rounded-full"
       onclick={() => videoBackdropPrefs.toggle()}
       aria-label={videoBackdropPrefs.enabled ? 'Turn off video background' : 'Turn on video background'}
       title={videoBackdropPrefs.enabled ? 'Turn off video background' : 'Turn on video background'}
     >
       {#if videoBackdropPrefs.enabled}
-        <Video class="size-4" />
+        <Video class="size-5" />
       {:else}
-        <VideoOff class="size-4" />
+        <VideoOff class="size-5" />
       {/if}
     </Button>
   {/if}
 
   {#if !payload || !activeTrack}
     <main class="relative z-10 flex min-h-dvh flex-col items-center justify-center gap-3 px-6">
-      <Music class="text-muted-foreground size-10 opacity-40" />
-      <h1 class="text-lg font-semibold">This link isn’t available</h1>
-      <p class="text-muted-foreground max-w-sm text-center text-sm">
+      <Music class="text-muted-foreground size-10" />
+      <h1 class="text-title-3">This link isn’t available</h1>
+      <p class="text-subheadline text-muted-foreground max-w-sm text-center">
         The share link doesn’t exist or has been revoked by the person who created it.
       </p>
     </main>
@@ -339,38 +337,36 @@
         />
 
         <div class="mt-6 w-full text-center lg:text-left">
-          <h1 class="truncate text-2xl font-bold tracking-[-0.02em]">{activeTrack.title}</h1>
-          <p class="text-muted-foreground mt-1 truncate text-sm">
+          <h1 class="text-title-2 truncate">{activeTrack.title}</h1>
+          <p class="text-body text-muted-foreground mt-0.5 truncate md:text-sm">
             {displayArtist}{albumLabel ? ` · ${albumLabel}` : ''}
           </p>
         </div>
 
         <div class="mx-auto mt-6 w-full max-w-[340px] lg:mx-0">
+          <!-- No ⋯ menu here to reach Playback speed from, so the speed capsule stays up at 1×. -->
           <SongTransport
             isActive={isCurrentlyLoaded}
             isPlaying={isCurrentlyPlaying}
             fallbackDuration={activeDurationSeconds}
             onPlayToggle={handlePlayToggle}
+            speedAlways
           />
         </div>
 
         {#if isAlbumShare}
           <!-- Desktop tracklist lives inside the rail and scrolls on its own. -->
           <div class="mt-6 hidden min-h-0 flex-1 lg:flex lg:flex-col">
-            <h2
-              class="text-muted-foreground mb-2 px-1 text-xs font-semibold tracking-widest uppercase"
-            >
-              Tracklist
-            </h2>
+            <h2 class="text-footnote text-muted-foreground mb-1.5 px-4">Tracklist</h2>
             <ol
-              class="border-border/50 divide-border/50 no-scrollbar min-h-0 flex-1 divide-y overflow-y-auto rounded-xl border"
+              class="bg-muted divide-separator no-scrollbar min-h-0 flex-1 divide-y overflow-y-auto rounded-xl"
             >
               {@render trackRows()}
             </ol>
           </div>
         {/if}
 
-        <footer class="text-muted-foreground mt-8 hidden text-xs lg:block">
+        <footer class="text-footnote text-muted-foreground mt-8 hidden lg:block">
           {@render sharedVia()}
         </footer>
       </div>
@@ -398,7 +394,7 @@
                 </div>
               {/key}
             {:else if lyricsLoading}
-              <div class="text-muted-foreground flex h-full items-center gap-2 px-1 text-sm">
+              <div class="text-subheadline text-muted-foreground flex h-full items-center gap-2 px-1">
                 <Loader2 class="size-4 animate-spin" /> Loading lyrics…
               </div>
             {/if}
@@ -409,12 +405,8 @@
       {#if isAlbumShare}
         <!-- Mobile tracklist -->
         <section class="mt-10 w-full lg:hidden">
-          <h2
-            class="text-muted-foreground mb-2 px-1 text-xs font-semibold tracking-widest uppercase"
-          >
-            Tracklist
-          </h2>
-          <ol class="border-border/50 divide-border/50 divide-y rounded-xl border">
+          <h2 class="text-footnote text-muted-foreground mb-1.5 px-4">Tracklist</h2>
+          <ol class="bg-muted divide-separator divide-y overflow-hidden rounded-xl">
             {@render trackRows()}
           </ol>
         </section>
@@ -445,7 +437,7 @@
             {/key}
           {:else if lyricsLoading}
             <div
-              class="text-muted-foreground flex flex-1 items-center justify-center gap-2 text-sm"
+              class="text-subheadline text-muted-foreground flex flex-1 items-center justify-center gap-2"
             >
               <Loader2 class="size-4 animate-spin" /> Loading lyrics…
             </div>
@@ -453,7 +445,7 @@
         </div>
       {/if}
 
-      <footer class="text-muted-foreground mt-14 text-center text-xs lg:hidden">
+      <footer class="text-footnote text-muted-foreground mt-14 text-center lg:hidden">
         {@render sharedVia()}
       </footer>
     </main>

@@ -48,13 +48,15 @@
 
         {#if card.kind === 'ai'}
           <div class="mt-3 flex flex-wrap items-center gap-1.5">
+            <!-- Status text on the contrast-checked tokens (amber-600 on its own tint measured
+                 2.8:1); the tint behind stays a fill. -->
             <span
-              class="rounded bg-red-500/15 px-1.5 py-0.5 text-[11px] font-semibold tracking-wide text-red-600 uppercase dark:text-red-400"
+              class="bg-destructive/12 text-destructive-text rounded px-1.5 py-0.5 text-[11px] font-semibold tracking-wide uppercase"
             >
               Wrong
             </span>
             <span
-              class="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-semibold tracking-wide text-amber-600 uppercase dark:text-amber-400"
+              class="bg-warning/15 text-warning-text rounded px-1.5 py-0.5 text-[11px] font-semibold tracking-wide uppercase"
             >
               Questionable
             </span>

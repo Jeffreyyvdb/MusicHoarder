@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { Library, Loader2, UserRoundPlus } from '@lucide/svelte';
+  import { Loader2, UserRoundPlus } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
-  import * as Dialog from '$lib/components/ui/dialog';
+  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
+  import * as GroupedList from '$lib/components/ui/grouped-list';
   import { Button } from '$lib/components/ui/button';
+  import { Switch } from '$lib/components/ui/switch';
   import {
     createFriendGrant,
     listFriends,
@@ -19,8 +21,24 @@
   let {
     open = $bindable(false),
     artist,
-    album
-  }: { open?: boolean; artist: string; album: string } = $props();
+    album,
+    nested = false,
+    onnavigate
+  }: {
+    open?: boolean;
+    artist: string;
+    album: string;
+    /** Opened from inside Now Playing: stacks above it (z-70) in its dark media appearance. */
+    nested?: boolean;
+    /** A link to Settings → People was followed; Now Playing closes so the page shows. */
+    onnavigate?: () => void;
+  } = $props();
+
+  // The links lead to another page: the sheet (and whatever it was opened over) gets out of the way.
+  function leave() {
+    open = false;
+    onnavigate?.();
+  }
 
   let friends = $state<FriendView[]>([]);
   let isLoading = $state(false);
@@ -82,69 +100,73 @@
   }
 </script>
 
-<Dialog.Root bind:open>
-  <Dialog.Content class="sm:max-w-md">
-    <Dialog.Header>
-      <Dialog.Title>Share with a friend</Dialog.Title>
-      <Dialog.Description>
-        Pick who can see and stream <span class="text-foreground font-medium">{album}</span> by
-        <span class="text-foreground font-medium">{artist}</span>. It shows up in their library,
-        marked as shared by you.
-      </Dialog.Description>
-    </Dialog.Header>
+<!-- A sheet on a phone, a dialog on desktop: one switch row per invited account, so the whole
+     44pt row is the control's label rather than a 16px checkbox. -->
+<BottomSheet.Root
+  bind:open
+  {nested}
+  class={nested ? 'dark' : undefined}
+  title="Share with a friend"
+  description="Pick who can see and stream {album} by {artist}. It shows up in their library, marked as shared by you."
+>
+  {#snippet trailing()}
+    <BottomSheet.Action prominent onclick={() => (open = false)}>Done</BottomSheet.Action>
+  {/snippet}
 
-    {#if isLoading}
-      <div class="flex items-center justify-center py-8">
-        <Loader2 class="text-muted-foreground size-5 animate-spin" />
-      </div>
-    {:else if friends.length === 0}
-      <div class="space-y-3 py-4 text-center">
-        <p class="text-muted-foreground text-sm">You haven't invited any friends yet.</p>
-        <Button variant="outline" size="sm" href="/settings?tab=people">
-          <UserRoundPlus class="size-4" />
-          Invite a friend
-        </Button>
-      </div>
-    {:else}
-      <ul class="border-border divide-border divide-y rounded-lg border">
-        {#each friends as friend (friend.id)}
-          {@const covered = hasLibraryGrant(friend)}
-          {@const viaArtist = !covered && Boolean(artistGrantOf(friend))}
-          {@const shared = Boolean(albumGrantOf(friend))}
-          <li>
-            <!-- The whole row is the label, not just the 16px box, so the ~44px row is the
-                 touch target rather than a sliver of it. -->
-            <label class="flex items-center gap-3 px-4 py-2.5">
-              <div class="min-w-0 flex-1">
-                <div class="truncate text-sm">{friend.displayName ?? friend.email}</div>
-                {#if covered}
-                  <div class="text-muted-foreground flex items-center gap-1 text-xs">
-                    <Library class="size-3" /> Already has your entire library
-                  </div>
-                {:else if viaArtist}
-                  <div class="text-muted-foreground text-xs">Already has this artist</div>
-                {/if}
-              </div>
-              {#if busyId === friend.id}
-                <Loader2 class="text-muted-foreground size-4 animate-spin" />
-              {:else}
-                <input
-                  type="checkbox"
-                  class="accent-primary size-4"
-                  checked={covered || viaArtist || shared}
-                  disabled={covered || viaArtist}
-                  aria-label={`Share ${album} with ${friend.email}`}
-                  onchange={() => toggle(friend)}
-                />
-              {/if}
-            </label>
-          </li>
-        {/each}
-      </ul>
-      <p class="text-muted-foreground text-xs">
-        Artist- and library-wide sharing is managed in
-        <a href="/settings?tab=people" class="underline underline-offset-2">Settings → People</a>.
-      </p>
-    {/if}
-  </Dialog.Content>
-</Dialog.Root>
+  {#if isLoading}
+    <div class="flex items-center justify-center py-8">
+      <Loader2 class="text-muted-foreground size-5 animate-spin" aria-label="Loading" />
+    </div>
+  {:else if friends.length === 0}
+    <div class="flex flex-col items-center gap-3 px-4 py-6 text-center">
+      <p class="text-body text-muted-foreground md:text-sm">You haven't invited anyone yet.</p>
+      <Button
+        variant="gray"
+        size="pill"
+        href="/settings?tab=people"
+        onclick={leave}
+        class="text-primary md:h-8 md:text-sm"
+      >
+        <UserRoundPlus />
+        Invite someone
+      </Button>
+    </div>
+  {:else}
+    {#snippet peopleFooter()}
+      Sharing a whole artist or your entire library is managed in
+      <a
+        href="/settings?tab=people"
+        onclick={leave}
+        class="text-primary underline-offset-2 hover:underline">Settings → People</a
+      >.
+    {/snippet}
+    <GroupedList.Section header="People" footer={peopleFooter}>
+      {#each friends as friend (friend.id)}
+        {@const covered = hasLibraryGrant(friend)}
+        {@const viaArtist = !covered && Boolean(artistGrantOf(friend))}
+        {@const shared = Boolean(albumGrantOf(friend))}
+        <GroupedList.Row
+          label={friend.displayName ?? friend.email}
+          sublabel={covered
+            ? 'Already has your entire library'
+            : viaArtist
+              ? 'Already has this artist'
+              : undefined}
+        >
+          {#snippet trailing()}
+            {#if busyId === friend.id}
+              <Loader2 class="text-muted-foreground size-5 animate-spin" aria-label="Saving" />
+            {:else}
+              <Switch
+                checked={covered || viaArtist || shared}
+                disabled={covered || viaArtist}
+                aria-label={`Share ${album} with ${friend.displayName ?? friend.email}`}
+                onCheckedChange={() => toggle(friend)}
+              />
+            {/if}
+          {/snippet}
+        </GroupedList.Row>
+      {/each}
+    </GroupedList.Section>
+  {/if}
+</BottomSheet.Root>

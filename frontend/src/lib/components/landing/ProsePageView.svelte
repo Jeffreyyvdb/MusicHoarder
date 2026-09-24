@@ -70,7 +70,8 @@
       <a
         href={markdownPath}
         data-sveltekit-reload
-        class="hover:text-foreground underline underline-offset-2">read as markdown</a
+        class="hover:text-foreground inline-block underline underline-offset-2 pointer-coarse:py-3"
+        >read as markdown</a
       >
     </p>
   </article>

@@ -73,13 +73,15 @@
   }
 </script>
 
-<!-- Honest Apple-Music-style scrubber: a 3px hairline capsule that thickens on
-     hover/drag, a scaleX progress fill, and a thumb revealed on hover/focus/drag
-     (and at rest on a coarse pointer, which gets no hover at all) — the same
-     pattern as the MiniPlayer's seek line so every transport surface shares one
-     progress control. The root's own box is only 16px tall, so an invisible
-     `after:` pseudo-element (the same expanded-hit-region pattern as
-     ui/switch) grows the real hit target to 40px without touching the hairline. -->
+<!-- The iOS Now Playing scrubber: a 4px capsule that grows to 8px while it is being dragged (and
+     on hover/focus with a mouse), filled in the label colour — Apple fills progress with the text
+     colour, not the tint, which stays reserved for things you tap. No thumb on touch, as on iOS:
+     the finger is the thumb and the bar's growth is the feedback. A fine pointer gets a thumb on
+     hover/focus/drag so a click target is visible. The root is 16px tall; an invisible `after:`
+     pseudo-element grows the hit area to 44px without moving the bar: 20px up, 8px down, because
+     the times row sits 6px under it and the speed capsule there is a control of its own. The
+     pseudo-element needs its horizontal insets too — with only `inset-y` it has no width and
+     catches nothing. `z-10` keeps this hit area above the capsule's (a later sibling). -->
 <div
   role="slider"
   tabindex="0"
@@ -88,7 +90,12 @@
   aria-valuenow={Math.round(progress * 100)}
   aria-valuetext={`${formatElapsed(effectiveCurrentTime)} of ${formatDuration(effectiveDuration)}`}
   aria-label="Track progress"
-  class="group/seek relative flex h-4 w-full cursor-pointer touch-none items-center rounded-full outline-none select-none after:absolute after:-inset-y-3 after:content-['']"
+  aria-disabled={!canSeek || undefined}
+  data-dragging={dragging || undefined}
+  class={cn(
+    "group/seek relative z-10 flex h-4 w-full touch-none items-center rounded-full outline-none select-none after:absolute after:inset-x-0 after:-top-5 after:-bottom-2 after:content-['']",
+    canSeek ? 'cursor-pointer' : 'cursor-default'
+  )}
   onpointerdown={onPointerDown}
   onpointermove={onPointerMove}
   onpointerup={onPointerUp}
@@ -98,18 +105,18 @@
 >
   <div
     class={cn(
-      'bg-foreground/20 relative h-[3px] w-full overflow-hidden rounded-full transition-[height] duration-150 ease-out group-hover/seek:h-[7px] group-focus-visible/seek:h-[7px] motion-reduce:transition-none',
-      dragging && 'h-[7px]'
+      'bg-foreground/25 relative h-1 w-full overflow-hidden rounded-full transition-[height] duration-150 ease-out group-focus-visible/seek:h-2 motion-reduce:transition-none pointer-fine:group-hover/seek:h-2',
+      dragging && 'h-2'
     )}
   >
     <div
-      class="bg-primary absolute inset-0 origin-left rounded-full"
+      class="bg-foreground absolute inset-0 origin-left rounded-full"
       style="transform: scaleX({progress})"
     ></div>
   </div>
   <div
     class={cn(
-      'border-ring pointer-events-none absolute size-3 -translate-x-1/2 rounded-full border bg-white opacity-0 shadow-sm transition-opacity group-hover/seek:opacity-100 group-focus-visible/seek:opacity-100 pointer-coarse:opacity-100',
+      'pointer-events-none absolute size-3 -translate-x-1/2 rounded-full bg-white opacity-0 shadow-[0_1px_4px_rgb(0_0_0/0.35)] transition-opacity pointer-coarse:hidden pointer-fine:group-hover/seek:opacity-100 pointer-fine:group-focus-visible/seek:opacity-100',
       dragging && 'opacity-100'
     )}
     style="left: {progress * 100}%"

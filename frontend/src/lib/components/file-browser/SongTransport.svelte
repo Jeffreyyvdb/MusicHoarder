@@ -1,16 +1,16 @@
 <script lang="ts">
-  import { Check, FastForward, Pause, Play, Rewind } from '@lucide/svelte';
+  import { FastForward, Pause, Play, Rewind } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import Scrubber from './Scrubber.svelte';
   import { playerStore } from '$lib/stores/player.svelte';
-  import { formatDuration } from '$lib/formatters';
   import { blurAfterPointerClick, cn, transportGlyphClass } from '$lib/utils';
 
   /**
-   * The Apple-Music-style naked-glyph transport (scrubber + prev/play/next + times)
-   * shared by the in-app track panel and the public share page. Parents control width
-   * and placement via a wrapper element.
+   * The iOS Now Playing transport: the scrubber, the times UNDER it (elapsed at leading, time
+   * remaining at trailing, a format capsule between), then previous / play-pause / next spaced
+   * across the width at 56 / 72 / 56pt. Shared by Now Playing and the public share page; parents
+   * control width and placement via a wrapper element.
    */
   type Props = {
     /** Whether this transport's track is the one loaded in the player. */
@@ -19,26 +19,45 @@
     /** Track duration in seconds, shown before the track is loaded in the player. */
     fallbackDuration: number;
     onPlayToggle: () => void;
-    /**
-     * Scrubber + a single big play/pause only — the fullscreen lyrics overlay's
-     * bottom bar.
-     */
+    /** Scrubber, times and a single play/pause — the share page's fullscreen lyrics bar. */
     minimal?: boolean;
+    /** "FLAC", "MP3 320": the quality capsule centred between the times (Apple's Lossless badge). */
+    format?: string | null;
+    /**
+     * Keep the speed capsule up at 1× too. For surfaces with no ⋯ menu to reach Playback speed
+     * from (the share page); Now Playing shows it only while a non-1× speed is on.
+     */
+    speedAlways?: boolean;
+    /** Inside Now Playing: its menus take the dark media appearance and open above its z-60. */
+    media?: boolean;
   };
-  const { isActive, isPlaying, fallbackDuration, onPlayToggle, minimal = false }: Props =
-    $props();
+  const {
+    isActive,
+    isPlaying,
+    fallbackDuration,
+    onPlayToggle,
+    minimal = false,
+    format = null,
+    speedAlways = false,
+    media = false
+  }: Props = $props();
 
-  // Prev/next walk the active playback queue, so they only act while this track is
-  // the one loaded in the player; otherwise there's no queue position to move within.
+  // Prev/next walk the active playback queue, so they only act while this track is the one loaded
+  // in the player; a browsed song has no queue position to move within. Previous is otherwise
+  // always live (it restarts the first item), next while the queue or the radio can supply.
   const canGoPrevious = $derived(isActive && playerStore.hasPrevious);
   const canGoNext = $derived(isActive && playerStore.hasNext);
 
-  // Playback-speed presets (pitch-preserved — for singing/playing along, the
-  // slow end is deliberately finer-grained than the fast end). The control is
-  // a quiet tabular label at the row's edge rather than a MiniPlayer button:
-  // most listeners never need it, so it only lives on the track-panel/share
-  // transports and stays muted until a non-1× speed is active.
+  // Playback-speed presets (pitch-preserved — for singing/playing along, the slow end is
+  // deliberately finer-grained than the fast end).
   const speedOptions = [0.5, 0.65, 0.75, 0.85, 1, 1.1, 1.25, 1.5];
+  const showSpeed = $derived(speedAlways || playerStore.playbackRate !== 1);
+
+  const duration = $derived(
+    isActive && playerStore.duration > 0 ? playerStore.duration : fallbackDuration
+  );
+  const elapsed = $derived(isActive ? playerStore.currentTime : 0);
+  const remaining = $derived(Math.max(0, duration - elapsed));
 
   function formatTime(seconds: number): string {
     if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
@@ -46,60 +65,86 @@
     const s = Math.floor(seconds % 60);
     return `${m}:${s.toString().padStart(2, '0')}`;
   }
+
+  function speedLabel(rate: number): string {
+    return rate === 1 ? 'Normal' : `${rate}×`;
+  }
 </script>
 
 {#snippet speedMenu()}
   <DropdownMenu.Root>
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
+        <!-- A capsule: 20px visual, the hit area grown by the after: pseudo-element — 44pt wide
+             (the times either side leave the room) and 32pt tall, growing downward only: upward
+             is the scrubber's hit area, which must win the few pixels they share. -->
         <button
           {...props}
           type="button"
           class={cn(
-            'focus-visible:ring-ring/50 w-9 shrink-0 rounded text-right text-[11px] font-medium tabular-nums outline-none focus-visible:ring-2',
+            "text-caption-1 relative inline-flex h-5 items-center rounded-full px-2 font-semibold tabular-nums outline-none after:absolute after:-inset-x-3 after:top-0 after:-bottom-3 after:content-[''] focus-visible:ring-2 focus-visible:ring-ring",
             playerStore.playbackRate === 1
-              ? 'text-muted-foreground-dim hover:text-foreground'
-              : 'text-primary'
+              ? cn('bg-secondary', media ? 'text-foreground' : 'text-muted-foreground')
+              : 'bg-primary/15 text-primary'
           )}
-          aria-label="Playback speed"
+          aria-label={`Playback speed, ${speedLabel(playerStore.playbackRate)}`}
           title="Playback speed"
         >
           {playerStore.playbackRate}×
         </button>
       {/snippet}
     </DropdownMenu.Trigger>
-    <!-- z-[70]: this menu opens from inside the song-detail dialog (z-[60]);
-         the default popover z-50 would render it invisibly behind the panel. -->
-    <DropdownMenu.Content align="end" class="z-[70] min-w-28">
-      {#each speedOptions as rate (rate)}
-        <DropdownMenu.Item
-          onSelect={() => playerStore.setPlaybackRate(rate)}
-          class="justify-between text-xs tabular-nums"
-        >
-          {rate === 1 ? 'Normal' : `${rate}×`}
-          {#if playerStore.playbackRate === rate}
-            <Check class="text-muted-foreground size-3.5" />
-          {/if}
-        </DropdownMenu.Item>
-      {/each}
+    <!-- z-[70]: this menu can open from inside Now Playing (z-[60]); the default z-50 would render
+         it invisibly behind the overlay. -->
+    <DropdownMenu.Content align="center" class={cn('z-[70] min-w-36', media && 'dark')}>
+      <DropdownMenu.RadioGroup
+        value={String(playerStore.playbackRate)}
+        onValueChange={(v) => playerStore.setPlaybackRate(Number(v))}
+      >
+        {#each speedOptions as rate (rate)}
+          <DropdownMenu.RadioItem value={String(rate)} class="tabular-nums">
+            {speedLabel(rate)}
+          </DropdownMenu.RadioItem>
+        {/each}
+      </DropdownMenu.RadioGroup>
     </DropdownMenu.Content>
   </DropdownMenu.Root>
 {/snippet}
 
-<Scrubber {isActive} {fallbackDuration} />
-{#if minimal}
-  <div class="mt-1 flex items-center justify-between">
-    <!-- w-9 ghost mirrors the speed control (now 11px, F12) so the play glyph stays centered. -->
-    <span class="flex items-center gap-1">
-      <span class="w-9 shrink-0" aria-hidden="true"></span>
-      <span class="text-muted-foreground w-10 text-xs tabular-nums">
-        {isActive ? formatTime(playerStore.currentTime) : '0:00'}
+<Scrubber {isActive} fallbackDuration={duration} />
+<div
+  class="text-caption-1 text-muted-foreground mt-1.5 grid grid-cols-[1fr_auto_1fr] items-center gap-2 font-medium tabular-nums"
+>
+  <span>{formatTime(elapsed)}</span>
+  <span class="flex items-center justify-center gap-1.5">
+    {#if format}
+      <!-- Label-colour text on the capsule: over Now Playing's coloured wash the 72% secondary
+           tone on a 14% white fill lands near 4:1, short of what 12px text needs. -->
+      <span
+        class={cn(
+          'bg-secondary inline-flex h-5 items-center rounded-full px-2 font-semibold tracking-wide',
+          media ? 'text-foreground' : 'text-muted-foreground'
+        )}
+      >
+        {format}
       </span>
-    </span>
+    {/if}
+    {#if showSpeed}
+      {@render speedMenu()}
+    {/if}
+  </span>
+  <span class="text-right">
+    <span aria-hidden="true">−{formatTime(remaining)}</span>
+    <span class="sr-only">{formatTime(remaining)} remaining</span>
+  </span>
+</div>
+
+{#if minimal}
+  <div class="mt-1 flex items-center justify-center">
     <Button
       variant="ghost"
       size="icon"
-      class={cn(transportGlyphClass, 'size-12')}
+      class={cn(transportGlyphClass, 'size-16')}
       onclick={(e) => {
         blurAfterPointerClick(e);
         onPlayToggle();
@@ -107,74 +152,57 @@
       aria-label={isPlaying ? 'Pause' : 'Play'}
     >
       {#if isPlaying}
-        <Pause class="size-8" fill="currentColor" />
+        <Pause class="size-9" fill="currentColor" />
       {:else}
-        <Play class="size-8 translate-x-px" fill="currentColor" />
+        <Play class="size-9 translate-x-0.5" fill="currentColor" />
       {/if}
     </Button>
-    <span class="flex items-center gap-1">
-      <span class="text-muted-foreground w-10 text-right text-xs tabular-nums">
-        {formatDuration(fallbackDuration)}
-      </span>
-      {@render speedMenu()}
-    </span>
   </div>
 {:else}
-  <div class="mt-1.5 flex items-center gap-3">
-    <!-- w-9 ghost mirrors the speed control (now 11px, F12) so the transport stays centered. -->
-    <span class="w-9 shrink-0" aria-hidden="true"></span>
-    <span class="text-muted-foreground w-10 shrink-0 text-right text-xs tabular-nums">
-      {isActive ? formatTime(playerStore.currentTime) : '0:00'}
-    </span>
-    <!-- Naked solid glyphs, no disc, no hover wash (a translucent circle reads as
-         smudge on dark artwork). Feedback is press-scale on the glyph itself. -->
-    <div class="mx-auto flex items-center gap-2">
-      <Button
-        variant="ghost"
-        size="icon"
-        class={cn(transportGlyphClass, 'size-9 disabled:opacity-30')}
-        onclick={(e) => {
-          blurAfterPointerClick(e);
-          playerStore.playPrevious();
-        }}
-        disabled={!canGoPrevious}
-        aria-label="Previous track"
-      >
-        <Rewind class="size-5.5" fill="currentColor" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        class={cn(transportGlyphClass, 'size-11')}
-        onclick={(e) => {
-          blurAfterPointerClick(e);
-          onPlayToggle();
-        }}
-        aria-label={isPlaying ? 'Pause' : 'Play'}
-      >
-        {#if isPlaying}
-          <Pause class="size-7" fill="currentColor" />
-        {:else}
-          <Play class="size-7 translate-x-px" fill="currentColor" />
-        {/if}
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        class={cn(transportGlyphClass, 'size-9 disabled:opacity-30')}
-        onclick={(e) => {
-          blurAfterPointerClick(e);
-          playerStore.playNext();
-        }}
-        disabled={!canGoNext}
-        aria-label="Next track"
-      >
-        <FastForward class="size-5.5" fill="currentColor" />
-      </Button>
-    </div>
-    <span class="text-muted-foreground w-10 shrink-0 text-xs tabular-nums">
-      {formatDuration(fallbackDuration)}
-    </span>
-    {@render speedMenu()}
+  <!-- Naked solid glyphs, no disc and no hover wash (a translucent circle reads as a smudge on
+       artwork); feedback is press-scale on the glyph itself. Evenly spread, like iOS. -->
+  <div class="mt-2 flex items-center justify-evenly">
+    <Button
+      variant="ghost"
+      size="icon"
+      class={cn(transportGlyphClass, 'size-14 disabled:opacity-30')}
+      onclick={(e) => {
+        blurAfterPointerClick(e);
+        playerStore.playPrevious();
+      }}
+      disabled={!canGoPrevious}
+      aria-label="Previous track"
+    >
+      <Rewind class="size-8" fill="currentColor" />
+    </Button>
+    <Button
+      variant="ghost"
+      size="icon"
+      class={cn(transportGlyphClass, 'size-[72px]')}
+      onclick={(e) => {
+        blurAfterPointerClick(e);
+        onPlayToggle();
+      }}
+      aria-label={isPlaying ? 'Pause' : 'Play'}
+    >
+      {#if isPlaying}
+        <Pause class="size-11" fill="currentColor" />
+      {:else}
+        <Play class="size-11 translate-x-0.5" fill="currentColor" />
+      {/if}
+    </Button>
+    <Button
+      variant="ghost"
+      size="icon"
+      class={cn(transportGlyphClass, 'size-14 disabled:opacity-30')}
+      onclick={(e) => {
+        blurAfterPointerClick(e);
+        playerStore.playNext();
+      }}
+      disabled={!canGoNext}
+      aria-label="Next track"
+    >
+      <FastForward class="size-8" fill="currentColor" />
+    </Button>
   </div>
 {/if}
