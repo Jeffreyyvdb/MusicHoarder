@@ -44,6 +44,7 @@ const APP_ROUTES: [path: string, group: NavGroupId][] = [
   ['/playlists', 'add'],
   ['/quality', 'manage'],
   ['/settings', 'manage'],
+  ['/shares', 'manage'],
   ['/spotify', 'add'],
   ['/stats', 'manage'],
   ['/track/42', 'listen'],
@@ -488,6 +489,13 @@ describe('backFor', () => {
       label: 'Discover',
       href: '/discover'
     });
+    expect(back('/shares?link=3', admin)).toEqual({ label: 'Share links', href: '/shares' });
+    expect(back('/shares?link=3&view=revoked', admin)).toEqual({
+      label: 'Share links',
+      href: '/shares?view=revoked'
+    });
+    // The list itself hangs off the hub like every other Manage page.
+    expect(back('/shares?view=revoked', admin)).toEqual({ label: 'Manage', href: '/manage' });
     expect(back('/settings?tab=people', admin)).toEqual({ label: 'Settings', href: '/settings' });
   });
 
@@ -518,6 +526,8 @@ describe('surfaceFor', () => {
       '/stats',
       '/history',
       '/history?category=lyrics',
+      '/shares',
+      '/shares?link=3',
       '/track/42'
     ]) {
       expect(surfaceFor(url(path), true), path).toBe('grouped');

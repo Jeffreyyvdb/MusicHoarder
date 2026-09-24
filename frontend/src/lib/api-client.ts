@@ -2272,6 +2272,57 @@ export async function revokeSongShare(id: number): Promise<void> {
   if (!response.ok) throw new Error(`Could not revoke share (${response.status}).`)
 }
 
+/** A share link — active or revoked — with how often it was opened and played, all time. */
+export interface ShareStatsRow {
+  id: number
+  token: string
+  scope: "Song" | "Album"
+  songId: number
+  createdAtUtc: string
+  revokedAtUtc?: string | null
+  title: string
+  artist?: string | null
+  album?: string | null
+  /** Opens of the share page (repeats by one visitor within 30 minutes count once). */
+  views: number
+  /** Distinct visitors, each counted once per day. */
+  visitors: number
+  plays: number
+  lastViewedAtUtc?: string | null
+}
+
+export interface ShareDailyPoint {
+  /** The caller's local calendar day, `YYYY-MM-DD`. */
+  date: string
+  views: number
+  visitors: number
+  plays: number
+}
+
+export interface ShareStatsDetail {
+  share: ShareStatsRow
+  /** One point per day from the link's first day (or `days` ago) through today, zeros included. */
+  daily: ShareDailyPoint[]
+  /** Opens by where they came from, most first. A null source is "direct or unknown". */
+  sources: { source?: string | null; views: number }[]
+  /** Plays per track, most first. Only tracks that were played. */
+  tracks: { songId: number; title: string; plays: number }[]
+}
+
+/** Every share link you made, newest first, with its counts. */
+export async function fetchShareStatsList(): Promise<ShareStatsRow[]> {
+  return requestJson<ShareStatsRow[]>("/api/shares/stats")
+}
+
+/** One link's counts, per-day series (in this browser's time zone), sources and track plays. */
+export async function fetchShareStats(id: number, days = 30): Promise<ShareStatsDetail> {
+  const params = new URLSearchParams({
+    days: String(days),
+    tzOffsetMinutes: String(new Date().getTimezoneOffset()),
+  })
+  return requestJson<ShareStatsDetail>(`/api/shares/${id}/stats?${params}`)
+}
+
 /** The public URL a friend opens — same origin, so it works for every deployment. */
 export function shareUrl(token: string): string {
   return `${location.origin}/share/${encodeURIComponent(token)}`
