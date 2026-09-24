@@ -189,6 +189,29 @@ function setPlaybackState(state: MediaSessionPlaybackState) {
   if (ms) ms.playbackState = state;
 }
 
+// ── Background playback ────────────────────────────────────────────────────
+// An installed iOS Home Screen app keeps playing after it leaves the foreground
+// only while its audio session is in the long-form `playback` category, the one
+// Spotify uses. Under the Audio Session API's default `auto` type WebKit infers
+// that category from whatever is audible at each moment, and after ~2s with
+// nothing audible (between two tracks, a stream still buffering) it lets the
+// category lapse. Declaring `playback` pins it. Claimed on each play intent
+// rather than at boot, so opening the app claims nothing; feature-detected, so
+// browsers without `navigator.audioSession` skip it.
+
+type AudioSessionNavigator = Navigator & { audioSession?: { type: string } };
+
+function claimPlaybackAudioSession() {
+  if (!browser) return;
+  const session = (navigator as AudioSessionNavigator).audioSession;
+  if (!session || session.type === 'playback') return;
+  try {
+    session.type = 'playback';
+  } catch {
+    // Refused by this engine — `auto` still plays, just without the pin.
+  }
+}
+
 /**
  * Own the audio element imperatively rather than rendering it in a component.
  * A DOM-rendered `<audio>` is subject to Svelte's reconciliation: re-renders
@@ -257,6 +280,7 @@ function ensureAudioEl(): HTMLAudioElement | null {
  */
 function attemptPlay() {
   miniPlayerDismissed = false; // any play intent brings the mini player back
+  claimPlaybackAudioSession();
   void audioEl
     ?.play()
     .then(() => (isPlaying = true))
@@ -276,20 +300,28 @@ async function loadAndPlay(song: PlayerSong) {
 
   const gen = ++loadGeneration;
 
-  try {
-    const res = await fetch(song.streamUrl, { headers: { Range: 'bytes=0-0' } });
-    if (!res.ok) {
-      toast.error('Unable to play track', {
-        description: 'The audio file could not be found on the server.'
-      });
+  // The pre-flight turns a missing file into a clear toast while the old song keeps playing, but
+  // it is an await between the decision to play and `play()`. In the background that gap is the
+  // one place a hand-off can die: after `ended` nothing is audible, and a slow round trip to the
+  // server lets iOS stop treating the app as a player before the next song starts. So while the
+  // page is hidden (Home Screen, another app, the lock screen) the swap is synchronous, and a
+  // missing file is reported by the element's own `error` event instead.
+  if (!document.hidden) {
+    try {
+      const res = await fetch(song.streamUrl, { headers: { Range: 'bytes=0-0' } });
+      if (!res.ok) {
+        toast.error('Unable to play track', {
+          description: 'The audio file could not be found on the server.'
+        });
+        return;
+      }
+    } catch {
+      toast.error('Unable to play track', { description: 'Could not connect to the server.' });
       return;
     }
-  } catch {
-    toast.error('Unable to play track', { description: 'Could not connect to the server.' });
-    return;
-  }
 
-  if (gen !== loadGeneration) return;
+    if (gen !== loadGeneration) return;
+  }
 
   currentSong = song;
   currentTime = 0;
@@ -652,6 +684,7 @@ function restorePlayback(userId: string) {
   // No `reportPlay` here: coming back to a track is not another listen of it.
 
   if (!canAutoResume(snapshot, Date.now())) return;
+  claimPlaybackAudioSession();
   void el
     .play()
     .then(() => (isPlaying = true))
