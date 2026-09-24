@@ -2,6 +2,7 @@
   import { MediaQuery } from 'svelte/reactivity';
   import { playerStore } from '$lib/stores/player.svelte';
   import { videoBackdropPrefs } from '$lib/stores/video-backdrop-prefs.svelte';
+  import { cropMatte } from '$lib/actions/crop-matte';
   import { cn } from '$lib/utils';
 
   // Read-only cousin of the in-app VideoBackdrop for the anonymous share page: the song's muted
@@ -14,12 +15,17 @@
     songId,
     streamUrl,
     offsetMs = 0,
-    durationSeconds = null
+    durationSeconds = null,
+    letterbox = null,
+    pillarbox = null
   }: {
     songId: number;
     streamUrl: string;
     offsetMs?: number;
     durationSeconds?: number | null;
+    /** The bars baked into the frame, cropped out of the fill (see crop-matte.ts). */
+    letterbox?: number | null;
+    pillarbox?: number | null;
   } = $props();
 
   const DRIFT_TOLERANCE_S = 0.3;
@@ -97,7 +103,7 @@
   <div
     aria-hidden="true"
     class={cn(
-      'mh-crossfade fixed inset-0 transition-opacity duration-500',
+      'mh-crossfade fixed inset-0 overflow-hidden transition-opacity duration-500',
       showVideo && videoReady ? 'opacity-100' : 'opacity-0'
     )}
   >
@@ -109,6 +115,7 @@
       preload="auto"
       tabindex="-1"
       class="absolute inset-0 size-full object-cover"
+      use:cropMatte={{ letterbox, pillarbox }}
       onloadstart={() => (videoReady = false)}
       onloadeddata={() => (videoReady = true)}
       onended={() => (videoEnded = true)}

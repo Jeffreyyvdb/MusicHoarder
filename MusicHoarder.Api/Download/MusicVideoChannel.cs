@@ -9,6 +9,9 @@ public enum MusicVideoWorkKind
 
     /// <summary>Only (re-)estimate the audio↔video sync offset for an already-downloaded video.</summary>
     Align = 1,
+
+    /// <summary>Only measure the black bars baked into an already-downloaded video that has not been measured.</summary>
+    Measure = 2,
 }
 
 /// <summary>

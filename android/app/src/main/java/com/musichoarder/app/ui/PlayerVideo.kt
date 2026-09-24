@@ -23,6 +23,10 @@ import kotlin.math.roundToInt
  *
  * [crop] picks between the web's two fits:
  * - `true` — `object-cover`, the ambient backdrop: fill the box and let the overflow be clipped.
+ *   The box is filled with the clip's *picture*: [letterbox] and [pillarbox] are the black bars
+ *   baked into its frame (from the video info), and they are pushed outside the box with the rest
+ *   of the overflow, as the web's `cropMatte` does. Otherwise a film mastered into 16:9 paints two
+ *   solid bands across the player.
  * - `false` — `object-contain`, the watch view: fit inside the box and letterbox the rest.
  *
  * There is no fade-in here, unlike the web's 500 ms cross-fade: the view is only mounted once
@@ -33,6 +37,8 @@ import kotlin.math.roundToInt
 fun PlayerVideoLayer(
     aspectRatio: Float?,
     crop: Boolean,
+    letterbox: Float,
+    pillarbox: Float,
     onAttach: (TextureView) -> Unit,
     onDetach: () -> Unit,
     modifier: Modifier = Modifier,
@@ -54,6 +60,8 @@ fun PlayerVideoLayer(
         update = { frame ->
             frame.aspectRatio = aspectRatio ?: 0f
             frame.crop = crop
+            frame.letterbox = letterbox
+            frame.pillarbox = pillarbox
         },
     )
     DisposableEffect(Unit) { onDispose { onDetach() } }
@@ -82,12 +90,30 @@ internal class VideoFrameLayout(context: Context) : FrameLayout(context) {
             }
         }
 
+    /** Share of the frame each baked-in bar covers, top and bottom; only the crop mode uses it. */
+    var letterbox: Float = 0f
+        set(value) {
+            if (field != value) {
+                field = value
+                requestLayout()
+            }
+        }
+
+    /** Share of the frame each baked-in bar covers, at the sides; only the crop mode uses it. */
+    var pillarbox: Float = 0f
+        set(value) {
+            if (field != value) {
+                field = value
+                requestLayout()
+            }
+        }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
         val height = MeasureSpec.getSize(heightMeasureSpec)
         setMeasuredDimension(width, height)
 
-        val (childWidth, childHeight) = videoChildSize(width, height, aspectRatio, crop)
+        val (childWidth, childHeight) = videoChildSize(width, height, aspectRatio, crop, letterbox, pillarbox)
         for (i in 0 until childCount) {
             getChildAt(i).measure(
                 MeasureSpec.makeMeasureSpec(childWidth, MeasureSpec.EXACTLY),
@@ -101,6 +127,12 @@ internal class VideoFrameLayout(context: Context) : FrameLayout(context) {
  * The size a clip of [ratio] (width / height) has to take inside a [boxWidth] x [boxHeight] frame
  * to fill it ([crop], the web's `object-cover`) or to fit inside it (the web's `object-contain`).
  *
+ * When cropping, it is the clip's picture that fills the box: [letterbox] and [pillarbox] are the
+ * share of the frame each baked-in bar covers (top and bottom, then the sides), and the frame grows
+ * until the bars hang outside the box — the web's `matteScale` in crop-matte.ts, pinned case for
+ * case by the same tests. Bars already outside the box (a pillarbox on a portrait phone) cost
+ * nothing. Fitting ignores them: the watch view shows the frame as it was mastered.
+ *
  * An unknown ratio fills the box, which is the old always-stretch behaviour — but only for the
  * moment before the decoder reports a size, rather than forever.
  */
@@ -109,15 +141,31 @@ internal fun videoChildSize(
     boxHeight: Int,
     ratio: Float,
     crop: Boolean,
+    letterbox: Float = 0f,
+    pillarbox: Float = 0f,
 ): Pair<Int, Int> {
     if (ratio <= 0f || boxWidth <= 0 || boxHeight <= 0) return boxWidth to boxHeight
     val boxRatio = boxWidth.toFloat() / boxHeight
-    // Cropping means the *other* axis overflows, so the two modes pick opposite sides of the
-    // comparison — a clip wider than the box fills by height when cropping, by width when fitting.
-    val matchWidth = if (crop) ratio <= boxRatio else ratio >= boxRatio
-    return if (matchWidth) {
+    if (crop) {
+        // The share of each axis that is picture. Cropping means the *other* axis overflows, so a
+        // picture wider than the box fills it by height.
+        val keepX = 1f - 2f * barShare(pillarbox)
+        val keepY = 1f - 2f * barShare(letterbox)
+        return if (ratio * keepX / keepY <= boxRatio) {
+            val width = boxWidth / keepX
+            width.roundToInt() to (width / ratio).roundToInt()
+        } else {
+            val height = boxHeight / keepY
+            (height * ratio).roundToInt() to height.roundToInt()
+        }
+    }
+    return if (ratio >= boxRatio) {
         boxWidth to (boxWidth / ratio).roundToInt()
     } else {
         (boxHeight * ratio).roundToInt() to boxHeight
     }
 }
+
+/** A bar pair has to leave some picture between it; anything else is not a measurement. */
+private fun barShare(value: Float): Float =
+    if (value.isFinite() && value > 0f && value < 0.5f) value else 0f
