@@ -131,13 +131,16 @@ function parseSong(entry: unknown): PlayerSong | null {
   // not something this app ever wrote, so it is not something it should play.
   if (typeof entry.streamUrl !== 'string' || !entry.streamUrl.startsWith('/')) return null;
   if (!isOptionalString(entry.coverUrl) || !isOptionalString(entry.album)) return null;
+  // Absent in snapshots written before songs carried it; the player then tries the original.
+  if (!isOptionalString(entry.format)) return null;
   return {
     id: entry.id as number,
     title: entry.title,
     artist: entry.artist,
     streamUrl: entry.streamUrl,
     coverUrl: entry.coverUrl as string | null | undefined,
-    album: entry.album as string | null | undefined
+    album: entry.album as string | null | undefined,
+    format: entry.format as string | null | undefined
   };
 }
 
