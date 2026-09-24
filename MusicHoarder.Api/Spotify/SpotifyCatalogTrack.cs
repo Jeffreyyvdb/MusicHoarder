@@ -17,7 +17,10 @@ public record SpotifyCatalogTrack(
     string? AlbumType = null,
     int? TotalTracks = null,
     string? AlbumId = null,
-    string? AlbumArtUrl = null);
+    string? AlbumArtUrl = null,
+    // Spotify's "explicit" flag. Many songs exist twice, an explicit master and a clean edit with the
+    // words muted; this tells them apart.
+    bool Explicit = false);
 
 /// <summary>An album search hit (<c>GET /v1/search?type=album</c>) carrying enough identity to verify the match.</summary>
 public record SpotifyAlbumCandidate(string Id, string? Name, string? Artist);

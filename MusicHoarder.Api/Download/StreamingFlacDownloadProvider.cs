@@ -15,6 +15,12 @@ namespace MusicHoarder.Api.Download;
 /// file path back. Acquisition only — MusicHoarder's own enrichment/tagging owns all metadata, so the
 /// downloaded file carries no sidecar-written tags (the caller stamps the known Spotify identity).
 /// <para>
+/// The sidecar fetches exactly the edition the Spotify id names, so with
+/// <see cref="StreamingFlacOptions.PreferExplicit"/> on a clean edit is first swapped for its explicit
+/// edition when Spotify has one (<see cref="ExplicitVersionMatcher"/>); the result then carries that
+/// edition's ISRC so the file isn't stamped with the clean one.
+/// </para>
+/// <para>
 /// Falls through (<see cref="DownloadResult.Missing"/>) when the sidecar is unconfigured, no Spotify id
 /// can be resolved, or the track has no lossless source upstream — so the wishlist chain drops to slskd
 /// / yt-dlp. A sidecar that cannot be reached at all (DNS / connection refused — down or mid-redeploy)
@@ -27,7 +33,7 @@ namespace MusicHoarder.Api.Download;
 public sealed class StreamingFlacDownloadProvider(
     StreamingFlacSidecarClient sidecar,
     ISpotifyCatalogSearchService catalogSearch,
-    IOptions<SpotifyOptions> spotifyOptions,
+    ISpotifyAppCredentialsProvider spotifyCredentials,
     IOptionsMonitor<StreamingFlacOptions> options,
     ILogger<StreamingFlacDownloadProvider> logger) : IDownloadProvider, IUpgradeProvider
 {
@@ -51,18 +57,23 @@ public sealed class StreamingFlacDownloadProvider(
 
         try
         {
-            var spotifyUrl = await ResolveSpotifyUrlAsync(req, ct);
-            if (spotifyUrl is null)
+            var (clientId, clientSecret) = await spotifyCredentials.ResolveAsync(ct);
+            var trackId = await ResolveTrackIdAsync(req, clientId, clientSecret, ct);
+            if (trackId is null)
             {
                 logger.LogInformation("streaming-flac: no resolvable Spotify id for '{Artist} - {Title}'",
                     LogSanitizer.ForLog(req.Artist), LogSanitizer.ForLog(req.Title));
                 return DownloadResult.Missing("no resolvable Spotify id");
             }
 
+            string? explicitIsrc = null;
+            if (options.CurrentValue.PreferExplicit)
+                (trackId, explicitIsrc) = await PreferExplicitEditionAsync(trackId, clientId, clientSecret, ct);
+
             Directory.CreateDirectory(req.DestinationDirectory);
             var stem = Guid.NewGuid().ToString("N");
 
-            var result = await sidecar.AcquireAsync(spotifyUrl, req.DestinationDirectory, stem, ct);
+            var result = await sidecar.AcquireAsync(TrackUrl(trackId), req.DestinationDirectory, stem, ct);
             switch (result.Status)
             {
                 case AcquireStatus.Ok:
@@ -78,7 +89,7 @@ public sealed class StreamingFlacDownloadProvider(
                     logger.LogInformation("streaming-flac acquired '{Artist} - {Title}' via {Provider} ({Size} bytes)",
                         LogSanitizer.ForLog(req.Artist), LogSanitizer.ForLog(req.Title),
                         LogSanitizer.ForLog(result.Provider ?? "?"), new FileInfo(file).Length);
-                    return DownloadResult.Ok(file);
+                    return DownloadResult.Ok(file) with { Isrc = explicitIsrc };
 
                 case AcquireStatus.NotFound:
                     logger.LogInformation("streaming-flac found no lossless source for '{Artist} - {Title}': {Error}",
@@ -106,29 +117,64 @@ public sealed class StreamingFlacDownloadProvider(
     }
 
     /// <summary>
-    /// Builds the Spotify track URL the sidecar needs. Prefers the wishlist item's own
+    /// The Spotify track id the sidecar's URL is built from. Prefers the wishlist item's own
     /// <see cref="DownloadRequest.SpotifyTrackId"/>; when absent, resolves the ISRC → track id via the
     /// Spotify catalog client. Credential resolution stays on the C# side (the sidecar never learns to
-    /// resolve ISRCs), and uses <see cref="SpotifyOptions"/> only — the download runs in a DB-free
-    /// section, so a DB-only Spotify config just skips this rare ISRC-fallback path.
+    /// resolve ISRCs). The credentials come from <see cref="ISpotifyAppCredentialsProvider"/>, which
+    /// reads through its own DbContext scope, so the download's DB-free parallel section stays EF-safe.
     /// </summary>
-    private async Task<string?> ResolveSpotifyUrlAsync(DownloadRequest req, CancellationToken ct)
+    private async Task<string?> ResolveTrackIdAsync(
+        DownloadRequest req, string? clientId, string? clientSecret, CancellationToken ct)
     {
         if (!string.IsNullOrWhiteSpace(req.SpotifyTrackId))
-            return TrackUrl(req.SpotifyTrackId!);
+            return req.SpotifyTrackId!;
 
         var isrc = ProviderIdentity.NormalizeIsrc(req.Isrc);
         if (string.IsNullOrEmpty(isrc))
             return null;
 
-        var opts = spotifyOptions.Value;
-        var clientId = opts.ClientId?.Trim();
-        var clientSecret = opts.ClientSecret?.Trim();
         if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
             return null;
 
         var id = await catalogSearch.SearchTrackIdByIsrcAsync(clientId!, clientSecret!, isrc, ct);
-        return string.IsNullOrWhiteSpace(id) ? null : TrackUrl(id!);
+        return string.IsNullOrWhiteSpace(id) ? null : id;
+    }
+
+    /// <summary>
+    /// Swaps a clean edit's id for its explicit edition's, returning that edition's ISRC alongside.
+    /// Best-effort: without credentials, when the track is already explicit or has no explicit
+    /// edition, or on any lookup failure (a rate limit included), the requested id is kept and the
+    /// download goes ahead unchanged.
+    /// </summary>
+    private async Task<(string TrackId, string? Isrc)> PreferExplicitEditionAsync(
+        string trackId, string? clientId, string? clientSecret, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+            return (trackId, null);
+
+        try
+        {
+            var track = await catalogSearch.GetTrackAsync(clientId!, clientSecret!, trackId, ct);
+            if (track is null || track.Explicit)
+                return (trackId, null);
+
+            var candidates = await catalogSearch.SearchTracksAsync(
+                clientId!, clientSecret!, ExplicitVersionMatcher.SearchQuery(track), ct);
+            if (ExplicitVersionMatcher.FindExplicitEdition(track, candidates) is not { } edition)
+                return (trackId, null);
+
+            logger.LogInformation(
+                "streaming-flac: '{Artist} - {Title}' ({TrackId}) is a clean edit; acquiring its explicit edition {ExplicitId}",
+                LogSanitizer.ForLog(track.Artist), LogSanitizer.ForLog(track.Title),
+                LogSanitizer.ForLog(trackId), LogSanitizer.ForLog(edition.Id));
+            return (edition.Id, ProviderIdentity.NormalizeIsrc(edition.Isrc) is { Length: > 0 } isrc ? isrc : null);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogDebug(ex, "streaming-flac: explicit-edition lookup failed for {TrackId}; using it as is",
+                LogSanitizer.ForLog(trackId));
+            return (trackId, null);
+        }
     }
 
     private static string TrackUrl(string trackId) => $"https://open.spotify.com/track/{trackId}";

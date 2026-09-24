@@ -46,6 +46,11 @@ public record DownloadRequest(
 /// music-video download uses it to fetch the clip from the <em>same</em> video, making the
 /// audio/video sync offset 0 by construction. Null for providers without such an id.
 /// </para>
+/// <para>
+/// <paramref name="Isrc"/> is set when the provider deliberately fetched a different edition of the
+/// requested track (spotiflac swapping a clean edit for its explicit edition): the ISRC of what was
+/// actually downloaded, for the caller to stamp instead of the requested one. Null means the request's.
+/// </para>
 /// </summary>
 public record DownloadResult(
     bool Success,
@@ -53,7 +58,8 @@ public record DownloadResult(
     string? Error,
     bool NotFound,
     string? SourceId = null,
-    bool Unavailable = false)
+    bool Unavailable = false,
+    string? Isrc = null)
 {
     public static DownloadResult Ok(string filePath, string? sourceId = null) => new(true, filePath, null, false, sourceId);
     public static DownloadResult Failed(string error) => new(false, null, error, false);
