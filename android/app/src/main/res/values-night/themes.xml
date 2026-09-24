@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The dark window: `mh_background` resolves to black here. See values/themes.xml. -->
+    <style name="Theme.MusicHoarder" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/mh_background</item>
+    </style>
+</resources>

@@ -1,16 +1,18 @@
 package com.musichoarder.app.ui
 
 import android.os.Build
+import android.util.LruCache
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.BlurredEdgeTreatment
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
@@ -18,15 +20,27 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
-import com.musichoarder.app.ui.theme.MhTheme
+import coil3.request.ImageRequest
+import coil3.request.SuccessResult
+import coil3.request.allowHardware
+import coil3.toBitmap
+import com.musichoarder.app.data.CoverDim
+import com.musichoarder.app.data.brightestGrey
+import com.musichoarder.app.data.dimAlphaForGrey
 import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Album art, with the web app's placeholder underneath it.
@@ -73,47 +87,104 @@ fun Artwork(
 }
 
 /**
- * The ambient wash the web paints behind the player and the fullscreen lyrics: the cover blown up,
- * blurred hard, and half-faded into the page colour.
+ * Now Playing's ground — the web's media appearance, layer for layer: black, the cover blown up
+ * to 150%, blurred hard and saturated so the wash carries the cover's colour rather than its
+ * picture, then a black dim of [dimAlpha] (`rememberCoverDimAlpha`) that keeps white text legible
+ * over whatever the cover is. The tint sits under the image, so a song without art still gets its
+ * album's colour instead of a black room.
  *
- * `Modifier.blur` needs a `RenderEffect`, which is API 31 and up. Below that this leans on the
- * other half of the recipe — [url] should be a small thumbnail (128 px is plenty), and a 128 px
- * cover stretched across a phone is already soft enough to read as a wash rather than a picture.
+ * `Modifier.blur` needs a `RenderEffect`, which is API 31 and up. Below that the other half of the
+ * recipe does the work: the wash asks Coil for a tiny decode of the cover, and a 16 px image
+ * stretched across a phone is already soft enough to read as a wash rather than a picture. Above
+ * it the decode is still small, because the blur throws the detail away anyway.
  */
 @Composable
 fun AmbientBackdrop(
     url: String?,
     artist: String,
     title: String,
+    dimAlpha: Float,
     modifier: Modifier = Modifier,
-    scrimAlpha: Float = 0.8f,
-    blurRadius: Dp = 48.dp,
 ) {
-    val colors = MhTheme.colors
     val tint = remember(artist, title) { albumTint(artist, title) }
-    Box(modifier = modifier.clipToBounds().background(colors.background)) {
+    val context = LocalContext.current
+    val request = remember(url, context) {
+        url?.let { ImageRequest.Builder(context).data(it).size(WASH_SOURCE_PX).build() }
+    }
+    Box(modifier = modifier.clipToBounds().background(Color.Black)) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .scale(1.1f)
-                .ambientBlur(blurRadius)
-                .alpha(0.5f)
+                .scale(1.5f)
+                .ambientBlur(64.dp)
                 .background(tint)
         ) {
-            if (url != null) {
+            if (request != null) {
                 AsyncImage(
-                    model = url,
+                    model = request,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
+                    colorFilter = WashSaturation,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
         }
-        Box(Modifier.fillMaxSize().background(colors.background.copy(alpha = scrimAlpha)))
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = dimAlpha)))
     }
 }
 
-/** `blur-3xl`, where the platform can do it at all. */
+/** `saturate-150`, so the blurred wash reads as the cover's colour rather than a muddy grey. */
+private val WashSaturation = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(1.5f) })
+
+/** A soft source is the blur's job on API 31+, and the whole of it below. */
+private val WASH_SOURCE_PX = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 64 else 16
+
+/**
+ * How much black goes over this cover so the player's white text keeps its contrast — the web's
+ * `coverDimAlpha`, sampled once per cover from an 8×8 decode (Coil's disk cache already holds the
+ * image, so this costs a decode, not a download) and sized by its brightest cell, which is where a
+ * lyric line can land. Anything that cannot be measured — no cover, a failed load — resolves to
+ * [CoverDim.DIM_UNKNOWN], the white cover's dim, and a known cover answers from the cache straight
+ * away, so reopening the player does not flash the default first.
+ */
+@Composable
+fun rememberCoverDimAlpha(url: String?): Float {
+    val context = LocalContext.current
+    val measured by produceState(initialValue = url?.let(CoverDimCache::get) ?: CoverDim.DIM_UNKNOWN, url) {
+        if (url == null) {
+            value = CoverDim.DIM_UNKNOWN
+            return@produceState
+        }
+        CoverDimCache.get(url)?.let {
+            value = it
+            return@produceState
+        }
+        val request = ImageRequest.Builder(context).data(url).size(8).allowHardware(false).build()
+        val image = (SingletonImageLoader.get(context).execute(request) as? SuccessResult)?.image
+        if (image == null) {
+            // Not cached: a load that failed (offline, a server restarting) may well work next time.
+            value = CoverDim.DIM_UNKNOWN
+            return@produceState
+        }
+        val alpha = withContext(Dispatchers.Default) {
+            // A cover that cannot be read back (a hardware bitmap that slipped through, a decoder
+            // quirk) is simply an unmeasured one — the same answer as the web's tainted canvas.
+            runCatching {
+                val pixels = IntArray(64)
+                image.toBitmap(8, 8).getPixels(pixels, 0, 8, 0, 0, 8, 8)
+                dimAlphaForGrey(brightestGrey(pixels))
+            }.getOrDefault(CoverDim.DIM_UNKNOWN)
+        }
+        CoverDimCache.put(url, alpha)
+        value = alpha
+    }
+    return measured
+}
+
+/** Per cover URL, as on the web: a cover's grey does not change, so it is measured once. */
+private val CoverDimCache = LruCache<String, Float>(64)
+
+/** `blur-[64px]`, where the platform can do it at all. */
 private fun Modifier.ambientBlur(radius: Dp): Modifier =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         blur(radius, BlurredEdgeTreatment.Unbounded)
@@ -185,6 +256,24 @@ private fun encodeSrgb(channel: Double): Float {
     val v = channel.coerceIn(0.0, 1.0)
     val encoded = if (v <= 0.0031308) 12.92 * v else 1.055 * v.pow(1.0 / 2.4) - 0.055
     return encoded.coerceIn(0.0, 1.0).toFloat()
+}
+
+/**
+ * A list's or an album's total playing time — "4 h 21 min", "52 min", "48 sec". A port of the
+ * web's `formatTotalDuration`, word for word, since the two clients print it under the same title.
+ */
+fun formatTotalDuration(seconds: Long): String {
+    if (seconds <= 0) return "—"
+    // The web's one duration style: minutes are the finest unit once there is a minute to show
+    // ("21 min", never "20 min 56 sec"), rounded to the nearest.
+    if (seconds < 60) return "$seconds sec"
+    val totalMinutes = (seconds + 30) / 60
+    val hours = totalMinutes / 60
+    val minutes = totalMinutes % 60
+    return when {
+        hours > 0 -> if (minutes > 0) "$hours h $minutes min" else "$hours h"
+        else -> "$minutes min"
+    }
 }
 
 /** Formats a media position as `m:ss` (or `h:mm:ss` for the rare long track). */

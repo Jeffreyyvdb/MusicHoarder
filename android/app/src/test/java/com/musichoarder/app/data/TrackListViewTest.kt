@@ -60,7 +60,7 @@ class TrackListViewTest {
     }
 
     @Test
-    fun `an optimistic heart moves the MusicHoarder Liked count`() {
+    fun `an optimistic heart moves the Favourites count`() {
         val optimistic = mapOf(scanned.id to "2026-08-22T00:00:00Z")
         val counts = chipCounts(all, emptySet()) { likedNow(optimistic, it) }
         assertEquals(2, counts.getValue(ChipKey.MhLiked))
@@ -122,5 +122,43 @@ class TrackListViewTest {
         assertEquals(true, isMyMusic(filledAndLiked, isLiked(filledAndLiked)))
         // The optimistic overlay promotes it before the next refetch lands.
         assertEquals(true, isMyMusic(filled, true))
+    }
+
+    @Test
+    fun `labels and the member chip set match the web word for word`() {
+        // track-list-view.svelte.ts: CHIP_LABELS and FRIEND_CHIP_KEYS. A member's list carries no
+        // origin or Spotify data, so any other chip could only ever read 0 there.
+        assertEquals("Favourites", CHIP_LABELS.getValue(ChipKey.MhLiked))
+        assertEquals("Spotify liked", CHIP_LABELS.getValue(ChipKey.SpotifyLiked))
+        assertEquals(listOf(ChipKey.MhLiked, ChipKey.Video, ChipKey.Lyrics), FRIEND_CHIP_KEYS)
+        assertEquals(FRIEND_CHIP_KEYS, visibleChipKeys(isAdmin = false))
+        assertEquals(CHIP_KEYS, visibleChipKeys(isAdmin = true))
+    }
+
+    @Test
+    fun `a member is not offered the Spotify save date`() {
+        assertEquals(false, SortKey.Spotify in visibleSortKeys(isAdmin = false))
+        assertEquals(SortKey.entries.size - 1, visibleSortKeys(isAdmin = false).size)
+        assertEquals(SortKey.entries, visibleSortKeys(isAdmin = true))
+    }
+
+    @Test
+    fun `switching to a member lets go of what it cannot see, and the sort that came with it`() {
+        val admin = LibraryUiState(
+            chips = setOf(ChipKey.SpotifyLiked, ChipKey.Video),
+            sortKey = SortKey.Spotify,
+            sortAscending = false,
+        )
+        val member = admin.scopedTo(isAdmin = false)
+        assertEquals(setOf(ChipKey.Video), member.chips)
+        assertEquals(SortKey.Added, member.sortKey)
+        assertEquals(false, member.sortAscending)
+        // An admin keeps everything, and a member's own choices are left alone.
+        assertEquals(admin, admin.scopedTo(isAdmin = true))
+        val own = LibraryUiState(chips = setOf(ChipKey.MhLiked), sortKey = SortKey.Title, sortAscending = true)
+        assertEquals(own, own.scopedTo(isAdmin = false))
+        // A Spotify sort picked from the menu, with no chip behind it, goes back to the default too.
+        val menuSort = LibraryUiState(sortKey = SortKey.Spotify, sortAscending = true).scopedTo(isAdmin = false)
+        assertEquals(SortKey.Added to false, menuSort.sortKey to menuSort.sortAscending)
     }
 }
