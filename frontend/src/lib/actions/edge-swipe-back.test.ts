@@ -11,7 +11,7 @@ import { edgeSwipeBack } from './edge-swipe-back';
 const WIDTH = 393;
 
 class FakeElement extends EventTarget {
-  style: Record<string, string> = { transform: '', transition: '' };
+  style: Record<string, string> = { transform: '', transition: '', opacity: '' };
   removed = false;
   innerHTML = '';
   className = '';
@@ -96,17 +96,74 @@ function attach() {
 }
 
 describe('edgeSwipeBack', () => {
-  it('goes back past 30% of the width', () => {
+  it('goes back past 30% of the width', async () => {
     const { back, clear } = withBack();
     const action = attach();
     const moves = swipe(5, [20, 60, 100, 140]);
     expect(moves.every((e) => e.defaultPrevented)).toBe(true);
     expect(back).toHaveBeenCalledOnce();
-    // The page was shifted while dragging and is put straight back for the incoming page.
-    expect(node.style.transform).toBe('');
+    // The page stays where the finger left it, fading, until the Back has run…
+    expect(node.style.transform).toBe('translate3d(40.5px, 0, 0)');
+    expect(node.style.opacity).toBe('0');
+    await Promise.resolve();
+    // …and is then put back, with nothing lingering, for the incoming page.
+    expect(node.style).toEqual({ transform: '', transition: '', opacity: '' });
     expect(chevrons).toHaveLength(1);
     action.destroy();
     expect(chevrons[0].removed).toBe(true);
+    clear();
+  });
+
+  it('holds the page it is leaving until the Back has landed', async () => {
+    let landed = () => {};
+    const back = vi.fn(() => new Promise<void>((resolve) => (landed = resolve)));
+    const clear = navBack.set(back);
+    const action = attach();
+    swipe(5, [20, 60, 100, 140]);
+    await Promise.resolve();
+    // Never snapped home first: that read as the page jumping back against the gesture.
+    expect(node.style.transform).toBe('translate3d(40.5px, 0, 0)');
+    expect(node.style.opacity).toBe('0');
+    landed();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(node.style).toEqual({ transform: '', transition: '', opacity: '' });
+    action.destroy();
+    clear();
+  });
+
+  it('puts the page back even when the Back never lands', async () => {
+    const back = vi.fn(() => new Promise<void>(() => {}));
+    const clear = navBack.set(back);
+    const action = attach();
+    swipe(5, [20, 60, 100, 140]);
+    await Promise.resolve();
+    expect(node.style.opacity).toBe('0');
+    vi.advanceTimersByTime(1200);
+    expect(node.style).toEqual({ transform: '', transition: '', opacity: '' });
+    action.destroy();
+    clear();
+  });
+
+  it('lets a new swipe take over from a page still waiting to land', async () => {
+    let landed = () => {};
+    const back = vi.fn(() => new Promise<void>((resolve) => (landed = resolve)));
+    const clear = navBack.set(back);
+    const action = attach();
+    swipe(5, [20, 60, 100, 140]);
+    node.dispatchEvent(touchEvent('touchstart', 5, 300, { dt: 0 }));
+    node.dispatchEvent(touchEvent('touchmove', 20, 300));
+    node.dispatchEvent(touchEvent('touchmove', 95, 300));
+    // The new drag starts from the resting page, fully visible…
+    expect(node.style.opacity).toBe('');
+    expect(node.style.transform).toBe('translate3d(27px, 0, 0)');
+    // …and the first Back landing late does not yank it out from under the finger.
+    landed();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(node.style.transform).toBe('translate3d(27px, 0, 0)');
+    action.destroy();
+    expect(node.style).toEqual({ transform: '', transition: '', opacity: '' });
     clear();
   });
 
