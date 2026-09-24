@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-
-    <style name="Theme.MusicHoarder" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+      The window behind Compose: what the launch frame and any gap before the first composition
+      paint. It mirrors the `background` token in frontend/src/app.css (and Color.kt), so the app opens on
+      the same ground it draws. The dark twin lives in values-night; unlike the iOS web app, which
+      has to launch light, Android can pick per appearance before any code runs.
+    -->
+    <style name="Theme.MusicHoarder" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/mh_background</item>
+    </style>
 </resources>

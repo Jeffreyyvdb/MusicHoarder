@@ -1,88 +1,51 @@
 <script lang="ts">
-  import { page } from '$app/state';
   import { MediaQuery } from 'svelte/reactivity';
-  import { Check, Film, ImageOff, Loader2, RotateCcw, Search, Trash2, X } from '@lucide/svelte';
-  import { Button } from '$lib/components/ui/button';
-  import { Input } from '$lib/components/ui/input';
-  import { Switch } from '$lib/components/ui/switch';
-  import {
-    getSongVideoInfo,
-    getSongVideoInfoUntilSettled,
-    getSongVideoStreamUrl,
-    fetchSongVideo,
-    setSongVideoOffset,
-    resetSongVideoOffset,
-    deleteSongVideo,
-    getSongVideoCandidates,
-    getSongVideoCandidateThumbnailUrl,
-    probeSongVideoCandidate,
-    type SongVideoCandidate,
-    type SongVideoInfo,
-    type VideoMotion
-  } from '$lib/api-client';
+  import { getSongVideoStreamUrl } from '$lib/api-client';
+  import { cropMatte } from '$lib/actions/crop-matte';
   import { playerStore } from '$lib/stores/player.svelte';
   import { videoBackdropPrefs } from '$lib/stores/video-backdrop-prefs.svelte';
+  import type { SongVideo } from '$lib/components/file-browser/now-playing/song-video.svelte';
   import { cn } from '$lib/utils';
-  import { isAdmin } from '$lib/auth/capabilities';
 
-  // The full-screen player's backdrop: the song's muted music video when one is attached (and the
-  // pref is on and this song is the one playing), else the blurred ambient artwork. The audio
-  // element in the player store is the master clock — the <video> is slaved to it through the
-  // per-song sync offset (videoTime = audioTime + offsetMs/1000) with a hard resync whenever drift
-  // exceeds DRIFT_TOLERANCE_S. The store's existing 10 Hz currentTime writes double as the drift
-  // ticker, so no extra timer is needed; a >0.3 s divergence from seek/resume/track-change trips the
-  // same rule.
-  let { songId, ambientUrl }: { songId: number; ambientUrl: string | null } = $props();
+  // Now Playing's background. Three layers, and no backdrop-filter anywhere (lyrics repaint every
+  // frame over it): the cover, blown up and blurred into a wash; a black dim sized per cover so
+  // white text always clears its contrast (see cover-dim.ts); and — when a music video is attached,
+  // the pref is on and this song is the one playing — the muted video itself, cross-fading in once
+  // its first frame decodes. The video fills the screen with its picture, not its frame: black bars
+  // baked into the file are cropped (crop-matte.ts), or a letterbox's edge would cut a hard line
+  // across the player wherever it happened to land — through Info's section control, say.
+  //
+  // The audio element in the player store is the master clock: the <video> is slaved to it
+  // through the per-song sync offset (videoTime = audioTime + offsetMs/1000) with a hard resync
+  // whenever drift exceeds DRIFT_TOLERANCE_S. The store's 10 Hz currentTime writes double as the
+  // drift ticker, so no extra timer is needed; a >0.3 s divergence from seek/resume/track-change
+  // trips the same rule.
+  //
+  // What the video IS (status, offset, admin actions) lives in the shared SongVideo, which the
+  // Video mode and the Manage video sheet read too — a nudge moves this backdrop live.
+  let {
+    songId,
+    ambientUrl,
+    dimAlpha,
+    video,
+    showing = $bindable(false)
+  }: {
+    songId: number;
+    ambientUrl: string | null;
+    /** The dim layer's alpha for this cover (cover-dim.ts). */
+    dimAlpha: number;
+    video: SongVideo;
+    /** Out: the video is up (the overlay adds a text halo for legibility over moving pictures). */
+    showing?: boolean;
+  } = $props();
 
   const DRIFT_TOLERANCE_S = 0.3;
 
-  const isOwner = $derived(
-    isAdmin(page.data.user)
-  );
-
-  let info = $state<SongVideoInfo | null>(null);
-  let infoUnavailable = $state(false); // info load keeps failing; retrying in the background
-  let offsetMs = $state(0); // local mirror of info.syncOffsetMs; updated optimistically on nudge
   let videoEl = $state<HTMLVideoElement | null>(null);
   let videoReady = $state(false); // first frame decoded — until then the <video> paints nothing
   let videoEnded = $state(false);
   let videoFailed = $state(false);
   let videoLoadRetries = 0; // non-reactive: only read inside the onerror handler
-  let controlsOpen = $state(false);
-  let controlsEl = $state<HTMLElement | null>(null);
-  let urlInput = $state('');
-  let busy = $state(false);
-  // Candidate picker: what the search WOULD download, with each option's measured motion and size,
-  // so a static album cover can be recognised and skipped before it costs any disk.
-  let pickerOpen = $state(false);
-  let candidates = $state<SongVideoCandidate[] | null>(null);
-  let candidatesLoading = $state(false);
-  let candidatesError = $state<string | null>(null);
-  let probing = $state<Set<string>>(new Set());
-
-  // Hand-rolled popover dismissal: click/tap outside the cluster closes it, and Escape closes it
-  // WITHOUT bubbling to the bits-ui Dialog (which would close the whole full-screen panel) —
-  // hence the capture-phase listener with stopPropagation.
-  $effect(() => {
-    if (!controlsOpen) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (controlsEl && e.target instanceof Node && !controlsEl.contains(e.target)) {
-        controlsOpen = false;
-      }
-    };
-    const onKeydown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        controlsOpen = false;
-      }
-    };
-    document.addEventListener('pointerdown', onPointerDown, true);
-    document.addEventListener('keydown', onKeydown, true);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown, true);
-      document.removeEventListener('keydown', onKeydown, true);
-    };
-  });
 
   // Apple asks that motion have a system-level off switch; a full-bleed autoplaying video behind
   // the lyrics is exactly that motion, so Reduce Motion falls back to the static ambient artwork
@@ -90,10 +53,10 @@
   const reduceMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
 
   const isCurrentSong = $derived(playerStore.currentSong?.id === songId);
-  // Ready and its file is actually on disk — fileMissing means the stream endpoint would 404.
-  const playable = $derived(info?.status === 'Ready' && !info.fileMissing);
+  const offsetMs = $derived(video.offsetMs);
   const showVideo = $derived(
-    playable &&
+    video.playable &&
+      video.songId === songId &&
       videoBackdropPrefs.enabled &&
       isCurrentSong &&
       !videoEnded &&
@@ -101,57 +64,19 @@
       !reduceMotion.current
   );
 
-  // Load (and reload on song change) the video info; reset per-song playback state. The load only
-  // settles on a definitive answer (info, or a 404 meaning none attached) and retries everything
-  // else until unmount — a transient failure after a page refresh must read as "unavailable",
-  // never as "no video, fetch it again".
   $effect(() => {
-    const id = songId;
+    showing = showVideo && videoReady;
+  });
+
+  // New song, or a refetch settled: the new file deserves a clean slate even when the old one had
+  // failed or ended.
+  $effect(() => {
+    void songId;
+    void video.generation;
     videoReady = false;
     videoEnded = false;
     videoFailed = false;
     videoLoadRetries = 0;
-    info = null;
-    infoUnavailable = false;
-    const abort = new AbortController();
-    getSongVideoInfoUntilSettled(id, {
-      signal: abort.signal,
-      onRetry: () => {
-        if (!abort.signal.aborted) infoUnavailable = true;
-      }
-    }).then(
-      (result) => {
-        if (abort.signal.aborted) return;
-        infoUnavailable = false;
-        info = result;
-        offsetMs = result?.syncOffsetMs ?? 0;
-      },
-      () => {} // rejects only on abort
-    );
-    return () => abort.abort();
-  });
-
-  // While a fetch is running server-side, poll until it settles (fetches take ~30–60s).
-  $effect(() => {
-    if (info?.status !== 'Fetching') return;
-    const id = songId;
-    const timer = setInterval(() => {
-      getSongVideoInfo(id).then(
-        (result) => {
-          if (result && result.status !== 'Fetching') {
-            info = result;
-            offsetMs = result.syncOffsetMs;
-            // A refetch just settled — the new file deserves a clean slate even when the old
-            // one had failed or ended.
-            videoFailed = false;
-            videoEnded = false;
-            videoLoadRetries = 0;
-          }
-        },
-        () => {}
-      );
-    }, 3000);
-    return () => clearInterval(timer);
   });
 
   // Slave the video's transport state to the audio's. Effects here only read player/pref state and
@@ -198,6 +123,7 @@
 
   // Re-show the video when the user seeks back before its end.
   $effect(() => {
+    const info = video.info;
     if (!videoEnded || info?.status !== 'Ready') return;
     const duration = info.durationSeconds;
     const mapped = playerStore.currentTime + offsetMs / 1000;
@@ -221,185 +147,31 @@
       if (songId === id) videoEl?.load();
     }, VIDEO_LOAD_RETRY_DELAYS_MS[attempt]);
   }
-
-  async function onBrowse() {
-    pickerOpen = true;
-    if (candidatesLoading) return;
-    candidatesLoading = true;
-    candidatesError = null;
-    try {
-      const result = await getSongVideoCandidates(songId);
-      candidates = result.candidates;
-      // The list arrives unmeasured — one flat search, so it is quick. Measuring is a request per
-      // candidate: fire the leading few in PARALLEL and let each row settle on its own, so one
-      // slow video delays only its own verdict instead of the whole picker.
-      void Promise.all(result.candidates.slice(0, result.probeLimit).map((c) => onCheck(c.videoId)));
-    } catch {
-      candidatesError = 'Search failed — try again.';
-    } finally {
-      candidatesLoading = false;
-    }
-  }
-
-  async function onCheck(videoId: string) {
-    if (probing.has(videoId)) return;
-    probing = new Set([...probing, videoId]);
-    try {
-      const probed = await probeSongVideoCandidate(songId, videoId);
-      // Keep the list's own ranking; fill in what was measured, plus the title/channel/duration
-      // for a pinned row the search itself never described.
-      candidates =
-        candidates?.map((c) =>
-          c.videoId === videoId
-            ? {
-                ...c,
-                motion: probed.motion,
-                estimatedBytes: probed.estimatedBytes,
-                squareSource: probed.squareSource,
-                title: c.title || probed.title,
-                channel: c.channel || probed.channel,
-                durationSeconds: c.durationSeconds ?? probed.durationSeconds
-              }
-            : c
-        ) ?? null;
-    } catch {
-      // Leave the row unmeasured and re-checkable. This must not clear the list: an unmeasured
-      // candidate is still a perfectly valid thing to pick.
-    } finally {
-      probing = new Set([...probing].filter((id) => id !== videoId));
-    }
-  }
-
-  async function onPick(videoId: string) {
-    busy = true;
-    try {
-      // An explicit pick is honored verbatim by the backend, motion verdict notwithstanding — the
-      // owner looked at the measurement and chose anyway.
-      info = await fetchSongVideo(songId, `https://www.youtube.com/watch?v=${videoId}`);
-      pickerOpen = false;
-    } catch {
-      candidatesError = 'Could not start the download.';
-    } finally {
-      busy = false;
-    }
-  }
-
-  function formatBytes(bytes: number | null): string {
-    if (bytes == null) return 'size unknown';
-    return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
-  }
-
-  function formatDuration(seconds: number | null): string {
-    if (seconds == null || seconds <= 0) return '';
-    return `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, '0')}`;
-  }
-
-  const MOTION_LABELS: Record<VideoMotion, { label: string; class: string; title: string }> = {
-    RealVideo: {
-      label: 'real video',
-      class: 'bg-emerald-500/15 text-emerald-500',
-      title: 'The picture moves throughout — an actual clip.'
-    },
-    LowMotion: {
-      label: 'low motion',
-      class: 'bg-amber-500/15 text-amber-500',
-      title: 'Mostly still: lyric cards, a slideshow, or a looping visualizer.'
-    },
-    Static: {
-      label: 'still image',
-      class: 'bg-destructive/15 text-destructive-text',
-      title: 'One image for the whole song — an album cover or an audio-only upload.'
-    },
-    Unknown: {
-      label: 'not checked',
-      class: 'bg-muted text-muted-foreground',
-      title: 'Not measured: only the top candidates are probed.'
-    }
-  };
-
-  async function onFetch() {
-    busy = true;
-    try {
-      info = await fetchSongVideo(songId, urlInput.trim() || undefined);
-      urlInput = '';
-    } catch {
-      /* surfaced via info.lastError on the next poll */
-    } finally {
-      busy = false;
-    }
-  }
-
-  async function nudge(deltaMs: number) {
-    const next = offsetMs + deltaMs;
-    offsetMs = next; // optimistic — nudging should feel live
-    try {
-      info = await setSongVideoOffset(songId, next);
-      offsetMs = info.syncOffsetMs;
-    } catch {
-      offsetMs = info?.syncOffsetMs ?? 0;
-    }
-  }
-
-  async function onResetAuto() {
-    try {
-      info = await resetSongVideoOffset(songId);
-      offsetMs = info.syncOffsetMs;
-    } catch {
-      /* keep current */
-    }
-  }
-
-  async function onRemove() {
-    busy = true;
-    try {
-      await deleteSongVideo(songId);
-      info = null;
-      offsetMs = 0;
-    } finally {
-      busy = false;
-    }
-  }
-
-  function formatOffset(ms: number): string {
-    const sign = ms < 0 ? '−' : '+';
-    return `${sign}${(Math.abs(ms) / 1000).toFixed(1)}s`;
-  }
-
-  const syncLabel = $derived.by(() => {
-    if (!info) return '';
-    switch (info.syncSource) {
-      case 'SameSource':
-        return 'synced (same source)';
-      case 'AutoAligned':
-        return `auto-aligned ${formatOffset(info.syncOffsetMs)}${info.syncConfidence != null ? ` · ${Math.round(info.syncConfidence * 100)}%` : ''}`;
-      case 'Manual':
-        return `manual ${formatOffset(info.syncOffsetMs)}`;
-      default:
-        return 'not aligned';
-    }
-  });
 </script>
 
-<!-- Backdrop layers (absolute, behind the panel's z-10 content). The ambient art + scrim is
-     ALWAYS mounted as the base layer: a <video> paints nothing until a frame is decoded (initial
-     load, a resync seek into an unbuffered range, a mid-stream stall), and the video's gradient
-     scrim is translucent — without the base underneath, those windows see straight through the
-     transparent dialog to the page behind it (the song list). -->
+<!-- Layer 0 is the overlay's own black. The cover wash and the dim are ALWAYS mounted as the base:
+     a <video> paints nothing until a frame is decoded (initial load, a resync seek into an
+     unbuffered range, a mid-stream stall), and without the base those windows would flash black. -->
 {#if ambientUrl}
   <img
     src={ambientUrl}
     alt=""
     aria-hidden="true"
-    class="absolute inset-0 size-full scale-110 object-cover opacity-50 blur-3xl"
+    draggable="false"
+    class="pointer-events-none absolute inset-0 size-full scale-150 object-cover blur-[64px] saturate-150"
   />
 {/if}
-<div class="mh-glass bg-background/92 absolute inset-0 backdrop-blur-2xl"></div>
+<div
+  class="np-dim pointer-events-none absolute inset-0"
+  style="--np-dim: {dimAlpha}"
+  aria-hidden="true"
+></div>
 {#if showVideo}
   <!-- Decorative, always-muted backdrop; the player's audio element is the actual sound.
        Cross-fades in over the ambient art once the first frame is decoded. -->
   <div
     class={cn(
-      'mh-crossfade absolute inset-0 transition-opacity duration-500',
+      'mh-crossfade pointer-events-none absolute inset-0 overflow-hidden transition-opacity duration-500',
       videoReady ? 'opacity-100' : 'opacity-0'
     )}
   >
@@ -412,6 +184,7 @@
       aria-hidden="true"
       tabindex="-1"
       class="absolute inset-0 size-full object-cover"
+      use:cropMatte={{ letterbox: video.info?.letterbox, pillarbox: video.info?.pillarbox }}
       onloadstart={() => (videoReady = false)}
       onloadeddata={() => {
         videoReady = true;
@@ -422,287 +195,19 @@
     ></video>
     <!-- Gradient scrim (no backdrop blur — it would mush the video) for text legibility: heavier
          at the top and bottom where the chrome/transport text lives, lighter mid-frame. -->
-    <div
-      class="from-background/75 via-background/45 to-background/85 absolute inset-0 bg-gradient-to-b"
-    ></div>
+    <div class="absolute inset-0 bg-gradient-to-b from-black/75 via-black/45 to-black/85"></div>
   </div>
 {/if}
 
-<!-- Floating control cluster (above the panel content) -->
-<div bind:this={controlsEl} class="absolute right-4 bottom-4 z-20 flex flex-col items-end gap-2">
-  {#if controlsOpen}
-    <div
-      class={cn(
-        'bg-popover/95 border-border rounded-xl border p-3 shadow-xl backdrop-blur-sm',
-        pickerOpen ? 'w-96' : 'w-72'
-      )}
-    >
-      <div class="mb-2 flex items-center justify-between gap-2">
-        <span class="text-sm font-medium">Music video</span>
-        <span class="flex items-center gap-1.5">
-          {#if info?.status === 'Fetching'}
-            <span class="text-muted-foreground inline-flex items-center gap-1 text-xs">
-              <Loader2 class="size-3 animate-spin" /> fetching…
-            </span>
-          {:else if info?.status === 'Ready' && info.fileMissing}
-            <span class="text-destructive-text text-xs">file missing</span>
-          {:else if info?.status === 'Ready'}
-            <span class="text-muted-foreground text-xs">{syncLabel}</span>
-          {:else if info?.status === 'Failed'}
-            <span class="text-destructive-text text-xs">failed</span>
-          {:else if infoUnavailable}
-            <!-- The status request keeps failing — unknown is NOT "none"; a fetch here would
-                 needlessly re-download a video that may well still exist. -->
-            <span class="text-muted-foreground inline-flex items-center gap-1 text-xs">
-              <Loader2 class="size-3 animate-spin" /> status unavailable — retrying
-            </span>
-          {:else}
-            <span class="text-muted-foreground text-xs">none</span>
-          {/if}
-          <Button
-            size="icon"
-            variant="ghost"
-            class="text-muted-foreground -mr-1 size-6"
-            aria-label="Close music video options"
-            onclick={() => (controlsOpen = false)}
-          >
-            <X class="size-3.5" />
-          </Button>
-        </span>
-      </div>
-
-      {#if info?.status === 'Failed' && info.lastError}
-        <p class="text-destructive-text/90 mb-2 line-clamp-2 text-xs" title={info.lastError}>
-          {info.lastError}
-        </p>
-      {/if}
-
-      {#if info?.status === 'Ready' && info.fileMissing}
-        <p class="text-destructive-text/90 mb-2 text-xs">
-          The video file is gone from disk — refetch to restore it.
-        </p>
-      {/if}
-
-      {#if playable}
-        <label class="mb-2 flex items-center justify-between gap-2 text-sm">
-          <span>Show as backdrop</span>
-          <Switch
-            checked={videoBackdropPrefs.enabled}
-            onCheckedChange={(v: boolean) => videoBackdropPrefs.setEnabled(v)}
-          />
-        </label>
-      {/if}
-
-      {#if isOwner}
-        {#if playable}
-          <div class="mb-2">
-            <div class="text-muted-foreground mb-1 text-xs">
-              Sync nudge · {formatOffset(offsetMs)}
-            </div>
-            <div class="flex items-center gap-1">
-              <Button size="sm" variant="outline" class="h-7 px-2 text-xs" onclick={() => nudge(-1000)}>
-                −1s
-              </Button>
-              <Button size="sm" variant="outline" class="h-7 px-2 text-xs" onclick={() => nudge(-100)}>
-                −0.1s
-              </Button>
-              <Button size="sm" variant="outline" class="h-7 px-2 text-xs" onclick={() => nudge(100)}>
-                +0.1s
-              </Button>
-              <Button size="sm" variant="outline" class="h-7 px-2 text-xs" onclick={() => nudge(1000)}>
-                +1s
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                class="h-7 px-2"
-                title="Reset to automatic alignment"
-                aria-label="Reset to automatic sync"
-                onclick={onResetAuto}
-              >
-                <RotateCcw class="size-3.5" />
-              </Button>
-            </div>
-          </div>
-        {/if}
-
-        {#if info?.status !== 'Fetching'}
-          {#if pickerOpen}
-            <div class="mb-2">
-              <div class="mb-1.5 flex items-center justify-between gap-2">
-                <span class="text-muted-foreground text-xs">
-                  Checked before downloading — nothing is on disk yet.
-                </span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  class="text-muted-foreground h-6 px-1.5 text-xs"
-                  onclick={() => (pickerOpen = false)}
-                >
-                  Close
-                </Button>
-              </div>
-
-              {#if candidatesLoading}
-                <p class="text-muted-foreground flex items-center gap-1.5 py-4 text-xs">
-                  <Loader2 class="size-3.5 animate-spin" /> Searching and checking candidates…
-                </p>
-              {:else if candidatesError}
-                <p class="text-destructive-text py-2 text-xs">{candidatesError}</p>
-              {:else if candidates && candidates.length === 0}
-                <p class="text-muted-foreground py-2 text-xs">No candidates found for this song.</p>
-              {:else if candidates}
-                <ul class="-mr-1 max-h-72 space-y-1 overflow-y-auto pr-1">
-                  {#each candidates as candidate (candidate.videoId)}
-                    {@const motion = MOTION_LABELS[candidate.motion]}
-                    <li>
-                      <button
-                        type="button"
-                        class="hover:bg-accent/60 flex w-full items-start gap-2 rounded-lg p-1.5 text-left transition-colors disabled:opacity-50"
-                        disabled={busy}
-                        onclick={() => onPick(candidate.videoId)}
-                      >
-                        <span
-                          class="bg-muted relative flex aspect-video w-20 shrink-0 items-center justify-center overflow-hidden rounded"
-                        >
-                          {#if candidate.hasThumbnail}
-                            <img
-                              src={getSongVideoCandidateThumbnailUrl(songId, candidate.videoId)}
-                              alt=""
-                              loading="lazy"
-                              class="size-full object-cover"
-                            />
-                          {:else}
-                            <ImageOff class="text-muted-foreground size-4" />
-                          {/if}
-                        </span>
-                        <span class="min-w-0 flex-1">
-                          <span class="line-clamp-2 text-xs font-medium" title={candidate.title}>
-                            {candidate.title || candidate.videoId}
-                          </span>
-                          <span class="text-muted-foreground block truncate text-[11px]">
-                            {candidate.channel}{candidate.durationSeconds
-                              ? ` · ${formatDuration(candidate.durationSeconds)}`
-                              : ''}
-                          </span>
-                          <span class="mt-1 flex flex-wrap items-center gap-1">
-                            {#if candidate.motion === 'Unknown'}
-                              <!-- Not probed by the list. Rendered inside the row button, so it is a
-                                   span with a click handler rather than a nested <button>. -->
-                              <span
-                                role="button"
-                                tabindex="0"
-                                class="bg-muted text-muted-foreground hover:bg-accent inline-flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium"
-                                title="Measure this one: is it a real clip or a still image?"
-                                onclick={(e) => {
-                                  e.stopPropagation();
-                                  onCheck(candidate.videoId);
-                                }}
-                                onkeydown={(e) => {
-                                  if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    onCheck(candidate.videoId);
-                                  }
-                                }}
-                              >
-                                {#if probing.has(candidate.videoId)}
-                                  <Loader2 class="size-2.5 animate-spin" /> checking…
-                                {:else}
-                                  check
-                                {/if}
-                              </span>
-                            {:else}
-                              <span
-                                class={cn('rounded px-1.5 py-0.5 text-[10px] font-medium', motion.class)}
-                                title={motion.title}
-                              >
-                                {motion.label}
-                              </span>
-                            {/if}
-                            {#if candidate.squareSource}
-                              <span
-                                class="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[10px]"
-                                title="The upload is square — an album cover filling the frame."
-                              >
-                                square
-                              </span>
-                            {/if}
-                            <span class="text-muted-foreground text-[10px]">
-                              {formatBytes(candidate.estimatedBytes)}
-                            </span>
-                            {#if candidate.isCurrent}
-                              <span
-                                class="text-muted-foreground inline-flex items-center gap-0.5 text-[10px]"
-                              >
-                                <Check class="size-3" /> current
-                              </span>
-                            {/if}
-                          </span>
-                        </span>
-                      </button>
-                    </li>
-                  {/each}
-                </ul>
-              {/if}
-            </div>
-          {:else}
-            <Button
-              size="sm"
-              variant="outline"
-              class="mb-2 h-8 w-full justify-start text-xs"
-              disabled={busy}
-              onclick={onBrowse}
-            >
-              <Search class="mr-1.5 size-3.5" /> Choose video…
-            </Button>
-          {/if}
-
-          <div class="mb-2 flex items-center gap-1">
-            <Input
-              bind:value={urlInput}
-              placeholder="YouTube URL (optional)"
-              class="h-8 flex-1 text-xs"
-            />
-            <Button
-              size="sm"
-              class="h-8 text-xs"
-              disabled={busy || (infoUnavailable && !info)}
-              title={infoUnavailable && !info
-                ? 'Video status is unavailable right now — retrying'
-                : undefined}
-              onclick={onFetch}
-            >
-              {info ? 'Refetch' : 'Fetch'}
-            </Button>
-          </div>
-        {/if}
-
-        {#if info && info.status !== 'Fetching'}
-          <Button
-            size="sm"
-            variant="ghost"
-            class="text-destructive-text hover:text-destructive-text h-7 w-full justify-start px-2 text-xs"
-            disabled={busy}
-            onclick={onRemove}
-          >
-            <Trash2 class="mr-1 size-3.5" /> Remove video
-          </Button>
-        {/if}
-      {/if}
-    </div>
-  {/if}
-
-  {#if isOwner || info}
-    <Button
-      size="icon"
-      variant={controlsOpen ? 'default' : 'ghost'}
-      class="bg-background/40 hover:bg-background/70 size-9 rounded-full backdrop-blur-sm"
-      title="Music video"
-      aria-label="Music video options"
-      onclick={() => (controlsOpen = !controlsOpen)}
-    >
-      <Film class="size-4" />
-    </Button>
-  {/if}
-</div>
+<style>
+  .np-dim {
+    background: rgb(0 0 0 / var(--np-dim, 0.6));
+  }
+  /* Increase Contrast and Reduce Transparency both ask for less of the picture showing through:
+     deepen the dim rather than blurring more. */
+  @media (prefers-contrast: more), (prefers-reduced-transparency: reduce) {
+    .np-dim {
+      background: rgb(0 0 0 / max(var(--np-dim, 0.6), 0.8));
+    }
+  }
+</style>

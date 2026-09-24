@@ -74,7 +74,7 @@ get along, so we shut typescript up by casting `value` to `never`.
 	style={`--gap: ${effectiveSpacing}`}
 	class={cn(
 		"rounded-lg data-[size=sm]:rounded-[min(var(--radius-md),10px)] group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] data-vertical:flex-col data-vertical:items-stretch",
-		"data-[variant=segmented]:bg-foreground/[0.06] data-[variant=segmented]:rounded-full data-[variant=segmented]:p-[3px] data-[variant=segmented]:data-[size=sm]:rounded-full dark:data-[variant=segmented]:bg-white/[0.08]",
+		"data-[variant=segmented]:bg-muted data-[variant=segmented]:rounded-full data-[variant=segmented]:p-[3px] data-[variant=segmented]:data-[size=sm]:rounded-full dark:data-[variant=segmented]:bg-white/[0.08]",
 		className
 	)}
 	{...restProps}

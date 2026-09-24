@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { probeSession } from '$lib/server/session';
 import { APP_HOME } from '$lib/app-home';
+import { isDemo } from '$lib/auth/capabilities';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -28,9 +29,9 @@ export const load: PageServerLoad = async ({ request, url }) => {
     };
   }
 
-  // Friends share the owner's front door: both land on the Listen home (the client's library
-  // mode decides whose songs it shows).
-  if (probe.status === 'authenticated' && probe.user.role !== 'Demo') {
+  // Members share the admin's front door: both land on the Listen home (the endpoints scope to
+  // the caller). Asked through isDemo, never the wire role string, which is legacy vocabulary.
+  if (probe.status === 'authenticated' && !isDemo(probe.user)) {
     throw redirect(303, APP_HOME);
   }
 

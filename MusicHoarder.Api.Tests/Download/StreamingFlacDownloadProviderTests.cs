@@ -13,7 +13,8 @@ namespace MusicHoarder.Api.Tests.Download;
 /// <summary>
 /// The "spotiflac" provider over a fake sidecar: unconfigured/not_found ⇒ Missing (chain falls
 /// through), transport/error ⇒ Failed (chain stops), and a real file ⇒ Ok. Also covers Spotify-URL
-/// resolution (track id → URL; ISRC → id via the catalog client; neither ⇒ Missing without a call).
+/// resolution (track id → URL; ISRC → id via the catalog client; neither ⇒ Missing without a call) and
+/// the explicit preference (a clean edit is swapped for its explicit edition when Spotify has one).
 /// </summary>
 public class StreamingFlacDownloadProviderTests : IDisposable
 {
@@ -195,6 +196,138 @@ public class StreamingFlacDownloadProviderTests : IDisposable
         Assert.Equal("https://open.spotify.com/track/resolvedId123", sentUrl);
     }
 
+    [Fact]
+    public async Task CleanEdit_IsSwappedForItsExplicitEdition()
+    {
+        Directory.CreateDirectory(_stagingDir);
+        string? sentUrl = null;
+        var handler = new FakeSidecarHandler
+        {
+            AcquireResponder = body =>
+            {
+                sentUrl = ReadSpotifyUrl(body);
+                var path = Path.Combine(_stagingDir, ReadStem(body) + ".flac");
+                File.WriteAllBytes(path, [1, 2, 3, 4]);
+                return Ok(path, "qobuz");
+            }
+        };
+        var catalog = new FakeCatalog(null)
+        {
+            Tracks = { ["clean1"] = Track("clean1", isExplicit: false, isrc: "USCLN0000001") },
+            SearchResults = [Track("clean1", isExplicit: false, isrc: "USCLN0000001"), Track("explicit1", isExplicit: true, isrc: "USEXP0000001")],
+        };
+        var provider = CreateProvider(handler, catalog: catalog, spotifyClientId: "id", spotifyClientSecret: "secret");
+
+        var result = await provider.DownloadAsync(Request(trackId: "clean1"), default);
+
+        Assert.True(result.Success);
+        Assert.Equal("https://open.spotify.com/track/explicit1", sentUrl);
+        // The file is stamped with the ISRC of the edition actually fetched, not the clean one.
+        Assert.Equal("USEXP0000001", result.Isrc);
+        Assert.Equal("track:Title artist:Artist", catalog.LastQuery);
+    }
+
+    [Fact]
+    public async Task ExplicitTrack_IsKept_WithoutSearching()
+    {
+        string? sentUrl = null;
+        var handler = new FakeSidecarHandler
+        {
+            AcquireResponder = body => { sentUrl = ReadSpotifyUrl(body); return NotFound("stop"); }
+        };
+        var catalog = new FakeCatalog(null) { Tracks = { ["explicit1"] = Track("explicit1", isExplicit: true) } };
+        var provider = CreateProvider(handler, catalog: catalog, spotifyClientId: "id", spotifyClientSecret: "secret");
+
+        await provider.DownloadAsync(Request(trackId: "explicit1"), default);
+
+        Assert.Equal("https://open.spotify.com/track/explicit1", sentUrl);
+        Assert.Null(catalog.LastQuery);
+    }
+
+    [Fact]
+    public async Task CleanTrack_WithoutAnExplicitEdition_IsKept()
+    {
+        Directory.CreateDirectory(_stagingDir);
+        string? sentUrl = null;
+        var handler = new FakeSidecarHandler
+        {
+            AcquireResponder = body =>
+            {
+                sentUrl = ReadSpotifyUrl(body);
+                var path = Path.Combine(_stagingDir, ReadStem(body) + ".flac");
+                File.WriteAllBytes(path, [1, 2, 3, 4]);
+                return Ok(path, "qobuz");
+            }
+        };
+        var catalog = new FakeCatalog(null)
+        {
+            Tracks = { ["clean1"] = Track("clean1", isExplicit: false) },
+            SearchResults = [Track("clean1", isExplicit: false)],
+        };
+        var provider = CreateProvider(handler, catalog: catalog, spotifyClientId: "id", spotifyClientSecret: "secret");
+
+        var result = await provider.DownloadAsync(Request(trackId: "clean1"), default);
+
+        Assert.Equal("https://open.spotify.com/track/clean1", sentUrl);
+        Assert.Null(result.Isrc); // the caller keeps the requested ISRC
+    }
+
+    [Fact]
+    public async Task PreferExplicitOff_KeepsTheRequestedEdition_WithoutLookups()
+    {
+        string? sentUrl = null;
+        var handler = new FakeSidecarHandler
+        {
+            AcquireResponder = body => { sentUrl = ReadSpotifyUrl(body); return NotFound("stop"); }
+        };
+        var catalog = new FakeCatalog(null)
+        {
+            Tracks = { ["clean1"] = Track("clean1", isExplicit: false) },
+            SearchResults = [Track("explicit1", isExplicit: true)],
+        };
+        var provider = CreateProvider(handler, catalog: catalog, spotifyClientId: "id", spotifyClientSecret: "secret",
+            preferExplicit: false);
+
+        await provider.DownloadAsync(Request(trackId: "clean1"), default);
+
+        Assert.Equal("https://open.spotify.com/track/clean1", sentUrl);
+        Assert.Equal(0, catalog.GetTrackCalls);
+    }
+
+    [Fact]
+    public async Task ExplicitLookupFailure_KeepsTheRequestedEdition()
+    {
+        // A Spotify hiccup must never cost the download itself: fall back to the id as requested.
+        string? sentUrl = null;
+        var handler = new FakeSidecarHandler
+        {
+            AcquireResponder = body => { sentUrl = ReadSpotifyUrl(body); return NotFound("stop"); }
+        };
+        var catalog = new FakeCatalog(null) { GetTrackThrows = new HttpRequestException("spotify 503") };
+        var provider = CreateProvider(handler, catalog: catalog, spotifyClientId: "id", spotifyClientSecret: "secret");
+
+        await provider.DownloadAsync(Request(trackId: "clean1"), default);
+
+        Assert.Equal("https://open.spotify.com/track/clean1", sentUrl);
+    }
+
+    [Fact]
+    public async Task NoSpotifyCredentials_KeepsTheRequestedEdition_WithoutLookups()
+    {
+        string? sentUrl = null;
+        var handler = new FakeSidecarHandler
+        {
+            AcquireResponder = body => { sentUrl = ReadSpotifyUrl(body); return NotFound("stop"); }
+        };
+        var catalog = new FakeCatalog(null) { Tracks = { ["clean1"] = Track("clean1", isExplicit: false) } };
+        var provider = CreateProvider(handler, catalog: catalog);
+
+        await provider.DownloadAsync(Request(trackId: "clean1"), default);
+
+        Assert.Equal("https://open.spotify.com/track/clean1", sentUrl);
+        Assert.Equal(0, catalog.GetTrackCalls);
+    }
+
     // ── helpers ────────────────────────────────────────────────────────────────────────────────
 
     private StreamingFlacDownloadProvider CreateProvider(
@@ -202,23 +335,27 @@ public class StreamingFlacDownloadProviderTests : IDisposable
         string sidecarUrl = "http://spotiflac:8000",
         ISpotifyCatalogSearchService? catalog = null,
         string spotifyClientId = "",
-        string spotifyClientSecret = "")
+        string spotifyClientSecret = "",
+        bool preferExplicit = true)
     {
         var httpClient = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
-        var options = new TestOptionsMonitor<StreamingFlacOptions>(new StreamingFlacOptions { SidecarUrl = sidecarUrl });
+        var options = new TestOptionsMonitor<StreamingFlacOptions>(
+            new StreamingFlacOptions { SidecarUrl = sidecarUrl, PreferExplicit = preferExplicit });
         var client = new StreamingFlacSidecarClient(httpClient, options, NullLogger<StreamingFlacSidecarClient>.Instance);
-        var spotifyOptions = Microsoft.Extensions.Options.Options.Create(
-            new SpotifyOptions { ClientId = spotifyClientId, ClientSecret = spotifyClientSecret });
         return new StreamingFlacDownloadProvider(
             client,
             catalog ?? new FakeCatalog(null),
-            spotifyOptions,
+            new FakeCredentials(spotifyClientId, spotifyClientSecret),
             options,
             NullLogger<StreamingFlacDownloadProvider>.Instance);
     }
 
     private DownloadRequest Request(string? trackId, string? isrc = "USABC1234567") =>
         new("Artist", "Title", "Album", isrc, 200_000, _stagingDir, trackId);
+
+    // Matches Request(): "Artist" / "Title" at 200 s.
+    private static SpotifyCatalogTrack Track(string id, bool isExplicit, string? isrc = null) =>
+        new(id, "Title", "Artist", "Album", 2020, 1, 200_000, isrc, Explicit: isExplicit);
 
     private static string ReadStem(string body) => JsonDocument.Parse(body).RootElement.GetProperty("filename_stem").GetString()!;
     private static string ReadSpotifyUrl(string body) => JsonDocument.Parse(body).RootElement.GetProperty("spotify_url").GetString()!;
@@ -258,9 +395,21 @@ public class StreamingFlacDownloadProviderTests : IDisposable
         }
     }
 
+    private sealed class FakeCredentials(string clientId, string clientSecret) : ISpotifyAppCredentialsProvider
+    {
+        public Task<(string? ClientId, string? ClientSecret)> ResolveAsync(CancellationToken ct = default) =>
+            Task.FromResult<(string?, string?)>(
+                string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(clientSecret) ? (null, null) : (clientId, clientSecret));
+    }
+
     private sealed class FakeCatalog(string? resolvedId) : ISpotifyCatalogSearchService
     {
         public string? LastIsrc { get; private set; }
+        public string? LastQuery { get; private set; }
+        public int GetTrackCalls { get; private set; }
+        public Dictionary<string, SpotifyCatalogTrack> Tracks { get; } = [];
+        public IReadOnlyList<SpotifyCatalogTrack> SearchResults { get; init; } = [];
+        public Exception? GetTrackThrows { get; init; }
 
         public Task<string?> SearchTrackIdByIsrcAsync(string clientId, string clientSecret, string isrc, CancellationToken ct = default)
         {
@@ -269,8 +418,19 @@ public class StreamingFlacDownloadProviderTests : IDisposable
         }
 
         public Task<IReadOnlyList<SpotifyCatalogTrack>> SearchTracksAsync(string clientId, string clientSecret, string query, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<SpotifyCatalogTrack>>([]);
-        public Task<SpotifyCatalogTrack?> GetTrackAsync(string clientId, string clientSecret, string trackId, CancellationToken ct = default) => Task.FromResult<SpotifyCatalogTrack?>(null);
+        {
+            LastQuery = query;
+            return Task.FromResult(SearchResults);
+        }
+
+        public Task<SpotifyCatalogTrack?> GetTrackAsync(string clientId, string clientSecret, string trackId, CancellationToken ct = default)
+        {
+            GetTrackCalls++;
+            if (GetTrackThrows is not null)
+                throw GetTrackThrows;
+            return Task.FromResult(Tracks.GetValueOrDefault(trackId));
+        }
+
         public Task<string?> GetTrackAlbumIdAsync(string clientId, string clientSecret, string trackId, CancellationToken ct = default) => Task.FromResult<string?>(null);
         public Task<string?> SearchAlbumIdAsync(string clientId, string clientSecret, string artist, string album, CancellationToken ct = default) => Task.FromResult<string?>(null);
         public Task<IReadOnlyList<SpotifyAlbumCandidate>> SearchAlbumCandidatesAsync(string clientId, string clientSecret, string artist, string album, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<SpotifyAlbumCandidate>>([]);

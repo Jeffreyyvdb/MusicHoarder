@@ -6,13 +6,14 @@
     <link rel="apple-touch-icon" sizes="180x180" href="%sveltekit.assets%/apple-icon.png" />
     <link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <!-- One theme-color, kept equal to `--background` (app.css) for the current mode. In a browser it
-         tints Safari's tab bar; installed on an iOS home screen it is what the status bar is painted
-         with (see the status-bar note below). The inline script picks the initial value the way
-         mode-watcher does (its stored mode, else the system scheme) so the bar is right on the first
-         frame of the client-rendered (app) routes too; the root layout then follows mode-watcher's
-         `mode` so it tracks the theme toggle. -->
-    <meta name="theme-color" content="#f8fafd" />
+    <!-- One theme-color. In a browser it tints Safari's tab bar; installed on an iOS home screen it is
+         what the status bar is painted with (see the status-bar note below). The inline script picks
+         the first frame's value the way mode-watcher does (its stored mode, else the system scheme):
+         `--background` (#ffffff / #000000). From then on the root layout follows the page's surface
+         as well as the mode — #f2f2f7 on a grouped page in light, #000000 under Now Playing
+         (surfaceFor + the theme-surface store) — so a cold load of a grouped page shows one white
+         status-bar frame, accepted like the light launch. -->
+    <meta name="theme-color" content="#ffffff" />
     <script>
       try {
         var mode = localStorage.getItem('mode-watcher-mode');
@@ -20,11 +21,36 @@
           mode === 'dark' ||
           (mode !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
         if (dark) {
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#060709');
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#000000');
         }
         // Native controls (inputs, scrollbars, <select> popups) follow color-scheme; claim it at
         // first paint too, so they don't render light inside a dark shell until mode-watcher runs.
         document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+      } catch (_) {}
+      // iOS Dynamic Type: scale the iOS text styles by the iPhone's Text Size setting before the
+      // first frame, so the app does not open at the default size and then jump. The same
+      // measurement as $lib/dynamic-type.ts (which keeps it current); iOS only, as there.
+      try {
+        var ua = navigator.userAgent;
+        var probe = document.createElement('span');
+        probe.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;';
+        probe.style.font = '-apple-system-body';
+        if (
+          (/\b(iPhone|iPad|iPod)\b/.test(ua) ||
+            (/\bMacintosh\b/.test(ua) && navigator.maxTouchPoints > 1)) &&
+          probe.style.font
+        ) {
+          document.documentElement.appendChild(probe);
+          var px = parseFloat(getComputedStyle(probe).fontSize);
+          probe.remove();
+          if (px > 0) {
+            var dt = Math.min(1.5, Math.max(0.82, px / 17));
+            document.documentElement.style.setProperty(
+              '--mh-dt',
+              String(Math.round(dt * 1000) / 1000)
+            );
+          }
+        }
       } catch (_) {}
     </script>
     <!-- Installed (home-screen) app. The manifest's `display: standalone` already launches without

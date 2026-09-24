@@ -7,11 +7,13 @@
   const cta = createPrimaryCta({ signedOutLabel: 'Try the live demo' });
 </script>
 
+<!-- The phone's single column is `minmax(0,1fr)`, not the implicit `auto` track: an auto track
+     grows to the install command's 560px max-content and clips the copy and the card on the right. -->
 <section
-  class="mx-auto grid max-w-[1280px] items-center gap-10 px-6 pt-3 pb-14 md:grid-cols-[1.1fr_1fr] md:gap-16 md:px-14"
+  class="mx-auto grid max-w-[1280px] grid-cols-[minmax(0,1fr)] items-center gap-10 px-6 pt-3 pb-14 md:grid-cols-[1.1fr_1fr] md:gap-16 md:px-14"
 >
   <!-- LEFT column -->
-  <div class="pt-3">
+  <div class="min-w-0 pt-3">
     <div
       class="text-muted-foreground flex items-center gap-2 font-mono text-[11px] font-semibold tracking-[0.12em] uppercase"
     >
@@ -40,12 +42,17 @@
     <CommandBlock text={installCommand} label="your-server : ~" class="mb-6 max-w-[560px]" />
 
     <div class="mb-6 flex flex-wrap items-center gap-3">
-      <Button size="lg" onclick={cta.activate} disabled={cta.busy}>{cta.label}</Button>
+      <Button
+        size="lg"
+        class="h-11 rounded-full px-5 text-[15px] md:h-9 md:rounded-lg md:px-3 md:text-sm"
+        onclick={cta.activate}
+        disabled={cta.busy}>{cta.label}</Button
+      >
       <a
         href={githubUrl}
         target="_blank"
         rel="noopener noreferrer"
-        class="text-muted-foreground hover:text-foreground text-[14px] font-medium transition-colors"
+        class="text-muted-foreground hover:text-foreground inline-flex min-h-11 items-center px-1 text-[14px] font-medium transition-colors"
       >
         View on GitHub
       </a>
@@ -59,7 +66,7 @@
   </div>
 
   <!-- RIGHT column: live-pipeline log card -->
-  <div class="md:justify-self-end">
+  <div class="min-w-0 md:justify-self-end">
     <div
       class="bg-card border-border shadow-[0_8px_24px_rgba(0,0,0,0.08),0_0_0_0.5px_rgba(0,0,0,0.06)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.35),0_0_0_0.5px_rgba(255,255,255,0.08)] overflow-hidden rounded-[10px] border"
     >
@@ -82,7 +89,7 @@
           <div class="flex gap-2 py-0.5">
             <span
               class="flex-shrink-0 font-mono"
-              style:color={level === 'warn' ? '#a0721a' : 'var(--primary)'}
+              style:color={level === 'warn' ? 'var(--warning-text)' : 'var(--primary)'}
             >
               [{stage}]
             </span>

@@ -27,8 +27,6 @@ data class LibraryUiState(
     val albumSort: AlbumSortKey = AlbumSortKey.Recent,
     val unreleasedOnly: Boolean = false,
     val artistMode: ArtistMode = ArtistMode.Primary,
-    /** `null` is "All". `#` is the bucket for names that do not start with a Latin letter. */
-    val letter: String? = null,
     /** The artist drilldown, which narrows the Albums tab in place rather than opening a screen. */
     val artistFilter: String? = null,
     val openAlbumKey: String? = null,
@@ -39,13 +37,32 @@ data class LibraryUiState(
     val seed: String = "",
 )
 
+/**
+ * This view state as [visibleChipKeys] and [visibleSortKeys] allow it for the account: a member
+ * keeps only the chips it is shown, and a Spotify sort goes back to Date added.
+ *
+ * The view state outlives an account switch, so an admin's "Spotify liked" would otherwise follow
+ * them onto a member's library — hidden from the chip row, still narrowing the list, and with no
+ * chip left on screen to take it off. (The web can show it as a removable token instead, because
+ * its chips come from the URL; Android has no token for a chip.) Releasing Spotify liked goes
+ * through [sortForChipChange], so the sort it switched on is released the same way a tap would.
+ */
+fun LibraryUiState.scopedTo(isAdmin: Boolean): LibraryUiState {
+    if (isAdmin) return this
+    val visible = chips.filterTo(LinkedHashSet()) { it in FRIEND_CHIP_KEYS }
+    val (key, ascending) = sortForChipChange(chips, visible, sortKey, sortAscending)
+    // A Spotify sort picked from the admin's menu, with no chip behind it: the same default.
+    if (key == SortKey.Spotify) return copy(chips = visible, sortKey = SortKey.Added, sortAscending = false)
+    return copy(chips = visible, sortKey = key, sortAscending = ascending)
+}
+
 /** The lists the four tabs render, folded once per state change off the main thread. */
 data class LibraryContent(
     val albums: List<Album> = emptyList(),
     /** The server is too old to group albums — say so rather than showing an empty grid. */
     val albumsUnsupported: Boolean = false,
     val artists: List<ArtistGroup> = emptyList(),
-    /** Which A-Z buckets have anyone in them, so the bar can grey out the rest. */
+    /** Which A-Z buckets have anyone in them, so the index can grey out the rest. */
     val presentLetters: Set<String> = emptySet(),
     val tracks: List<Track> = emptyList(),
     val chipCounts: Map<ChipKey, Int> = emptyMap(),
@@ -71,6 +88,12 @@ data class LibraryContent(
     val sharedByLabel: String? = null,
     /** Grantor display names by user id, for the per-item "Shared by …" badge. */
     val grantorNames: Map<String, String> = emptyMap(),
+    /**
+     * The list mixes libraries: two grantors, or a grant beside this account's own music. Only then
+     * does a per-row SHARED mark tell rows apart — with one source the header's "shared by X" says
+     * it for every row. The web's `songsStore.hasMixedSources`.
+     */
+    val mixedSources: Boolean = false,
 )
 
 /** The badge label for one track, or null when this account owns it. */
@@ -78,6 +101,10 @@ fun LibraryContent.sharedByLabelFor(track: Track): String? {
     val id = track.sharedByUserId ?: return null
     return "Shared by ${grantorNames[id] ?: "someone"}"
 }
+
+/** The per-row mark in a list: [sharedByLabelFor], but only while the list mixes libraries. */
+fun LibraryContent.rowSharedByLabelFor(track: Track): String? =
+    if (mixedSources) sharedByLabelFor(track) else null
 
 /** Whether a song is hearted, reading the optimistic overlay before the fetched value. */
 fun likedNow(likes: Map<Int, String?>, track: Track): Boolean =
@@ -146,9 +173,9 @@ fun foldLibrary(
     val matchingArtists =
         if (query.isEmpty()) artistGroups
         else artistGroups.filter { it.label.contains(query, ignoreCase = true) }
+    // The letters the trailing index can jump to. The index jumps rather than filters, as the web's
+    // phone list does (its desktop letter row is the one that filters), so every match is listed.
     val presentLetters = matchingArtists.mapTo(LinkedHashSet()) { it.initial }
-    val letteredArtists =
-        if (ui.letter == null) matchingArtists else matchingArtists.filter { it.initial == ui.letter }
 
     // ---- Tracks -------------------------------------------------------------------------------
     // Album completion's tracks are dropped HERE rather than from LibraryState.trackListBase,
@@ -169,7 +196,7 @@ fun foldLibrary(
     return LibraryContent(
         albums = sortAlbums(matchingAlbums, ui.albumSort),
         albumsUnsupported = state.albumsUnsupported,
-        artists = letteredArtists,
+        artists = matchingArtists,
         presentLetters = presentLetters,
         tracks = sorted,
         chipCounts = chipCounts(searched, ui.chips, isLiked),
@@ -192,6 +219,8 @@ fun foldLibrary(
         grantorNames = state.grantors.associate { grantor ->
             grantor.userId to (grantor.displayName?.trim()?.takeIf(String::isNotEmpty) ?: "someone")
         },
+        mixedSources = state.grantors.size > 1 ||
+            (state.grantors.isNotEmpty() && state.trackListBase.any { it.sharedByUserId == null }),
     )
 }
 

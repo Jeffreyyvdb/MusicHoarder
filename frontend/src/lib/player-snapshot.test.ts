@@ -24,7 +24,8 @@ function song(id: number) {
     artist: 'Artist',
     streamUrl: `/api/mh/songs/${id}/stream`,
     coverUrl: null,
-    album: 'Album'
+    album: 'Album',
+    format: 'opus'
   };
 }
 
@@ -123,7 +124,8 @@ describe('parsePlaybackSnapshot rejects anything but the exact shape', () => {
       }
     ],
     ['a song without a title', { ...snapshot(), queue: [{ ...song(1), title: undefined }] }],
-    ['a song whose id is not a number', { ...snapshot(), queue: [{ ...song(1), id: '1' }] }]
+    ['a song whose id is not a number', { ...snapshot(), queue: [{ ...song(1), id: '1' }] }],
+    ['a song whose format is not a string', { ...snapshot(), queue: [{ ...song(1), format: 7 }] }]
   ];
 
   for (const [label, value] of cases) {
@@ -133,7 +135,7 @@ describe('parsePlaybackSnapshot rejects anything but the exact shape', () => {
     });
   }
 
-  it('accepts an absent cover and album, and a null radio seed', () => {
+  it('accepts an absent cover, album and format (a snapshot from before songs carried one), and a null radio seed', () => {
     const value = snapshot({
       queue: [{ id: 1, title: 'T', artist: 'A', streamUrl: '/api/mh/songs/1/stream' }],
       queueIndex: 0,

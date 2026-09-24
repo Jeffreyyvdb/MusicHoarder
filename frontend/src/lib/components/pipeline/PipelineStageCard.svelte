@@ -1,8 +1,10 @@
 <script lang="ts">
-  // NOTE (design audit): this card is NOT dead code — it is consumed by
-  // ImportPipelineDrawer.svelte (the in-app live-import drawer) and by the
-  // marketing landing page's PipelineConveyor.svelte. Its admin-console styling
-  // is deliberately left untouched here; the landing redesign follow-up owns it.
+  // NOTE: this card is consumed by ImportPipelineDrawer.svelte (the in-app live-import drawer)
+  // and by the marketing landing page's PipelineConveyor.svelte (SSR, wrapped in a button there),
+  // so it stays prop-driven with no browser access. It sits on the drawer's card and on the
+  // landing page, so its fill is the sunken-well token rather than a translucent fill with an
+  // opacity modifier; an idle card is no longer dimmed with opacity (that sank its muted text
+  // below 4.5:1) — the tint tile, border and bar carry "active" instead.
   import type { Component } from 'svelte';
   import { Loader2, Pause, Play } from '@lucide/svelte';
   import { Progress } from '$lib/components/ui/progress';
@@ -38,9 +40,8 @@
 
 <div
   class={cn(
-    'rounded-md border bg-muted/30 p-2.5 transition-all',
-    active ? 'border-primary/30 bg-primary/[0.04] opacity-100' : 'opacity-70',
-    isPaused && 'opacity-100'
+    'bg-surface-sunken rounded-md border p-2.5 transition-[border-color,background-color] duration-200',
+    active && 'border-primary/30 bg-primary/[0.04]'
   )}
 >
   <div class="mb-2 flex items-center gap-2">
@@ -53,20 +54,22 @@
       <Icon class="size-3.5" />
     </div>
     <div class="min-w-0 flex-1 truncate text-[12px] font-medium">{label}</div>
-    <div class="font-mono text-[11px] font-semibold tabular-nums">
+    <div class="text-[11px] font-semibold tabular-nums">
       {rateLabel}<span class="text-muted-foreground font-normal"> files/s</span>
     </div>
   </div>
-  <Progress value={pct} class="h-[3px]" />
-  <div class="text-muted-foreground mt-1.5 flex justify-between font-mono text-[11px] tabular-nums">
+  <!-- A progressbar needs a name of its own (axe: aria-progressbar-name); the card's label is the
+       one on screen. -->
+  <Progress value={pct} class="h-[3px]" aria-label="{label} progress" />
+  <div class="text-muted-foreground mt-1.5 flex justify-between text-[11px] tabular-nums">
     <span>in: {count.toLocaleString()}</span>
     <span>out: {Math.max(0, count - Math.round(perSec * 2)).toLocaleString()}</span>
   </div>
   {#if isPaused || showControl}
     <div class="mt-1.5 flex min-h-7 items-center justify-between gap-2">
       {#if isPaused}
-        <span class="text-[11px] font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-400">
-          Paused
+        <span class="text-warning-text inline-flex items-center gap-1 text-[11px] font-semibold">
+          <Pause class="size-3" aria-hidden="true" /> Paused
         </span>
       {:else}
         <span></span>

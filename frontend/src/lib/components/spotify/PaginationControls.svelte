@@ -15,7 +15,10 @@
 </script>
 
 {#if totalPages > 1}
-  <div class="flex items-center justify-center py-4">
+  <!-- 44pt page targets on touch; the desktop keeps the compact pager. -->
+  <div
+    class="flex items-center justify-center py-4 pointer-coarse:[&_a,&_button]:min-h-11 pointer-coarse:[&_a,&_button]:min-w-11"
+  >
     <Pagination.Root
       count={total}
       perPage={limit}
@@ -34,11 +37,7 @@
               </Pagination.Item>
             {:else}
               <Pagination.Item>
-                <Pagination.Link
-                  {page}
-                  isActive={currentPage === page.value}
-                  disabled={isLoading}
-                >
+                <Pagination.Link {page} isActive={currentPage === page.value} disabled={isLoading}>
                   {page.value}
                 </Pagination.Link>
               </Pagination.Item>

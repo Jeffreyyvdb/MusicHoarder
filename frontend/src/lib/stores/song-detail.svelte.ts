@@ -1,8 +1,8 @@
 /**
- * Song-detail store — owns the open/closed state for the global song-detail
- * sidebar (the `TrackPanel`). Mounted once via `SongDetailHost` at the app-shell
- * level so it's reachable from every route: the MiniPlayer, Library track rows,
- * deep-links, and the Cmd/Ctrl+I shortcut all drive the same panel.
+ * Song-detail store — owns the open/closed state of Now Playing (the full-screen `TrackPanel`
+ * overlay). Mounted once via `SongDetailHost` at the app-shell level so it's reachable from every
+ * route: the MiniPlayer, Library track rows, row menus, deep-links, and the Cmd/Ctrl+I shortcut
+ * all drive the same overlay.
  *
  * Only the song identifier is stored; the `{ album, song, index }` context is
  * resolved live from `songsStore` so the panel stays fresh after enrichment
@@ -12,13 +12,34 @@
 import { playerStore } from '$lib/stores/player.svelte';
 import { songsStore } from '$lib/stores/songs.svelte';
 
+/**
+ * What the middle of the player shows. `player` is the artwork, `lyrics` the karaoke view,
+ * `video` the music video (only when one is watchable) and `info` the details/inspectors.
+ */
+export type DetailMode = 'player' | 'lyrics' | 'video' | 'info';
+
+export interface DetailOpenOptions {
+  /**
+   * Open straight into this mode (a row menu's "Song info" asks for `info`). Without it the
+   * player picks its own default: lyrics when the song has any, else the artwork.
+   */
+  mode?: DetailMode;
+}
+
 interface DetailTarget {
   songId: number;
   albumKey?: string;
+  mode?: DetailMode;
+  /**
+   * Bumped on every open(), so re-opening the song that is already showing with a new mode is
+   * still a new request the panel applies, rather than a no-op it cannot tell apart.
+   */
+  seq: number;
 }
 
 let target = $state<DetailTarget | null>(null);
 let isOpen = $state(false);
+let seq = 0;
 
 // The panel's own album set: every song, including unbuilt ones, and per destination folder rather
 // than merged by name. Wider than the library grid on purpose — the panel opens from the MiniPlayer
@@ -37,8 +58,9 @@ const resolved = $derived.by(() => {
   return { album, song: album.songs[index], index };
 });
 
-function open(songId: number, albumKey?: string): void {
-  target = { songId, albumKey };
+function open(songId: number, albumKey?: string, options?: DetailOpenOptions): void {
+  seq += 1;
+  target = { songId, albumKey, mode: options?.mode, seq };
   isOpen = true;
   songsStore.ensureLoaded();
   songsStore.ensureDetailAlbums();

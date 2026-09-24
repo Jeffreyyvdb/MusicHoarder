@@ -5,10 +5,19 @@
     type DirectoryMatchNode,
     type SourceFile
   } from '$lib/api-client';
-  import { AlertCircle, Check, ChevronRight, Loader2, Sparkles, Tag } from '@lucide/svelte';
+  import {
+    AlertCircle,
+    Check,
+    ChevronRight,
+    Ellipsis,
+    Loader2,
+    Sparkles,
+    Tag
+  } from '@lucide/svelte';
   import { cleanDisplayName } from '$lib/formatters';
   import { cn } from '$lib/utils';
   import { Button } from '$lib/components/ui/button';
+  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import Self from './DirectoryTreeRow.svelte';
   import SourceFileRow from './SourceFileRow.svelte';
 
@@ -73,6 +82,7 @@
   const enriched = $derived(node.matched);
 
   const matchedPctLabel = $derived(node.total > 0 ? Math.round(node.matchedPct) : 0);
+  const name = $derived(cleanDisplayName(node.name));
 
   function toggle() {
     if (!expandable) return;
@@ -111,89 +121,102 @@
       setTimeout(() => (enrichState = 'idle'), 5000);
     }
   }
+
+  const enrichLabel = $derived(
+    isEnriching
+      ? inLibrary
+        ? 'Updating…'
+        : 'Adding…'
+      : enrichState === 'error'
+        ? 'Enrich failed — try again'
+        : inLibrary
+          ? 'Update in library'
+          : 'Add to library'
+  );
+  const offerEnrich = $derived(showEnrich || isEnriching || enrichState === 'error');
+  const hasMenu = $derived(!!onToggleExpected || offerEnrich);
 </script>
 
 <div class="select-none">
+  <!-- A 44pt row on a phone (36 on a desktop). Expected-low folders read quieter through their
+       text tone and badge, never through opacity (which sank their text below 4.5:1). -->
   <div
-    class={cn(
-      'group hover:bg-muted/50 relative flex items-center gap-2 rounded-md pr-2 transition-[background-color,opacity]',
-      node.expectedLow && 'opacity-70 hover:opacity-100',
-      expanded && 'bg-muted/40'
-    )}
+    class="group hover:bg-accent relative flex min-h-11 items-center gap-1 rounded-lg pr-1 transition-colors duration-100 md:min-h-9 md:pr-2"
   >
     <button
       type="button"
       onclick={toggle}
       class={cn(
-        'flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left text-[13px]',
-        // Below sm the indent stops growing after three levels and steps 14px, not 18px: a
+        'focus-visible:ring-ring/50 flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg text-left outline-none focus-visible:ring-3 focus-visible:ring-inset md:min-h-9',
+        'text-body md:text-[13px]',
+        // Below md the indent stops growing after three levels and steps 14px, not 18px: a
         // folder four deep on a phone otherwise starts its name 80px in.
-        'pl-[calc(min(var(--depth),3)*14px_+_8px)] sm:pl-[calc(var(--depth)*18px_+_8px)]',
+        'pl-[calc(min(var(--depth),3)*14px_+_8px)] md:pl-[calc(var(--depth)*18px_+_8px)]',
         expandable ? 'cursor-pointer' : 'cursor-default'
       )}
       style:--depth={depth}
       aria-expanded={expandable ? expanded : undefined}
     >
       <ChevronRight
+        aria-hidden="true"
         class={cn(
-          'size-3.5 shrink-0 transition-transform',
-          expandable ? 'text-muted-foreground' : 'opacity-0',
+          'size-4 shrink-0 transition-transform duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] md:size-3.5',
+          expandable ? 'text-muted-foreground' : 'invisible',
           expanded && 'rotate-90'
         )}
       />
 
-      <span class="flex min-w-0 flex-1 items-center gap-1.5">
-        <span class="truncate font-medium" title={node.path || node.name}>
-          {cleanDisplayName(node.name)}
+      <span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5 py-1.5 md:flex-nowrap md:py-0">
+        <span
+          class={cn('min-w-0 truncate md:font-medium', node.expectedLow && 'text-muted-foreground')}
+          title={node.path || node.name}
+        >
+          {name}
         </span>
         {#if node.expectedLow}
           <span
-            class="bg-muted text-muted-foreground inline-flex shrink-0 items-center rounded-full px-2 py-px text-[11px] whitespace-nowrap"
-            title="You marked this folder as expected to have a low match rate (leaks, unreleased, field recordings)."
+            class="bg-muted text-muted-foreground text-caption-1 inline-flex shrink-0 items-center rounded-full px-2 py-px whitespace-nowrap"
           >
             Expected low
           </span>
         {:else}
           {#if node.needsReview > 0}
-            <span
-              class="text-muted-foreground inline-flex shrink-0 items-center gap-1.5 text-[11px] whitespace-nowrap"
-              title={`${node.needsReview} files awaiting review`}
-            >
-              <span class="size-1.5 rounded-full bg-amber-500"></span>
+            <span class="text-muted-foreground text-caption-1 inline-flex shrink-0 items-center gap-1.5 font-normal whitespace-nowrap">
+              <span class="bg-warning size-1.5 rounded-full" aria-hidden="true"></span>
               {node.needsReview.toLocaleString()} review
             </span>
           {/if}
           {#if node.failed > 0}
-            <span
-              class="text-muted-foreground inline-flex shrink-0 items-center gap-1.5 text-[11px] whitespace-nowrap"
-              title={`${node.failed} files matched nothing`}
-            >
-              <span class="size-1.5 rounded-full bg-red-500"></span>
+            <span class="text-muted-foreground text-caption-1 inline-flex shrink-0 items-center gap-1.5 font-normal whitespace-nowrap">
+              <span class="bg-destructive size-1.5 rounded-full" aria-hidden="true"></span>
               {node.failed.toLocaleString()} failed
             </span>
           {/if}
         {/if}
       </span>
 
-      <!-- Stacked status bar: written / matched / review / failed / queued -->
+      <!-- Stacked status bar (desktop): written / matched / review / failed / queued. The same
+           figures are in the tooltip and, per folder, in the badges and counts beside it. -->
       <span
-        class={cn('bg-muted hidden h-[6px] w-28 shrink-0 overflow-hidden rounded-full sm:flex', node.expectedLow && 'opacity-60')}
+        class="bg-muted hidden h-[6px] w-28 shrink-0 overflow-hidden rounded-full md:flex"
         title={`in library ${written} · matched ${matchedNotWritten} · review ${node.needsReview} · failed ${node.failed} · queued ${node.pending}`}
       >
-        <span class="h-full bg-primary" style="width: {pct(written)}%"></span>
-        <span class="h-full bg-primary/50" style="width: {pct(matchedNotWritten)}%"></span>
-        <span class="h-full bg-amber-500" style="width: {pct(node.needsReview)}%"></span>
-        <span class="h-full bg-red-500" style="width: {pct(node.failed)}%"></span>
-        <span class="bg-muted-foreground/25 h-full" style="width: {pct(node.pending)}%"></span>
+        <span class="bg-primary h-full" style="width: {pct(written)}%"></span>
+        <span class="bg-primary/50 h-full" style="width: {pct(matchedNotWritten)}%"></span>
+        <span class="bg-warning h-full" style="width: {pct(node.needsReview)}%"></span>
+        <span class="bg-destructive h-full" style="width: {pct(node.failed)}%"></span>
+        <span class="bg-muted-foreground-dim h-full" style="width: {pct(node.pending)}%"></span>
       </span>
 
-      <span class="text-muted-foreground hidden w-16 shrink-0 text-right text-xs tabular-nums sm:block">
-        <span class="text-foreground">{enriched.toLocaleString()}</span><span class="text-muted-foreground/50" aria-hidden="true">/</span><span class="sr-only"> of </span>{node.total.toLocaleString()}
+      <span class="text-muted-foreground hidden w-16 shrink-0 text-right text-xs tabular-nums md:block">
+        <span class="text-foreground">{enriched.toLocaleString()}</span><span aria-hidden="true">/</span><span
+          class="sr-only"> of </span
+        >{node.total.toLocaleString()}
       </span>
 
       <span
         class={cn(
-          'w-10 shrink-0 text-right text-xs tabular-nums',
+          'text-subheadline w-11 shrink-0 text-right tabular-nums md:w-10 md:text-xs',
           node.expectedLow ? 'text-muted-foreground-dim' : 'text-muted-foreground'
         )}
       >
@@ -201,65 +224,110 @@
       </span>
     </button>
 
-    <!-- Row actions: mark expected-low + enrich (hover-revealed on desktop, always visible on
-         touch; persistent when active). Fixed width matches the header's actions column so the
-         Match% column aligns across rows — two icon buttons wide on a phone, where Enrich drops
-         its word so the folder name gets the room back. -->
-    <div class="flex w-[68px] shrink-0 items-center justify-end gap-0.5 sm:w-[104px]">
+    <!-- Row actions. A phone gets one ••• menu (a finger cannot hover, and two 32px icons per
+         row crowded the name); the state of a running enrich shows beside it. A desktop keeps
+         the inline buttons, quieter until the row is hovered. -->
+    {#if hasMenu}
+      <div class="flex shrink-0 items-center md:hidden">
+        {#if isEnriching}
+          <Loader2 class="text-primary size-4 animate-spin" aria-label={enrichLabel} />
+        {:else if enrichState === 'error'}
+          <AlertCircle class="text-destructive-text size-4" aria-label={enrichLabel} />
+        {/if}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger>
+            {#snippet child({ props })}
+              <Button
+                {...props}
+                variant="ghost"
+                size="icon"
+                class="text-muted-foreground size-11 rounded-full"
+                aria-label="Actions for {name}"
+              >
+                <Ellipsis aria-hidden="true" />
+              </Button>
+            {/snippet}
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Content align="end" class="max-w-[min(20rem,calc(100vw-2rem))] min-w-60">
+            <!-- The folder's full source path: a phone shows only its name in the row (the
+                 desktop's hover title is out of reach of a finger), and two "Disc 1"s under
+                 different albums are told apart only here. -->
+            <DropdownMenu.Label class="font-mono font-normal break-all">
+              {node.path || node.name}
+            </DropdownMenu.Label>
+            <DropdownMenu.Separator />
+            {#if offerEnrich}
+              <DropdownMenu.Item disabled={isEnriching} onSelect={handleEnrichFolder}>
+                {enrichLabel}
+                <Sparkles />
+              </DropdownMenu.Item>
+            {/if}
+            {#if onToggleExpected}
+              <DropdownMenu.Item onSelect={() => onToggleExpected?.(node.path, !node.expectedLow)}>
+                {node.expectedLow ? 'Clear expected-low tag' : 'Mark as expected low'}
+                {#if node.expectedLow}<Check />{:else}<Tag />{/if}
+              </DropdownMenu.Item>
+            {/if}
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
+      </div>
+    {/if}
+
+    <!-- Desktop: mark expected-low + enrich (hover-revealed; persistent when active). Fixed width
+         matches the header's actions column so the Match% column aligns across rows. At rest
+         they step down a text token rather than fading (an opacity fade took "Enrich" under
+         3:1); a touch screen at this width, which cannot hover, keeps them at full tone. -->
+    <div class="hidden w-[104px] shrink-0 items-center justify-end gap-0.5 md:flex">
       {#if onToggleExpected}
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon"
           onclick={() => onToggleExpected?.(node.path, !node.expectedLow)}
           title={node.expectedLow
             ? 'Clear expected-low tag'
             : 'Mark as expected low match (leaks, unreleased, field recordings)'}
-          aria-label={node.expectedLow ? 'Clear expected-low tag' : 'Mark as expected low'}
+          aria-label={node.expectedLow ? `Clear expected-low tag on ${name}` : `Mark ${name} as expected low`}
           class={cn(
-            '-my-1 grid size-8 shrink-0 place-items-center rounded-md transition-[opacity,color,background-color] focus-visible:opacity-100',
-            'hover:bg-muted hover:text-foreground',
+            '-my-1 shrink-0 transition-colors',
             node.expectedLow
-              ? 'text-primary opacity-100'
-              : 'text-muted-foreground opacity-100 sm:opacity-40 sm:group-hover:opacity-100'
+              ? 'text-primary'
+              : 'text-muted-foreground pointer-fine:text-muted-foreground-dim pointer-fine:group-hover:text-foreground pointer-fine:focus-visible:text-foreground'
           )}
         >
           {#if node.expectedLow}
-            <Check class="size-3.5" />
+            <Check class="size-3.5" aria-hidden="true" />
           {:else}
-            <Tag class="size-3.5" />
+            <Tag class="size-3.5" aria-hidden="true" />
           {/if}
-        </button>
+        </Button>
       {/if}
 
-      {#if showEnrich || isEnriching || enrichState === 'error'}
+      {#if offerEnrich}
         <Button
           variant="ghost"
           size="sm"
           class={cn(
-            '-my-1 h-8 w-8 shrink-0 gap-0 px-0 text-xs opacity-100 transition-opacity focus-visible:opacity-100 sm:w-auto sm:px-2 sm:opacity-40 sm:group-hover:opacity-100',
-            (isEnriching || enrichState === 'error') && 'sm:opacity-100',
+            '-my-1 h-8 shrink-0 gap-1 px-2 text-xs transition-colors',
+            !isEnriching &&
+              enrichState !== 'error' &&
+              'pointer-fine:text-muted-foreground-dim pointer-fine:group-hover:text-foreground pointer-fine:focus-visible:text-foreground',
             isEnriching && 'text-primary',
             enrichState === 'error' && 'text-destructive-text'
           )}
           disabled={isEnriching}
           title="Add every song under this folder to your library (enrich + build)"
-          aria-label={isEnriching
-            ? inLibrary
-              ? 'Updating…'
-              : 'Adding…'
-            : enrichState === 'error'
-              ? 'Enrich failed — try again'
-              : `Enrich ${cleanDisplayName(node.name)}`}
+          aria-label={isEnriching || enrichState === 'error' ? enrichLabel : `Enrich ${name}`}
           onclick={handleEnrichFolder}
         >
           {#if isEnriching}
-            <Loader2 class="size-3 animate-spin sm:mr-1" />
-            <span class="hidden sm:inline">{inLibrary ? 'Updating…' : 'Adding…'}</span>
+            <Loader2 class="size-3 animate-spin" aria-hidden="true" />
+            {inLibrary ? 'Updating…' : 'Adding…'}
           {:else if enrichState === 'error'}
-            <AlertCircle class="size-3 sm:mr-1" />
-            <span class="hidden sm:inline">Failed</span>
+            <AlertCircle class="size-3" aria-hidden="true" />
+            Failed
           {:else}
-            <Sparkles class="size-3 sm:mr-1" />
-            <span class="hidden sm:inline">Enrich</span>
+            <Sparkles class="size-3" aria-hidden="true" />
+            Enrich
           {/if}
         </Button>
       {/if}
@@ -275,20 +343,20 @@
       {#if hasFiles}
         {#if filesState === 'loading'}
           <div
-            class="text-muted-foreground flex items-center gap-2 py-1.5 text-xs pl-[calc(min(var(--depth),3)*14px_+_30px)] sm:pl-[calc(var(--depth)*18px_+_30px)]"
+            class="text-muted-foreground text-subheadline flex min-h-11 items-center gap-2 pl-[calc(min(var(--depth),3)*14px_+_32px)] md:min-h-8 md:pl-[calc(var(--depth)*18px_+_30px)] md:text-xs"
             style:--depth={depth}
           >
-            <Loader2 class="size-3 animate-spin" />
+            <Loader2 class="size-3.5 animate-spin" aria-hidden="true" />
             Loading files…
           </div>
         {:else if filesState === 'error'}
           <button
             type="button"
             onclick={loadFiles}
-            class="text-muted-foreground hover:text-foreground flex items-center gap-2 py-1.5 text-xs pl-[calc(min(var(--depth),3)*14px_+_30px)] sm:pl-[calc(var(--depth)*18px_+_30px)]"
+            class="text-muted-foreground hover:text-foreground text-subheadline flex min-h-11 items-center gap-2 pl-[calc(min(var(--depth),3)*14px_+_32px)] md:min-h-8 md:pl-[calc(var(--depth)*18px_+_30px)] md:text-xs"
             style:--depth={depth}
           >
-            <AlertCircle class="size-3 text-amber-500" />
+            <AlertCircle class="text-warning-text size-3.5" aria-hidden="true" />
             Couldn't load files — retry
           </button>
         {:else if files}

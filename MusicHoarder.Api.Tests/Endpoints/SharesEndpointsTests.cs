@@ -7,6 +7,7 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Tests.Auth;
+using MusicHoarder.Api.Tests.Audio;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
 
@@ -239,7 +240,7 @@ public class SharesEndpointsTests
             }
 
             await using var db = AnonymousContext(options);
-            var result = await SharesEndpoints.StreamSharedSong("tok", 1, db, CancellationToken.None);
+            var result = await SharesEndpoints.StreamSharedSong("tok", 1, null, db, new FakePcmDecoder(), CancellationToken.None);
 
             var stream = Assert.IsType<FileStreamHttpResult>(result);
             Assert.Equal("audio/mpeg", stream.ContentType);
@@ -266,6 +267,8 @@ public class SharesEndpointsTests
                 FilePath = "/videos/1.mp4",
                 SyncOffsetMs = 1500,
                 DurationSeconds = 240,
+                LetterboxFraction = 0.13125,
+                PillarboxFraction = 0,
             });
             // Still fetching — must not surface on the share.
             seed.SongMusicVideos.Add(new SongMusicVideo { SongId = 2, Status = MusicVideoStatus.Fetching });
@@ -281,8 +284,11 @@ public class SharesEndpointsTests
         Assert.True(GetProperty<bool>(tracks[0], "HasVideo"));
         Assert.Equal(1500, GetProperty<int?>(tracks[0], "VideoOffsetMs"));
         Assert.Equal(240, GetProperty<int?>(tracks[0], "VideoDurationSeconds"));
+        Assert.Equal(0.13125, GetProperty<double?>(tracks[0], "VideoLetterbox"));
+        Assert.Equal(0, GetProperty<double?>(tracks[0], "VideoPillarbox"));
         Assert.False(GetProperty<bool>(tracks[1], "HasVideo"));
         Assert.Null(GetProperty<int?>(tracks[1], "VideoOffsetMs"));
+        Assert.Null(GetProperty<double?>(tracks[1], "VideoLetterbox"));
     }
 
     [Fact]

@@ -17,7 +17,7 @@ namespace MusicHoarder.Api.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.11")
+                .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -1579,6 +1579,12 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<string>("LastError")
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
+
+                    b.Property<double?>("LetterboxFraction")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("PillarboxFraction")
+                        .HasColumnType("double precision");
 
                     b.Property<int>("SongId")
                         .HasColumnType("integer");

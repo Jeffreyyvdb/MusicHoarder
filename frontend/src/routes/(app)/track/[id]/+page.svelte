@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { goto } from '$app/navigation';
+  import { replaceUrl } from '$lib/navigation/replace-url';
   import TrackTimelineV2 from '$lib/components/v2/TrackTimelineV2.svelte';
 
   // Per-song provenance timeline. An invalid id can't render anything useful, so
@@ -10,7 +10,8 @@
   const valid = $derived(Number.isFinite(songId));
 
   $effect(() => {
-    if (!valid) void goto('/library', { replaceState: true });
+    // A replace that really is a new page: reset scroll and focus as a navigation would.
+    if (!valid) void replaceUrl('/library', { noScroll: false, keepFocus: false });
   });
 </script>
 
