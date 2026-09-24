@@ -7,6 +7,7 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Tests.Auth;
+using MusicHoarder.Api.Tests.Audio;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
 
@@ -239,7 +240,7 @@ public class SharesEndpointsTests
             }
 
             await using var db = AnonymousContext(options);
-            var result = await SharesEndpoints.StreamSharedSong("tok", 1, db, CancellationToken.None);
+            var result = await SharesEndpoints.StreamSharedSong("tok", 1, null, db, new FakeStreamTranscoder(), CancellationToken.None);
 
             var stream = Assert.IsType<FileStreamHttpResult>(result);
             Assert.Equal("audio/mpeg", stream.ContentType);

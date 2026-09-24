@@ -1,4 +1,5 @@
 import { createPasskey, getPasskeyAssertion } from "$lib/webauthn-client"
+import { formatOf } from "$lib/audio-formats"
 import type { PlayerSong } from "$lib/stores/player.svelte"
 import type { LyricsProvenance, LyricsSyncStatus } from "$lib/types"
 
@@ -2222,6 +2223,7 @@ export function toPlayerSong(song: ApiSong, fallbackArtist: string): PlayerSong 
     streamUrl: getSongStreamUrl(song.id),
     coverUrl: coverUrlForSong(song),
     album: song.album ?? null,
+    format: formatOf(song.extension),
   }
 }
 

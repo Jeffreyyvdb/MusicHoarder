@@ -7,6 +7,7 @@ using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Tests.Auth;
 using MusicHoarder.Api.Tests.Sharing;
+using MusicHoarder.Api.Tests.Audio;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
 
@@ -154,8 +155,8 @@ public class UnifiedSongsEndpointTests
         await using var db = Context(options, Member(TestUsers.FriendId));
         var scope = TestLibraryScope.For(Member(TestUsers.FriendId));
 
-        var unshared = await SongsEndpoints.StreamSong(2, db, scope, CancellationToken.None);
-        var missing = await SongsEndpoints.StreamSong(9999, db, scope, CancellationToken.None);
+        var unshared = await SongsEndpoints.StreamSong(2, null, db, scope, new FakeStreamTranscoder(), CancellationToken.None);
+        var missing = await SongsEndpoints.StreamSong(9999, null, db, scope, new FakeStreamTranscoder(), CancellationToken.None);
 
         Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)unshared).StatusCode);
         Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)missing).StatusCode);
@@ -174,7 +175,7 @@ public class UnifiedSongsEndpointTests
 
         await using var db = Context(options, Member(TestUsers.FriendId));
         var result = await SongsEndpoints.StreamSong(
-            1, db, TestLibraryScope.For(Member(TestUsers.FriendId)), CancellationToken.None);
+            1, null, db, TestLibraryScope.For(Member(TestUsers.FriendId)), new FakeStreamTranscoder(), CancellationToken.None);
 
         Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)result).StatusCode);
         var body = Body(result);
@@ -192,7 +193,7 @@ public class UnifiedSongsEndpointTests
 
         await using var db = Context(options, Admin(TestUsers.OwnerId));
         var result = await SongsEndpoints.StreamSong(
-            1, db, TestLibraryScope.For(Admin(TestUsers.OwnerId)), CancellationToken.None);
+            1, null, db, TestLibraryScope.For(Admin(TestUsers.OwnerId)), new FakeStreamTranscoder(), CancellationToken.None);
 
         Assert.Contains("/music/1.mp3", Body(result));
     }

@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Artwork;
+using MusicHoarder.Api.Audio;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Persistence;
@@ -187,10 +188,11 @@ public static class SharesEndpoints
         });
     }
 
-    internal static async Task<IResult> StreamSharedSong(string token, int id, MusicHoarderDbContext db, CancellationToken ct)
+    internal static async Task<IResult> StreamSharedSong(
+        string token, int id, string? format, MusicHoarderDbContext db, IStreamTranscoder transcoder, CancellationToken ct)
     {
         var song = await ResolveSongInScopeAsync(db, token, id, ct);
-        return song is null ? ShareNotFound() : SongsEndpoints.StreamSongFile(song);
+        return song is null ? ShareNotFound() : await SongsEndpoints.StreamSongFileAsync(song, format, transcoder, ct);
     }
 
     internal static async Task<IResult> GetSharedSongCover(

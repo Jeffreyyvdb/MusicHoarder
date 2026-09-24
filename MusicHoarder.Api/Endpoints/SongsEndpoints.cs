@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Artwork;
+using MusicHoarder.Api.Audio;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Contracts;
 using Microsoft.Extensions.Options;
@@ -987,13 +988,18 @@ public static class SongsEndpoints
         Results.NotFound(new { message = "Song not found." });
 
     internal static async Task<IResult> StreamSong(
-        int id, MusicHoarderDbContext db, ILibraryScopeResolver scopeResolver, CancellationToken ct)
+        int id,
+        string? format,
+        MusicHoarderDbContext db,
+        ILibraryScopeResolver scopeResolver,
+        IStreamTranscoder transcoder,
+        CancellationToken ct)
     {
         var found = await scopeResolver.ResolveSongAsync(db, id, ct);
         // Paths only for a song the caller owns — for a granted row they are the grantor's.
         return found is null
             ? SongNotFound()
-            : StreamSongFile(found.Value.Song, includePaths: found.Value.Slice.IsSelf);
+            : await StreamSongFileAsync(found.Value.Song, format, transcoder, ct, includePaths: found.Value.Slice.IsSelf);
     }
 
     /// <summary>
@@ -1010,6 +1016,11 @@ public static class SongsEndpoints
     /// Range-enabled audio stream for a song row the caller has already loaded and authorized
     /// (also used by the anonymous share endpoints, which do their own token-based scoping).
     /// </summary>
+    /// <param name="format">
+    /// The <c>?format=</c> query value. Absent streams the file exactly as it is on disk;
+    /// <c>aac</c> streams a cached AAC rendition (see <see cref="FfmpegStreamTranscoder"/>), which a
+    /// client asks for only when it cannot play the original.
+    /// </param>
     /// <param name="includePaths">
     /// Whether the "file missing" body may name the paths. Defaults to FALSE so every caller is
     /// safe by omission — only pass true for a song the requester actually owns.
@@ -1023,8 +1034,16 @@ public static class SongsEndpoints
     /// reflection test that pins that DTO cannot see this code path.
     /// </para>
     /// </param>
-    internal static IResult StreamSongFile(SongMetadata song, bool includePaths = false)
+    internal static async Task<IResult> StreamSongFileAsync(
+        SongMetadata song,
+        string? format,
+        IStreamTranscoder transcoder,
+        CancellationToken ct,
+        bool includePaths = false)
     {
+        if (!StreamFormats.TryParse(format, out var streamFormat))
+            return Results.BadRequest(new { message = "Unknown stream format." });
+
         var filePath = ResolveAudioFilePath(song);
 
         if (filePath is null)
@@ -1037,12 +1056,32 @@ public static class SongsEndpoints
                 })
                 : Results.NotFound(new { message = "Audio file not found on disk." });
 
+        if (streamFormat == StreamFormat.Aac)
+        {
+            string rendition;
+            try
+            {
+                rendition = await transcoder.GetAacRenditionAsync(filePath, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // The transcoder has logged the cause; the body stays generic, because the share
+                // endpoints serve this to anonymous callers and ffmpeg's message names the path.
+                return Results.Problem(
+                    detail: "The server could not convert this track for playback.",
+                    statusCode: StatusCodes.Status500InternalServerError);
+            }
+            return Results.File(rendition, StreamFormats.AacContentType, enableRangeProcessing: true);
+        }
+
         var mimeType = Path.GetExtension(filePath)?.ToLowerInvariant() switch
         {
             ".mp3" => "audio/mpeg",
             ".flac" => "audio/flac",
             ".ogg" => "audio/ogg",
-            ".opus" => "audio/opus",
+            // An .opus file is Ogg Opus, whose media type is audio/ogg (RFC 7845); audio/opus names
+            // the RTP payload, which a browser choosing a decoder from this header may not accept.
+            ".opus" => "audio/ogg",
             ".m4a" => "audio/mp4",
             ".aac" => "audio/aac",
             ".wav" => "audio/wav",
