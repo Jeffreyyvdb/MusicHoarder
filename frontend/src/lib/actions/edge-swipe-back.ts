@@ -14,7 +14,9 @@ import { navBack } from '$lib/stores/nav-back.svelte';
  * and no dialog or sheet is open; the touch must start within {@link EDGE}px of the left edge and
  * move sideways before it moves down. A 44px glass chevron follows the finger in from the edge
  * while the page shifts with it at a third of the distance; letting go past 30% of the width, or
- * with a flick, goes back, anything less springs back.
+ * with a flick, goes back, anything less springs back. A page that goes back stays where the finger
+ * left it, fading, until the Back action reports the page it returns to is on screen — it never
+ * snaps home first, which read as the page jumping back against the gesture.
  *
  * Touch events rather than pointer events on purpose: a pointer gesture the browser has started
  * to treat as a scroll is cancelled from under us, whereas a non-passive touchmove can claim the
@@ -38,6 +40,10 @@ const MIN_FLICK = 24;
 const PARALLAX = 0.3;
 
 const SPRING_MS = 250;
+/** How long a committed page takes to fade while the page it goes back to comes in. */
+const LEAVE_MS = 180;
+/** A Back that never reports landing gets its page put back after this, whatever happened. */
+const LAND_TIMEOUT_MS = 1200;
 const CIRCLE = 44;
 /** Where the chevron comes to rest, from the edge, once the swipe would commit. */
 const CIRCLE_INSET = 16;
@@ -74,8 +80,11 @@ export function edgeSwipeBack(
   let settleTimer: ReturnType<typeof setTimeout> | null = null;
   let savedTransform = '';
   let savedTransition = '';
+  let savedOpacity = '';
   /** The page has been shifted and needs putting back. */
   let moved = false;
+  /** Bumped whenever a settle is superseded, so a Back that lands late cannot touch a new swipe. */
+  let settleGen = 0;
   /** The chevron's current vertical position, so it leaves along the line it came in on. */
   let chevronTop = 0;
 
@@ -147,13 +156,16 @@ export function edgeSwipeBack(
   }
 
   function begin(g: Gesture): void {
+    // A swipe that starts while the last one is still settling takes over from the resting page.
     if (settleTimer) {
       clearTimeout(settleTimer);
       settleTimer = null;
-    } else {
-      savedTransform = node.style.transform;
-      savedTransition = node.style.transition;
+      settleGen++;
+      if (moved) restoreNode();
     }
+    savedTransform = node.style.transform;
+    savedTransition = node.style.transition;
+    savedOpacity = node.style.opacity;
     // Reduce Motion: the chevron alone carries the gesture; the page does not move.
     if (g.reduced) return;
     moved = true;
@@ -164,6 +176,7 @@ export function edgeSwipeBack(
   function restoreNode(): void {
     node.style.transform = savedTransform;
     node.style.transition = savedTransition;
+    node.style.opacity = savedOpacity;
     moved = false;
   }
 
@@ -190,11 +203,25 @@ export function edgeSwipeBack(
   function commit(): void {
     const back = navBack.current;
     hideChevron(150, EASE_OUT);
-    // The page is about to be replaced; snap it home rather than animate a view that is leaving.
     if (settleTimer) clearTimeout(settleTimer);
     settleTimer = null;
-    if (moved) restoreNode();
-    back?.();
+    if (!moved) {
+      back?.();
+      return;
+    }
+    // Hold the page where the finger left it and let it fade while the Back runs; put it back only
+    // once the page it returns to is on screen, so the swap happens in one frame.
+    node.style.transition = `opacity ${LEAVE_MS}ms ${EASE_OUT}`;
+    node.style.opacity = '0';
+    const gen = ++settleGen;
+    const land = () => {
+      if (gen !== settleGen) return;
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = null;
+      restoreNode();
+    };
+    settleTimer = setTimeout(land, LAND_TIMEOUT_MS);
+    void Promise.resolve(back?.()).then(land, land);
   }
 
   function velocity(g: Gesture): number {
@@ -295,6 +322,7 @@ export function edgeSwipeBack(
       node.removeEventListener('touchend', onTouchEnd);
       node.removeEventListener('touchcancel', onTouchEnd);
       if (settleTimer) clearTimeout(settleTimer);
+      settleGen++;
       if (moved) restoreNode();
       gesture = null;
       chevron?.remove();

@@ -257,6 +257,9 @@ public static class ServiceCollectionExtensions
                 "cover-thumbs");
             return new CoverThumbnailService(dir.FullName, sp.GetRequiredService<ILogger<CoverThumbnailService>>());
         });
+        // Decodes a song to PCM for clients that cannot play the file as it is (?format=wav on the
+        // stream endpoints). Stateless: one ffmpeg per requested range, nothing cached.
+        services.AddSingleton<IPcmDecoder, FfmpegPcmDecoder>();
         services.AddScoped<ILibraryTagWriter, TagLibLibraryTagWriter>();
         services.AddScoped<ILibraryDestinationCleaner, LibraryDestinationCleaner>();
         services.AddScoped<ILibraryBuilderService, LibraryBuilderService>();

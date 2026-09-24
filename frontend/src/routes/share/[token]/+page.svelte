@@ -319,6 +319,8 @@
         streamUrl={shareVideoStreamUrl(data.token, activeTrack.id)}
         offsetMs={activeTrack.videoOffsetMs ?? 0}
         durationSeconds={activeTrack.videoDurationSeconds ?? null}
+        letterbox={activeTrack.videoLetterbox ?? null}
+        pillarbox={activeTrack.videoPillarbox ?? null}
       />
     {/key}
     <!-- The owner gets this opt-out inside the app's controls cluster; an anonymous visitor here

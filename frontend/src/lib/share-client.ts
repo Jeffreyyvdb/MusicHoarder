@@ -23,6 +23,9 @@ export interface ShareTrack {
   /** Owner-curated sync: videoTime = audioTime + videoOffsetMs / 1000. */
   videoOffsetMs?: number | null
   videoDurationSeconds?: number | null
+  /** The bars baked into the video's frame, which the backdrop crops (see SongVideoInfo). */
+  videoLetterbox?: number | null
+  videoPillarbox?: number | null
 }
 
 export interface SharePayload {

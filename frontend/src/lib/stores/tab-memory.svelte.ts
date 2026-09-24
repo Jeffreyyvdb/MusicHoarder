@@ -58,6 +58,28 @@ let pendingReplace: string | null = null;
 const NEXT_NAVIGATION = '\0next';
 let pendingTab: { tabId: string; url: string } | null = null;
 
+/**
+ * Waiting for the next navigation to land: {@link record} settles these. A Back through the
+ * history is fire-and-forget (`history.back()` only queues a popstate), so this is how
+ * {@link goBack} can still promise "the page you went back to is on screen" — which the installed
+ * app's edge swipe waits on before it lets go of the page it is leaving.
+ */
+let landingWaiters: (() => void)[] = [];
+/** A Back that never lands (nothing to pop to after all) stops being waited on after this. */
+const LANDING_TIMEOUT_MS = 1000;
+
+function nextLanding(): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      landingWaiters = landingWaiters.filter((w) => w !== done);
+      resolve();
+    };
+    const timer = setTimeout(done, LANDING_TIMEOUT_MS);
+    landingWaiters.push(done);
+  });
+}
+
 function storage(): Storage | null {
   try {
     return typeof sessionStorage === 'undefined' ? null : sessionStorage;
@@ -142,6 +164,10 @@ function record(nav: { type: string; from: UrlLike; to: UrlLike }, user: NavAudi
       const entry = findEntry(memory, target);
       if (entry?.scrollTop) restoreScroll(entry.scrollTop);
     }
+
+    const landed = landingWaiters;
+    landingWaiters = [];
+    for (const done of landed) done();
   });
 }
 
@@ -269,15 +295,17 @@ function currentHref(): string | null {
 /**
  * Go back to `target` (from {@link backTarget}). Uses `history.back()` only when the previous
  * history entry is provably the target; otherwise replaces the current entry with the target.
- * Either way the page comes back at the scroll position it was left at (see record / below).
+ * Either way the page comes back at the scroll position it was left at (see record / below), and
+ * the promise settles once the navigation has landed.
  */
 async function goBack(target: NavBack): Promise<void> {
   const here = currentHref();
   if (!here) return;
   const lastNav = untrack(() => memory.lastNav);
   if (decideBack(lastNav, here, target.href) === 'history') {
+    const landed = nextLanding();
     history.back();
-    return;
+    return landed;
   }
   const entry = untrack(() => findEntry(memory, target.href));
   const key = normUrl(target.href);

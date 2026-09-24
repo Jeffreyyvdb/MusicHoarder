@@ -43,6 +43,15 @@ class FakeAudio extends EventTarget {
   });
   load = vi.fn();
   removeAttribute = vi.fn();
+  error: { code: number } | null = null;
+  /** Every type playable unless a test says otherwise, like a desktop Chrome. */
+  canPlayType = vi.fn((_type: string) => 'maybe');
+
+  /** The element failing its load the way a browser reports it: `error` set, then the event. */
+  fail(code: number) {
+    this.error = { code };
+    this.dispatchEvent(new Event('error'));
+  }
 
   constructor() {
     super();
@@ -50,12 +59,20 @@ class FakeAudio extends EventTarget {
   }
 }
 
-const song = (id: number): PlayerSong => ({
+const song = (id: number, format?: string): PlayerSong => ({
   id,
   title: `Track ${id}`,
   artist: 'Artist',
-  streamUrl: `/api/mh/songs/${id}/stream`
+  streamUrl: `/api/mh/songs/${id}/stream`,
+  format
 });
+
+/** Lets every pending promise run, so a negative assertion is not just early. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+const MEDIA_ERR_NETWORK = 2;
+const MEDIA_ERR_SRC_NOT_SUPPORTED = 4;
+const OGG_OPUS = 'audio/ogg; codecs="opus"';
 
 let doc: { hidden: boolean };
 let audioSession: { type: string };
@@ -135,5 +152,110 @@ describe('track hand-off', () => {
     expect(audio.play).toHaveBeenCalledTimes(1);
     expect(playerStore.currentSong?.id).toBe(2);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('formats the browser cannot play', () => {
+  it('streams a file the browser can play as it is', async () => {
+    const { playerStore, audio } = await loadPlayer();
+
+    await playerStore.playSong(song(1, 'opus'));
+
+    expect(audio.canPlayType).toHaveBeenCalledWith(OGG_OPUS);
+    expect(audio.src).toBe('/api/mh/songs/1/stream');
+  });
+
+  it('streams the decoded version when the browser says it cannot play the file, checking the original first', async () => {
+    const { playerStore, audio } = await loadPlayer();
+    audio.canPlayType.mockImplementation((type) => (type === OGG_OPUS ? '' : 'maybe'));
+
+    await playerStore.playSong(song(1, 'opus'));
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/mh/songs/1/stream', {
+      headers: { Range: 'bytes=0-0' }
+    });
+    expect(audio.src).toBe('/api/mh/songs/1/stream?format=wav');
+    expect(audio.play).toHaveBeenCalled();
+  });
+
+  it('falls back to the decoded stream when the original fails, and sends the rest of the queue straight there', async () => {
+    const { toast } = await import('svelte-sonner');
+    const { playerStore, audio } = await loadPlayer();
+    await playerStore.playSong(song(1, 'opus'), [song(1, 'opus'), song(2, 'opus')]);
+    audio.play.mockClear();
+    fetchMock.mockClear();
+
+    // Safari claims Ogg Opus and still refuses the file.
+    audio.fail(MEDIA_ERR_SRC_NOT_SUPPORTED);
+
+    expect(audio.src).toBe('/api/mh/songs/1/stream?format=wav');
+    expect(audio.play).toHaveBeenCalledTimes(1);
+    expect(toast.error).not.toHaveBeenCalled();
+
+    // The original answered and the decoded stream plays: it was the format, so the next track in
+    // it goes straight to its decoded stream.
+    audio.dispatchEvent(new Event('loadedmetadata'));
+    await settle();
+    playerStore.playNext();
+    await vi.waitFor(() => expect(audio.src).toBe('/api/mh/songs/2/stream?format=wav'));
+  });
+
+  it('does not blame the format when the original was not reachable', async () => {
+    // The same error code covers a 404 or a proxy timeout; one missing mp3 must not have this
+    // browser convert every mp3 after it.
+    const { playerStore, audio } = await loadPlayer();
+    await playerStore.playSong(song(1, 'mp3'), [song(1, 'mp3'), song(2, 'mp3')]);
+
+    fetchMock.mockResolvedValueOnce({ ok: false });
+    audio.fail(MEDIA_ERR_SRC_NOT_SUPPORTED);
+    audio.dispatchEvent(new Event('loadedmetadata'));
+    await settle();
+
+    playerStore.playNext();
+    await vi.waitFor(() => expect(audio.src).toBe('/api/mh/songs/2/stream'));
+  });
+
+  it('does not blame the format when the decoded stream fails too', async () => {
+    const { playerStore, audio } = await loadPlayer();
+    await playerStore.playSong(song(1, 'mp3'), [song(1, 'mp3'), song(2, 'mp3')]);
+
+    audio.fail(MEDIA_ERR_SRC_NOT_SUPPORTED);
+    audio.fail(MEDIA_ERR_SRC_NOT_SUPPORTED);
+    await settle();
+
+    playerStore.playNext();
+    await vi.waitFor(() => expect(audio.src).toBe('/api/mh/songs/2/stream'));
+  });
+
+  it('keeps the position and the paused state when it falls back', async () => {
+    const { playerStore, audio } = await loadPlayer();
+    await playerStore.playSong(song(1, 'flac'));
+    playerStore.pause();
+    playerStore.seek(42);
+    audio.play.mockClear();
+
+    // A decode failure part-way in: this file, not the format.
+    audio.dispatchEvent(new Event('loadedmetadata'));
+    audio.fail(3);
+
+    expect(audio.src).toBe('/api/mh/songs/1/stream?format=wav');
+    expect(audio.currentTime).toBe(42);
+    expect(audio.play).not.toHaveBeenCalled();
+  });
+
+  it('reports a failure decoding cannot fix, and a failure of the decoded stream itself', async () => {
+    const { toast } = await import('svelte-sonner');
+    const { playerStore, audio } = await loadPlayer();
+    await playerStore.playSong(song(1, 'opus'));
+
+    audio.fail(MEDIA_ERR_NETWORK);
+    expect(audio.src).toBe('/api/mh/songs/1/stream');
+    expect(toast.error).toHaveBeenCalledTimes(1);
+
+    await playerStore.playSong(song(2, 'opus'));
+    audio.fail(MEDIA_ERR_SRC_NOT_SUPPORTED);
+    expect(audio.src).toBe('/api/mh/songs/2/stream?format=wav');
+    audio.fail(MEDIA_ERR_SRC_NOT_SUPPORTED);
+    expect(toast.error).toHaveBeenCalledTimes(2);
   });
 });

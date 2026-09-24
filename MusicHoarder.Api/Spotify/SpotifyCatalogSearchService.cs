@@ -425,9 +425,11 @@ public sealed class SpotifyCatalogSearchService(
             ext.TryGetProperty("isrc", out var isrcProp) && isrcProp.ValueKind == JsonValueKind.String)
             isrc = isrcProp.GetString();
 
+        var isExplicit = track.TryGetProperty("explicit", out var ex) && ex.ValueKind == JsonValueKind.True;
+
         return new SpotifyCatalogTrack(
             id, name, artist, albumName, releaseYear, trackNumber, durationMs, isrc,
             Artists: artistsMulti, DiscNumber: discNumber, AlbumType: albumType, TotalTracks: totalTracks,
-            AlbumId: albumId, AlbumArtUrl: albumArtUrl);
+            AlbumId: albumId, AlbumArtUrl: albumArtUrl, Explicit: isExplicit);
     }
 }

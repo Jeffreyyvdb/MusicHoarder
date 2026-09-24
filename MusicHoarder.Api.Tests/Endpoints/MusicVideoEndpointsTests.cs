@@ -69,6 +69,26 @@ public class MusicVideoEndpointsTests
         Assert.Equal(2400, ok.Value.SyncOffsetMs);
         Assert.Equal("AutoAligned", ok.Value.SyncSource);
         Assert.Equal(0.93, ok.Value.SyncConfidence);
+        // Not measured yet: the players read null as "no bars".
+        Assert.Null(ok.Value.Letterbox);
+        Assert.Null(ok.Value.Pillarbox);
+    }
+
+    [Fact]
+    public async Task GetVideoInfo_ReturnsTheMeasuredBars()
+    {
+        await using var db = NewContext();
+        db.Songs.Add(Song(1));
+        var video = ReadyVideo(1);
+        video.LetterboxFraction = 0.13125;
+        video.PillarboxFraction = 0;
+        db.SongMusicVideos.Add(video);
+        await db.SaveChangesAsync();
+
+        var result = await MusicVideoEndpoints.GetVideoInfo(1, db, TestLibraryScope.For(TestUsers.OwnerId), default);
+        var ok = Assert.IsType<Ok<MusicVideoEndpoints.VideoInfoDto>>(result);
+        Assert.Equal(0.13125, ok.Value!.Letterbox);
+        Assert.Equal(0, ok.Value.Pillarbox);
     }
 
     [Fact]

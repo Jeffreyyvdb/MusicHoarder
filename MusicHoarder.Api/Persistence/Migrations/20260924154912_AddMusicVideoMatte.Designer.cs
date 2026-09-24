@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MusicHoarder.Api.Persistence;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MusicHoarder.Api.Persistence.Migrations
 {
     [DbContext(typeof(MusicHoarderDbContext))]
-    partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260924154912_AddMusicVideoMatte")]
+    partial class AddMusicVideoMatte
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1037,47 +1040,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("RuntimeSettings");
-                });
-
-            modelBuilder.Entity("MusicHoarder.Api.Persistence.ShareVisit", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<int>("Kind")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("OccurredAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("OwnerUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("ShareId")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("SongId")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Source")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("VisitorKey")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ShareId", "Kind", "OccurredAtUtc");
-
-                    b.HasIndex("ShareId", "VisitorKey", "OccurredAtUtc");
-
-                    b.ToTable("ShareVisits");
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.SongDuplicateLink", b =>
@@ -2332,17 +2294,6 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Song");
-                });
-
-            modelBuilder.Entity("MusicHoarder.Api.Persistence.ShareVisit", b =>
-                {
-                    b.HasOne("MusicHoarder.Api.Persistence.SongShare", "Share")
-                        .WithMany()
-                        .HasForeignKey("ShareId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Share");
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.SongDuplicateLink", b =>

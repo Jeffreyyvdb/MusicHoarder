@@ -2,6 +2,7 @@ import { error, redirect } from '@sveltejs/kit';
 import { probeSession, SESSION_COOKIE } from '$lib/server/session';
 import { APP_HOME } from '$lib/app-home';
 import { allowedPathPrefixesFor, isPathAllowed } from '$lib/nav';
+import { SESSION_DEPENDENCY } from '$lib/auth/session-watch';
 import type { LayoutServerLoad } from './$types';
 
 /**
@@ -12,8 +13,16 @@ import type { LayoutServerLoad } from './$types';
  * means "we couldn't check" — that surfaces an error page with a retry instead of a redirect to
  * /login, because bouncing to the sign-in form makes people re-authenticate a session that was
  * never actually invalid.
+ *
+ * It runs once per document load, NOT once per navigation: the pathname is read untracked, so
+ * SvelteKit has no reason to re-run it (and make the browser wait on `__data.json` plus an API
+ * round trip) before it can render the next page. Client-side navigations are guarded by the
+ * universal load in `+layout.ts`, and `createSessionWatch` (`$lib/auth/session-watch`) re-asks
+ * about the session in the background, re-running this load through {@link SESSION_DEPENDENCY}
+ * only when the API says it is gone.
  */
-export const load: LayoutServerLoad = async ({ request, cookies, url }) => {
+export const load: LayoutServerLoad = async ({ request, cookies, url, depends, untrack }) => {
+  depends(SESSION_DEPENDENCY);
   const probe = await probeSession(request.headers.get('cookie'), {
     userAgent: request.headers.get('user-agent'),
     timeoutMs: 8000
@@ -23,7 +32,8 @@ export const load: LayoutServerLoad = async ({ request, cookies, url }) => {
     // What a non-admin may open is DERIVED from the nav groups they can see, so the sidebar and
     // this guard cannot disagree. Deep-linking outside it bounces home rather than rendering
     // pages full of empty or 403ing panels. Cosmetic only — the API enforces the real rules.
-    if (!isPathAllowed(url.pathname, allowedPathPrefixesFor(probe.user))) {
+    const pathname = untrack(() => url.pathname);
+    if (!isPathAllowed(pathname, allowedPathPrefixesFor(probe.user))) {
       throw redirect(303, APP_HOME);
     }
     return { user: probe.user };

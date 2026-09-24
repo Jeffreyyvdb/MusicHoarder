@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Artwork;
+using MusicHoarder.Api.Audio;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Contracts;
 using MusicHoarder.Api.Navidrome;
@@ -136,13 +137,15 @@ public static class SharedLibraryEndpoints
 
     internal static async Task<IResult> StreamSharedLibrarySong(
         int id,
+        string? format,
         MusicHoarderDbContext db,
         ICurrentUserAccessor currentUser,
         ISharedLibraryGrantResolver resolver,
+        IPcmDecoder decoder,
         CancellationToken ct)
     {
         var song = await ResolveSongAsync(db, currentUser, resolver, id, ct);
-        return song is null ? SharedSongNotFound() : SongsEndpoints.StreamSongFile(song);
+        return song is null ? SharedSongNotFound() : await SongsEndpoints.StreamSongFileAsync(song, format, decoder, ct);
     }
 
     internal static async Task<IResult> GetSharedLibrarySongCover(

@@ -1,4 +1,5 @@
 import { createPasskey, getPasskeyAssertion } from "$lib/webauthn-client"
+import { formatOf } from "$lib/audio-formats"
 import type { PlayerSong } from "$lib/stores/player.svelte"
 import type { LyricsProvenance, LyricsSyncStatus } from "$lib/types"
 
@@ -1991,6 +1992,12 @@ export interface SongVideoInfo {
   lastError?: string | null
   /** Ready row whose mp4 vanished from disk — the stream would 404; offer a refetch instead. */
   fileMissing?: boolean
+  /**
+   * The black bars baked into the frame, as the share of it each bar of a pair covers (top/bottom,
+   * sides); null until the server has measured the file. The backdrop crops them (`cropMatte`).
+   */
+  letterbox?: number | null
+  pillarbox?: number | null
 }
 
 /**
@@ -2222,6 +2229,7 @@ export function toPlayerSong(song: ApiSong, fallbackArtist: string): PlayerSong 
     streamUrl: getSongStreamUrl(song.id),
     coverUrl: coverUrlForSong(song),
     album: song.album ?? null,
+    format: formatOf(song.extension),
   }
 }
 

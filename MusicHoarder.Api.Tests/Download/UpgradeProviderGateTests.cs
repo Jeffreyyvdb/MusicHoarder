@@ -16,7 +16,7 @@ public class UpgradeProviderGateTests
     {
         var provider = new StreamingFlacDownloadProvider(
             sidecar: null!, catalogSearch: null!,
-            spotifyOptions: Microsoft.Extensions.Options.Options.Create(new SpotifyOptions()),
+            spotifyCredentials: null!,
             options: Monitor(new StreamingFlacOptions { Enabled = true, SidecarUrl = "http://sidecar:8080" }),
             logger: NullLogger<StreamingFlacDownloadProvider>.Instance);
 
@@ -29,7 +29,7 @@ public class UpgradeProviderGateTests
     {
         var provider = new StreamingFlacDownloadProvider(
             sidecar: null!, catalogSearch: null!,
-            spotifyOptions: Microsoft.Extensions.Options.Options.Create(new SpotifyOptions()),
+            spotifyCredentials: null!,
             options: Monitor(new StreamingFlacOptions()), // Enabled=false
             logger: NullLogger<StreamingFlacDownloadProvider>.Instance);
 
