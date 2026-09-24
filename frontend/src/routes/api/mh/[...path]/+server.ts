@@ -1,4 +1,3 @@
-import type { IncomingMessage } from 'node:http';
 import type { RequestHandler } from './$types';
 import { getApiBaseUrl } from '$lib/server/api-target';
 
@@ -7,12 +6,7 @@ function buildTargetUrl(pathSegments: string, search: string): string {
   return `${base}/${pathSegments}${search}`;
 }
 
-async function proxy(
-  request: Request,
-  pathSegments: string,
-  search: string,
-  platform: App.Platform | undefined
-): Promise<Response> {
+async function proxy(request: Request, pathSegments: string, search: string): Promise<Response> {
   const target = buildTargetUrl(pathSegments, search);
   const method = request.method.toUpperCase();
   const shouldForwardBody = method !== 'GET' && method !== 'HEAD';
@@ -28,27 +22,10 @@ async function proxy(
   // AI lyrics transcription and pronunciation/translation are deliberate long-running synchronous
   // actions (ffmpeg + Whisper, or chunked LLM calls), so they get a much longer window — each is
   // bounded server-side by its own TimeoutSeconds. Aborting early would also cancel the API-side work.
-  // So does a stream's AAC rendition (`?format=aac`): its headers wait until ffmpeg has converted
-  // the whole file, bounded by StreamTranscode:TimeoutSeconds.
-  const isConvertedStream =
-    pathSegments.endsWith('/stream') && new URLSearchParams(search).has('format');
   const isLongRunning =
-    pathSegments.endsWith('/lyrics/transcribe') ||
-    pathSegments.endsWith('/lyrics/translate') ||
-    isConvertedStream;
+    pathSegments.endsWith('/lyrics/transcribe') || pathSegments.endsWith('/lyrics/translate');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), isLongRunning ? 240_000 : 10_000);
-
-  // A converted stream the listener skipped past should stop its conversion, which the API does
-  // once nobody waits for it any more. SvelteKit's `request.signal` never fires for a GET, so under
-  // adapter-node (which hands the raw request over as `platform.req`) watch the connection: a
-  // client that gives up on an in-flight HTTP/1.1 request closes it. Elsewhere (the dev server)
-  // the conversion simply runs to the end and is cached.
-  const socket = isConvertedStream
-    ? (platform as { req?: IncomingMessage } | undefined)?.req?.socket
-    : undefined;
-  const onClientGone = () => controller.abort();
-  socket?.once('close', onClientGone);
 
   let response: Response;
   try {
@@ -64,7 +41,6 @@ async function proxy(
     return new Response(null, { status: 504 });
   } finally {
     clearTimeout(timeout);
-    socket?.off('close', onClientGone);
   }
 
   const responseHeaders = new Headers(response.headers);
@@ -100,8 +76,8 @@ async function proxy(
   });
 }
 
-const handler: RequestHandler = ({ request, params, url, platform }) => {
-  return proxy(request, params.path ?? '', url.search, platform);
+const handler: RequestHandler = ({ request, params, url }) => {
+  return proxy(request, params.path ?? '', url.search);
 };
 
 export const GET = handler;

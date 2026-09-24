@@ -240,7 +240,7 @@ public class SharesEndpointsTests
             }
 
             await using var db = AnonymousContext(options);
-            var result = await SharesEndpoints.StreamSharedSong("tok", 1, null, db, new FakeStreamTranscoder(), CancellationToken.None);
+            var result = await SharesEndpoints.StreamSharedSong("tok", 1, null, db, new FakePcmDecoder(), CancellationToken.None);
 
             var stream = Assert.IsType<FileStreamHttpResult>(result);
             Assert.Equal("audio/mpeg", stream.ContentType);

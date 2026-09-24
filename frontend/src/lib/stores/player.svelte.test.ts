@@ -165,21 +165,20 @@ describe('formats the browser cannot play', () => {
     expect(audio.src).toBe('/api/mh/songs/1/stream');
   });
 
-  it('streams the AAC rendition when the browser says it cannot play the file, checking the original first', async () => {
+  it('streams the decoded version when the browser says it cannot play the file, checking the original first', async () => {
     const { playerStore, audio } = await loadPlayer();
     audio.canPlayType.mockImplementation((type) => (type === OGG_OPUS ? '' : 'maybe'));
 
     await playerStore.playSong(song(1, 'opus'));
 
-    // The pre-flight asks for the original, which answers at once; the rendition waits on ffmpeg.
     expect(fetchMock).toHaveBeenCalledWith('/api/mh/songs/1/stream', {
       headers: { Range: 'bytes=0-0' }
     });
-    expect(audio.src).toBe('/api/mh/songs/1/stream?format=aac');
+    expect(audio.src).toBe('/api/mh/songs/1/stream?format=wav');
     expect(audio.play).toHaveBeenCalled();
   });
 
-  it('falls back to the rendition when the original fails, and sends the rest of the queue straight there', async () => {
+  it('falls back to the decoded stream when the original fails, and sends the rest of the queue straight there', async () => {
     const { toast } = await import('svelte-sonner');
     const { playerStore, audio } = await loadPlayer();
     await playerStore.playSong(song(1, 'opus'), [song(1, 'opus'), song(2, 'opus')]);
@@ -189,20 +188,16 @@ describe('formats the browser cannot play', () => {
     // Safari claims Ogg Opus and still refuses the file.
     audio.fail(MEDIA_ERR_SRC_NOT_SUPPORTED);
 
-    expect(audio.src).toBe('/api/mh/songs/1/stream?format=aac');
+    expect(audio.src).toBe('/api/mh/songs/1/stream?format=wav');
     expect(audio.play).toHaveBeenCalledTimes(1);
     expect(toast.error).not.toHaveBeenCalled();
 
-    // The original answered and the rendition plays: it was the format. The next track, in the
-    // same format, is converted ahead of time and then played as its rendition.
+    // The original answered and the decoded stream plays: it was the format, so the next track in
+    // it goes straight to its decoded stream.
     audio.dispatchEvent(new Event('loadedmetadata'));
-    await vi.waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith('/api/mh/songs/2/stream?format=aac', {
-        headers: { Range: 'bytes=0-0' }
-      })
-    );
+    await settle();
     playerStore.playNext();
-    await vi.waitFor(() => expect(audio.src).toBe('/api/mh/songs/2/stream?format=aac'));
+    await vi.waitFor(() => expect(audio.src).toBe('/api/mh/songs/2/stream?format=wav'));
   });
 
   it('does not blame the format when the original was not reachable', async () => {
@@ -220,7 +215,7 @@ describe('formats the browser cannot play', () => {
     await vi.waitFor(() => expect(audio.src).toBe('/api/mh/songs/2/stream'));
   });
 
-  it('does not blame the format when the rendition fails too', async () => {
+  it('does not blame the format when the decoded stream fails too', async () => {
     const { playerStore, audio } = await loadPlayer();
     await playerStore.playSong(song(1, 'mp3'), [song(1, 'mp3'), song(2, 'mp3')]);
 
@@ -243,12 +238,12 @@ describe('formats the browser cannot play', () => {
     audio.dispatchEvent(new Event('loadedmetadata'));
     audio.fail(3);
 
-    expect(audio.src).toBe('/api/mh/songs/1/stream?format=aac');
+    expect(audio.src).toBe('/api/mh/songs/1/stream?format=wav');
     expect(audio.currentTime).toBe(42);
     expect(audio.play).not.toHaveBeenCalled();
   });
 
-  it('reports a failure the rendition cannot fix, and a failure of the rendition itself', async () => {
+  it('reports a failure decoding cannot fix, and a failure of the decoded stream itself', async () => {
     const { toast } = await import('svelte-sonner');
     const { playerStore, audio } = await loadPlayer();
     await playerStore.playSong(song(1, 'opus'));
@@ -259,33 +254,8 @@ describe('formats the browser cannot play', () => {
 
     await playerStore.playSong(song(2, 'opus'));
     audio.fail(MEDIA_ERR_SRC_NOT_SUPPORTED);
-    expect(audio.src).toBe('/api/mh/songs/2/stream?format=aac');
+    expect(audio.src).toBe('/api/mh/songs/2/stream?format=wav');
     audio.fail(MEDIA_ERR_SRC_NOT_SUPPORTED);
     expect(toast.error).toHaveBeenCalledTimes(2);
-  });
-
-  it('has the server convert the next track while this one plays', async () => {
-    const { playerStore, audio } = await loadPlayer();
-    audio.canPlayType.mockImplementation((type) => (type === OGG_OPUS ? '' : 'maybe'));
-    await playerStore.playSong(song(1, 'mp3'), [song(1, 'mp3'), song(2, 'opus'), song(3, 'opus')]);
-    fetchMock.mockClear();
-
-    audio.dispatchEvent(new Event('loadedmetadata'));
-    audio.dispatchEvent(new Event('loadedmetadata'));
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith('/api/mh/songs/2/stream?format=aac', {
-      headers: { Range: 'bytes=0-0' }
-    });
-  });
-
-  it('converts nothing ahead when the next track plays as it is', async () => {
-    const { playerStore, audio } = await loadPlayer();
-    await playerStore.playSong(song(1, 'opus'), [song(1, 'opus'), song(2, 'opus')]);
-    fetchMock.mockClear();
-
-    audio.dispatchEvent(new Event('loadedmetadata'));
-
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

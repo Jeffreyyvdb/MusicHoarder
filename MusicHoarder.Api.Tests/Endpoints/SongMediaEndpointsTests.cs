@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Artwork;
+using MusicHoarder.Api.Audio;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Persistence;
@@ -87,7 +88,7 @@ public class SongMediaEndpointsTests : IDisposable
         await using var db = NewContext();
         // no songs added
 
-        var result = await SongsEndpoints.StreamSong(999, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakeStreamTranscoder(), CancellationToken.None);
+        var result = await SongsEndpoints.StreamSong(999, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(), CancellationToken.None);
 
         Assert.IsAssignableFrom<IStatusCodeHttpResult>(result);
         Assert.Equal(404, ((IStatusCodeHttpResult)result).StatusCode);
@@ -102,7 +103,7 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakeStreamTranscoder(), CancellationToken.None);
+        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(), CancellationToken.None);
 
         Assert.IsAssignableFrom<IStatusCodeHttpResult>(result);
         Assert.Equal(404, ((IStatusCodeHttpResult)result).StatusCode);
@@ -118,7 +119,7 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakeStreamTranscoder(), CancellationToken.None);
+        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(), CancellationToken.None);
 
         var streamResult = Assert.IsType<FileStreamHttpResult>(result);
         Assert.Equal("audio/mpeg", streamResult.ContentType);
@@ -140,7 +141,7 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakeStreamTranscoder(), CancellationToken.None);
+        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(), CancellationToken.None);
 
         var streamResult = Assert.IsType<FileStreamHttpResult>(result);
         Assert.Equal("audio/flac", streamResult.ContentType);
@@ -164,7 +165,7 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakeStreamTranscoder(), CancellationToken.None);
+        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(), CancellationToken.None);
 
         var streamResult = Assert.IsType<FileStreamHttpResult>(result);
         Assert.Equal(destPath, ((FileStream)streamResult.FileStream).Name);
@@ -181,7 +182,7 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakeStreamTranscoder(), CancellationToken.None);
+        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(), CancellationToken.None);
 
         Assert.IsAssignableFrom<IStatusCodeHttpResult>(result);
         Assert.Equal(404, ((IStatusCodeHttpResult)result).StatusCode);
@@ -197,7 +198,7 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakeStreamTranscoder(), CancellationToken.None);
+        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(), CancellationToken.None);
 
         var streamResult = Assert.IsType<FileStreamHttpResult>(result);
         Assert.Equal("application/octet-stream", streamResult.ContentType);
@@ -210,42 +211,37 @@ public class SongMediaEndpointsTests : IDisposable
     {
         // No ?format: the original bytes, never a conversion.
         var sourcePath = TempFile("song.opus");
-        var transcoder = new FakeStreamTranscoder(_ => throw new InvalidOperationException("must not convert"));
+        var decoder = new FakePcmDecoder();
 
         await using var db = NewContext();
         var song = NewSong(sourcePath, "song.opus");
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), transcoder, CancellationToken.None);
+        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), decoder, CancellationToken.None);
 
         var streamResult = Assert.IsType<FileStreamHttpResult>(result);
         Assert.Equal("audio/ogg", streamResult.ContentType);
         Assert.Equal(sourcePath, ((FileStream)streamResult.FileStream).Name);
-        Assert.Empty(transcoder.Requested);
+        Assert.Empty(decoder.Opened);
 
         await streamResult.FileStream.DisposeAsync();
     }
 
     [Fact]
-    public async Task StreamSong_FormatAac_ServesTheRenditionWithRangeSupport()
+    public async Task StreamSong_FormatWav_StreamsTheFileDecodedToItsFullLength()
     {
         var sourcePath = TempFile("song.opus");
-        var renditionPath = TempFile("rendition.m4a");
-        var transcoder = new FakeStreamTranscoder(_ => renditionPath);
 
         await using var db = NewContext();
         var song = NewSong(sourcePath, "song.opus");
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, "aac", db, TestLibraryScope.For(TestUsers.OwnerId), transcoder, CancellationToken.None);
+        var result = await SongsEndpoints.StreamSong(song.Id, "wav", db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(frames: 480_000), CancellationToken.None);
 
-        var file = Assert.IsType<PhysicalFileHttpResult>(result);
-        Assert.Equal(renditionPath, file.FileName);
-        Assert.Equal("audio/mp4", file.ContentType);
-        Assert.True(file.EnableRangeProcessing);
-        Assert.Equal([sourcePath], transcoder.Requested);
+        var wav = Assert.IsType<WavStreamResult>(result);
+        Assert.Equal(44 + 480_000 * 4, wav.Length);
     }
 
     [Fact]
@@ -258,15 +254,15 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, "flac", db, TestLibraryScope.For(TestUsers.OwnerId), new FakeStreamTranscoder(), CancellationToken.None);
+        var result = await SongsEndpoints.StreamSong(song.Id, "flac", db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(), CancellationToken.None);
 
         Assert.Equal(400, ((IStatusCodeHttpResult)result).StatusCode);
     }
 
     [Fact]
-    public async Task StreamSong_ConversionFails_Returns500WithoutNamingThePath()
+    public async Task StreamSong_FormatWav_UnreadableLength_Returns500WithoutNamingThePath()
     {
-        // The same helper serves anonymous share links, and ffmpeg's error names the file.
+        // The same helper serves anonymous share links.
         var sourcePath = TempFile("song.opus");
 
         await using var db = NewContext();
@@ -274,7 +270,7 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, "aac", db, TestLibraryScope.For(TestUsers.OwnerId), new FakeStreamTranscoder(), CancellationToken.None);
+        var result = await SongsEndpoints.StreamSong(song.Id, "wav", db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(frames: null), CancellationToken.None);
 
         var problem = Assert.IsType<ProblemHttpResult>(result);
         Assert.Equal(500, problem.StatusCode);

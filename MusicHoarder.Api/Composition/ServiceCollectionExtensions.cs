@@ -63,12 +63,6 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
 
         services
-            .AddOptions<StreamTranscodeOptions>()
-            .BindConfiguration(StreamTranscodeOptions.SectionName)
-            .ValidateDataAnnotations()
-            .ValidateOnStart();
-
-        services
             .AddOptions<LyricsTimingOptions>()
             .BindConfiguration(LyricsTimingOptions.SectionName)
             .ValidateDataAnnotations()
@@ -261,19 +255,9 @@ public static class ServiceCollectionExtensions
                 "cover-thumbs");
             return new CoverThumbnailService(dir.FullName, sp.GetRequiredService<ILogger<CoverThumbnailService>>());
         });
-        // AAC renditions for clients that cannot play a file as it is (?format=aac on the stream
-        // endpoints). Like the thumbnails, a disposable cache of derived files.
-        services.AddSingleton<IStreamTranscoder>(sp =>
-        {
-            var options = sp.GetRequiredService<IOptions<StreamTranscodeOptions>>();
-            var dir = ResolveWritableDirectory(options.Value.CacheDirectory, "transcode-cache");
-            return new FfmpegStreamTranscoder(
-                dir.FullName,
-                options,
-                sp.GetRequiredService<IOptions<MusicEnricherOptions>>(),
-                sp.GetRequiredService<IHostApplicationLifetime>(),
-                sp.GetRequiredService<ILogger<FfmpegStreamTranscoder>>());
-        });
+        // Decodes a song to PCM for clients that cannot play the file as it is (?format=wav on the
+        // stream endpoints). Stateless: one ffmpeg per requested range, nothing cached.
+        services.AddSingleton<IPcmDecoder, FfmpegPcmDecoder>();
         services.AddScoped<ILibraryTagWriter, TagLibLibraryTagWriter>();
         services.AddScoped<ILibraryDestinationCleaner, LibraryDestinationCleaner>();
         services.AddScoped<ILibraryBuilderService, LibraryBuilderService>();

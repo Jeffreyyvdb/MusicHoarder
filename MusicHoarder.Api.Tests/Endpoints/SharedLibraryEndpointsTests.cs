@@ -106,7 +106,7 @@ public class SharedLibraryEndpointsTests
         // Out of scope / unknown: uniform 404 on every per-song endpoint.
         foreach (var id in new[] { 2, 999 })
         {
-            var stream = await SharedLibraryEndpoints.StreamSharedLibrarySong(id, null, db, FriendAccessor(), resolver, new FakeStreamTranscoder(), CancellationToken.None);
+            var stream = await SharedLibraryEndpoints.StreamSharedLibrarySong(id, null, db, FriendAccessor(), resolver, new FakePcmDecoder(), CancellationToken.None);
             Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)stream).StatusCode);
 
             var lyricsResult = await SharedLibraryEndpoints.GetSharedLibrarySongLyrics(id, db, FriendAccessor(), resolver, CancellationToken.None);
