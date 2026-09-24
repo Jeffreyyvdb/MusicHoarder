@@ -1,20 +1,41 @@
 <script lang="ts">
+  import { page } from '$app/state';
   import type { SpotifyApiPlaylist, SpotifyApiTrack } from '$lib/api-client';
   import { fetchSpotifyPlaylistTracks } from '$lib/api-client';
   import { Button } from '$lib/components/ui/button';
-  import { Input } from '$lib/components/ui/input';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import { ArrowLeft, Search, Clock, AlertCircle, ListMusic } from '@lucide/svelte';
+  import { SearchField } from '$lib/components/ui/search-field';
+  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
+  import { Clock, AlertCircle, ListMusic } from '@lucide/svelte';
   import { albumTint } from '$lib/album-tint';
   import { computeInitials, formatTotalDuration } from '$lib/formatters';
   import SpotifyTrackRow from './SpotifyTrackRow.svelte';
   import PaginationControls from './PaginationControls.svelte';
   import TrackListSkeleton from './TrackListSkeleton.svelte';
+  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
+  import { heroTitle } from '$lib/components/discover/hero-title';
+  import { tabMemory } from '$lib/stores/tab-memory.svelte';
 
-  type Props = { playlist: SpotifyApiPlaylist; onBack: () => void };
-  const { playlist, onBack }: Props = $props();
+  // A Spotify playlist, as a page pushed from the Playlists grid (/spotify?tab=playlists&
+  // playlist=<id>): its own nav bar with Back to the grid, the cover centred on a phone.
+  type Props = { playlist: SpotifyApiPlaylist; backHref: string };
+  const { playlist, backHref }: Props = $props();
 
   const limit = 50;
+
+  // The playlist names its page (Back labels, the browser-tab title), as Discover's does.
+  // titleOf is read first so the effect runs again once the navigation is recorded.
+  $effect(() => {
+    const title = playlist.name;
+    if (title && tabMemory.titleOf(page.url) !== title) tabMemory.setTitle(page.url, title);
+  });
+
+  // The filter sits in the desktop bar; on a phone it goes under the hero, over the list it
+  // filters, rather than above the cover.
+  const isMobile = new IsMobile();
+  const compact = $derived(isMobile.current);
+  // On a phone the bar's inline title waits until the hero's title has scrolled under it (see
+  // heroTitle); md+ keeps the desktop toolbar's title.
+  let heroVisible = $state(true);
 
   let tracks = $state<SpotifyApiTrack[]>([]);
   let total = $state(0);
@@ -71,130 +92,96 @@
     Math.floor(tracks.reduce((acc, t) => acc + (t.durationMs ?? 0), 0) / 1000)
   );
 
-  const heroBackground = $derived(
-    `linear-gradient(180deg, ${tint.from} 0%, color-mix(in oklch, ${tint.from} 60%, transparent) 60%, transparent 100%),` +
-      ` linear-gradient(135deg, color-mix(in oklch, ${tint.to} 40%, transparent), transparent)`
+  const meta = $derived(
+    [
+      playlist.ownerName,
+      `${playlist.trackCount} song${playlist.trackCount === 1 ? '' : 's'}`,
+      visibleDurationSeconds > 0
+        ? `${formatTotalDuration(visibleDurationSeconds)}${tracks.length < playlist.trackCount ? '+' : ''}`
+        : null
+    ]
+      .filter(Boolean)
+      .join(' · ')
   );
 </script>
 
-<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-  <ScrollArea class="min-h-0 flex-1">
-    <button
-      type="button"
-      onclick={onBack}
-      class="absolute top-3 left-3 z-10 inline-flex items-center gap-1 rounded-full bg-black/30 px-2.5 py-1.5 text-xs text-white/85 backdrop-blur transition-colors after:absolute after:-inset-2 hover:bg-black/40 hover:text-white sm:left-6"
-    >
-      <ArrowLeft class="size-3.5" />
-      Back
-    </button>
+{#snippet filterField()}
+  <SearchField bind:value={searchQuery} label="Filter this page" />
+{/snippet}
 
-    <!-- Hero -->
+<div class="flex min-h-0 flex-1 flex-col">
+  <div
+    class="hero-scroller min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)"
+    data-hero-visible={compact && heroVisible ? '' : undefined}
+  >
+    <PageToolbarV2
+      title={playlist.name}
+      largeTitle={false}
+      back={{ label: 'Spotify', href: backHref }}
+      search={compact ? undefined : filterField}
+    />
+
+    <!-- Hero: the cover centred on a phone, beside the title on desktop. -->
     <div
-      class="relative px-6 pt-6 pb-5 text-white sm:px-9"
-      style="background: {heroBackground};"
+      class="flex flex-col items-center px-4 pt-3 pb-5 text-center md:flex-row md:items-end md:gap-7 md:px-7 md:pt-7 md:text-left"
     >
-      <div class="relative z-10 flex items-center gap-4 sm:items-end sm:gap-6">
-        <div
-          class="relative grid size-20 shrink-0 place-items-center overflow-hidden shadow-[0_24px_48px_rgba(0,0,0,0.35)] sm:size-28 lg:size-32"
-          style="border-radius: 6px; background: linear-gradient(135deg, {tint.from} 0%, {tint.to} 100%);"
-        >
-          <div class="mh-cover-grain pointer-events-none absolute inset-0"></div>
-          {#if playlist.imageUrl}
-            <img
-              src={playlist.imageUrl}
-              alt=""
-              loading="lazy"
-              crossorigin="anonymous"
-              class="absolute inset-0 size-full object-cover"
-            />
-          {:else}
-            <div
-              class="relative z-[2] text-2xl font-bold tracking-[-0.04em] text-white/95 [text-shadow:_0_1px_2px_rgba(0,0,0,0.2)] sm:text-3xl lg:text-4xl"
-            >
-              {initials}
-            </div>
-            <div
-              class="absolute right-[8%] bottom-[7%] left-[8%] z-[2] truncate text-center font-mono text-[10px] font-medium tracking-[0.08em] text-white/75 uppercase"
-            >
-              {playlist.ownerName ?? 'Spotify'}
-            </div>
-          {/if}
-        </div>
-
-        <div class="min-w-0 flex-1 pb-2">
-          <div class="text-[11px] font-semibold tracking-wider opacity-85 uppercase">Playlist</div>
-          <h1
-            class="mt-2 text-[clamp(24px,5vw,44px)] leading-[0.95] font-extrabold tracking-[-0.03em] [text-wrap:balance]"
+      <div
+        class="relative grid size-44 shrink-0 place-items-center overflow-hidden rounded-md shadow-[0_12px_32px_rgb(0_0_0/0.22)] md:size-40"
+        style="background: linear-gradient(135deg, {tint.from} 0%, {tint.to} 100%);"
+      >
+        {#if playlist.imageUrl}
+          <img
+            src={playlist.imageUrl}
+            alt=""
+            crossorigin="anonymous"
+            draggable="false"
+            class="absolute inset-0 size-full object-cover"
+          />
+        {:else}
+          <div class="text-4xl font-bold tracking-[-0.04em] text-white">{initials}</div>
+          <div
+            class="absolute right-[8%] bottom-[7%] left-[8%] truncate text-center text-[11px] font-medium text-white"
           >
-            {playlist.name}
-          </h1>
-          {#if playlist.description}
-            <p class="mt-2 max-w-2xl text-sm leading-snug text-white/80 [text-wrap:pretty]">
-              {playlist.description}
-            </p>
-          {/if}
-          <div class="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[13px] opacity-90">
-            {#if playlist.ownerName}
-              <span class="inline-flex items-center gap-2 font-semibold">
-                <span
-                  class="ring-2 ring-white/50 inline-block size-4 rounded-full"
-                  style="background: {tint.to};"
-                ></span>
-                <span>{playlist.ownerName}</span>
-              </span>
-              <span class="opacity-50">·</span>
-            {/if}
-            <span>
-              {playlist.trackCount} song{playlist.trackCount === 1 ? '' : 's'}
-            </span>
-            {#if visibleDurationSeconds > 0}
-              <span class="opacity-50">·</span>
-              <span>
-                {formatTotalDuration(visibleDurationSeconds)}{tracks.length < playlist.trackCount
-                  ? '+'
-                  : ''}
-              </span>
-            {/if}
+            {playlist.ownerName ?? 'Spotify'}
           </div>
-        </div>
+        {/if}
+      </div>
+      <div class="mt-4 min-w-0 md:mt-0 md:pb-1">
+        <h2
+          use:heroTitle={(v) => (heroVisible = v)}
+          class="text-title-2 text-balance break-words md:text-[26px] md:leading-8"
+        >
+          {playlist.name}
+        </h2>
+        <p class="text-subheadline text-muted-foreground mt-1 md:text-sm">{meta}</p>
+        {#if playlist.description}
+          <p
+            class="text-footnote text-muted-foreground mx-auto mt-2 max-w-md text-pretty md:mx-0 md:max-w-2xl md:text-[13px]"
+          >
+            {playlist.description}
+          </p>
+        {/if}
+        <!-- There is no playback for a Spotify playlist yet. This used to be a disabled Play button
+             explained only by a hover title, so a tap did nothing; say it in words instead. -->
+        <p class="text-footnote text-muted-foreground mt-3 md:text-xs">
+          Playing Spotify playlists here is coming soon.
+        </p>
       </div>
     </div>
 
-    <!-- Action bar -->
-    <div
-      class="border-border flex items-center gap-3 border-b bg-gradient-to-b from-black/5 to-transparent px-6 py-5 sm:px-9 dark:from-white/5"
-    >
-      <!-- There is no playback for a Spotify playlist yet. This used to be a disabled Play button
-           explained only by a hover title, so a tap did nothing; say it in words instead. -->
-      <p class="text-muted-foreground text-[13px]">Playing Spotify playlists here is coming soon.</p>
-
-      <div class="text-muted-foreground ml-auto flex items-center gap-3 text-xs">
-        <span class="bg-[#1DB954]/15 text-[#1DB954] rounded px-2.5 py-1 font-mono">
-          SPOTIFY
-        </span>
-      </div>
-    </div>
-
-    <!-- Filter -->
-    <div class="border-border flex items-center gap-3 border-b px-4 py-3 md:px-6">
-      <div class="relative max-w-md flex-1">
-        <Search class="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-        <Input
-          type="search"
-          placeholder="Filter tracks…"
-          aria-label="Filter tracks"
-          bind:value={searchQuery}
-          class="bg-secondary border-0 pl-9"
-        />
-      </div>
-      <span class="text-muted-foreground shrink-0 text-sm">{total} tracks</span>
-    </div>
+    {#if compact}
+      <div class="px-4 pb-2">{@render filterField()}</div>
+    {/if}
 
     {#if error}
-      <div class="flex flex-col items-center justify-center py-12 text-center">
-        <AlertCircle class="text-destructive-text mb-3 size-10" />
-        <p class="text-muted-foreground">{error}</p>
-        <Button variant="outline" size="sm" class="mt-4" onclick={() => loadTracks(offset)}>
+      <div class="flex flex-col items-center justify-center px-6 py-12 text-center">
+        <AlertCircle class="text-destructive-text mb-3 size-10" aria-hidden="true" />
+        <p class="text-body text-muted-foreground md:text-sm">{error}</p>
+        <Button
+          variant="outline"
+          class="mt-4 h-11 rounded-full px-5 md:h-8 md:rounded-lg md:px-3"
+          onclick={() => loadTracks(offset)}
+        >
           Retry
         </Button>
       </div>
@@ -202,16 +189,18 @@
       <TrackListSkeleton />
     {:else}
       <div
-        class="text-muted-foreground border-border/50 hidden items-center gap-3 border-b px-6 py-2 text-xs md:flex"
+        class="text-muted-foreground border-separator hidden items-center gap-3 border-b px-6 py-2 text-xs md:mx-4 md:flex md:px-3"
       >
         <span class="w-8 text-right">#</span>
         <span class="size-10"></span>
-        <span class="flex-1">Title</span>
+        <span class="flex-1"
+          >Title · {searchQuery ? `${filteredTracks.length} of ` : ''}{total}</span
+        >
         <span class="hidden max-w-[200px] md:block">Album</span>
-        <span class="w-12 text-right"><Clock class="inline size-3.5" /></span>
+        <span class="w-12 text-right"><Clock class="inline size-3.5" aria-label="Duration" /></span>
         <span class="w-[120px] shrink-0 text-right">Library</span>
       </div>
-      <div class="flex flex-col gap-2 p-2 md:px-4">
+      <div class="py-1 md:px-4 md:py-2">
         {#each filteredTracks as track, i (`${track.spotifyId}-${i}`)}
           <SpotifyTrackRow
             {track}
@@ -221,22 +210,24 @@
             onToggleExpand={() => toggleExpand(track.spotifyId)}
           />
         {/each}
-        {#if filteredTracks.length === 0}
-          <div class="flex flex-col items-center justify-center py-12 text-center">
-            <ListMusic class="text-muted-foreground mb-3 size-10" />
-            <p class="text-muted-foreground">No tracks found</p>
-          </div>
-        {/if}
       </div>
+      {#if filteredTracks.length === 0}
+        <div class="flex flex-col items-center justify-center py-12 text-center">
+          <ListMusic class="text-muted-foreground mb-3 size-10" aria-hidden="true" />
+          <p class="text-body text-muted-foreground md:text-sm">No tracks found</p>
+        </div>
+      {/if}
       <PaginationControls {offset} {limit} {total} onPageChange={loadTracks} {isLoading} />
     {/if}
-  </ScrollArea>
+  </div>
 </div>
 
 <style>
-  .mh-cover-grain {
-    background:
-      radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.25), transparent 50%),
-      radial-gradient(circle at 70% 80%, rgba(0, 0, 0, 0.2), transparent 50%);
+  /* The bar's inline title fades in once the hero title has gone under it (Apple Music). */
+  .hero-scroller :global([data-mh-navbar] h1) {
+    transition: opacity 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .hero-scroller[data-hero-visible] :global([data-mh-navbar] h1) {
+    opacity: 0;
   }
 </style>

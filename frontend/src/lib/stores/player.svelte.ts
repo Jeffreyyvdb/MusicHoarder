@@ -8,6 +8,7 @@ import {
   writePlaybackSnapshot,
   type PlaybackSnapshot
 } from '$lib/player-snapshot';
+import { previousAction } from '$lib/player-seek';
 import { songsStore } from '$lib/stores/songs.svelte';
 import { artistOf } from '$lib/track-list-view.svelte';
 
@@ -68,12 +69,20 @@ const RADIO_EXCLUDE_CAP = 400;
  */
 let panelMountedCount = $state(0);
 /**
- * True after the user dismisses the MiniPlayer bar with its close (X) control.
- * Dismissal pauses playback and hides the bar but keeps `currentSong`/`queue`
- * intact — pressing play anywhere (row, panel, OS media keys) clears the flag
- * so the bar comes back with its full state. Only `stop()` tears state down.
+ * True after the user hides the MiniPlayer ("Hide player" in its menu, in Now Playing's ⋯ menu,
+ * or the md+ bar's close). Hiding leaves playback running and keeps `currentSong`/`queue`
+ * intact — the lock screen / Control Center controls keep working, and pressing play anywhere
+ * (row, panel, OS media keys) clears the flag so the bar comes back with its full state. Only
+ * `stop()` tears state down.
  */
 let miniPlayerDismissed = $state(false);
+/**
+ * Whether an AirPlay receiver is in reach. Only Safari reports it (the
+ * `webkitplaybacktargetavailabilitychanged` event on the media element), so everywhere else this
+ * stays false and Now Playing shows no route button — a button that opens nothing is worse than
+ * none.
+ */
+let airPlayAvailable = $state(false);
 
 let audioEl: HTMLAudioElement | null = null;
 /** Pre-mute level, restored on unmute so toggling mute is non-destructive. */
@@ -175,7 +184,9 @@ function refreshActionHandlers() {
   };
   set('play', () => resume());
   set('pause', () => pause());
-  set('previoustrack', queueIndex > 0 ? () => playPrevious() : null);
+  // Previous is live whenever a track is loaded: at the head of the queue it restarts the track
+  // (see playPrevious), so greying it out there would hide a working control.
+  set('previoustrack', queueIndex >= 0 ? () => playPrevious() : null);
   set('nexttrack', canAdvance() ? () => playNext() : null);
   set('seekto', (details) => {
     if (typeof details.seekTime === 'number') seek(details.seekTime);
@@ -232,6 +243,13 @@ function ensureAudioEl(): HTMLAudioElement | null {
   el.defaultPlaybackRate = playbackRateState;
   el.playbackRate = playbackRateState;
   el.preservesPitch = true;
+
+  if (typeof window !== 'undefined' && 'WebKitPlaybackTargetAvailabilityEvent' in window) {
+    el.setAttribute('x-webkit-airplay', 'allow');
+    el.addEventListener('webkitplaybacktargetavailabilitychanged', (event) => {
+      airPlayAvailable = (event as Event & { availability?: string }).availability === 'available';
+    });
+  }
 
   el.addEventListener('loadedmetadata', () => {
     duration = el.duration;
@@ -344,14 +362,8 @@ function reportPlay(songId: number) {
   void reportSongPlayed(songId).catch(() => {});
 }
 
-/**
- * Play a song, optionally seeding the playback queue it belongs to so the
- * player can auto-advance and offer prev/next. Re-clicking the current song
- * toggles play/pause. `index` defaults to the song's position in `contextQueue`.
- */
-async function playSong(song: PlayerSong, contextQueue?: PlayerSong[], index?: number) {
-  if (!ensureAudioEl() || !audioEl) return;
-
+/** Make `contextQueue` (or just `song`) the queue, positioned at `song`. */
+function seedQueue(song: PlayerSong, contextQueue?: PlayerSong[], index?: number) {
   if (contextQueue && contextQueue.length > 0) {
     queue = contextQueue;
     queueIndex = index ?? contextQueue.findIndex((s) => s.id === song.id);
@@ -365,6 +377,20 @@ async function playSong(song: PlayerSong, contextQueue?: PlayerSong[], index?: n
   radioSeedId = song.id;
   radioExhausted = false;
   maybePrefetchRadio();
+}
+
+/**
+ * Play a song, optionally seeding the playback queue it belongs to so the
+ * player can auto-advance and offer prev/next. Re-clicking the current song
+ * toggles play/pause — this is the entry point for controls that show a
+ * Play/Pause glyph for that song. Anything labelled Play or Shuffle, and a
+ * row tap, uses `startQueue` instead. `index` defaults to the song's position
+ * in `contextQueue`.
+ */
+async function playSong(song: PlayerSong, contextQueue?: PlayerSong[], index?: number) {
+  if (!ensureAudioEl() || !audioEl) return;
+
+  seedQueue(song, contextQueue, index);
 
   if (currentSong?.id === song.id) {
     if (audioEl.paused) {
@@ -373,6 +399,31 @@ async function playSong(song: PlayerSong, contextQueue?: PlayerSong[], index?: n
       audioEl.pause();
       isPlaying = false;
     }
+    return;
+  }
+
+  await loadAndPlay(song);
+}
+
+/**
+ * Play `contextQueue` from `index`, and never pause. The queue is always re-seeded (Play from a
+ * list makes that list the queue); if the target song is the one already loaded it keeps playing,
+ * or resumes when paused, rather than restarting. This is what every control labelled Play or
+ * Shuffle, a row menu's Play, and the phone's row-tap rule call — none of them may toggle.
+ */
+async function startQueue(contextQueue: PlayerSong[], index = 0) {
+  const song = contextQueue[index];
+  if (!song || !ensureAudioEl() || !audioEl) return;
+
+  seedQueue(song, contextQueue, index);
+
+  if (currentSong?.id === song.id) {
+    // A play intent even when nothing needs to start: after "Hide player", pressing Play on a
+    // list that begins with the playing song must bring the bar back. attemptPlay (the other
+    // place that clears this) only runs when paused.
+    miniPlayerDismissed = false;
+    refreshActionHandlers(); // the new queue decides whether Next is live
+    if (audioEl.paused) attemptPlay();
     return;
   }
 
@@ -468,8 +519,20 @@ async function topUpRadio(): Promise<boolean> {
   return radioTopUp;
 }
 
+/**
+ * Previous, the way every player (and the Android client) does it: a few seconds into a track it
+ * restarts the track, otherwise it goes back one item; on the first item it restarts. Reads the
+ * element's exact position rather than the 10 Hz mirror, so a press right at the threshold does
+ * what the displayed time says. Restarting keeps the play/pause state.
+ */
 function playPrevious() {
-  if (queueIndex <= 0) return;
+  const position = audioEl?.currentTime ?? currentTime;
+  const action = previousAction(position, queueIndex);
+  if (action === 'none') return;
+  if (action === 'restart') {
+    seek(0);
+    return;
+  }
   queueIndex -= 1;
   void loadAndPlay(queue[queueIndex]);
 }
@@ -513,6 +576,12 @@ function setPlaybackRate(rate: number) {
     audioEl.playbackRate = clamped;
   }
   updatePositionState();
+}
+
+/** Open Safari's AirPlay route picker for the audio element (no-op where it does not exist). */
+function showAirPlayPicker() {
+  const el = audioEl as (HTMLAudioElement & { webkitShowPlaybackTargetPicker?: () => void }) | null;
+  el?.webkitShowPlaybackTargetPicker?.();
 }
 
 /** Mute, or restore the pre-mute level (falling back to 0.8 if muted from 0). */
@@ -742,8 +811,12 @@ export const playerStore = {
   get hasNext() {
     return canAdvance();
   },
+  /** True whenever a track is loaded: Previous restarts the first item rather than going dark. */
   get hasPrevious() {
-    return queueIndex > 0;
+    return currentSong !== null && queueIndex >= 0;
+  },
+  get airPlayAvailable() {
+    return airPlayAvailable;
   },
   get isPanelMounted() {
     return panelMountedCount > 0;
@@ -752,6 +825,7 @@ export const playerStore = {
     return miniPlayerDismissed;
   },
   playSong,
+  startQueue,
   playNext,
   playPrevious,
   pause,
@@ -761,6 +835,7 @@ export const playerStore = {
   setVolume,
   setPlaybackRate,
   toggleMute,
+  showAirPlayPicker,
   dismissMiniPlayer,
   stop,
   registerPanel

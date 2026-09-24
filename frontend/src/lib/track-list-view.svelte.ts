@@ -3,28 +3,61 @@ import {
   hasMusicVideo,
   isAddedByLink,
   isLocalFile,
+  isMyMusic,
   isSpotifyLiked,
+  mapEnrichmentStatus,
   songAddedTime,
   songLikedTime,
   spotifyAddedTime,
   type ApiSong
 } from '$lib/api-client';
+import { isBuiltSong } from '$lib/album-sections';
 import { isAnyUnreleasedSong } from '$lib/release-status';
 
 export type SortKey =
-  | 'added'
-  | 'liked'
-  | 'spotify'
-  | 'title'
-  | 'artist'
-  | 'album'
-  | 'year'
-  | 'size'
-  | 'match'
-  | 'dur';
+  'added' | 'liked' | 'spotify' | 'title' | 'artist' | 'album' | 'year' | 'size' | 'match' | 'dur';
 
 const STRING_KEYS: SortKey[] = ['title', 'artist', 'album'];
 
+/**
+ * Every sort the list offers, in the order the "Sort and filter" menu lists them: the two date
+ * sorts first (what a library is usually browsed by), then the metadata columns. Every key is
+ * reachable here — including Date added once another sort is chosen, and Date liked, which no
+ * column header has — so a phone, which shows no column headers, loses nothing.
+ */
+export const SORT_KEYS: readonly SortKey[] = [
+  'added',
+  'liked',
+  'spotify',
+  'title',
+  'artist',
+  'album',
+  'year',
+  'size',
+  'match',
+  'dur'
+];
+
+/** Menu labels (sentence case, shared with the Android Sort menu). */
+export const SORT_MENU_LABELS: Record<SortKey, string> = {
+  added: 'Date added',
+  liked: 'Date liked',
+  spotify: 'Spotify save date',
+  title: 'Title',
+  artist: 'Artist',
+  album: 'Album',
+  year: 'Year',
+  size: 'Size',
+  match: 'Match',
+  dur: 'Duration'
+};
+
+/** The direction a sort key starts in: A–Z for words, newest/largest first for everything else. */
+export function defaultSortDir(k: SortKey): 'asc' | 'desc' {
+  return STRING_KEYS.includes(k) ? 'asc' : 'desc';
+}
+
+/** The lower-case form, for the running summary ("by added ↓"). */
 export const SORT_LABELS: Record<SortKey, string> = {
   added: 'added',
   liked: 'liked',
@@ -57,6 +90,54 @@ export function matchValue(s: ApiSong): number | null {
 }
 
 /**
+ * What the Tracks list covers: the music you asked for — everything built, plus your own source
+ * files still waiting on review.
+ *
+ * Wider than the album/artist grids in one direction and narrower in another, both deliberate.
+ * Wider: the grids show what the builder produced, but the "Local files" chip has to be able to
+ * answer "what is on my share", and a scanned file sitting at NeedsReview is already yours — it
+ * has a playable file (the stream endpoint falls back to the source path), and the Inbox is where
+ * you *act* on it, not where you find it. Narrower: album completion's tracks are excluded —
+ * otherwise the one flat list of what you chose fills up with records you never asked for a track
+ * from. They are still in Albums, on the album page and on the Overview's "New to you" shelf — the
+ * places where a complete album is the point — and liking one promotes it into this list.
+ *
+ * Doing both here, rather than letting a chip add or remove rows, is what keeps every chip a pure
+ * narrowing of one stated base. It lives here (not in LibraryV2) so the Overview's Library rows
+ * count exactly the list they open.
+ */
+export function isTrackListSong(s: ApiSong): boolean {
+  if (!isMyMusic(s)) return false;
+  if (isBuiltSong(s)) return true;
+  return isLocalFile(s) && mapEnrichmentStatus(s.enrichmentStatus) === 'needsreview';
+}
+
+/**
+ * The count half of a list's subtitle: "64 tracks" while nothing narrows it, "12 of 64" once
+ * something does — so an unfiltered list never reads "3,525 of 3,525", and a filtered one always
+ * says so even after its search field and filter tokens have scrolled away.
+ */
+export function countSummary(
+  shown: number,
+  total: number,
+  noun: string,
+  plural = `${noun}s`
+): string {
+  if (shown === total) return `${shown.toLocaleString()} ${shown === 1 ? noun : plural}`;
+  return `${shown.toLocaleString()} of ${total.toLocaleString()}`;
+}
+
+/**
+ * The compact tap rule, shared by both clients: a row that is not the loaded song plays the list
+ * it sits in, starting from it; the loaded row opens Now Playing instead (resuming it if paused).
+ * A tap never pauses and never restarts — the two things a tap on a song you are listening to
+ * must not do.
+ */
+export function tapActionFor(songId: number, loadedId: number | null | undefined): 'play' | 'open' {
+  return loadedId != null && loadedId === songId ? 'open' : 'play';
+}
+
+/**
  * The filter chips a track list offers.
  *
  * They replaced a set of one-off booleans (`lyricsOnly`, `spotifyOnly`) and the routes /my-music,
@@ -69,13 +150,7 @@ export function matchValue(s: ApiSong): number | null {
  * confirmed leak, snippet, demo or stem). A local file is very often a released one.
  */
 export type ChipKey =
-  | 'spotify-liked'
-  | 'mh-liked'
-  | 'local'
-  | 'added'
-  | 'video'
-  | 'lyrics'
-  | 'unreleased';
+  'spotify-liked' | 'mh-liked' | 'local' | 'added' | 'video' | 'lyrics' | 'unreleased';
 
 /** Display order, which is also the order the chip row renders in. */
 export const CHIP_KEYS: readonly ChipKey[] = [
@@ -87,6 +162,30 @@ export const CHIP_KEYS: readonly ChipKey[] = [
   'lyrics',
   'unreleased'
 ];
+
+/**
+ * What each chip is called, on the chip, in the phone's "Sort and filter" menu and on the
+ * active-filter token. Sentence case and short: the app's own name has no place in a filter
+ * ("MusicHoarder Liked" became "Favourites"). The heart has one name everywhere — the Overview's
+ * Favourites row, "Add to / Remove from favourites" in the row menu and on the heart — while
+ * "Spotify liked" keeps Spotify's own word for its Liked Songs. The ids — and so every `?f=` link —
+ * are unchanged; the Android client's CHIP_LABELS mirrors these words.
+ */
+export const CHIP_LABELS: Record<ChipKey, string> = {
+  'spotify-liked': 'Spotify liked',
+  'mh-liked': 'Favourites',
+  local: 'Local files',
+  added: 'Manually added',
+  video: 'Has video',
+  lyrics: 'With lyrics',
+  unreleased: 'Unreleased'
+};
+
+/**
+ * The chips an account that is not the library's admin can act on: liked (their own state), video
+ * and lyrics. The rest is pipeline/origin vocabulary the shared dataset deliberately doesn't carry.
+ */
+export const FRIEND_CHIP_KEYS: readonly ChipKey[] = ['mh-liked', 'video', 'lyrics'];
 
 export const CHIP_PREDICATES: Record<ChipKey, (s: ApiSong) => boolean> = {
   'spotify-liked': isSpotifyLiked,
@@ -294,13 +393,29 @@ export function createTrackListView(opts: {
       opts.onChipsChange?.(next);
     },
 
+    /** A column header click: a new key starts in its natural direction, the same key flips. */
     toggleSort(k: SortKey) {
       if (sortKey === k) {
         sortDir = sortDir === 'asc' ? 'desc' : 'asc';
       } else {
         sortKey = k;
-        sortDir = STRING_KEYS.includes(k) ? 'asc' : 'desc';
+        sortDir = defaultSortDir(k);
       }
+    },
+
+    /**
+     * A "Sort by" menu pick. Unlike a header click, choosing the key that is already checked
+     * leaves the direction alone — the menu has its own Ascending/Descending items for that, and
+     * a menu item that silently reverses the list would read as broken.
+     */
+    setSortKey(k: SortKey) {
+      if (sortKey === k) return;
+      sortKey = k;
+      sortDir = defaultSortDir(k);
+    },
+
+    setSortDir(dir: 'asc' | 'desc') {
+      sortDir = dir;
     },
 
     /** Drops every chip, restoring the default sort if Spotify Liked was one of them. */

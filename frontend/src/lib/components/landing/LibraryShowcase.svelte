@@ -37,7 +37,10 @@
       <strong class="text-foreground font-semibold">{demoLibraryStats.enrichedPct}%</strong>
       fully enriched
     </span>
-    <a href="/login" class="text-foreground hover:text-primary ml-auto transition-colors">
+    <a
+      href="/login"
+      class="text-foreground hover:text-primary ml-auto inline-flex items-center transition-colors pointer-coarse:min-h-11"
+    >
       Open the library in the demo →
     </a>
   </div>

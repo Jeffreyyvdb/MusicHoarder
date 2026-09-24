@@ -15,8 +15,10 @@
   import { formatDuration } from '$lib/formatters';
   import { blurAfterPointerClick, cn, transportGlyphClass } from '$lib/utils';
 
-  // Watch mode for the music video: a full-frame, letterboxed player in the track panel's Video
-  // tab, expandable to fullscreen. Same slave-sync model as the backdrop — the store's audio
+  // Watch mode for the music video: a full-frame, letterboxed player in Now Playing's Video mode,
+  // expandable to fullscreen. Inline, the frame carries only tap-to-play and a fullscreen button —
+  // Now Playing's own transport sits right under it; the fullscreen view brings its own chrome,
+  // since the app is hidden there. Same slave-sync model as the backdrop — the store's audio
   // element is the master clock and the (muted) video follows it through the per-song offset,
   // hard-resyncing when drift exceeds DRIFT_TOLERANCE_S. That is also what makes the scrubber
   // work: it seeks the *audio*, and the next sync pass drags the video to the new position.
@@ -27,6 +29,7 @@
     title,
     artist,
     fallbackDuration = 0,
+    generation = 0,
     onPlayRequest
   }: {
     songId: number;
@@ -35,6 +38,8 @@
     artist: string;
     /** Track length in seconds, used for the timeline before the song is loaded. */
     fallbackDuration?: number;
+    /** Bumped when a refetched file lands, so a failed or ended clip gets a clean slate. */
+    generation?: number;
     onPlayRequest: () => void;
   } = $props();
 
@@ -80,9 +85,10 @@
     isCurrentSong && playerStore.duration > 0 ? playerStore.duration : fallbackDuration
   );
 
-  // New song, fresh slate for the failure/retry state.
+  // New song (or a refetched file), fresh slate for the failure/retry state.
   $effect(() => {
     void songId;
+    void generation;
     videoLoadRetries = 0;
     videoFailed = false;
     clipOver = false;
@@ -211,12 +217,45 @@
     else onPlayRequest();
   }
 
-  function onFrameClick() {
-    const wasHidden = !controlsVisible;
-    wakeControls();
-    // A tap that only brought the chrome back should not also toggle playback — on a
-    // touch screen that is the whole gesture, with no hover to reveal the controls first.
-    if (!wasHidden) togglePlayback();
+  // A mouse double-click on the picture means fullscreen (in or out); its first click must not
+  // also pause the song and its second resume it. So with a mouse the single-click toggle waits
+  // out the double-click window and a dblclick cancels it. Touch and the keyboard act at once.
+  const DOUBLE_CLICK_MS = 250;
+  let lastPointerType = '';
+  let clickTimer: ReturnType<typeof setTimeout> | null = null;
+  function cancelPendingClick() {
+    if (clickTimer) clearTimeout(clickTimer);
+    clickTimer = null;
+  }
+  $effect(() => cancelPendingClick);
+
+  function onFrameClick(event: MouseEvent) {
+    if (event.detail > 1) return; // a double-click's second click: ondblclick has it
+    let toggle = true;
+    if (expanded) {
+      const wasHidden = !controlsVisible;
+      wakeControls();
+      // A tap that only brought the chrome back should not also toggle playback — on a
+      // touch screen that is the whole gesture, with no hover to reveal the controls first.
+      toggle = !wasHidden;
+    }
+    // Inline there is no chrome to wake (Now Playing's transport is right below), so a tap always
+    // plays or pauses.
+    if (!toggle) return;
+    cancelPendingClick();
+    if (event.detail === 1 && lastPointerType === 'mouse') {
+      clickTimer = setTimeout(() => {
+        clickTimer = null;
+        togglePlayback();
+      }, DOUBLE_CLICK_MS);
+    } else {
+      togglePlayback();
+    }
+  }
+
+  function onFrameDblClick() {
+    cancelPendingClick();
+    toggleFullscreen();
   }
 
   function onWindowKeyDown(e: KeyboardEvent) {
@@ -262,25 +301,21 @@
 <svelte:document onfullscreenchange={onFullscreenChange} />
 <svelte:window onkeydowncapture={onWindowKeyDown} />
 
-<div
-  class={cn(
-    'flex min-h-0 flex-1 items-center justify-center',
-    !expanded && 'p-3 lg:p-6'
-  )}
->
+<!-- Sized by the clip (its own max-height bounds it), not stretched over the column, so a caption
+     the parent puts after it sits right under the picture. -->
+<div class="flex min-h-0 w-full items-center justify-center">
   {#if videoFailed}
-    <p class="text-muted-foreground text-sm">The video could not be played.</p>
+    <p class="text-subheadline text-muted-foreground">The video could not be played.</p>
   {:else}
-    <!-- `dark` on the frame: the chrome sits on a black letterbox, so the shared
-         Scrubber/glyph tokens have to resolve to their dark-theme values even when
-         the app is in light mode. -->
+    <!-- `dark` on the frame: the chrome sits on a black letterbox, so the shared Scrubber/glyph
+         tokens resolve to their dark values whatever the surroundings. -->
     <div
       bind:this={frameEl}
       class={cn(
-        'group dark relative overflow-hidden bg-black shadow-2xl',
+        'group dark relative overflow-hidden bg-black',
         expanded
           ? 'fixed inset-0 z-[80] flex size-full items-center justify-center rounded-none'
-          : 'max-h-full w-full max-w-5xl rounded-xl'
+          : 'max-h-full w-full max-w-5xl rounded-xl shadow-[0_24px_60px_rgb(0_0_0/0.5)]'
       )}
       onpointermove={wakeControls}
       role="presentation"
@@ -292,7 +327,7 @@
         muted
         playsinline
         preload="auto"
-        class={cn('w-full object-contain', expanded ? 'max-h-full' : 'max-h-[70vh]')}
+        class={cn('w-full object-contain', expanded ? 'max-h-full' : 'max-h-[60svh] lg:max-h-[70vh]')}
         onloadeddata={() => (videoLoadRetries = 0)}
         onerror={onVideoError}
       ></video>
@@ -301,33 +336,53 @@
       <button
         type="button"
         class={cn('absolute inset-0 z-0 outline-none', controlsVisible ? 'cursor-pointer' : 'cursor-none')}
+        onpointerdown={(e) => (lastPointerType = e.pointerType)}
         onclick={onFrameClick}
-        ondblclick={toggleFullscreen}
+        ondblclick={onFrameDblClick}
         aria-label={isCurrentSong ? 'Toggle playback' : 'Play this song'}
       ></button>
 
       {#if !isPlaying}
         <span
-          class="pointer-events-none absolute inset-0 z-0 flex flex-col items-center justify-center gap-2 bg-black/40 transition-opacity"
+          class="pointer-events-none absolute inset-0 z-0 flex flex-col items-center justify-center gap-2 bg-black/40"
         >
           <span class="flex size-14 items-center justify-center rounded-full bg-white/90 shadow-lg">
             <Play class="ml-0.5 size-6 text-black" fill="currentColor" />
           </span>
           {#if !isCurrentSong}
-            <span class="text-[12px] font-medium text-white/90">Play this song to watch in sync</span>
+            <span class="text-footnote text-foreground font-medium">Play this song to watch in sync</span>
           {/if}
         </span>
       {/if}
 
       {#if clipOver && isCurrentSong}
         <span
-          class="absolute right-3 bottom-20 z-10 rounded-full bg-black/70 px-2.5 py-1 text-[11px] text-white/80 backdrop-blur-sm"
+          class={cn(
+            'text-caption-1 text-foreground absolute right-3 z-10 rounded-full bg-black/70 px-2.5 py-1',
+            expanded ? 'bottom-24' : 'bottom-3'
+          )}
         >
           Clip ended — song continues
         </span>
       {/if}
 
-      {#if expanded}
+      {#if !expanded}
+        <!-- Inline: just the way into fullscreen (44pt), over the picture's top corner. -->
+        <button
+          type="button"
+          class="focus-visible:ring-ring absolute top-1 right-1 z-10 flex size-11 items-center justify-center rounded-full outline-none focus-visible:ring-2"
+          onclick={(e) => {
+            blurAfterPointerClick(e);
+            toggleFullscreen();
+          }}
+          aria-label="Watch fullscreen"
+          title="Watch fullscreen (F)"
+        >
+          <span class="text-foreground flex size-8 items-center justify-center rounded-full bg-black/55">
+            <Maximize class="size-4" />
+          </span>
+        </button>
+      {:else}
         <!-- Fullscreen title card, so the frame still says what is playing once the app is hidden. -->
         <div
           class={cn(
@@ -335,95 +390,88 @@
             controlsVisible ? 'opacity-100' : 'opacity-0'
           )}
         >
-          <h2 class="truncate text-sm font-semibold text-white">{title}</h2>
-          <p class="truncate text-xs text-white/70">{artist}</p>
+          <h2 class="text-headline text-foreground truncate">{title}</h2>
+          <p class="text-subheadline text-muted-foreground truncate">{artist}</p>
         </div>
-      {/if}
 
-      <!-- Transport chrome: the shared Scrubber seeks the audio master, so scrubbing here
-           moves the video with it through the sync effect above. -->
-      <div
-        class={cn(
-          'absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/90 via-black/65 to-transparent transition-opacity duration-200',
-          expanded
-            ? 'px-4 pt-10 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-8'
-            : 'px-3 pt-10 pb-2',
-          controlsVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
-        )}
-      >
-        <div class={cn('mx-auto w-full', expanded && 'max-w-4xl')}>
-          <Scrubber isActive={isCurrentSong} {fallbackDuration} />
-          <div class="mt-1 flex items-center gap-3">
-            <span class="w-10 shrink-0 text-xs tabular-nums text-white/70">
-              {isCurrentSong ? formatTime(playerStore.currentTime) : '0:00'}
-            </span>
-            <div class="mx-auto flex items-center gap-2">
+        <!-- Transport chrome: the shared Scrubber seeks the audio master, so scrubbing here
+             moves the video with it through the sync effect above. -->
+        <div
+          class={cn(
+            'absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/90 via-black/65 to-transparent px-4 pt-10 pb-[max(0.75rem,env(safe-area-inset-bottom))] transition-opacity duration-200 sm:px-8',
+            controlsVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
+          )}
+        >
+          <div class="mx-auto w-full max-w-4xl">
+            <Scrubber isActive={isCurrentSong} {fallbackDuration} />
+            <div class="mt-1 flex items-center gap-3">
+              <span class="text-caption-1 text-muted-foreground w-10 shrink-0 tabular-nums">
+                {isCurrentSong ? formatTime(playerStore.currentTime) : '0:00'}
+              </span>
+              <div class="mx-auto flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class={cn(transportGlyphClass, 'size-11 disabled:opacity-30')}
+                  onclick={(e) => {
+                    blurAfterPointerClick(e);
+                    playerStore.playPrevious();
+                  }}
+                  disabled={!isCurrentSong || !playerStore.hasPrevious}
+                  aria-label="Previous track"
+                >
+                  <Rewind class="size-6" fill="currentColor" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class={cn(transportGlyphClass, 'size-14')}
+                  onclick={(e) => {
+                    blurAfterPointerClick(e);
+                    togglePlayback();
+                  }}
+                  aria-label={isPlaying ? 'Pause' : 'Play'}
+                >
+                  {#if isPlaying}
+                    <Pause class="size-8" fill="currentColor" />
+                  {:else}
+                    <Play class="size-8 translate-x-px" fill="currentColor" />
+                  {/if}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class={cn(transportGlyphClass, 'size-11 disabled:opacity-30')}
+                  onclick={(e) => {
+                    blurAfterPointerClick(e);
+                    playerStore.playNext();
+                  }}
+                  disabled={!isCurrentSong || !playerStore.hasNext}
+                  aria-label="Next track"
+                >
+                  <FastForward class="size-6" fill="currentColor" />
+                </Button>
+              </div>
+              <span class="text-caption-1 text-muted-foreground w-10 shrink-0 text-right tabular-nums">
+                {formatDuration(effectiveDuration)}
+              </span>
               <Button
                 variant="ghost"
                 size="icon"
-                class={cn(transportGlyphClass, 'size-9 text-white disabled:opacity-30')}
+                class={cn(transportGlyphClass, 'size-11 shrink-0')}
                 onclick={(e) => {
                   blurAfterPointerClick(e);
-                  playerStore.playPrevious();
+                  toggleFullscreen();
                 }}
-                disabled={!isCurrentSong || !playerStore.hasPrevious}
-                aria-label="Previous track"
+                aria-label="Exit fullscreen"
+                title="Exit fullscreen (Esc)"
               >
-                <Rewind class="size-5" fill="currentColor" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                class={cn(transportGlyphClass, 'size-11 text-white')}
-                onclick={(e) => {
-                  blurAfterPointerClick(e);
-                  togglePlayback();
-                }}
-                aria-label={isPlaying ? 'Pause' : 'Play'}
-              >
-                {#if isPlaying}
-                  <Pause class="size-7" fill="currentColor" />
-                {:else}
-                  <Play class="size-7 translate-x-px" fill="currentColor" />
-                {/if}
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                class={cn(transportGlyphClass, 'size-9 text-white disabled:opacity-30')}
-                onclick={(e) => {
-                  blurAfterPointerClick(e);
-                  playerStore.playNext();
-                }}
-                disabled={!isCurrentSong || !playerStore.hasNext}
-                aria-label="Next track"
-              >
-                <FastForward class="size-5" fill="currentColor" />
+                <Minimize class="size-5" />
               </Button>
             </div>
-            <span class="w-10 shrink-0 text-right text-xs tabular-nums text-white/70">
-              {formatDuration(effectiveDuration)}
-            </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              class={cn(transportGlyphClass, 'size-9 shrink-0 text-white')}
-              onclick={(e) => {
-                blurAfterPointerClick(e);
-                toggleFullscreen();
-              }}
-              aria-label={expanded ? 'Exit fullscreen' : 'Watch fullscreen'}
-              title={expanded ? 'Exit fullscreen (Esc)' : 'Watch fullscreen (F)'}
-            >
-              {#if expanded}
-                <Minimize class="size-5" />
-              {:else}
-                <Maximize class="size-5" />
-              {/if}
-            </Button>
           </div>
         </div>
-      </div>
+      {/if}
     </div>
   {/if}
 </div>

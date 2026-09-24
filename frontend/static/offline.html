@@ -5,46 +5,48 @@
     <title>Offline · MusicHoarder</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="robots" content="noindex" />
-    <meta name="theme-color" content="#f8fafd" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#060709" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
     <!--
       Served by src/service-worker.ts when a navigation fails at the network level — typically an
       installed (home-screen) app launched without connectivity. Self-contained on purpose: it is
-      the only thing the worker caches, so it must not depend on any other asset.
+      the only thing the worker caches, so it must not depend on any other asset. Its colours are
+      hex copies of the app.css tokens (--background, --foreground, --muted-foreground, --primary /
+      --primary-foreground), so the page and the status bar painted from theme-color match the app.
     -->
     <style>
       :root {
         color-scheme: light dark;
         --bg: #ffffff;
-        --fg: #0a0a0a;
-        --muted: #737373;
-        --border: #e5e5e5;
-        --card: #fafafa;
-        --disc: #0a0a0a;
-        --label: #fafafa;
-        --groove: #525252;
+        --fg: #000000;
+        --muted: #5f5f64;
+        --tint: #006b1f;
+        --on-tint: #ffffff;
+        --disc: #000000;
+        --label: #ffffff;
+        --groove: #5f5f64;
       }
       @media (prefers-color-scheme: dark) {
         :root:not([data-theme='light']) {
-          --bg: #0a0a0a;
-          --fg: #fafafa;
-          --muted: #a3a3a3;
-          --border: #262626;
-          --card: #141414;
-          --disc: #fafafa;
-          --label: #0a0a0a;
-          --groove: #a3a3a3;
+          --bg: #000000;
+          --fg: #ffffff;
+          --muted: #a1a1a6;
+          --tint: #2fbd55;
+          --on-tint: #000000;
+          --disc: #ffffff;
+          --label: #000000;
+          --groove: #a1a1a6;
         }
       }
       :root[data-theme='dark'] {
-        --bg: #0a0a0a;
-        --fg: #fafafa;
-        --muted: #a3a3a3;
-        --border: #262626;
-        --card: #141414;
-        --disc: #fafafa;
-        --label: #0a0a0a;
-        --groove: #a3a3a3;
+        --bg: #000000;
+        --fg: #ffffff;
+        --muted: #a1a1a6;
+        --tint: #2fbd55;
+        --on-tint: #000000;
+        --disc: #ffffff;
+        --label: #000000;
+        --groove: #a1a1a6;
       }
       * {
         box-sizing: border-box;
@@ -73,47 +75,53 @@
         min-height: 100svh;
         padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
       }
+      /* An iOS empty state: plain page, no card — mark, title, one line of help, one action. */
       main {
         width: 100%;
-        max-width: 24rem;
-        padding: 2rem;
-        border: 1px solid var(--border);
-        border-radius: 1rem;
-        background: var(--card);
+        max-width: 22rem;
         text-align: center;
       }
       svg {
         display: block;
-        width: 64px;
-        height: 64px;
+        width: 72px;
+        height: 72px;
         margin: 0 auto 1.25rem;
       }
+      /* iOS title-1 / body — the app's text-title-1 and text-body. */
       h1 {
         margin: 0 0 0.5rem;
-        font-size: 1.25rem;
-        font-weight: 600;
-        letter-spacing: -0.01em;
+        font-size: 28px;
+        line-height: 34px;
+        font-weight: 700;
       }
       p {
-        margin: 0 0 1.5rem;
-        font-size: 0.9rem;
-        line-height: 1.5;
+        margin: 0 0 1.75rem;
+        font-size: 17px;
+        line-height: 22px;
         color: var(--muted);
       }
+      /* The one prominent action: a 50px tint capsule, as on the sign-in page. */
       button {
         appearance: none;
         border: 0;
-        border-radius: 0.5rem;
-        padding: 0.6rem 1.1rem;
+        border-radius: 999px;
+        width: 100%;
+        min-height: 50px;
+        padding: 0 1.25rem;
         font: inherit;
-        font-size: 0.9rem;
-        font-weight: 500;
-        color: var(--bg);
-        background: var(--fg);
+        font-size: 17px;
+        font-weight: 600;
+        color: var(--on-tint);
+        background: var(--tint);
         cursor: pointer;
+        transition: transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
       }
       button:active {
-        opacity: 0.85;
+        transform: scale(0.97);
+      }
+      button:focus-visible {
+        outline: 3px solid color-mix(in srgb, var(--tint) 50%, transparent);
+        outline-offset: 2px;
       }
     </style>
   </head>

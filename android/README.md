@@ -91,8 +91,9 @@ next one it remembers — or, with none left, returns to the sign-in screen and 
 
 ### More than one account
 
-The account icon in the library's top bar lists every account this phone remembers, marks the
-active one, and offers **Add account** and **Sign out of this account**. Each account is its own
+The initials avatar at the end of every tab's header lists every account this phone remembers,
+marks the active one, and offers **Refresh library**, **Add account** and **Sign out of this
+account**. Each account is its own
 sign-in — its own bearer token, possibly its own server — so switching swaps the whole library, and
 a revoked session evicts only the account it belongs to.
 
@@ -186,8 +187,9 @@ data/     ServerSession (pairing + DataStore), MusicHoarderApi (OkHttp + kotlinx
           memory), Track/Album models, Lyrics (+ LRC parser)
 player/   PlaybackService (Media3 MediaSessionService), PlayerController (MediaController + UI state),
           VideoController (the muted clip that chases the audio clock)
-ui/       PairScreen, LibraryScreen, AlbumScreen, NowPlayingScreen (+ PlayerTransport, PlayerVideo,
-          LyricsView), MiniPlayer, Chrome, AppViewModel
+ui/       PairScreen, LibraryShell (+ the four tabs and the navigation bar), AlbumScreen,
+          NowPlayingScreen (+ PlayerTransport, PlayerVideo, LyricsView), MiniPlayer, Chrome,
+          AppViewModel
 AppGraph  One OkHttpClient shared by the API, ExoPlayer, and Coil — so all three carry the token
 ```
 
@@ -196,7 +198,14 @@ Notable choices:
 - **One HTTP client.** The bearer token is attached by a *network* interceptor that checks the host
   on every redirect hop, so a redirect to an external CDN cannot carry the credential off-server.
 - **The list you see is the queue you get.** Tapping a row queues everything visible below it, the
-  same contract as the web player.
+  same contract as the web player — except on the row that is already loaded, which brings the
+  player up (resuming it if paused) instead of restarting the song. That tap rule is the web's
+  compact `TrackList` rule too (`data/RowTap.kt`, pinned by `RowTapTest`). Add to / Remove from
+  favourites, Go to album and Go to artist live in each row's overflow menu, as on the web. Play
+  and Shuffle start from the top and, like a row tap, leave you on the page with the mini player
+  showing the song — only the mini player, or a tap on the loaded row, opens the full player. On an
+  album page whose track is the loaded one, Play speaks for that song instead (Pause / resume),
+  as the web's album Play does.
 - **`GET /songs` is a whole-library dump**, fetched once per app start (the web app does the same).
   A paged or delta endpoint is the obvious next step for very large libraries.
 - **Friend pairings read the shared library.** `/api/auth/me` is probed at pairing time anyway; the
@@ -209,22 +218,55 @@ Notable choices:
 
 ## The player
 
-The full-screen player mirrors the web panel it shares a design with: a close button, a segmented
-pill strip, and the heart across the top; a big rounded cover over an ambient wash of itself; the
-`artist · album` line; and one hairline-scrubber transport reading
-`0:10 ⏪ ▶ ⏩ 2:54 1×`. Tokens come from the same components — `TrackPanel.svelte`,
-`SongTransport.svelte`, `Scrubber.svelte`, `LyricsCard.svelte`, `LyricsFullscreen.svelte` — so a
-change on either side is easy to mirror.
+The full-screen player is the web's Now Playing in the same iPhone shape: a grabber, a chevron
+(close) and one ⋮ menu across the top; the artwork and title in the middle; then the scrubber with
+its times, the transport and a row of toggles, which keep one home at the bottom whatever the
+middle shows. The ported pieces keep the web's names — `TrackPanel.svelte` → `NowPlayingScreen.kt`,
+`SongTransport.svelte` + `Scrubber.svelte` → `PlayerTransport.kt`, `LyricsPanel.svelte`'s theater
+variant → `LyricsView.kt`, `now-playing/cover-dim.ts` → `data/CoverDim.kt` — so a change on either
+side is easy to mirror.
 
-The strip has **Song / Lyrics / Video**, where `Song` sits where the web puts `Metadata`: the
-phone's home for a track is its artwork, not the enrichment record. The panel opens on Lyrics when
-the track has any, and only ever re-decides on a song *change*, so a manual switch is never
-clobbered. Metadata, Fingerprint and Enrichment are not ported — they are owner-facing debug panels
-that would need a whole new DTO layer.
+- **Modes, not tabs.** The middle swaps between the artwork (title 22sp bold, left-aligned, with
+  the heart on its row and the `artist · album` line under it as one `Text` with two link halves),
+  **Lyrics** and **Video**. The bottom row's Lyrics and Video are toggles — pressing the active one
+  goes back to the art — and outside the art the song folds into a compact header in the top bar
+  (44dp art, title, artist, heart; a tap goes back to the art). The player opens on Lyrics when the
+  track has any and only ever re-decides on a song *change*, so a manual switch is never clobbered.
+  The web's Info mode (metadata, fingerprint, enrichment) is not ported — owner-facing debug panels
+  that would need a whole new DTO layer.
+- **Transport.** The scrubber is a 4dp capsule that grows to 8dp under a finger, filled white (the
+  label colour, as Apple and the web do; the tint stays for things you tap) in a 48dp touch strip.
+  Elapsed time sits under its leading end and time remaining (`−2:04`) under its trailing end, with
+  a speed capsule between them only while the song is not at 1× — a tap on it opens the presets.
+  Previous / play-pause / next are 56 / 72 / 56dp, spread evenly so play stays on the centre line.
+  Previous is never disabled while a song is loaded: `seekToPrevious` restarts it past three
+  seconds, and at the top of the queue — the rule both clients share.
+- **Bottom row**: Lyrics · Video (only while there is a clip to watch) · Shuffle · Repeat (off →
+  all → one). The web has no shuffle or repeat at all — a known asymmetry — but they work on the
+  phone and must not regress, so they take the places the web gives Info and AirPlay. An active
+  toggle is its glyph on a white capsule, never colour alone.
+- **⋮ menu**: Go to album · Go to artist, then Playback speed › (the eight presets, "Normal" at 1×,
+  as a page of the same menu) and "Show video as background" ✓ while there is a clip.
+- **Dismiss** by dragging the top bar or the artwork down (past a quarter of the height, or a
+  flick faster than the web's `DISMISS_VELOCITY`; anything less springs back on the web's 350ms
+  presentation curve, which the player also rises and falls on), by the chevron, or by Back. Under
+  Remove animations the drag fades instead of moving.
 
-The ambient wash is `Modifier.blur`, which needs a `RenderEffect` and so API 31. Below that it
-leans on the other half of the recipe: the backdrop asks for the 128 px thumbnail, and a 128 px
-cover stretched across a phone is already soft enough to read as a wash rather than a picture.
+**The media appearance.** The player is dark in both themes, as the web's is: `MusicHoarderTheme`
+is forced dark around it (so its menus open on the dark popover, in the contrast palette when that
+is on), and `mediaAppearance()` in `MediaColors.kt` re-points the tokens inside it to white text,
+72% white secondary text and white washes for fills — the web's `.dark.mh-np` block, the one
+sanctioned use of alpha text. The ground is black, then the cover blown up to 150%, blurred and
+saturated, then a black dim sized per cover: `a = clamp(0.35, 1 − 70/g, 0.75)`, where `g` is the
+BRIGHTEST cell of an 8×8 decode, measured as WCAG luminance and turned back into the equivalent sRGB
+grey (0.73, the white cover's dim, when it cannot be measured). That keeps every part of the wash at
+or below about 70/255, where white clears 9.4:1 and the 55% inactive lyric lines 4.2:1. Not the
+average: a pale disc on a dark cover averages low and left a lyric line on the disc near 2:1.
+`CoverDimTest` mirrors the web's test case for case, the pale-disc cover included. The status and navigation bar icons go light while it is up.
+
+The wash's blur is `Modifier.blur`, which needs a `RenderEffect` and so API 31. Below that it
+leans on the other half of the recipe: the backdrop asks Coil for a 16 px decode of the cover, and
+a 16 px image stretched across a phone is already soft enough to read as a wash, not a picture.
 
 The player draws edge to edge: the ambient wash and the clip reach the very top and bottom of the
 window, and only the chrome inside takes the system-bar insets. Inset the screen instead and the
@@ -251,14 +293,14 @@ so the stubbed `android.jar` a plain JVM test gets is not enough.
 
 **The heart** reads `likedAtUtc` from the library dump and calls `POST`/`DELETE /songs/{id}/like`,
 flipping optimistically and rolling back on failure — the same contract as the web's
-`songsStore.toggleLike`. **Playback speed** is the eight pitch-preserved presets from
-`SongTransport.svelte`; the clip has to move with it, because it chases the audio clock and
-hard-seeks when it drifts, so a 1x video behind a 1.5x song would re-seek on every tick.
+`songsStore.toggleLike`. It is the media appearance's own light green when liked, since the tint is
+white in there. **Playback speed** is the eight pitch-preserved presets from `SongTransport.svelte`;
+the clip has to move with it, because it chases the audio clock and hard-seeks when it drifts, so a
+1x video behind a 1.5x song would re-seek on every tick.
 
-Shuffle and repeat have no home in the web transport — they live elsewhere in that app — but they
-work here and get a quiet row of their own rather than being pushed back into the transport, where
-they would knock the play button off the centre line. Sharing a song, and the AI lyrics actions,
-are not wired up.
+Not ported from the web's ⋯ menu: sharing a song, the AI lyrics actions and lyric sources, Manage
+video, and Hide player — owner-only mutations, or (Hide player) a mini player the phone has no
+way to dismiss.
 
 ## Lyrics and music videos
 
@@ -269,19 +311,24 @@ pairing), fetched per song rather than shipped with the library dump — the AI 
 particular is large and most songs never have their lyrics opened. `parseLrc()` is a port of `frontend/src/lib/lyrics/parse-lrc.ts` with the same
 tolerances (CRLF, `.`/`:` fractions, 1–3 digit minutes, repeated timestamps on one line), and
 `ParseLrcTest` mirrors the web's test case for case, since a tolerance on one side only shows up as
-a blank panel on exactly one client. The viewer centres the active line and follows the audio;
-touching the list disengages following and a floating **Sync** pill re-engages it, tapping a line
-seeks. Untimed lyrics fall back to a plain scroll, and instrumentals say so.
+a blank panel on exactly one client. Lyrics mode is the player's only lyrics surface — the old
+preview card and the second, fullscreen overlay it opened are gone: one sheet at a time. Lines are
+set left-aligned at 28sp bold, the active one white and the rest at 55%, following the audio with
+the active line in the upper third, and they fade out under the chrome at both edges. Touching the
+list disengages following and a floating **Sync** pill re-engages it; tapping a line seeks.
+Untimed lyrics fall back to a plain scroll at full contrast, and instrumentals say so.
 
 **The music video** is a backdrop first: `GET /songs/{id}/video` reports sync info, the clip streams
 from `/songs/{id}/video/stream` into a second, muted ExoPlayer, and it plays behind the player under
 a heavy scrim. The audio is always the master clock — `VideoController` only chases it
 (`videoTime = audioTime + syncOffsetMs`) and hard-seeks when it drifts, so a clip with an intro
 stays lined up with the song rather than the file. The
-**Video** tab promotes it to a watch view. Syncing runs only while the player is on screen, so
-nothing decodes video behind a closed sheet, and the film button switches the backdrop off without
-taking the Video tab with it — `VideoState.isVisible` means "painting right now", `isRetired` means
-"done for this playthrough", and only the second removes the tab.
+**Video** toggle promotes it into the middle of the player, letterboxed with rounded corners over
+the wash — the same `TextureView`, moved and refitted rather than remounted. Syncing runs only while
+the player is on screen, so nothing decodes video behind a closed sheet, and ⋮ › "Show video as
+background" switches the backdrop off without taking the Video toggle with it —
+`VideoState.isVisible` means "painting right now", `isRetired` means "done for this playthrough",
+and only the second removes the toggle.
 
 **When** it re-seeks is `shouldResyncVideo`, pinned by `VideoResyncTest`, and the rule is more
 careful than the web's because an ExoPlayer seek costs more than assigning `video.currentTime`: it
@@ -317,9 +364,13 @@ web UI already covers.
 
 ## CI and releases
 
-`.github/workflows/android.yml` runs the unit tests and builds every shipping artifact
-(`:app:testDebugUnitTest :app:assembleDebug :app:assembleRelease :app:bundleRelease`),
-path-filtered to `android/**` so a backend-only PR does not pay for a Gradle build. The release
+`.github/workflows/android.yml` runs the unit tests, compiles the instrumented tests and builds
+every shipping artifact (`:app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:assembleDebug
+:app:assembleRelease :app:bundleRelease`), path-filtered to `android/**` so a backend-only PR does
+not pay for a Gradle build. The instrumented tests are compiled but not run (CI has no emulator):
+compiling them is what pins `NowPlayingScreen`'s parameters and the accessibility labels
+`NowPlayingLinkTapTest` and `PlayerScreenshotTest` find it by, which a change to the player would
+otherwise break silently. The release
 APK and bundle are in there deliberately: without a keystore they only yield unsigned artifacts,
 but they are the one thing that exercises the release variant's config, and that breaking would
 otherwise surface in the release workflow *after* a version had been cut.
@@ -494,23 +545,52 @@ Two consequences:
 
 The app deliberately looks like the web app rather than like stock Material.
 
-- **Palette** — `ui/theme/Color.kt` holds the tokens from `frontend/src/app.css`, converted from
-  OKLCH to sRGB and keeping the CSS names (`mutedForeground`, `card`, `border`…). To change one,
-  find it in `app.css`, convert, and replace it here. Material's own `ColorScheme` slots are filled
-  from those tokens in `Theme.kt` so stock components inherit the same colours.
-- **No Material You.** Dynamic colour is off on purpose: MusicHoarder has one identity — a neutral
-  near-black ground with a single green accent — and picking up the wallpaper palette would make the
+- **Palette** — `ui/theme/Color.kt` holds the tokens from `frontend/src/app.css` (Apple's system
+  palette, written as sRGB on both sides) under the CSS names (`mutedForeground`, `card`,
+  `separator`…). To change one, find it in `app.css` and copy the value. The fills (`secondary`,
+  `muted`, `accent`, `input`, `separator`, `switchOff`) are translucent like iOS's, so never
+  `.copy(alpha = …)` them — in Compose that replaces the alpha instead of multiplying it. The
+  system contrast setting (API 34+) picks the increased-contrast palettes, the twin of the web's
+  `prefers-contrast: more`. Material's own `ColorScheme` slots are filled from those tokens in
+  `Theme.kt` so stock components inherit the same colours, and the window background
+  (`res/values` / `res/values-night`) is the same white / black, so launch never flashes the other
+  appearance.
+- **No Material You.** Dynamic colour is off on purpose: MusicHoarder has one identity — an
+  Apple-grey ground with a single green tint — and picking up the wallpaper palette would make the
   phone look like a different product.
 - **Type** — `Type.kt` mirrors the web's scale. `--font-sans` resolves to Roboto on Android, so the
   platform default already *is* the web font; no face is bundled.
 - **Placeholders** — `albumTint()` in `Artwork.kt` is a direct port of `frontend/src/lib/album-tint.ts`,
   down to `cyrb53`'s 32-bit multiplies, so an album without a cover gets the same gradient on both
   clients.
-- **Chrome** — `Chrome.kt` carries the shared pieces: section pills, the segmented `MhPillTabs`
-  strip, bordered and round icon buttons, and the rounded-full search field. The mini player is the
-  web's floating `rounded-2xl` card, inset from both edges with the progress hairline across its top.
-- **Screenshots** — `PlayerScreenshotTest` renders each pane over fixture data and writes a PNG per
-  pane, so the layout can be compared against the web without a paired server. Run it with
+- **Navigation** — the four tabs (Overview · Albums · Artists · Tracks, a member's tabs on the web)
+  are a Material 3 `NavigationBar` docked at the bottom, or a `NavigationRail` from 600dp wide.
+  Re-tapping the active tab returns to its root (out of an album, off the Albums artist drill-in)
+  and at the root scrolls back to the top. The bar takes the navigation-bar inset itself, so the
+  screen stays edge to edge. Back unwinds in one fixed order (player → invite → share → album →
+  artist filter → any tab but Overview → Overview → exit), and each tab keeps its scroll position
+  across tab switches and album drill-ins. The artist drill-in narrows Albums and Tracks only, so
+  choosing Overview or Artists leaves it behind rather than keeping an invisible filter alive.
+- **Chrome** — `Chrome.kt` carries the shared pieces. Every tab opens on a header that is the
+  FIRST item of its list and scrolls away with it — the web's compact large title: a 28sp title
+  (the greeting on Overview), a short meta line ("64 tracks · 4 h 21 min", "12 of 64" once
+  something narrows it, "Shared by X" for granted rows), the sort / filter button and the account
+  avatar, then the 48dp capsule search field and any active filter as a removable token (plus
+  Clear) — nothing at rest. Once the title has scrolled off, a slim pinned bar with the title and
+  the same two buttons fades in. The sort / filter menu holds the sort key and direction,
+  "Unreleased only" on the grids and "Show featured artists" on Artists. On Tracks it also holds
+  the filters, as the web's phone page does: checkable items with the web's labels word for word
+  ("Favourites" for the heart) and the count each would leave, a filter that would empty the list
+  dimmed. A member gets the web's member set — Favourites, Has video, With lyrics — and no
+  "Spotify save date" sort, since a shared slice carries neither; whatever an admin left pressed is
+  let go of when the account turns out not to be one. Then Play / Shuffle as two equal gray pills, the
+  same pair the album page and the share viewer head with. Artists stays a grid of portraits (the
+  web's phone page is a list) with the web's trailing A–Z index: a 48dp-wide column that jumps to
+  a letter rather than filtering, hidden under 20 artists. The mini player is the web's compact
+  capsule docked directly above the navigation bar: art, title / artist, play-pause, next — no
+  progress line; a tap or an upward swipe opens the player.
+- **Screenshots** — `PlayerScreenshotTest` renders each mode over fixture data and writes a PNG per
+  mode, so the layout can be compared against the web without a paired server. Run it with
   `am instrument` rather than `connectedDebugAndroidTest`, which uninstalls the APKs (and the
   output) when it finishes:
 
@@ -520,8 +600,9 @@ The app deliberately looks like the web app rather than like stock Material.
   adb pull /sdcard/Android/data/com.musichoarder.app/files/player-screenshots
   ```
 
-One thing the web grid has that this does not: the small completeness dot on album covers, which
-encodes canonical-tracklist state the app never fetches.
+Album covers carry a corner mark only for the exceptions, as on the web grid: a match the AI
+flagged as wrong (filled) or an album on no provider (hollow), told apart by shape as well as colour
+and named for TalkBack. A linked or still-checking album has none.
 
 ## Not here yet
 

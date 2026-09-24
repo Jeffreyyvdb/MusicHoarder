@@ -7,4 +7,6 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <!-- The `background` token from frontend/src/app.css; the dark value is in values-night. -->
+    <color name="mh_background">#FFFFFFFF</color>
 </resources>

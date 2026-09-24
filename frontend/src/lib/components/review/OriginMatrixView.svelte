@@ -15,7 +15,7 @@
   <div class="border-border overflow-x-auto rounded-lg border">
     <Table.Root class="w-full border-collapse text-left">
       <Table.Header>
-        <Table.Row class="bg-surface-sunken/60">
+        <Table.Row class="bg-muted">
           <Table.Head
             class="border-border text-muted-foreground border-r border-b px-3 py-2.5 align-bottom"
           >
@@ -37,17 +37,21 @@
           <Table.Row class="border-border border-b last:border-b-0">
             <Table.Head
               scope="row"
-              class="border-border bg-surface-sunken/40 border-r px-3 py-2.5 align-middle font-medium"
+              class="border-border bg-muted border-r px-3 py-2.5 align-middle font-medium"
             >
               <span class="text-[13px]">{row.label}</span>
               {#if row.missing}
-                <span class="text-muted-foreground-dim ml-1.5 font-mono text-[11px] lowercase">missing</span>
+                <span class="text-muted-foreground-dim ml-1.5 font-mono text-[11px] lowercase"
+                  >missing</span
+                >
               {/if}
             </Table.Head>
             {#each row.cells as cell, ci (matrix.columns[ci].key)}
               <Table.Cell class="px-2 py-1.5 align-middle whitespace-normal">
                 {#if cell.value == null}
-                  <span class="text-muted-foreground/30 block text-center">·</span>
+                  <span class="text-muted-foreground-dim block text-center" aria-label="No value"
+                    >·</span
+                  >
                 {:else}
                   <div
                     class={cn(
@@ -56,9 +60,13 @@
                     )}
                   >
                     {#if cell.pct != null}
-                      <span class="text-primary absolute top-1 right-1.5 font-mono text-[11px]">{cell.pct}%</span>
+                      <span class="text-primary absolute top-1 right-1.5 font-mono text-[11px]"
+                        >{cell.pct}%</span
+                      >
                     {/if}
-                    <span class={cn(cell.value.length > 18 && 'font-mono text-[11px]')}>{cell.value}</span>
+                    <span class={cn(cell.value.length > 18 && 'font-mono text-[11px]')}
+                      >{cell.value}</span
+                    >
                   </div>
                 {/if}
               </Table.Cell>

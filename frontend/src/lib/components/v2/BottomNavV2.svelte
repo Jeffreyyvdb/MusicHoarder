@@ -1,66 +1,120 @@
 <script lang="ts">
+  import { Search } from '@lucide/svelte';
   import { page } from '$app/state';
+  import { tabFor, tabsFor, type NavTab } from '$lib/nav';
+  import { tabMemory } from '$lib/stores/tab-memory.svelte';
+  import { bottomBar } from '$lib/stores/bottom-bar.svelte';
+  import { songDetail } from '$lib/stores/song-detail.svelte';
+  import { commandPalette } from '$lib/stores/command-palette.svelte';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
-  import { navGroupsFor, resolveNav } from '$lib/nav';
+  import { songsStore } from '$lib/stores/songs.svelte';
   import { inboxBadgeCount } from '$lib/stores/nav-badges.svelte';
+  import { isAdmin } from '$lib/auth/capabilities';
   import { cn } from '$lib/utils';
 
-  // Mobile-only floating bottom bar: one tap per group. Items stay reachable via
-  // the section tab strip in the top bar (SectionTabsV2) and the off-canvas
-  // sidebar, so this carries the group headers only — the same role-filtered
-  // groups the sidebar renders, so the two can't disagree about which group a
-  // route belongs to.
-  const navGroups = $derived(navGroupsFor(page.data.user));
-  const active = $derived(resolveNav(page.url)?.group.id ?? null);
-  const running = $derived(pipelineOverlay.isAnyRunning);
-  // Same predicate AppSidebarV2's Inbox group badge uses — see nav-badges.svelte.ts.
+  // The compact tab bar: a floating glass capsule of tabs plus a separate search circle (iOS 26's
+  // "search tab, button appearance"). Always there below md — members included, whose tabs are
+  // Listen's own four pages — except under Now Playing (a modal that covers it) and while a pushed
+  // view owns the bottom slot (the Inbox decision toolbar, via the bottomBar store).
+  //
+  // Tabs come from $lib/nav (tabsFor), so this, the sidebar and the route guard agree on what an
+  // account can reach. Each tab keeps its own navigation stack (tab-memory): tapping another tab
+  // returns to where you were in it, tapping the active one pops it to its root, and tapping it at
+  // its root scrolls the page to the top — the status-bar tap an installed web app does not get.
+  const user = $derived(page.data.user);
+  const tabs = $derived(tabsFor(user));
+  const activeId = $derived.by(() => {
+    // tab-memory lights a tapped tab before its page lands; before the first navigation is
+    // recorded, the URL decides.
+    const remembered = tabMemory.activeTabId;
+    if (remembered && tabs.some((t) => t.id === remembered)) return remembered;
+    return tabFor(page.url, user)?.id ?? null;
+  });
+  const visible = $derived(!songDetail.isOpen && bottomBar.kind === 'tabs');
+
+  // Admins only: a demo session has no pipeline stream, so its dot could only ever lie.
+  const running = $derived(isAdmin(user) && pipelineOverlay.isAnyRunning);
+  // The same figure as the sidebar's Inbox badge and the sum of the Inbox hub's first section —
+  // see nav-badges.svelte.ts.
   const inboxBadge = $derived(inboxBadgeCount());
+
+  function badgeFor(tab: NavTab): number | null {
+    return tab.badge === 'inbox' && inboxBadge != null && inboxBadge > 0 ? inboxBadge : null;
+  }
+
+  function onTabClick(event: MouseEvent, tab: NavTab) {
+    // A modified click (new tab/window) keeps the link's native behaviour.
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0)
+      return;
+    event.preventDefault();
+    void tabMemory.select(tab, page.url, user);
+  }
 </script>
 
-{#if navGroups.length > 1}
-  <!-- A member's audience is narrowed to the Listen group alone (navGroupsFor), and a floating
-       tab bar with exactly one destination is chrome for chrome's sake — SectionTabsV2 already
-       covers that single group on phone widths, so the bar only renders once there's an actual
-       choice to make. -->
+{#if visible}
+  <!-- The row itself lets touches through between the capsule and the circle; only the two glass
+       shapes take them. Positioned from the shared geometry vars (app.css), like the MiniPlayer
+       that docks above it and the content padding that clears both. -->
   <nav
-    aria-label="Primary"
-    class="mh-glass border-border bg-background/70 fixed bottom-[calc(0.75rem_+_max(env(safe-area-inset-bottom),var(--mh-vv-bottom,0px)))] left-[max(0.75rem,env(safe-area-inset-left))] right-[max(0.75rem,env(safe-area-inset-right))] z-40 flex items-stretch gap-1 rounded-2xl border p-1.5 shadow-[0_-4px_24px_oklch(0%_0_0/0.08)] backdrop-blur-xl backdrop-saturate-150 md:hidden dark:shadow-[0_-4px_20px_rgba(0,0,0,0.35)]"
+    aria-label="Tabs"
+    class="pointer-events-none fixed inset-x-0 bottom-(--mh-tabbar-offset) z-40 flex gap-2 pr-[max(16px,env(safe-area-inset-right))] pl-[max(16px,env(safe-area-inset-left))] md:hidden"
   >
-    {#each navGroups as group (group.id)}
-      {@const isActive = group.id === active}
-      {@const live = Boolean(group.live && running)}
-      {@const badge = group.id === 'inbox' && inboxBadge != null && inboxBadge > 0 ? inboxBadge : null}
-      {@const extras = [
-        live ? 'pipeline running' : null,
-        badge != null ? `${badge > 99 ? 'more than 99' : badge} items need review` : null
-      ].filter((s) => s != null)}
-      <a
-        href={group.href}
-        data-active={isActive || undefined}
-        aria-current={isActive ? 'page' : undefined}
-        aria-label={extras.length ? `${group.label}, ${extras.join(', ')}` : undefined}
-        class={cn(
-          'relative flex flex-1 flex-col items-center justify-center gap-1 rounded-xl py-2 transition-colors',
-          'text-muted-foreground hover:text-foreground',
-          'data-[active=true]:bg-muted data-[active=true]:text-foreground',
-          'focus-visible:ring-ring/60 outline-none focus-visible:ring-2'
-        )}
-      >
-        {#if live}
-          <span
-            class="bg-primary mh-v2-pulse absolute top-1.5 right-1/2 size-1.5 translate-x-3 rounded-full"
+    <div
+      class="mh-glass mh-chrome pointer-events-auto flex h-(--mh-tabbar-h) min-w-0 flex-1 items-stretch rounded-full p-1"
+    >
+      {#each tabs as tab (tab.id)}
+        {@const isActive = tab.id === activeId}
+        {@const live = Boolean(tab.live && running)}
+        {@const badge = badgeFor(tab)}
+        {@const extras = [
+          live ? 'pipeline running' : null,
+          badge != null ? `${badge > 99 ? 'more than 99' : badge} items need review` : null
+        ].filter((s) => s != null)}
+        <a
+          href={tabMemory.hrefFor(tab)}
+          onclick={(e) => onTabClick(e, tab)}
+          data-active={isActive || undefined}
+          aria-current={isActive ? 'page' : undefined}
+          aria-label={extras.length ? `${tab.label}, ${extras.join(', ')}` : undefined}
+          class={cn(
+            'relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-full outline-none',
+            'text-foreground data-[active=true]:bg-foreground/[0.08] data-[active=true]:text-tab-active',
+            'focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-inset'
+          )}
+        >
+          <tab.icon
+            class="size-6 shrink-0"
+            strokeWidth={isActive ? 2.25 : 1.75}
             aria-hidden="true"
-          ></span>
-        {/if}
-        {#if badge != null}
-          <span
-            class="bg-primary text-primary-foreground text-nav-badge absolute top-0.5 right-1/2 grid h-[15px] min-w-[15px] translate-x-[9px] place-items-center rounded-full px-1 leading-none font-semibold tabular-nums"
-            aria-hidden="true"
-          >{badge > 99 ? '99+' : badge}</span>
-        {/if}
-        <group.icon class="size-5 shrink-0" aria-hidden="true" />
-        <span class="text-nav-count leading-none font-medium tracking-[-0.005em]">{group.label}</span>
-      </a>
-    {/each}
+          />
+          <span class="text-caption-2 max-w-full truncate px-1">{tab.label}</span>
+          {#if badge != null}
+            <span
+              class="bg-destructive text-destructive-foreground text-caption-2 absolute top-[3px] left-[calc(50%+4px)] grid h-[18px] min-w-[18px] place-items-center rounded-full px-[5px] font-semibold tabular-nums"
+              aria-hidden="true">{badge > 99 ? '99+' : badge}</span
+            >
+          {/if}
+          {#if live}
+            <span
+              class="bg-primary mh-v2-pulse absolute top-[7px] left-[calc(50%+11px)] size-2 rounded-full"
+              aria-hidden="true"
+            ></span>
+          {/if}
+        </a>
+      {/each}
+    </div>
+    <!-- Search opens the command palette (a documented departure: a Spotlight-shaped dialog rather
+         than a field docked above the keyboard). Warms the songs dataset on touch-down so results
+         are there by the time it opens. -->
+    <button
+      type="button"
+      aria-label="Search"
+      class="mh-glass mh-chrome text-foreground focus-visible:ring-ring pointer-events-auto grid size-(--mh-tabbar-h) shrink-0 place-items-center rounded-full outline-none focus-visible:ring-2"
+      onpointerdown={() => songsStore.ensureLoaded()}
+      onfocus={() => songsStore.ensureLoaded()}
+      onclick={() => commandPalette.setOpen(true)}
+    >
+      <Search class="size-6" strokeWidth={1.75} aria-hidden="true" />
+    </button>
   </nav>
 {/if}

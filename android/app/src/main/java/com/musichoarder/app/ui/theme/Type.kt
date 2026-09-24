@@ -36,16 +36,23 @@ private fun mh(
 )
 
 val MhTypography = Typography(
-    // Album/track hero titles.
-    headlineMedium = mh(24, 30, FontWeight.SemiBold, -0.4),
+    // A tab's large title ("Tracks", the greeting) — the web's compact large title, one step
+    // smaller because the header shares its row with the sort and account buttons here.
+    headlineLarge = mh(28, 34, FontWeight.Bold, -0.4),
+    // `text-title-2`: shelf headers on the Overview, the album page's title.
+    headlineMedium = mh(22, 28, FontWeight.Bold, -0.3),
+    // `text-title-3`-ish: the album page's artist line, dialog and sign-in titles.
     headlineSmall = mh(20, 26, FontWeight.SemiBold, -0.3),
     titleLarge = mh(17, 22, FontWeight.SemiBold, -0.2),
     // Page toolbar title ("Albums", "All tracks") — bold, 15px on the web.
     titleMedium = mh(15, 20, FontWeight.Bold, -0.2),
     titleSmall = mh(13, 18, FontWeight.Medium),
-    // Track titles in a list.
-    bodyLarge = mh(15, 20),
-    bodyMedium = mh(13, 18),
+    // Row titles (a track in a list), 16sp: Material's body size, standing in for the web's 17px
+    // iOS `text-body` the way Roboto stands in for SF.
+    bodyLarge = mh(16, 22),
+    // A row's secondary line, menu items, search text — the web's 15px `text-subheadline`, one
+    // Material step down like the title above.
+    bodyMedium = mh(14, 20),
     // Secondary lines: artist under a title, meta rows.
     bodySmall = mh(12, 16),
     // `--text-nav: 13px` — tab labels, sidebar rows.

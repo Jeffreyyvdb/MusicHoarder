@@ -71,22 +71,31 @@ export const GET: RequestHandler = async ({ url, fetch, request }) => {
   return new Response(null, { status: 303, headers });
 };
 
-// Shared by both handoff pages so they read as one product: dark, centred, one pill action.
+// Shared by both handoff pages so they read as one product: centred, one pill action. The colours
+// are hex copies of the app.css tokens (--background, --foreground, --muted-foreground, --primary,
+// --primary-foreground) in both appearances, following the system scheme — these pages run before
+// the app, so they cannot know a theme it pinned.
 const HANDOFF_STYLE = `
-  :root { color-scheme: dark; }
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff; --fg: #000000; --muted: #5f5f64; --tint: #006b1f; --on-tint: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #000000; --fg: #ffffff; --muted: #a1a1a6; --tint: #2fbd55; --on-tint: #000000; }
+  }
   body {
     margin: 0; min-height: 100dvh; display: grid; place-items: center;
-    background: oklch(0.15 0.005 260); color: oklch(0.95 0.005 260);
+    background: var(--bg); color: var(--fg);
     font-family: system-ui, -apple-system, sans-serif; text-align: center;
   }
   main { padding: 32px 24px; max-width: 380px; }
   h1 { font-size: 1.25rem; margin: 0 0 8px; }
-  p { color: oklch(0.7 0.01 260); font-size: 0.9rem; line-height: 1.5; margin: 0 0 24px; }
+  p { color: var(--muted); font-size: 0.9rem; line-height: 1.5; margin: 0 0 24px; }
   .open {
     display: block; padding: 14px 20px; border-radius: 999px; text-decoration: none;
-    background: oklch(0.65 0.2 145); color: oklch(0.13 0.005 260); font-weight: 600;
+    background: var(--tint); color: var(--on-tint); font-weight: 600;
   }
-  .fallback { display: inline-block; margin-top: 20px; font-size: 0.85rem; color: oklch(0.7 0.01 260); }
+  .fallback { display: inline-block; margin-top: 20px; font-size: 0.85rem; color: var(--tint); }
 `;
 
 function iosSignedInPage(next: string): string {

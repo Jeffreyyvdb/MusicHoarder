@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
 import {
+  CHIP_KEYS,
+  CHIP_LABELS,
+  countSummary,
   createTrackListView,
+  FRIEND_CHIP_KEYS,
+  isTrackListSong,
   parseChips,
   serializeChips,
+  SORT_KEYS,
+  SORT_MENU_LABELS,
+  tapActionFor,
   type ChipKey,
   type SortKey
 } from './track-list-view.svelte';
@@ -197,5 +205,121 @@ describe('createTrackListView', () => {
       expect(v.stats.totalSec).toBe(100);
     });
     cleanup();
+  });
+});
+
+describe('the sort menu', () => {
+  // A phone has no column headers, so the menu is the only way to every sort — including the two
+  // no header can reach: Date liked, and Date added once another sort has been chosen.
+  it('offers every sort key exactly once, each with a sentence-case label', () => {
+    const all: SortKey[] = [
+      'added',
+      'liked',
+      'spotify',
+      'title',
+      'artist',
+      'album',
+      'year',
+      'size',
+      'match',
+      'dur'
+    ];
+    expect([...SORT_KEYS].sort()).toEqual([...all].sort());
+    expect(new Set(SORT_KEYS).size).toBe(SORT_KEYS.length);
+    for (const k of SORT_KEYS) expect(SORT_MENU_LABELS[k]).toMatch(/^[A-Z][a-z ]+$/);
+  });
+
+  it('keeps the direction when the checked key is picked again, and resets it for a new key', () => {
+    const cleanup = $effect.root(() => {
+      const v = view([song(1), song(2)]);
+      v.setSortDir('asc');
+      flushSync();
+      v.setSortKey('added');
+      flushSync();
+      expect(v.sortKey).toBe('added');
+      expect(v.sortDir).toBe('asc');
+
+      v.setSortKey('artist');
+      flushSync();
+      expect(v.sortDir).toBe('asc');
+      v.setSortKey('liked');
+      flushSync();
+      expect(v.sortKey).toBe('liked');
+      expect(v.sortDir).toBe('desc');
+    });
+    cleanup();
+  });
+
+  // Once another sort is chosen, the default must still be reachable: the old header-only UI lost it.
+  it('can return to Date added after another sort was chosen', () => {
+    const cleanup = $effect.root(() => {
+      const v = view([song(1), song(2)]);
+      v.toggleSort('title');
+      flushSync();
+      v.setSortKey('added');
+      flushSync();
+      expect(v.sortKey).toBe('added');
+      expect(v.sortDir).toBe('desc');
+    });
+    cleanup();
+  });
+});
+
+describe('chip vocabulary', () => {
+  it('labels every chip, without the app name', () => {
+    for (const k of CHIP_KEYS) {
+      expect(CHIP_LABELS[k]).toBeTruthy();
+      expect(CHIP_LABELS[k]).not.toMatch(/MusicHoarder/);
+    }
+    expect(CHIP_LABELS['mh-liked']).toBe('Favourites');
+    expect(CHIP_LABELS['spotify-liked']).toBe('Spotify liked');
+  });
+
+  it('gives accounts that are not the admin only the chips their dataset can answer', () => {
+    expect(FRIEND_CHIP_KEYS).toEqual(['mh-liked', 'video', 'lyrics']);
+    for (const k of FRIEND_CHIP_KEYS) expect(CHIP_KEYS).toContain(k);
+  });
+});
+
+describe('isTrackListSong', () => {
+  const built = { isBuilt: true };
+  it('covers built songs you asked for', () => {
+    expect(isTrackListSong(song(1, built))).toBe(true);
+  });
+  it('covers your own source files still waiting on review, built or not', () => {
+    expect(
+      isTrackListSong(song(1, { isBuilt: false, originKind: 'Scanned', enrichmentStatus: 2 }))
+    ).toBe(true);
+    expect(
+      isTrackListSong(song(1, { isBuilt: false, originKind: 'Scanned', enrichmentStatus: 3 }))
+    ).toBe(false);
+    expect(
+      isTrackListSong(song(1, { isBuilt: false, originKind: 'Downloaded', enrichmentStatus: 2 }))
+    ).toBe(false);
+  });
+  it('leaves album completion out until a like promotes it', () => {
+    expect(isTrackListSong(song(1, { ...built, isAlbumFill: true }))).toBe(false);
+    expect(
+      isTrackListSong(song(1, { ...built, isAlbumFill: true, likedAtUtc: '2026-01-01T00:00:00Z' }))
+    ).toBe(true);
+  });
+});
+
+describe('tapActionFor', () => {
+  // A tap on the song you are listening to must never pause or restart it.
+  it('opens Now Playing for the loaded row and plays any other', () => {
+    expect(tapActionFor(4, 4)).toBe('open');
+    expect(tapActionFor(4, 5)).toBe('play');
+    expect(tapActionFor(4, null)).toBe('play');
+    expect(tapActionFor(4, undefined)).toBe('play');
+  });
+});
+
+describe('countSummary', () => {
+  it('reads "N things" unfiltered and "N of M" once something narrows it', () => {
+    expect(countSummary(64, 64, 'track')).toBe('64 tracks');
+    expect(countSummary(1, 1, 'track')).toBe('1 track');
+    expect(countSummary(12, 64, 'track')).toBe('12 of 64');
+    expect(countSummary(3622, 3622, 'track')).toBe(`${(3622).toLocaleString()} tracks`);
   });
 });

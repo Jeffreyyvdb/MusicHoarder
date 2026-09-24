@@ -40,7 +40,7 @@
           href={githubUrl}
           target="_blank"
           rel="noopener noreferrer"
-          class="text-primary font-medium hover:underline"
+          class="text-primary inline-flex items-center font-medium whitespace-nowrap hover:underline pointer-coarse:min-h-11"
         >
           docker-compose.yml →
         </a>

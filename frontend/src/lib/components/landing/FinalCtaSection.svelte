@@ -37,10 +37,18 @@
     />
 
     <div class="mt-7 flex flex-wrap justify-center gap-3">
-      <Button size="lg" onclick={cta.activate} disabled={cta.busy}>{cta.label}</Button>
       <Button
         size="lg"
-        variant="outline"
+        class="h-11 rounded-full px-5 text-[15px] md:h-9 md:rounded-lg md:px-3 md:text-sm"
+        onclick={cta.activate}
+        disabled={cta.busy}>{cta.label}</Button
+      >
+      <!-- `bordered`, not `outline`: the app's outline is now a borderless gray fill, and the
+           landing keeps its stroked secondary button. -->
+      <Button
+        size="lg"
+        variant="bordered"
+        class="h-11 rounded-full px-5 text-[15px] md:h-9 md:rounded-lg md:px-3 md:text-sm"
         href={githubUrl}
         target="_blank"
         rel="noopener noreferrer"

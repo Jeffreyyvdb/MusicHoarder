@@ -6,10 +6,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
-import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -26,7 +24,7 @@ import org.junit.runner.RunWith
 import java.io.File
 
 /**
- * Renders each pane of the player and writes a PNG to the device's external cache, so the layout
+ * Renders each mode of the player and writes a PNG to the device's external cache, so the layout
  * can be compared against the web player without a paired server behind it.
  *
  * This is a screenshot *harness*, not an assertion — it fails only if a pane cannot be composed at
@@ -83,16 +81,17 @@ class PlayerScreenshotTest {
     @Test
     fun captureLyricsPane() = capture("01-lyrics") { player(lyrics, VideoState()) }
 
+    // The track has lyrics, so the player opens on them; the Lyrics toggle takes it back to the art.
     @Test
-    fun captureSongPane() = capture("02-song", tapTab = "Song") { player(lyrics, VideoState()) }
+    fun captureSongPane() = capture("02-song", tapToggle = "Lyrics") { player(lyrics, VideoState()) }
 
     @Test
     fun captureVideoPane() = capture(
         "03-video",
-        tapTab = "Video",
+        tapToggle = "Video",
     ) {
-        // hasVideo + isVisible put the Video tab in the strip; the surface itself stays black
-        // without a decoder, which is exactly what the letterbox ground should look like.
+        // hasVideo + isVisible put the Video toggle in the bottom row; the surface itself stays
+        // black without a decoder, which is exactly what the letterbox ground should look like.
         player(
             lyrics,
             VideoState(
@@ -104,10 +103,12 @@ class PlayerScreenshotTest {
         )
     }
 
+    // Paused (the art settles back to 85%) at a non-1× speed, which puts the speed capsule between
+    // the times. Lyrics mode is the player's only lyrics surface now — there is no fullscreen one.
     @Test
-    fun captureFullscreenLyrics() = capture("04-lyrics-fullscreen", tap = { rule ->
-        rule.onNodeWithContentDescription("Show fullscreen lyrics").performClick()
-    }) { player(lyrics, VideoState()) }
+    fun capturePausedAtSpeed() = capture("04-paused-speed", tapToggle = "Lyrics") {
+        player(lyrics, VideoState(), playerState.copy(isPlaying = false, playbackRate = 1.25f))
+    }
 
     @Test
     fun captureNoLyrics() = capture("05-no-lyrics") {
@@ -115,10 +116,14 @@ class PlayerScreenshotTest {
     }
 
     @Composable
-    private fun player(lyricsState: LyricsUiState, videoState: VideoState) {
+    private fun player(
+        lyricsState: LyricsUiState,
+        videoState: VideoState,
+        state: PlayerUiState = playerState,
+    ) {
         MusicHoarderTheme(darkTheme = true) {
             NowPlayingScreen(
-                state = playerState,
+                state = state,
                 coverUrl = null,
                 ambientCoverUrl = null,
                 lyricsState = lyricsState,
@@ -140,24 +145,21 @@ class PlayerScreenshotTest {
                 onAttachVideoSurface = {},
                 onDetachVideoSurface = {},
                 modifier = Modifier.fillMaxSize(),
+                sharedBy = "Shared by Maya",
             )
         }
     }
 
+    /** [tapToggle] is a bottom-row toggle's accessible label ("Lyrics", "Video"). */
     private fun capture(
         name: String,
-        tapTab: String? = null,
-        tap: ((ComposeContentTestRule) -> Unit)? = null,
+        tapToggle: String? = null,
         content: @Composable () -> Unit,
     ) {
         rule.setContent { content() }
         rule.waitForIdle()
-        tapTab?.let {
-            rule.onNodeWithText(it).performClick()
-            rule.waitForIdle()
-        }
-        tap?.let {
-            it(rule)
+        tapToggle?.let {
+            rule.onNodeWithContentDescription(it).performClick()
             rule.waitForIdle()
         }
         val bitmap = rule.onRoot().captureToImage().asAndroidBitmap()

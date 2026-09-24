@@ -12,6 +12,7 @@
     X
   } from '@lucide/svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
+  import { Button } from '$lib/components/ui/button';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import {
     pipelineOverlay,
@@ -21,6 +22,7 @@
   } from '$lib/stores/pipeline-overlay.svelte';
   import PipelineStageCard from './PipelineStageCard.svelte';
   import PipelineLogRow from './PipelineLogRow.svelte';
+  import { motionFly } from '$lib/motion';
 
   const snap = $derived(pipelineOverlay.snapshot);
   const overview = $derived(pipelineOverlay.overview);
@@ -47,6 +49,8 @@
   }
 
   const recent = $derived(overview?.recentActivity ?? []);
+  /** Rows of the tail read at full strength; the rest step down a text tier (PipelineLogRow). */
+  const LOG_FRESH_ROWS = 8;
 
   // Job control. Feedback is the stage itself changing (Paused badge, pulse stopping); the store
   // toasts only on failure. Confirm state is local so the conveyor page, when it is open under
@@ -72,6 +76,8 @@
   }
 
   function confirmAction() {
+    // Closed before the request starts rather than after the Action's own close.
+    confirmOpen = false;
     if (confirmKind === 'stop') void pipelineOverlay.cancelRunning();
     else void pipelineOverlay.setStagePaused('build', true);
   }
@@ -79,7 +85,7 @@
 
 <aside
   class="bg-card border-border shadow-pipeline fixed right-0 bottom-0 left-0 z-40 hidden h-[340px] flex-col border-t md:flex"
-  transition:fly={{ y: 40, duration: 250, easing: cubicOut, opacity: 0 }}
+  transition:fly={motionFly({ y: 40, duration: 250, easing: cubicOut, opacity: 0 })}
 >
   <header class="border-border flex items-center justify-between gap-4 border-b px-5 py-3">
     <div class="flex min-w-0 items-center gap-3">
@@ -98,55 +104,47 @@
       </div>
     </div>
 
+    <!-- Figures are sans with tabular digits (mono is for the paths above); labels are sentence
+         case in the secondary text token. -->
     <div class="flex shrink-0 items-center gap-5">
       <div class="hidden text-right md:block">
-        <div class="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
-          Processed
-        </div>
-        <div class="font-mono text-base font-semibold tabular-nums">
-          {processed.toLocaleString()}
-        </div>
+        <div class="text-muted-foreground text-[11px] font-medium">Processed</div>
+        <div class="text-base font-semibold tabular-nums">{processed.toLocaleString()}</div>
       </div>
       <div class="hidden text-right md:block">
-        <div class="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
-          Remaining
-        </div>
-        <div class="font-mono text-base font-semibold tabular-nums">
-          {remaining.toLocaleString()}
-        </div>
+        <div class="text-muted-foreground text-[11px] font-medium">Remaining</div>
+        <div class="text-base font-semibold tabular-nums">{remaining.toLocaleString()}</div>
       </div>
       <div class="text-right">
-        <div class="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
-          ETA
-        </div>
-        <div class="font-mono text-base font-semibold tabular-nums">
-          {formatEta(etaSeconds)}
-        </div>
+        <div class="text-muted-foreground text-[11px] font-medium">Time left</div>
+        <div class="text-base font-semibold tabular-nums">{formatEta(etaSeconds)}</div>
       </div>
       {#if pipelineOverlay.canStop}
-        <button
-          type="button"
+        <!-- Destructive text on the gray capsule, as the Pipeline page's Stop all row. -->
+        <Button
+          variant="gray"
+          class="text-destructive-text hover:text-destructive-text rounded-full"
           onclick={requestStop}
           disabled={pipelineOverlay.cancelling}
-          class="border-border bg-background hover:bg-muted text-foreground inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[12px] font-medium transition-colors disabled:opacity-60"
         >
           {#if pipelineOverlay.cancelling}
-            <Loader2 class="size-3.5 animate-spin" />
+            <Loader2 class="animate-spin" aria-hidden="true" />
             Stopping…
           {:else}
-            <Square class="size-3 fill-current" />
+            <Square class="size-3 fill-current" aria-hidden="true" />
             Stop all
           {/if}
-        </button>
+        </Button>
       {/if}
-      <button
-        type="button"
-        class="text-muted-foreground hover:bg-muted hover:text-foreground grid size-8 place-items-center rounded"
-        aria-label="Close pipeline overlay"
+      <Button
+        variant="ghost"
+        size="icon"
+        class="text-muted-foreground rounded-full"
+        aria-label="Close import pipeline"
         onclick={() => pipelineOverlay.setOpen(false)}
       >
-        <X class="size-4" />
-      </button>
+        <X aria-hidden="true" />
+      </Button>
     </div>
   </header>
 
@@ -200,23 +198,28 @@
       </div>
     </div>
 
-    <div class="bg-muted/30 border-border flex min-h-0 flex-col border-t md:border-t-0 md:border-l">
+    <!-- The log is a well inside the drawer: the grouped page colour reads as inset in both
+         themes (a translucent fill with an opacity modifier did not). -->
+    <div class="bg-background-grouped border-border flex min-h-0 flex-col border-t md:border-t-0 md:border-l">
       <div
-        class="text-muted-foreground border-border flex items-center justify-between border-b px-4 py-2.5 text-[11px] font-semibold tracking-wide uppercase"
+        class="text-muted-foreground border-border flex items-center justify-between border-b px-4 py-2.5 text-[12px] font-medium"
       >
         <span>Live log</span>
-        <span class="text-primary font-mono normal-case tracking-normal">tail -f</span>
+        {#if anyRunning}
+          <span class="inline-flex items-center gap-1.5">
+            <span class="bg-primary mh-v2-pulse size-1.5 rounded-full" aria-hidden="true"></span>
+            Live
+          </span>
+        {/if}
       </div>
       <ScrollArea class="min-h-0 flex-1">
         <div class="space-y-0.5 px-3 py-2">
           {#if recent.length > 0}
             {#each recent as activity, i (activity.id)}
-              <PipelineLogRow {activity} faded={i} />
+              <PipelineLogRow {activity} older={i >= LOG_FRESH_ROWS} />
             {/each}
           {:else}
-            <p class="text-muted-foreground-dim px-1 py-2 text-center font-mono text-[11px]">
-              No recent activity yet
-            </p>
+            <p class="text-muted-foreground px-1 py-2 text-center text-[12px]">No recent activity yet.</p>
           {/if}
         </div>
       </ScrollArea>
@@ -231,7 +234,7 @@
       <AlertDialog.Description>{confirmCopy.description}</AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
-      <AlertDialog.Cancel>Keep running</AlertDialog.Cancel>
+      <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
       <AlertDialog.Action variant="destructive" onclick={confirmAction}>{confirmCopy.action}</AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>

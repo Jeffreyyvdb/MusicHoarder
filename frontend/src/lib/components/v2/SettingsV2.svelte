@@ -1,19 +1,44 @@
 <script lang="ts">
-  import { goto, invalidateAll } from '$app/navigation';
+  import { invalidateAll } from '$app/navigation';
+  import { replaceUrl } from '$lib/navigation/replace-url';
   import { page } from '$app/state';
+  import { tabMemory } from '$lib/stores/tab-memory.svelte';
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
   import { Badge } from '$lib/components/ui/badge';
-  import { Switch } from '$lib/components/ui/switch';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
-  import PurgeStatusBanner from '$lib/components/settings/PurgeStatusBanner.svelte';
+  import * as GroupedList from '$lib/components/ui/grouped-list';
+  import PurgeStatusBanner, {
+    purgeAnnouncement
+  } from '$lib/components/settings/PurgeStatusBanner.svelte';
   import MusicVideoAuditCard from '$lib/components/settings/MusicVideoAuditCard.svelte';
-  import StagedSourceReleaseBanner from '$lib/components/settings/StagedSourceReleaseBanner.svelte';
+  import StagedSourceReleaseBanner, {
+    releaseAnnouncement
+  } from '$lib/components/settings/StagedSourceReleaseBanner.svelte';
   import PairDeviceCard from '$lib/components/settings/PairDeviceCard.svelte';
   import InstallAppCard from '$lib/components/settings/InstallAppCard.svelte';
   import PeopleCard from '$lib/components/settings/PeopleCard.svelte';
+  import SwitchRow from '$lib/components/settings/SwitchRow.svelte';
+  import FieldRow from '$lib/components/settings/FieldRow.svelte';
+  import StatusLine from '$lib/components/settings/StatusLine.svelte';
+  import { createOptimisticCommitter } from '$lib/components/settings/optimistic';
+  import { COPY_FAILED_MESSAGE, copyText } from '$lib/components/settings/copy-text';
+  import {
+    resolveSettingsView,
+    sectionHref,
+    visibleSections,
+    type SectionId
+  } from '$lib/components/settings/sections';
+  import {
+    defaultPasskeyName,
+    passkeyPlatform,
+    passkeyUnlockPhrase,
+    type PasskeyPlatform
+  } from '$lib/components/settings/passkey-copy';
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
+  import { avatar } from '$lib/components/v2/AccountPanel.svelte';
+  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import { isPasskeySupported } from '$lib/webauthn-client';
   import {
     fetchSpotifyCredentials,
@@ -53,97 +78,158 @@
   import { signOutAndReset } from '$lib/auth/sign-out';
   import { switchAccountAndReload } from '$lib/auth/switch-account';
   import { isAdmin, isDemo, roleLabel } from '$lib/auth/capabilities';
-  import { formatFileSize } from '$lib/formatters';
+  import { formatDate, formatFileSize } from '$lib/formatters';
   import { toast } from 'svelte-sonner';
-
-  const formatBytes = (bytes: number) => (bytes > 0 ? formatFileSize(bytes) : '0 B');
   import {
-    Loader2,
-    CheckCircle2,
-    AlertCircle,
-    AlertTriangle,
-    ExternalLink,
+    Check,
+    CircleAlert,
+    CircleArrowUp,
+    CircleCheck,
     Copy,
-    KeyRound,
-    Trash2,
-    Save,
-    LogOut,
-    Pencil,
-    Settings,
-    Sparkles,
     FolderInput,
-    UserPlus
+    FolderOutput,
+    KeyRound,
+    Loader2,
+    Plus,
+    Radar,
+    Trash2,
+    Users
   } from '@lucide/svelte';
 
-  // ── tabs ─────────────────────────────────────────────────────────────────────
-  type TabId = 'sources' | 'providers' | 'rules' | 'output' | 'account' | 'people' | 'updates';
-  // Account sits second, not fifth: passkeys and phone pairing are what a person reaches for on a
-  // phone, where the strip shows about two tabs before a swipe. Order is presentation only —
-  // ?tab= deep links resolve by id.
-  const TABS: { id: TabId; label: string }[] = [
-    { id: 'sources', label: 'Sources' },
-    { id: 'account', label: 'Account' },
-    { id: 'providers', label: 'Providers' },
-    { id: 'rules', label: 'Filename rules' },
-    { id: 'output', label: 'Library output' },
-    { id: 'people', label: 'People' },
-    { id: 'updates', label: 'Updates' }
-  ];
+  const formatBytes = (bytes: number) => (bytes > 0 ? formatFileSize(bytes) : '0 B');
 
-  // Deep-linkable via ?tab=, defaults to Sources. The v2 sidebar links every
-  // settings sub-item to /settings, so this also honours an explicit tab query.
-  function readTab(): TabId {
-    const q = page.url.searchParams.get('tab');
-    return TABS.some((t) => t.id === q) ? (q as TabId) : 'sources';
+  // ── sections ─────────────────────────────────────────────────────────────────
+  // Which section shows is a pure function of the URL (sections.ts): on a phone a section is a
+  // page pushed over the Settings root — a row tap is a real navigation to ?tab=X, so the nav
+  // bar's Back takes it away again — and on a desktop the pane list beside it rewrites ?tab= in
+  // place. Nothing about the section lives in component state, so Back, a reload and every deep
+  // link (?tab=people|sources|account|updates) land in the same place.
+  const isMobile = new IsMobile();
+  const compact = $derived(isMobile.current);
+  const user = $derived(page.data.user);
+  const admin = $derived(isAdmin(user));
+  const demo = $derived(isDemo(user));
+  const version = $derived(page.data.appVersion as string | null | undefined);
+
+  const visible = $derived(visibleSections(user));
+  // Two panes need room for both. Below this width the section column would be narrower than a
+  // phone's (768–1023px with the app sidebar open left it about 330px), so the page stacks
+  // instead — the root list, each section pushed over it — as iPadOS Settings does in a narrow
+  // window. Measured on the page itself, so a collapsed app sidebar gets the panes back.
+  // (Before the first measurement the breakpoint decides; it lands before the first paint.)
+  const PANES_MIN_WIDTH = 720;
+  let pageWidth = $state(0);
+  const stacked = $derived(compact || (pageWidth > 0 && pageWidth < PANES_MIN_WIDTH));
+  const view = $derived(resolveSettingsView(page.url, user, stacked));
+  const section = $derived(view.section);
+  // One person's page under People (?tab=people&person=<id>), pushed over the People list.
+  const person = $derived(view.person);
+  let personTitle = $state<string | null>(null);
+  const canSee = (id: SectionId) => visible.some((s) => s.id === id);
+  const labelOf = (id: SectionId) => visible.find((s) => s.id === id)?.label ?? 'Settings';
+
+  // A URL naming a section this person cannot see is corrected in place (a replace, so Back
+  // does not return to it): to the root on a phone, the first section on a desktop.
+  $effect(() => {
+    const target = view.redirect;
+    if (target) void replaceUrl(target, { noScroll: false, keepFocus: false });
+  });
+
+  // A member has one section, so the desktop gets no pane list for them (a list of one row is
+  // not navigation) — and the page keeps the name they reached it by.
+  const showPaneList = $derived(!stacked && visible.length > 1);
+  const barTitle = $derived(
+    person
+      ? (personTitle ?? 'Person')
+      : visible.length === 1 || section === null
+        ? 'Settings'
+        : labelOf(section)
+  );
+  // A person's page names its list at every width (a desktop bar otherwise has no Back, and a
+  // phone that deep-linked here would go back to the Settings root, skipping People). A stacked
+  // desktop section names the root it was pushed from: a desktop bar has no Back of its own.
+  const barBack = $derived(
+    person
+      ? { label: 'People', href: sectionHref('people') }
+      : !compact && stacked && section !== null && visible.length > 1
+        ? { label: 'Settings', href: '/settings' }
+        : undefined
+  );
+  // A section or a person names its page, so "Back to Playback" (not "Back to Settings") leads
+  // back from anything pushed from it, and the browser-tab title the route announcer reads says
+  // where this is. The root and a member's single section keep the nav's own "Settings", and a
+  // person waits for their name. titleOf is read first so the effect runs again once the
+  // navigation is recorded — until then the entry does not exist and setTitle has nothing to patch.
+  const ownTitle = $derived(
+    person ? personTitle : section !== null && visible.length > 1 ? labelOf(section) : null
+  );
+  $effect(() => {
+    if (ownTitle && tabMemory.titleOf(page.url) !== ownTitle) tabMemory.setTitle(page.url, ownTitle);
+  });
+
+  // Account opens on its own header (avatar, name, email), which is the page's visual title, so
+  // the bar keeps an inline title rather than stacking a large one above it — as iOS does for
+  // the Apple Account page. A person's page is titled by a name or an email, which a large title
+  // would wrap or cut.
+  const largeTitle = $derived(section !== 'account' && !person);
+
+  // Desktop pane list: a selection replaces the URL rather than pushing, like picking a pane
+  // in System Settings. Modified clicks still open the link in a new tab.
+  function selectPane(event: MouseEvent, id: SectionId) {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    event.preventDefault();
+    // Compared by URL, not by section: from a person's page, People's own row goes back to the
+    // People list.
+    const target = sectionHref(id);
+    if (page.url.pathname + page.url.search !== target) void replaceUrl(target);
   }
-  let activeTab = $state<TabId>(readTab());
-  function selectTab(id: TabId) {
-    activeTab = id;
-    const url = new URL(page.url);
-    url.searchParams.set('tab', id);
-    void goto(`${url.pathname}${url.search}`, { replaceState: true, keepFocus: true, noScroll: true });
-  }
+
+  // The selected pane is marked the way the app sidebar beside it marks the current page — a grey
+  // fill with the label and icon in the tint — so the window shows one selection style, not two.
+  // The fill is a step stronger than the sidebar's (--secondary, not --sidebar-accent): on a white
+  // card GroupedList's own `selected` grey all but vanishes (about 1.13:1 in light). No hairline
+  // runs through or against the selected row.
+  const PANE_ROW = '[&:has(+[data-selected])]:after:hidden';
+  const PANE_SELECTED =
+    'bg-secondary hover:bg-secondary active:bg-secondary after:hidden [&_.text-foreground]:text-primary [&_.text-foreground]:font-medium';
+  const PANE_TILE_SELECTED = 'text-primary';
 
   // ── account ────────────────────────────────────────────────────────────────────
-  const user = $derived(
-    page.data.user as
-      | { id: string; email: string; role: 'Owner' | 'Demo' | 'Friend'; displayName: string | null }
-      | undefined
-  );
-
-  // Invites and sharing are administration — everyone else just doesn't get the tab. A member
-  // gets Settings only for their own account (sign out, phone pairing, passkeys); every other
-  // tab is instance configuration.
-  const visibleTabs = $derived(
-    isAdmin(user) ? TABS : isDemo(user) ? TABS.filter((t) => t.id !== 'people') : TABS.filter((t) => t.id === 'account')
-  );
-  const initials = $derived((user?.displayName ?? user?.email ?? '?').slice(0, 2).toUpperCase());
-
-  // A deep link (or the 'sources' default) can point at a tab this role doesn't have —
-  // fold it to the first visible one rather than rendering an inaccessible section.
-  $effect(() => {
-    if (visibleTabs.length > 0 && !visibleTabs.some((t) => t.id === activeTab)) {
-      selectTab(visibleTabs[0].id);
-    }
-  });
+  const displayName = $derived(user ? user.displayName?.trim() || user.email : '');
 
   async function handleSignOut(allSessions = false) {
     await signOutAndReset(allSessions);
   }
+  let signOutEverywhereOpen = $state(false);
 
   // ── accounts on this browser (account switcher) ────────────────────────────────
   let browserAccounts = $state<AccountView[] | null>(null);
+  let accountsFailed = $state(false);
   let accountSwitchingTo = $state<string | null>(null);
+  // Not reactive on purpose: it only guards against a second request while one is in flight.
+  let accountsInFlight = false;
 
-  $effect(() => {
-    if (activeTab !== 'account' || browserAccounts !== null) return;
+  function loadBrowserAccounts() {
+    if (accountsInFlight) return;
+    accountsInFlight = true;
     void (async () => {
       try {
         browserAccounts = await listAccounts();
       } catch {
-        browserAccounts = [];
+        accountsFailed = true;
+      } finally {
+        accountsInFlight = false;
       }
     })();
+  }
+
+  // Fetched lazily, the first time the Account section shows — and again after "Try again",
+  // which only clears the failure so this is the one place a fetch starts.
+  $effect(() => {
+    if (section !== 'account' || browserAccounts !== null || accountsFailed) return;
+    loadBrowserAccounts();
   });
 
   async function handleSwitchAccount(account: AccountView) {
@@ -156,7 +242,7 @@
     }
   }
 
-  // ── account name (owner-only; demo/friend writes are rejected server-side) ────
+  // ── account name (admin-only; demo/member writes are rejected server-side) ─────
   let isEditingName = $state(false);
   let nameDraft = $state('');
   let isSavingName = $state(false);
@@ -175,8 +261,8 @@
     try {
       await updateDisplayName(nameDraft.trim() || null);
       isEditingName = false;
-      // Session user lives in page.data — re-run the layout load so the sidebar
-      // and this card pick up the new name.
+      // Session user lives in page.data — re-run the layout load so the account button and
+      // this page pick up the new name.
       await invalidateAll();
     } catch (err) {
       nameError = err instanceof Error ? err.message : 'Could not update the account name.';
@@ -185,23 +271,32 @@
     }
   }
 
-  // ── passkeys (owner + invited friend, each for their own account) ──────────────
-  // A friend enrols too: the ceremony endpoints act on the caller's own account and never take a
+  // Focus the field when editing starts (a tap on the Name row), as iOS does when a cell turns
+  // into a text field.
+  function focusOnMount(node: HTMLInputElement) {
+    node.focus();
+    node.select();
+  }
+
+  // ── passkeys (admin + member, each for their own account) ──────────────────────
+  // A member enrols too: the ceremony endpoints act on the caller's own account and never take a
   // user id from the request, and without a passkey of their own the Android client's passkey
-  // sign-in would be owner-only. The demo stays out — its credentials are shared by every visitor.
+  // sign-in would be admin-only. The demo stays out — its credentials are shared by every visitor.
   let passkeySupported = $state(false);
+  let platform = $state<PasskeyPlatform>('other');
   let passkeys = $state<PasskeyView[]>([]);
   let passkeysLoading = $state(false);
   let newPasskeyName = $state('');
   let isAddingPasskey = $state(false);
   let passkeyError = $state<string | null>(null);
+  // The passkey whose Remove confirm is open: one confirm per row, so the rows share this id.
+  let removingPasskeyId = $state<string | null>(null);
 
-  // Any real account may enrol a passkey on itself — that is what lets a member sign in on the
-  // phone. Only the shared demo login is excluded, because its credentials are public.
-  const canUsePasskeys = $derived(!isDemo(user));
+  const canUsePasskeys = $derived(!demo);
 
   $effect(() => {
     passkeySupported = isPasskeySupported();
+    platform = passkeyPlatform(navigator.userAgent ?? '', navigator.maxTouchPoints ?? 0);
   });
 
   $effect(() => {
@@ -213,7 +308,7 @@
         const list = await listPasskeys();
         if (!cancelled) passkeys = list;
       } catch {
-        // non-fatal; section just shows empty
+        // non-fatal; the section just shows none
       } finally {
         if (!cancelled) passkeysLoading = false;
       }
@@ -227,7 +322,9 @@
     isAddingPasskey = true;
     passkeyError = null;
     try {
-      const created = await registerPasskey(newPasskeyName.trim() || 'Passkey');
+      // Left empty, the passkey is named after the device it was made on ("iPhone"), which is
+      // what the list needs to tell two of them apart later.
+      const created = await registerPasskey(newPasskeyName.trim() || defaultPasskeyName(platform));
       passkeys = [created, ...passkeys];
       newPasskeyName = '';
     } catch (err) {
@@ -249,13 +346,13 @@
     }
   }
 
-  // ── soulseek & sync status (owner-only, read-only) ────────────────────────────
+  // ── soulseek & sync status (admin-only, read-only) ────────────────────────────
   let soulseekStatus = $state<SoulseekStatus | null>(null);
   let syncStatus = $state<SyncStatus | null>(null);
   let soulseekSyncLoaded = $state(false);
 
   $effect(() => {
-    if (!isAdmin(user)) return;
+    if (!admin) return;
     let cancelled = false;
     void (async () => {
       const [slsk, syncResp] = await Promise.all([
@@ -272,15 +369,26 @@
     };
   });
 
+  const soulseekValue = $derived.by(() => {
+    if (!soulseekSyncLoaded) return 'Loading…';
+    if (!soulseekStatus) return 'Unavailable';
+    if (!soulseekStatus.configured) return 'Not configured';
+    return soulseekStatus.connected ? 'Connected' : 'Disconnected';
+  });
+  const syncValue = $derived.by(() => {
+    if (!soulseekSyncLoaded) return 'Loading…';
+    return syncStatus ? syncStatus.mode : 'Unavailable';
+  });
+
   // ── settings + spotify state ───────────────────────────────────────────────────
   let isLoading = $state(true);
   let settings = $state<SettingsResponse | null>(null);
+  // The settings document could not be read: Sources, Providers and Library output say so (with
+  // a retry) rather than showing "Not set" paths and switches that are disabled for no reason.
+  let settingsFailed = $state(false);
+  let loadAttempt = $state(0);
   let providers = $state<SettingsProvidersView | null>(null);
-  let isSavingProviders = $state(false);
-  let providersResult = $state<{ success: boolean; message: string } | null>(null);
   let qualityGrading = $state<SettingsQualityGradingView | null>(null);
-  let isSavingQualityGrading = $state(false);
-  let qualityGradingResult = $state<{ success: boolean; message: string } | null>(null);
 
   // Spotify credential form state
   let clientId = $state('');
@@ -292,19 +400,36 @@
   let saveResult = $state<{ success: boolean; message: string } | null>(null);
   let isConnecting = $state(false);
   let spotifyError = $state<string | null>(null);
+  let disconnectOpen = $state(false);
+  let redirectCopied = $state(false);
 
   // Purge state
   let purgeSnapshot = $state<PurgeSnapshot | null>(null);
   let purgeStartError = $state<string | null>(null);
+  // The start request is out: both rows stay unavailable until it answers, so a second tap
+  // cannot send a second purge.
+  let purgeStarting = $state(false);
   const purgeRunning = $derived(purgeSnapshot?.status === 'running');
+  let resetDialogOpen = $state(false);
 
   // Staged-source release: downloads are copied into the library; once verified, the staged copy is
   // dead weight. Toggle = hourly sweep; "Release now" = one immediate run with progress.
   let stagedPreview = $state<StagedSourceReleasePreview | null>(null);
   let stagedSnapshot = $state<StagedSourceReleaseSnapshot | null>(null);
   let stagedToggleBusy = $state(false);
+  let stagedToggleError = $state<string | null>(null);
   let stagedStartError = $state<string | null>(null);
+  let releaseDialogOpen = $state(false);
+  let releaseStarting = $state(false);
   const stagedRunning = $derived(stagedSnapshot?.status === 'running');
+  const releaseDisabled = $derived(
+    stagedRunning ||
+      releaseStarting ||
+      purgeRunning ||
+      !stagedPreview ||
+      !!stagedPreview.unavailableReason ||
+      stagedPreview.eligible === 0
+  );
 
   async function refreshStagedPreview() {
     try {
@@ -317,17 +442,36 @@
   async function onToggleReleaseStagedSources(next: boolean) {
     if (!settings) return;
     stagedToggleBusy = true;
-    try {
-      await updateSettings({ downloads: { releaseStagedSources: next } });
-      settings = { ...settings, downloads: { ...settings.downloads, releaseStagedSources: next } };
-    } finally {
-      stagedToggleBusy = false;
+    stagedToggleError = null;
+    const setReleaseStaged = (value: boolean) => {
+      if (settings) {
+        settings = {
+          ...settings,
+          downloads: { ...settings.downloads, releaseStagedSources: value }
+        };
+      }
+    };
+    const err = await commitSetting('releaseStagedSources', {
+      read: () => settings?.downloads.releaseStagedSources ?? false,
+      write: setReleaseStaged,
+      next,
+      save: async () => {
+        await inOrder(() => updateSettings({ downloads: { releaseStagedSources: next } }));
+      }
+    });
+    if (err) {
+      stagedToggleError = err instanceof Error ? err.message : 'Could not change that setting.';
     }
+    stagedToggleBusy = false;
   }
 
   async function handleReleaseStagedSources() {
+    if (releaseStarting) return;
     stagedStartError = null;
-    const response = await startStagedSourceRelease();
+    releaseStarting = true;
+    const response = await startStagedSourceRelease()
+      .catch(() => ({ ok: false as const, message: 'Couldn’t reach the server. Try again.' }))
+      .finally(() => (releaseStarting = false));
     if (!response.ok) {
       stagedStartError = response.message;
       return;
@@ -354,7 +498,9 @@
   let purgeAllDialogOpen = $state(false);
   let purgeAllConfirmText = $state('');
   const PURGE_ALL_CONFIRM_WORD = 'DELETE';
-  const purgeAllConfirmed = $derived(purgeAllConfirmText.trim().toUpperCase() === PURGE_ALL_CONFIRM_WORD);
+  const purgeAllConfirmed = $derived(
+    purgeAllConfirmText.trim().toUpperCase() === PURGE_ALL_CONFIRM_WORD
+  );
   function onPurgeAllDialogOpenChange(open: boolean) {
     purgeAllDialogOpen = open;
     if (!open) purgeAllConfirmText = '';
@@ -368,8 +514,10 @@
 
   $effect(() => {
     // Spotify creds, purge state, and the settings document are all instance configuration —
-    // a member's Settings is just their account card + pairing, so skip the fetches.
-    if (!isAdmin(user)) {
+    // a member's Settings is just their own account, so skip the fetches (the demo's would be
+    // refused; its sections say so rather than showing blanks). Runs again on "Try again".
+    void loadAttempt;
+    if (!admin) {
       isLoading = false;
       return;
     }
@@ -399,6 +547,7 @@
         if (creds.clientId) clientId = creds.clientId;
         if (purge) purgeSnapshot = purge;
         if (staged) stagedSnapshot = staged;
+        settingsFailed = settingsResp === null;
         if (settingsResp) {
           settings = settingsResp;
           providers = { ...settingsResp.providers };
@@ -455,8 +604,12 @@
   });
 
   async function handlePurge(mode: PurgeMode) {
+    if (purgeStarting) return;
     purgeStartError = null;
-    const response = mode === 'post-fingerprint' ? await purgePostFingerprint() : await purgeAll();
+    purgeStarting = true;
+    const response = await (mode === 'post-fingerprint' ? purgePostFingerprint() : purgeAll())
+      .catch(() => ({ ok: false as const, message: 'Couldn’t reach the server. Try again.' }))
+      .finally(() => (purgeStarting = false));
     if (!response.ok) {
       purgeStartError = response.message;
       return;
@@ -486,7 +639,7 @@
     saveResult = null;
     try {
       await saveSpotifyCredentials(clientId.trim(), clientSecret.trim());
-      saveResult = { success: true, message: 'Spotify credentials saved successfully.' };
+      saveResult = { success: true, message: 'Spotify credentials saved.' };
       savedCredentials = { clientId: clientId.trim(), hasClientSecret: true };
       clientSecret = '';
     } catch (err) {
@@ -523,49 +676,87 @@
     }
   }
 
-  async function handleSaveProviders() {
+  const spotifyValue = $derived(
+    spotifyStatus?.connected
+      ? 'Connected'
+      : savedCredentials?.hasClientSecret
+        ? 'Credentials set'
+        : demo
+          ? 'Hidden in the demo'
+          : 'Not configured'
+  );
+
+  // ── switches apply as they are flipped ─────────────────────────────────────────
+  // Every switch in Settings commits on change, iOS-style: providers and AI grading used to flip
+  // locally and wait for a separate Save button, while the staging and People switches applied at
+  // once — so a phone user who flipped a provider and navigated away lost the change silently.
+  // The switch moves at once (applyOptimistically); a spinner shows while the write is in flight;
+  // a refusal puts it back and says why under the section. Writes are chained so two quick flips
+  // land in the order they were made.
+  let writeQueue: Promise<unknown> = Promise.resolve();
+  function inOrder(write: () => Promise<unknown>): Promise<unknown> {
+    const run = writeQueue.then(write, write);
+    writeQueue = run.catch(() => {});
+    return run;
+  }
+  // Remembers what the server last confirmed per switch, so two quick flips that both fail end
+  // on the server's value rather than the first flip's (optimistic.ts).
+  const commitSetting = createOptimisticCommitter<boolean>();
+
+  type ProviderKey = keyof SettingsProvidersView;
+  // Writes in flight per switch (a count: a second flip must not clear the first one's spinner).
+  let providersSaving = $state<Partial<Record<ProviderKey, number>>>({});
+  let providersError = $state<string | null>(null);
+
+  async function toggleProvider(key: ProviderKey, value: boolean) {
     if (!providers) return;
-    isSavingProviders = true;
-    providersResult = null;
-    try {
-      await updateSettings({ providers });
-      providersResult = { success: true, message: 'Enrichment providers updated.' };
-    } catch (err) {
-      providersResult = {
-        success: false,
-        message: err instanceof Error ? err.message : 'Failed to save providers.'
-      };
-    } finally {
-      isSavingProviders = false;
-    }
+    providersError = null;
+    providersSaving = { ...providersSaving, [key]: (providersSaving[key] ?? 0) + 1 };
+    const err = await commitSetting(`provider:${key}`, {
+      read: () => providers?.[key] ?? false,
+      write: (v) => {
+        if (providers) providers = { ...providers, [key]: v };
+      },
+      next: value,
+      save: async () => {
+        await inOrder(() => updateSettings({ providers: { [key]: value } }));
+      }
+    });
+    if (err) providersError = err instanceof Error ? err.message : 'Failed to save providers.';
+    providersSaving = { ...providersSaving, [key]: (providersSaving[key] ?? 1) - 1 };
   }
 
-  async function handleSaveQualityGrading() {
+  let gradingSaving = $state(0);
+  let gradingError = $state<string | null>(null);
+
+  async function toggleQualityGrading(value: boolean) {
     if (!qualityGrading) return;
-    isSavingQualityGrading = true;
-    qualityGradingResult = null;
-    try {
-      await updateSettings({ qualityGrading: { enabled: qualityGrading.enabled } });
-      qualityGradingResult = {
-        success: true,
-        message: qualityGrading.enabled ? 'AI quality grading enabled.' : 'AI quality grading disabled.'
-      };
-    } catch (err) {
-      qualityGradingResult = {
-        success: false,
-        message: err instanceof Error ? err.message : 'Failed to save AI grading setting.'
-      };
-    } finally {
-      isSavingQualityGrading = false;
+    gradingError = null;
+    gradingSaving += 1;
+    const err = await commitSetting('qualityGrading', {
+      read: () => qualityGrading?.enabled ?? false,
+      write: (v) => {
+        if (qualityGrading) qualityGrading = { ...qualityGrading, enabled: v };
+      },
+      next: value,
+      save: async () => {
+        await inOrder(() => updateSettings({ qualityGrading: { enabled: value } }));
+      }
+    });
+    if (err) {
+      gradingError = err instanceof Error ? err.message : 'Failed to save the AI grading setting.';
     }
+    gradingSaving -= 1;
   }
 
+  // A failed copy says so (plain-http LAN hosts have no async clipboard); the text is selectable.
   async function copyRedirectUri() {
-    try {
-      await navigator.clipboard.writeText(redirectUri);
-    } catch {
-      // Clipboard may be unavailable in some embeddings; silently ignore.
+    if (!(await copyText(redirectUri))) {
+      toast.error(COPY_FAILED_MESSAGE);
+      return;
     }
+    redirectCopied = true;
+    setTimeout(() => (redirectCopied = false), 2000);
   }
 
   // ── updates ──────────────────────────────────────────────────────────────────
@@ -573,1280 +764,1210 @@
   let updateCmdCopied = $state(false);
 
   async function copyUpdateCommand() {
-    try {
-      await navigator.clipboard.writeText(UPDATE_CMD);
-      updateCmdCopied = true;
-      setTimeout(() => (updateCmdCopied = false), 2000);
-    } catch {
-      // Clipboard may be unavailable in some embeddings; silently ignore.
+    if (!(await copyText(UPDATE_CMD))) {
+      toast.error(COPY_FAILED_MESSAGE);
+      return;
     }
+    updateCmdCopied = true;
+    setTimeout(() => (updateCmdCopied = false), 2000);
   }
 
   // ── provider catalog (real provider keys) ───────────────────────────────────────
-  // `dot` is only set for a genuine third-party brand mark (Spotify); every other provider gets a
-  // single neutral gray identity dot — see design-audit finding on hardcoded per-provider hexes.
-  type ProviderKey = keyof SettingsProvidersView;
-  const PROVIDER_CATALOG: { key: ProviderKey; name: string; desc: string; auth: string; dot: string | null }[] = [
+  // No leading dot: grey for all but Spotify's brand green, it carried nothing and read as a
+  // status light. What a provider needs is said in words on its second line.
+  const PROVIDER_CATALOG: {
+    key: ProviderKey;
+    name: string;
+    desc: string;
+    auth: string;
+  }[] = [
     {
       key: 'acoustId',
       name: 'AcoustID',
       desc: 'Fingerprint → MusicBrainz recording match',
-      auth: 'Free',
-      dot: null
+      auth: 'Free'
     },
     {
       key: 'spotifyApi',
       name: 'Spotify API',
       desc: 'Artist + title catalog search with ISRC verification',
-      auth: 'OAuth',
-      dot: '#1DB954'
+      auth: 'OAuth'
     },
     {
       key: 'deezer',
       name: 'Deezer',
-      desc: 'Free ISRC-first + artist/title catalog search (no auth)',
-      auth: 'Free',
-      dot: null
+      desc: 'ISRC-first, then artist + title catalog search (no sign-in)',
+      auth: 'Free'
     },
     {
       key: 'appleMusic',
       name: 'Apple Music',
-      desc: 'Free iTunes artist + title catalog search (no auth)',
-      auth: 'Free',
-      dot: null
+      desc: 'iTunes artist + title catalog search (no sign-in)',
+      auth: 'Free'
     },
     {
       key: 'musicBrainzWeb',
       name: 'MusicBrainz web',
       desc: 'Direct ISRC / artist+title lookups against MusicBrainz',
-      auth: 'Free',
-      dot: null
+      auth: 'Free'
     },
     {
       key: 'tracker',
       name: 'Community trackers',
       desc: 'Juice WRLD unreleased / leak files (best-effort)',
-      auth: 'Community',
-      dot: null
+      auth: 'Community'
     }
   ];
 
-  function toggleProvider(key: ProviderKey, value: boolean) {
-    if (providers) providers = { ...providers, [key]: value };
+  // A provider's second line: what it needs, then what it does. Only Spotify's credentials are
+  // known here (the others are free, or configured on the server), so only Spotify can say it
+  // still needs them — in words, where a coloured dot used to sit.
+  function providerSublabel(p: (typeof PROVIDER_CATALOG)[number]): string {
+    const needsCredentials =
+      p.key === 'spotifyApi' &&
+      savedCredentials != null &&
+      !(savedCredentials.clientId && savedCredentials.hasClientSecret);
+    return `${needsCredentials ? 'Needs credentials (Sources)' : p.auth} · ${p.desc}`;
   }
+
+  // The trailing value on the Providers row of the list: how many are on.
+  const providersValue = $derived(
+    providers
+      ? `${PROVIDER_CATALOG.filter((p) => providers?.[p.key]).length} of ${PROVIDER_CATALOG.length}`
+      : undefined
+  );
+
+  // A disclosure's summary line in a section footer: the 18px footnote line plus py-2 is 34px,
+  // so a pseudo-element grows the hit area to 44pt without spacing the footer out.
+  const SUMMARY =
+    'text-primary relative w-fit cursor-pointer py-2 select-none after:absolute after:inset-x-0 after:-inset-y-[5px]';
+  // A link inside running footer text: the type stays put and the hit area grows to 44pt.
+  const INLINE_LINK =
+    'text-primary relative underline-offset-2 hover:underline after:absolute after:-inset-x-1 after:-inset-y-3.5';
+
+  // A read-only server path, or why there is none to show. The demo cannot read the settings
+  // document (it is admin-only), so it says so instead of rendering an empty field.
+  function pathText(value: string | null | undefined): string {
+    if (value) return value;
+    if (demo) return 'Hidden in the demo';
+    if (settingsFailed) return 'Unavailable';
+    return isLoading ? 'Loading…' : 'Not set';
+  }
+
+  // ── progress announcements ─────────────────────────────────────────────────────
+  // One polite live region for the page, mounted from the start and outside the {#key} below, so
+  // a section change never re-creates it: a status region inserted already holding its text is
+  // not announced, which is why the banners' own could only ever say how a job ended. Only
+  // changes seen on this visit are spoken — a purge that finished last week, loaded with the
+  // page, is not news.
+  let liveMessage = $state('');
+  let purgeSeen: string | null = null;
+  let stagedSeen: string | null = null;
+
+  $effect(() => {
+    const snapshot = purgeSnapshot;
+    if (isLoading) return;
+    const status = snapshot?.status ?? 'idle';
+    if (purgeSeen !== null && status !== purgeSeen && snapshot) {
+      liveMessage = purgeAnnouncement(snapshot) || liveMessage;
+    }
+    purgeSeen = status;
+  });
+
+  $effect(() => {
+    const snapshot = stagedSnapshot;
+    if (isLoading) return;
+    const status = snapshot?.status ?? 'idle';
+    if (stagedSeen !== null && status !== stagedSeen && snapshot) {
+      liveMessage = releaseAnnouncement(snapshot) || liveMessage;
+    }
+    stagedSeen = status;
+  });
 </script>
 
-<!-- Identity, plus the section tabs inline: two stacked bars (a 95px title band
-     and a 53px tab strip) for one word and six links was the single biggest
-     header in Manage. -->
-<PageToolbarV2
-  icon={Settings}
-  title="Settings"
-  tabs={visibleTabs}
-  {activeTab}
-  onselectTab={(id) => selectTab(id as TabId)}
-/>
+<!-- ─────────────────────────────── shared cells ─────────────────────────────── -->
 
-<div class="min-h-0 flex-1 overflow-auto pb-[var(--mh-content-pad)]">
-  <div class="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-4 sm:px-7 sm:py-6">
-    {#if isLoading}
-      <div class="flex items-center justify-center py-16">
-        <Loader2 class="text-muted-foreground size-6 animate-spin" />
+{#snippet actionRow(
+  label: string,
+  onclick: () => void,
+  opts: { disabled?: boolean; busy?: boolean; destructive?: boolean; ariaLabel?: string } = {}
+)}
+  <!-- An action in a list: tint text (red for a destructive one), dimmed while unavailable. -->
+  <GroupedList.Row {onclick} disabled={opts.disabled || opts.busy} aria-label={opts.ariaLabel}>
+    <span
+      class="text-body md:text-sm {opts.disabled
+        ? 'text-muted-foreground-dim'
+        : opts.destructive
+          ? 'text-destructive-text'
+          : 'text-primary'}">{label}</span
+    >
+    {#snippet trailing()}
+      {#if opts.busy}
+        <Loader2 class="text-muted-foreground size-4 animate-spin" aria-hidden="true" />
+      {/if}
+    {/snippet}
+  </GroupedList.Row>
+{/snippet}
+
+{#snippet pathRow(label: string, value: string | null | undefined)}
+  <GroupedList.Row {label}>
+    <span class="text-subheadline text-muted-foreground font-mono break-all select-text md:text-xs"
+      >{pathText(value)}</span
+    >
+  </GroupedList.Row>
+{/snippet}
+
+{#snippet copyButton(copied: boolean, onclick: () => void, label: string)}
+  <!-- 44pt on touch, 32px with a mouse. -->
+  <Button
+    variant="ghost"
+    size="icon"
+    class="shrink-0 pointer-coarse:size-11"
+    {onclick}
+    aria-label={copied ? 'Copied' : label}
+    title={label}
+  >
+    {#if copied}
+      <Check class="text-primary size-4" />
+    {:else}
+      <Copy class="size-4" />
+    {/if}
+  </Button>
+{/snippet}
+
+{#snippet settingsFailedSection()}
+  <!-- The settings document did not load: say so once, at the top of each section built from
+       it, with the way out. -->
+  {#if settingsFailed}
+    <GroupedList.Section
+      footer="The paths, providers and switches here come from this server’s settings. Check that the server is running, then try again."
+    >
+      <GroupedList.Row
+        onclick={() => (loadAttempt += 1)}
+        label="Couldn’t load this server’s settings"
+      >
+        {#snippet leading()}
+          <CircleAlert class="text-destructive-text size-[22px]" aria-hidden="true" />
+        {/snippet}
+        {#snippet trailing()}
+          <span class="text-body text-primary md:text-sm">Try again</span>
+        {/snippet}
+      </GroupedList.Row>
+    </GroupedList.Section>
+  {/if}
+{/snippet}
+
+{#snippet loadingSection()}
+  <div class="flex items-center justify-center py-16" role="status" aria-label="Loading">
+    <Loader2 class="text-muted-foreground size-6 animate-spin" />
+  </div>
+{/snippet}
+
+<!-- ─────────────────────── the section list (root / pane) ───────────────────── -->
+
+{#snippet sectionList(pane: boolean)}
+  <!-- One list, two presentations: the phone's Settings root (rows push ?tab=X) and the
+       desktop pane list (rows select a pane in place, the current one highlighted). Built from
+       the visible sections, so role gating lives in one place (sections.ts). -->
+  {#snippet row(id: SectionId, icon?: typeof Users, value?: string)}
+    {#if canSee(id)}
+      {@const selected = pane && section === id}
+      <GroupedList.Row
+        href={sectionHref(id)}
+        onclick={pane ? (e: MouseEvent) => selectPane(e, id) : undefined}
+        {icon}
+        iconClass={selected ? PANE_TILE_SELECTED : undefined}
+        label={labelOf(id)}
+        {value}
+        {selected}
+        chevron={!pane}
+        class={pane ? `${PANE_ROW} ${selected ? PANE_SELECTED : ''}` : undefined}
+      />
+    {/if}
+  {/snippet}
+
+  {#if user}
+    {@const selected = pane && section === 'account'}
+    <!-- The account, as its own cell at the top — the Apple Account row of iOS Settings. -->
+    <GroupedList.Section>
+      <GroupedList.Row
+        href={sectionHref('account')}
+        onclick={pane ? (e: MouseEvent) => selectPane(e, 'account') : undefined}
+        label={displayName}
+        sublabel={demo ? 'Demo account' : 'Account, passkeys and mobile app'}
+        {selected}
+        chevron={!pane}
+        class={selected ? PANE_SELECTED : undefined}
+        aria-label="Account, {displayName}"
+      >
+        {#snippet leading()}
+          {@render avatar(
+            displayName,
+            user.email,
+            pane ? 'size-9 text-[14px]' : 'size-12 text-headline'
+          )}
+        {/snippet}
+      </GroupedList.Row>
+    </GroupedList.Section>
+  {/if}
+
+  <!-- Section headers are <h2>s under the nav bar's <h1> (VoiceOver's rotor jumps between them on
+       a page that runs to 2000px on a phone) — except in the desktop pane list, which is
+       navigation (a <nav> landmark) and must not put "Library" ahead of the page's own <h1>. -->
+  <GroupedList.Section headingLevel={pane ? undefined : 2} header="Library">
+    {@render row('sources', FolderInput)}
+    {@render row('providers', Radar, providersValue)}
+    {@render row('output', FolderOutput)}
+  </GroupedList.Section>
+
+  {#if canSee('people')}
+    <GroupedList.Section headingLevel={pane ? undefined : 2} header="Sharing">
+      {@render row('people', Users)}
+    </GroupedList.Section>
+  {/if}
+
+  <GroupedList.Section>
+    {@render row('updates', CircleArrowUp, version ? `v${version}` : undefined)}
+  </GroupedList.Section>
+{/snippet}
+
+<!-- ───────────────────────────────── sections ───────────────────────────────── -->
+
+{#snippet sourcesSection()}
+  {#snippet sourcesFooter()}
+    <p>
+      Where MusicHoarder reads raw files — scanned, fingerprinted and enriched, never modified, only
+      copied. fpcalc is the Chromaprint tool used for fingerprinting; it must be on
+      <code class="bg-muted rounded px-1">$PATH</code> or an absolute path.
+    </p>
+    <!-- The how-to is for the one reader who runs the server; everyone else can stop above. -->
+    <details class="mt-1">
+      <summary class={SUMMARY}>How to change these</summary>
+      <p>
+        They are the server's <code class="bg-muted rounded px-1">source-directory</code> and
+        <code class="bg-muted rounded px-1">destination-directory</code> parameters (AppHost user-secrets
+        in development, environment variables in a compose deployment). Edit them and restart the server.
+      </p>
+    </details>
+  {/snippet}
+
+  <GroupedList.Section headingLevel={2} header="Source directories" footer={sourcesFooter}>
+    {@render pathRow('Primary source', settings?.paths.sourceDirectory)}
+    {@render pathRow('fpcalc binary', settings?.paths.fpcalcPath)}
+  </GroupedList.Section>
+
+  <!-- Spotify (sync source) -->
+  {#snippet spotifyFooter()}
+    <div class="flex flex-col gap-2">
+      {#if saveResult}
+        <StatusLine tone={saveResult.success ? 'success' : 'error'}>{saveResult.message}</StatusLine
+        >
+      {/if}
+      {#if spotifyError}
+        <StatusLine tone="error">{spotifyError}</StatusLine>
+      {/if}
+      <p>Pulls liked songs, playlists and release metadata. Audio is never streamed.</p>
+      <!-- Open until Spotify is connected: the steps are what someone setting it up needs. -->
+      <details open={!spotifyStatus?.connected}>
+        <summary class={SUMMARY}>How to get Spotify API credentials</summary>
+        <ol class="list-inside list-decimal space-y-1">
+          <li>
+            Open the
+            <a
+              href="https://developer.spotify.com/dashboard"
+              target="_blank"
+              rel="noopener noreferrer"
+              class={INLINE_LINK}>Spotify Developer Dashboard</a
+            >.
+          </li>
+          <li>Create a new app (or use an existing one).</li>
+          <li>
+            Add the redirect URI above under <em>Settings → Redirect URIs</em>. Spotify does not
+            allow <code class="bg-muted rounded px-1">localhost</code> — use a loopback IP like
+            <code class="bg-muted rounded px-1">127.0.0.1</code>.
+          </li>
+          <li>Copy the Client ID and Client Secret here.</li>
+        </ol>
+      </details>
+    </div>
+  {/snippet}
+
+  <GroupedList.Section headingLevel={2} header="Spotify sync source" footer={spotifyFooter}>
+    <!-- When the connection was made is said here, not in the Spotify page's header. -->
+    <GroupedList.Row
+      label="Status"
+      value={spotifyValue}
+      sublabel={spotifyStatus?.connected && spotifyStatus.connectedAt
+        ? `Since ${formatDate(spotifyStatus.connectedAt)}`
+        : undefined}
+    >
+      {#snippet trailing()}
+        {#if spotifyStatus?.connected}
+          <CircleCheck class="text-primary size-5" aria-hidden="true" />
+        {/if}
+      {/snippet}
+    </GroupedList.Row>
+    <FieldRow label="Client ID" for="client-id">
+      <Input
+        id="client-id"
+        type="text"
+        autocapitalize="off"
+        autocorrect="off"
+        spellcheck={false}
+        enterkeyhint="next"
+        placeholder="Your Spotify Client ID"
+        bind:value={clientId}
+        oninput={() => (saveResult = null)}
+        disabled={!admin}
+        class="font-mono"
+      />
+    </FieldRow>
+    <FieldRow
+      label="Client secret"
+      for="client-secret"
+      hint={savedCredentials?.hasClientSecret && !clientSecret
+        ? 'Already saved — enter a new value to replace it.'
+        : undefined}
+    >
+      <div class="flex items-center gap-2">
+        <Input
+          id="client-secret"
+          type={showSecret ? 'text' : 'password'}
+          autocapitalize="off"
+          autocorrect="off"
+          spellcheck={false}
+          autocomplete="off"
+          placeholder={savedCredentials?.hasClientSecret
+            ? '••••••••••••••••'
+            : 'Your Spotify Client Secret'}
+          bind:value={clientSecret}
+          oninput={() => (saveResult = null)}
+          disabled={!admin}
+          class="min-w-0 flex-1 font-mono"
+        />
+        <Button
+          type="button"
+          variant="gray"
+          class="h-11 shrink-0 rounded-full px-4 md:h-8 md:px-3"
+          onclick={() => (showSecret = !showSecret)}
+          aria-pressed={showSecret}
+        >
+          {showSecret ? 'Hide' : 'Show'}
+        </Button>
       </div>
-    {:else if activeTab === 'sources'}
-      <!-- =================== SOURCES =================== -->
-      <section class="border-border bg-card rounded-lg border">
-        <header class="border-border border-b px-5 py-3.5">
-          <h2 class="text-sm font-semibold">Source directories</h2>
-          <p class="text-muted-foreground text-xs">
-            Where MusicHoarder reads raw files. Files here are never modified, only copied. Set by
-            whoever runs this server; changing it needs a restart.
+    </FieldRow>
+    <!-- Only from the settings document: before it loads (and for the demo, which cannot read
+         it) the fallback would be a made-up loopback address, not this server's. -->
+    {#if settings}
+      <!-- Shown whole (wrapping, select-all) rather than in a read-only field that cut it off at
+           a phone's or a tablet pane's width: it has to be typed or pasted exactly. -->
+      <FieldRow label="Redirect URI" hint="Add this exact URI to your Spotify app’s redirect URIs.">
+        <div class="flex items-center gap-1">
+          <p class="text-body min-w-0 flex-1 font-mono break-all select-all md:text-xs">
+            {redirectUri}
           </p>
-          <!-- The how-to is for the one reader who runs the server; everyone else can stop above. -->
-          <details class="text-muted-foreground mt-1 text-xs">
-            <summary class="w-fit cursor-pointer py-1 select-none pointer-coarse:py-2">How to change these</summary>
-            <p class="mt-1">
-              They are the server's
-              <code class="bg-secondary rounded px-1 py-0.5">source-directory</code> and
-              <code class="bg-secondary rounded px-1 py-0.5">destination-directory</code> parameters
-              (AppHost user-secrets in development, environment variables in a compose deployment).
-              Edit them and restart the server.
-            </p>
-          </details>
-        </header>
-        <div class="divide-border divide-y">
-          <div class="flex flex-col gap-2 px-5 py-4">
-            <Label for="settings-source-directory">Primary source</Label>
-            <Input
-              id="settings-source-directory"
-              readonly
-              value={settings?.paths.sourceDirectory ?? ''}
-              class="font-mono text-sm"
-            />
-            <p class="text-muted-foreground text-xs">
-              Files under this folder are scanned, fingerprinted, and enriched.
-            </p>
-          </div>
-          <div class="flex flex-col gap-2 px-5 py-4">
-            <Label for="settings-fpcalc-path">fpcalc binary</Label>
-            <Input
-              id="settings-fpcalc-path"
-              readonly
-              value={settings?.paths.fpcalcPath ?? ''}
-              class="font-mono text-sm"
-            />
-            <p class="text-muted-foreground text-xs">
-              Chromaprint CLI used for fingerprinting. Must be on
-              <code class="bg-secondary rounded px-1 py-0.5">$PATH</code> or an absolute path.
-            </p>
-          </div>
+          {@render copyButton(redirectCopied, copyRedirectUri, 'Copy redirect URI')}
         </div>
-      </section>
-
-      <!-- Spotify (sync source) -->
-      <section class="border-border bg-card rounded-lg border">
-        <div class="border-border flex items-center gap-3 border-b px-5 py-3.5">
-          <div class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#1DB954]/10">
-            <span class="size-2.5 rounded-full bg-[#1DB954]"></span>
-          </div>
-          <div class="min-w-0 flex-1">
-            <h2 class="text-sm font-semibold">Spotify (sync source)</h2>
-            <p class="text-muted-foreground text-xs">
-              Pulls liked songs, playlists, and release metadata. Audio is never streamed.
-            </p>
-          </div>
-          {#if spotifyStatus?.connected}
-            <Badge class="border-0 bg-primary/20 text-primary">Connected</Badge>
-          {:else if savedCredentials?.hasClientSecret}
-            <Badge variant="secondary">Credentials set</Badge>
-          {:else}
-            <Badge variant="outline" class="text-muted-foreground">Not configured</Badge>
-          {/if}
-        </div>
-
-        <div class="space-y-5 p-5">
-          <div class="border-border bg-secondary/30 rounded-lg border p-4 text-sm">
-            <div class="flex items-start gap-2">
-              <KeyRound class="text-muted-foreground mt-0.5 size-4 shrink-0" />
-              <div>
-                <p class="mb-1 text-sm font-medium">How to get your Spotify API credentials</p>
-                <ol class="text-muted-foreground list-inside list-decimal space-y-1 text-xs">
-                  <li>
-                    Go to the
-                    <a
-                      href="https://developer.spotify.com/dashboard"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="text-primary inline-flex items-center gap-0.5 hover:underline"
-                    >
-                      Spotify Developer Dashboard
-                      <ExternalLink class="size-3" />
-                    </a>
-                  </li>
-                  <li>Create a new app (or use an existing one).</li>
-                  <li>
-                    Add the redirect URI below in <em>Settings → Redirect URIs</em>. Spotify does not
-                    allow <code class="bg-secondary rounded px-1 py-0.5">localhost</code> — use a
-                    loopback IP like <code class="bg-secondary rounded px-1 py-0.5">127.0.0.1</code>.
-                  </li>
-                  <li>Copy the Client ID and Client Secret here.</li>
-                </ol>
-              </div>
-            </div>
-          </div>
-
-          <div class="space-y-2">
-            <Label for="client-id">Client ID</Label>
-            <Input
-              id="client-id"
-              type="text"
-              autocapitalize="off"
-              autocorrect="off"
-              spellcheck={false}
-              placeholder="Enter your Spotify Client ID"
-              bind:value={clientId}
-              oninput={() => (saveResult = null)}
-              class="font-mono text-sm"
-            />
-          </div>
-
-          <div class="space-y-2">
-            <Label for="client-secret">
-              Client Secret
-              {#if savedCredentials?.hasClientSecret && !clientSecret}
-                <span class="text-muted-foreground ml-2 text-xs font-normal">
-                  (already saved — enter a new value to update)
-                </span>
-              {/if}
-            </Label>
-            <div class="flex flex-col gap-2 sm:flex-row">
-              <Input
-                id="client-secret"
-                type={showSecret ? 'text' : 'password'}
-                placeholder={savedCredentials?.hasClientSecret
-                  ? '••••••••••••••••'
-                  : 'Enter your Spotify Client Secret'}
-                bind:value={clientSecret}
-                oninput={() => (saveResult = null)}
-                class="min-w-0 font-mono text-sm"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                class="w-full sm:w-auto"
-                onclick={() => (showSecret = !showSecret)}
-              >
-                {showSecret ? 'Hide' : 'Show'}
-              </Button>
-            </div>
-          </div>
-
-          <div class="space-y-2">
-            <Label for="spotify-redirect-uri">Redirect URI</Label>
-            <div class="flex flex-col gap-2 sm:flex-row">
-              <Input
-                id="spotify-redirect-uri"
-                readonly
-                value={redirectUri}
-                class="min-w-0 font-mono text-sm"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                class="w-full sm:w-auto"
-                onclick={copyRedirectUri}
-              >
-                <Copy class="mr-2 size-4" /> Copy
-              </Button>
-            </div>
-            <p class="text-muted-foreground text-xs">
-              Add this exact URI to your Spotify app's Redirect URIs list.
-            </p>
-          </div>
-
-          {#if (settings?.spotify.scopes ?? []).length > 0}
-            <div class="space-y-2">
-              <Label>Scopes requested</Label>
-              <div class="flex flex-wrap gap-2">
-                {#each settings?.spotify.scopes ?? [] as scope (scope)}
-                  <Badge variant="secondary" class="font-mono text-xs">{scope}</Badge>
-                {/each}
-              </div>
-            </div>
-          {/if}
-
-          {#if saveResult}
-            <div
-              class="flex items-center gap-2 rounded-lg border px-4 py-3 text-sm {saveResult.success
-                ? 'border-primary/50 bg-primary/10 text-primary'
-                : 'border-destructive/50 bg-destructive/10 text-destructive-text'}"
-            >
-              {#if saveResult.success}
-                <CheckCircle2 class="size-4 shrink-0" />
-              {:else}
-                <AlertCircle class="size-4 shrink-0" />
-              {/if}
-              {saveResult.message}
-            </div>
-          {/if}
-
-          {#if spotifyError}
-            <div
-              class="border-destructive/50 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
-            >
-              <AlertCircle class="mt-0.5 size-4 shrink-0" />
-              <span>{spotifyError}</span>
-            </div>
-          {/if}
-
-          <div class="flex flex-wrap items-center gap-2">
-            <Button
-              onclick={handleSaveCredentials}
-              disabled={isSaving || !clientId.trim() || !clientSecret.trim()}
-            >
-              {#if isSaving}
-                <Loader2 class="mr-2 size-4 animate-spin" />
-              {:else}
-                <Save class="mr-2 size-4" />
-              {/if}
-              Save credentials
-            </Button>
-
-            {#if spotifyStatus?.connected}
-              <Button variant="outline" onclick={handleDisconnectSpotify}>Disconnect</Button>
-            {:else}
-              <Button
-                variant="outline"
-                onclick={handleConnectSpotify}
-                disabled={isConnecting || !savedCredentials?.hasClientSecret}
-              >
-                {#if isConnecting}
-                  <Loader2 class="mr-2 size-4 animate-spin" />
-                {/if}
-                Connect Spotify
-              </Button>
-            {/if}
-          </div>
-        </div>
-      </section>
-
-      <!-- Soulseek & sync (read-only status) -->
-      {#if isAdmin(user)}
-        <section class="border-border bg-card rounded-lg border">
-          <header class="border-border border-b px-5 py-3.5">
-            <h2 class="text-[13px] font-semibold">Soulseek &amp; sync</h2>
-            <p class="text-muted-foreground text-[11.5px]">
-              Read-only status of the slskd connection (quality upgrades) and the deployment-to-deployment
-              library sync. Both are configured via server environment variables.
-            </p>
-          </header>
-          <div class="divide-border divide-y">
-            <!-- Soulseek row -->
-            <div class="flex items-center gap-4 px-5 py-3.5">
-              <div class="min-w-0 flex-1">
-                <div class="text-[12.5px] font-medium">Soulseek (slskd)</div>
-                <div class="text-muted-foreground text-[11.5px]">
-                  {#if !soulseekSyncLoaded}
-                    Loading…
-                  {:else if !soulseekStatus}
-                    Status unavailable.
-                  {:else if soulseekStatus.configured}
-                    {soulseekStatus.connected ? 'Connected' : 'Not connected'}{soulseekStatus.version
-                      ? ` · slskd ${soulseekStatus.version}`
-                      : ''}
-                  {:else}
-                    Searches the Soulseek network for better-quality copies of your tracks.
-                  {/if}
-                </div>
-              </div>
-              {#if soulseekSyncLoaded && soulseekStatus}
-                {#if soulseekStatus.configured && soulseekStatus.connected}
-                  <Badge class="shrink-0 border-0 bg-[#1DB954]/20 text-[#1DB954]">Connected</Badge>
-                {:else if soulseekStatus.configured}
-                  <Badge variant="secondary" class="shrink-0">Disconnected</Badge>
-                {:else}
-                  <Badge variant="outline" class="text-muted-foreground shrink-0">Not configured</Badge>
-                {/if}
-              {:else if soulseekSyncLoaded}
-                <Badge variant="outline" class="text-muted-foreground shrink-0">Unavailable</Badge>
-              {/if}
-            </div>
-
-            <!-- Sync row -->
-            <div class="flex flex-col gap-2 px-5 py-3.5">
-              <div class="flex items-center gap-4">
-                <div class="min-w-0 flex-1">
-                  <div class="text-[12.5px] font-medium">Library sync</div>
-                  <div class="text-muted-foreground text-[11.5px]">
-                    {#if !soulseekSyncLoaded}
-                      Loading…
-                    {:else if !syncStatus}
-                      Status unavailable.
-                    {:else if syncStatus.mode === 'Push'}
-                      Pushing built tracks to the receiving deployment.
-                    {:else if syncStatus.mode === 'Receive'}
-                      Receiving tracks pushed from another deployment.
-                    {:else}
-                      Not configured — this deployment neither pushes nor receives.
-                    {/if}
-                  </div>
-                </div>
-                {#if soulseekSyncLoaded && syncStatus}
-                  {#if syncStatus.mode === 'Off'}
-                    <Badge variant="outline" class="text-muted-foreground shrink-0">Off</Badge>
-                  {:else}
-                    <Badge variant="secondary" class="shrink-0">{syncStatus.mode}</Badge>
-                  {/if}
-                {:else if soulseekSyncLoaded}
-                  <Badge variant="outline" class="text-muted-foreground shrink-0">Unavailable</Badge>
-                {/if}
-              </div>
-              {#if soulseekSyncLoaded && syncStatus?.mode === 'Push'}
-                <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  <div class="border-border bg-secondary/30 rounded-md border px-3 py-2">
-                    <div class="font-mono text-sm font-semibold tabular-nums">{syncStatus.outbox.synced}</div>
-                    <div class="text-muted-foreground text-[11px]">Synced</div>
-                  </div>
-                  <div class="border-border bg-secondary/30 rounded-md border px-3 py-2">
-                    <div class="font-mono text-sm font-semibold tabular-nums">
-                      {syncStatus.outbox.pending + syncStatus.outbox.uploading}
-                    </div>
-                    <div class="text-muted-foreground text-[11px]">Pending</div>
-                  </div>
-                  <div class="border-border bg-secondary/30 rounded-md border px-3 py-2">
-                    <div class="font-mono text-sm font-semibold tabular-nums">{syncStatus.outbox.failed}</div>
-                    <div class="text-muted-foreground text-[11px]">Failed</div>
-                  </div>
-                  <div class="border-border bg-secondary/30 rounded-md border px-3 py-2">
-                    <div class="font-mono text-sm font-semibold tabular-nums">
-                      {syncStatus.outbox.skippedRemoteBetter}
-                    </div>
-                    <div class="text-muted-foreground text-[11px]">Remote better</div>
-                  </div>
-                </div>
-              {/if}
-            </div>
-          </div>
-        </section>
-      {/if}
-      <!-- Download staging (owner-only housekeeping) -->
-      {#if isAdmin(user) && settings?.downloads.enabled}
-        <section class="border-border bg-card rounded-lg border">
-          <header class="border-border border-b px-5 py-3.5">
-            <h2 class="text-[13px] font-semibold">Download staging</h2>
-            <p class="text-muted-foreground text-[11.5px]">
-              Every download is indexed from the staging folder and copied into your library, so it is
-              stored twice. Releasing deletes the staged copy once the library copy has been verified —
-              the library copy is then the only one.
-            </p>
-          </header>
-          <div class="divide-border divide-y">
-            <!-- Toggle rows are <label>s, so the whole row flips the switch (as PeopleCard's
-                 capability rows do); keep any second control out of them. -->
-            <label class="flex items-center gap-4 px-5 py-3.5">
-              <span class="min-w-0 flex-1">
-                <span class="block text-[12.5px] font-medium">Release staged copies automatically</span>
-                <span class="text-muted-foreground block text-[11.5px]">
-                  An hourly sweep releases downloads built more than
-                  {stagedPreview?.graceMinutes ?? 15} minutes ago. Off by default.
-                </span>
-              </span>
-              <Switch
-                checked={settings.downloads.releaseStagedSources}
-                disabled={stagedToggleBusy}
-                onCheckedChange={(v) => void onToggleReleaseStagedSources(v)}
-                aria-label="Release staged copies automatically"
-              />
-            </label>
-            <div class="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between">
-              <div class="min-w-0 flex-1">
-                <div class="text-[12.5px] font-medium">Staged copies waiting</div>
-                <div class="text-muted-foreground text-[11.5px]">
-                  {#if !stagedPreview}
-                    Loading…
-                  {:else if stagedPreview.unavailableReason}
-                    Not available on this deployment ({stagedPreview.unavailableReason}).
-                  {:else}
-                    <span class="tabular-nums">{stagedPreview.eligible.toLocaleString()}</span> files ·
-                    {formatBytes(stagedPreview.eligibleBytes)} reclaimable ·
-                    <span class="tabular-nums">{stagedPreview.released.toLocaleString()}</span> already
-                    released ({formatBytes(stagedPreview.releasedBytes)})
-                  {/if}
-                </div>
-              </div>
-              <AlertDialog.Root>
-                <AlertDialog.Trigger>
-                  {#snippet child({ props })}
-                    <Button
-                      {...props}
-                      variant="outline"
-                      class="shrink-0 gap-2"
-                      disabled={stagedRunning ||
-                        purgeRunning ||
-                        !stagedPreview ||
-                        !!stagedPreview.unavailableReason ||
-                        stagedPreview.eligible === 0}
-                    >
-                      {#if stagedRunning}
-                        <Loader2 class="size-4 animate-spin" />
-                      {:else}
-                        <FolderInput class="size-4" />
-                      {/if}
-                      Release now
-                    </Button>
-                  {/snippet}
-                </AlertDialog.Trigger>
-                <AlertDialog.Content>
-                  <AlertDialog.Header>
-                    <AlertDialog.Title>Release staged copies now?</AlertDialog.Title>
-                    <AlertDialog.Description>
-                      Each of the {stagedPreview?.eligible.toLocaleString() ?? 0} staged files is deleted
-                      only after its library copy is checked (present, readable, matching duration and
-                      size). The library copy becomes the only copy. This runs in the background — you can
-                      navigate away and the progress will be here when you come back.
-                    </AlertDialog.Description>
-                  </AlertDialog.Header>
-                  <AlertDialog.Footer>
-                    <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
-                    <AlertDialog.Action onclick={() => void handleReleaseStagedSources()}>
-                      Release now
-                    </AlertDialog.Action>
-                  </AlertDialog.Footer>
-                </AlertDialog.Content>
-              </AlertDialog.Root>
-            </div>
-            {#if stagedStartError}
-              <div class="px-5 py-3">
-                <div
-                  class="border-destructive/50 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
-                >
-                  <AlertCircle class="mt-0.5 size-4 shrink-0" />
-                  <span>{stagedStartError}</span>
-                </div>
-              </div>
-            {/if}
-            {#if stagedSnapshot && stagedSnapshot.status !== 'idle'}
-              <div class="px-5 py-3">
-                <StagedSourceReleaseBanner snapshot={stagedSnapshot} />
-              </div>
-            {/if}
-          </div>
-        </section>
-      {/if}
-    {:else if activeTab === 'providers'}
-      <!-- =================== PROVIDERS =================== -->
-      <section class="border-border bg-card rounded-lg border">
-        <header class="border-border border-b px-5 py-3.5">
-          <h2 class="text-sm font-semibold">Active providers — queried in parallel during match</h2>
-          <p class="text-muted-foreground text-xs">
-            Toggle providers off to skip them entirely. New toggles take effect on the next
-            enrichment cycle; previously-attempted songs keep their per-provider history.
-          </p>
-        </header>
-        <div class="divide-border divide-y">
-          {#each PROVIDER_CATALOG as p (p.key)}
-            <label class="flex items-center gap-4 px-5 py-3.5">
-              <span
-                class="inline-block size-2.5 shrink-0 rounded-full {p.dot ? '' : 'bg-muted-foreground/50'}"
-                style={p.dot ? `background: ${p.dot}` : undefined}
-              ></span>
-              <span class="min-w-0 flex-1">
-                <span class="block text-sm font-medium">{p.name}</span>
-                <span class="text-muted-foreground block text-xs">{p.desc}</span>
-              </span>
-              <Badge variant="outline" class="text-muted-foreground hidden shrink-0 sm:inline-flex">
-                {p.auth}
-              </Badge>
-              <Switch
-                checked={providers?.[p.key] ?? false}
-                onCheckedChange={(v) => toggleProvider(p.key, v)}
-                aria-label="Toggle {p.name}"
-              />
-            </label>
+      </FieldRow>
+    {/if}
+    {#if (settings?.spotify.scopes ?? []).length > 0}
+      <FieldRow label="Scopes requested">
+        <div class="flex flex-wrap gap-1.5">
+          {#each settings?.spotify.scopes ?? [] as scope (scope)}
+            <Badge variant="secondary" class="font-mono">{scope}</Badge>
           {/each}
         </div>
-
-        {#if providersResult}
-          <div
-            class="mx-5 mb-4 flex items-center gap-2 rounded-lg border px-4 py-2 text-sm {providersResult.success
-              ? 'border-primary/50 bg-primary/10 text-primary'
-              : 'border-destructive/50 bg-destructive/10 text-destructive-text'}"
-          >
-            {#if providersResult.success}
-              <CheckCircle2 class="size-4 shrink-0" />
-            {:else}
-              <AlertCircle class="size-4 shrink-0" />
-            {/if}
-            {providersResult.message}
-          </div>
-        {/if}
-
-        <div class="border-border flex justify-end gap-2 border-t px-5 py-3.5">
-          <Button onclick={handleSaveProviders} disabled={isSavingProviders || !providers}>
-            {#if isSavingProviders}
-              <Loader2 class="mr-2 size-4 animate-spin" />
-            {:else}
-              <Save class="mr-2 size-4" />
-            {/if}
-            Save providers
-          </Button>
-        </div>
-      </section>
-
-      <!-- AI quality grading (real toggle) -->
-      <section class="border-border bg-card rounded-lg border">
-        <header class="border-border border-b px-5 py-3.5">
-          <h2 class="flex items-center gap-2 text-sm font-semibold">
-            <Sparkles class="size-4" /> AI quality grading
-          </h2>
-          <p class="text-muted-foreground text-xs">
-            An LLM grades each enrichment result so you can benchmark and debug the algorithm. Turn
-            it off to stop the background grading sweep.
-          </p>
-        </header>
-
-        <label class="flex items-center gap-4 px-5 py-3.5">
-          <span class="min-w-0 flex-1">
-            <span class="block text-sm font-medium">Enable AI quality grading</span>
-            <span class="text-muted-foreground block text-xs">
-              {#if qualityGrading && !qualityGrading.configured}
-                No API key set on the server — also set
-                <code class="bg-secondary rounded px-1 py-0.5">QUALITY_GRADING_API_KEY</code>
-                in the environment for grading to run.
-              {:else}
-                Grades enriched songs in the background and powers the AI quality page.
-              {/if}
-            </span>
-          </span>
-          <Switch
-            checked={qualityGrading?.enabled ?? false}
-            onCheckedChange={(v) => {
-              if (qualityGrading) qualityGrading = { ...qualityGrading, enabled: v };
-            }}
-            aria-label="Enable AI quality grading"
-          />
-        </label>
-
-        {#if qualityGradingResult}
-          <div
-            class="mx-5 mb-4 flex items-center gap-2 rounded-lg border px-4 py-2 text-sm {qualityGradingResult.success
-              ? 'border-primary/50 bg-primary/10 text-primary'
-              : 'border-destructive/50 bg-destructive/10 text-destructive-text'}"
-          >
-            {#if qualityGradingResult.success}
-              <CheckCircle2 class="size-4 shrink-0" />
-            {:else}
-              <AlertCircle class="size-4 shrink-0" />
-            {/if}
-            {qualityGradingResult.message}
-          </div>
-        {/if}
-
-        <div class="border-border flex justify-end gap-2 border-t px-5 py-3.5">
-          <Button onclick={handleSaveQualityGrading} disabled={isSavingQualityGrading || !qualityGrading}>
-            {#if isSavingQualityGrading}
-              <Loader2 class="mr-2 size-4 animate-spin" />
-            {:else}
-              <Save class="mr-2 size-4" />
-            {/if}
-            Save grading
-          </Button>
-        </div>
-      </section>
-
-      <!-- Consensus thresholds — not API-writable yet -->
-      <section class="border-border bg-card rounded-lg border border-dashed">
-        <header class="border-border flex items-center gap-2 border-b border-dashed px-5 py-3.5">
-          <h2 class="text-sm font-semibold">Consensus thresholds</h2>
-          <span
-            class="text-muted-foreground rounded-full bg-muted px-2 py-0.5 text-xs"
-            >Soon</span
-          >
-        </header>
-        <div class="px-5 py-4">
-          <p class="text-muted-foreground text-xs leading-relaxed">
-            Auto-accept threshold, single-source minimum, and the per-provider confidence weights
-            are tuned in the server's configuration today (the
-            <code class="bg-secondary rounded px-1 py-0.5">MusicEnricher</code> section).
-            An in-app editor for these consensus rules — including hit-rate and latency stats per
-            provider — is coming soon.
-          </p>
-        </div>
-      </section>
-    {:else if activeTab === 'rules'}
-      <!-- =================== FILENAME RULES (coming soon) =================== -->
-      <section class="border-border bg-card rounded-lg border border-dashed">
-        <header class="border-border flex items-center gap-2 border-b border-dashed px-5 py-3.5">
-          <h2 class="text-sm font-semibold">Custom filename rules</h2>
-          <span
-            class="text-muted-foreground rounded-full bg-muted px-2 py-0.5 text-xs"
-            >Soon</span
-          >
-        </header>
-        <div class="flex flex-col items-start gap-3 px-5 py-8">
-          <div class="bg-secondary text-muted-foreground flex size-10 items-center justify-center rounded-lg">
-            <FolderInput class="size-5" />
-          </div>
-          <p class="text-muted-foreground max-w-xl text-sm leading-relaxed">
-            Capture groups from a filename and map them to metadata fallbacks — useful for YouTube
-            downloads, niche scenes, leaks, or any source public databases don't track. These
-            user-defined rules aren't wired to the API yet, so there's nothing to configure here
-            today. This editor is coming soon.
-          </p>
-        </div>
-      </section>
-    {:else if activeTab === 'output'}
-      <!-- =================== LIBRARY OUTPUT =================== -->
-      <section class="border-border bg-card rounded-lg border">
-        <header class="border-border border-b px-5 py-3.5">
-          <h2 class="text-sm font-semibold">Library output</h2>
-          <p class="text-muted-foreground text-xs">
-            Where the organised library is written after enrichment and tagging. Set by whoever runs
-            this server; changing it needs a restart.
-          </p>
-          <details class="text-muted-foreground mt-1 text-xs">
-            <summary class="w-fit cursor-pointer py-1 select-none pointer-coarse:py-2">How to change it</summary>
-            <p class="mt-1">
-              It is the server's
-              <code class="bg-secondary rounded px-1 py-0.5">destination-directory</code> parameter
-              (AppHost user-secrets in development, an environment variable in a compose deployment).
-              Edit it and restart the server.
-            </p>
-          </details>
-        </header>
-        <div class="divide-border divide-y">
-          <div class="flex flex-col gap-2 px-5 py-4">
-            <Label for="settings-destination-directory">Destination</Label>
-            <Input
-              id="settings-destination-directory"
-              readonly
-              value={settings?.paths.destinationDirectory ?? ''}
-              class="font-mono text-sm"
-            />
-            <p class="text-muted-foreground text-xs">Where enriched files land.</p>
-          </div>
-        </div>
-      </section>
-
-      <MusicVideoAuditCard />
-
-      <!-- Folder / filename templates — not API-writable yet -->
-      <section class="border-border bg-card rounded-lg border border-dashed">
-        <header class="border-border flex items-center gap-2 border-b border-dashed px-5 py-3.5">
-          <h2 class="text-sm font-semibold">Folder &amp; filename templates</h2>
-          <span
-            class="text-muted-foreground rounded-full bg-muted px-2 py-0.5 text-xs"
-            >Soon</span
-          >
-        </header>
-        <div class="divide-border divide-y">
-          <div class="flex items-center gap-4 px-5 py-3.5">
-            <div class="min-w-0 flex-1">
-              <div class="text-sm font-medium">Folder structure</div>
-              <div class="text-muted-foreground text-xs">
-                Path template the library builder uses today.
-              </div>
-            </div>
-            <code class="bg-secondary rounded px-2 py-1 font-mono text-xs"
-              >{'{albumartist}/{album}'}</code
-            >
-          </div>
-          <div class="flex items-center gap-4 px-5 py-3.5">
-            <div class="min-w-0 flex-1">
-              <div class="text-sm font-medium">Filename</div>
-              <div class="text-muted-foreground text-xs">
-                How individual track files are named today.
-              </div>
-            </div>
-            <code class="bg-secondary rounded px-2 py-1 font-mono text-xs"
-              >{'{track:02} - {title}'}</code
-            >
-          </div>
-          <div class="px-5 py-4">
-            <p class="text-muted-foreground text-xs leading-relaxed">
-              These templates are fixed in the library builder for now and aren't exposed by the
-              settings API. Editable path/filename templates and re-encode options are coming soon.
-            </p>
-          </div>
-        </div>
-      </section>
-    {:else if activeTab === 'account'}
-      <!-- =================== ACCOUNT =================== -->
-      <section class="border-border bg-card rounded-lg border">
-        <header class="border-border border-b px-5 py-3.5">
-          <h2 class="text-sm font-semibold">Account</h2>
-          <p class="text-muted-foreground text-xs">
-            The account you're signed in with. You sign in with an emailed link or a passkey — there
-            are no passwords.
-          </p>
-        </header>
-
-        <div class="space-y-5 p-5">
-          <div class="flex items-center gap-4">
-            <div
-              class="text-foreground flex size-12 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500/80 to-indigo-500/80 font-semibold text-white shadow-sm"
-            >
-              {initials}
-            </div>
-            <div class="min-w-0 flex-1">
-              {#if isEditingName}
-                <div class="flex flex-wrap items-center gap-2">
-                  <Input
-                    class="h-8 max-w-56"
-                    bind:value={nameDraft}
-                    placeholder="Account name"
-                    maxlength={100}
-                    disabled={isSavingName}
-                    aria-label="Account name"
-                    onkeydown={(e) => {
-                      if (e.key === 'Enter') void handleSaveName();
-                      if (e.key === 'Escape') isEditingName = false;
-                    }}
-                  />
-                  <Button size="sm" onclick={handleSaveName} disabled={isSavingName}>
-                    {#if isSavingName}
-                      <Loader2 class="mr-2 size-4 animate-spin" />
-                    {/if}
-                    Save
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onclick={() => (isEditingName = false)}
-                    disabled={isSavingName}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              {:else}
-                <div class="flex items-center gap-1.5">
-                  <div class="truncate text-sm font-medium">
-                    {user?.displayName ?? user?.email ?? '—'}
-                  </div>
-                  {#if isAdmin(user)}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      class="shrink-0"
-                      onclick={startEditName}
-                      aria-label="Edit account name"
-                    >
-                      <Pencil class="size-3.5" />
-                    </Button>
-                  {/if}
-                </div>
-              {/if}
-              <div class="text-muted-foreground truncate font-mono text-xs">
-                {user?.email ?? '—'}
-              </div>
-            </div>
-            <Badge variant={isAdmin(user) ? 'default' : 'secondary'}>
-              {roleLabel(user?.role)}
-            </Badge>
-          </div>
-
-          {#if nameError}
-            <div
-              class="border-destructive/50 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
-            >
-              <AlertCircle class="mt-0.5 size-4 shrink-0" />
-              <span>{nameError}</span>
-            </div>
-          {/if}
-
-          {#if isDemo(user)}
-            <div
-              class="border-border bg-secondary/40 text-foreground/80 rounded-lg border px-4 py-3 text-xs"
-            >
-              You're signed in as the demo account. You can browse and play the seeded library, but the
-              demo account can't change settings — scanning, editing, approving, deleting and the rest
-              are turned off.
-            </div>
-          {/if}
-
-          <div class="border-border space-y-2 border-t pt-4">
-            <div class="flex flex-wrap items-center gap-2">
-              <Button variant="outline" onclick={() => handleSignOut(false)}>
-                <LogOut class="mr-2 size-4" /> Sign out
-              </Button>
-              <Button variant="ghost" onclick={() => handleSignOut(true)}>Sign out everywhere</Button>
-            </div>
-            <p class="text-muted-foreground text-xs leading-relaxed">
-              Sign out ends this account's session here; if another account is remembered in this
-              browser you drop into it. Sign out everywhere ends all of this account's sessions —
-              including paired phones — and forgets the other remembered accounts on this browser.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section class="border-border bg-card rounded-lg border">
-        <header class="border-border border-b px-5 py-3.5">
-          <h2 class="flex items-center gap-2 text-sm font-semibold">
-            <UserPlus class="size-4" /> Accounts on this browser
-          </h2>
-          <p class="text-muted-foreground text-xs">
-            Sign in to each account once and switch between them without signing out — handy if you
-            use more than one.
-          </p>
-        </header>
-
-        <div class="space-y-4 p-5">
-          <div class="border-border divide-border divide-y rounded-lg border">
-            {#if browserAccounts === null}
-              <div class="text-muted-foreground px-4 py-3 text-sm">Loading…</div>
-            {:else if browserAccounts.length === 0}
-              <div class="text-muted-foreground px-4 py-3 text-sm">
-                Could not load the account list.
-              </div>
-            {:else}
-              {#each browserAccounts as account (account.userId)}
-                <div class="flex items-center gap-3 px-4 py-3">
-                  <div
-                    class="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500/80 to-indigo-500/80 text-xs font-semibold text-white"
-                  >
-                    {(account.displayName ?? account.email).slice(0, 2).toUpperCase()}
-                  </div>
-                  <div class="min-w-0 flex-1">
-                    <div class="truncate text-sm font-medium">
-                      {account.displayName ?? account.email}
-                    </div>
-                    <div class="text-muted-foreground truncate font-mono text-xs">
-                      {account.email}
-                    </div>
-                  </div>
-                  <Badge variant={roleLabel(account.role) === 'Admin' ? 'default' : 'secondary'}>
-                    {roleLabel(account.role)}
-                  </Badge>
-                  {#if account.isActive}
-                    <span class="text-muted-foreground text-xs">Active</span>
-                  {:else}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={accountSwitchingTo !== null}
-                      onclick={() => handleSwitchAccount(account)}
-                    >
-                      {#if accountSwitchingTo === account.userId}
-                        <Loader2 class="mr-2 size-3.5 animate-spin" />
-                      {/if}
-                      Switch
-                    </Button>
-                  {/if}
-                </div>
-              {/each}
-            {/if}
-          </div>
-
-          <Button variant="outline" onclick={() => location.assign('/login?switch')}>
-            <UserPlus class="mr-2 size-4" /> Add account
-          </Button>
-        </div>
-      </section>
-
-      {#if canUsePasskeys}
-        <section class="border-border bg-card rounded-lg border">
-          <header class="border-border border-b px-5 py-3.5">
-            <h2 class="flex items-center gap-2 text-sm font-semibold">
-              <KeyRound class="size-4" /> Passkeys
-            </h2>
-            <p class="text-muted-foreground text-xs">
-              Sign in with Touch ID, Windows Hello, or a security key — no email needed. Enroll one
-              on each device you use; the Android app signs in with the same passkey. Keep at least
-              one magic-link-capable email so you can recover access.
-            </p>
-          </header>
-
-          <div class="space-y-5 p-5">
-            {#if !passkeySupported}
-              <div
-                class="border-border bg-secondary/40 text-foreground/80 rounded-lg border px-4 py-3 text-xs"
-              >
-                This browser doesn't support passkeys.
-              </div>
-            {:else}
-              <div class="flex flex-wrap items-end gap-2">
-                <div class="min-w-0 flex-1 space-y-2">
-                  <Label for="passkey-name">Passkey name</Label>
-                  <Input
-                    id="passkey-name"
-                    placeholder="e.g. MacBook Touch ID"
-                    bind:value={newPasskeyName}
-                    oninput={() => (passkeyError = null)}
-                  />
-                </div>
-                <Button onclick={handleAddPasskey} disabled={isAddingPasskey}>
-                  {#if isAddingPasskey}
-                    <Loader2 class="mr-2 size-4 animate-spin" />
-                  {:else}
-                    <KeyRound class="mr-2 size-4" />
-                  {/if}
-                  Add a passkey
-                </Button>
-              </div>
-
-              {#if passkeyError}
-                <div
-                  class="border-destructive/50 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
-                >
-                  <AlertCircle class="mt-0.5 size-4 shrink-0" />
-                  <span>{passkeyError}</span>
-                </div>
-              {/if}
-
-              <div class="border-border divide-border divide-y rounded-lg border">
-                {#if passkeysLoading}
-                  <div class="text-muted-foreground px-4 py-3 text-sm">Loading…</div>
-                {:else if passkeys.length === 0}
-                  <div class="text-muted-foreground px-4 py-3 text-sm">No passkeys enrolled yet.</div>
-                {:else}
-                  {#each passkeys as passkey (passkey.id)}
-                    <div class="flex items-center gap-3 px-4 py-3">
-                      <KeyRound class="text-muted-foreground size-4 shrink-0" />
-                      <div class="min-w-0 flex-1">
-                        <div class="truncate text-sm font-medium">{passkey.displayName}</div>
-                        <div class="text-muted-foreground text-xs">
-                          Added {new Date(passkey.createdAtUtc).toLocaleDateString()}
-                          {#if passkey.lastUsedAtUtc}
-                            · last used {new Date(passkey.lastUsedAtUtc).toLocaleDateString()}
-                          {/if}
-                        </div>
-                      </div>
-                      <!-- A credential, not a list row: removing the last one can lock a passkey-only
-                           person out, so it gets the same confirm as the purges below. -->
-                      <AlertDialog.Root>
-                        <AlertDialog.Trigger>
-                          {#snippet child({ props })}
-                            <Button
-                              {...props}
-                              variant="ghost"
-                              size="icon"
-                              aria-label={`Remove passkey ${passkey.displayName}`}
-                            >
-                              <Trash2 class="size-4" />
-                            </Button>
-                          {/snippet}
-                        </AlertDialog.Trigger>
-                        <AlertDialog.Content>
-                          <AlertDialog.Header>
-                            <AlertDialog.Title>Remove this passkey?</AlertDialog.Title>
-                            <AlertDialog.Description>
-                              “{passkey.displayName}” will no longer sign you in to this account.
-                              {#if passkeys.length === 1}
-                                It's your only passkey: after this you sign in with an emailed link.
-                              {/if}
-                            </AlertDialog.Description>
-                          </AlertDialog.Header>
-                          <AlertDialog.Footer>
-                            <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
-                            <AlertDialog.Action
-                              variant="destructive"
-                              onclick={() => handleRemovePasskey(passkey.id)}
-                            >
-                              Remove passkey
-                            </AlertDialog.Action>
-                          </AlertDialog.Footer>
-                        </AlertDialog.Content>
-                      </AlertDialog.Root>
-                    </div>
-                  {/each}
-                {/if}
-              </div>
-            {/if}
-          </div>
-        </section>
-      {/if}
-
-      {#if !isDemo(user)}
-        <!-- Renders only in Safari on iPhone/iPad: the iOS counterpart of the pairing card. -->
-        <InstallAppCard />
-        <!-- Friends pair phones too: the token rides their own session, and the server's
-             friend allowlist deliberately permits POST /api/auth/device-token. -->
-        <PairDeviceCard />
-      {/if}
-
-      {#if isAdmin(user)}
-        <!-- Anonymous telemetry — not API-writable yet -->
-        <section class="border-border bg-card rounded-lg border border-dashed">
-          <header class="border-border flex items-center gap-2 border-b border-dashed px-5 py-3.5">
-            <h2 class="text-sm font-semibold">Anonymous telemetry</h2>
-            <span
-              class="text-muted-foreground rounded-full bg-muted px-2 py-0.5 text-xs"
-              >Soon</span
-            >
-          </header>
-          <div class="px-5 py-4">
-            <p class="text-muted-foreground text-xs leading-relaxed">
-              MusicHoarder is self-hosted and ships no telemetry today — track names, artists, and
-              paths never leave your server. A per-user opt-in for anonymous pipeline-performance
-              stats is coming soon.
-            </p>
-          </div>
-        </section>
-
-        <!-- Danger zone (real purge actions) -->
-        <section class="border-destructive/40 bg-card rounded-lg border">
-          <div class="border-destructive/40 flex items-center gap-3 border-b px-5 py-3.5">
-            <div class="bg-destructive/10 flex size-8 items-center justify-center rounded-lg">
-              <AlertTriangle class="text-destructive-text size-4" />
-            </div>
-            <div class="min-w-0 flex-1">
-              <h2 class="text-sm font-semibold">Danger zone</h2>
-              <p class="text-muted-foreground text-xs">
-                Irreversible actions that purge pipeline state. Make sure no job is running.
-              </p>
-            </div>
-          </div>
-
-          <div class="divide-border divide-y">
-            <div class="flex flex-col gap-3 p-5 sm:flex-row sm:items-start sm:justify-between">
-              <div class="flex-1 pr-4">
-                <h3 class="text-sm font-semibold">Reset enrichment data</h3>
-                <p class="text-muted-foreground mt-1 text-xs">
-                  Keeps your scanned files and fingerprints. Clears enrichment results, provider
-                  attempts, lyrics, duplicate detection, and library-build status for every active
-                  song, and deletes any files that were copied to the destination folder.
-                </p>
-              </div>
-              <AlertDialog.Root>
-                <AlertDialog.Trigger>
-                  {#snippet child({ props })}
-                    <Button
-                      {...props}
-                      variant="outline"
-                      class="text-destructive-text hover:text-destructive-text shrink-0 gap-2 font-semibold"
-                      disabled={purgeRunning}
-                    >
-                      {#if purgeRunning && purgeSnapshot?.mode === 'post-fingerprint'}
-                        <Loader2 class="size-4 animate-spin" />
-                      {:else}
-                        <Trash2 class="size-4" />
-                      {/if}
-                      Reset enrichment data
-                    </Button>
-                  {/snippet}
-                </AlertDialog.Trigger>
-                <AlertDialog.Content>
-                  <AlertDialog.Header>
-                    <AlertDialog.Title>Reset enrichment data?</AlertDialog.Title>
-                    <AlertDialog.Description>
-                      This clears every song's enrichment, lyrics, duplicate flags, and library-build
-                      state, and deletes files copied to the destination folder. Fingerprints and scan
-                      data are preserved so the next run skips straight to enrichment. This runs in the
-                      background — you can navigate away and the progress will be here when you come
-                      back. This cannot be undone.
-                    </AlertDialog.Description>
-                  </AlertDialog.Header>
-                  <AlertDialog.Footer>
-                    <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
-                    <AlertDialog.Action
-                      variant="destructive"
-                      onclick={() => handlePurge('post-fingerprint')}
-                    >
-                      Reset enrichment data
-                    </AlertDialog.Action>
-                  </AlertDialog.Footer>
-                </AlertDialog.Content>
-              </AlertDialog.Root>
-            </div>
-
-            <div class="flex flex-col gap-3 p-5 sm:flex-row sm:items-start sm:justify-between">
-              <div class="flex-1 pr-4">
-                <h3 class="text-sm font-semibold">Purge all data</h3>
-                <p class="text-muted-foreground mt-1 text-xs">
-                  Removes every song, provider attempt, and cached Spotify match from the database,
-                  and deletes any files copied to the destination folder. Source files are not
-                  touched — but a download whose staged copy was released has no other copy, so it is
-                  gone for good. The next run re-scans and re-fingerprints from source.
-                </p>
-              </div>
-              <AlertDialog.Root bind:open={purgeAllDialogOpen} onOpenChange={onPurgeAllDialogOpenChange}>
-                <AlertDialog.Trigger>
-                  {#snippet child({ props })}
-                    <Button {...props} variant="destructive" class="shrink-0 gap-2 font-semibold" disabled={purgeRunning}>
-                      {#if purgeRunning && purgeSnapshot?.mode === 'all'}
-                        <Loader2 class="size-4 animate-spin" />
-                      {:else}
-                        <Trash2 class="size-4" />
-                      {/if}
-                      Purge all data
-                    </Button>
-                  {/snippet}
-                </AlertDialog.Trigger>
-                <AlertDialog.Content>
-                  <AlertDialog.Header>
-                    <AlertDialog.Title>Purge all data?</AlertDialog.Title>
-                    <AlertDialog.Description>
-                      This deletes every song record, provider attempt, and cached Spotify match, and
-                      removes files that were copied to the destination folder. Source files are not
-                      affected; downloads whose staged copy was released are lost for good. If you're
-                      demoing this build or benchmarking match quality, this also
-                      wipes any grading history you were comparing against. This runs in the
-                      background — you can navigate away and the progress will be here when you come
-                      back. This cannot be undone.
-                    </AlertDialog.Description>
-                  </AlertDialog.Header>
-                  <div class="px-6 pb-2">
-                    <Label for="purge-all-confirm" class="text-xs text-muted-foreground">
-                      Type <span class="font-semibold text-foreground">{PURGE_ALL_CONFIRM_WORD}</span> to confirm
-                    </Label>
-                    <Input
-                      id="purge-all-confirm"
-                      autocomplete="off"
-                      bind:value={purgeAllConfirmText}
-                      placeholder={PURGE_ALL_CONFIRM_WORD}
-                      class="mt-1.5"
-                    />
-                  </div>
-                  <AlertDialog.Footer>
-                    <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
-                    <AlertDialog.Action
-                      variant="destructive"
-                      disabled={!purgeAllConfirmed}
-                      onclick={() => handlePurge('all')}
-                    >
-                      Purge all data
-                    </AlertDialog.Action>
-                  </AlertDialog.Footer>
-                </AlertDialog.Content>
-              </AlertDialog.Root>
-            </div>
-
-            {#if purgeStartError}
-              <div class="px-5 pt-4 pb-5">
-                <div
-                  class="border-destructive/50 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
-                >
-                  <AlertCircle class="mt-0.5 size-4 shrink-0" />
-                  <p>{purgeStartError}</p>
-                </div>
-              </div>
-            {/if}
-
-            {#if purgeSnapshot && purgeSnapshot.status !== 'idle'}
-              <div class="px-5 pt-4 pb-5">
-                <PurgeStatusBanner snapshot={purgeSnapshot} />
-              </div>
-            {/if}
-          </div>
-        </section>
-      {/if}
-    {:else if activeTab === 'people'}
-      <!-- =================== PEOPLE (owner-only) =================== -->
-      {#if isAdmin(user)}
-        <PeopleCard />
-      {:else}
-        <section class="border-border bg-card rounded-lg border p-5">
-          <p class="text-muted-foreground text-sm">Only the owner can invite friends and share music.</p>
-        </section>
-      {/if}
-    {:else if activeTab === 'updates'}
-      <!-- =================== UPDATES =================== -->
-      <section class="border-border bg-card rounded-lg border">
-        <header class="border-border flex items-center gap-2 border-b px-5 py-3.5">
-          <h2 class="flex items-center gap-2 text-sm font-semibold">
-            <Sparkles class="size-4" /> Updating MusicHoarder
-          </h2>
-          <p class="text-muted-foreground text-xs">
-            MusicHoarder ships as containers. Pulling the latest images and recreating the stack
-            applies a new release — your database and library are untouched.
-          </p>
-        </header>
-
-        <div class="space-y-4 p-5">
-          <div class="flex flex-col gap-2">
-            <div class="text-sm font-medium">Update command</div>
-            <div class="flex items-center justify-between gap-2 rounded-md border border-border bg-secondary/30 px-3 py-2">
-              <code class="min-w-0 flex-1 truncate text-xs">{UPDATE_CMD}</code>
-              <Button variant="ghost" size="icon" class="size-8 shrink-0" onclick={copyUpdateCommand} aria-label="Copy update command" title="Copy update command">
-                {#if updateCmdCopied}
-                  <CheckCircle2 class="size-4 text-primary" />
-                {:else}
-                  <Copy class="size-4" />
-                {/if}
-              </Button>
-            </div>
-            <p class="text-muted-foreground text-xs">
-              Run this in your compose stack's directory to pull the new images and recreate the
-              containers.
-            </p>
-          </div>
-
-          <div class="border-border rounded-md border border-dashed p-3">
-            <p class="text-muted-foreground text-xs leading-relaxed">
-              Running <a href="https://github.com/ofkm/arcane" target="_blank" rel="noopener noreferrer" class="text-primary underline">Arcane</a>?
-              Add the <code class="bg-secondary rounded px-1 py-0.5">arcane.stack.auto-update</code> label
-              to your compose stack to let it pull and redeploy new releases automatically instead of
-              running the command by hand.
-            </p>
-          </div>
-
-          <p class="text-muted-foreground text-xs">
-            The current version and whether a newer release is available show up as a banner across
-            the app when one is out — this tab is just the reference copy of the same instructions.
-          </p>
-        </div>
-      </section>
+      </FieldRow>
     {/if}
-  </div>
+    {@render actionRow('Save credentials', handleSaveCredentials, {
+      disabled: !admin || !clientId.trim() || !clientSecret.trim(),
+      busy: isSaving
+    })}
+    {#if spotifyStatus?.connected}
+      {@render actionRow('Disconnect Spotify…', () => (disconnectOpen = true), {
+        destructive: true
+      })}
+    {:else}
+      {@render actionRow('Connect Spotify', handleConnectSpotify, {
+        disabled: !savedCredentials?.hasClientSecret,
+        busy: isConnecting
+      })}
+    {/if}
+  </GroupedList.Section>
+
+  <AlertDialog.Root bind:open={disconnectOpen}>
+    <AlertDialog.Content>
+      <AlertDialog.Header>
+        <AlertDialog.Title>Disconnect Spotify?</AlertDialog.Title>
+        <AlertDialog.Description>
+          Liked songs and playlists stop syncing until you connect again.
+        </AlertDialog.Description>
+      </AlertDialog.Header>
+      <AlertDialog.Footer>
+        <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+        <!-- Every Action here closes its dialog before starting its work (the Action would close
+             it after the handler anyway), so a failure's toast never lands under a stale confirm
+             or leaves a purge armed for a second one. -->
+        <AlertDialog.Action
+          variant="destructive"
+          onclick={() => {
+            disconnectOpen = false;
+            void handleDisconnectSpotify();
+          }}
+        >
+          Disconnect
+        </AlertDialog.Action>
+      </AlertDialog.Footer>
+    </AlertDialog.Content>
+  </AlertDialog.Root>
+
+  <!-- Soulseek & sync (read-only status) -->
+  {#if admin}
+    <GroupedList.Section headingLevel={2}
+      header="Soulseek and sync"
+      footer="Read-only: both are configured with server environment variables."
+    >
+      <GroupedList.Row
+        label="Soulseek (slskd)"
+        sublabel={soulseekStatus?.configured
+          ? soulseekStatus.version
+            ? `slskd ${soulseekStatus.version}`
+            : undefined
+          : soulseekSyncLoaded && soulseekStatus
+            ? 'Searches the Soulseek network for better-quality copies of your tracks.'
+            : undefined}
+        value={soulseekValue}
+      >
+        {#snippet trailing()}
+          {#if soulseekStatus?.configured && soulseekStatus.connected}
+            <CircleCheck class="text-primary size-5" aria-hidden="true" />
+          {/if}
+        {/snippet}
+      </GroupedList.Row>
+      <GroupedList.Row
+        label="Library sync"
+        sublabel={!soulseekSyncLoaded || !syncStatus
+          ? undefined
+          : syncStatus.mode === 'Push'
+            ? 'Pushing built tracks to the receiving deployment.'
+            : syncStatus.mode === 'Receive'
+              ? 'Receiving tracks pushed from another deployment.'
+              : 'This deployment neither pushes nor receives.'}
+        value={syncValue}
+      />
+      {#if soulseekSyncLoaded && syncStatus?.mode === 'Push'}
+        <GroupedList.Row label="Synced" value={syncStatus.outbox.synced.toLocaleString()} />
+        <GroupedList.Row
+          label="Pending"
+          value={(syncStatus.outbox.pending + syncStatus.outbox.uploading).toLocaleString()}
+        />
+        <GroupedList.Row label="Failed" value={syncStatus.outbox.failed.toLocaleString()} />
+        <GroupedList.Row
+          label="Remote better"
+          value={syncStatus.outbox.skippedRemoteBetter.toLocaleString()}
+        />
+      {/if}
+    </GroupedList.Section>
+  {/if}
+
+  <!-- Download staging (admin-only housekeeping) -->
+  {#if admin && settings?.downloads.enabled}
+    {#snippet stagingFooter()}
+      <div class="flex flex-col gap-2">
+        {#if stagedToggleError}
+          <StatusLine tone="error">{stagedToggleError}</StatusLine>
+        {/if}
+        {#if stagedStartError}
+          <StatusLine tone="error">{stagedStartError}</StatusLine>
+        {/if}
+        <p>
+          Every download is indexed from the staging folder and copied into your library, so it is
+          stored twice. Releasing deletes the staged copy once the library copy has been verified
+          (present, readable, matching duration and size) — the library copy is then the only one. A
+          release runs in the background; its progress is here when you come back.
+        </p>
+      </div>
+    {/snippet}
+
+    <GroupedList.Section headingLevel={2} header="Download staging" footer={stagingFooter}>
+      <SwitchRow
+        label="Release staged copies automatically"
+        sublabel="An hourly sweep releases downloads built more than {stagedPreview?.graceMinutes ??
+          15} minutes ago. Off by default."
+        checked={settings.downloads.releaseStagedSources}
+        disabled={stagedToggleBusy}
+        busy={stagedToggleBusy}
+        onCheckedChange={(v) => void onToggleReleaseStagedSources(v)}
+      />
+      <GroupedList.Row label="Staged copies waiting">
+        <span class="text-subheadline text-muted-foreground md:text-xs">
+          {#if !stagedPreview}
+            Loading…
+          {:else if stagedPreview.unavailableReason}
+            Not available on this deployment ({stagedPreview.unavailableReason}).
+          {:else}
+            <span class="tabular-nums">{stagedPreview.eligible.toLocaleString()}</span> files ·
+            {formatBytes(stagedPreview.eligibleBytes)} reclaimable ·
+            <span class="tabular-nums">{stagedPreview.released.toLocaleString()}</span> already
+            released ({formatBytes(stagedPreview.releasedBytes)})
+          {/if}
+        </span>
+      </GroupedList.Row>
+      <!-- Red: it deletes the staged copies for good, leaving the library copy the only one. -->
+      {@render actionRow('Release now…', () => (releaseDialogOpen = true), {
+        destructive: true,
+        disabled: releaseDisabled,
+        busy: stagedRunning
+      })}
+      {#if stagedSnapshot && stagedSnapshot.status !== 'idle'}
+        <StagedSourceReleaseBanner snapshot={stagedSnapshot} />
+      {/if}
+    </GroupedList.Section>
+
+    <AlertDialog.Root bind:open={releaseDialogOpen}>
+      <AlertDialog.Content>
+        <AlertDialog.Header>
+          <AlertDialog.Title>Release staged copies now?</AlertDialog.Title>
+          <AlertDialog.Description>
+            {stagedPreview?.eligible.toLocaleString() ?? 0} staged files are deleted once each library
+            copy checks out. This cannot be undone.
+          </AlertDialog.Description>
+        </AlertDialog.Header>
+        <AlertDialog.Footer>
+          <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+          <AlertDialog.Action
+            variant="destructive"
+            onclick={() => {
+              releaseDialogOpen = false;
+              void handleReleaseStagedSources();
+            }}
+          >
+            Release
+          </AlertDialog.Action>
+        </AlertDialog.Footer>
+      </AlertDialog.Content>
+    </AlertDialog.Root>
+  {/if}
+{/snippet}
+
+{#snippet providersSection()}
+  {#snippet providersFooter()}
+    <div class="flex flex-col gap-2">
+      {#if providersError}
+        <StatusLine tone="error">{providersError}</StatusLine>
+      {/if}
+      <p>
+        Queried in parallel during match. A change applies from the next enrichment cycle; songs
+        already attempted keep their per-provider history.
+      </p>
+      <!-- What used to be two "Soon" sections (and a whole Filename rules page), kept as the one
+           line of news it is. -->
+      <p>
+        The auto-accept threshold, single-source minimum and per-provider weights are set in the
+        server’s MusicEnricher configuration; an in-app editor for them is coming, and so are
+        filename rules that turn the parts of a filename into metadata for music public databases
+        don’t track.
+      </p>
+    </div>
+  {/snippet}
+
+  <!-- No section header: it would only repeat the page title. -->
+  <GroupedList.Section footer={providersFooter}>
+    {#each PROVIDER_CATALOG as p (p.key)}
+      {@const sublabel = providerSublabel(p)}
+      {#if demo || settingsFailed}
+        <!-- The demo cannot read the settings document (and it may have failed to load): six
+             switches all off would say every provider is off. -->
+        <GroupedList.Row
+          label={p.name}
+          {sublabel}
+          value={demo ? 'Hidden in the demo' : 'Unavailable'}
+        />
+      {:else}
+        <SwitchRow
+          label={p.name}
+          {sublabel}
+          checked={providers?.[p.key] ?? false}
+          disabled={!providers}
+          busy={(providersSaving[p.key] ?? 0) > 0}
+          onCheckedChange={(v) => void toggleProvider(p.key, v)}
+        />
+      {/if}
+    {/each}
+  </GroupedList.Section>
+
+  <!-- AI quality grading (real toggle) -->
+  {#snippet gradingFooter()}
+    <div class="flex flex-col gap-2">
+      {#if gradingError}
+        <StatusLine tone="error">{gradingError}</StatusLine>
+      {/if}
+      <p>
+        An LLM grades each enrichment result so you can benchmark and debug the algorithm. Turn it
+        off to stop the background grading sweep.
+      </p>
+    </div>
+  {/snippet}
+
+  <GroupedList.Section footer={gradingFooter}>
+    {#if demo || settingsFailed}
+      <GroupedList.Row
+        label="AI quality grading"
+        sublabel="Grades enriched songs in the background and powers the AI quality page."
+        value={demo ? 'Hidden in the demo' : 'Unavailable'}
+      />
+    {:else}
+      <SwitchRow
+        label="AI quality grading"
+        checked={qualityGrading?.enabled ?? false}
+        disabled={!qualityGrading}
+        busy={gradingSaving > 0}
+        onCheckedChange={(v) => void toggleQualityGrading(v)}
+      >
+        {#snippet sublabel()}
+          {#if qualityGrading && !qualityGrading.configured}
+            No API key on the server — also set
+            <code class="bg-muted rounded px-1 font-mono">QUALITY_GRADING_API_KEY</code> for grading to
+            run.
+          {:else}
+            Grades enriched songs in the background and powers the AI quality page.
+          {/if}
+        {/snippet}
+      </SwitchRow>
+    {/if}
+  </GroupedList.Section>
+{/snippet}
+
+{#snippet outputSection()}
+  {#snippet outputFooter()}
+    <p>
+      Where the organised library is written after enrichment and tagging, as
+      <!-- Breaks only after a slash, never inside a {placeholder}. -->
+      <code class="bg-muted rounded px-1 font-mono"
+        >{'{albumartist}/'}<wbr />{'{album}/'}<wbr />{'{track:02} - {title}'}</code
+      >. Set by whoever runs this server; changing it needs a restart. Editable folder and filename
+      templates are coming.
+    </p>
+    <details class="mt-1">
+      <summary class={SUMMARY}>How to change it</summary>
+      <p>
+        It is the server's <code class="bg-muted rounded px-1">destination-directory</code>
+        parameter (AppHost user-secrets in development, an environment variable in a compose deployment).
+        Edit it and restart the server.
+      </p>
+    </details>
+  {/snippet}
+
+  <GroupedList.Section footer={outputFooter}>
+    {@render pathRow('Destination', settings?.paths.destinationDirectory)}
+  </GroupedList.Section>
+
+  <MusicVideoAuditCard {admin} />
+
+  <!-- Danger zone (real purge actions). Here rather than under Account: both delete what the
+       pipeline built — enrichment state and the destination copies — not anything personal. -->
+  {#if admin}
+    {#snippet dangerFooter()}
+      <div class="flex flex-col gap-2">
+        {#if purgeStartError}
+          <StatusLine tone="error">{purgeStartError}</StatusLine>
+        {/if}
+        <p>
+          <span class="text-foreground">Reset enrichment data</span> keeps your scanned files and
+          fingerprints, and clears enrichment results, provider attempts, lyrics, duplicate
+          detection and library-build status for every song.
+          <span class="text-foreground">Purge all data</span> removes every song, provider attempt and
+          cached Spotify match, so the next run re-scans and re-fingerprints from source. Both delete
+          the files copied to the destination folder; source files are never touched — but a download
+          whose staged copy was released has no other copy. Make sure no job is running.
+        </p>
+      </div>
+    {/snippet}
+
+    <GroupedList.Section headingLevel={2} header="Danger zone" footer={dangerFooter}>
+      {@render actionRow('Reset enrichment data…', () => (resetDialogOpen = true), {
+        destructive: true,
+        disabled: purgeRunning || purgeStarting,
+        busy: purgeRunning && purgeSnapshot?.mode === 'post-fingerprint'
+      })}
+      {@render actionRow('Purge all data…', () => (purgeAllDialogOpen = true), {
+        destructive: true,
+        disabled: purgeRunning || purgeStarting,
+        busy: purgeRunning && purgeSnapshot?.mode === 'all'
+      })}
+      {#if purgeSnapshot && purgeSnapshot.status !== 'idle'}
+        <PurgeStatusBanner snapshot={purgeSnapshot} />
+      {/if}
+    </GroupedList.Section>
+
+    <!-- Alert bodies stay one or two sentences (the full consequences are in the footer above),
+         so they never scroll at larger text sizes. -->
+    <AlertDialog.Root bind:open={resetDialogOpen}>
+      <AlertDialog.Content>
+        <AlertDialog.Header>
+          <AlertDialog.Title>Reset enrichment data?</AlertDialog.Title>
+          <AlertDialog.Description>
+            Every song is re-enriched from its fingerprint, and the destination copies are deleted.
+            This cannot be undone.
+          </AlertDialog.Description>
+        </AlertDialog.Header>
+        <AlertDialog.Footer>
+          <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+          <AlertDialog.Action
+            variant="destructive"
+            onclick={() => {
+              resetDialogOpen = false;
+              void handlePurge('post-fingerprint');
+            }}
+          >
+            Reset
+          </AlertDialog.Action>
+        </AlertDialog.Footer>
+      </AlertDialog.Content>
+    </AlertDialog.Root>
+
+    <AlertDialog.Root bind:open={purgeAllDialogOpen} onOpenChange={onPurgeAllDialogOpenChange}>
+      <AlertDialog.Content>
+        <AlertDialog.Header>
+          <AlertDialog.Title>Purge all data?</AlertDialog.Title>
+          <AlertDialog.Description>
+            Every song record and the destination copies are deleted, and any grading history with
+            them. This cannot be undone.
+          </AlertDialog.Description>
+        </AlertDialog.Header>
+        <div class="flex flex-col gap-1.5">
+          <!-- One span: Label is a flex box, and loose words around a <b> become flex items with the
+               gap on both sides ("Type  DELETE  to confirm"). -->
+          <Label
+            for="purge-all-confirm"
+            class="text-footnote text-muted-foreground font-normal md:text-xs"
+          >
+            <span
+              >Type <b class="text-foreground font-semibold">{PURGE_ALL_CONFIRM_WORD}</b> to confirm</span
+            >
+          </Label>
+          <Input
+            id="purge-all-confirm"
+            autocomplete="off"
+            autocapitalize="characters"
+            autocorrect="off"
+            spellcheck={false}
+            bind:value={purgeAllConfirmText}
+            placeholder={PURGE_ALL_CONFIRM_WORD}
+          />
+        </div>
+        <AlertDialog.Footer>
+          <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+          <!-- Closing also clears the typed word, so the next purge asks for it again. -->
+          <AlertDialog.Action
+            variant="destructive"
+            disabled={!purgeAllConfirmed}
+            onclick={() => {
+              onPurgeAllDialogOpenChange(false);
+              void handlePurge('all');
+            }}
+          >
+            Purge all data
+          </AlertDialog.Action>
+        </AlertDialog.Footer>
+      </AlertDialog.Content>
+    </AlertDialog.Root>
+  {/if}
+{/snippet}
+
+{#snippet accountSection()}
+  {#if user}
+    <!-- Who you are, centred like the head of an Apple Account page. -->
+    <div class="flex flex-col items-center gap-1 px-4 pt-2 text-center">
+      {@render avatar(displayName, user.email, 'size-20 text-title-1')}
+      <p class="text-title-2 mt-2 max-w-full break-words">{displayName}</p>
+      {#if displayName !== user.email}
+        <p class="text-subheadline text-muted-foreground max-w-full break-all">{user.email}</p>
+      {/if}
+    </div>
+
+    {#snippet profileFooter()}
+      <div class="flex flex-col gap-2">
+        {#if nameError}
+          <StatusLine tone="error">{nameError}</StatusLine>
+        {/if}
+        {#if demo}
+          <p>
+            You’re signed in as the demo account. You can browse and play the seeded library, but
+            the demo can’t change settings — scanning, editing, approving, deleting and the rest are
+            turned off.
+          </p>
+        {:else}
+          <p>You sign in with an emailed link or a passkey — there are no passwords.</p>
+        {/if}
+        {#if admin}
+          <!-- Was a Privacy section holding one "Soon" row; the news fits in a sentence. -->
+          <p>
+            MusicHoarder ships no telemetry — track names, artists and paths never leave your
+            server. An opt-in for anonymous pipeline-performance stats is coming.
+          </p>
+        {/if}
+      </div>
+    {/snippet}
+
+    <GroupedList.Section footer={profileFooter}>
+      {#if isEditingName}
+        <FieldRow label="Name" for="account-name">
+          <Input
+            id="account-name"
+            bind:value={nameDraft}
+            placeholder="Account name"
+            maxlength={100}
+            autocomplete="name"
+            enterkeyhint="done"
+            disabled={isSavingName}
+            onkeydown={(e) => {
+              if (e.key === 'Enter') void handleSaveName();
+              if (e.key === 'Escape') isEditingName = false;
+            }}
+            {@attach focusOnMount}
+          />
+          <div class="flex justify-end gap-2 pt-1">
+            <Button
+              variant="gray"
+              class="h-11 rounded-full px-5 md:h-8 md:px-3"
+              onclick={() => (isEditingName = false)}
+              disabled={isSavingName}
+            >
+              Cancel
+            </Button>
+            <Button
+              class="h-11 rounded-full px-5 md:h-8 md:px-3"
+              onclick={handleSaveName}
+              disabled={isSavingName}
+            >
+              {#if isSavingName}
+                <Loader2 class="size-4 animate-spin" />
+              {/if}
+              Save
+            </Button>
+          </div>
+        </FieldRow>
+      {:else if admin}
+        <GroupedList.Row
+          label="Name"
+          value={user.displayName?.trim() || 'Not set'}
+          onclick={startEditName}
+          aria-label="Name, {user.displayName?.trim() || 'not set'}. Edit"
+          chevron
+        />
+      {:else}
+        <GroupedList.Row label="Name" value={user.displayName?.trim() || user.email} />
+      {/if}
+      <GroupedList.Row label="Role" value={roleLabel(user.role)} />
+    </GroupedList.Section>
+
+    <GroupedList.Section headingLevel={2}
+      header="Accounts on this device"
+      footer="Sign in to each account once, then switch between them without signing out."
+    >
+      {#if browserAccounts === null}
+        {#if accountsFailed}
+          <GroupedList.Row
+            onclick={() => (accountsFailed = false)}
+            label="Couldn’t load the account list"
+          >
+            {#snippet trailing()}
+              <span class="text-body text-primary md:text-sm">Try again</span>
+            {/snippet}
+          </GroupedList.Row>
+        {:else}
+          <GroupedList.Row label="Loading accounts…">
+            {#snippet trailing()}
+              <Loader2 class="text-muted-foreground size-5 animate-spin" aria-hidden="true" />
+            {/snippet}
+          </GroupedList.Row>
+        {/if}
+      {:else}
+        {#each browserAccounts as account (account.userId)}
+          {@const accountName = account.displayName?.trim() || account.email}
+          <GroupedList.Row
+            onclick={account.isActive ? undefined : () => handleSwitchAccount(account)}
+            disabled={accountSwitchingTo !== null && accountSwitchingTo !== account.userId}
+            label={accountName}
+            sublabel="{account.email} · {roleLabel(account.role)}"
+            aria-label={account.isActive ? undefined : `Switch to ${accountName}`}
+          >
+            {#snippet leading()}
+              {@render avatar(accountName, account.email, 'size-8 text-[13px]')}
+            {/snippet}
+            {#snippet trailing()}
+              {#if account.isActive}
+                <span class="text-body text-muted-foreground md:text-sm">Active</span>
+              {:else if accountSwitchingTo === account.userId}
+                <Loader2 class="text-muted-foreground size-5 animate-spin" aria-hidden="true" />
+                <span class="sr-only">Switching…</span>
+              {:else}
+                <span class="text-body text-primary md:text-sm">Switch</span>
+              {/if}
+            {/snippet}
+          </GroupedList.Row>
+        {/each}
+      {/if}
+      <GroupedList.Row
+        onclick={() => location.assign('/login?switch')}
+        disabled={accountSwitchingTo !== null}
+      >
+        {#snippet leading()}
+          <span aria-hidden="true" class="bg-muted grid size-8 place-items-center rounded-full">
+            <Plus class="text-primary size-[18px]" strokeWidth={2.25} />
+          </span>
+        {/snippet}
+        <span class="text-body text-primary md:text-sm">Add account</span>
+      </GroupedList.Row>
+    </GroupedList.Section>
+
+    {#if canUsePasskeys}
+      {#snippet passkeysFooter()}
+        <div class="flex flex-col gap-2">
+          {#if passkeyError}
+            <StatusLine tone="error">{passkeyError}</StatusLine>
+          {/if}
+          <p>
+            Sign in with {passkeyUnlockPhrase(platform)} — no email needed. Add one on each device you
+            use; the Android app signs in with the same passkey. Keep an email that can receive sign-in
+            links so you can always get back in.
+          </p>
+        </div>
+      {/snippet}
+
+      <GroupedList.Section headingLevel={2} header="Passkeys" footer={passkeysFooter}>
+        {#if !passkeySupported}
+          <GroupedList.Row label="This browser doesn’t support passkeys" />
+        {:else}
+          {#if passkeysLoading}
+            <GroupedList.Row label="Loading passkeys…">
+              {#snippet trailing()}
+                <Loader2 class="text-muted-foreground size-5 animate-spin" aria-hidden="true" />
+              {/snippet}
+            </GroupedList.Row>
+          {:else if passkeys.length === 0}
+            <GroupedList.Row label="No passkeys yet" disabled />
+          {:else}
+            {#each passkeys as passkey (passkey.id)}
+              <GroupedList.Row
+                icon={KeyRound}
+                label={passkey.displayName}
+                sublabel="Added {formatDate(passkey.createdAtUtc)}{passkey.lastUsedAtUtc
+                  ? ` · last used ${formatDate(passkey.lastUsedAtUtc)}`
+                  : ''}"
+              >
+                {#snippet trailing()}
+                  <!-- A credential, not a list row: removing the last one can lock a passkey-only
+                       person out, so it confirms like the purges. -->
+                  <AlertDialog.Root
+                    bind:open={
+                      () => removingPasskeyId === passkey.id,
+                      (open) => (removingPasskeyId = open ? passkey.id : null)
+                    }
+                  >
+                    <AlertDialog.Trigger>
+                      {#snippet child({ props })}
+                        <Button
+                          {...props}
+                          variant="ghost"
+                          size="icon"
+                          class="text-destructive-text hover:text-destructive-text -my-2 -mr-2 pointer-coarse:size-11"
+                          aria-label={`Remove passkey ${passkey.displayName}`}
+                        >
+                          <Trash2 class="size-[18px]" />
+                        </Button>
+                      {/snippet}
+                    </AlertDialog.Trigger>
+                    <AlertDialog.Content>
+                      <AlertDialog.Header>
+                        <AlertDialog.Title>Remove this passkey?</AlertDialog.Title>
+                        <AlertDialog.Description>
+                          “{passkey.displayName}” will no longer sign you in to this account.
+                          {#if passkeys.length === 1}
+                            It's your only passkey: after this you sign in with an emailed link.
+                          {/if}
+                        </AlertDialog.Description>
+                      </AlertDialog.Header>
+                      <AlertDialog.Footer>
+                        <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+                        <AlertDialog.Action
+                          variant="destructive"
+                          onclick={() => {
+                            removingPasskeyId = null;
+                            void handleRemovePasskey(passkey.id);
+                          }}
+                        >
+                          Remove passkey
+                        </AlertDialog.Action>
+                      </AlertDialog.Footer>
+                    </AlertDialog.Content>
+                  </AlertDialog.Root>
+                {/snippet}
+              </GroupedList.Row>
+            {/each}
+          {/if}
+          <FieldRow label="New passkey name" for="passkey-name">
+            <Input
+              id="passkey-name"
+              placeholder={defaultPasskeyName(platform)}
+              autocapitalize="words"
+              enterkeyhint="done"
+              bind:value={newPasskeyName}
+              oninput={() => (passkeyError = null)}
+              onkeydown={(e) => {
+                if (e.key === 'Enter' && !isAddingPasskey) void handleAddPasskey();
+              }}
+            />
+          </FieldRow>
+          {@render actionRow('Add a passkey', handleAddPasskey, { busy: isAddingPasskey })}
+        {/if}
+      </GroupedList.Section>
+    {/if}
+
+    {#if !demo}
+      <!-- Renders only in Safari on iPhone/iPad: the iOS counterpart of the pairing section. -->
+      <InstallAppCard />
+      <!-- Members pair phones too: the token rides their own session, and the server's member
+           allowlist deliberately permits POST /api/auth/device-token. -->
+      <PairDeviceCard />
+    {/if}
+
+    <GroupedList.Section
+      footer="Sign out ends this account’s session here; if another account is remembered on this device you switch to it. Sign out everywhere ends all of this account’s sessions — paired phones included — and forgets the other accounts remembered here."
+    >
+      <GroupedList.Row onclick={() => handleSignOut(false)} label="Sign out" destructive />
+      <GroupedList.Row
+        onclick={() => (signOutEverywhereOpen = true)}
+        label="Sign out everywhere…"
+        destructive
+      />
+    </GroupedList.Section>
+
+    <AlertDialog.Root bind:open={signOutEverywhereOpen}>
+      <AlertDialog.Content>
+        <AlertDialog.Header>
+          <AlertDialog.Title>Sign out everywhere?</AlertDialog.Title>
+          <AlertDialog.Description>
+            Every session of this account ends, paired phones included.
+          </AlertDialog.Description>
+        </AlertDialog.Header>
+        <AlertDialog.Footer>
+          <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+          <AlertDialog.Action
+            variant="destructive"
+            onclick={() => {
+              signOutEverywhereOpen = false;
+              void handleSignOut(true);
+            }}
+          >
+            Sign out everywhere
+          </AlertDialog.Action>
+        </AlertDialog.Footer>
+      </AlertDialog.Content>
+    </AlertDialog.Root>
+  {/if}
+{/snippet}
+
+{#snippet peopleSection()}
+  {#if admin}
+    <PeopleCard personId={person} bind:title={personTitle} />
+  {:else}
+    <GroupedList.Section>
+      <GroupedList.Row label="Only an administrator can invite people and share music." />
+    </GroupedList.Section>
+  {/if}
+{/snippet}
+
+{#snippet updatesSection()}
+  {#if version}
+    <GroupedList.Section>
+      <GroupedList.Row label="Current version" value="v{version}" />
+    </GroupedList.Section>
+  {/if}
+
+  <GroupedList.Section headingLevel={2}
+    header="Update command"
+    footer="Run this in your compose stack’s directory. It pulls the latest images and recreates the containers — your database and library are untouched."
+  >
+    <div class="flex items-center gap-2 py-1 pr-2 pl-4">
+      <code class="text-subheadline min-w-0 flex-1 py-2 font-mono break-words select-all md:text-xs"
+        >{UPDATE_CMD}</code
+      >
+      {@render copyButton(updateCmdCopied, copyUpdateCommand, 'Copy update command')}
+    </div>
+  </GroupedList.Section>
+
+  <GroupedList.Section headingLevel={2}
+    header="Automatic updates"
+    footer="When a newer release is out, a banner across the app says so — this page is the reference copy of the same instructions."
+  >
+    <p class="text-subheadline px-4 py-3 md:text-sm">
+      Running <a
+        href="https://github.com/ofkm/arcane"
+        target="_blank"
+        rel="noopener noreferrer"
+        class={INLINE_LINK}>Arcane</a
+      >? Add the <code class="bg-muted rounded px-1 font-mono">arcane.stack.auto-update</code> label to
+      your compose stack to let it pull and redeploy new releases for you.
+    </p>
+  </GroupedList.Section>
+{/snippet}
+
+<!-- ───────────────────────────────── the page ───────────────────────────────── -->
+
+<div class="bg-background-grouped flex min-h-0 flex-1" bind:clientWidth={pageWidth}>
+  <p class="sr-only" role="status">{liveMessage}</p>
+  {#if showPaneList}
+    <!-- Desktop: the pane list, like macOS System Settings' sidebar. Its own scroller; its
+         header lines up with the nav bar's 48px row and hairline across the split. -->
+    <nav
+      aria-label="Settings sections"
+      class="border-separator flex w-[212px] shrink-0 flex-col overflow-y-auto overscroll-contain border-r pb-(--mh-content-pad) lg:w-[260px]"
+    >
+      <div class="border-separator bg-background-grouped sticky top-0 z-10 shrink-0 border-b">
+        <p class="flex h-12 items-center px-4 text-[17px] leading-[22px] font-semibold lg:px-5">
+          Settings
+        </p>
+      </div>
+      <div class="flex flex-col gap-6 px-2 pt-4 pb-6 lg:px-3">
+        {@render sectionList(true)}
+      </div>
+    </nav>
+  {/if}
+
+  <!-- The page's primary scroller, with the nav bar as its first child so the large title
+       scrolls away and the bar collapses. Keyed on the section and person: stacked (a phone, a
+       narrow window) each is a new page and must open at its top, not at the previous page's
+       scroll offset. -->
+  {#key `${section}|${person ?? ''}`}
+    <div class="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)">
+      <PageToolbarV2 title={barTitle} back={barBack} {largeTitle} grouped />
+
+      <!-- md+ padding stays modest until lg: at 768–1023 the app sidebar and the pane list
+           already take ~470px of the window. -->
+      <div class="mx-auto flex w-full max-w-2xl flex-col gap-8 pt-2 pb-8 md:px-5 md:pt-6 lg:px-8">
+        {#if section === null}
+          {@render sectionList(false)}
+        {:else if section === 'account'}
+          {@render accountSection()}
+        {:else if section === 'people'}
+          {@render peopleSection()}
+        {:else if section === 'updates'}
+          {@render updatesSection()}
+        {:else if isLoading}
+          {@render loadingSection()}
+        {:else}
+          {@render settingsFailedSection()}
+          {#if section === 'sources'}
+            {@render sourcesSection()}
+          {:else if section === 'providers'}
+            {@render providersSection()}
+          {:else if section === 'output'}
+            {@render outputSection()}
+          {/if}
+        {/if}
+      </div>
+    </div>
+  {/key}
 </div>

@@ -214,13 +214,32 @@ class PlayerController(
         if (player.isPlaying) player.pause() else player.play()
     }
 
+    /**
+     * Carries on with the loaded item from where it is — the row tap rule's "this is the song
+     * already playing" branch, which must never pause and never restart. [play] would do the
+     * latter: it rebuilds the queue from position 0.
+     *
+     * Only a player with nothing left to resume moves at all: after an error it is prepared again
+     * (at the same position), and a queue that has ended plays its last item again from the top.
+     */
+    fun resume() {
+        val player = controller ?: return
+        when (player.playbackState) {
+            Player.STATE_IDLE -> player.prepare()
+            Player.STATE_ENDED -> player.seekTo(player.currentMediaItemIndex, 0L)
+        }
+        player.play()
+    }
+
     fun next() {
         controller?.seekToNextMediaItem()
     }
 
     /**
-     * Restarts the track when it is more than a few seconds in, otherwise steps back — the
-     * convention every music player shares, and what `seekToPrevious` already implements.
+     * Restarts the track when it is more than 3s in, otherwise steps back, and restarts the first
+     * item — the web player's rule, and what `seekToPrevious` does with the threshold PlaybackService
+     * pins. Never disabled while a track is loaded (the transport keys off `isActive`, not
+     * `hasPrevious`).
      */
     fun previous() {
         controller?.seekToPrevious()

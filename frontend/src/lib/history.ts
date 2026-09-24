@@ -200,22 +200,81 @@ export function historyIcon(kind: string, category: HistoryCategory): Component 
   return KIND_ICON[kind] ?? CATEGORY_ICON.get(category) ?? Activity;
 }
 
-/** Icon-chip treatment per severity. Same vocabulary as TimelineList, so the two read as one system. */
+/**
+ * Icon-tile treatment per severity. Colour only for status: a routine entry gets the neutral tile
+ * every grouped list uses, a success keeps its glyph in the tint, and the two problem tints use the
+ * contrast-checked warning/destructive text tokens on their own light wash (the Badge's recipe).
+ */
 export const HISTORY_TINT_BADGE: Record<HistoryTint, string> = {
   ok: 'bg-primary/12 text-primary',
-  info: 'bg-[#6a89cc]/15 text-[#4a6abc] dark:text-[#9ab0e0]',
-  warn: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
-  err: 'bg-red-500/15 text-red-600 dark:text-red-400'
+  info: 'bg-muted text-foreground',
+  warn: 'bg-warning/15 text-warning-text',
+  err: 'bg-destructive/12 text-destructive-text'
 };
 
-/** A coloured left edge on the row itself, so a problem is findable while scrolling past forty rows. */
+/** A coloured leading edge on a problem row, so it is findable while scrolling past forty rows. */
 export const HISTORY_TINT_EDGE: Record<HistoryTint, string> = {
-  ok: 'border-l-transparent',
-  info: 'border-l-transparent',
-  warn: 'border-l-amber-500/70',
-  err: 'border-l-red-500/70'
+  ok: '',
+  info: '',
+  warn: 'bg-warning',
+  err: 'bg-destructive'
 };
 
 export function isProblem(tint: HistoryTint): boolean {
   return tint === 'warn' || tint === 'err';
+}
+
+export type HistoryRangeKey = '1' | '7' | '30' | 'custom';
+
+export const HISTORY_RANGES: { key: HistoryRangeKey; label: string }[] = [
+  { key: '1', label: 'Today' },
+  { key: '7', label: '7 days' },
+  { key: '30', label: '30 days' },
+  { key: 'custom', label: 'Custom' }
+];
+
+export type HistoryFilterState = {
+  range: HistoryRangeKey;
+  customFrom: string;
+  customTo: string;
+  problemsOnly: boolean;
+  categories: ReadonlySet<HistoryCategory> | readonly HistoryCategory[];
+};
+
+/** The filters a fresh visit starts with: the last 7 days, everything, every severity. */
+export function isDefaultHistoryFilter(f: HistoryFilterState): boolean {
+  return f.range === '7' && !f.problemsOnly && [...f.categories].length === 0;
+}
+
+/** "12 Aug" for a yyyy-mm-dd date input value, in the viewer's own locale. */
+function shortDate(value: string): string {
+  const d = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString([], { day: 'numeric', month: 'short' });
+}
+
+/**
+ * The active filters in a few words, for the line under the page title — on a phone the filters
+ * live in a sheet, so this line is how the page says what it is showing. The range always leads;
+ * Problems and the chosen categories follow only when set; more than two categories collapse to
+ * a count so the line stays one line.
+ */
+export function historyFilterSummary(f: HistoryFilterState): string {
+  const parts: string[] = [];
+  if (f.range === 'custom') {
+    parts.push(
+      f.customFrom && f.customTo
+        ? `${shortDate(f.customFrom)} – ${shortDate(f.customTo)}`
+        : 'Custom range'
+    );
+  } else {
+    parts.push(f.range === '1' ? 'Today' : `Last ${f.range} days`);
+  }
+  if (f.problemsOnly) parts.push('Problems');
+  const picked = [...f.categories];
+  if (picked.length > 0) {
+    const labels = picked.map((id) => HISTORY_CATEGORIES.find((c) => c.id === id)?.label ?? id);
+    parts.push(labels.length <= 2 ? labels.join(', ') : `${labels.length} categories`);
+  }
+  return parts.join(' · ');
 }

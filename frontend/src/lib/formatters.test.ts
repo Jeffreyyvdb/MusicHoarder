@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { formatBytesShort, formatFileSize } from './formatters';
+import {
+  formatBytesShort,
+  formatDate,
+  formatDateTime,
+  formatFileSize,
+  formatReleaseDate,
+  formatTotalDuration
+} from './formatters';
 
 describe('formatFileSize', () => {
   it('adds a TB tier above 1024 GB', () => {
@@ -26,5 +33,37 @@ describe('formatBytesShort', () => {
     expect(formatBytesShort(0)).toBe('0 B');
     expect(formatBytesShort(null)).toBe('0 B');
     expect(formatBytesShort(undefined)).toBe('0 B');
+  });
+});
+
+describe('formatTotalDuration', () => {
+  it('rounds to minutes once there is a minute to show', () => {
+    expect(formatTotalDuration(1256)).toBe('21 min');
+    expect(formatTotalDuration(15660)).toBe('4 h 21 min');
+    expect(formatTotalDuration(7200)).toBe('2 h');
+    expect(formatTotalDuration(48)).toBe('48 sec');
+    expect(formatTotalDuration(0)).toBe('—');
+  });
+});
+
+describe('formatDate / formatDateTime', () => {
+  it('writes the month as a word and never the seconds', () => {
+    const iso = '2026-09-30T06:51:28Z';
+    expect(formatDate(iso)).toMatch(/Sep/);
+    expect(formatDate(iso)).toMatch(/2026/);
+    expect(formatDateTime(iso)).not.toMatch(/:28/);
+    expect(formatDate(null)).toBe('—');
+    expect(formatDateTime('not a date')).toBe('—');
+  });
+});
+
+describe('formatReleaseDate', () => {
+  it('reads a tag date as a calendar date', () => {
+    expect(formatReleaseDate('2021-01-10')).toMatch(/Jan/);
+    expect(formatReleaseDate('2021-01-10')).toMatch(/10/);
+    expect(formatReleaseDate('2021-01')).toMatch(/Jan/);
+    expect(formatReleaseDate('2021')).toBe('2021');
+    expect(formatReleaseDate(2021)).toBe('2021');
+    expect(formatReleaseDate(null)).toBe('—');
   });
 });

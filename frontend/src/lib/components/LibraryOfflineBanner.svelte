@@ -45,16 +45,17 @@
 </script>
 
 <!--
-  Slim hairline strip, not a tinted wall: one amber dot carries the warning —
-  the only amber in the shell chrome, so it stays legible as "something is
-  actually wrong".
+  Slim hairline strip, not a tinted wall: one warning-orange dot carries the
+  warning — the only orange in the shell chrome, so it stays legible as
+  "something is actually wrong". The sentence says it too; colour is never the
+  only carrier.
 -->
 {#if offline}
   <div
     aria-live="polite"
-    class="border-border/70 text-muted-foreground flex min-h-9 shrink-0 items-center gap-2.5 border-b px-4 py-1.5 text-[13px] sm:px-7"
+    class="border-separator text-muted-foreground flex min-h-9 shrink-0 items-center gap-2.5 border-b px-4 py-1.5 text-[13px] sm:px-7"
   >
-    <span class="size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true"></span>
+    <span class="bg-warning size-1.5 shrink-0 rounded-full" aria-hidden="true"></span>
     <p class="min-w-0 flex-1">
       <span class="text-foreground font-medium">Library {offlineLabel} directory unreachable</span>
       <span class="mx-1" aria-hidden="true">—</span>

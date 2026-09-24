@@ -203,7 +203,7 @@ class LibraryRepository(private val api: MusicHoarderApi) {
             _likes.update { it + (track.id to api.setLiked(track.id, wantLiked)) }
         } catch (e: Exception) {
             _likes.update { it + (track.id to previous) }
-            _messages.tryEmit("Could not update liked songs")
+            _messages.tryEmit("Could not update favourites")
         }
     }
 

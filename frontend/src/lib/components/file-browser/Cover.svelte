@@ -12,10 +12,15 @@
     coverUrl?: string | null;
     /** Second-chance image when `coverUrl` errors (e.g. artist portrait 404 → album cover). */
     fallbackUrl?: string | null;
-    /** Show the artist caption strip across the bottom of the cover. Only renders at size ≥ 120. */
+    /** Show the artist caption strip across the bottom of the cover. Only renders at size ≥ 176. */
     caption?: boolean;
     /** Show subtle hover-elevation. */
     interactive?: boolean;
+    /**
+     * Highest device pixel ratio to request a thumbnail for. 2 keeps grids light; the album hero
+     * and list-row art pass 3, because current iPhones are @3x and a 2× thumb there reads soft.
+     */
+    dprCap?: number;
     class?: string;
   };
 
@@ -28,12 +33,15 @@
     fallbackUrl = null,
     caption = true,
     interactive = false,
+    dprCap = 2,
     class: className
   }: Props = $props();
 
   const tint = $derived(albumTint(artist || 'Unknown', title || 'Unknown'));
   const initials = $derived(computeInitials(title));
-  const showCaption = $derived(caption && size >= 120);
+  // Nothing a person reads goes below 11px, and 11px mono only fits a legible run of the name on a
+  // cover of 176px or more; smaller placeholders carry the initials alone.
+  const showCaption = $derived(caption && size >= 176);
 
   let primaryFailed = $state(false);
   let fallbackFailed = $state(false);
@@ -47,10 +55,13 @@
     !primaryFailed && coverUrl ? coverUrl : !fallbackFailed ? fallbackUrl : null
   );
 
-  // Request a thumbnail sized for the display box × device pixel ratio (capped at 2× — enough for
-  // retina, far smaller than the multi-MB original). External cover URLs pass through unchanged.
-  const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
-  const resolvedCoverUrl = $derived(coverThumbUrl(activeUrl, Math.round(size * dpr)));
+  // Request a thumbnail sized for the display box × device pixel ratio (capped at `dprCap` — far
+  // smaller than the multi-MB original). External cover URLs pass through unchanged. SSR renders
+  // at 1× (the landing page); the client's first render picks the real ratio.
+  const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  const resolvedCoverUrl = $derived(
+    coverThumbUrl(activeUrl, Math.round(size * Math.min(deviceDpr, dprCap)))
+  );
 
   // While the primary URL is still in flight we trust it and keep the initials tile hidden — the
   // fast, common path, and what keeps a virtualized grid from flashing big letters before each cover
@@ -63,16 +74,19 @@
   // image or wrongly keep showing the previous one's.
   $effect(() => {
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- read to track the deps
-    void coverUrl, void fallbackUrl;
+    (void coverUrl, void fallbackUrl);
     primaryFailed = false;
     fallbackFailed = false;
     imgLoaded = false;
   });
 </script>
 
+<!-- `isolate`: the initials and the image stack with z-[2]/z-[3] INSIDE the tile. Without its own
+     stacking context they competed with the page, and the image painted over whatever a caller
+     layers on the art — the now-playing equalizer, the link-status badge, a hover Play button. -->
 <div
   class={cn(
-    'mh-cover relative grid place-items-center overflow-hidden shadow-sm',
+    'mh-cover relative isolate grid place-items-center overflow-hidden shadow-sm',
     interactive && 'transition-shadow hover:shadow-md',
     className
   )}
@@ -81,7 +95,11 @@
   <div class="mh-cover-grain pointer-events-none absolute inset-0"></div>
 
   {#if !hasCover}
+    <!-- Artwork, not text: aria-hidden, like the <img> (alt=""). Every place a cover sits already
+         names the item beside it, and read aloud the initials leaked into those names
+         ("T0 track 03 …", "MD midnight drive"). -->
     <div
+      aria-hidden="true"
       class="relative z-[2] font-bold tracking-[-0.04em] text-white/95 [text-shadow:_0_1px_2px_rgba(0,0,0,0.2)]"
       style="font-size: {size / 3.6}px;"
     >
@@ -90,8 +108,9 @@
 
     {#if showCaption}
       <div
+        aria-hidden="true"
         class="absolute right-[8%] bottom-[7%] left-[8%] z-[2] truncate text-center font-mono font-medium tracking-[0.08em] text-white/75 uppercase"
-        style="font-size: {Math.max(8, size / 22)}px;"
+        style="font-size: {Math.max(11, size / 22)}px;"
       >
         {artist}
       </div>

@@ -373,6 +373,15 @@ function keepLive(): () => void {
   };
 }
 
+/**
+ * Hand over an overview fetched elsewhere (the shell's one start-up request), so every reader of
+ * `overview` — the sidebar, the Manage hub, the account panel — shares one copy instead of each
+ * fetching its own. A copy the live poll has already stored is newer and wins.
+ */
+function seedOverview(value: ApiOverview): void {
+  if (!overview) overview = value;
+}
+
 export const pipelineOverlay = {
   get isOpen() {
     return isOpen;
@@ -430,7 +439,8 @@ export const pipelineOverlay = {
   setOpen,
   toggle,
   mount,
-  keepLive
+  keepLive,
+  seedOverview
 };
 
 export type PipelineOverlayStore = typeof pipelineOverlay;

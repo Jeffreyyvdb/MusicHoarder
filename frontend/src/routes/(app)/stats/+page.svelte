@@ -1,24 +1,28 @@
 <script lang="ts">
   import {
-    ChartColumnBig,
     Disc3,
     Heart,
     Image as ImageIcon,
     Library,
     Mic2,
     RefreshCw,
-    Clock,
-    Users,
-    Music,
-    Copy,
-    CheckCircle2,
-    BadgeCheck
+    CircleCheck,
+    TriangleAlert
   } from '@lucide/svelte';
+  import type { Component } from 'svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { Button } from '$lib/components/ui/button';
+  import { Badge } from '$lib/components/ui/badge';
   import { Skeleton } from '$lib/components/ui/skeleton';
+  import * as GroupedList from '$lib/components/ui/grouped-list';
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import { fetchInsights, type LibraryInsights } from '$lib/api-client';
+  import { cn } from '$lib/utils';
+
+  // Library stats, Health-summary style: a few highlights, then sections of plain rows — a label,
+  // a figure and a thin bar in the one accent. Colour means status everywhere else in the app
+  // (the warning tone is "needs review", red is "failed"), so the old per-metric rainbow of
+  // violet/sky/rose/amber rings is gone; a figure that already appears once is not repeated.
 
   let data = $state<LibraryInsights | null>(null);
   let loading = $state(true);
@@ -42,9 +46,14 @@
 
   const empty = $derived(!!data && data.source.indexed === 0);
 
+  // Percentages arrive unrounded (77.63157894736842); every one on screen is a whole number.
+  function pctLabel(n: number | null | undefined): string {
+    return n == null ? '—' : `${Math.round(n)}%`;
+  }
+
   const headerMeta = $derived(
     data
-      ? `${data.source.inLibrary.toLocaleString()} of ${data.source.indexed.toLocaleString()} source files in the library · ${data.source.inLibraryPct}%`
+      ? `${data.source.inLibrary.toLocaleString()} of ${data.source.indexed.toLocaleString()} source files in the library · ${pctLabel(data.source.inLibraryPct)}`
       : undefined
   );
 
@@ -67,425 +76,328 @@
     return Math.max(1, ...items.map((i) => i.count ?? i.tracks ?? 0));
   }
 
-  // Distinct accent per segment in the enrichment distribution bar.
+  // The enrichment distribution bar is a status chart, so its colours are the status tokens —
+  // the same the pipeline, Inbox and folder bars use — each paired with its word in the legend.
+  // Keyed by the status with spaces and case folded away: the API sends the enum name
+  // ("NeedsReview"), which the old 'Needs review' key never matched.
   const ENRICH_COLORS: Record<string, string> = {
-    Matched: 'bg-emerald-500',
-    'Needs review': 'bg-amber-500',
-    Failed: 'bg-rose-500',
-    Pending: 'bg-muted-foreground/40'
+    matched: 'bg-primary',
+    needsreview: 'bg-warning',
+    failed: 'bg-destructive',
+    pending: 'bg-muted-foreground-dim'
   };
+  const statusKey = (status: string) => status.replace(/\s+/g, '').toLowerCase();
   function enrichColor(status: string): string {
-    return ENRICH_COLORS[status] ?? 'bg-primary';
+    return ENRICH_COLORS[statusKey(status)] ?? 'bg-primary';
   }
+  /** "NeedsReview" → "Needs review". */
+  function statusLabel(status: string): string {
+    const spaced = status.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+    return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  }
+
+  type Highlight = {
+    icon: Component;
+    label: string;
+    value: string;
+    sub: string;
+    pct: number | null;
+  };
+
+  const highlights = $derived.by<Highlight[]>(() => {
+    if (!data) return [];
+    const liked = data.wishlist.liked;
+    return [
+      {
+        icon: Library,
+        label: 'In your library',
+        value: fmt(data.source.inLibrary),
+        sub: `of ${fmt(data.source.indexed)} source files · ${pctLabel(data.source.inLibraryPct)}`,
+        pct: data.source.inLibraryPct
+      },
+      {
+        icon: ImageIcon,
+        label: 'Album covers added',
+        value: fmt(data.covers.albumCoversAdded),
+        sub: `${pctLabel(data.covers.coveragePct)} of built tracks show art`,
+        pct: data.covers.coveragePct
+      },
+      {
+        icon: Mic2,
+        label: 'Lyrics added',
+        value: fmt(data.lyrics.added),
+        sub: `${data.lyrics.builtWithLyrics} of ${data.lyrics.builtTracks} built · ${pctLabel(data.lyrics.coveragePct)}`,
+        pct: data.lyrics.coveragePct
+      },
+      {
+        icon: Heart,
+        label: 'Liked → library',
+        value: fmt(liked.inLibrary),
+        sub: `of ${fmt(liked.total)} liked songs wishlisted`,
+        pct: liked.total > 0 ? (liked.inLibrary / liked.total) * 100 : 0
+      }
+    ];
+  });
 </script>
 
-{#snippet ring(pct: number, label: string, value: string, color: string)}
-  <div class="flex flex-col items-center gap-2">
-    <div class="relative size-[88px]">
-      <svg viewBox="0 0 36 36" class="size-[88px] -rotate-90">
-        <circle cx="18" cy="18" r="15.915" fill="none" class="text-muted-foreground/15 stroke-current" stroke-width="3.2" />
-        <circle
-          cx="18"
-          cy="18"
-          r="15.915"
-          fill="none"
-          class="{color} stroke-current transition-[stroke-dasharray] duration-700"
-          stroke-width="3.2"
-          stroke-linecap="round"
-          stroke-dasharray="{Math.min(100, Math.max(0, pct))} {100 - Math.min(100, Math.max(0, pct))}"
-        />
-      </svg>
-      <div class="absolute inset-0 grid place-items-center">
-        <span class="text-[15px] font-semibold tabular-nums">{Math.round(pct)}%</span>
-      </div>
-    </div>
-    <div class="text-center">
-      <div class="text-[12px] font-medium">{label}</div>
-      <div class="text-muted-foreground text-[11px] tabular-nums">{value}</div>
-    </div>
-  </div>
+<!-- A thin determinate bar in the one accent. -->
+{#snippet bar(pct: number, cls = 'bg-primary')}
+  <span class="bg-muted mt-1.5 mb-0.5 block h-1 w-full overflow-hidden rounded-full" aria-hidden="true">
+    <span
+      class="{cls} block h-full w-full origin-left rounded-full transition-transform duration-700 ease-out"
+      style="transform: scaleX({Math.min(100, Math.max(0, pct)) / 100})"
+    ></span>
+  </span>
 {/snippet}
 
-{#snippet funnel(stages: { stage: string; count: number; pct: number }[])}
-  <div class="space-y-3">
-    {#each stages as s, i (s.stage)}
-      <div>
-        <div class="mb-1 flex items-baseline justify-between text-[12.5px]">
-          <span class="font-medium">{s.stage}</span>
-          <span class="text-muted-foreground tabular-nums">{fmt(s.count)} · {s.pct}%</span>
-        </div>
-        <div class="bg-muted h-2.5 overflow-hidden rounded-full">
-          <div
-            class="bg-primary h-full rounded-full transition-[width] duration-700"
-            style="width: {Math.min(100, s.pct)}%; opacity: {1 - i * 0.16}"
-          ></div>
-        </div>
-      </div>
-    {/each}
-  </div>
+<!-- A labelled figure with a bar under both: funnels, coverage, top lists, formats. The figure
+     sits on the label's line (not centred on the two-line cell) and the bar spans the cell. -->
+{#snippet barRow(label: string, value: string, pct: number, cls?: string)}
+  <GroupedList.Row>
+    <span class="flex items-baseline justify-between gap-3">
+      <span class="text-body min-w-0 truncate md:text-sm">{label}</span>
+      <span class="text-body text-muted-foreground shrink-0 tabular-nums md:text-sm">{value}</span>
+    </span>
+    {@render bar(pct, cls)}
+  </GroupedList.Row>
 {/snippet}
 
-{#snippet statCard(
-  icon: typeof Library,
-  iconWrap: string,
-  label: string,
-  value: string,
-  sub: string,
-  pct: number | null
-)}
-  {@const Icon = icon}
-  <div class="bg-card flex flex-col gap-2.5 rounded-xl border p-4">
-    <div class="flex items-center gap-2.5">
-      <span class="grid size-8 place-items-center rounded-lg {iconWrap}">
-        <Icon class="size-4" />
-      </span>
-      <span class="text-[13px] font-medium">{label}</span>
-    </div>
-    <div class="text-[34px] leading-none font-semibold tabular-nums">{value}</div>
-    <div class="text-muted-foreground text-[12px]">{sub}</div>
-    {#if pct != null}
-      <div class="bg-muted mt-0.5 h-1.5 overflow-hidden rounded-full">
-        <div class="bg-primary h-full rounded-full transition-[width] duration-700" style="width: {Math.min(100, pct)}%"></div>
-      </div>
-    {/if}
-  </div>
-{/snippet}
-
-{#snippet barRow(label: string, sub: string, value: number, max: number, color: string)}
-  <div class="flex items-center gap-3">
-    <div class="w-32 shrink-0 truncate text-[12.5px] font-medium" title={label}>{label}</div>
-    <div class="bg-muted relative h-5 flex-1 overflow-hidden rounded-md">
-      <div class="{color} h-full rounded-md transition-[width] duration-700" style="width: {(value / max) * 100}%"></div>
-    </div>
-    <div class="text-muted-foreground w-14 shrink-0 text-right text-[12px] tabular-nums">{sub}</div>
-  </div>
-{/snippet}
-
-<div class="flex min-h-0 flex-1 flex-col">
-  <PageToolbarV2 icon={ChartColumnBig} title="Stats" meta={headerMeta}>
-    {#snippet actions()}
-      <Button onclick={load} disabled={loading} variant="outline" size="sm" class="h-8 gap-1.5 px-2.5">
-        <RefreshCw class="size-4 {loading ? 'animate-spin' : ''}" />
-        <span class="text-nav-sm hidden sm:inline">Refresh</span>
-      </Button>
-    {/snippet}
-  </PageToolbarV2>
-
+<div class="bg-background-grouped flex min-h-0 flex-1 flex-col">
+  <!-- The nav bar is the scroller's first child, so its large title scrolls away under the
+       sticky bar (PageToolbarV2's placement rule). -->
   <ScrollArea class="min-h-0 flex-1">
-    <div class="flex flex-col gap-5 px-4 py-4 sm:px-7 sm:py-5">
+    <PageToolbarV2 title="Stats" meta={headerMeta} grouped>
+      {#snippet actions()}
+        <Button variant="gray" class="rounded-full" onclick={load} disabled={loading}>
+          <RefreshCw class={cn(loading && 'animate-spin')} aria-hidden="true" />
+          <!-- The phone bar shows the glyph alone; the word stays its accessible name. -->
+          <span class="max-md:sr-only">Refresh</span>
+        </Button>
+      {/snippet}
+    </PageToolbarV2>
+
+    <div class="mx-auto flex w-full max-w-6xl flex-col gap-7 pt-2 pb-8 md:gap-6 md:px-7 md:pt-6">
       {#if error}
-        <div class="rounded-md border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-          {error}
-        </div>
+        <GroupedList.Section>
+          <GroupedList.Row
+            icon={TriangleAlert}
+            iconClass="bg-destructive/12 text-destructive-text"
+            label="Couldn't load stats"
+            sublabel={error}
+          >
+            {#snippet trailing()}
+              <Button variant="ghost" class="text-primary hover:text-primary h-11 md:h-8" onclick={load}>
+                Retry
+              </Button>
+            {/snippet}
+          </GroupedList.Row>
+        </GroupedList.Section>
       {:else if loading && !data}
-        <section class="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-5">
-          {#each Array(5) as _, i (i)}
-            <div class="bg-card flex flex-col gap-2.5 rounded-xl border p-4">
-              <div class="flex items-center gap-2.5">
-                <Skeleton class="size-8 rounded-lg" />
-                <Skeleton class="h-3.5 w-20" />
+        <GroupedList.Section>
+          {#each Array(4) as _, i (i)}
+            <div class="flex items-center gap-3 px-4 py-3">
+              <Skeleton class="size-[29px] shrink-0 rounded-[7px]" />
+              <div class="min-w-0 flex-1 space-y-1.5">
+                <Skeleton class="h-4 w-1/2" />
+                <Skeleton class="h-3 w-2/3" />
               </div>
-              <Skeleton class="h-[34px] w-16" />
-              <Skeleton class="h-3 w-28" />
+              <Skeleton class="h-6 w-12 shrink-0" />
             </div>
           {/each}
-        </section>
-        <section class="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {#each Array(2) as _, i (i)}
-            <div class="bg-card rounded-xl border p-4">
-              <Skeleton class="mb-4 h-4 w-32" />
-              <div class="space-y-3">
-                {#each Array(3) as _, j (j)}
-                  <Skeleton class="h-2.5 w-full rounded-full" />
-                {/each}
-              </div>
-            </div>
-          {/each}
-        </section>
+        </GroupedList.Section>
       {:else if empty}
-        <div class="border-border rounded-lg border border-dashed px-6 py-12 text-center">
-          <p class="text-sm font-medium">Nothing indexed yet</p>
-          <p class="text-muted-foreground mx-auto mt-1 max-w-md text-sm">
+        <div class="mx-auto max-w-md px-6 py-14 text-center">
+          <p class="text-headline md:text-sm md:font-medium">Nothing indexed yet</p>
+          <p class="text-callout text-muted-foreground mt-1 md:text-sm">
             Run a scan and let the pipeline enrich and build your library — this page fills in as songs
             flow through.
           </p>
         </div>
       {:else if data}
-        <!-- ── Hero: the five-stat story ── -->
-        <section class="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-5">
-          {@render statCard(
-            Library,
-            'bg-primary/12 text-primary',
-            'In your library',
-            fmt(data.source.inLibrary),
-            `of ${fmt(data.source.indexed)} source files · ${data.source.inLibraryPct}%`,
-            data.source.inLibraryPct
-          )}
-          {@render statCard(
-            ImageIcon,
-            'bg-violet-500/12 text-violet-500',
-            'Album covers added',
-            fmt(data.covers.albumCoversAdded),
-            `${data.covers.coveragePct}% of built tracks show art`,
-            data.covers.coveragePct
-          )}
-          {@render statCard(
-            Mic2,
-            'bg-sky-500/12 text-sky-500',
-            'Lyrics added',
-            fmt(data.lyrics.added),
-            `${data.lyrics.builtWithLyrics} of ${data.lyrics.builtTracks} built · ${data.lyrics.coveragePct}%`,
-            data.lyrics.coveragePct
-          )}
-          {@render statCard(
-            Heart,
-            'bg-rose-500/12 text-rose-500',
-            'Liked → library',
-            fmt(data.wishlist.liked.inLibrary),
-            `of ${fmt(data.wishlist.liked.total)} liked songs wishlisted`,
-            data.wishlist.liked.total > 0
-              ? (data.wishlist.liked.inLibrary / data.wishlist.liked.total) * 100
-              : 0
-          )}
-          {@render statCard(
-            Clock,
-            'bg-amber-500/12 text-amber-500',
-            'Hours of music',
-            fmt(Math.round(data.totals.totalHours)),
-            `${fmt(data.totals.builtTracks)} tracks · ${data.totals.totalGiB} GiB`,
-            null
-          )}
-        </section>
-
-        <!-- ── Two funnels side by side ── -->
-        <section class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div class="bg-card rounded-xl border p-4">
-            <h2 class="mb-2.5 flex items-center gap-2 text-sm font-semibold">
-              <Disc3 class="text-muted-foreground size-4" /> Pipeline funnel
-            </h2>
-            {@render funnel(data.funnel)}
-            <p class="text-muted-foreground mt-4 text-[11.5px]">
-              How far your source files travel: indexed → fingerprinted → matched → written to the
-              destination library.
-            </p>
-          </div>
-
-          <div class="bg-card rounded-xl border p-4">
-            <h2 class="mb-2.5 flex items-center gap-2 text-sm font-semibold">
-              <Heart class="size-4 text-rose-500" /> Spotify wishlist journey
-            </h2>
-            {@render funnel(data.wishlist.funnel)}
-            <div class="mt-4 flex flex-wrap gap-1.5">
-              {#each data.wishlist.statusBreakdown.filter((s) => s.count > 0) as s (s.status)}
-                <span class="bg-muted text-muted-foreground rounded-full px-2.5 py-1 text-[11px]">
-                  {s.status} <span class="text-foreground tabular-nums">{fmt(s.count)}</span>
+        <!-- ── Highlights ── A phone reads them as rows with the figure trailing; a desktop lays
+             the same four out as tiles. -->
+        <GroupedList.Section headingLevel={2} header="Highlights" class="md:hidden">
+          {#each highlights as h (h.label)}
+            <GroupedList.Row icon={h.icon} label={h.label} sublabel={h.sub}>
+              {#if h.pct != null}{@render bar(h.pct)}{/if}
+              {#snippet trailing()}
+                <span class="text-title-3 tabular-nums">{h.value}</span>
+              {/snippet}
+            </GroupedList.Row>
+          {/each}
+        </GroupedList.Section>
+        <section aria-label="Highlights" class="hidden grid-cols-2 gap-4 md:grid lg:grid-cols-4">
+          {#each highlights as h (h.label)}
+            {@const Icon = h.icon}
+            <div class="bg-card flex flex-col gap-2 rounded-xl p-4">
+              <div class="flex items-center gap-2.5">
+                <span class="bg-muted text-foreground grid size-[29px] place-items-center rounded-[7px]">
+                  <Icon class="size-[18px]" aria-hidden="true" />
                 </span>
-              {/each}
+                <span class="text-[13px] font-medium">{h.label}</span>
+              </div>
+              <div class="text-[30px] leading-none font-semibold tabular-nums">{h.value}</div>
+              <div class="text-muted-foreground text-[12px]">{h.sub}</div>
+              {#if h.pct != null}{@render bar(h.pct)}{/if}
             </div>
-            <p class="text-muted-foreground mt-3 text-[11.5px]">
-              {fmt(data.wishlist.all.total)} tracks wishlisted across {data.wishlist.sources} source{data
-                .wishlist.sources === 1
-                ? ''
-                : 's'}.
-            </p>
-          </div>
+          {/each}
         </section>
 
-        <!-- ── Coverage rings ── -->
-        <section class="bg-card rounded-xl border p-4">
-          <h2 class="mb-2.5 flex items-center gap-2 text-sm font-semibold">
-            <CheckCircle2 class="text-muted-foreground size-4" /> Metadata coverage
-          </h2>
-          <div class="grid grid-cols-3 gap-4 sm:grid-cols-6">
-            {@render ring(
-              data.covers.coveragePct,
+        <!-- The remaining sections flow in balanced columns on a desktop (CSS columns, so a short
+             section never leaves a hole beside a tall one). -->
+        <div class="flex flex-col gap-7 md:block md:columns-2 md:gap-6 md:*:mb-6 md:*:break-inside-avoid xl:columns-3">
+          <GroupedList.Section headingLevel={2}
+            header="Pipeline funnel"
+            footer="How far your source files travel: indexed → fingerprinted → matched → written to the destination library."
+          >
+            {#each data.funnel as s (s.stage)}
+              {@render barRow(s.stage, `${fmt(s.count)} · ${pctLabel(s.pct)}`, s.pct)}
+            {/each}
+          </GroupedList.Section>
+
+          <GroupedList.Section headingLevel={2}
+            header="Spotify wishlist journey"
+            footer={`${fmt(data.wishlist.all.total)} tracks wishlisted across ${data.wishlist.sources} source${data.wishlist.sources === 1 ? '' : 's'}.`}
+          >
+            {#each data.wishlist.funnel as s (s.stage)}
+              {@render barRow(s.stage, `${fmt(s.count)} · ${pctLabel(s.pct)}`, s.pct)}
+            {/each}
+            {#if data.wishlist.statusBreakdown.some((s) => s.count > 0)}
+              <div class="flex flex-wrap gap-1.5 px-4 py-3">
+                {#each data.wishlist.statusBreakdown.filter((s) => s.count > 0) as s (s.status)}
+                  <Badge variant="secondary" class="text-footnote md:text-[11px]">
+                    {s.status} <span class="font-semibold tabular-nums">{fmt(s.count)}</span>
+                  </Badge>
+                {/each}
+              </div>
+            {/if}
+          </GroupedList.Section>
+
+          <GroupedList.Section headingLevel={2} header="Metadata coverage">
+            {@render barRow(
               'Cover art',
-              `${fmt(data.covers.builtWithCover)}/${fmt(data.covers.builtTracks)}`,
-              'text-violet-500'
+              `${fmt(data.covers.builtWithCover)} of ${fmt(data.covers.builtTracks)} · ${pctLabel(data.covers.coveragePct)}`,
+              data.covers.coveragePct
             )}
-            {@render ring(
-              data.lyrics.coveragePct,
+            {@render barRow(
               'Lyrics',
-              `${fmt(data.lyrics.builtWithLyrics)}/${fmt(data.lyrics.builtTracks)}`,
-              'text-sky-500'
+              `${fmt(data.lyrics.builtWithLyrics)} of ${fmt(data.lyrics.builtTracks)} · ${pctLabel(data.lyrics.coveragePct)}`,
+              data.lyrics.coveragePct
             )}
-            {@render ring(
-              data.quality.coverage.fingerprint.pct,
+            {@render barRow(
               'Fingerprint',
-              fmt(data.quality.coverage.fingerprint.count),
-              'text-primary'
+              `${fmt(data.quality.coverage.fingerprint.count)} · ${pctLabel(data.quality.coverage.fingerprint.pct)}`,
+              data.quality.coverage.fingerprint.pct
             )}
-            {@render ring(
-              data.quality.coverage.musicBrainz.pct,
+            {@render barRow(
               'MusicBrainz',
-              fmt(data.quality.coverage.musicBrainz.count),
-              'text-amber-500'
+              `${fmt(data.quality.coverage.musicBrainz.count)} · ${pctLabel(data.quality.coverage.musicBrainz.pct)}`,
+              data.quality.coverage.musicBrainz.pct
             )}
-            {@render ring(
-              data.quality.coverage.spotify.pct,
+            {@render barRow(
               'Spotify ID',
-              fmt(data.quality.coverage.spotify.count),
-              'text-emerald-500'
+              `${fmt(data.quality.coverage.spotify.count)} · ${pctLabel(data.quality.coverage.spotify.pct)}`,
+              data.quality.coverage.spotify.pct
             )}
-            {@render ring(
-              data.quality.coverage.isrc.pct,
+            {@render barRow(
               'ISRC',
-              fmt(data.quality.coverage.isrc.count),
-              'text-rose-500'
+              `${fmt(data.quality.coverage.isrc.count)} · ${pctLabel(data.quality.coverage.isrc.pct)}`,
+              data.quality.coverage.isrc.pct
             )}
-          </div>
-        </section>
+          </GroupedList.Section>
 
-        <!-- ── Top artists / albums ── -->
-        <section class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div class="bg-card rounded-xl border p-4">
-            <h2 class="mb-2.5 flex items-center gap-2 text-sm font-semibold">
-              <Users class="text-muted-foreground size-4" /> Top artists
-            </h2>
+          <GroupedList.Section headingLevel={2} header="Top artists">
             {#if data.top.artists.length === 0}
-              <p class="text-muted-foreground text-sm">No built tracks yet.</p>
+              <p class="text-body text-muted-foreground px-4 py-4 md:text-sm">No built tracks yet.</p>
             {:else}
               {@const max = maxOf(data.top.artists)}
-              <div class="space-y-2">
-                {#each data.top.artists as a (a.name)}
-                  {@render barRow(a.name, `${fmt(a.tracks)}`, a.tracks, max, 'bg-primary/70')}
-                {/each}
-              </div>
+              {#each data.top.artists as a (a.name)}
+                {@render barRow(a.name, fmt(a.tracks), (a.tracks / max) * 100)}
+              {/each}
             {/if}
-          </div>
+          </GroupedList.Section>
 
-          <div class="bg-card rounded-xl border p-4">
-            <h2 class="mb-2.5 flex items-center gap-2 text-sm font-semibold">
-              <Disc3 class="text-muted-foreground size-4" /> Biggest albums
-            </h2>
+          <GroupedList.Section headingLevel={2} header="Biggest albums">
             {#if data.top.albums.length === 0}
-              <p class="text-muted-foreground text-sm">No built tracks yet.</p>
+              <p class="text-body text-muted-foreground px-4 py-4 md:text-sm">No built tracks yet.</p>
             {:else}
               {@const max = maxOf(data.top.albums)}
-              <div class="space-y-2">
-                {#each data.top.albums as al (al.artist + '—' + al.album)}
-                  {@render barRow(al.album, `${fmt(al.tracks)}`, al.tracks, max, 'bg-violet-500/70')}
-                {/each}
-              </div>
+              {#each data.top.albums as al (al.artist + '—' + al.album)}
+                {@render barRow(al.album, fmt(al.tracks), (al.tracks / max) * 100)}
+              {/each}
             {/if}
-          </div>
-        </section>
+          </GroupedList.Section>
 
-        <!-- ── Library totals + formats ── -->
-        <section class="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <div class="bg-card rounded-xl border p-4 lg:col-span-2">
-            <h2 class="mb-2.5 flex items-center gap-2 text-sm font-semibold">
-              <Music class="text-muted-foreground size-4" /> Library totals
-            </h2>
-            <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
-              <div>
-                <div class="text-[22px] font-semibold tabular-nums">{fmt(data.totals.builtTracks)}</div>
-                <div class="text-muted-foreground text-[12px]">Tracks</div>
-              </div>
-              <div>
-                <div class="text-[22px] font-semibold tabular-nums">{fmt(data.totals.distinctArtists)}</div>
-                <div class="text-muted-foreground text-[12px]">Artists</div>
-              </div>
-              <div>
-                <div class="text-[22px] font-semibold tabular-nums">{fmt(data.totals.distinctAlbums)}</div>
-                <div class="text-muted-foreground text-[12px]">Albums</div>
-              </div>
-              <div>
-                <div class="text-[22px] font-semibold tabular-nums">{data.totals.totalHours}</div>
-                <div class="text-muted-foreground text-[12px]">Hours</div>
-              </div>
-              <div>
-                <div class="text-[22px] font-semibold tabular-nums">{data.totals.totalGiB}</div>
-                <div class="text-muted-foreground text-[12px]">GiB on disk</div>
-              </div>
-              <div>
-                <div class="text-[22px] font-semibold tabular-nums">{fmt(data.totals.duplicates)}</div>
-                <div class="text-muted-foreground text-[12px]">Duplicates</div>
-              </div>
-            </div>
-            <p class="text-muted-foreground mt-4 text-[11.5px]">
-              Indexed between {fmtDate(data.totals.oldestIndexedUtc)} and {fmtDate(
-                data.totals.newestIndexedUtc
-              )}.
-            </p>
-          </div>
+          <GroupedList.Section headingLevel={2}
+            header="Library totals"
+            footer={`Indexed between ${fmtDate(data.totals.oldestIndexedUtc)} and ${fmtDate(data.totals.newestIndexedUtc)}.`}
+          >
+            <GroupedList.Row label="Tracks" value={fmt(data.totals.builtTracks)} />
+            <GroupedList.Row label="Artists" value={fmt(data.totals.distinctArtists)} />
+            <GroupedList.Row label="Albums" value={fmt(data.totals.distinctAlbums)} />
+            <GroupedList.Row label="Hours of music" value={fmt(Math.round(data.totals.totalHours))} />
+            <GroupedList.Row label="On disk" value={`${data.totals.totalGiB} GiB`} />
+            <GroupedList.Row label="Duplicates" value={fmt(data.totals.duplicates)} />
+          </GroupedList.Section>
 
-          <div class="bg-card rounded-xl border p-4">
-            <h2 class="mb-2.5 text-sm font-semibold">By format</h2>
+          <GroupedList.Section headingLevel={2} header="By format">
             {#if data.totals.byFormat.length === 0}
-              <p class="text-muted-foreground text-sm">No files indexed.</p>
+              <p class="text-body text-muted-foreground px-4 py-4 md:text-sm">No files indexed.</p>
             {:else}
               {@const max = maxOf(data.totals.byFormat)}
-              <div class="space-y-2">
-                {#each data.totals.byFormat.slice(0, 6) as f (f.format)}
-                  {@render barRow(f.format.toUpperCase(), `${fmt(f.count)}`, f.count, max, 'bg-sky-500/70')}
-                {/each}
-              </div>
+              {#each data.totals.byFormat.slice(0, 6) as f (f.format)}
+                {@render barRow(f.format.toUpperCase(), fmt(f.count), (f.count / max) * 100)}
+              {/each}
             {/if}
-          </div>
-        </section>
+          </GroupedList.Section>
 
-        <!-- ── Enrichment quality ── -->
-        <section class="bg-card rounded-xl border p-4">
-          <h2 class="mb-2.5 flex items-center gap-2 text-sm font-semibold">
-            <BadgeCheck class="text-muted-foreground size-4" /> Enrichment quality
-          </h2>
-
-          <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            <!-- Status distribution -->
-            <div>
-              <div class="text-muted-foreground mb-2 text-[12px] font-medium">Match status</div>
-              <div class="bg-muted mb-2 flex h-3 overflow-hidden rounded-full">
+          <!-- Enrichment quality: a status chart, so its bar and legend use the status tokens and
+               every colour sits beside its word. -->
+          <GroupedList.Section headingLevel={2} header="Match status">
+            <div class="px-4 pt-3 pb-1">
+              <div class="bg-muted flex h-2 gap-px overflow-hidden rounded-full" aria-hidden="true">
                 {#each data.quality.enrichment.filter((s) => s.count > 0) as s (s.status)}
-                  <div class={enrichColor(s.status)} style="width: {(s.count / enrichTotal) * 100}%" title="{s.status}: {s.count}"></div>
+                  <div class={enrichColor(s.status)} style="width: {(s.count / enrichTotal) * 100}%"></div>
                 {/each}
               </div>
-              <div class="space-y-1">
-                {#each data.quality.enrichment as s (s.status)}
-                  <div class="flex items-center gap-2 text-[12px]">
+            </div>
+            {#each data.quality.enrichment as s (s.status)}
+              <GroupedList.Row label={statusLabel(s.status)} value={fmt(s.count)}>
+                {#snippet leading()}
+                  <span class="flex w-3 justify-center" aria-hidden="true">
                     <span class="size-2 rounded-full {enrichColor(s.status)}"></span>
-                    <span class="flex-1">{s.status}</span>
-                    <span class="text-muted-foreground tabular-nums">{fmt(s.count)}</span>
-                  </div>
-                {/each}
-              </div>
-            </div>
+                  </span>
+                {/snippet}
+              </GroupedList.Row>
+            {/each}
+          </GroupedList.Section>
 
-            <!-- Confidence buckets -->
-            <div>
-              <div class="text-muted-foreground mb-2 text-[12px] font-medium">Match confidence</div>
-              <div class="space-y-2">
-                {#each data.quality.confidence as c (c.bucket)}
-                  {@render barRow(c.bucket, `${fmt(c.count)}`, c.count, confMax, 'bg-emerald-500/70')}
-                {/each}
-              </div>
-              <div class="mt-3 flex items-center gap-2 text-[12px]">
-                <CheckCircle2 class="size-3.5 text-emerald-500" />
-                <span class="flex-1">Manually approved</span>
-                <span class="text-muted-foreground tabular-nums">{fmt(data.quality.manualApprovals)}</span>
-              </div>
-            </div>
+          <GroupedList.Section headingLevel={2} header="Match confidence">
+            {#each data.quality.confidence as c (c.bucket)}
+              {@render barRow(c.bucket, fmt(c.count), (c.count / confMax) * 100)}
+            {/each}
+            <GroupedList.Row label="Manually approved" value={fmt(data.quality.manualApprovals)}>
+              {#snippet leading()}
+                <CircleCheck class="text-primary size-5" aria-hidden="true" />
+              {/snippet}
+            </GroupedList.Row>
+          </GroupedList.Section>
 
-            <!-- Provider matches -->
-            <div>
-              <div class="text-muted-foreground mb-2 text-[12px] font-medium">Matches by provider</div>
-              {#if data.quality.byProvider.length === 0}
-                <p class="text-muted-foreground text-sm">No provider attempts yet.</p>
-              {:else}
-                {@const pmax = Math.max(1, ...data.quality.byProvider.map((p) => p.matched))}
-                <div class="space-y-2">
-                  {#each data.quality.byProvider as p (p.provider)}
-                    {@render barRow(p.provider, `${fmt(p.matched)}`, p.matched, pmax, 'bg-primary/70')}
-                  {/each}
-                </div>
-              {/if}
-            </div>
-          </div>
-        </section>
+          <GroupedList.Section headingLevel={2} header="Matches by provider">
+            {#if data.quality.byProvider.length === 0}
+              <p class="text-body text-muted-foreground px-4 py-4 md:text-sm">No provider attempts yet.</p>
+            {:else}
+              {@const pmax = Math.max(1, ...data.quality.byProvider.map((p) => p.matched))}
+              {#each data.quality.byProvider as p (p.provider)}
+                {@render barRow(p.provider, fmt(p.matched), (p.matched / pmax) * 100)}
+              {/each}
+            {/if}
+          </GroupedList.Section>
+        </div>
 
-        <p class="text-muted-foreground-dim flex items-center gap-1.5 text-[11px]">
-          <Copy class="size-3" aria-hidden="true" />
-          Cover & lyrics counts reflect what MusicHoarder wrote to your destination library.
+        <p class="text-footnote text-muted-foreground flex items-center gap-1.5 px-8 md:px-4 md:text-xs">
+          <Disc3 class="size-3.5 shrink-0" aria-hidden="true" />
+          Cover and lyrics counts reflect what MusicHoarder wrote to your destination library.
         </p>
       {/if}
     </div>

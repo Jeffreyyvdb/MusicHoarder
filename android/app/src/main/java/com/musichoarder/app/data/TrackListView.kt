@@ -21,15 +21,33 @@ val CHIP_KEYS: List<ChipKey> = listOf(
     ChipKey.Unreleased,
 )
 
+/**
+ * The web's `CHIP_LABELS`, word for word. Sentence case and short: the app's own name has no place
+ * in a filter ("MusicHoarder Liked" became "Favourites"), and the heart has one name everywhere —
+ * this chip, the Overview's "Favourite tracks", "Add to / Remove from favourites" in the row menu.
+ * "Spotify liked" keeps Spotify's own word for its Liked Songs. Labels only — the keys, the order
+ * and what each one matches are unchanged.
+ */
 val CHIP_LABELS: Map<ChipKey, String> = mapOf(
-    ChipKey.SpotifyLiked to "Spotify Liked",
-    ChipKey.MhLiked to "MusicHoarder Liked",
+    ChipKey.SpotifyLiked to "Spotify liked",
+    ChipKey.MhLiked to "Favourites",
     ChipKey.Local to "Local files",
     ChipKey.Added to "Manually added",
     ChipKey.Video to "Has video",
     ChipKey.Lyrics to "With lyrics",
     ChipKey.Unreleased to "Unreleased",
 )
+
+/**
+ * The chips an account that is not the library's admin can act on — the web's `FRIEND_CHIP_KEYS`:
+ * its own hearts, video and lyrics. The rest is pipeline and origin vocabulary (where a file came
+ * from, what Spotify holds) that a shared slice deliberately does not carry, so on a member's list
+ * those chips could only ever read 0.
+ */
+val FRIEND_CHIP_KEYS: List<ChipKey> = listOf(ChipKey.MhLiked, ChipKey.Video, ChipKey.Lyrics)
+
+/** The chip row this account gets, in display order. Demo counts as a non-admin, as on the web. */
+fun visibleChipKeys(isAdmin: Boolean): List<ChipKey> = if (isAdmin) CHIP_KEYS else FRIEND_CHIP_KEYS
 
 /**
  * Whether a chip matches. [likedOf] is passed in rather than read off the track so an optimistic
@@ -110,6 +128,14 @@ val SORT_LABELS: Map<SortKey, String> = mapOf(
     SortKey.Duration to "Duration",
 )
 
+/**
+ * The sort keys this account is offered. A key the dataset cannot answer for it is left out rather
+ * than offered as a no-op — the shared rows carry no Spotify save dates — as the web's
+ * `visibleSortKeys` does.
+ */
+fun visibleSortKeys(isAdmin: Boolean): List<SortKey> =
+    if (isAdmin) SortKey.entries else SortKey.entries.filter { it != SortKey.Spotify }
+
 /** Text keys read ascending by default; everything else newest/largest first. */
 fun defaultAscending(key: SortKey): Boolean =
     key == SortKey.Title || key == SortKey.Artist || key == SortKey.Album
@@ -135,7 +161,7 @@ fun sortTracks(
 }
 
 /**
- * The Spotify Liked chip carries its own order: newest save first, matching how the tracks appear in
+ * The Spotify liked chip carries its own order: newest save first, matching how the tracks appear in
  * Spotify itself. Releasing it restores the default rather than leaving the user on a sort key
  * nothing else can reach. Only fires on a *transition*, so pressing an unrelated chip never disturbs
  * a sort the user chose.

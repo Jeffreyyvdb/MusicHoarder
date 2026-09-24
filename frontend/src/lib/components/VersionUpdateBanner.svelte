@@ -66,7 +66,7 @@
 {#if show && info && !suppressed}
   <div
     aria-live="polite"
-    class="border-border/70 text-muted-foreground flex h-9 shrink-0 items-center gap-2.5 border-b px-4 text-[13px] sm:px-7"
+    class="border-separator text-muted-foreground flex h-9 shrink-0 items-center gap-2.5 border-b px-4 text-[13px] sm:px-7"
   >
     <span class="bg-primary size-1.5 shrink-0 rounded-full" aria-hidden="true"></span>
     <p class="min-w-0 flex-1 truncate">
@@ -81,14 +81,20 @@
         >View release notes</a>
       {/if}
       <span class="mx-1" aria-hidden="true">·</span>
-      <a href="/settings#updates" class="hover:text-foreground underline underline-offset-3 transition-colors"
+      <!-- ?tab=, not #updates: Settings selects its section from the query, and a hash landed an
+           admin on Sources. -->
+      <a
+        href="/settings?tab=updates"
+        class="hover:text-foreground underline underline-offset-3 transition-colors"
       >How to update</a>
     </p>
+    <!-- 32px visual in the 36px strip; the after: pseudo grows the hit area to 44×44 without
+         growing the strip. -->
     <button
       type="button"
       onclick={dismiss}
       aria-label="Dismiss update notice"
-      class="hover:bg-muted hover:text-foreground focus-visible:ring-ring/60 -mr-1 grid size-6 shrink-0 place-items-center rounded-md outline-none transition-colors focus-visible:ring-2"
+      class="hover:bg-secondary-hover hover:text-foreground focus-visible:ring-ring/60 relative -mr-2 grid size-8 shrink-0 place-items-center rounded-full outline-none transition-colors after:absolute after:-inset-1.5 after:content-[''] focus-visible:ring-2"
     >
       <X class="size-3.5" />
     </button>
