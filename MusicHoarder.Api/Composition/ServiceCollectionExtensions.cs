@@ -131,6 +131,8 @@ public static class ServiceCollectionExtensions
         // Both resolve ICurrentUserAccessor from RequestServices themselves.
         services.AddScoped<Sharing.ISharedLibraryGrantResolver, Sharing.SharedLibraryGrantResolver>();
         services.AddScoped<Sharing.ILibraryScopeResolver, Sharing.LibraryScopeResolver>();
+        // Share-link open/play counter: holds the day's in-memory visitor salt and the per-share cap.
+        services.AddSingleton<Sharing.ShareVisitTracker>();
 
         // Pick the magic-link sender at startup: Resend when an API key is configured, otherwise
         // the console-logging fallback. Registered as a singleton; no Resend → no Resend client.

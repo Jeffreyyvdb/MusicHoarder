@@ -70,6 +70,12 @@ public sealed partial class MemberWriteGuardMiddleware
         Shared("POST", "like", Capability.TrackListening),
         Shared("DELETE", "like", Capability.TrackListening),
         Shared("POST", "played", Capability.TrackListening),
+
+        // A public share link's open/play beacons. Anyone on the internet holding the link may send
+        // these, so a member who happens to be signed in when they open one must too — otherwise
+        // their visit silently goes uncounted. They write a ShareVisit row and nothing else.
+        new("POST", ShareBeacon(@"visit"), Capability.None),
+        new("POST", ShareBeacon(@"songs/\d+/play"), Capability.None),
     ];
 
     private readonly RequestDelegate _next;
@@ -139,6 +145,10 @@ public sealed partial class MemberWriteGuardMiddleware
 
     private static WriteRule Song(string method, string action, Capability required) =>
         new(method, new Regex($@"^/songs/\d+/{Regex.Escape(action)}/?$", RegexOptions.IgnoreCase), required);
+
+    /// <summary><c>/api/share/{token}/{leaf}</c>, with the token one path segment.</summary>
+    private static Regex ShareBeacon(string leafPattern) =>
+        new($@"^/api/share/[^/]+/{leafPattern}/?$", RegexOptions.IgnoreCase);
 
     private static WriteRule Shared(string method, string action, Capability required) =>
         new(method, new Regex($@"^/api/shared/songs/\d+/{Regex.Escape(action)}/?$", RegexOptions.IgnoreCase), required);

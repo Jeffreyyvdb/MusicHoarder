@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Sharing;
 using MusicHoarder.Api.Tests.Auth;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
@@ -362,6 +363,223 @@ public class SharesEndpointsTests
         Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)payload).StatusCode);
     }
 
+    // ── Visit beacons ───────────────────────────────────────────────────────────────────────
+
+    private const string Browser =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
+
+    [Fact]
+    public async Task RecordShareVisit_CountsAnAnonymousOpen_WithTheForwardedClientsSource()
+    {
+        var options = NewOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.Songs.Add(Song(1, TestUsers.OwnerId, "Discovery", "Daft Punk"));
+            seed.SongShares.Add(Share(1, songId: 1, ShareScope.Song, "tok"));
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = AnonymousContext(options);
+        var accessor = new TestCurrentUserAccessor(user: null);
+        using var tracker = new ShareVisitTracker();
+
+        var result = await SharesEndpoints.RecordShareVisit(
+            "tok", new SharesEndpoints.ShareVisitRequest("https://www.tiktok.com/"),
+            Http(forwardedFor: "203.0.113.9, 10.0.0.2"), db, accessor, tracker, CancellationToken.None);
+
+        Assert.IsType<NoContent>(result);
+        var visit = Assert.Single(await db.ShareVisits.IgnoreQueryFilters().ToListAsync());
+        Assert.Equal(ShareVisitKind.View, visit.Kind);
+        Assert.Equal("TikTok", visit.Source);
+    }
+
+    [Fact]
+    public async Task RecordShareVisit_UnknownOrRevokedToken_NotFound()
+    {
+        var options = NewOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.Songs.Add(Song(1, TestUsers.OwnerId, "Discovery", "Daft Punk"));
+            seed.SongShares.Add(Share(1, songId: 1, ShareScope.Song, "tok-revoked", revoked: true));
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = AnonymousContext(options);
+        var accessor = new TestCurrentUserAccessor(user: null);
+        using var tracker = new ShareVisitTracker();
+
+        foreach (var token in new[] { "nope", "tok-revoked" })
+        {
+            var result = await SharesEndpoints.RecordShareVisit(
+                token, null, Http(), db, accessor, tracker, CancellationToken.None);
+            Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)result).StatusCode);
+        }
+        Assert.Empty(await db.ShareVisits.IgnoreQueryFilters().ToListAsync());
+    }
+
+    [Fact]
+    public async Task RecordSharePlay_CountsOnlyTracksTheShareCovers()
+    {
+        var options = NewOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.Songs.Add(Song(1, TestUsers.OwnerId, "Discovery", "Daft Punk", trackNumber: 1));
+            seed.Songs.Add(Song(2, TestUsers.OwnerId, "Discovery", "Daft Punk", trackNumber: 2));
+            seed.Songs.Add(Song(3, TestUsers.OwnerId, "Homework", "Daft Punk"));
+            seed.SongShares.Add(Share(1, songId: 1, ShareScope.Album, "tok"));
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = AnonymousContext(options);
+        var accessor = new TestCurrentUserAccessor(user: null);
+        using var tracker = new ShareVisitTracker();
+
+        Assert.IsType<NoContent>(await SharesEndpoints.RecordSharePlay("tok", 2, Http(), db, accessor, tracker, CancellationToken.None));
+
+        var outOfScope = await SharesEndpoints.RecordSharePlay("tok", 3, Http(), db, accessor, tracker, CancellationToken.None);
+        Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)outOfScope).StatusCode);
+
+        var play = Assert.Single(await db.ShareVisits.IgnoreQueryFilters().ToListAsync());
+        Assert.Equal(ShareVisitKind.Play, play.Kind);
+        Assert.Equal(2, play.SongId);
+    }
+
+    // ── Stats ───────────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task ListShareStats_IncludesRevokedLinks_WithTheirTotals_AndOnlyTheCallersOwn()
+    {
+        var now = DateTime.UtcNow;
+        var options = NewOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.Songs.Add(Song(1, TestUsers.OwnerId, "Discovery", "Daft Punk", title: "One More Time"));
+            seed.Songs.Add(Song(2, TestUsers.OwnerId, "Homework", "Daft Punk", title: "Da Funk"));
+            seed.Songs.Add(Song(3, OtherOwnerId, "Else", "Someone"));
+            seed.SongShares.Add(Share(1, songId: 1, ShareScope.Song, "live", createdAtUtc: now.AddDays(-1)));
+            seed.SongShares.Add(Share(2, songId: 2, ShareScope.Album, "dead", revoked: true, createdAtUtc: now.AddDays(-5)));
+            seed.SongShares.Add(new SongShare
+            {
+                Id = 3, OwnerUserId = OtherOwnerId, SongId = 3, Scope = ShareScope.Song, Token = "theirs",
+                CreatedAtUtc = now,
+            });
+            seed.ShareVisits.AddRange(
+                Visit(1, ShareVisitKind.View, "a", now.AddHours(-3)),
+                Visit(1, ShareVisitKind.View, "a", now.AddHours(-1)),
+                Visit(1, ShareVisitKind.View, "b", now.AddHours(-2)),
+                Visit(1, ShareVisitKind.Play, "a", now.AddHours(-1), songId: 1),
+                Visit(2, ShareVisitKind.View, "c", now.AddDays(-4)),
+                Visit(3, ShareVisitKind.View, "z", now, owner: OtherOwnerId));
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = OwnerContext(options);
+        var rows = Assert.IsAssignableFrom<IEnumerable<SharesEndpoints.ShareStatsRow>>(
+            Value(await SharesEndpoints.ListShareStats(db, CancellationToken.None))).ToList();
+
+        // Newest first; the other owner's link is not there.
+        Assert.Equal([1, 2], rows.Select(r => r.Id));
+
+        var live = rows[0];
+        Assert.Equal("One More Time", live.Title);
+        Assert.Null(live.RevokedAtUtc);
+        Assert.Equal(3, live.Views);
+        Assert.Equal(2, live.Visitors);
+        Assert.Equal(1, live.Plays);
+        Assert.Equal(now.AddHours(-1), live.LastViewedAtUtc);
+
+        var dead = rows[1];
+        Assert.NotNull(dead.RevokedAtUtc);
+        Assert.Equal("Album", dead.Scope);
+        Assert.Equal(1, dead.Views);
+        Assert.Equal(0, dead.Plays);
+    }
+
+    [Fact]
+    public async Task GetShareStats_BuildsTheDailySeriesFromTheCreationDay_InTheCallersTimeZone()
+    {
+        var now = DateTime.UtcNow;
+        var late = now.Date.AddDays(-1).AddHours(23).AddMinutes(30); // yesterday 23:30 UTC
+        var options = NewOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.Songs.Add(Song(1, TestUsers.OwnerId, "Discovery", "Daft Punk", title: "One More Time"));
+            seed.SongShares.Add(Share(1, songId: 1, ShareScope.Song, "tok", createdAtUtc: now.AddDays(-3)));
+            seed.ShareVisits.Add(Visit(1, ShareVisitKind.View, "a", late));
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = OwnerContext(options);
+
+        var utc = (SharesEndpoints.ShareStatsDetail)Value(
+            await SharesEndpoints.GetShareStats(1, db, days: 30, tzOffsetMinutes: 0, CancellationToken.None));
+        Assert.Equal(4, utc.Daily.Count); // the creation day through today, not 30 days of zeros
+        Assert.Equal(DateOnly.FromDateTime(now.AddDays(-3)), utc.Daily[0].Date);
+        Assert.Equal(DateOnly.FromDateTime(now), utc.Daily[^1].Date);
+        Assert.Equal(1, utc.Daily.Single(d => d.Date == DateOnly.FromDateTime(late)).Views);
+
+        // UTC+1 (getTimezoneOffset() == -60): 23:30 UTC is already the next local day.
+        var cet = (SharesEndpoints.ShareStatsDetail)Value(
+            await SharesEndpoints.GetShareStats(1, db, days: 30, tzOffsetMinutes: -60, CancellationToken.None));
+        Assert.Equal(1, cet.Daily.Single(d => d.Date == DateOnly.FromDateTime(late.AddHours(1))).Views);
+        Assert.Equal(0, cet.Daily.SingleOrDefault(d => d.Date == DateOnly.FromDateTime(late))?.Views ?? 0);
+    }
+
+    [Fact]
+    public async Task GetShareStats_BreaksOpensDownBySource_AndPlaysByTrack()
+    {
+        var now = DateTime.UtcNow;
+        var options = NewOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.Songs.Add(Song(1, TestUsers.OwnerId, "Discovery", "Daft Punk", title: "One More Time", trackNumber: 1));
+            seed.Songs.Add(Song(2, TestUsers.OwnerId, "Discovery", "Daft Punk", title: "Aerodynamic", trackNumber: 2));
+            seed.SongShares.Add(Share(1, songId: 1, ShareScope.Album, "tok", createdAtUtc: now.AddDays(-1)));
+            seed.ShareVisits.AddRange(
+                Visit(1, ShareVisitKind.View, "a", now, source: "TikTok"),
+                Visit(1, ShareVisitKind.View, "b", now, source: "TikTok"),
+                Visit(1, ShareVisitKind.View, "c", now, source: null),
+                Visit(1, ShareVisitKind.View, "d", now, source: "Instagram"),
+                Visit(1, ShareVisitKind.Play, "a", now, songId: 2),
+                Visit(1, ShareVisitKind.Play, "b", now, songId: 2),
+                Visit(1, ShareVisitKind.Play, "b", now, songId: 1));
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = OwnerContext(options);
+        var detail = (SharesEndpoints.ShareStatsDetail)Value(
+            await SharesEndpoints.GetShareStats(1, db, days: null, tzOffsetMinutes: null, CancellationToken.None));
+
+        Assert.Equal(4, detail.Share.Views);
+        Assert.Equal(3, detail.Share.Plays);
+        Assert.Equal(
+            [("TikTok", 2), ("Instagram", 1), (null, 1)],
+            detail.Sources.Select(s => (s.Source, s.Views)));
+        Assert.Equal(
+            [("Aerodynamic", 2), ("One More Time", 1)],
+            detail.Tracks.Select(t => (t.Title, t.Plays)));
+    }
+
+    [Fact]
+    public async Task GetShareStats_AnotherOwnersLink_NotFound()
+    {
+        var options = NewOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.Songs.Add(Song(1, OtherOwnerId, "Else", "Someone"));
+            seed.SongShares.Add(new SongShare
+            {
+                Id = 1, OwnerUserId = OtherOwnerId, SongId = 1, Scope = ShareScope.Song, Token = "theirs",
+                CreatedAtUtc = DateTime.UtcNow,
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = OwnerContext(options);
+        var result = await SharesEndpoints.GetShareStats(1, db, null, null, CancellationToken.None);
+        Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)result).StatusCode);
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────────────────────
 
     private static DbContextOptions<MusicHoarderDbContext> NewOptions() =>
@@ -411,16 +629,49 @@ public class SharesEndpointsTests
         IsDuplicate = duplicate,
     };
 
-    private static SongShare Share(int id, int songId, ShareScope scope, string token, bool revoked = false) => new()
+    private static SongShare Share(
+        int id,
+        int songId,
+        ShareScope scope,
+        string token,
+        bool revoked = false,
+        DateTime? createdAtUtc = null) => new()
     {
         Id = id,
         OwnerUserId = TestUsers.OwnerId,
         SongId = songId,
         Scope = scope,
         Token = token,
-        CreatedAtUtc = DateTime.UtcNow,
+        CreatedAtUtc = createdAtUtc ?? DateTime.UtcNow,
         RevokedAtUtc = revoked ? DateTime.UtcNow : null,
     };
+
+    private static ShareVisit Visit(
+        int shareId,
+        ShareVisitKind kind,
+        string visitorKey,
+        DateTime atUtc,
+        int? songId = null,
+        string? source = null,
+        Guid? owner = null) => new()
+    {
+        ShareId = shareId,
+        OwnerUserId = owner ?? TestUsers.OwnerId,
+        Kind = kind,
+        SongId = songId,
+        VisitorKey = visitorKey,
+        OccurredAtUtc = atUtc,
+        Source = source,
+    };
+
+    private static HttpContext Http(string? forwardedFor = null)
+    {
+        var http = new DefaultHttpContext();
+        http.Request.Headers.UserAgent = Browser;
+        if (forwardedFor is not null)
+            http.Request.Headers["X-Forwarded-For"] = forwardedFor;
+        return http;
+    }
 
     private static List<object> Tracks(object payload) =>
         ((IEnumerable)GetProperty<object>(payload, "Tracks")).Cast<object>().ToList();

@@ -58,6 +58,30 @@ public class DemoReadOnlyMiddlewareTests
     }
 
     [Theory]
+    [InlineData("/api/share/AbC-123_x/visit")]
+    [InlineData("/api/share/AbC-123_x/songs/42/play")]
+    public async Task demo_may_send_a_share_links_open_and_play_beacons(string path)
+    {
+        // A visitor who tried the demo carries its cookie into a share link on the same instance.
+        var (_, nextCalled) = await InvokeAsync(Demo(), "POST", path);
+
+        Assert.True(nextCalled());
+    }
+
+    [Theory]
+    [InlineData("POST", "/api/shares")]
+    [InlineData("DELETE", "/api/shares/1")]
+    [InlineData("POST", "/api/share/tok/songs/abc/play")]
+    [InlineData("POST", "/api/share/tok/extra/visit")]
+    public async Task demo_beacon_allowance_is_anchored(string method, string path)
+    {
+        var (ctx, nextCalled) = await InvokeAsync(Demo(), method, path);
+
+        Assert.False(nextCalled());
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+    }
+
+    [Theory]
     [InlineData("/api/auth/webauthn/register/begin")]
     [InlineData("/api/auth/webauthn/register/complete")]
     public async Task demo_may_not_post_to_owner_only_passkey_enrollment(string path)

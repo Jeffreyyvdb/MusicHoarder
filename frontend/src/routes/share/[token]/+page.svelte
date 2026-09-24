@@ -12,7 +12,10 @@
   import { videoBackdropPrefs } from '$lib/stores/video-backdrop-prefs.svelte';
   import { formatDuration } from '$lib/formatters';
   import {
+    externalReferrer,
     fetchShareLyrics,
+    reportSharePlay,
+    reportShareVisit,
     shareCoverUrl,
     shareStreamUrl,
     shareVideoStreamUrl,
@@ -37,6 +40,28 @@
   $effect(() => {
     const playingId = playerStore.currentSong?.id;
     if (playingId != null && tracks.some((t) => t.id === playingId)) followedId = playingId;
+  });
+
+  // What the owner's Share links page counts: this open, once per page load, and the first time
+  // each track actually plays. Effects run only in the browser, so the server render a link-preview
+  // crawler fetches reports nothing. The server drops the owner's own visits, bots and repeats.
+  let reportedVisitFor: string | null = null;
+  const reportedPlays = new Set<number>();
+  $effect(() => {
+    if (!payload || reportedVisitFor === data.token) return;
+    reportedVisitFor = data.token;
+    reportedPlays.clear();
+    reportShareVisit(data.token, externalReferrer(document.referrer, location.origin));
+  });
+  $effect(() => {
+    const song = playerStore.isPlaying ? playerStore.currentSong : null;
+    const playingId = song?.id;
+    if (playingId == null || reportedPlays.has(playingId)) return;
+    // The share's own stream, not a library song that happens to carry the same id (the player
+    // store outlives a client-side hop from the app to a share page).
+    if (song?.streamUrl !== shareStreamUrl(data.token, playingId)) return;
+    reportedPlays.add(playingId);
+    reportSharePlay(data.token, playingId);
   });
 
   const albumArtist = $derived(payload?.album.artist ?? activeTrack?.artist ?? 'Unknown artist');
