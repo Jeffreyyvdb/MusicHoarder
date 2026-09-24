@@ -91,6 +91,7 @@
     { ids: ['pipeline'] },
     { header: 'Library', ids: ['folders', 'quality', 'album-quality'] },
     { header: 'Insights', ids: ['performance', 'stats', 'history'] },
+    { header: 'Sharing', ids: ['shares'] },
     { ids: ['settings'] }
   ];
   const manageSections = $derived.by(() => {

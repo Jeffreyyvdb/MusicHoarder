@@ -89,3 +89,82 @@ export function shareCoverUrl(token: string, songId: number, size?: number): str
 function shareApiUrl(token: string, songId: number, leaf: string): string {
   return `${API_PREFIX}/api/share/${encodeURIComponent(token)}/songs/${songId}/${leaf}`
 }
+
+// ── Open/play beacons (counted on the owner's Share links page) ──────────────────────────────
+
+/**
+ * The referrer worth reporting: another site's (TikTok, a chat app, `android-app://…` from Chrome
+ * on Android), never this origin's own — a reload or an in-app hop says nothing about where the
+ * visitor came from.
+ */
+export function externalReferrer(referrer: string, origin: string): string | null {
+  if (!referrer) return null
+  try {
+    return new URL(referrer).origin === origin ? null : referrer
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Fire-and-forget: tell the server this page was opened. A script beacon rather than a count in the
+ * payload load, because link-preview crawlers fetch the server-rendered page for its og-tags and run
+ * no script. `keepalive` lets it finish if the visitor leaves at once. Failures are nobody's concern.
+ */
+export function reportShareVisit(token: string, referrer: string | null): void {
+  void fetch(`${API_PREFIX}/api/share/${encodeURIComponent(token)}/visit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ referrer }),
+    keepalive: true,
+    cache: "no-store",
+  }).catch(() => {})
+}
+
+/** Fire-and-forget: a shared track started playing. */
+export function reportSharePlay(token: string, songId: number): void {
+  void fetch(shareApiUrl(token, songId, "play"), {
+    method: "POST",
+    keepalive: true,
+    cache: "no-store",
+  }).catch(() => {})
+}
+
+// ── Umami events (named, in the self-hosted analytics; see $lib/analytics/umami) ─────────────
+
+/** Umami caps event-data strings at 500 characters. */
+const UMAMI_TEXT_MAX = 500
+
+function eventData(fields: Record<string, string | null | undefined>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(fields)) {
+    const text = value?.trim()
+    if (text) out[key] = text.slice(0, UMAMI_TEXT_MAX)
+  }
+  return out
+}
+
+/**
+ * `share-open`'s properties: what the link shares, by name — the page-view Umami records on its
+ * own only carries the link's opaque token in its URL.
+ */
+export function shareOpenEventData(payload: SharePayload): Record<string, string> {
+  const shared = payload.tracks.find((t) => t.id === payload.sharedSongId) ?? payload.tracks[0]
+  const isAlbum = payload.scope === "Album"
+  return eventData({
+    scope: isAlbum ? "album" : "song",
+    title: isAlbum ? (payload.album.title ?? shared?.title) : shared?.title,
+    artist: isAlbum ? (payload.album.artist ?? shared?.artist) : (shared?.artist ?? payload.album.artist),
+  })
+}
+
+/** `share-play`'s properties: the track that started, and the album when the link shares one. */
+export function sharePlayEventData(payload: SharePayload, track: ShareTrack): Record<string, string> {
+  const isAlbum = payload.scope === "Album"
+  return eventData({
+    scope: isAlbum ? "album" : "song",
+    title: track.title,
+    artist: track.artist ?? payload.album.artist,
+    album: isAlbum ? payload.album.title : null,
+  })
+}

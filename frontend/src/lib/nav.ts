@@ -16,6 +16,7 @@ import History from '@lucide/svelte/icons/history';
 import Inbox from '@lucide/svelte/icons/inbox';
 import LayoutGrid from '@lucide/svelte/icons/layout-grid';
 import Library from '@lucide/svelte/icons/library';
+import Link2 from '@lucide/svelte/icons/link-2';
 import ListMusic from '@lucide/svelte/icons/list-music';
 import ListVideo from '@lucide/svelte/icons/list-video';
 import Music2 from '@lucide/svelte/icons/music-2';
@@ -350,6 +351,15 @@ export const NAV_GROUPS: NavGroup[] = [
         keywords: 'changes feed log activity written'
       },
       {
+        // The public links made with "Share link…": how often each was opened and played, and
+        // where they are revoked.
+        id: 'shares',
+        label: 'Share links',
+        href: '/shares',
+        icon: Link2,
+        keywords: 'share links public shared url clicks opens views visitors analytics revoke tiktok'
+      },
+      {
         id: 'settings',
         label: 'Settings',
         href: '/settings',
@@ -658,7 +668,7 @@ export function backFor(url: URL, user: NavAudience): NavBack | null {
 
   // A pushed detail goes back to its list rather than to the hub: an Inbox item (selected by
   // ?song= or, for duplicates, ?group=) to its queue, a Discover playlist to Discover, a Settings
-  // section to the Settings root.
+  // section to the Settings root, a share link to its list.
   if (
     match.group.id === 'inbox' &&
     match.item &&
@@ -668,6 +678,11 @@ export function backFor(url: URL, user: NavAudience): NavBack | null {
   }
   if (match.item && path === '/discover' && param(url, 'playlist')) return to(match.item);
   if (match.item && path === '/settings' && param(url, 'tab')) return to(match.item);
+  // A share link goes back to the list it sits in (the revoked links are their own list).
+  if (match.item && path === '/shares' && param(url, 'link')) {
+    const revoked = url.searchParams.get('view') === 'revoked';
+    return { label: match.item.label, href: revoked ? '/shares?view=revoked' : match.item.href };
+  }
 
   return { label: match.group.label, href: match.group.hub };
 }
@@ -687,7 +702,8 @@ const GROUPED_PAGES: readonly string[] = [
   '/album-quality',
   '/performance',
   '/stats',
-  '/history'
+  '/history',
+  '/shares'
 ];
 
 /**
