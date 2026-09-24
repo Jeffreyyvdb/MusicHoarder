@@ -11,12 +11,15 @@
   import { playerStore, type PlayerSong } from '$lib/stores/player.svelte';
   import { videoBackdropPrefs } from '$lib/stores/video-backdrop-prefs.svelte';
   import { formatDuration } from '$lib/formatters';
+  import { trackUmamiEvent } from '$lib/analytics/umami';
   import {
     externalReferrer,
     fetchShareLyrics,
     reportSharePlay,
     reportShareVisit,
     shareCoverUrl,
+    shareOpenEventData,
+    sharePlayEventData,
     shareStreamUrl,
     shareVideoStreamUrl,
     type ShareLyrics,
@@ -45,6 +48,8 @@
   // What the owner's Share links page counts: this open, once per page load, and the first time
   // each track actually plays. Effects run only in the browser, so the server render a link-preview
   // crawler fetches reports nothing. The server drops the owner's own visits, bots and repeats.
+  // The same two moments go to Umami (when the instance has it) as named events, so its dashboard
+  // shows which song was opened rather than only a page view of an opaque token URL.
   let reportedVisitFor: string | null = null;
   const reportedPlays = new Set<number>();
   $effect(() => {
@@ -52,6 +57,7 @@
     reportedVisitFor = data.token;
     reportedPlays.clear();
     reportShareVisit(data.token, externalReferrer(document.referrer, location.origin));
+    trackUmamiEvent('share-open', shareOpenEventData(payload));
   });
   $effect(() => {
     const song = playerStore.isPlaying ? playerStore.currentSong : null;
@@ -62,6 +68,8 @@
     if (song?.streamUrl !== shareStreamUrl(data.token, playingId)) return;
     reportedPlays.add(playingId);
     reportSharePlay(data.token, playingId);
+    const track = tracks.find((t) => t.id === playingId);
+    if (payload && track) trackUmamiEvent('share-play', sharePlayEventData(payload, track));
   });
 
   const albumArtist = $derived(payload?.album.artist ?? activeTrack?.artist ?? 'Unknown artist');
