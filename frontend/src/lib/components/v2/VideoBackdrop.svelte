@@ -1,6 +1,7 @@
 <script lang="ts">
   import { MediaQuery } from 'svelte/reactivity';
   import { getSongVideoStreamUrl } from '$lib/api-client';
+  import { cropMatte } from '$lib/actions/crop-matte';
   import { playerStore } from '$lib/stores/player.svelte';
   import { videoBackdropPrefs } from '$lib/stores/video-backdrop-prefs.svelte';
   import type { SongVideo } from '$lib/components/file-browser/now-playing/song-video.svelte';
@@ -10,7 +11,9 @@
   // frame over it): the cover, blown up and blurred into a wash; a black dim sized per cover so
   // white text always clears its contrast (see cover-dim.ts); and — when a music video is attached,
   // the pref is on and this song is the one playing — the muted video itself, cross-fading in once
-  // its first frame decodes.
+  // its first frame decodes. The video fills the screen with its picture, not its frame: black bars
+  // baked into the file are cropped (crop-matte.ts), or a letterbox's edge would cut a hard line
+  // across the player wherever it happened to land — through Info's section control, say.
   //
   // The audio element in the player store is the master clock: the <video> is slaved to it
   // through the per-song sync offset (videoTime = audioTime + offsetMs/1000) with a hard resync
@@ -168,7 +171,7 @@
        Cross-fades in over the ambient art once the first frame is decoded. -->
   <div
     class={cn(
-      'mh-crossfade pointer-events-none absolute inset-0 transition-opacity duration-500',
+      'mh-crossfade pointer-events-none absolute inset-0 overflow-hidden transition-opacity duration-500',
       videoReady ? 'opacity-100' : 'opacity-0'
     )}
   >
@@ -181,6 +184,7 @@
       aria-hidden="true"
       tabindex="-1"
       class="absolute inset-0 size-full object-cover"
+      use:cropMatte={{ letterbox: video.info?.letterbox, pillarbox: video.info?.pillarbox }}
       onloadstart={() => (videoReady = false)}
       onloadeddata={() => {
         videoReady = true;

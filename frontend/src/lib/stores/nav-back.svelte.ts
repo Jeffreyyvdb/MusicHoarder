@@ -6,14 +6,19 @@ import { untrack } from 'svelte';
  * while it shows a back button; the gesture runs exactly what tapping the button would, so the
  * two can never disagree about where Back goes.
  *
+ * The action may return a promise that settles once the page it goes back to is on screen, as
+ * `tabMemory.goBack` does; the gesture holds the page it is leaving until then.
+ *
  * Usage, in the nav bar:
- *   $effect(() => navBack.set(back ? () => void tabMemory.goBack(back) : null));
+ *   $effect(() => navBack.set(back ? () => tabMemory.goBack(back) : null));
  */
 
-let current = $state.raw<(() => void) | null>(null);
+export type NavBackAction = () => void | Promise<void>;
+
+let current = $state.raw<NavBackAction | null>(null);
 
 export const navBack = {
-  get current(): (() => void) | null {
+  get current(): NavBackAction | null {
     return current;
   },
   /**
@@ -21,7 +26,7 @@ export const navBack = {
    * published action — when two nav bars overlap during a navigation, the outgoing one's cleanup
    * must not wipe the incoming one's action.
    */
-  set(fn: (() => void) | null): () => void {
+  set(fn: NavBackAction | null): () => void {
     untrack(() => {
       current = fn;
     });

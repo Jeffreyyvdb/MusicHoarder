@@ -97,3 +97,7 @@ Instead of the built-in community relay, point at your own instances:
 - The `SpotiFLAC()` return value is undocumented, so the wrapper decides success by checking the output
   file exists and is non-empty. If the module API changes, adjust `_run_spotiflac` / `_looks_like_no_source`.
 - Amazon is out of scope (needs CENC decryption) — stick to Tidal/Qobuz (and Deezer if you want a third).
+- **Explicit vs clean.** The module resolves the Spotify track to Tidal/Qobuz by its ISRC, so it fetches
+  exactly the edition that Spotify id names: a clean edit's id yields a clean file. Choosing the edition
+  is MusicHoarder's job, not this wrapper's: with `StreamingFlac:PreferExplicit` (on by default) the API
+  swaps a clean edit's id for its explicit edition's before calling `/acquire`.

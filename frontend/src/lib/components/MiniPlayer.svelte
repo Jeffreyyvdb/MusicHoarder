@@ -247,24 +247,30 @@
       onpointermove={onSwipeMove}
       onpointerup={onSwipeEnd}
       onpointercancel={onSwipeEnd}
-      class="mh-mini-enter mh-glass mh-chrome fixed right-[max(16px,env(safe-area-inset-right))] bottom-(--mh-player-bottom) left-[max(16px,env(safe-area-inset-left))] z-40 flex h-(--mh-player-h) touch-none items-center rounded-full pr-1 pl-2 select-none"
+      class="mh-mini-enter mh-glass mh-chrome fixed right-[max(16px,env(safe-area-inset-right))] bottom-(--mh-player-bottom) left-[max(16px,env(safe-area-inset-left))] z-40 flex h-(--mh-player-h) touch-none items-center rounded-full pr-1 select-none"
       out:fly={miniExit()}
     >
-      <!-- The bar's main target: art + titles, stretching to the transport. -->
+      <!-- The bar's main target: art + titles, stretching to the transport. It owns the leading
+           inset, so the capsule's rounded end opens Now Playing too.
+           The art sits in the capsule's end cap the way Apple Music's does: a 36px square with a
+           quarter-size 9px radius, 14px in from the leading edge. That puts its corner curves
+           roughly concentric with the cap's semicircle, with about the same gap there as above and
+           below the art. A 40px square with 6px corners at 8px came within ~3px of the capsule at
+           its corners and read as a hard square pushed into a round end. -->
       <button
         type="button"
         onclick={openNowPlaying}
         aria-label="Open now playing"
-        class="focus-visible:ring-ring flex h-full min-w-0 flex-1 items-center gap-3 rounded-full text-left outline-none focus-visible:ring-2 focus-visible:ring-inset"
+        class="focus-visible:ring-ring flex h-full min-w-0 flex-1 items-center gap-3 rounded-full pl-3.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset"
       >
         <Cover
           artist={song.artist}
           title={song.title}
           coverUrl={song.coverUrl ?? null}
-          size={40}
-          corner={6}
+          size={36}
+          corner={9}
           caption={false}
-          class="size-10 shrink-0"
+          class="size-9 shrink-0"
         />
         <span class="flex min-w-0 flex-col">
           <span class="text-subheadline truncate font-semibold">{song.title}</span>

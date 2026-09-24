@@ -267,6 +267,8 @@ public class SharesEndpointsTests
                 FilePath = "/videos/1.mp4",
                 SyncOffsetMs = 1500,
                 DurationSeconds = 240,
+                LetterboxFraction = 0.13125,
+                PillarboxFraction = 0,
             });
             // Still fetching — must not surface on the share.
             seed.SongMusicVideos.Add(new SongMusicVideo { SongId = 2, Status = MusicVideoStatus.Fetching });
@@ -282,8 +284,11 @@ public class SharesEndpointsTests
         Assert.True(GetProperty<bool>(tracks[0], "HasVideo"));
         Assert.Equal(1500, GetProperty<int?>(tracks[0], "VideoOffsetMs"));
         Assert.Equal(240, GetProperty<int?>(tracks[0], "VideoDurationSeconds"));
+        Assert.Equal(0.13125, GetProperty<double?>(tracks[0], "VideoLetterbox"));
+        Assert.Equal(0, GetProperty<double?>(tracks[0], "VideoPillarbox"));
         Assert.False(GetProperty<bool>(tracks[1], "HasVideo"));
         Assert.Null(GetProperty<int?>(tracks[1], "VideoOffsetMs"));
+        Assert.Null(GetProperty<double?>(tracks[1], "VideoLetterbox"));
     }
 
     [Fact]

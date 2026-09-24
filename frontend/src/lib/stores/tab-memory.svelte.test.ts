@@ -113,12 +113,51 @@ describe('tabMemory', () => {
     const memory = await load();
     memory.record({ type: 'enter', from: null, to: u('/overview') }, admin);
     nav(memory, admin, 'link', '/library?album=a');
+    back.mockImplementationOnce(() => nav(memory, admin, 'popstate', '/overview'));
 
     const target = memory.backTarget(u('/library?album=a'), admin);
     expect(target).toEqual({ label: 'Listen', href: '/overview' });
     await memory.goBack(target!);
     expect(back).toHaveBeenCalledOnce();
     expect(goto).not.toHaveBeenCalled();
+  });
+
+  it('settles a history Back only once the navigation has landed', async () => {
+    const memory = await load();
+    memory.record({ type: 'enter', from: null, to: u('/overview') }, admin);
+    nav(memory, admin, 'link', '/library?album=a');
+
+    let settled = false;
+    const done = memory.goBack(memory.backTarget(u('/library?album=a'), admin)!).then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(back).toHaveBeenCalledOnce();
+    expect(settled).toBe(false);
+
+    // The popstate lands: afterNavigate records it.
+    nav(memory, admin, 'popstate', '/overview');
+    await done;
+    expect(settled).toBe(true);
+  });
+
+  it('stops waiting on a history Back that never lands', async () => {
+    vi.useFakeTimers();
+    try {
+      const memory = await load();
+      memory.record({ type: 'enter', from: null, to: u('/overview') }, admin);
+      nav(memory, admin, 'link', '/library?album=a');
+      let settled = false;
+      void memory.goBack(memory.backTarget(u('/library?album=a'), admin)!).then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(settled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('replaces instead of popping across tabs', async () => {

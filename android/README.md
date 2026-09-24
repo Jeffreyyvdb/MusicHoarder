@@ -355,8 +355,12 @@ What it also needs, and what ExoPlayer never does on its own, is **shape** — a
 2.4x too tall. `VideoFrameLayout` in `ui/PlayerVideo.kt` is `AspectRatioFrameLayout` minus
 everything else: it reads the decoded size from `onVideoSizeChanged`, sizes its child from it, and
 centres it, clipping the overflow. The two fits are the web's two `object-fit`s — cropped to fill
-behind the player, letterboxed in the watch view. `videoChildSize` is the whole rule and is pinned
-by `VideoChildSizeTest`; `VideoFrameLayoutTest` pins that a real measure pass applies it.
+behind the player, letterboxed in the watch view. Cropping fills the box with the clip's *picture*,
+not its frame: plenty of music videos are films mastered into 16:9 with black bars baked in, which
+the server measures once per file (`letterbox` / `pillarbox` on `VideoInfo`), and the backdrop
+pushes those bars outside the box rather than painting two solid bands across the player — the
+web's `cropMatte`, case for case. `videoChildSize` is the whole rule and is pinned by
+`VideoChildSizeTest`; `VideoFrameLayoutTest` pins that a real measure pass applies it.
 
 Not wired up: fetching or deleting a video, nudging the sync offset by hand, triggering a
 transcription, and the pronunciation/translation overlay — all of them owner-only mutations the

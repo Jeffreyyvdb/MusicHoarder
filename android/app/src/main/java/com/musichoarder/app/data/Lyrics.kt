@@ -148,6 +148,12 @@ data class VideoInfo(
     val lastError: String? = null,
     /** A Ready row whose mp4 vanished from disk — the stream would 404, so do not try. */
     val fileMissing: Boolean = false,
+    /**
+     * The black bars baked into the frame, as the share of it each bar of a pair covers — top and
+     * bottom, then the sides. Null until the server has measured the file. The backdrop crops them.
+     */
+    val letterbox: Double? = null,
+    val pillarbox: Double? = null,
 ) {
     val isPlayable: Boolean get() = status.equals("Ready", ignoreCase = true) && !fileMissing
 }
