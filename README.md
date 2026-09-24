@@ -1,12 +1,13 @@
 # MusicHoarder
 
-**Fix your messy music library — automatically — then browse, play, like, and grow it.**
+**Fix your messy music library — automatically — then listen to it in an app that feels at home on
+your iPhone, your Android phone and your desktop.**
 
 MusicHoarder is a self-hosted, open-source app that scans a large, disorganized music collection
 (including NAS/SMB shares), identifies each track by its actual audio, enriches it with proper
 metadata, and builds a clean, consistently-organized copy — without ever touching your originals.
-Once it's clean, it's also a full music app: browse, play, like, get stats, discover new playlists,
-and grow your library from Spotify or Soulseek.
+Once it's clean, it's a full music player in the style of Apple Music: browse, play with synced
+lyrics, like, get stats, discover new playlists, and grow your library from Spotify or Soulseek.
 
 [![CI](https://github.com/Jeffreyyvdb/MusicHoarder/actions/workflows/ci.yml/badge.svg)](https://github.com/Jeffreyyvdb/MusicHoarder/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -15,9 +16,49 @@ If you've ever ended up with thousands of files like `track_047.mp3`, duplicate 
 bitrates, missing artwork, and inconsistent folder names, this is for you. Point it at your source
 library, let it run, and review anything it isn't sure about.
 
-![The Pipeline "Conveyor" — a live dashboard showing source files flowing through Scan → Fingerprint → Match → Decide → AI grade → Dedupe → Library, with a "Needs you" review queue](docs/screenshots/pipeline-conveyor.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/hero-dark.webp">
+  <img alt="MusicHoarder on the desktop and on an iPhone — the Albums grid of a real library next to Now Playing with time-synced lyrics over the album's artwork" src="docs/screenshots/hero.webp">
+</picture>
+
+<sub>Every screenshot in this README is of a real, self-hosted library of about 20,000 files — not
+a mock-up. The image above follows your GitHub light or dark theme.</sub>
 
 ## Features
+
+### Listen — an Apple Music-style player for the library you own
+
+![On an iPhone: the Listen tab's overview with its library shortcuts and favourite tracks, an album page with Play and Shuffle and its canonical-tracklist status, and Now Playing showing synced lyrics](docs/screenshots/phone-listen.webp)
+
+- **Built like a native iOS app** — on a phone, a floating glass tab bar (Listen · Inbox · Add ·
+  Manage) with its own search button, large titles that collapse as you scroll, grouped lists,
+  bottom sheets, long-press menus and an edge swipe for Back. Each tab keeps its own navigation
+  stack, so switching tabs returns you to where you were, and re-tapping a tab pops it to its root.
+  On the desktop the same app has a sidebar, a toolbar and a ⌘K command palette.
+- **Apple's design language, accessibility included** — the system palette in light and dark,
+  iOS text styles that follow the iPhone's Text Size (Dynamic Type), touch targets sized to
+  Apple's guidelines, and support for Reduce Motion, Reduce Transparency and Increase Contrast.
+  Every text colour is contrast-checked.
+- **Now Playing** — a full-screen, always-dark player over a dimmed, blurred copy of the cover, with
+  karaoke-style **synced lyrics** that follow the song (tap a line to jump to it), **music videos**
+  that play in sync with the audio, and an Info view with the track's tags, match confidence,
+  fingerprint and every provider's answer. Drag it down to dismiss; the mini player keeps playing
+  as you move around the app.
+- **Keeps playing** — when a queue runs out, a server-side radio continues with similar songs from
+  your library (artist, genre, era and your own likes and plays), so a one-track album doesn't end
+  in silence. The installed iPhone app keeps playing in the background, and formats Safari can't
+  play (such as Ogg Opus) are decoded as they stream.
+- **Browse the way you listen** — a personal Overview with shelves built from your real play and
+  like history, Albums, Artists with an A–Z index, and one Tracks list sliced by filters (Spotify
+  liked, favourites, local files, has video, with lyrics, unreleased). On a phone, tapping a row
+  plays the list you're looking at.
+- **Likes & play history** — heart any track; plays are tracked (count + last played) to power
+  most-played, recently-added and "never played" shelves.
+- **Install it** — add it to your iPhone or iPad home screen, or install it from Chrome/Edge; it
+  launches full-screen with its own icon and shows an offline page instead of a browser error. The
+  native [Android app](android/README.md) mirrors the same design and behaviour.
+
+![Now Playing on the desktop: the album cover and transport controls on the left, and the song's time-synced lyrics on the right with the current line highlighted](docs/screenshots/now-playing.webp)
 
 ### Identify, enrich & organize
 
@@ -38,47 +79,44 @@ library, let it run, and review anything it isn't sure about.
   elects one canonical identity per folder and tags every track with it, keeping albums whole in
   players like Navidrome. It's build-time and reversible — your per-track enrichment is untouched.
 - **Canonical album tracklists** — cross-checks each album against MusicBrainz, Spotify, Apple
-  Music, and Deezer to build the *full* tracklist, so the album view shows every real track and
-  greys out the ones you're missing.
+  Music, and Deezer to build the *full* tracklist, so the album page shows every real track and
+  marks the ones you're missing, with one tap to fetch them.
 - **Cover art** — resolves album artwork (folder image → embedded picture, then Cover Art Archive →
   Deezer → iTunes when a file has none), validates it, and writes a single cover into each
   destination folder so players show the real sleeve.
 - **Duplicate detection** — groups songs by identical fingerprint and elects the best copy (codec
   tier and bitrate, then metadata trustworthiness, then file size) so only the best version is built.
 - **Synced lyrics + AI transcription** — fetches time-synced (karaoke-style) or plain lyrics from
-  LRCLIB, embeds them into the built file, and shows them in the app with a synced/plain toggle.
-  *Optional, experimental:* when no lyrics exist anywhere, an OpenAI-compatible **Whisper** pass
-  (default `whisper-1`; repoint it at Groq or a self-hosted model) transcribes the audio into a fresh
-  synced `.lrc` from Whisper's word/segment timestamps — stored **separately** from any curated
-  lyrics and clearly marked, so it never overwrites the real thing. No key → the feature is just off.
+  LRCLIB and embeds them into the built file. *Optional, experimental:* when no lyrics exist
+  anywhere, an OpenAI-compatible **Whisper** pass (default `whisper-1`; repoint it at Groq or a
+  self-hosted model) transcribes the audio into a fresh synced `.lrc` — stored **separately** from
+  any curated lyrics and clearly marked, so it never overwrites the real thing. No key → the
+  feature is just off.
 - **Community trackers** *(optional)* — artist-scoped catalogs cover leaks, alternate versions, and
   unreleased albums that mainstream services don't, gated to a per-artist allowlist.
 
-### Review & quality
+![An album page on the desktop: Mac Miller's Circles, linked to Spotify and Deezer with 10 of 12 tracks present — the missing opener is listed with "Get this track" and "Find this track", and every owned track shows its format, size and match confidence](docs/screenshots/album.webp)
 
-- **Manual review Inbox** — a three-tab review surface with live counts: **Tag review**
-  (low-confidence matches to approve, correct, or bulk-approve above a confidence threshold),
-  **Duplicates** (A/B compare of fingerprint twins), and **AI flagged** (matches the grader marked
-  Wrong or Questionable). Nothing is a dead end — unmatched and leaked tracks stay visible.
+### Review & curate
+
+- **The Inbox** — everything the pipeline couldn't decide on its own, one queue per kind of
+  decision, each with a live count: **Tag review** (low-confidence matches to approve, correct, or
+  bulk-approve above a confidence threshold, with every provider's candidate and a field-by-field
+  diff before anything is written), **Duplicate tracks** (compare fingerprint twins and keep the
+  best), **Artist names** and **Album names** (spellings of one artist or album that could be
+  merged), and **AI flagged** (matches the grader marked Wrong or Questionable). On a phone each
+  queue opens as a list with pushed details and a bottom Accept / Skip / Reject toolbar.
 - **Optional AI quality grading** — an LLM grades each match (and whole-album matches) with a 0–100
   score, verdict, summary, and issue codes, powering rollups and flagged/verified buckets so you can
   triage what actually needs attention. OpenAI-compatible; defaults to OpenRouter, works with a local
   Ollama. Re-gradeable when the prompt or model changes.
 
-![The Inbox — a low-confidence match showing each provider's candidate with a confidence score, and a From → Will-write-to field diff before anything is written](docs/screenshots/inbox-review.png)
+![Tag review on the desktop: a file named "63 (Dagger) (feat. MadeInTYO).mp3" identified by its fingerprint as "Lean Wit Me" at 100%, next to the other providers' candidates and a From → Will-write-to diff of the file's path](docs/screenshots/inbox-review.webp)
 
-### Browse, play & grow your library
+![On an iPhone: the Inbox hub with a count per queue, a Tag review decision with provider candidates and a bottom Accept toolbar, and the Pipeline summary with its stage-by-stage counts](docs/screenshots/phone-manage.webp)
 
-- **Web UI** — browse by album, artist, track, folder, or liked; play in a persistent
-  Apple-Music-style bar that survives navigation; jump anywhere with a ⌘K palette; open any track's
-  full-screen provenance panel (Metadata / Lyrics / Fingerprint / Enrichment) and pipeline timeline;
-  and watch every stage stream live — all fully responsive on mobile.
-- **Likes, play tracking & Liked Songs** — heart any track for a Spotify-style Liked Songs view;
-  playback is tracked (play count + last-played) to power most-played, recently-added, and
-  "never played" shelves.
-- **Stats & overview dashboards** — a "hoard at a glance" insights page (hero counts, pipeline and
-  wishlist funnels, metadata-coverage rings, top artists, format breakdowns) plus a personalized home
-  built from your real play and like history.
+### Grow your library
+
 - **Discover playlists** *(optional)* — browse Deezer-backed editorial and chart playlists by genre
   or search, or paste a Spotify/Deezer playlist link, then subscribe so new tracks are wishlisted
   and (with downloads enabled) fetched automatically.
@@ -88,30 +126,52 @@ library, let it run, and review anything it isn't sure about.
   track-by-track *in-library vs missing* comparison, and a fast poll picks up songs you just liked
   within seconds.
 - **Wishlist with auto-download** *(optional)* — everything wishlisted (from Spotify sync or
-  Discover) is turned into an actual file by an ordered fetch chain: a self-run
-  [slskd](https://github.com/slskd/slskd) (Soulseek) first, then a yt-dlp fallback that keeps native
-  Opus and stamps the authoritative identity so the download enriches correctly and lands in the
-  right album. Already-owned tracks are skipped; failures retry individually or in bulk. The whole
-  *liked → wishlisted → downloaded → in library* journey is charted on the Stats page. Off by default.
-- **Playlist export** *(optional)* — mirror your Spotify Liked Songs or any playlist as a static
+  Discover) is turned into an actual file by an ordered fetch chain: an optional streaming-FLAC
+  sidecar, a self-run [slskd](https://github.com/slskd/slskd) (Soulseek), then a yt-dlp fallback
+  that keeps native Opus and stamps the authoritative identity so the download enriches correctly
+  and lands in the right album. Already-owned tracks are skipped; failures retry individually or in
+  bulk. Off by default; see the [self-hosting guide](docs/SELF_HOSTING.md#optional-integrations).
+- **Add from link** — paste a Spotify track or YouTube link to download it straight into the
+  library.
+- **Playlist sync** *(optional)* — mirror your Spotify Liked Songs or any playlist as a static
   `.m3u8` file in the destination library, in order, so Navidrome/Plex/Jellyfin auto-import it.
-- **Public share links & share view** — mint a revocable, no-account link scoped to a single track
-  or a whole album. The public page is a chrome-free player with ambient artwork pulled from the
-  cover, an album queue that plays straight through, and a **full-screen synced-lyrics theater** that
-  scrolls line-by-line with the song and follows the queue as it advances. Nothing else in your
-  library is exposed, and the link is revocable anytime. With the Android app installed, share and
-  invite links open natively in the app (verified App Links; see `android/README.md`).
-- **Friend accounts & sharing** — invite people by email (Settings → People mints a one-time link)
-  to create their own listen-only account, then share albums, artists, or your entire library per
-  friend. Friends get the full listening app — Overview, Albums/Artists/Tracks with search and
-  filters, synced-lyrics theater, music videos, and their own likes and play history — over
-  exactly what you granted. Your library stays scoped to your account, every grant is revocable,
-  and removing a friend disables their account and signs them out everywhere.
-- **Library history** — an audit log of every change written to the destination (album
-  consolidations, artist renames, year corrections, cover art, per-field tag diffs), so you can see
-  exactly "what Navidrome sees differently."
 
-![The Discover page — Deezer-backed editorial and chart playlists with genre filters, a paste-a-link box, and one-click subscribe](docs/screenshots/discover.png)
+![The Discover page — Deezer-backed editorial and chart playlists with genre filters, a search box, a paste-a-link button, and one-click subscribe](docs/screenshots/discover.webp)
+
+### Share
+
+- **Public share links** — mint a revocable, no-account link scoped to a single track or a whole
+  album. The public page is a chrome-free player with ambient artwork, an album queue that plays
+  straight through, and a full-screen synced-lyrics view. Nothing else in your library is exposed.
+  With the Android app installed, share and invite links open natively in the app.
+- **Member accounts** — invite people by email (Settings → People mints a one-time link) to create
+  their own listen-only account, then share albums, artists, or your entire library with each of
+  them. Members get the same listening app — Overview, Albums, Artists and Tracks, Now Playing with
+  lyrics and music videos, and their own likes and play history — over exactly what you granted.
+  Every grant is revocable, and removing someone disables their account and signs them out
+  everywhere.
+- **Several accounts on one device** — sign in to more than one account (say, your own and the
+  demo) and switch between them from the account menu, on the web and on Android.
+
+### Watch it work
+
+- **Pipeline** — a live dashboard of the whole flow, Scan → Fingerprint → Match → Decide → AI grade
+  → Dedupe → Library, with what's in flight, what's awaiting you, and what just landed. New files
+  copied onto the source share are picked up by a periodic re-scan.
+- **History** — one feed that answers "what has this been doing?": what was acquired, built,
+  identified, renamed, healed, given lyrics, videos or artwork, and what the app itself changed,
+  filterable by kind and period. Tag diffs written to the destination are kept as a permanent log,
+  so you can see exactly what Navidrome sees differently.
+- **Stats** — a "hoard at a glance" page: hero counts, the pipeline and Spotify-wishlist funnels,
+  top artists, biggest albums, format breakdown and match status; plus per-folder, AI-quality,
+  album-match and performance-over-time views under Manage.
+
+![The Pipeline dashboard: 20,192 source files, 18,530 in the library, 3,784 awaiting a decision and an average AI quality of 82.4, above the stage-by-stage conveyor and the "Needs you" queue](docs/screenshots/pipeline.webp)
+
+<p>
+  <img width="49%" alt="The Stats page: library, cover, lyrics and liked-to-library counts above the pipeline funnel, the Spotify wishlist journey, top artists and a format breakdown" src="docs/screenshots/stats.webp">
+  <img width="49%" alt="The History feed: scans, cover art added, artists renamed and album splits healed, each with when it happened, filterable by kind and period" src="docs/screenshots/history.webp">
+</p>
 
 ### Optional integrations
 
@@ -128,22 +188,18 @@ library, let it run, and review anything it isn't sure about.
 ### Platform
 
 - **Passwordless auth + read-only demo** — sign in by emailed magic link or WebAuthn passkey
-  (Touch ID / Windows Hello / security key), with Owner (full control), Friend (invited, listen-only,
-  sees only what the owner shared), and Demo (read-only) roles. A one-click
+  (Face ID / Touch ID / Windows Hello / security key), with Admin (full control), Member (invited,
+  listen-only, sees only what was shared with them), and Demo (read-only) roles. A one-click
   **[Try the demo](https://musichoarder.app/login)** account browses and plays a seeded library
   while every mutating action is denied.
 - **Self-hosted** — runs on your own hardware via .NET Aspire (dev) or Docker Compose (prod),
   pulling prebuilt GHCR images. Your music never leaves your machine.
-- **Installable web app** — add it to your iPhone or iPad home screen (Safari → Share → *Add to
-  Home Screen*) or install it from Chrome/Edge on Android and desktop. It launches full-screen
-  straight into your library with its own icon, lays out around the notch and home indicator, and
-  shows a MusicHoarder offline page instead of a browser error when there's no connection. Sign in
-  once inside the installed app: it keeps its own session, separate from Safari's, and an emailed
-  magic link opens in Safari rather than in the installed app — so on iPhone the smooth way in is a
-  passkey (enrol one under Settings → Account from Safari first) or the demo account. The native
-  [Android app](android/README.md) is still there for Android.
-
-![The Stats dashboard — hero counts (in library, covers added, lyrics added, hours of music), a pipeline funnel, a Spotify wishlist journey, and metadata-coverage rings](docs/screenshots/stats.png)
+- **Installable web app** — on iPhone, Safari → Share → *Add to Home Screen*. Sign in once inside
+  the installed app: it keeps its own session, separate from Safari's, and an emailed magic link
+  opens in Safari rather than in the installed app — so the smooth way in is a passkey (enrol one
+  under Settings → Account from Safari first) or the demo account.
+- **Native Android app** — Kotlin + Compose + Media3, paired by QR code, email sign-in or passkey.
+  See [android/README.md](android/README.md).
 
 ## How it works
 
@@ -165,7 +221,7 @@ Source library
 Confident matches flow straight through to a clean destination library; uncertain ones — and
 anything the AI grader flags — surface in the **Inbox** for a human decision. The source is never
 modified, and removed/missing files are soft-deleted rather than purged. The whole flow is visible
-live on the **Pipeline → Conveyor** dashboard.
+live on the **Manage → Pipeline** dashboard.
 
 ## Tech stack
 
@@ -174,7 +230,8 @@ live on the **Pipeline → Conveyor** dashboard.
 | `MusicHoarder.Api` | ASP.NET Core minimal API — endpoints, EF Core/PostgreSQL persistence, and the background services that run the pipeline, enrichment providers, sync, and downloads |
 | `MusicHoarder.AppHost` | .NET Aspire AppHost — composes the API, frontend, and PostgreSQL for local dev |
 | `MusicHoarder.ServiceDefaults` | Shared cross-cutting defaults (health checks, OpenTelemetry, resilient HTTP) |
-| `frontend` | SvelteKit 2 + Svelte 5 + Bun — the full web app: library browser, built-in player, live pipeline/conveyor, review Inbox, Discover, Stats, and share pages |
+| `frontend` | SvelteKit 2 + Svelte 5 + Bun — the full web app, installable on iPhone and desktop: library browser, player with Now Playing, live pipeline, review Inbox, Discover, Stats, History, and share pages |
+| `android` | Native Android client (Kotlin, Jetpack Compose, Media3) — a line-by-line port of the web app's library and player, talking to the same API |
 
 ---
 
@@ -344,8 +401,8 @@ the Library Builder skips them.
 
 ### Library views
 
-The Library **Overview / Albums / Artists / All tracks** views show what's in your destination
-library; the **Pipeline → Conveyor** dashboard shows the full source-to-destination flow, and the
+The **Listen** views (Overview / Albums / Artists / Tracks) show what's in your destination
+library; the **Manage → Pipeline** dashboard shows the full source-to-destination flow, and the
 **Inbox** holds anything awaiting a human decision.
 
 ### EF Core migrations
