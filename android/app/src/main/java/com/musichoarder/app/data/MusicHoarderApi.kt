@@ -279,6 +279,29 @@ class MusicHoarderApi(
         execute(request) { json.decodeFromString<LyricsResponse>(it).toLyrics() }
     }
 
+    /**
+     * Counts this open on the link owner's Share links page — the native twin of the web share
+     * page's beacon. Best effort: a failure costs one uncounted visit and nothing else. The server
+     * drops the owner's own opens (the paired bearer rides along when the link is on this server).
+     */
+    suspend fun reportShareVisit(link: ShareLink) {
+        runCatching {
+            withContext(Dispatchers.IO) {
+                val body = "{}".toRequestBody(JSON_MEDIA_TYPE)
+                execute(Request.Builder().url(shareUrl(link, "/visit")).post(body).build()) { }
+            }
+        }
+    }
+
+    /** Counts a shared track starting to play, for the same page. Best effort. */
+    suspend fun reportSharePlay(link: ShareLink, songId: Int) {
+        runCatching {
+            withContext(Dispatchers.IO) {
+                execute(Request.Builder().url(shareUrl(link, "/songs/$songId/play")).post(EMPTY_BODY).build()) { }
+            }
+        }
+    }
+
     private fun shareUrl(link: ShareLink, path: String = ""): String =
         "${link.origin}$API_PREFIX/api/share/${URLEncoder.encode(link.token, "UTF-8")}$path"
 
