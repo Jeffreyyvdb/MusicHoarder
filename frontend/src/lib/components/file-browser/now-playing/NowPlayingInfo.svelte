@@ -18,6 +18,7 @@
   import {
     enrichSong,
     fetchEnrichmentDetail,
+    fetchSongProvenance,
     mapEnrichmentStatus,
     resetSongEnrichment,
     fetchSongQualityGrade,
@@ -28,12 +29,14 @@
     type AlbumSummary,
     type EnrichmentDetail,
     type ProviderAttempt,
+    type ProvenanceGroup,
     type SongQualityGradeView,
     type QualityVerdict,
     type NormalizedEnrichmentStatus
   } from '$lib/api-client';
   import { fingerprintBars, fingerprintHash, providerAttemptRows } from '$lib/review-helpers';
   import {
+    formatDate,
     formatDateTime,
     formatDuration,
     formatFileSize,
@@ -42,6 +45,8 @@
   import { lrclibWebUrl, lrclibWebSearchUrl } from '$lib/lrclib-url';
   import { acoustIdSourceConnected, lrclibSourceConnected } from '$lib/source-connection';
   import { cn } from '$lib/utils';
+  import { PROVENANCE_ICON, seedSublabel } from '$lib/provenance';
+  import { songsStore } from '$lib/stores/songs.svelte';
   import type { LyricsStatus } from '$lib/types';
 
   /**
@@ -140,6 +145,30 @@
       return;
     void loadEnrichmentDetail(song.id);
   });
+
+  // ── How it got here ─────────────────────────────────────────────────────────
+  // Why this track is in the library: its reason, and for an album fill the tracks you already had
+  // that started it. Your own songs only — a shared song's history is its owner's, and the endpoint
+  // answers empty for it anyway. Loaded once per song, when Details is on screen.
+  let provenance = $state<{ songId: number; group: ProvenanceGroup | null } | null>(null);
+  $effect(() => {
+    if (loadSection !== 'details' || songsStore.grantorOf(song)) return;
+    const id = song.id;
+    if (provenance?.songId === id) return;
+    let cancelled = false;
+    void fetchSongProvenance([id])
+      .then((p) => {
+        if (!cancelled) provenance = { songId: id, group: p.groups[0] ?? null };
+      })
+      .catch(() => {
+        // Best-effort: Details simply goes without the section.
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
+  const provenanceGroup = $derived(provenance?.songId === song.id ? provenance.group : null);
+  const provenanceTrack = $derived(provenanceGroup?.tracks[0] ?? null);
 
   // ── Soulseek quality upgrade ────────────────────────────────────────────────
   // Shown only when slskd is configured; the /api/soulseek/* endpoints enforce owner-only.
@@ -593,6 +622,26 @@
   <div class="mx-auto flex w-full max-w-2xl flex-col gap-6 md:px-4 lg:px-0">
     {#if section === 'details'}
       <GroupedList.Section header="Song">{@render rows(songRows)}</GroupedList.Section>
+      {#if provenanceGroup}
+        {@const fill = provenanceGroup.fill}
+        <GroupedList.Section header="How it got here" footer={provenanceGroup.explanation}>
+          <GroupedList.Row
+            icon={PROVENANCE_ICON[provenanceGroup.reason]}
+            label={provenanceGroup.label}
+            value={provenanceTrack?.atUtc ? formatDate(provenanceTrack.atUtc) : undefined}
+            title={provenanceTrack?.atUtc
+              ? `${provenanceTrack.atLabel} ${formatDate(provenanceTrack.atUtc)}`
+              : undefined}
+          />
+          {#each fill?.seeds ?? [] as seed (seed.songId)}
+            <GroupedList.Row
+              icon={PROVENANCE_ICON[seed.reason]}
+              label="Started from “{seed.title}”"
+              sublabel={seedSublabel(seed, fill?.album)}
+            />
+          {/each}
+        </GroupedList.Section>
+      {/if}
       {#if releaseRows.length}
         <GroupedList.Section header="Release">{@render rows(releaseRows)}</GroupedList.Section>
       {/if}
