@@ -1,61 +1,38 @@
 <script lang="ts">
+  import { ExternalLink } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button';
   import CommandBlock from '$lib/components/landing/CommandBlock.svelte';
+  import LandingSection from '$lib/components/landing/LandingSection.svelte';
   import { createPrimaryCta } from '$lib/components/landing/cta.svelte';
-  import { githubUrl, installCommand } from '$lib/components/landing/landing-demo-data';
-  import { ExternalLink } from '@lucide/svelte';
+  import { githubUrl, installCommand } from '$lib/components/landing/landing-content';
 
   const cta = createPrimaryCta({ signedOutLabel: 'Try the live demo' });
 </script>
 
-<section id="get-started" class="relative mx-auto max-w-[1280px] scroll-mt-8 px-6 py-14 md:px-14">
-  <div
-    aria-hidden="true"
-    class="pointer-events-none absolute inset-0 -z-10"
-    style="background: radial-gradient(60% 70% at 50% 0%, color-mix(in oklch, var(--color-primary) 12%, transparent), transparent 70%);"
-  ></div>
+<LandingSection
+  id="get-started"
+  surface="grouped"
+  eyebrow="Start hoarding"
+  title="Your library is one command away."
+  lead="Pull the images, point them at your folders, and let the pipeline do the cataloguing. Or look around a real library first — the demo is read-only."
+>
+  <CommandBlock
+    text={installCommand}
+    label="your-server : ~"
+    class="mx-auto mt-12 max-w-[640px] text-left md:mt-14"
+  />
 
-  <div class="mx-auto max-w-[640px] text-center">
-    <div
-      class="text-muted-foreground font-mono text-[11px] font-semibold tracking-[0.12em] uppercase"
+  <div class="mt-9 flex flex-wrap justify-center gap-3">
+    <Button size="pill" onclick={cta.activate} disabled={cta.busy}>{cta.label}</Button>
+    <Button
+      size="pill"
+      variant="tinted"
+      href={githubUrl}
+      target="_blank"
+      rel="noopener noreferrer"
     >
-      START HOARDING
-    </div>
-    <h2 class="mt-2 mb-3 text-[clamp(26px,3vw,34px)] font-bold tracking-[-0.025em] text-balance">
-      Your library is one command away.
-    </h2>
-    <p class="text-muted-foreground mx-auto max-w-[640px] text-[14.5px] leading-[1.6] text-pretty">
-      Pull the image, point it at your folders, and let the <strong class="text-foreground"
-        >conveyor</strong
-      > do the cataloguing.
-    </p>
-
-    <CommandBlock
-      text={installCommand}
-      label="your-server : ~"
-      class="mx-auto mt-8 max-w-[560px] text-left"
-    />
-
-    <div class="mt-7 flex flex-wrap justify-center gap-3">
-      <Button
-        size="lg"
-        class="h-11 rounded-full px-5 text-[15px] md:h-9 md:rounded-lg md:px-3 md:text-sm"
-        onclick={cta.activate}
-        disabled={cta.busy}>{cta.label}</Button
-      >
-      <!-- `bordered`, not `outline`: the app's outline is now a borderless gray fill, and the
-           landing keeps its stroked secondary button. -->
-      <Button
-        size="lg"
-        variant="bordered"
-        class="h-11 rounded-full px-5 text-[15px] md:h-9 md:rounded-lg md:px-3 md:text-sm"
-        href={githubUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        <ExternalLink class="size-4" />
-        View on GitHub
-      </Button>
-    </div>
+      <ExternalLink aria-hidden="true" />
+      View on GitHub
+    </Button>
   </div>
-</section>
+</LandingSection>

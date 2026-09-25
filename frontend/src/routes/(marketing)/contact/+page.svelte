@@ -6,4 +6,4 @@
 </script>
 
 <JsonLd data={buildProsePageSchema(contactPage)} />
-<ProsePageView page={contactPage} eyebrow="CONTACT · GITHUB" />
+<ProsePageView page={contactPage} eyebrow="Contact · GitHub" />

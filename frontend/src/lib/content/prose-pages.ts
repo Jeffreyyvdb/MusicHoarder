@@ -6,8 +6,8 @@ export const aboutPage: ProsePage = {
   path: '/about',
   title: 'About MusicHoarder',
   description:
-    'MusicHoarder is a free, MIT-licensed, self-hosted pipeline that fingerprints, identifies, enriches and reorganizes a messy music library into clean files on your own disk.',
-  updated: '2026-08-21',
+    'MusicHoarder is a free, MIT-licensed, self-hosted app that fingerprints, identifies, enriches and reorganizes a messy music library into clean files on your own disk — and then plays it, on your phone and your desktop.',
+  updated: '2026-09-25',
   sections: [
     {
       heading: 'What MusicHoarder is',
@@ -19,6 +19,10 @@ export const aboutPage: ProsePage = {
         {
           kind: 'paragraph',
           text: 'The source folder is never modified. MusicHoarder only reads it and writes new copies elsewhere, so a bad match costs you a rebuild and never your originals. Matches the pipeline is not confident about are not guessed into your library — they land in a human review Inbox where you approve, correct or reject them.'
+        },
+        {
+          kind: 'paragraph',
+          text: 'Once the library is clean, MusicHoarder is also the app you listen in: a music player in the style of Apple Music, with a full-screen Now Playing, time-synced lyrics, music videos, likes and play history, and a radio that keeps going when the queue runs out. It is built to feel native on an iPhone — add it to the Home Screen — and there is a native Android app too. You can share an album with a link, or invite people to their own listen-only account over whatever you choose to share.'
         }
       ]
     },
@@ -51,7 +55,7 @@ export const aboutPage: ProsePage = {
         },
         {
           kind: 'paragraph',
-          text: 'This site, musichoarder.app, is the project home page. It also hosts a read-only demo account so you can walk through a real library — the Inbox, the match grades, the album pages — before you install anything.'
+          text: 'This site, musichoarder.app, is the project home page. It also hosts a read-only demo account so you can walk through a real library — the player, the Inbox, the match grades, the album pages — before you install anything.'
         },
         {
           kind: 'links',

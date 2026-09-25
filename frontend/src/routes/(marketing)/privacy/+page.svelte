@@ -6,4 +6,4 @@
 </script>
 
 <JsonLd data={buildProsePageSchema(privacyPage)} />
-<ProsePageView page={privacyPage} eyebrow="PRIVACY · NO TRACKING" />
+<ProsePageView page={privacyPage} eyebrow="Privacy · No tracking" />
