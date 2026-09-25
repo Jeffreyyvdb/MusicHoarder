@@ -171,10 +171,7 @@ public class EnrichmentSnapshotService(
         if (matches.Count > 1)
         {
             var extraIds = matches.Skip(1).Select(e => e.Id).ToList();
-            var extraSongs = await db.EnrichmentSnapshotSongs
-                .Where(s => extraIds.Contains(s.SnapshotId))
-                .ToListAsync(ct);
-            db.EnrichmentSnapshotSongs.RemoveRange(extraSongs);
+            await RemoveSnapshotSongsAsync(s => extraIds.Contains(s.SnapshotId), ct);
             db.EnrichmentSnapshots.RemoveRange(matches.Skip(1));
         }
 
@@ -201,10 +198,8 @@ public class EnrichmentSnapshotService(
             keep.Trigger = trigger;
             keep.TriggerLabel = Truncate(triggerLabel, 256);
 
-            var oldSongs = await db.EnrichmentSnapshotSongs
-                .Where(s => s.SnapshotId == keep.Id)
-                .ToListAsync(ct);
-            db.EnrichmentSnapshotSongs.RemoveRange(oldSongs);
+            var keepId = keep.Id;
+            await RemoveSnapshotSongsAsync(s => s.SnapshotId == keepId, ct);
             foreach (var s in snapshotSongs) s.SnapshotId = keep.Id;
             db.EnrichmentSnapshotSongs.AddRange(snapshotSongs);
 
@@ -317,6 +312,25 @@ public class EnrichmentSnapshotService(
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
         return Convert.ToHexStringLower(bytes);
+    }
+
+    // Child rows of a snapshot, deleted without loading them. IgnoreQueryFilters like the snapshot
+    // lookup above: hosted-service scopes carry a request-less current-user accessor, so the tenancy
+    // filter is on with an empty user id. Without it this matched nothing, the old rows were never
+    // removed, and every in-place refresh appended another full copy of the snapshot's songs.
+    // Relational providers delete in one statement; the in-memory provider used by tests can't run
+    // ExecuteDelete (and doesn't cascade unloaded children), so it loads and removes instead.
+    private async Task RemoveSnapshotSongsAsync(
+        System.Linq.Expressions.Expression<Func<EnrichmentSnapshotSong, bool>> predicate, CancellationToken ct)
+    {
+        var rows = db.EnrichmentSnapshotSongs.IgnoreQueryFilters().Where(predicate);
+        if (db.Database.IsRelational())
+        {
+            await rows.ExecuteDeleteAsync(ct);
+            return;
+        }
+
+        db.EnrichmentSnapshotSongs.RemoveRange(await rows.ToListAsync(ct));
     }
 
     private static bool NullableEquals(double? a, double? b)
