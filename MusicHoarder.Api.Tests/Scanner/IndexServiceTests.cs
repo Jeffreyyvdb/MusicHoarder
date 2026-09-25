@@ -281,11 +281,67 @@ public class IndexServiceTests : IDisposable
         Assert.Equal(1, result.NewFiles);
     }
 
+    [Fact]
+    public async Task Index_SkipsTheMusicVideoDirectoryInsideTheDownloadRoot()
+    {
+        // Regression: a clip fetch that died before its merge left the audio stream
+        // (<stem>.f140.m4a) in <DownloadDirectory>/videos, and it was indexed as a song.
+        await File.WriteAllBytesAsync(Path.Combine(tempDir, "download.flac"), [1, 2, 3]);
+        var videos = Directory.CreateDirectory(Path.Combine(tempDir, "videos")).FullName;
+        await File.WriteAllBytesAsync(Path.Combine(videos, "68d594ca9dc540338326056077f69a55.f140.m4a"), [1, 2, 3]);
+
+        await using var db = NewContext();
+        var result = await CreateService(db, downloadDirectory: tempDir).IndexAsync(Guid.NewGuid(), tempDir);
+
+        Assert.Equal(1, result.TotalFiles);
+        var row = await db.Songs.IgnoreQueryFilters().SingleAsync();
+        Assert.EndsWith("download.flac", row.SourcePath);
+    }
+
+    [Fact]
+    public async Task Index_SoftDeletesARowIndexedFromTheMusicVideoDirectory()
+    {
+        var videos = Directory.CreateDirectory(Path.Combine(tempDir, "videos")).FullName;
+        var stream = Path.Combine(videos, "68d594ca9dc540338326056077f69a55.f140.m4a");
+        await File.WriteAllBytesAsync(stream, [1, 2, 3]);
+
+        await using var db = NewContext();
+        db.Songs.Add(Seed(stream.Replace('\\', '/')));
+        await db.SaveChangesAsync();
+
+        await CreateService(db, downloadDirectory: tempDir).IndexAsync(Guid.NewGuid(), tempDir);
+
+        var row = await db.Songs.IgnoreQueryFilters().SingleAsync();
+        Assert.NotNull(row.DeletedAtUtc);
+    }
+
+    [Theory]
+    [InlineData("/data/downloads/", "/data/downloads", "", "/data/downloads/videos/")]      // the default
+    [InlineData("/data/downloads/", "/data/downloads", "/data/downloads/clips", "/data/downloads/clips/")]
+    [InlineData("/data/downloads/", "/data/downloads", "/data/videos", null)]              // not under this root
+    [InlineData("/data/downloads/", "/data/downloads", "/data/downloads", null)]           // the root itself
+    [InlineData("/data/downloads/", "/data/downloads", "/data/downloads-videos", null)]    // sibling sharing a prefix
+    [InlineData("/root/music/", "", "", null)]                                             // downloads off
+    public void NestedVideoDirectoryPrefix_OnlyForADirectoryStrictlyBelowTheRoot(
+        string rootPrefix, string downloadDirectory, string musicVideoDirectory, string? expected)
+    {
+        var opts = new MusicEnricherOptions
+        {
+            SourceDirectory = "/root/music",
+            DestinationDirectory = "/dest",
+            DownloadDirectory = downloadDirectory,
+            MusicVideoDirectory = musicVideoDirectory,
+        };
+
+        Assert.Equal(expected, IndexService.NestedVideoDirectoryPrefix(rootPrefix, opts));
+    }
+
     // settleSeconds defaults to 0 (guard off) because these tests write a file and index it in the
     // same breath; the settle window is exercised explicitly by the tests that pass a value. It only
     // applies to the configured source root, so those tests also point sourceDirectory at the temp dir.
     private static IndexService CreateService(
-        MusicHoarderDbContext db, int settleSeconds = 0, string sourceDirectory = "/source") => new(
+        MusicHoarderDbContext db, int settleSeconds = 0, string sourceDirectory = "/source",
+        string downloadDirectory = "") => new(
         new StubFileScanner(),
         db,
         new ScanProgressTracker(),
@@ -295,6 +351,7 @@ public class IndexServiceTests : IDisposable
         {
             SourceDirectory = sourceDirectory,
             DestinationDirectory = "/dest",
+            DownloadDirectory = downloadDirectory,
             ScanSettleSeconds = settleSeconds,
         }),
         NullLogger<IndexService>.Instance);
