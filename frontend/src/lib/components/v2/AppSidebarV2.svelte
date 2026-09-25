@@ -95,8 +95,8 @@
     'dupe-artists': () => inbox.artists,
     'dupe-albums': () => inbox.albums
   };
-  // The one group that carries an attention badge on its header.
-  const BADGES: Partial<Record<NavGroupId, () => number | null>> = { inbox: () => inbox.total };
+  // The one group that carries a total on its header: the tab bar's badge figure.
+  const TOTALS: Partial<Record<NavGroupId, () => number | null>> = { inbox: () => inbox.total };
 
   // Single matcher, shared with the tab bar and the browser-tab title.
   const match = $derived(resolveNav(page.url));
@@ -198,8 +198,13 @@
              on that route). The header takes the emphasis only where the group matched but no
              item did — a track page, or the library's source view. -->
         {@const headerActive = groupActive && match?.item == null}
-        {@const badge = BADGES[group.id]?.()}
         {@const isCollapsed = Boolean(collapsed[group.id])}
+        <!-- Expanded, the rows beneath carry every figure — and the Inbox total adds up only three
+             of its five rows — so a header shows its total only while folded, where it stands in
+             for the hidden rows (macOS Mail's collapsed-mailbox count). -->
+        {@const total = isCollapsed ? TOTALS[group.id]?.() : null}
+        {@const pulse = Boolean(group.live && indexing)}
+        {@const accessory = pulse || (total != null && total > 0)}
         {@const itemsId = `sidebar-group-${group.id}`}
         <!-- A folded group still shows the page you are on, so the sidebar never loses "you are
              here". -->
@@ -208,14 +213,14 @@
           <div
             data-active={headerActive || undefined}
             class={cn(
-              'group/header flex w-full items-center rounded-md transition-colors',
+              'group/header relative flex w-full items-center rounded-md transition-colors',
               'hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent'
             )}
           >
             <a
               href={group.href}
               aria-current={headerActive ? 'page' : undefined}
-              class="focus-visible:ring-sidebar-ring flex min-w-0 flex-1 items-center gap-2 rounded-md py-1 pl-2 text-left outline-none focus-visible:ring-2"
+              class="focus-visible:ring-sidebar-ring flex min-h-6 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left outline-none focus-visible:ring-2"
             >
               <!-- A section label in the macOS sidebar style (small, secondary), still a link to
                    the group's landing page. -->
@@ -224,23 +229,36 @@
               >
                 {group.label}
               </span>
-              {#if group.live && indexing}
-                <span
-                  class="bg-primary mh-v2-pulse size-[7px] shrink-0 rounded-full"
-                  aria-hidden="true"
-                ></span>
+              {#if pulse}
                 <span class="sr-only">pipeline running</span>
               {/if}
-              {#if badge != null && badge > 0}
-                <!-- The same red count as the tab bar's Inbox badge: one number, one look. -->
+              {#if accessory}
+                <!-- Ends on the rows' px-2 edge, so the total sits in the row counts' column, and
+                     is styled like them: the red capsule belongs to the tab bar, which has no rows
+                     beneath it to carry the figures. With a mouse the disclosure takes this slot
+                     over on hover or focus; on touch both stay, side by side. -->
                 <span
-                  class="bg-destructive text-destructive-foreground text-nav-badge grid h-[17px] min-w-[17px] shrink-0 place-items-center rounded-full px-1 leading-none font-semibold tabular-nums"
-                  >{badge.toLocaleString()}</span
+                  class="flex shrink-0 items-center gap-2 pointer-fine:group-hover/header:opacity-0 pointer-fine:group-has-[button:focus-visible]/header:opacity-0"
                 >
+                  {#if pulse}
+                    <span
+                      class="bg-primary mh-v2-pulse size-[7px] shrink-0 rounded-full"
+                      aria-hidden="true"
+                    ></span>
+                  {/if}
+                  {#if total != null && total > 0}
+                    <span class="text-nav-count text-muted-foreground tabular-nums"
+                      >{fmtCount(total)}</span
+                    >
+                  {/if}
+                </span>
               {/if}
             </a>
             <!-- The disclosure: quiet at rest, like macOS's "Hide"/"Show" on a section header, and
-                 always shown while the group is folded so it can be found again. -->
+                 always shown while the group is folded so it can be found again — unless the
+                 header has an accessory to show at rest instead. With a mouse it overlays the
+                 header's trailing slot rather than taking a column of its own, which would push
+                 the header's figures out of line with the rows'. -->
             <button
               type="button"
               aria-expanded={!isCollapsed}
@@ -248,8 +266,10 @@
               aria-label={`${isCollapsed ? 'Show' : 'Hide'} ${group.label}`}
               title={isCollapsed ? 'Show' : 'Hide'}
               class={cn(
-                'text-muted-foreground hover:text-foreground focus-visible:ring-sidebar-ring grid size-6 shrink-0 place-items-center rounded-md outline-none focus-visible:ring-2 focus-visible:opacity-100',
-                !isCollapsed && 'opacity-0 group-hover/header:opacity-100 pointer-coarse:opacity-100'
+                'text-muted-foreground hover:text-foreground focus-visible:ring-sidebar-ring grid size-6 shrink-0 place-items-center rounded-md outline-none focus-visible:opacity-100 focus-visible:ring-2',
+                'absolute inset-y-0 right-0 my-auto pointer-coarse:static',
+                (!isCollapsed || accessory) &&
+                  'opacity-0 group-hover/header:opacity-100 pointer-coarse:opacity-100'
               )}
               onclick={() => toggleGroup(group.id)}
             >
