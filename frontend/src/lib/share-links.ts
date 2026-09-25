@@ -135,10 +135,17 @@ async function handOff(link: ShareLink, noun: 'song' | 'album'): Promise<void> {
   }
 }
 
+// How long the "Creating share link…" toast may stay up. A loading toast auto-closes like any other
+// but has no close button, so it is held past any round trip the proxy allows (it gives up after
+// 10s) without being able to leave a spinner up for good if the request never settles.
+const PENDING_TOAST_MS = 30_000;
+
 /**
  * The Share link… item. `known` is what `findShareLink` found when the menu opened: with it, the share
- * sheet opens straight from the tap. Without it the link is minted now and copied as it lands, and
- * the confirming toast carries a Share button for the sheet.
+ * sheet opens straight from the tap. Without it the link is minted now and copied as it lands: a
+ * "Creating share link…" toast shows at once (the menu has already closed, so the round trip would
+ * otherwise pass in silence) and turns into the outcome, whose toast carries a Share button for the
+ * sheet.
  */
 export function shareLink(opts: {
   known: ShareLink | null;
@@ -153,6 +160,10 @@ export function shareLink(opts: {
 
   const pending = mint(opts.songId, opts.scope);
   const copied = copyWhenReady(pending);
+  // Every outcome below reuses this id, so the pending toast changes in place rather than stacking
+  // a second one. An update merges over the pending toast's props: `duration: undefined` hands the
+  // settled toast back to the Toaster's default lifetime.
+  const id = toast.loading('Creating share link…', { duration: PENDING_TOAST_MS });
   void pending.then(
     async (link) => {
       const sheet = canOpenShareSheet(link.url)
@@ -163,12 +174,18 @@ export function shareLink(opts: {
           }
         : undefined;
       if (await copied) {
-        toast.success('Share link copied', { description: describeFor(noun), action: sheet });
+        toast.success('Share link copied', {
+          id,
+          duration: undefined,
+          description: describeFor(noun),
+          action: sheet
+        });
         return;
       }
       // Nothing reached the clipboard (an older browser, or the write was refused): show the link,
       // with the share sheet — or a copy — one tap away.
       toast.info('Share link created', {
+        id,
         description: link.url,
         duration: 12000,
         action: sheet ?? {
@@ -182,7 +199,10 @@ export function shareLink(opts: {
       });
     },
     (err: unknown) => {
-      toast.error(err instanceof Error ? err.message : 'Could not create share link');
+      toast.error(err instanceof Error ? err.message : 'Could not create share link', {
+        id,
+        duration: undefined
+      });
     }
   );
 }

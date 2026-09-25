@@ -9,7 +9,9 @@ const api = vi.hoisted(() => ({
   shareUrl: (token: string) => `https://mh.test/share/${token}`
 }));
 vi.mock('$lib/api-client', () => api);
-vi.mock('svelte-sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
+vi.mock('svelte-sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), loading: vi.fn(() => 'pending') }
+}));
 
 const { findShareLink, pickExistingShare, resetShareLinkCache, shareLink } =
   await import('./share-links');
@@ -90,6 +92,10 @@ describe('shareLink', () => {
     api.listSongShares.mockReset();
     share.mockReset().mockResolvedValue(undefined);
     writeText.mockReset().mockResolvedValue(undefined);
+    vi.mocked(toast.loading).mockClear();
+    vi.mocked(toast.success).mockClear();
+    vi.mocked(toast.info).mockClear();
+    vi.mocked(toast.error).mockClear();
     vi.stubGlobal('navigator', { share, canShare: () => true, clipboard: { writeText } });
   });
   afterEach(() => {
@@ -101,6 +107,41 @@ describe('shareLink', () => {
     // Synchronously: nothing may be awaited before navigator.share, or iOS refuses the sheet.
     expect(share).toHaveBeenCalledWith({ url: 'u', title: 't' });
     expect(api.createSongShare).not.toHaveBeenCalled();
+    // Nothing to wait for, so nothing to announce.
+    expect(toast.loading).not.toHaveBeenCalled();
+  });
+
+  it('says it is working the moment Share… is picked, before the link exists', () => {
+    api.createSongShare.mockReturnValue(new Promise(() => {}));
+    shareLink({ known: null, songId: 48, scope: 'album' });
+    // The menu has closed by now; without this the round trip passes in silence.
+    expect(toast.loading).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(toast.loading).mock.calls[0][0]).toBe('Creating share link…');
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(toast.info).not.toHaveBeenCalled();
+  });
+
+  it('turns the pending toast into the copied one when the clipboard takes the link', async () => {
+    const write = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal(
+      'ClipboardItem',
+      class {
+        constructor(readonly items: Record<string, Promise<Blob>>) {}
+      }
+    );
+    vi.stubGlobal('navigator', { share, canShare: () => true, clipboard: { writeText, write } });
+    api.createSongShare.mockResolvedValue(view({ songId: 48, token: 'new', scope: 'Album' }));
+    shareLink({ known: null, songId: 48, scope: 'album' });
+    // The write is started inside the tap, before the link exists.
+    expect(write).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(toast.success).toHaveBeenCalled());
+    const [title, opts] = vi.mocked(toast.success).mock.calls[0];
+    expect(title).toBe('Share link copied');
+    // Same toast, not a second one, and back on the Toaster's default lifetime.
+    expect(opts?.id).toBe('pending');
+    expect(opts).toHaveProperty('duration', undefined);
+    expect(opts?.description).toBe('Anyone with the link can play this album and see its lyrics.');
+    expect((opts?.action as { label: string }).label).toBe('Share…');
   });
 
   it('creates the link only when Share… is picked and nothing exists yet', async () => {
@@ -112,6 +153,7 @@ describe('shareLink', () => {
     await vi.waitFor(() => expect(toast.info).toHaveBeenCalled());
     const [title, opts] = vi.mocked(toast.info).mock.calls[0];
     expect(title).toBe('Share link created');
+    expect(opts?.id).toBe('pending');
     expect(opts?.description).toBe('https://mh.test/share/new');
     expect((opts?.action as { label: string }).label).toBe('Share…');
     expect(share).not.toHaveBeenCalled();
@@ -120,6 +162,11 @@ describe('shareLink', () => {
   it('says so when the link cannot be created', async () => {
     api.createSongShare.mockRejectedValue(new Error('Song with id 48 not found.'));
     shareLink({ known: null, songId: 48, scope: 'song' });
-    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledWith('Song with id 48 not found.'));
+    await vi.waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Song with id 48 not found.', {
+        id: 'pending',
+        duration: undefined
+      })
+    );
   });
 });
