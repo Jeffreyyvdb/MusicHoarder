@@ -60,6 +60,8 @@
     songDetail.isOpen && video.info?.status === 'Fetching' ? video.poll() : undefined
   );
   let videoShowing = $state(false);
+  // TrackPanel's Video mode is up: the backdrop blurs its copy of the clip.
+  let videoWatching = $state(false);
 
   // Keep the dataset live while the panel is open so a song opened off-Library
   // refreshes after enrichment. The initial fetch is owned by songDetail.open()
@@ -321,6 +323,7 @@
           {ambientUrl}
           {dimAlpha}
           {video}
+          blurred={videoWatching}
           bind:showing={videoShowing}
         />
       {:else if ambientUrl}
@@ -359,6 +362,7 @@
             timelineHref={`/track/${r.song.id}`}
             {onDragStart}
             onShareWithFriend={shareWithFriend}
+            bind:watching={videoWatching}
           />
         {:else if detailState === 'error'}
           <div class="flex h-full flex-col items-center justify-center gap-4 px-8 text-center">

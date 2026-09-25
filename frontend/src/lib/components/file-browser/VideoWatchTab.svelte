@@ -7,6 +7,7 @@
     Play,
     Rewind
   } from '@lucide/svelte';
+  import type { Snippet } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import Scrubber from './Scrubber.svelte';
   import { getSongVideoStreamUrl } from '$lib/api-client';
@@ -15,10 +16,11 @@
   import { formatDuration } from '$lib/formatters';
   import { blurAfterPointerClick, cn, transportGlyphClass } from '$lib/utils';
 
-  // Watch mode for the music video: a full-frame, letterboxed player in Now Playing's Video mode,
-  // expandable to fullscreen. Inline, the frame carries only tap-to-play and a fullscreen button —
-  // Now Playing's own transport sits right under it; the fullscreen view brings its own chrome,
-  // since the app is hidden there. Same slave-sync model as the backdrop — the store's audio
+  // Watch mode for the music video: the clip fitted into all of Now Playing's middle (a phone) or
+  // right column (lg) — as large as its shape allows, like Android's `fitClip` — and expandable to
+  // fullscreen. Inline, the frame carries only tap-to-play and a fullscreen button — Now Playing's
+  // own transport sits right under it; the fullscreen view brings its own chrome, since the app
+  // is hidden there. Same slave-sync model as the backdrop — the store's audio
   // element is the master clock and the (muted) video follows it through the per-song offset,
   // hard-resyncing when drift exceeds DRIFT_TOLERANCE_S. That is also what makes the scrubber
   // work: it seeks the *audio*, and the next sync pass drags the video to the new position.
@@ -30,6 +32,7 @@
     artist,
     fallbackDuration = 0,
     generation = 0,
+    caption,
     onPlayRequest
   }: {
     songId: number;
@@ -40,6 +43,8 @@
     fallbackDuration?: number;
     /** Bumped when a refetched file lands, so a failed or ended clip gets a clean slate. */
     generation?: number;
+    /** A line under the picture (the sync status); the clip is fitted to leave it room. */
+    caption?: Snippet;
     onPlayRequest: () => void;
   } = $props();
 
@@ -52,6 +57,26 @@
   let videoFailed = $state(false);
   let clipOver = $state(false);
   let videoLoadRetries = 0; // non-reactive: only read inside the onerror handler
+
+  // The frame takes the clip's own shape, fitted into the stage less the caption: the biggest box
+  // of that ratio that fits, never a cap in pixels, so a big screen gets a big picture. The ratio
+  // is the decoded frame's (16:9 until the metadata says otherwise).
+  let stageWidth = $state(0);
+  let stageHeight = $state(0);
+  let captionHeight = $state(0);
+  let ratio = $state(16 / 9);
+  const fit = $derived.by(() => {
+    const width = stageWidth;
+    const height = Math.max(0, stageHeight - (caption ? captionHeight : 0));
+    if (width * height === 0) return { width: 0, height: 0 };
+    return ratio >= width / height
+      ? { width, height: Math.floor(width / ratio) }
+      : { width: Math.floor(height * ratio), height };
+  });
+  function readRatio(e: Event) {
+    const el = e.currentTarget as HTMLVideoElement;
+    if (el.videoWidth > 0 && el.videoHeight > 0) ratio = el.videoWidth / el.videoHeight;
+  }
 
   // A dropped stream request (proxy blip, API restarting) used to write off the tab with "could
   // not be played" — give the <video> a couple of reloads before giving up.
@@ -301,9 +326,13 @@
 <svelte:document onfullscreenchange={onFullscreenChange} />
 <svelte:window onkeydowncapture={onWindowKeyDown} />
 
-<!-- Sized by the clip (its own max-height bounds it), not stretched over the column, so a caption
-     the parent puts after it sits right under the picture. -->
-<div class="flex min-h-0 w-full items-center justify-center">
+<!-- The stage: whatever room the parent gives it. The frame and its caption are one centred group,
+     so the caption sits right under the picture rather than at the foot of the stage. -->
+<div
+  class="flex min-h-0 w-full flex-1 flex-col items-center justify-center"
+  bind:clientWidth={stageWidth}
+  bind:clientHeight={stageHeight}
+>
   {#if videoFailed}
     <p class="text-subheadline text-muted-foreground">The video could not be played.</p>
   {:else}
@@ -315,8 +344,10 @@
         'group dark relative overflow-hidden bg-black',
         expanded
           ? 'fixed inset-0 z-[80] flex size-full items-center justify-center rounded-none'
-          : 'max-h-full w-full max-w-5xl rounded-xl shadow-[0_24px_60px_rgb(0_0_0/0.5)]'
+          : 'shrink-0 rounded-xl shadow-[0_24px_60px_rgb(0_0_0/0.5)]'
       )}
+      style:width={expanded ? undefined : `${fit.width}px`}
+      style:height={expanded ? undefined : `${fit.height}px`}
       onpointermove={wakeControls}
       role="presentation"
     >
@@ -327,7 +358,9 @@
         muted
         playsinline
         preload="auto"
-        class={cn('w-full object-contain', expanded ? 'max-h-full' : 'max-h-[60svh] lg:max-h-[70vh]')}
+        class="size-full object-contain"
+        onloadedmetadata={readRatio}
+        onresize={readRatio}
         onloadeddata={() => (videoLoadRetries = 0)}
         onerror={onVideoError}
       ></video>
@@ -472,6 +505,11 @@
           </div>
         </div>
       {/if}
+    </div>
+  {/if}
+  {#if caption}
+    <div class="w-full shrink-0 pt-3" bind:offsetHeight={captionHeight}>
+      {@render caption()}
     </div>
   {/if}
 </div>

@@ -23,11 +23,16 @@
   //
   // What the video IS (status, offset, admin actions) lives in the shared SongVideo, which the
   // Video mode and the Manage video sheet read too — a nudge moves this backdrop live.
+  //
+  // While Video mode is up the same clip plays in the middle, and a sharp copy behind it reads as
+  // the picture twice, so the backdrop goes out of focus (`blurred`) into a glow of the colours on
+  // screen. It keeps playing rather than falling back to the cover: the glow follows the picture.
   let {
     songId,
     ambientUrl,
     dimAlpha,
     video,
+    blurred = false,
     showing = $bindable(false)
   }: {
     songId: number;
@@ -35,6 +40,8 @@
     /** The dim layer's alpha for this cover (cover-dim.ts). */
     dimAlpha: number;
     video: SongVideo;
+    /** Video mode is up: soften the clip into a glow behind the watch view. */
+    blurred?: boolean;
     /** Out: the video is up (the overlay adds a text halo for legibility over moving pictures). */
     showing?: boolean;
   } = $props();
@@ -183,7 +190,11 @@
       preload="auto"
       aria-hidden="true"
       tabindex="-1"
-      class="absolute inset-0 size-full object-cover"
+      class={cn(
+        'absolute inset-0 size-full object-cover transition-[filter,scale] duration-500',
+        // Scaled past the edges so the blur's soft rim falls outside the clip.
+        blurred && 'scale-125 blur-[48px]'
+      )}
       use:cropMatte={{ letterbox: video.info?.letterbox, pillarbox: video.info?.pillarbox }}
       onloadstart={() => (videoReady = false)}
       onloadeddata={() => {
