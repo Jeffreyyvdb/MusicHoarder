@@ -191,8 +191,9 @@ function refreshActionHandlers() {
   set('seekto', (details) => {
     if (typeof details.seekTime === 'number') seek(details.seekTime);
   });
-  set('seekbackward', (details) => seek(currentTime - (details.seekOffset ?? 10)));
-  set('seekforward', (details) => seek(currentTime + (details.seekOffset ?? 10)));
+  // No `seekbackward` / `seekforward`: iOS shows either the track pair or the seek pair, never
+  // both, and picks the seek pair whenever it is registered, which puts ±10s buttons where
+  // previous/next belong on the lock screen, Control Center and Dynamic Island.
 }
 
 function setPlaybackState(state: MediaSessionPlaybackState) {
