@@ -6,6 +6,7 @@
   import { goto } from '$app/navigation';
   import { toast } from 'svelte-sonner';
   import { Button } from '$lib/components/ui/button';
+  import { ScrollArea } from '$lib/components/ui/scroll-area';
   import SongTransport from '$lib/components/file-browser/SongTransport.svelte';
   import VideoWatchTab from '$lib/components/file-browser/VideoWatchTab.svelte';
   import AiLyricsBadge, { AI_LYRICS_COPY } from '$lib/components/file-browser/AiLyricsBadge.svelte';
@@ -616,30 +617,36 @@
            reaches 48px past the column on either side and down into the grid's bottom padding —
            a scroll container clips its contents, and the art's 60px shadow would otherwise end
            in hard edges at the column's sides. `my-auto` (not justify-center) centres the block
-           while it fits and lets it overflow downward only, so its top is never unreachable. -->
-      <aside class="-mx-12 -mb-8 flex min-h-0 flex-col overflow-y-auto px-12 pt-6 pb-8">
-        <div class="my-auto flex w-full flex-col">
-          <!-- The art gives way first on a short window (the transport, title and volume below it
-               need ~430px), and never shrinks under 200px. -->
-          <NowPlayingArt
-            artist={trackArtist}
-            title={album.title}
-            {coverUrl}
-            size={400}
-            corner={12}
-            playing={artPlaying}
-            class="mx-auto w-full max-w-[min(100%,46vh,max(200px,calc(100svh-460px)))]"
-          />
-          <div class="mt-6">{@render titleBlock()}</div>
-          {#if metaLine}
-            <p class="text-footnote text-muted-foreground mt-1.5 tabular-nums">{metaLine}</p>
-          {/if}
-          <div class="mt-5">{@render transport()}</div>
-          <div class="mt-2">{@render bottomRow()}</div>
-          <div class="mt-4 hidden pointer-fine:block">
-            <VolumeControl />
+           while it fits and lets it overflow downward only, so its top is never unreachable —
+           which is why the ScrollArea's content element is made a flex column. -->
+      <aside class="-mx-12 -mb-8 flex min-h-0 flex-col">
+        <ScrollArea
+          class="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>*]:flex [&>[data-slot=scroll-area-viewport]>*]:flex-col"
+          viewportClass="px-12 pt-6 pb-8"
+        >
+          <div class="my-auto flex w-full flex-col">
+            <!-- The art gives way first on a short window (the transport, title and volume below it
+                 need ~430px), and never shrinks under 200px. -->
+            <NowPlayingArt
+              artist={trackArtist}
+              title={album.title}
+              {coverUrl}
+              size={400}
+              corner={12}
+              playing={artPlaying}
+              class="mx-auto w-full max-w-[min(100%,46vh,max(200px,calc(100svh-460px)))]"
+            />
+            <div class="mt-6">{@render titleBlock()}</div>
+            {#if metaLine}
+              <p class="text-footnote text-muted-foreground mt-1.5 tabular-nums">{metaLine}</p>
+            {/if}
+            <div class="mt-5">{@render transport()}</div>
+            <div class="mt-2">{@render bottomRow()}</div>
+            <div class="mt-4 hidden pointer-fine:block">
+              <VolumeControl />
+            </div>
           </div>
-        </div>
+        </ScrollArea>
       </aside>
       <main class="flex min-h-0 flex-col pt-2">
         {@render modeContent()}

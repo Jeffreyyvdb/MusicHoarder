@@ -13,6 +13,7 @@
   import { Button } from '$lib/components/ui/button';
   import { SearchField } from '$lib/components/ui/search-field';
   import { EmptyState } from '$lib/components/ui/empty-state';
+  import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import { cn } from '$lib/utils';
   import { Loader2, AlertTriangle, ChevronRight, ArrowUpDown, FolderSearch, FolderOpen } from '@lucide/svelte';
@@ -303,10 +304,7 @@
 
 <!-- One scroller at every width, the nav bar as its first child. -->
 <div class="flex min-h-0 flex-1 flex-col">
-  <div
-    bind:this={pageScroller}
-    class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)"
-  >
+  <ScrollArea bind:viewportRef={pageScroller} class="min-h-0 flex-1" viewportClass="overscroll-contain">
     <PageToolbarV2
       title="By folder"
       meta={headerMeta}
@@ -482,5 +480,5 @@
         />
       {/if}
     </div>
-  </div>
+  </ScrollArea>
 </div>

@@ -5,6 +5,7 @@
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import { Badge } from '$lib/components/ui/badge';
   import { EmptyState } from '$lib/components/ui/empty-state';
+  import { ScrollArea } from '$lib/components/ui/scroll-area';
   import SharedByBadge from '$lib/components/v2/SharedByBadge.svelte';
   import TrackRowMenu from '$lib/components/v2/TrackRowMenu.svelte';
   import TrackRowText from '$lib/components/v2/TrackRowText.svelte';
@@ -143,7 +144,7 @@
   const rowH = $derived(compact ? Math.max(64, Math.round(64 * typeScale)) : 56);
   const OVERSCAN = 8;
 
-  let scrollEl = $state<HTMLDivElement>();
+  let scrollEl = $state<HTMLElement | null>(null);
   let rowsEl = $state<HTMLDivElement>();
   let scrollTop = $state(0);
   let viewportH = $state(600);
@@ -163,14 +164,22 @@
   function onScroll() {
     if (scrollEl) scrollTop = scrollEl.scrollTop;
   }
-
-  // The header is measured as the rows' offset (no wrapper to measure — it would break sticky).
-  // Anything above the rows can change height (the filter tokens appear, the search field, a
-  // Dynamic Type change), so every direct child of the scroller is observed, and re-observed when
-  // the children change. Resize ticks are coalesced into one rAF read.
   $effect(() => {
     const el = scrollEl;
     if (!el) return;
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  });
+
+  // The header is measured as the rows' offset (no wrapper to measure — it would break sticky).
+  // Anything above the rows can change height (the filter tokens appear, the search field, a
+  // Dynamic Type change), so every direct child of the scroller's content is observed, and
+  // re-observed when the children change. Resize ticks are coalesced into one rAF read.
+  $effect(() => {
+    const el = scrollEl;
+    if (!el) return;
+    // The ScrollArea viewport wraps what it scrolls in one content element.
+    const content = el.firstElementChild ?? el;
     const measure = () => {
       viewportH = el.clientHeight;
       headerH = rowsEl ? rowsEl.offsetTop : 0;
@@ -187,7 +196,7 @@
     const observeAll = () => {
       ro.disconnect();
       ro.observe(el);
-      for (const child of el.children) ro.observe(child);
+      for (const child of content.children) ro.observe(child);
     };
     const mo = new MutationObserver(() => {
       observeAll();
@@ -195,7 +204,7 @@
     });
     measure();
     observeAll();
-    mo.observe(el, { childList: true });
+    mo.observe(content, { childList: true });
     return () => {
       if (frame) cancelAnimationFrame(frame);
       ro.disconnect();
@@ -263,12 +272,12 @@
   @3xl adds album+year+source, @5xl adds size+match(+bitrate).
 -->
 <div class="@container flex min-h-0 flex-1 flex-col overflow-hidden">
-  <!-- The one scroller: nav bar, header bands, (desktop) column header, rows. `relative` makes it
-       the rows' offsetParent, so their offsetTop is the header height. -->
-  <div
-    bind:this={scrollEl}
-    onscroll={onScroll}
-    class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)"
+  <!-- The one scroller: nav bar, header bands, (desktop) column header, rows. `relative` makes its
+       viewport the rows' offsetParent, so their offsetTop is the header height. -->
+  <ScrollArea
+    bind:viewportRef={scrollEl}
+    class="min-h-0 flex-1"
+    viewportClass="relative overscroll-contain"
   >
     {@render header?.()}
 
@@ -637,7 +646,7 @@
         {/each}
       </div>
     {/if}
-  </div>
+  </ScrollArea>
 </div>
 
 <style>

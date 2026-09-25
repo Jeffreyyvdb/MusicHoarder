@@ -11,6 +11,7 @@
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import * as BottomSheet from '$lib/components/ui/bottom-sheet';
   import * as GroupedList from '$lib/components/ui/grouped-list';
+  import { ScrollArea } from '$lib/components/ui/scroll-area';
   import {
     Compass,
     Link2,
@@ -382,11 +383,11 @@
 
 <!-- ── Detail: a pushed page ─────────────────────────────────────────────────────────── -->
 {#if playlistParam}
-  <div class="flex min-h-0 flex-1 flex-col">
-    <div
-      class="hero-scroller min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)"
-      data-hero-visible={compact && detail && heroVisible ? '' : undefined}
-    >
+  <div
+    class="hero-scroller flex min-h-0 flex-1 flex-col"
+    data-hero-visible={compact && detail && heroVisible ? '' : undefined}
+  >
+    <ScrollArea class="min-h-0 flex-1" viewportClass="overscroll-contain">
       <PageToolbarV2
         title={detail?.playlist.title ?? 'Playlist'}
         largeTitle={false}
@@ -593,14 +594,15 @@
         </div>
         <TrackListSkeleton />
       {/if}
-    </div>
+    </ScrollArea>
   </div>
 {:else}
   <!-- ── Browse ─────────────────────────────────────────────────────────────────────── -->
   <div class="flex min-h-0 flex-1 flex-col">
-    <div
-      bind:this={gridScroller}
-      class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)"
+    <ScrollArea
+      bind:viewportRef={gridScroller}
+      class="min-h-0 flex-1"
+      viewportClass="overscroll-contain"
     >
       <PageToolbarV2 title="Discover" meta={gridMeta} metaFrom="lg">
         {#snippet search()}
@@ -676,7 +678,7 @@
           {/each}
         </div>
       {/if}
-    </div>
+    </ScrollArea>
   </div>
 {/if}
 

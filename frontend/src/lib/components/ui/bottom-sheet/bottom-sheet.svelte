@@ -4,6 +4,7 @@
 	import type { Snippet } from "svelte";
 	import XIcon from "@lucide/svelte/icons/x";
 	import { Button } from "$lib/components/ui/button/index.js";
+	import { ScrollArea } from "$lib/components/ui/scroll-area/index.js";
 	import { IsMobile } from "$lib/hooks/is-mobile.svelte.js";
 	import { DISMISS_VELOCITY, EASE_PRESENT, prefersReducedMotion } from "$lib/motion.js";
 	import { cn, type WithoutChildrenOrChild } from "$lib/utils.js";
@@ -286,10 +287,13 @@
 			{:else}
 				<div class="shrink-0 pt-2">{@render header()}</div>
 			{/if}
-			<div
-				data-slot="bottom-sheet-body"
-				class={cn(
-					"min-h-0 flex-1 overflow-y-auto overscroll-contain",
+			<!-- The sheet is only as tall as its content (up to its max height), so the body fills it
+			     through flex rather than the viewport's height: 100%, which has no definite height to
+			     resolve against here. -->
+			<ScrollArea
+				class="flex min-h-0 flex-1 flex-col"
+				viewportClass={cn(
+					"min-h-0 flex-1 overscroll-contain",
 					compact ? "pb-[max(16px,env(safe-area-inset-bottom))]" : "pb-4",
 					bodyClass
 				)}
@@ -300,7 +304,7 @@
 					</DialogPrimitive.Description>
 				{/if}
 				{@render children()}
-			</div>
+			</ScrollArea>
 		</DialogPrimitive.Content>
 	</DialogPrimitive.Portal>
 </DialogPrimitive.Root>

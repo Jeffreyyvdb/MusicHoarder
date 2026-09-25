@@ -31,6 +31,7 @@
   import { Button } from '$lib/components/ui/button';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import * as GroupedList from '$lib/components/ui/grouped-list';
+  import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { toast } from 'svelte-sonner';
   import { cn } from '$lib/utils';
   import InboxDecisionBar from './InboxDecisionBar.svelte';
@@ -360,9 +361,10 @@
   {#if selected}
     <!-- ── Phone: the pushed verdict, a grouped page ─────────────────────────────── -->
     <div class="bg-background-grouped flex min-h-0 flex-1 flex-col">
-      <div
-        bind:this={detailScroller}
-        class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)"
+      <ScrollArea
+        bind:viewportRef={detailScroller}
+        class="min-h-0 flex-1"
+        viewportClass="overscroll-contain"
       >
         <PageToolbarV2
           title="{position.position} of {position.total}"
@@ -440,7 +442,7 @@
             {/each}
           </GroupedList.Section>
         </div>
-      </div>
+      </ScrollArea>
 
       <!-- One action: the one that resolves the item. Copy dossier and View timeline are in the
            nav bar's More, as on Tag review. Larger text sizes truncate its label (see
@@ -456,9 +458,10 @@
   {:else}
     <!-- ── Phone: the list ───────────────────────────────────────────────────────── -->
     <div class="flex min-h-0 flex-1 flex-col">
-      <div
-        bind:this={listScroller}
-        class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)"
+      <ScrollArea
+        bind:viewportRef={listScroller}
+        class="min-h-0 flex-1"
+        viewportClass="overscroll-contain"
       >
         <PageToolbarV2 title="AI flagged" {meta} more={refreshItem} />
         {#if loading || error || offenders.length === 0}
@@ -466,7 +469,7 @@
         {:else}
           {@render queueList()}
         {/if}
-      </div>
+      </ScrollArea>
     </div>
   {/if}
 {:else}
@@ -474,9 +477,9 @@
   <div class="flex min-h-0 flex-1 flex-col">
     <PageToolbarV2 title="AI flagged" {meta} actions={refreshAction} />
     {#if !loading && (error || offenders.length === 0)}
-      <div class="min-h-0 flex-1 overflow-y-auto pb-(--mh-content-pad)">
+      <ScrollArea class="min-h-0 flex-1">
         {@render queueStates()}
-      </div>
+      </ScrollArea>
     {:else}
       <!-- The list pane gives up width first (down to 240px); see InboxTagReviewV2. -->
       <div
@@ -486,15 +489,15 @@
           aria-label="Flagged tracks"
           class="border-separator bg-surface-sunken flex min-h-0 flex-col border-r"
         >
-          <div
-            class="min-h-0 flex-1 overflow-y-auto p-1.5 pb-[calc(0.375rem_+_var(--mh-content-pad))]"
-          >
-            {#if loading}
-              {@render queueStates()}
-            {:else}
-              {@render queueList()}
-            {/if}
-          </div>
+          <ScrollArea class="min-h-0 flex-1">
+            <div class="p-1.5">
+              {#if loading}
+                {@render queueStates()}
+              {:else}
+                {@render queueList()}
+              {/if}
+            </div>
+          </ScrollArea>
         </aside>
 
         {#if selected}
@@ -521,61 +524,67 @@
               </div>
             </div>
 
-            <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 @min-[36rem]:px-6">
-              <!-- Verdict -->
-              <div>
-                <div class="flex items-baseline justify-between gap-2">
-                  <span class="text-foreground text-[13px] font-semibold">AI grader’s verdict</span>
-                  <span class="text-muted-foreground text-[11.5px]"
-                    >Graded {formatDate(selected.gradedAtUtc)}</span
-                  >
+            <ScrollArea class="min-h-0 flex-1" data-mh-no-clearance="">
+              <div class="space-y-4 px-4 py-4 @min-[36rem]:px-6">
+                <!-- Verdict -->
+                <div>
+                  <div class="flex items-baseline justify-between gap-2">
+                    <span class="text-foreground text-[13px] font-semibold"
+                      >AI grader’s verdict</span
+                    >
+                    <span class="text-muted-foreground text-[11.5px]"
+                      >Graded {formatDate(selected.gradedAtUtc)}</span
+                    >
+                  </div>
+                  <div class="mt-2">
+                    {#if selected.summary}
+                      <p class="text-foreground text-[13px] leading-relaxed">{selected.summary}</p>
+                    {:else}
+                      <p class="text-muted-foreground text-[13px]">
+                        No summary provided by the grader.
+                      </p>
+                    {/if}
+                    {#if selected.issues.length > 0}
+                      <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
+                        {#each selected.issues as issue (issue.code)}
+                          {@const sev = SEVERITY[severityOf(issue.severity)]}
+                          <span
+                            class="text-muted-foreground flex items-center gap-1.5 text-[12px]"
+                            title={[issue.code, issue.detail].filter(Boolean).join(' — ')}
+                          >
+                            <sev.icon class="{sev.text} size-3.5" aria-hidden="true" />
+                            {issueLabel(issue.code)}
+                            <span class="text-muted-foreground-dim">{sev.word.toLowerCase()}</span>
+                          </span>
+                        {/each}
+                      </div>
+                    {/if}
+                  </div>
                 </div>
-                <div class="mt-2">
-                  {#if selected.summary}
-                    <p class="text-foreground text-[13px] leading-relaxed">{selected.summary}</p>
-                  {:else}
-                    <p class="text-muted-foreground text-[13px]">
-                      No summary provided by the grader.
-                    </p>
-                  {/if}
-                  {#if selected.issues.length > 0}
-                    <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
-                      {#each selected.issues as issue (issue.code)}
-                        {@const sev = SEVERITY[severityOf(issue.severity)]}
-                        <span
-                          class="text-muted-foreground flex items-center gap-1.5 text-[12px]"
-                          title={[issue.code, issue.detail].filter(Boolean).join(' — ')}
-                        >
-                          <sev.icon class="{sev.text} size-3.5" aria-hidden="true" />
-                          {issueLabel(issue.code)}
-                          <span class="text-muted-foreground-dim">{sev.word.toLowerCase()}</span>
-                        </span>
-                      {/each}
-                    </div>
-                  {/if}
-                </div>
-              </div>
 
-              <!-- What the algorithm did — plain definition list, spacing not borders. -->
-              <div class="border-separator border-t pt-4">
-                <div class="text-foreground text-[13px] font-semibold">What the algorithm did</div>
-                <dl class="mt-3 space-y-3">
-                  {#each algorithmRows(selected) as row (row.l)}
-                    <div>
-                      <dt class="text-muted-foreground text-[11px]">{row.l}</dt>
-                      <dd
-                        class={cn(
-                          'min-w-0 text-[13px] break-words',
-                          row.mono && 'font-mono text-[11.5px]'
-                        )}
-                      >
-                        {row.v}
-                      </dd>
-                    </div>
-                  {/each}
-                </dl>
+                <!-- What the algorithm did — plain definition list, spacing not borders. -->
+                <div class="border-separator border-t pt-4">
+                  <div class="text-foreground text-[13px] font-semibold">
+                    What the algorithm did
+                  </div>
+                  <dl class="mt-3 space-y-3">
+                    {#each algorithmRows(selected) as row (row.l)}
+                      <div>
+                        <dt class="text-muted-foreground text-[11px]">{row.l}</dt>
+                        <dd
+                          class={cn(
+                            'min-w-0 text-[13px] break-words',
+                            row.mono && 'font-mono text-[11.5px]'
+                          )}
+                        >
+                          {row.v}
+                        </dd>
+                      </div>
+                    {/each}
+                  </dl>
+                </div>
               </div>
-            </div>
+            </ScrollArea>
 
             <!-- Action bar — last item in a full-height column, so it carries the mini player's
                  clearance itself. -->

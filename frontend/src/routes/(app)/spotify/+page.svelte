@@ -8,6 +8,7 @@
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import * as GroupedList from '$lib/components/ui/grouped-list';
+  import { ScrollArea } from '$lib/components/ui/scroll-area';
   import {
     fetchSpotifyStatus,
     fetchSpotifyConnectUrl,
@@ -508,7 +509,7 @@
      segmented control in its own nav bar. -->
 {#if isLoadingStatus || !status?.connected}
   <div class="flex min-h-0 flex-1 flex-col">
-    <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)">
+    <ScrollArea class="min-h-0 flex-1" viewportClass="overscroll-contain">
       <PageToolbarV2 title="Spotify" meta={isLoadingStatus ? undefined : 'Not connected'} />
       {#if isLoadingStatus}
         <div role="status" class="flex justify-center py-20">
@@ -575,7 +576,7 @@
           {/if}
         </div>
       {/if}
-    </div>
+    </ScrollArea>
   </div>
 {:else if playlistParam}
   {#if selectedPlaylist}
@@ -583,21 +584,22 @@
   {:else}
     <!-- A pushed playlist whose list is still loading (a deep link or a reload). -->
     <div class="flex min-h-0 flex-1 flex-col">
-      <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)">
+      <ScrollArea class="min-h-0 flex-1" viewportClass="overscroll-contain">
         <PageToolbarV2
           title="Playlist"
           largeTitle={false}
           back={{ label: 'Spotify', href: PLAYLISTS_HREF }}
         />
         <TrackListSkeleton />
-      </div>
+      </ScrollArea>
     </div>
   {/if}
 {:else}
   <div class="flex min-h-0 flex-1 flex-col">
-    <div
-      bind:this={scroller}
-      class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)"
+    <ScrollArea
+      bind:viewportRef={scroller}
+      class="min-h-0 flex-1"
+      viewportClass="overscroll-contain"
     >
       <PageToolbarV2
         title="Spotify"
@@ -745,7 +747,7 @@
           {/each}
         </div>
       {/if}
-    </div>
+    </ScrollArea>
   </div>
 {/if}
 

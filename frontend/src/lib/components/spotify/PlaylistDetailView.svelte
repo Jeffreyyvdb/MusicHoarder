@@ -4,6 +4,7 @@
   import { fetchSpotifyPlaylistTracks } from '$lib/api-client';
   import { Button } from '$lib/components/ui/button';
   import { SearchField } from '$lib/components/ui/search-field';
+  import { ScrollArea } from '$lib/components/ui/scroll-area';
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import { Clock, AlertCircle, ListMusic } from '@lucide/svelte';
   import { albumTint } from '$lib/album-tint';
@@ -109,11 +110,11 @@
   <SearchField bind:value={searchQuery} label="Filter this page" />
 {/snippet}
 
-<div class="flex min-h-0 flex-1 flex-col">
-  <div
-    class="hero-scroller min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)"
-    data-hero-visible={compact && heroVisible ? '' : undefined}
-  >
+<div
+  class="hero-scroller flex min-h-0 flex-1 flex-col"
+  data-hero-visible={compact && heroVisible ? '' : undefined}
+>
+  <ScrollArea class="min-h-0 flex-1" viewportClass="overscroll-contain">
     <PageToolbarV2
       title={playlist.name}
       largeTitle={false}
@@ -219,7 +220,7 @@
       {/if}
       <PaginationControls {offset} {limit} {total} onPageChange={loadTracks} {isLoading} />
     {/if}
-  </div>
+  </ScrollArea>
 </div>
 
 <style>

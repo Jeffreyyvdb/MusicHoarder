@@ -15,8 +15,11 @@ export function heroTitle(node: HTMLElement, onchange: (visible: boolean) => voi
   let report = onchange;
   let io: IntersectionObserver | null = null;
 
+  // A bits-ui ScrollArea viewport only turns `overflow-y: scroll` on once its scrollbar has
+  // mounted, so it is recognised by its attribute too.
   function scrollParentOf(el: HTMLElement): HTMLElement | null {
     for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+      if (p.hasAttribute('data-scroll-area-viewport')) return p;
       const { overflowY } = getComputedStyle(p);
       if (overflowY === 'auto' || overflowY === 'scroll') return p;
     }
