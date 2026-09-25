@@ -891,8 +891,8 @@ public class MusicEnricherOptions
 
     /// <summary>
     /// Directory music videos are written to. Empty resolves to
-    /// <c>&lt;DownloadDirectory&gt;/videos</c> — inside the staging root (one writable mount) but out
-    /// of the scanner's way (video extensions aren't indexed regardless).
+    /// <c>&lt;DownloadDirectory&gt;/videos</c> — inside the staging root (one writable mount); the
+    /// scanner skips it wherever it sits under a scan root, so nothing in it is indexed as a song.
     /// </summary>
     public string MusicVideoDirectory { get; set; } = string.Empty;
 
