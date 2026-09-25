@@ -9,8 +9,11 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.musichoarder.app.data.ApiException
 import com.musichoarder.app.data.MusicHoarderApi
+import com.musichoarder.app.data.NotPairedException
 import com.musichoarder.app.data.Track
+import com.musichoarder.app.data.UnauthorizedException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -21,6 +24,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import java.io.IOException
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -62,8 +67,9 @@ class PlayerController(
     private val onTrackStarted: (Int) -> Unit,
     /**
      * The station's next tracks: what to play after the queue runs dry, given the seed and the ids
-     * already heard. Returning an empty list ends the station — which is what a share queue, an
-     * unreachable server, or a genuinely exhausted library all do.
+     * already heard. Returning an empty list ends the station — which is what a share queue or a
+     * genuinely exhausted library do. Throwing a failure that could pass (see
+     * [isTransientRadioFailure]) does not: the next player event asks again.
      *
      * A lambda rather than a repository handle so this class keeps knowing only about [Track]s: the
      * id-to-row join and the share-queue guard belong to the caller, exactly as [onTrackStarted]'s
@@ -183,8 +189,18 @@ class PlayerController(
             .mapNotNull { player.getMediaItemAt(it).mediaId.toIntOrNull() }
 
         radioJob = scope.launch {
-            val fetched = runCatching { radioTracks(seed, queued.takeLast(RADIO_EXCLUDE_CAP)) }
-                .getOrDefault(emptyList())
+            val fetched: List<Track> = try {
+                radioTracks(seed, queued.takeLast(RADIO_EXCLUDE_CAP))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A request that could not be made or answered (a redeploy, a dropped connection)
+                // is this attempt only: ending the station on one left a shuffled album silent
+                // after a single blip. The next player event asks again. Anything else is an
+                // answer, and asking again will not change it.
+                if (isTransientRadioFailure(e)) return@launch
+                emptyList()
+            }
 
             // The user may have picked something else while this was in flight; those tracks
             // belong to a station nobody is listening to any more.
@@ -370,6 +386,18 @@ private const val RADIO_PREFETCH_AT = 2
 
 /** Ids sent as already-heard. Matches the server's own cap on the parameter. */
 private const val RADIO_EXCLUDE_CAP = 400
+
+/**
+ * Whether a failed station request is worth asking again: the network, or a server answer that
+ * says "not now" (a 5xx, a timeout, a rate limit). A refusal — any other 4xx, a revoked or missing
+ * pairing — is not. Mirrors `isRefusal` in the web player.
+ */
+internal fun isTransientRadioFailure(e: Exception): Boolean = when (e) {
+    is ApiException -> e.status >= 500 || e.status == 408 || e.status == 429
+    is UnauthorizedException, is NotPairedException -> false
+    is IOException -> true
+    else -> false
+}
 
 /** The real duration once the stream has been parsed, else the length the library reported. */
 private fun Player.durationOr(fallbackMs: Long?): Long =
