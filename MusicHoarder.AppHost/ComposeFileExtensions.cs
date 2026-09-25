@@ -119,6 +119,13 @@ internal static class ComposeFileExtensions
         // starts never race), and keep migrations backward-compatible. Switch the api to
         // WithStopFirstUpdate() if you ever want to eliminate the overlap entirely.
         api.WithHttpHealthcheck("${API_PORT}", "/alive", startPeriod: "40s").WithRollingUpdate();
+
+        // Cap the api's memory. Without a limit the .NET GC sizes itself against the whole host, so
+        // a burst (the startup catch-up of a large library) can take GBs from everything else on the
+        // box. With a limit the runtime keeps its heap to 75% of it and collects harder instead.
+        // 3g leaves ample headroom over the ~1 GB steady state; raise API_MEMORY_LIMIT for very
+        // large libraries.
+        api.Deploy!.Resources = new() { Limits = new() { Memory = "${API_MEMORY_LIMIT:-3g}" } };
         frontend.WithHttpHealthcheck("8001", "/api/health", startPeriod: "20s").WithRollingUpdate();
 
         // Postgres has a single data volume, so it must never run two tasks at once — stop-first

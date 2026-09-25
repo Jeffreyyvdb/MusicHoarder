@@ -102,6 +102,32 @@ public class EnrichmentSnapshotServiceTests
     }
 
     [Fact]
+    public async Task Capture_InBackgroundScope_ReplacesPerSongRowsInsteadOfAppending()
+    {
+        // Shaped like the hosted services' context: a request-less current-user accessor, so the
+        // tenancy filters are on with an empty user id. Each in-place refresh must still replace the
+        // snapshot's per-song rows (prod had accumulated ~35 copies of every row).
+        var db = new MusicHoarderDbContext(
+            new DbContextOptionsBuilder<MusicHoarderDbContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options,
+            new HttpContextCurrentUserAccessor(new Microsoft.AspNetCore.Http.HttpContextAccessor()));
+        var song = AddSong(db, EnrichmentStatus.NeedsReview, confidence: 0.4);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var first = await service.CaptureAsync(Owner, SnapshotTrigger.PipelineRun, null);
+        Assert.NotNull(first);
+        for (var i = 0; i < 3; i++)
+        {
+            song.MatchConfidence = 0.5 + i / 10.0;
+            await db.SaveChangesAsync();
+            Assert.Equal(first!.Id, (await service.CaptureAsync(Owner, SnapshotTrigger.PipelineRun, null))!.Id);
+        }
+
+        Assert.Equal(1, await db.EnrichmentSnapshotSongs.IgnoreQueryFilters().CountAsync());
+    }
+
+    [Fact]
     public async Task Capture_CreatesNewSnapshotWhenConfigChanges()
     {
         var db = CreateDb();

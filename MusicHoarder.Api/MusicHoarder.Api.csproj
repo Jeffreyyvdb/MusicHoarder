@@ -13,6 +13,12 @@
         <!-- The SDK container target defaults to a non-root user; run as root so the app can create
              and write the DataProtection keys dir and the mounted music/keys volumes. -->
         <ContainerUser>root</ContainerUser>
+        <!-- Workstation GC, not the ASP.NET default Server GC. Server GC keeps one heap per core and
+             returns memory lazily, so on a shared 8-core host the API's startup catch-up burst grew
+             to ~4 GB before settling at ~1 GB. This is a single-user app sharing the box with its own
+             Postgres and other stacks; the throughput Server GC buys is not worth that footprint.
+             Concurrent (background) collection stays on, so request latency is unaffected. -->
+        <ServerGarbageCollection>false</ServerGarbageCollection>
     </PropertyGroup>
 
     <!-- Release builds bake the semantic-release version into the assembly's

@@ -199,7 +199,12 @@ public sealed class AlbumSplitHealer(
         }
 
         var memberIds = members.Select(m => m.Id).ToList();
+        // IgnoreQueryFilters like every other query here: the hosted service's scope carries a
+        // request-less current-user accessor, so the tenancy filter is on with an empty user id and
+        // would hide the whole heal log. The guard then never tripped on prod and one album flipped
+        // ~29,000 times. The member ids already pin this to one owner's rows.
         var healedAlbumArtists = await db.SongMetadataChanges
+            .IgnoreQueryFilters()
             .AsNoTracking()
             .Where(c => memberIds.Contains(c.SongId)
                 && c.Source == ChangeSource
