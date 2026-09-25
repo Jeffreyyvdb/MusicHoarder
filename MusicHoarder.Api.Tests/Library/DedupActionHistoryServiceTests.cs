@@ -51,6 +51,30 @@ public class DedupActionHistoryServiceTests
     }
 
     [Fact]
+    public async Task List_FrequentHeals_DoNotBuryAnOlderMerge()
+    {
+        // An oscillating heal writes a batch every few minutes. The merge that set it off must stay
+        // listed (and revertible) however many heal batches came after it.
+        await using var db = NewContext();
+        db.Songs.Add(Song(1, "/a/1.mp3"));
+        var merge = new DateTime(2026, 8, 3, 19, 57, 0, DateTimeKind.Utc);
+        db.SongMetadataChanges.Add(Change(1, "AlbumArtist", "Internet Money", "Juice WRLD", "artist-merge", merge));
+        for (var i = 1; i <= 6000; i++)
+        {
+            var (from, to) = i % 2 == 0 ? ("Halsey", "Juice WRLD") : ("Juice WRLD", "Halsey");
+            db.SongMetadataChanges.Add(Change(1, "AlbumArtist", from, to, "album-identity-heal", merge.AddMinutes(5 * i)));
+        }
+        await db.SaveChangesAsync();
+
+        var actions = await Service(db).ListAsync(take: 20);
+
+        var mergeAction = Assert.Single(actions, a => a.Source == "artist-merge");
+        Assert.True(mergeAction.Revertible);
+        Assert.Equal(3, actions.Count(a => a.Source == "album-identity-heal"));
+        Assert.Equal(actions.OrderByDescending(a => a.CreatedAtUtc).ToList(), actions);
+    }
+
+    [Fact]
     public async Task Revert_ArtistMerge_RestoresFields_RemovesAliases_RequeuesBuilt()
     {
         await using var db = NewContext();
