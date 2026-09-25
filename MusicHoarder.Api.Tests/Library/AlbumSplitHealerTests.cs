@@ -403,6 +403,85 @@ public class AlbumSplitHealerTests
         Assert.All(songs, s => Assert.Equal("Domo Genesis", s.AlbumArtist));
     }
 
+    [Theory]
+    [InlineData("Juice WRLD")]
+    [InlineData("Halsey")]
+    public async Task HealAsync_CanonicalCycleThroughArtistAlias_ReachesFixedPoint(string startingAlbumArtist)
+    {
+        // A context shaped like the healer's real one: the hosted service resolves it from a DI scope
+        // that also holds the (request-less) current-user accessor, so the tenancy query filters are
+        // ON with an empty user id. The oscillation guard's history lookup must still see the log.
+        await using var db = NewBackgroundContext();
+        // The prod shape behind ~29,000 album-artist flips on two songs: three canonical rows for one
+        // album that point at each other in a cycle, plus an owner artist merge that aliases one of
+        // the cycle's spellings ("Internet Money") onto another ("Juice WRLD"). Without the guard the
+        // two groups hand the songs back and forth: juice wrld -> Halsey, halsey -> Internet Money,
+        // which the alias turns back into Juice WRLD.
+        var albumKey = TitleNormalizer.NormalizeForSearch("We All We Got");
+        foreach (var (key, display) in new[]
+                 {
+                     ("internet money", "Internet Money"),
+                     ("juice wrld", "Halsey"),
+                     ("halsey", "Internet Money"),
+                 })
+        {
+            db.CanonicalAlbums.Add(new CanonicalAlbum
+            {
+                ArtistKey = key,
+                AlbumKey = albumKey,
+                DisplayTitle = "We All We Got",
+                DisplayArtist = display,
+                Year = 2022,
+                Status = CanonicalAlbumStatus.Fetched,
+            });
+        }
+        foreach (var alias in new[] { "internet money", "juice wrld" })
+        {
+            db.ArtistAliases.Add(new ArtistAlias
+            {
+                OwnerUserId = WellKnownUsers.OwnerId,
+                AliasKey = alias,
+                CanonicalName = "Juice WRLD",
+                CreatedAtUtc = EnrichedAt,
+            });
+        }
+        var s1 = Song("/w3.flac", "On Me", 3, year: 2022, album: "We All We Got",
+            artist: "Internet Money, Destroy Lonely", albumArtist: startingAlbumArtist);
+        var s2 = Song("/w6.flac", "Falsetto (feat. Lil Tecca)", 6, year: 2022, album: "We All We Got",
+            artist: "Internet Money, Lil Tecca", albumArtist: startingAlbumArtist);
+        s1.Artists = "Internet money; Destroy Lonely";
+        s2.Artists = "Internet Money; Lil Tecca";
+        foreach (var s in new[] { s1, s2 })
+        {
+            s.OriginalAlbumArtist = "Internet Money";
+            s.OriginalArtist = "Internet Money";
+            s.ReleaseTypePrimary = "single";
+            s.ReleaseTypes = "single";
+            s.TotalTracks = 6;
+            s.DiscNumber = 1;
+            s.IsManuallyApproved = true;
+        }
+        db.Songs.AddRange(s1, s2);
+        await db.SaveChangesAsync();
+        // Prod already carries the heal log of the flip in both directions.
+        foreach (var id in new[] { s1.Id, s2.Id })
+        {
+            SeedHealChange(db, id, "Juice WRLD", "Halsey");
+            SeedHealChange(db, id, "Halsey", "Juice WRLD");
+        }
+        await db.SaveChangesAsync();
+
+        var history = new List<string>();
+        AlbumSplitHealResult last = new(1, 1, 1);
+        for (var pass = 0; pass < 6; pass++)
+        {
+            last = await Healer(db).HealAsync();
+            history.Add($"{last.SongsCorrected}:{(await db.Songs.IgnoreQueryFilters().FirstAsync()).AlbumArtist}");
+        }
+
+        Assert.True(last.SongsCorrected == 0, "passes: " + string.Join(" | ", history));
+    }
+
     [Fact]
     public async Task HealAsync_CollaboratorSuffixSplit_ConvergesOnOneSpelling()
     {
@@ -510,6 +589,15 @@ public class AlbumSplitHealerTests
     private static SongMetadata MiseducationSong(string path, string title, int trackNumber, string albumArtist) =>
         Song(path, title, trackNumber, year: 1998, album: "The Miseducation of Lauryn Hill",
             artist: albumArtist, albumArtist: albumArtist);
+
+    private static MusicHoarderDbContext NewBackgroundContext()
+    {
+        var options = new DbContextOptionsBuilder<MusicHoarderDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options;
+        return new MusicHoarderDbContext(
+            options, new HttpContextCurrentUserAccessor(new Microsoft.AspNetCore.Http.HttpContextAccessor()));
+    }
 
     private static MusicHoarderDbContext NewContext()
     {
