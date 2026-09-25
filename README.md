@@ -17,8 +17,8 @@ bitrates, missing artwork, and inconsistent folder names, this is for you. Point
 library, let it run, and review anything it isn't sure about.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/hero-dark.webp">
-  <img alt="MusicHoarder on the desktop and on an iPhone — the Albums grid of a real library next to Now Playing, with Sade's Kiss of Life showing time-synced lyrics over its own music video" src="docs/screenshots/hero.webp">
+  <source media="(prefers-color-scheme: dark)" srcset="frontend/static/screenshots/hero-dark.webp">
+  <img alt="MusicHoarder on the desktop and on an iPhone — the Albums grid of a real library next to Now Playing, with Sade's Kiss of Life showing time-synced lyrics over its own music video" src="frontend/static/screenshots/hero.webp">
 </picture>
 
 <sub>Every screenshot in this README is of a real, self-hosted library of about 20,000 files — not
@@ -28,7 +28,7 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
 
 ### Listen — an Apple Music-style player for the library you own
 
-![The installed app on an iPhone in dark mode: the Tracks list filtered to Spotify liked songs, Frank Ocean's Blond album page, and Now Playing over the song's music video — with the mini player and the floating tab bar](docs/screenshots/phone-listen.webp)
+![The installed app on an iPhone in dark mode: the Tracks list filtered to Spotify liked songs, Frank Ocean's Blond album page, and Now Playing over the song's music video — with the mini player and the floating tab bar](frontend/static/screenshots/phone-listen.webp)
 
 - **Built like a native iOS app** — on a phone, a floating glass tab bar (Listen · Inbox · Add ·
   Manage) with its own search button, large titles that collapse as you scroll, grouped lists,
@@ -59,7 +59,7 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
   launches full-screen with its own icon and shows an offline page instead of a browser error. The
   native [Android app](android/README.md) mirrors the same design and behaviour.
 
-![Now Playing on the desktop: Sade's Kiss of Life with its time-synced lyrics over the song's muted music video, the current line highlighted, and the cover and transport controls on the left](docs/screenshots/now-playing.webp)
+![Now Playing on the desktop: Sade's Kiss of Life with its time-synced lyrics over the song's muted music video, the current line highlighted, and the cover and transport controls on the left](frontend/static/screenshots/now-playing.webp)
 
 ### Identify, enrich & organize
 
@@ -96,7 +96,7 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
 - **Community trackers** *(optional)* — artist-scoped catalogs cover leaks, alternate versions, and
   unreleased albums that mainstream services don't, gated to a per-artist allowlist.
 
-![An album page on the desktop: Mac Miller's Circles, linked to Spotify and Deezer with 10 of 12 tracks present — the missing opener is listed with "Get this track" and "Find this track", and every owned track shows its format, size and match confidence](docs/screenshots/album.webp)
+![An album page on the desktop: Mac Miller's Circles, linked to Spotify and Deezer with 10 of 12 tracks present — the missing opener is listed with "Get this track" and "Find this track", and every owned track shows its format, size and match confidence](frontend/static/screenshots/album.webp)
 
 ### Review & curate
 
@@ -112,9 +112,9 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
   triage what actually needs attention. OpenAI-compatible; defaults to OpenRouter, works with a local
   Ollama. Re-gradeable when the prompt or model changes.
 
-![Tag review on the desktop: a file named "63 (Dagger) (feat. MadeInTYO).mp3" identified by its fingerprint as "Lean Wit Me" at 100%, next to the other providers' candidates and a From → Will-write-to diff of the file's path](docs/screenshots/inbox-review.webp)
+![Tag review on the desktop: a file named "63 (Dagger) (feat. MadeInTYO).mp3" identified by its fingerprint as "Lean Wit Me" at 100%, next to the other providers' candidates and a From → Will-write-to diff of the file's path](frontend/static/screenshots/inbox-review.webp)
 
-![The installed app on an iPhone in dark mode: the Inbox hub with a count per queue, a Tag review decision with provider candidates and a bottom Accept toolbar, and the Pipeline summary with its stage-by-stage counts](docs/screenshots/phone-manage.webp)
+![The installed app on an iPhone in dark mode: the Inbox hub with a count per queue, a Tag review decision with provider candidates and a bottom Accept toolbar, and the Pipeline summary with its stage-by-stage counts](frontend/static/screenshots/phone-manage.webp)
 
 ### Grow your library
 
@@ -137,7 +137,7 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
 - **Playlist sync** *(optional)* — mirror your Spotify Liked Songs or any playlist as a static
   `.m3u8` file in the destination library, in order, so Navidrome/Plex/Jellyfin auto-import it.
 
-![The Discover page — Deezer-backed editorial and chart playlists with genre filters, a search box, a paste-a-link button, and one-click subscribe](docs/screenshots/discover.webp)
+![The Discover page — Deezer-backed editorial and chart playlists with genre filters, a search box, a paste-a-link button, and one-click subscribe](frontend/static/screenshots/discover.webp)
 
 ### Share
 
@@ -167,11 +167,11 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
   top artists, biggest albums, format breakdown and match status; plus per-folder, AI-quality,
   album-match and performance-over-time views under Manage.
 
-![The Pipeline dashboard: 20,192 source files, 18,530 in the library, 3,784 awaiting a decision and an average AI quality of 82.4, above the stage-by-stage conveyor and the "Needs you" queue](docs/screenshots/pipeline.webp)
+![The Pipeline dashboard: 20,192 source files, 18,530 in the library, 3,784 awaiting a decision and an average AI quality of 82.4, above the stage-by-stage conveyor and the "Needs you" queue](frontend/static/screenshots/pipeline.webp)
 
 <p>
-  <img width="49%" alt="The Stats page: library, cover, lyrics and liked-to-library counts above the pipeline funnel, the Spotify wishlist journey, top artists and a format breakdown" src="docs/screenshots/stats.webp">
-  <img width="49%" alt="The History feed: scans, cover art added, artists renamed and album splits healed, each with when it happened, filterable by kind and period" src="docs/screenshots/history.webp">
+  <img width="49%" alt="The Stats page: library, cover, lyrics and liked-to-library counts above the pipeline funnel, the Spotify wishlist journey, top artists and a format breakdown" src="frontend/static/screenshots/stats.webp">
+  <img width="49%" alt="The History feed: scans, cover art added, artists renamed and album splits healed, each with when it happened, filterable by kind and period" src="frontend/static/screenshots/history.webp">
 </p>
 
 ### Optional integrations

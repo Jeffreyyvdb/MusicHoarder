@@ -6,4 +6,4 @@
 </script>
 
 <JsonLd data={buildProsePageSchema(aboutPage)} />
-<ProsePageView page={aboutPage} eyebrow="ABOUT · OPEN SOURCE" />
+<ProsePageView page={aboutPage} eyebrow="About · Open source" />
