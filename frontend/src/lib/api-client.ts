@@ -1335,6 +1335,76 @@ export async function fetchAlbumTimeline(artist: string, album: string): Promise
   return requestJson<AlbumTimelineResponse>(`/api/albums/timeline?${qs}`)
 }
 
+// ── Provenance: why a track is in the library ─────────────────────────────────
+
+export type ProvenanceReason =
+  | "LocalFile"
+  | "SpotifyLiked"
+  | "SpotifyPlaylist"
+  | "DeezerPlaylist"
+  | "Link"
+  | "Synced"
+  | "Downloaded"
+  | "AlbumFill"
+
+export interface ProvenanceTrack {
+  songId: number
+  title: string
+  /** When the reason happened — liked on Spotify, found by a scan, arrived here. */
+  atUtc?: string | null
+  /** What `atUtc` is: "Liked", "Added to the playlist", "Found", "Synced", "Arrived". */
+  atLabel: string
+}
+
+/** An owned track album completion started from — with that track's own reason. */
+export interface ProvenanceSeed {
+  songId: number
+  title: string
+  album?: string | null
+  reason: ProvenanceReason
+  label: string
+  atUtc?: string | null
+  atLabel: string
+  /** Deleted since — still the reason the fill happened. */
+  isDeleted: boolean
+}
+
+export interface ProvenanceFill {
+  /** The album completion was filling in (can differ from the album the tracks ended up under). */
+  album?: string | null
+  artist?: string | null
+  queuedAtUtc?: string | null
+  seeds: ProvenanceSeed[]
+  /** Every seed found; `seeds` holds the first few. */
+  seedCount: number
+}
+
+export interface ProvenanceGroup {
+  reason: ProvenanceReason
+  label: string
+  explanation: string
+  tracks: ProvenanceTrack[]
+  /** Album fill only, and only while its wishlist link survives. */
+  fill?: ProvenanceFill | null
+}
+
+/**
+ * How a set of songs got into the library. The text is the server's, as in the History feed, so the
+ * two clients explain it the same way. Empty for songs you do not own (a grantor's are never
+ * explained — their pipeline is theirs).
+ */
+export interface SongProvenance {
+  /** One line for an album header: "Liked on Spotify · 16 filled in". */
+  summary: string | null
+  primaryReason: ProvenanceReason | null
+  groups: ProvenanceGroup[]
+}
+
+export async function fetchSongProvenance(songIds: number[]): Promise<SongProvenance> {
+  const qs = new URLSearchParams({ ids: songIds.join(",") }).toString()
+  return requestJson<SongProvenance>(`/api/songs/provenance?${qs}`)
+}
+
 // ── Album reconciliation grading (AI: is the linked album the correct one?) ─────
 
 /** Latest reconciliation grade for one album. */

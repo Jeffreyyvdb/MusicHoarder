@@ -97,8 +97,41 @@ public static class SongsEndpoints
             .WithName("ReportSongPlayed")
             .WithSummary("Record a playback start: bumps the play count and last-played timestamp.")
             .WithTags("Tracks");
+        // A GET with no RequireAdmin, like the other song reads: it only ever reads the caller's own
+        // rows (the ambient filter), so a member asking about a grantor's songs gets an empty answer.
+        app.MapGet("/api/songs/provenance", GetSongProvenance)
+            .WithName("GetSongProvenance")
+            .WithSummary("How these songs got into the library: local files, Spotify likes and playlists, links, and which owned tracks an album fill started from.")
+            .WithTags("Tracks");
 
         return app;
+    }
+
+    /// <summary>Most ids one provenance request explains — a long box set, with room to spare.</summary>
+    internal const int MaxProvenanceIds = 500;
+
+    /// <summary>
+    /// "Why is this here" for a set of songs, given as comma-separated <paramref name="ids"/> (an
+    /// album page's tracks, or one track). Unparseable and foreign ids are ignored rather than
+    /// rejected, the same leniency <c>/api/radio</c>'s exclude list has.
+    /// </summary>
+    internal static async Task<IResult> GetSongProvenance(
+        MusicHoarderDbContext db,
+        IOptions<MusicEnricherOptions> enricherOptions,
+        IOptions<SyncOptions> syncOptions,
+        CancellationToken ct,
+        string? ids = null)
+    {
+        var songIds = new HashSet<int>();
+        foreach (var part in (ids ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (songIds.Count >= MaxProvenanceIds) break;
+            if (int.TryParse(part, out var id)) songIds.Add(id);
+        }
+
+        var response = await SongProvenanceService.BuildAsync(
+            db, songIds, enricherOptions.Value.DownloadDirectory, syncOptions.Value.SyncedSourceDirectory, ct);
+        return Results.Ok(response);
     }
 
     /// <summary>
