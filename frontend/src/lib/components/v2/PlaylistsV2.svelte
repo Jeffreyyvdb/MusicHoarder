@@ -3,6 +3,7 @@
   import { Button } from '$lib/components/ui/button';
   import { Switch } from '$lib/components/ui/switch';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
+  import { ScrollArea } from '$lib/components/ui/scroll-area';
   import {
     Heart,
     ListVideo,
@@ -233,7 +234,7 @@
 {/snippet}
 
 <div class="flex min-h-0 flex-1 flex-col">
-  <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)">
+  <ScrollArea class="min-h-0 flex-1" viewportClass="overscroll-contain">
     <!-- The four-line blurb was the longest in the app; the page's own empty and
          not-connected states say the same thing where it's actually needed. -->
     <PageToolbarV2
@@ -397,5 +398,5 @@
         </p>
       {/if}
     {/if}
-  </div>
+  </ScrollArea>
 </div>

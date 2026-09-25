@@ -14,6 +14,7 @@
   import { Button } from '$lib/components/ui/button';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import * as GroupedList from '$lib/components/ui/grouped-list';
+  import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { toast } from 'svelte-sonner';
   import InboxDedupHistoryV2 from './InboxDedupHistoryV2.svelte';
   import InboxQueueStates from './InboxQueueStates.svelte';
@@ -154,7 +155,7 @@
 
 <!-- A single-level list of decision cards at every width (no push), like Artist names. -->
 <div class="bg-background-grouped flex min-h-0 flex-1 flex-col">
-  <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)">
+  <ScrollArea class="min-h-0 flex-1" viewportClass="overscroll-contain">
     <PageToolbarV2 title="Album names" {meta} grouped actions={refreshAction} />
 
     <div class="mx-auto flex w-full max-w-3xl flex-col gap-7 pt-2 pb-8 md:px-6 md:pt-6">
@@ -249,7 +250,7 @@
         <InboxDedupHistoryV2 refresh={historyVersion} onreverted={() => void load(true)} />
       {/if}
     </div>
-  </div>
+  </ScrollArea>
 </div>
 
 <AlertDialog.Root bind:open={confirmHeal}>

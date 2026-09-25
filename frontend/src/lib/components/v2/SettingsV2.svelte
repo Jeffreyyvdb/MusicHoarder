@@ -9,6 +9,7 @@
   import { Badge } from '$lib/components/ui/badge';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import * as GroupedList from '$lib/components/ui/grouped-list';
+  import { ScrollArea } from '$lib/components/ui/scroll-area';
   import PurgeStatusBanner, {
     purgeAnnouncement
   } from '$lib/components/settings/PurgeStatusBanner.svelte';
@@ -1923,16 +1924,18 @@
          header lines up with the nav bar's 48px row and hairline across the split. -->
     <nav
       aria-label="Settings sections"
-      class="border-separator flex w-[212px] shrink-0 flex-col overflow-y-auto overscroll-contain border-r pb-(--mh-content-pad) lg:w-[260px]"
+      class="border-separator flex w-[212px] shrink-0 flex-col border-r lg:w-[260px]"
     >
-      <div class="border-separator bg-background-grouped sticky top-0 z-10 shrink-0 border-b">
-        <p class="flex h-12 items-center px-4 text-[17px] leading-[22px] font-semibold lg:px-5">
-          Settings
-        </p>
-      </div>
-      <div class="flex flex-col gap-6 px-2 pt-4 pb-6 lg:px-3">
-        {@render sectionList(true)}
-      </div>
+      <ScrollArea class="min-h-0 flex-1" viewportClass="overscroll-contain">
+        <div class="border-separator bg-background-grouped sticky top-0 z-10 shrink-0 border-b">
+          <p class="flex h-12 items-center px-4 text-[17px] leading-[22px] font-semibold lg:px-5">
+            Settings
+          </p>
+        </div>
+        <div class="flex flex-col gap-6 px-2 pt-4 pb-6 lg:px-3">
+          {@render sectionList(true)}
+        </div>
+      </ScrollArea>
     </nav>
   {/if}
 
@@ -1941,7 +1944,7 @@
        narrow window) each is a new page and must open at its top, not at the previous page's
        scroll offset. -->
   {#key `${section}|${person ?? ''}`}
-    <div class="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)">
+    <ScrollArea class="min-h-0 min-w-0 flex-1" viewportClass="overscroll-contain">
       <PageToolbarV2 title={barTitle} back={barBack} {largeTitle} grouped />
 
       <!-- md+ padding stays modest until lg: at 768–1023 the app sidebar and the pane list
@@ -1968,6 +1971,6 @@
           {/if}
         {/if}
       </div>
-    </div>
+    </ScrollArea>
   {/key}
 </div>

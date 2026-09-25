@@ -46,6 +46,7 @@
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import * as GroupedList from '$lib/components/ui/grouped-list';
   import * as Tooltip from '$lib/components/ui/tooltip';
+  import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { toast } from 'svelte-sonner';
   import { cn } from '$lib/utils';
   import InboxDecisionBar from './InboxDecisionBar.svelte';
@@ -675,9 +676,10 @@
   {#if compactDetail && selectedTrack && banner && original && guess}
     <!-- ── Phone: the pushed detail, a grouped form ──────────────────────────────── -->
     <div class="bg-background-grouped flex min-h-0 flex-1 flex-col">
-      <div
-        bind:this={detailScroller}
-        class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)"
+      <ScrollArea
+        bind:viewportRef={detailScroller}
+        class="min-h-0 flex-1"
+        viewportClass="overscroll-contain"
       >
         <!-- "5 of 10" alone says nothing about where you are; the queue's name rides under it
              (and follows the heading for VoiceOver). -->
@@ -766,7 +768,7 @@
             oncopy={copyEmbedded}
           />
         </div>
-      </div>
+      </ScrollArea>
 
       <!-- At larger text sizes the secondary actions fall back to glyphs (their words stay for
            VoiceOver) — see InboxDecisionBar. -->
@@ -805,9 +807,10 @@
   {:else}
     <!-- ── Phone: the queue list ─────────────────────────────────────────────────── -->
     <div class="flex min-h-0 flex-1 flex-col">
-      <div
-        bind:this={listScroller}
-        class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)"
+      <ScrollArea
+        bind:viewportRef={listScroller}
+        class="min-h-0 flex-1"
+        viewportClass="overscroll-contain"
       >
         <PageToolbarV2 title="Tag review" meta={queueMeta} more={listMore} />
         {#if loading || tracks.length === 0}
@@ -818,7 +821,7 @@
           {/if}
           {@render queueList()}
         {/if}
-      </div>
+      </ScrollArea>
     </div>
   {/if}
 {:else}
@@ -830,9 +833,9 @@
       actions={tracks.length > 0 ? desktopActions : undefined}
     />
     {#if !loading && tracks.length === 0}
-      <div class="min-h-0 flex-1 overflow-y-auto pb-(--mh-content-pad)">
+      <ScrollArea class="min-h-0 flex-1">
         {@render queueStates()}
-      </div>
+      </ScrollArea>
     {:else}
       <!-- The list pane gives up width first (down to 240px) so a narrow window — iPad portrait,
            a laptop with the sidebar open — still leaves the detail room for its actions. -->
@@ -843,15 +846,15 @@
           aria-label="Tracks awaiting review"
           class="border-separator bg-surface-sunken flex min-h-0 flex-col border-r"
         >
-          <div
-            class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-[calc(0.375rem_+_var(--mh-content-pad))]"
-          >
-            {#if loading}
-              {@render queueStates()}
-            {:else}
-              {@render queueList()}
-            {/if}
-          </div>
+          <ScrollArea class="min-h-0 flex-1">
+            <div class="px-1.5 pb-1.5">
+              {#if loading}
+                {@render queueStates()}
+              {:else}
+                {@render queueList()}
+              {/if}
+            </div>
+          </ScrollArea>
         </aside>
 
         {#if selectedTrack && banner && original && guess}
@@ -929,41 +932,43 @@
             {/if}
 
             <!-- Scrollable body: candidates + before/after diff -->
-            <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 @min-[36rem]:px-6">
-              <div class="flex items-baseline gap-2">
-                <span class="text-foreground text-[13px] font-semibold">Candidates</span>
-                <span class="text-muted-foreground text-[11.5px]"
-                  >Pick a provider's answer, or override fields below.</span
-                >
-              </div>
-              <CandidateGrid
-                {candidates}
-                pickedKey={pickedKey[selectedTrack.id] ?? null}
-                loading={detailLoading[selectedTrack.id]}
-                onpick={pickCandidate}
-              />
+            <ScrollArea class="min-h-0 flex-1" data-mh-no-clearance="">
+              <div class="space-y-4 px-4 py-4 @min-[36rem]:px-6">
+                <div class="flex items-baseline gap-2">
+                  <span class="text-foreground text-[13px] font-semibold">Candidates</span>
+                  <span class="text-muted-foreground text-[11.5px]"
+                    >Pick a provider's answer, or override fields below.</span
+                  >
+                </div>
+                <CandidateGrid
+                  {candidates}
+                  pickedKey={pickedKey[selectedTrack.id] ?? null}
+                  loading={detailLoading[selectedTrack.id]}
+                  onpick={pickCandidate}
+                />
 
-              <div class="flex items-baseline gap-2 pt-1">
-                <span class="text-foreground text-[13px] font-semibold">Field diff</span>
-                <span class="text-muted-foreground text-[11.5px]"
-                  >Embedded tags → what we'll write.</span
-                >
-              </div>
-              <!-- A narrow pane gets the grouped form; on this white pane its cells take the fill
+                <div class="flex items-baseline gap-2 pt-1">
+                  <span class="text-foreground text-[13px] font-semibold">Field diff</span>
+                  <span class="text-muted-foreground text-[11.5px]"
+                    >Embedded tags → what we'll write.</span
+                  >
+                </div>
+                <!-- A narrow pane gets the grouped form; on this white pane its cells take the fill
                    the path cards use, or the group would not show. -->
-              <BeforeAfterView
-                rows={beforeRows}
-                values={finalValues}
-                {fromFolder}
-                fileName={selectedTrack.fileName}
-                fromMeta={fmtFromMeta(selectedTrack)}
-                {destinationPath}
-                destFormat={destFormat(selectedTrack)}
-                onset={setField}
-                oncopy={copyEmbedded}
-                cellClass="bg-muted"
-              />
-            </div>
+                <BeforeAfterView
+                  rows={beforeRows}
+                  values={finalValues}
+                  {fromFolder}
+                  fileName={selectedTrack.fileName}
+                  fromMeta={fmtFromMeta(selectedTrack)}
+                  {destinationPath}
+                  destFormat={destFormat(selectedTrack)}
+                  onset={setField}
+                  oncopy={copyEmbedded}
+                  cellClass="bg-muted"
+                />
+              </div>
+            </ScrollArea>
 
             <!-- Action bar — keyboard shortcuts live in a "?" tooltip. It is the last thing in a
                  full-height column, so it carries the mini player's clearance (--mh-content-pad,

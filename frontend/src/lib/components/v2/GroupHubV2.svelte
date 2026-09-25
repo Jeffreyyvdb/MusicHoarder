@@ -2,6 +2,7 @@
   import { HardDrive, Link } from '@lucide/svelte';
   import { page } from '$app/state';
   import * as GroupedList from '$lib/components/ui/grouped-list';
+  import { ScrollArea } from '$lib/components/ui/scroll-area';
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import AddFromUrlDialog from '$lib/components/v2/AddFromUrlDialog.svelte';
   import { NAV_GROUPS, type NavGroupId, type NavItem } from '$lib/nav';
@@ -154,7 +155,7 @@
   <!-- The page's one scroller. The nav bar is its first child so the large title scrolls away
        with the list; the bottom padding clears the tab bar and the MiniPlayer (--mh-content-pad). -->
   <div class="bg-background-grouped flex min-h-0 flex-1 flex-col">
-    <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)">
+    <ScrollArea class="min-h-0 flex-1" viewportClass="overscroll-contain">
       <PageToolbarV2 title={navGroup.label} grouped largeTitle />
 
       <div class="mx-auto flex w-full max-w-2xl flex-col gap-8 pt-2 pb-8 md:px-6 md:pt-8">
@@ -250,7 +251,7 @@
           {/each}
         {/if}
       </div>
-    </div>
+    </ScrollArea>
   </div>
 
   {#if group === 'add' && admin}

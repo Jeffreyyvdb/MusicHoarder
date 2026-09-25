@@ -4,6 +4,7 @@
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import * as GroupedList from '$lib/components/ui/grouped-list';
   import { Badge } from '$lib/components/ui/badge';
+  import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { VERDICT_DOT, issueLabel, verdictBadge } from '$lib/quality-ui';
   import { cleanDisplayName } from '$lib/formatters';
   import { coverUrlForSongId } from '$lib/components/v2/inbox/song-cover';
@@ -139,32 +140,34 @@
       {countLine}
     </div>
 
-    <div class="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5">
-      {@render empty()}
-      {#each songs as s (s.songId)}
-        {@const active = s.songId === selectedId}
-        <button
-          type="button"
-          onclick={() => onSelect?.(s.songId)}
-          aria-current={active ? 'true' : undefined}
-          class={cn(
-            'focus-visible:ring-ring/50 grid w-full grid-cols-[36px_1fr] items-start gap-2.5 rounded-lg border-l-[3px] p-2 text-left outline-none transition-colors focus-visible:ring-3',
-            active ? 'bg-accent border-l-primary' : 'hover:bg-accent border-l-transparent',
-            !active && s.bucket === 'flagged' && 'border-l-warning',
-            !active && s.bucket === 'silent' && 'border-l-destructive'
-          )}
-        >
-          <Cover
-            artist={s.artist ?? 'Unknown'}
-            title={rowTitle(s)}
-            coverUrl={coverUrlForSongId(s.songId)}
-            size={36}
-            corner={4}
-            caption={false}
-          />
-          <span class="flex min-w-0 flex-col">{@render rowBody(s)}</span>
-        </button>
-      {/each}
-    </div>
+    <ScrollArea class="min-h-0 flex-1" data-mh-no-clearance="">
+      <div class="space-y-0.5 p-1.5">
+        {@render empty()}
+        {#each songs as s (s.songId)}
+          {@const active = s.songId === selectedId}
+          <button
+            type="button"
+            onclick={() => onSelect?.(s.songId)}
+            aria-current={active ? 'true' : undefined}
+            class={cn(
+              'focus-visible:ring-ring/50 grid w-full grid-cols-[36px_1fr] items-start gap-2.5 rounded-lg border-l-[3px] p-2 text-left outline-none transition-colors focus-visible:ring-3',
+              active ? 'bg-accent border-l-primary' : 'hover:bg-accent border-l-transparent',
+              !active && s.bucket === 'flagged' && 'border-l-warning',
+              !active && s.bucket === 'silent' && 'border-l-destructive'
+            )}
+          >
+            <Cover
+              artist={s.artist ?? 'Unknown'}
+              title={rowTitle(s)}
+              coverUrl={coverUrlForSongId(s.songId)}
+              size={36}
+              corner={4}
+              caption={false}
+            />
+            <span class="flex min-w-0 flex-col">{@render rowBody(s)}</span>
+          </button>
+        {/each}
+      </div>
+    </ScrollArea>
   </aside>
 {/if}

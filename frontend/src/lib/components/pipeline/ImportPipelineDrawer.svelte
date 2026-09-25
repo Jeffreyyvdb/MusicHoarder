@@ -149,7 +149,7 @@
   </header>
 
   <div class="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[1fr_420px]">
-    <div class="overflow-y-auto p-4">
+    <ScrollArea class="min-h-0" viewportClass="p-4">
       <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
         <PipelineStageCard
           icon={ScanLine}
@@ -196,7 +196,7 @@
           perSec={rates.build}
         />
       </div>
-    </div>
+    </ScrollArea>
 
     <!-- The log is a well inside the drawer: the grouped page colour reads as inset in both
          themes (a translucent fill with an opacity modifier did not). -->

@@ -29,6 +29,7 @@
   import { Button } from '$lib/components/ui/button';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import { SegmentedControl } from '$lib/components/ui/segmented-control';
+  import { ScrollArea } from '$lib/components/ui/scroll-area';
   import CandidateGrid from '$lib/components/review/CandidateGrid.svelte';
   import BeforeAfterView from '$lib/components/review/BeforeAfterView.svelte';
   import OriginMatrixView from '$lib/components/review/OriginMatrixView.svelte';
@@ -398,11 +399,13 @@
         {@render head(52)}
       </div>
 
-      <div class="bg-background-grouped min-h-0 flex-1 space-y-3.5 overflow-y-auto px-[18px] py-3.5">
-        {@render verdictBlock()}
-        {@render reasoning()}
-        {@render dossier()}
-      </div>
+      <ScrollArea class="bg-background-grouped min-h-0 flex-1" data-mh-no-clearance="">
+        <div class="space-y-3.5 px-[18px] py-3.5">
+          {@render verdictBlock()}
+          {@render reasoning()}
+          {@render dossier()}
+        </div>
+      </ScrollArea>
 
       <!-- Action bar — the app's own Button, 28px to look at with a 44px hit area on touch. -->
       <div class="border-separator bg-card flex shrink-0 flex-wrap items-center gap-3 border-t px-[18px] py-3">

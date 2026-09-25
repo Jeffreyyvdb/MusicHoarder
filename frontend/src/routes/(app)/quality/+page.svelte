@@ -21,6 +21,7 @@
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import * as GroupedList from '$lib/components/ui/grouped-list';
   import { Button } from '$lib/components/ui/button';
+  import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import { replaceUrl } from '$lib/navigation/replace-url';
   import { prefersReducedMotion } from '$lib/motion';
@@ -438,7 +439,7 @@
        child. -->
   <div class="bg-background-grouped flex min-h-0 flex-1 flex-col">
     {#key detailParam}
-      <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)">
+      <ScrollArea class="min-h-0 flex-1" viewportClass="overscroll-contain">
         <QualityDetail
           layout="page"
           row={selectedRow}
@@ -446,17 +447,18 @@
           {position}
           onRegraded={handleRegraded}
         />
-      </div>
+      </ScrollArea>
     {/key}
   </div>
 {:else}
   <div class="bg-background-grouped flex min-h-0 flex-1 flex-col">
-    <!-- The page's one scroller. On a desktop it is a flex column, so the split view grows to
-         fill the viewport when there is room while keeping a height floor (below) so the blocks
-         above can never squeeze the detail into a sliver. -->
-    <div
-      bind:this={listScroller}
-      class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad) lg:flex lg:flex-col"
+    <!-- The page's one scroller. On a desktop its content is a flex column, so the split view
+         grows to fill the viewport when there is room while keeping a height floor (below) so the
+         blocks above can never squeeze the detail into a sliver. -->
+    <ScrollArea
+      bind:viewportRef={listScroller}
+      class="min-h-0 flex-1 lg:[&>[data-slot=scroll-area-viewport]>*]:flex lg:[&>[data-slot=scroll-area-viewport]>*]:flex-col"
+      viewportClass="overscroll-contain"
     >
       {@render listToolbar()}
 
@@ -568,7 +570,7 @@
           {/if}
         {/if}
       </div>
-    </div>
+    </ScrollArea>
   </div>
 {/if}
 
